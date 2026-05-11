@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/limits.hpp>
+
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,10 +18,15 @@ enum class ErrorKind {
     Ffi,               // Library load / RTS initialization failure
     BinaryUnsupported, // Backend cannot service the binary-path call (use JSON
                        // fallback); mirrors Go's ErrBinaryPathUnsupported sentinel.
-    Cancellation       // std::stop_token requested cancellation; cooperative-at-
+    Cancellation,      // std::stop_token requested cancellation; cooperative-at-
                        // FFI-boundaries per docs/architecture/CANCELLATION.md §1.1
                        // — the next FFI call honors the request, an in-flight call
                        // runs to completion. Mirrors Go's wrapped context.Canceled.
+    InputBoundExceeded // Adversarial-input bound crossed at a parser surface;
+                       // mirrors Python's `InputBoundExceededError` and Go's
+                       // `*InputBoundExceededError` (R19 cluster 8 — CPP-D-21.3
+                       // cross-binding parity).  ErrorCode carries the precise
+                       // wire-form code (Parse/DBCText/FrameInputBoundExceeded).
 };
 
 /// Machine-readable error codes mirroring the Agda `Error` ADT.
@@ -108,16 +116,27 @@ class AletheiaError {
     ErrorKind kind_;
     ErrorCode code_;
     std::string message_;
+    // Populated only when `kind_ == ErrorKind::InputBoundExceeded`; carries
+    // the structured `bound_kind/observed/limit` that the Python and Go
+    // bindings already expose via their typed `InputBoundExceededError`
+    // (R19 cluster 8 — CPP-D-21.5 cross-binding parity).  Errors of any
+    // other kind have `std::nullopt`.
+    std::optional<InputBoundExceededError> bound_info_;
 
 public:
-    AletheiaError(ErrorKind kind, std::string message, ErrorCode code = ErrorCode::Unknown)
+    AletheiaError(ErrorKind kind, std::string message, ErrorCode code = ErrorCode::Unknown,
+                  std::optional<InputBoundExceededError> bound_info = std::nullopt)
         : kind_(kind)
         , code_(code)
-        , message_(std::move(message)) {}
+        , message_(std::move(message))
+        , bound_info_(std::move(bound_info)) {}
 
     [[nodiscard]] auto kind() const -> ErrorKind { return kind_; }
     [[nodiscard]] auto code() const -> ErrorCode { return code_; }
     [[nodiscard]] auto message() const -> std::string_view { return message_; }
+    [[nodiscard]] auto bound_info() const -> const std::optional<InputBoundExceededError>& {
+        return bound_info_;
+    }
 };
 
 template<typename T>

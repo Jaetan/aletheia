@@ -136,7 +136,7 @@ func (c *Client) unlock() {
 // IsClosed reports whether [Client.Close] has been called.  Acquires
 // the same internal lock as the data-path operations so the answer
 // reflects committed state (no torn reads).  Cross-binding parity
-// with Python's ``AletheiaClient.is_closed`` property; R19 cluster 9
+// with Python's “AletheiaClient.is_closed“ property; R19 cluster 9
 // — GO-D-16.2.
 func (c *Client) IsClosed() bool {
 	c.lockCh <- struct{}{}
@@ -288,6 +288,19 @@ func (c *Client) ParseDBC(ctx context.Context, dbc DBCDefinition) (*ParsedDBC, e
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, error) {
+	// Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
+	// reject DBC text inputs longer than MaxDBCTextBytes before wrapping
+	// them in a JSON command.  The outer MaxJSONBytes cap in processLocked
+	// covers the wrapped command separately; the additional inner cap
+	// matches the Agda kernel's two-layer enforcement in handleParseDBCText.
+	if uint64(len(text)) > MaxDBCTextBytes {
+		return nil, newInputBoundExceededError(
+			BoundKindInputLengthBytes,
+			uint64(len(text)),
+			MaxDBCTextBytes,
+			"dbc_text_input_bound_exceeded",
+		)
+	}
 	cmd, err := serializeCommand("parseDBCText", map[string]any{
 		"text": text,
 	})

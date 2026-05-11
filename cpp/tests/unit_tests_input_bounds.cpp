@@ -12,17 +12,23 @@
 // fires first so we do not allocate a 100 MiB null-terminated buffer
 // only to be rejected on the other side.
 
+#include <aletheia/backend.hpp>
+#include <aletheia/client.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
 
 #include "detail/json.hpp"
+#include "detail/mock_backend.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <cstdint>
+#include <memory>
+#include <stop_token>
 #include <string>
+#include <utility>
 
 TEST_CASE("InputBoundExceededError carries kind / observed / limit", "[input_bounds][trackUR2]") {
     aletheia::InputBoundExceededError err{
@@ -128,4 +134,74 @@ TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds][trackUR
         CHECK_THAT(std::string{result.error().message()},
                    !Catch::Matchers::ContainsSubstring("nesting depth"));
     }
+}
+
+// R19 cluster 8 (CPP-D-21.3 cross-binding parity): parse_dbc_text pre-checks
+// the inner text size against max_dbc_text_bytes before wrapping it in a JSON
+// command, so the rejection carries the precise DBCTextInputBoundExceeded
+// error code and InputBoundExceeded error kind.
+
+TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds][cluster8]") {
+    // Mock backend that never returns — the bound check fires before any
+    // backend call. Construct with no scripted responses.
+    auto mock = std::make_unique<aletheia::MockBackend>();
+    aletheia::AletheiaClient client{std::move(mock)};
+
+    const std::string big_text(aletheia::max_dbc_text_bytes + 1, 'x');
+    std::stop_source stop_source;
+    auto result = client.parse_dbc_text(stop_source.get_token(), big_text);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::DBCTextInputBoundExceeded);
+    CHECK_THAT(std::string{result.error().message()},
+               Catch::Matchers::ContainsSubstring("exceeds limit"));
+
+    // R19 cluster 8 — CPP-D-21.5: bound_info() is populated with the
+    // structured triple, matching Python's `InputBoundExceededError.kind`
+    // / `.observed` / `.limit` and Go's `*InputBoundExceededError.BoundKind`
+    // / `.Observed` / `.Limit`.
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == aletheia::bound_kind_input_length_bytes);
+    CHECK(result.error().bound_info()->observed == aletheia::max_dbc_text_bytes + 1);
+    CHECK(result.error().bound_info()->limit == aletheia::max_dbc_text_bytes);
+}
+
+// R19 cluster 8 — CPP-D-21.5: the FFI-entry oversize-JSON short-circuit in
+// FfiBackend::process emits structured bound_kind/observed/limit fields
+// alongside the wire code; the public parse_* paths lift those into the
+// AletheiaError's bound_info() so consumers get the typed triple regardless
+// of which parser surface rejected the input.  Tested here against a hand-
+// crafted wire-form JSON that mirrors the FFI backend's synthesis.
+
+TEST_CASE("Input-bound error JSON lifts structured fields into bound_info",
+          "[input_bounds][cluster8]") {
+    const std::string err_json =
+        R"({"status":"error",)"
+        R"("code":"parse_input_bound_exceeded",)"
+        R"("message":"input length (bytes) 100000000 exceeds limit 67108864",)"
+        R"("bound_kind":"input_length_bytes",)"
+        R"("observed":100000000,)"
+        R"("limit":67108864})";
+    auto result = aletheia::detail::parse_success(err_json);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::ParseInputBoundExceeded);
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
+    CHECK(result.error().bound_info()->observed == 100000000ULL);
+    CHECK(result.error().bound_info()->limit == 67108864ULL);
+}
+
+TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt",
+          "[input_bounds][cluster8]") {
+    // Older Agda responses (pre-cluster-8) emit only `code` and `message`.
+    // The kind/code lifting still applies; bound_info() stays nullopt.
+    const std::string err_json = R"({"status":"error",)"
+                                 R"("code":"parse_input_bound_exceeded",)"
+                                 R"("message":"input length exceeded"})";
+    auto result = aletheia::detail::parse_success(err_json);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::ParseInputBoundExceeded);
+    CHECK_FALSE(result.error().bound_info().has_value());
 }

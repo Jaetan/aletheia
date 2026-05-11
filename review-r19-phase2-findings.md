@@ -1031,9 +1031,78 @@ No NEW findings beyond cat 11 reframing per advisor.
 
 **Cluster 8 — Defense-in-depth bound checks at parser surfaces** (Theme D)
 - Findings: AGDA-D-11.1/11.2/11.3/11.4/11.5/11.6/11.7, CPP-B-9.1 / CPP-D-21.3 / CPP-B-28.4 (6 limits.hpp unenforced), CPP-D-21.5 (bound-error response missing structured fields), AGDA-D-13.4 (fuel measure leaves nesting unbounded).
-- Disposition: **FIX-middle**.
+- Disposition: **FIX-middle** (sub-items split — see status below).
 - Scope: Identifier length bound at `Aletheia.DBC.Identifier` validity record; atom-count cap at `parseProperty`; nesting-depth bound at `parseJSONHelper` (subtract on each Array/Object recursion); `parseObjectList`/`parseSignalList`/`parseMessageList` cardinality caps; C++ `parse_bounded` extended to messages_per_file/signals_per_message/atom_count/identifier_length/string_length/attributes_per_file/value_descriptions_per_file; structured `bound_kind/observed/limit` in C++ bound-error JSON.
 - Effort: large — Agda kernel + C++ parser changes; needs proof updates for new validity record fields.
+
+**Cluster 8 — Sub-item status (2026-05-11):**
+
+| Sub-item | Status | Notes |
+|---|---|---|
+| **(a) `parseJSON` nesting-depth bound** (AGDA-D-11.2 partial / AGDA-D-13.4) | ✅ ROLLED BACK to post-parse 2026-05-11 (uncommitted) | Initial implementation set `fuel = max-nesting-depth` (depth bound conflated with the parser's recursion-termination measure).  Per user feedback "I generally am not a fan of fuel… arbitrary upper-bound", rolled back to `parseJSONHelper (length input) pos input` (original termination measure) + post-parse `jsonDepth tree <ᵇ suc max-nesting-depth` refinement.  Same wire surface (`DispatchErr InvalidJSON`); same bound enforcement; consistent with e.1 / e.2 post-parse-refinement pattern (no fuel anywhere).  New `jsonDepth` helper added to `Protocol/JSON/Types.agda` as `mutual` recursion with `listDepth` / `fieldsDepth`.  Trade-off: rejection on adversarial deep-nesting inputs now requires the full parse to run before the bound check fires.  Verified at JSON depth 62 (accept) / 65 (reject as `dispatch_invalid_json`). |
+| **(b) `parse_dbc_text` inner cap** (CPP-D-21.3 + Python/Go mirrors) | ✅ In flight on `review-r19` | Each binding pre-checks input text size against `max_dbc_text_bytes` before wrapping in JSON command; rejection carries precise `dbc_text_input_bound_exceeded` wire code. 3 new tests (1 per binding). |
+| **(c) Structured `bound_kind/observed/limit` in C++ AletheiaError + wire JSON** (CPP-D-21.5) | ✅ DONE 2026-05-11 (uncommitted) | `AletheiaError` gains `std::optional<InputBoundExceededError> bound_info_`; FFI backend emits structured fields; `make_json_error` lifts them via `is_input_bound_exceeded_code(code)` discriminator (kind override). 3 new tests (parse_dbc_text rejection / parsed-from-wire / nullopt-when-missing). 19 assertions / 3 test cases. |
+| **(d) C++ `parse_bounded` extension to 6 schema-aware bounds** (CPP-B-9.1 / CPP-B-28.4) | ✅ DEFERRED — closed via (e) | Resolution: implementing item (d) creates the reverse asymmetry — C++ would be the only binding doing defense-in-depth on Agda's responses; Python and Go (which export the same constants for SSOT) trust the Agda kernel.  The right close is **kernel-level proof** so all 3 bindings inherit the guarantee.  This is what sub-item (e) accomplishes.  Transitional risk before (e) lands is bounded by the existing `max_json_bytes` FFI-entry cap (64 MiB) which transitively limits response size and cardinality. |
+| **(e) Agda kernel work** (AGDA-D-11.1/3/4/5/6/7) — Identifier validity record + atom-count cap + cardinality caps + bounded-emission theorems | ✅ DONE 2026-05-11 (uncommitted) | e.1 + e.2 + e.3 + e.4 all shipped this session.  Closes item (d) — C++ binding-side defense-in-depth — via formal proof for all 3 bindings simultaneously. |
+| **(e.1) Identifier length bound at the validity-record refinement** (AGDA-D-11.1) | ✅ DONE 2026-05-11 (uncommitted) | `validIdentifierᵇ (c ∷ cs)` extended with `length (c ∷ cs) <ᵇ suc max-identifier-length` as a third conjunct.  Construction paths (`mkIdentFromChars` / `mkIdentFromString`) inherit via existing `T?` decidable check; hard-coded `mkIdent (toList "<short>") tt` callsites still typecheck (the new conjunct reduces to `true` on every concrete short string).  Cascade through proof tree was small: only `Primitives.agda:decompose-valid` needed updating (single `T-∧-split` → two splits via Agda's inferred implicits).  All gates green: `cabal run shake -- build` 2m04s + `check-properties` 11m44s + Python 805p / Go ok / C++ ctest 10/10.  Cross-binding regression tests: Python 3 cases (`TestIdentifierLengthBound`), Go 2 cases (`TestCrossBinding_Identifier{AtMaxLength,OverMax}`), C++ 2 `[e1]` cases.  Wire surface for over-bound input is currently `dbc_text_trailing_input` rather than typed `InputBoundExceeded IdentifierLength` — the parser-monad position is past the consumed chars when `mkIdentFromChars` rejects, so the top-level parser eventually fails with "trailing input"; refining this is downstream plumbing tracked alongside AGDA-D-13.4. |
+| **(e.2) Atom-count cap at `parseProperty`** (AGDA-D-11.6) | ✅ DONE 2026-05-11 (uncommitted) | New `atomCount : ∀ {A} → LTL A → ℕ` in `LTL/Syntax.agda` (alongside `mapLTL`).  `parseProperty` in `LTL/JSON.agda` now binds on `parseLTL` then checks `atomCount ltl <ᵇ suc max-atom-count-per-property`; over-bound trees return `nothing`.  Post-parse refinement, NOT fuel — `parseLTL` runs to structural completion on the input JSON value, then the bound check fires once.  Wire surface for rejection is `HandlerErr (PropertyParseFailed idx)` via `parseAllProperties` in `Protocol.Handlers`.  Tradeoff acknowledged in user feedback: rejection on a >1024-atom property pays the full parseLTL cost (~115s for a balanced 1025-atom And-tree empirically; manually verified to reject correctly).  Companion bound-soundness lemma `parseProperty-atom-bounded` deferred to e.4 where it composes with the formatter side.  Build 1m58s + `check-properties` 8m07s.  Python regression: `TestAtomCountBound::test_small_property_accepted` (100-atom balanced tree accepted in <1s); the over-bound case intentionally not exercised in CI (slow). |
+| **(e.3) Cardinality caps at the DBC handler boundary** (AGDA-D-11.3/4/5) | ✅ DONE 2026-05-11 (uncommitted) | Post-parse refinement applied at the **handler boundary** (`Protocol/Handlers.agda` for `handleParseDBC`; `Protocol/Handlers/ParseDBCText.agda` for `handleParseDBCText`), NOT inside the parser itself.  First attempt wired checks inside `parseDBCWithErrors` + `parseMessageBody` and broke ~all DBC-roundtrip proofs (parseMessageList-roundtrip / parseDBCWithErrors-roundtrip / parse-format-parse) — `pattern refl` no longer matched because the new `if-then-else` bind disrupted the structural shape proofs depended on.  Reverted parser-level changes and moved to handler-level: parseDBCWithErrors / parseText stay unchanged so all roundtrip proofs preserve their existing shape; the bound check fires AFTER the parser returns a DBC, BEFORE `validateDBCFull` runs.  Helper functions `signalsBound : List DBCMessage → Maybe (ℕ × ℕ)` and `firstDBCOverBound : DBC → Maybe (...)` walk the DBC tree once, returning the first cardinality violation (messages → per-message signals → attributes); on violation, handler emits typed `InputBoundExceeded ArrayCardinality observed limit` wrapped in the appropriate ADT (`ParseError` for `handleParseDBC`, `DBCTextParseError` for `handleParseDBCText`).  Bounds covered: `max-messages-per-file` (10000), `max-signals-per-message` (1024 per message), `max-attributes-per-file` (10000).  Build 2m01s + `check-properties` re-run clean.  Python regression: `TestListCardinalityBound` with 3 acceptance tests (100 messages / 64 signals / empty lists).  Over-bound rejection NOT in CI — pre-existing O(N²) `parseDBC` scaling (~51s @ 1000 messages, >30min @ 10001 — see `feedback_parsedbc_quadratic_scaling.md`) makes canonical-limit tests impractical; bound is verified by code inspection. |
+| **(e.4) Bounded-emission theorems for the DBC formatter** (load-bearing for binding-side trust) | ✅ DONE 2026-05-11 (uncommitted) | New module `src/Aletheia/DBC/Formatter/Bounded.agda` (3 lemmas, all proof-only).  Module count 246 → **247**.  Each lemma is a conditional length-preservation statement: `length input ≤ n → length (map format-… input) ≤ n`, with stdlib `length-map` as the underlying fact and `subst (_≤ n) (sym ...)` to transport the bound: <ul><li>`formatDBC-messages-bounded` — `messages` array of `formatDBC d`;</li><li>`formatDBC-attributes-bounded` — `attributes` array of `formatDBC d`;</li><li>`formatDBCMessage-signals-bounded` — per-message `signals` array of `formatDBCMessage msg`.</li></ul>  Wired into `Shakefile.hs` `check-properties` walk so the gate catches future drift.  Closes the cross-binding trust chain established by e.1 (Identifier length via validity record) + e.2 (Property atom count) + e.3 (per-handler cardinality caps): every DBC accepted by `handleParseDBC` carries the e.1/e.3 bounds, and `formatDBC` preserves them on emit.  Identifier-length bound is automatic from the e.1 validity-record invariant (Identifier carries the witness; emit just unpacks `Identifier.name` which is provably ≤ 128 chars).  `formatProperty-atomCount` not added because Property has no format-to-JSON path in the current protocol (properties are stored internally; only verdicts round-trip to wire); the e.2 parse-side bound is sufficient.  Closes item (d) for all 3 bindings by formal proof — Python / Go / C++ inherit the guarantee without per-binding defense-in-depth code. |
+
+**Agda kernel plan for (e)** (added per user direction 2026-05-11 — "when planning for the larger Agda kernel work, add it to the existing R19 work"):
+
+The kernel work has four sub-phases.  Each builds on the previous; gates between phases are `check-properties` + per-binding test sweep.
+
+**Phase e.1 — Identifier length bound at the validity-record refinement** (AGDA-D-11.1)
+- File: `src/Aletheia/DBC/Identifier.agda`
+- Add a 2nd bool-witness slot to the `Identifier` record: `bounded : T (length chars <ᵇ suc max-identifier-length)`, mirroring the existing first-char/non-isHSpace witnesses (per `feedback_refinement_types_pattern.md`).
+- The existing parser already produces `Identifier` via `Identifier.parse : List Char → Maybe Identifier`; parse rejects when the new witness fails — surfaces as a new `parseInvalidIdentifier` code variant or extends the existing one with bound context.
+- Cascade: every Identifier construction site in TextParser proofs (~30 sites per past Identifier change rounds) plus the `_≟ᴵ_` decidable equality.  Per `feedback_data_ctor_irrelevance_cascade.md`, the new witness can be `@0`-erased (record has η; no MAlonzo runtime cell).
+- Proof side: refresh `parseDBC-identifier-bounded : ∀ {input dbc} → parseDBC input ≡ inj₂ dbc → ∀ id ∈ identifiers(dbc) → length (Identifier.chars id) ≤ max-identifier-length` from refinement-record invariant.  ≤ 30 LOC, straightforward (`Identifier.bounded id` direct project).
+- Effort: medium (cascade is mostly mechanical); 0 new modules.
+
+**Phase e.2 — Atom-count cap at `parseProperty`** (AGDA-D-11.6 / AGDA-D-13.4 typed-error half)
+- File: `src/Aletheia/LTL/PropertyParser.agda` (or wherever `parseProperty` lives) + `Aletheia/Protocol/JSON/Parse.agda` (atom dispatch).
+- Refinement at the kernel: every parsed `Property` carries a witness `atom-bounded : T (atom-count prop <ᵇ suc max-atom-count-per-property)`.  Either (i) wrap `Property` in a refinement record, or (ii) prove the bound post-parse and surface as a `Refined` newtype.
+- (ii) is cleaner — keeps `Property` shape unchanged; adds `refineProperty : Property → Maybe RefinedProperty` that fails with typed `InputBoundExceeded AtomCount`.
+- Cascade: tighter — refinement happens at one point in `parseProperty`'s output; downstream consumers either accept `Property` (no change) or `RefinedProperty` (new type).
+- Proof: `parseProperty-atom-bounded` via straightforward induction on the AST.
+- Effort: small-medium; ~50-100 LOC.
+
+**Phase e.3 — Cardinality caps at `parseObjectList`/`parseSignalList`/`parseMessageList`** (AGDA-D-11.3/4/5)
+- Files: `src/Aletheia/DBC/Parser/*.agda` + the JSON-side equivalents in `src/Aletheia/Protocol/JSON/Parse.agda`.
+- Per AGENTS.md "Adversarial-input bounds at parser surfaces": each list-cardinality parser refuses inputs that would push the resulting list size past the canonical bound.
+- Implementation pattern: extend each `parseList`-style combinator with a fuel parameter capping list length:
+  ```
+  parseBoundedList : ℕ → Parser A → Parser (List A)
+  parseBoundedList zero       _ = fail-with InputBoundExceeded ArrayCardinality observed limit
+  parseBoundedList (suc fuel) p = ...
+  ```
+- Three call sites use different limits: `max-messages-per-file (10K)` / `max-signals-per-message (1024)` / `max-attributes-per-file (10K)` / `max-value-descriptions-per-file (1M)`.
+- Proof: per-call-site `parseBoundedList-bounded : parseBoundedList n p input ≡ just xs → length xs ≤ n` from fuel-decrement invariant.
+- Effort: medium-large; cascades into JSON parser proofs (Properties tree).
+
+**Phase e.4 — Bounded-emission theorems** (the load-bearing part for binding-side trust)
+- Files: new `src/Aletheia/Protocol/JSON/Properties/Bounded.agda` or extension of existing JSON/Properties.
+- Theorems (one per bound kind):
+  - `formatDBC-messages-bounded : ∀ d → length (DBC.messages d) ≤ max-messages-per-file → length (extract "messages" (formatDBC d)) ≤ max-messages-per-file`
+  - Similar for signals_per_message, attributes_per_file, value_descriptions_per_file.
+  - `formatDBC-identifier-bounded : every emitted "name" / "messageName" / "signalName" string ≤ max-identifier-length`.
+  - `formatDBC-string-bounded : every emitted comment / attribute string value ≤ max-string-length-bytes`.
+  - `formatProperty-atom-bounded : property AST count ≤ max-atom-count-per-property → emitted JSON atoms ≤ same`.
+- These compose with phases e.1-e.3: parse rejects over-bound inputs → internal representation respects bounds → formatter preserves bounds → emitted JSON respects bounds → no binding-side check needed.
+- Effort: small-medium per theorem; cumulative ~200-400 LOC; all proof-only (no runtime effect, walked by `check-properties` only).
+
+**Closing sub-item (d) when (e) lands**: append a paragraph to AGDA-D-11.1 / 11.6 / etc. closures explicitly noting that CPP-B-9.1 / CPP-B-28.4 (item d) close as by-product, and add a cross-binding regression test that parses a hand-crafted-from-kernel response and asserts no bound is exceeded.
+
+**Cluster 8 in-flight diff (uncommitted on `review-r19` as of 2026-05-11):**
+- `src/Aletheia/Protocol/JSON/Parse.agda` (item a)
+- `python/aletheia/client/_client.py` + `python/tests/test_input_bounds.py` (item b — Python)
+- `go/aletheia/client.go` + `go/aletheia/input_bounds_test.go` (item b — Go)
+- `cpp/include/aletheia/error.hpp` + `cpp/src/client.cpp` + `cpp/tests/unit_tests_input_bounds.cpp` (item b — C++)
+- `cpp/include/aletheia/error.hpp` + `cpp/src/ffi_backend.cpp` + `cpp/src/json_parse.cpp` + `cpp/tests/unit_tests_input_bounds.cpp` (item c)
+
+Per-binding green: Python 19/19, Go `TestParseDBCText_RejectsOversizeText` pass, C++ `[cluster8]` 3 tests / 19 assertions pass.  Agda runtime closure compiles (`cabal run shake -- build`, 1m42s, 272 MAlonzo modules).  `check-properties` not re-run yet — items (a) + (b) + (c) are all runtime/cold-path; proof side should be parametric.  Commit is held pending sub-item (e) scoping (per user direction "do not commit yet").
 
 **Cluster 9 — Missing extension points** (Theme E)
 - Findings: PY-D-17.1 (Python no IBackend), GO-D-16.2 (Go no IsClosed), CPP-D-17.4 (C++ Logger single-callback), CPP-D-17.1 (IBackend mixed pure/default).

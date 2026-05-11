@@ -74,8 +74,8 @@ struct Rational {
         // den < 0.  Use Rational::make for fallible (returns std::expected)
         // construction in untrusted-input contexts.  R19 cluster 12 — CPP-B-7.1.
         if (d <= 0) {
-            throw std::invalid_argument(
-                "Rational: denominator must be positive (was " + std::to_string(d) + ")");
+            throw std::invalid_argument("Rational: denominator must be positive (was " +
+                                        std::to_string(d) + ")");
         }
     }
 

@@ -220,14 +220,26 @@ public:
         // `detail::parse_*` paths translate to AletheiaError with
         // code == ErrorCode::ParseInputBoundExceeded uniformly.
         if (input.size() > aletheia::max_json_bytes) {
+            // R19 cluster 8 — CPP-D-21.5: emit structured bound_kind /
+            // observed / limit fields alongside `code` and `message` so
+            // downstream `parse_*` paths can lift them into the
+            // AletheiaError's optional InputBoundExceededError, matching
+            // Python's typed `InputBoundExceededError(...)` shape and Go's
+            // `*InputBoundExceededError{Kind/Observed/Limit/Code}`.
             std::string out;
-            out.reserve(160);
+            out.reserve(256);
             out.append(
                 R"({"status":"error","code":"parse_input_bound_exceeded","message":"input length (bytes) )");
             out.append(std::to_string(input.size()));
             out.append(R"( exceeds limit )");
             out.append(std::to_string(aletheia::max_json_bytes));
-            out.append(R"("})");
+            out.append(R"(","bound_kind":")");
+            out.append(aletheia::bound_kind_input_length_bytes);
+            out.append(R"(","observed":)");
+            out.append(std::to_string(input.size()));
+            out.append(R"(,"limit":)");
+            out.append(std::to_string(aletheia::max_json_bytes));
+            out.append(R"(})");
             return out;
         }
         // The Agda core expects a null-terminated string.

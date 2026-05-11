@@ -42,10 +42,10 @@ auto Rational::from_double(double d) -> Rational {
     // step up one ULP for symmetry and to leave headroom against std::llround
     // returning -2^63 - 1 by rounding-towards-zero subtleties.  R19 cluster
     // 12 — CPP-B-13.5.
-    static const auto int64_max_d_safe = std::nextafter(
-        static_cast<double>(std::numeric_limits<std::int64_t>::max()), 0.0);
-    static const auto int64_min_d_safe = std::nextafter(
-        static_cast<double>(std::numeric_limits<std::int64_t>::min()), 0.0);
+    static const auto int64_max_d_safe =
+        std::nextafter(static_cast<double>(std::numeric_limits<std::int64_t>::max()), 0.0);
+    static const auto int64_min_d_safe =
+        std::nextafter(static_cast<double>(std::numeric_limits<std::int64_t>::min()), 0.0);
     if (scaled > int64_max_d_safe || scaled < int64_min_d_safe)
         throw std::runtime_error("value " + std::to_string(d) +
                                  " overflows int64 when scaled to rational");

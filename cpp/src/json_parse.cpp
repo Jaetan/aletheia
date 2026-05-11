@@ -149,6 +149,18 @@ static auto parse_bounded(std::string_view input) -> Json {
 /// regression in production logs because the old ``j.value("code", "")``
 /// / ``j.value("message", "Unknown error")`` defaults masked malformed
 /// responses.
+// R19 cluster 8 — CPP-D-21.5: any of these three codes routes the response
+// through `ErrorKind::InputBoundExceeded` regardless of the kind the caller
+// guessed from the response section (Protocol / Validation), so the typed
+// bound-info shape is exposed uniformly across the JSON / DBC-text / binary
+// parser surfaces.  Mirrors Python's `InputBoundExceededError` subclassing
+// and Go's typed `*InputBoundExceededError` discriminator.
+static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
+    return code == ErrorCode::ParseInputBoundExceeded ||
+           code == ErrorCode::DBCTextInputBoundExceeded ||
+           code == ErrorCode::FrameInputBoundExceeded;
+}
+
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     if (!j.contains("code") || !j.at("code").is_string())
         return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
@@ -156,7 +168,26 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
         return make_error(ErrorKind::Protocol,
                           "Error response missing or non-string 'message' field");
     auto code = error_code_from_string(j.at("code").get<std::string>());
-    return make_error(kind, j.at("message").get<std::string>(), code);
+    auto effective_kind = is_input_bound_exceeded_code(code) ? ErrorKind::InputBoundExceeded : kind;
+    // Lift the structured `bound_kind / observed / limit` triple into the
+    // AletheiaError when the response carries it.  All three must be
+    // present and well-typed for `bound_info` to be populated; partial
+    // fields are treated as nullopt rather than as a Protocol error, so
+    // older Agda responses (or future cores that drop the fields) degrade
+    // gracefully (the AletheiaError still carries kind/code/message).
+    std::optional<InputBoundExceededError> bound_info;
+    if (effective_kind == ErrorKind::InputBoundExceeded && j.contains("bound_kind") &&
+        j.at("bound_kind").is_string() && j.contains("observed") &&
+        j.at("observed").is_number_unsigned() && j.contains("limit") &&
+        j.at("limit").is_number_unsigned()) {
+        bound_info = InputBoundExceededError{
+            .bound_kind = j.at("bound_kind").get<std::string>(),
+            .observed = j.at("observed").get<std::uint64_t>(),
+            .limit = j.at("limit").get<std::uint64_t>(),
+        };
+    }
+    return AletheiaError{effective_kind, j.at("message").get<std::string>(), code,
+                         std::move(bound_info)};
 }
 
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.

@@ -16,12 +16,12 @@
 module Aletheia.Protocol.Handlers where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; map; reverse)
+open import Data.List using (List; []; _∷_; map; reverse; length)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Nat using (ℕ; _+_)
+open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_)
-open import Data.Bool using (if_then_else_)
+open import Data.Bool using (true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
@@ -43,10 +43,14 @@ open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFram
 open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
   ( Error; ParseErr; HandlerErr; WithContext
-  ; ParseError
+  ; ParseError; InContext; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
   ; PropertyParseFailed; ValidationFailed
   ; WrappedParse
+  )
+open import Aletheia.Limits using
+  ( ArrayCardinality
+  ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   )
 
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
@@ -86,6 +90,45 @@ private
   ... | inj₁ parseErr = (state , Response.Error (WithContext ctx (HandlerErr (WrappedParse parseErr))))
   ... | inj₂ dbc = f dbc
 
+  -- R19 cluster 8 phase e.3: cardinality refinement at the handler boundary.
+  -- parseDBCWithErrors / parseText are intentionally left unchanged so the
+  -- existing roundtrip proofs (parseMessageList-roundtrip,
+  -- parseDBCWithErrors-roundtrip, …) preserve their structural shape.  The
+  -- adversarial-input rejection still happens at the wire entry, just one
+  -- handler layer up.  Post-parse refinement, NOT fuel — direct length
+  -- counts against canonical `Aletheia.Limits` bounds.
+  --
+  -- Returns nothing if all cardinality bounds OK; else a triple
+  -- (context-string, observed, limit) identifying the first violation.
+  -- Discovery order: messages array → per-message signals array →
+  -- attributes array.  Each `DBCMessage.signals` is checked under the
+  -- 1024 signals-per-message bound; the messages array itself is checked
+  -- under the 10000 messages-per-file bound; attributes under 10000.
+
+  signalsBound : List DBCMessage → Maybe (String × ℕ × ℕ)
+  signalsBound [] = nothing
+  signalsBound (msg ∷ rest) with length (DBCMessage.signals msg) <ᵇ suc max-signals-per-message
+  ... | true  = signalsBound rest
+  ... | false = just ("signals array" , length (DBCMessage.signals msg) , max-signals-per-message)
+
+  firstDBCOverBound : DBC → Maybe (String × ℕ × ℕ)
+  firstDBCOverBound dbc with length (DBC.messages dbc) <ᵇ suc max-messages-per-file
+  ... | false = just ("messages array" , length (DBC.messages dbc) , max-messages-per-file)
+  ... | true  with signalsBound (DBC.messages dbc)
+  ...   | just over = just over
+  ...   | nothing with length (DBC.attributes dbc) <ᵇ suc max-attributes-per-file
+  ...     | true  = nothing
+  ...     | false = just ("attributes array" , length (DBC.attributes dbc) , max-attributes-per-file)
+
+  -- Build a typed error response for a cardinality violation.
+  cardinalityErrorResponse : String → String → ℕ → ℕ → StreamState → StreamState × Response
+  cardinalityErrorResponse cmdCtx arrayCtx observed limit state =
+    (state , Response.Error
+      (WithContext cmdCtx
+        (HandlerErr
+          (WrappedParse
+            (InContext arrayCtx (InputBoundExceeded ArrayCardinality observed limit))))))
+
 -- ============================================================================
 -- COMMAND HANDLERS
 -- ============================================================================
@@ -96,10 +139,18 @@ private
 -- silently dropped.  Same shape as ParseDBCText for binding-side parity.
 handleParseDBC : JSON → StreamState → StreamState × Response
 handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
-  let issues = validateDBCFull dbc
-  in if hasAnyError issues
-     then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))
-     else (ReadyToStream dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
+  -- R19 cluster 8 phase e.3: post-parse cardinality refinement at the
+  -- handler boundary (see `firstDBCOverBound` above for rationale).
+  case-helper dbc (firstDBCOverBound dbc)
+  where
+    case-helper : DBC → Maybe (String × ℕ × ℕ) → StreamState × Response
+    case-helper dbc (just (ctx , obs , lim)) =
+      cardinalityErrorResponse "ParseDBC" ctx obs lim state
+    case-helper dbc nothing =
+      let issues = validateDBCFull dbc
+      in if hasAnyError issues
+         then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))
+         else (ReadyToStream dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
 
 -- ParseDBCText handler isolated in its own submodule to keep parseText's
 -- transitive import closure (~30 modules: TopLevel → Attributes → …) out

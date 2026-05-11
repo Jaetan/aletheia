@@ -3,6 +3,7 @@
 #include <aletheia/client.hpp>
 #include <aletheia/detail/cache_keys.hpp>
 #include <aletheia/enrich.hpp>
+#include <aletheia/limits.hpp>
 
 #include "detail/json.hpp"
 
@@ -178,6 +179,24 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
     -> Result<ParsedDBC> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("parse_dbc_text"));
+    // Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
+    // reject DBC text inputs longer than max_dbc_text_bytes before wrapping
+    // them in a JSON command.  The outer max_json_bytes cap in
+    // FfiBackend::process covers the wrapped command separately; the
+    // additional inner cap matches the Agda kernel's two-layer enforcement
+    // in handleParseDBCText.
+    if (text.size() > max_dbc_text_bytes) {
+        return std::unexpected(
+            AletheiaError{ErrorKind::InputBoundExceeded,
+                          "input length (bytes) " + std::to_string(text.size()) +
+                              " exceeds limit " + std::to_string(max_dbc_text_bytes),
+                          ErrorCode::DBCTextInputBoundExceeded,
+                          InputBoundExceededError{
+                              .bound_kind = std::string{bound_kind_input_length_bytes},
+                              .observed = static_cast<std::uint64_t>(text.size()),
+                              .limit = max_dbc_text_bytes,
+                          }});
+    }
     auto cmd = detail::serialize_parse_dbc_text(text);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_parsed_dbc(resp);
@@ -234,19 +253,18 @@ constexpr std::array extraction_error_messages = {
 // under the clang-tidy readability-function-size threshold.
 auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
                        const std::vector<std::string>& names) -> Result<SignalValue> {
-    auto name = idx < names.size()
-                    ? SignalName{names[idx]}
-                    : SignalName{std::format("signal_{}", idx)};
+    auto name =
+        idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
     if (den == 0)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Zero denominator in extraction value for {}", std::string_view{name})});
     auto rat_or_err = Rational::make(num, den);
     if (!rat_or_err)
-        return std::unexpected(AletheiaError{
-            ErrorKind::Protocol,
-            std::format("Invalid rational in extraction value for {}: num={}, den={}",
-                        std::string_view{name}, num, den)});
+        return std::unexpected(
+            AletheiaError{ErrorKind::Protocol,
+                          std::format("Invalid rational in extraction value for {}: num={}, den={}",
+                                      std::string_view{name}, num, den)});
     return SignalValue{.name = std::move(name), .value = PhysicalValue{*rat_or_err}};
 }
 

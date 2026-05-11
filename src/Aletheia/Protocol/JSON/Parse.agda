@@ -11,16 +11,17 @@ open import Data.String using (String; toList; fromList)
 open import Data.List using (List; []; _∷_; foldl; length)
 open import Data.Char using (Char; toℕ) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isDigit)
-open import Data.Bool using (true; false; not; _∧_)
+open import Data.Bool using (Bool; true; false; not; _∧_; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (_>>=_ to _>>=ₘ_; map to mapₘ)
-open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
+open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_; _<ᵇ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational as Rat using (ℚ; _/_; -_) renaming (_*_ to _*ᵣ_)
 open import Data.Product using (_×_; _,_; proj₁)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Parser.Combinators using (Parser; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
+open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
 open import Aletheia.Prelude using (ℕtoℚ)
-open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
+open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; jsonDepth)
+open import Aletheia.Limits using (max-nesting-depth)
 
 -- ============================================================================
 -- PRIMITIVE PARSERS
@@ -256,9 +257,25 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
                   extractString (JString cs) = pure (fromList cs)
                   extractString _ = fail
 
--- Public API: parseJSON wraps helper with input length
+-- R19 cluster 8 phase e.2-companion (post-parse refinement, mirrors e.1
+-- Identifier-length and e.2 atomCount).  parseJSONHelper terminates on
+-- input length (its original termination measure pre-cluster-8: `length
+-- input` decrements on every character consumed and naturally bounds
+-- recursion depth above by `length input`).  After parsing succeeds,
+-- check the parsed tree's actual depth against `max-nesting-depth`
+-- (canonical adversarial-input limit, 64).  Direct measurement, NOT
+-- fuel — the depth bound is a property of the parsed value, not a
+-- recursion-budget cap conflated with the rejection threshold.  The
+-- wire surface for rejection is `DispatchErr InvalidJSON`; refining to
+-- typed `InputBoundExceeded NestingDepth` is downstream parser-monad
+-- plumbing tracked alongside AGDA-D-13.4.
 parseJSON : Parser JSON
-parseJSON pos input = parseJSONHelper (length input) pos input
+parseJSON pos input with parseJSONHelper (length input) pos input
+... | nothing     = nothing
+... | just result =
+  if jsonDepth (value result) <ᵇ suc max-nesting-depth
+    then just result
+    else nothing
 
 -- ============================================================================
 -- HELPER: RUN JSON PARSER

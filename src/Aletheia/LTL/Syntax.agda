@@ -12,7 +12,7 @@
 -- Design: Parametric in predicate type A allows reuse (signal predicates, generic predicates).
 module Aletheia.LTL.Syntax where
 
-open import Data.Nat using (ℕ; zero; suc)
+open import Data.Nat using (ℕ; zero; suc; _+_)
 
 data LTL (Atom : Set) : Set where
   -- Propositional operators
@@ -72,4 +72,26 @@ mapLTL f (MetricRelease w s φ ψ)    = MetricRelease w s (mapLTL f φ) (mapLTL 
 decodeStart : ℕ → ℕ → ℕ
 decodeStart zero    currTime = currTime
 decodeStart (suc s) _        = s
+
+-- R19 cluster 8 phase e.2: count atomic predicates in a formula.  Used to
+-- bound adversarial-input property formulas at the parser surface (the
+-- canonical limit is `max-atom-count-per-property` in `Aletheia.Limits`,
+-- currently 1024).  Mirrors `Protocol.StreamState.Internals.collectAtoms`
+-- in structure (one ctor per AST shape) but returns a count directly so
+-- callers can bound-check without allocating the atom list.
+atomCount : ∀ {A : Set} → LTL A → ℕ
+atomCount (Atomic _)                = 1
+atomCount (Not φ)                   = atomCount φ
+atomCount (And φ ψ)                 = atomCount φ + atomCount ψ
+atomCount (Or φ ψ)                  = atomCount φ + atomCount ψ
+atomCount (Next φ)                  = atomCount φ
+atomCount (WNext φ)                 = atomCount φ
+atomCount (Always φ)                = atomCount φ
+atomCount (Eventually φ)            = atomCount φ
+atomCount (Until φ ψ)               = atomCount φ + atomCount ψ
+atomCount (Release φ ψ)             = atomCount φ + atomCount ψ
+atomCount (MetricEventually _ _ φ)  = atomCount φ
+atomCount (MetricAlways _ _ φ)      = atomCount φ
+atomCount (MetricUntil _ _ φ ψ)     = atomCount φ + atomCount ψ
+atomCount (MetricRelease _ _ φ ψ)   = atomCount φ + atomCount ψ
 

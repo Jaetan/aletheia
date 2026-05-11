@@ -217,6 +217,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/JSONParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
         agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
+        agdaWithRTS "Aletheia/DBC/Formatter/Bounded.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
         -- TextParser / TextFormatter aggregator modules.  These are not

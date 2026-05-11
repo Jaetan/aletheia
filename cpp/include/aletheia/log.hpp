@@ -48,9 +48,9 @@ class Logger {
 public:
     Logger() = default;
 
-    explicit Logger(LogCallback cb, LogLevel min_level = LogLevel::Debug)
-        : min_(min_level) {
-        if (cb) sinks_.emplace_back(std::move(cb));
+    explicit Logger(LogCallback cb, LogLevel min_level = LogLevel::Debug) : min_(min_level) {
+        if (cb)
+            sinks_.emplace_back(std::move(cb));
     }
 
     // Add an additional sink callback.  Multiple sinks fire in registration
@@ -58,7 +58,8 @@ public:
     // single-callback constructor working unchanged for callers that only
     // need one sink.  R19 cluster 9 — CPP-D-17.4.
     void add_sink(LogCallback cb) {
-        if (cb) sinks_.emplace_back(std::move(cb));
+        if (cb)
+            sinks_.emplace_back(std::move(cb));
     }
 
     void log(LogLevel lvl, std::string_view event, std::initializer_list<LogField> fields,

@@ -17,10 +17,11 @@ module Aletheia.Protocol.JSON.Types where
 
 open import Data.Char using (Char)
 open import Data.String using (String; toList; fromList)
-open import Data.List using (List)
+open import Data.List using (List; []; _∷_)
 open import Data.Bool using (Bool)
+open import Data.Nat using (ℕ; zero; suc; _⊔_)
 open import Data.Rational using (ℚ)
-open import Data.Product using (_×_)
+open import Data.Product using (_×_; proj₂)
 open import Function using (_∘_)
 
 -- JSON value representation
@@ -38,3 +39,30 @@ data JSON : Set where
 -- is the natural source.  Definitionally equals `JString (toList s)`.
 JStringS : String → JSON
 JStringS = JString ∘ toList
+
+-- R19 cluster 8 phase e.2 (companion to e.1 / e.2 pattern): structural
+-- nesting depth of a JSON value.  Mirrors nlohmann/json's
+-- `parse_event_t::object_start` / `array_start` callback semantics —
+-- primitives are depth 0, each Array/Object nesting level increments by 1.
+-- Used at the parseJSON surface for a post-parse depth check that mirrors
+-- e.1's Identifier length bound and e.2's atom-count bound.  Direct
+-- measurement, NOT fuel — the bound `max-nesting-depth` is the
+-- canonical adversarial-input limit (`Aletheia.Limits`, 64).
+mutual
+  jsonDepth : JSON → ℕ
+  jsonDepth JNull             = 0
+  jsonDepth (JBool _)         = 0
+  jsonDepth (JNumber _)       = 0
+  jsonDepth (JString _)       = 0
+  jsonDepth (JArray xs)       = suc (listDepth xs)
+  jsonDepth (JObject fields)  = suc (fieldsDepth fields)
+
+  -- Maximum depth across a list of JSON values (children of an Array).
+  listDepth : List JSON → ℕ
+  listDepth []       = 0
+  listDepth (x ∷ xs) = jsonDepth x ⊔ listDepth xs
+
+  -- Maximum depth across an Object's field values; keys carry no nesting.
+  fieldsDepth : List (String × JSON) → ℕ
+  fieldsDepth []           = 0
+  fieldsDepth (kv ∷ rest)  = jsonDepth (proj₂ kv) ⊔ fieldsDepth rest

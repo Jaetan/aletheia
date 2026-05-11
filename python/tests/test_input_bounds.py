@@ -25,6 +25,7 @@ from aletheia import (
     AletheiaClient,
     AletheiaError,
     InputBoundExceededError,
+    Signal,
 )
 from aletheia import limits
 from aletheia.dbc_converter import dbc_to_json
@@ -108,11 +109,19 @@ class TestLimitsConstants:
 
 
 class TestInputBoundEnforcedAtFFIEntry:
-    """``_send_command`` rejects oversize JSON before marshaling.
+    """Binding-side short-circuit rejects oversize input before marshaling.
 
     The Agda kernel ALSO rejects (parseJSON's input-length cap returns a
-    ``parse_input_bound_exceeded`` error response), but the binding-side
-    short-circuit fires first so the ctypes buffer is never allocated.
+    ``parse_input_bound_exceeded`` error response; parseDBCText returns
+    ``dbc_text_input_bound_exceeded``), but the binding-side short-circuit
+    fires first so the ctypes buffer is never allocated.
+
+    R19 cluster 8 (CPP-D-21.3 cross-binding parity): ``parse_dbc_text``
+    additionally pre-checks the inner DBC text size against
+    :data:`MAX_DBC_TEXT_BYTES` before wrapping it in a JSON command, so
+    the rejection carries the precise ``dbc_text_input_bound_exceeded``
+    wire code and a ``limit`` field matching the inner cap (rather than
+    the outer JSON cap from ``_send_command``).
     """
 
     def test_oversize_json_raises_input_bound_exceeded(self) -> None:
@@ -124,16 +133,264 @@ class TestInputBoundEnforcedAtFFIEntry:
             err = exc_info.value
             assert err.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
             assert err.observed > limits.MAX_JSON_BYTES
-            assert err.limit == limits.MAX_JSON_BYTES
+            assert err.limit == limits.MAX_DBC_TEXT_BYTES
 
     def test_observed_field_is_actual_payload_size(self) -> None:
-        """The reported ``observed`` value is the encoded JSON payload size."""
+        """The reported ``observed`` value is the input text byte size."""
         with AletheiaClient() as client:
-            big_payload = "x" * (limits.MAX_JSON_BYTES + 1024)
+            big_payload = "x" * (limits.MAX_DBC_TEXT_BYTES + 1024)
             with pytest.raises(InputBoundExceededError) as exc_info:
                 client.parse_dbc_text(big_payload)
-            # JSON-encoded payload ≥ raw text length + envelope overhead.
-            assert exc_info.value.observed >= limits.MAX_JSON_BYTES + 1024
+            # Inner cap is on the raw text bytes, not the JSON envelope.
+            assert exc_info.value.observed == limits.MAX_DBC_TEXT_BYTES + 1024
+
+    def test_parse_dbc_text_uses_dbc_text_code(self) -> None:
+        """Inner-cap rejection carries the ``dbc_text_input_bound_exceeded`` code.
+
+        Regression: pre-R19-cluster-8 the rejection went through
+        ``_send_command``'s outer JSON cap and surfaced as
+        ``parse_input_bound_exceeded``.
+        """
+        with AletheiaClient() as client:
+            big_payload = "x" * (limits.MAX_DBC_TEXT_BYTES + 1)
+            with pytest.raises(InputBoundExceededError) as exc_info:
+                client.parse_dbc_text(big_payload)
+            assert exc_info.value.code == "dbc_text_input_bound_exceeded"
+
+
+class TestIdentifierLengthBound:
+    """R19 cluster 8 phase e.1 — Identifier validity record enforces
+    ``MAX_IDENTIFIER_LENGTH``.
+
+    The Agda kernel's `validIdentifierᵇ` predicate (in
+    ``src/Aletheia/DBC/Identifier.agda``) gained a third conjunct asserting
+    `length name <ᵇ suc max-identifier-length`.  Identifiers at the limit
+    (128 chars) still parse; anything longer is rejected at
+    ``mkIdentFromChars``.  The wire surface is currently
+    ``dbc_text_trailing_input`` rather than the more specific
+    ``parse_invalid_identifier`` — once parseIdentifier's monadic position
+    is past the consumed chars when it rejects, the outer top-level
+    parser eventually fails with "trailing input".  Refining the wire
+    error to typed ``InputBoundExceeded IdentifierLength`` is downstream
+    parser-monad plumbing (deferred per the AGDA-D-13.4 pattern).
+    """
+
+    def test_identifier_at_max_length_accepted(self) -> None:
+        """A 128-char identifier passes (boundary inclusive)."""
+        name = "A" * limits.MAX_IDENTIFIER_LENGTH
+        dbc_text = f'VERSION ""\nNS_:\nBS_:\nBU_:\nBO_ 100 {name}: 8 ECU\n'
+        with AletheiaClient() as client:
+            result = client.parse_dbc_text(dbc_text)
+            assert result["status"] == "success", result
+            assert result["dbc"]["messages"][0]["name"] == name
+
+    def test_identifier_one_over_max_rejected(self) -> None:
+        """A 129-char identifier (one over the limit) is rejected."""
+        name = "A" * (limits.MAX_IDENTIFIER_LENGTH + 1)
+        dbc_text = f'VERSION ""\nNS_:\nBS_:\nBU_:\nBO_ 100 {name}: 8 ECU\n'
+        with AletheiaClient() as client:
+            result = client.parse_dbc_text(dbc_text)
+            assert result["status"] == "error", result
+
+    def test_identifier_far_over_max_rejected(self) -> None:
+        """A 500-char identifier is rejected (no length-dependent edge case)."""
+        name = "A" * 500
+        dbc_text = f'VERSION ""\nNS_:\nBS_:\nBU_:\nBO_ 100 {name}: 8 ECU\n'
+        with AletheiaClient() as client:
+            result = client.parse_dbc_text(dbc_text)
+            assert result["status"] == "error", result
+
+
+class TestNestingDepthBound:
+    """R19 cluster 8 phase e.2 companion — JSON nesting-depth refinement.
+
+    ``parseJSON`` parses the input with ``length input`` as fuel (a real
+    termination measure bounded by the upstream ``max_json_bytes`` cap,
+    not an arbitrary recursion budget); after parse, ``jsonDepth`` of the
+    constructed tree is compared against ``MAX_NESTING_DEPTH``.  Direct
+    measurement, NOT fuel.  Wire-surface for rejection is
+    ``dispatch_invalid_json``; typed ``InputBoundExceeded NestingDepth``
+    is downstream parser-monad plumbing tracked alongside AGDA-D-13.4.
+    """
+
+    @staticmethod
+    def _nested_ltl(depth: int) -> dict:
+        """Build a property with `depth` levels of nested ``always``."""
+        formula = {
+            "operator": "atomic",
+            "predicate": {"predicate": "equals", "signal": "S", "value": 0},
+        }
+        for _ in range(depth):
+            formula = {"operator": "always", "formula": formula}
+        return formula
+
+    @staticmethod
+    def _trivial_dbc() -> dict:
+        return {
+            "version": "",
+            "messages": [{"id": 100, "name": "M", "dlc": 8, "sender": "ECU",
+                          "senders": [], "signals": []}],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
+
+    def test_nested_at_depth_60_accepted(self) -> None:
+        """60 always-wrappers + atomic + predicate = JSON depth 62 (<= 64)."""
+        prop = self._nested_ltl(60)
+        with AletheiaClient() as client:
+            client.parse_dbc(self._trivial_dbc())
+            r = client.set_properties([prop])
+            assert r["status"] == "success", r
+
+    def test_nested_at_depth_63_rejected(self) -> None:
+        """63 always-wrappers = JSON depth 65 (> 64) — rejected as invalid JSON."""
+        prop = self._nested_ltl(63)
+        with AletheiaClient() as client:
+            client.parse_dbc(self._trivial_dbc())
+            r = client.set_properties([prop])
+            assert r["status"] == "error", r
+            assert r["code"] == "dispatch_invalid_json", r
+
+
+class TestAtomCountBound:
+    """R19 cluster 8 phase e.2 — ``parseProperty`` rejects over-1024-atom formulas.
+
+    Post-parse refinement: ``parseLTL`` parses the full tree (structurally
+    terminating on the JSON value), then ``atomCount ltl <ᵇ suc
+    max-atom-count-per-property`` discards over-bound trees.  Wire-surface
+    for rejection is ``handler_property_parse_failed`` via
+    ``parseAllProperties`` in ``Protocol.Handlers``.
+
+    The over-bound case is slow (parseLTL runs to completion on a 1025-atom
+    tree before the post-parse check fires — empirically ~115s on this
+    host) and is intentionally not exercised here.  Manual verification:
+    a balanced 1025-atom And-tree returns ``status=error,
+    code=handler_property_parse_failed`` (verified 2026-05-11).  The
+    formal bound-soundness proof lives in e.4.
+    """
+
+    @staticmethod
+    def _trivial_dbc() -> dict:
+        return {
+            "version": "",
+            "messages": [{"id": 100, "name": "M", "dlc": 8, "sender": "ECU",
+                          "senders": [], "signals": []}],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
+
+    @staticmethod
+    def _balanced_and(predicates: list) -> dict:
+        if len(predicates) == 1:
+            return predicates[0].to_formula()
+        half = len(predicates) // 2
+        return {"operator": "and",
+                "left": TestAtomCountBound._balanced_and(predicates[:half]),
+                "right": TestAtomCountBound._balanced_and(predicates[half:])}
+
+    def test_single_atom_property_accepted(self) -> None:
+        """Single-atom property (atomCount = 1) parses cleanly — minimum
+        acceptance case anchors the lower end of the bound interval."""
+        prop = Signal("S").equals(0).to_formula()
+        with AletheiaClient() as client:
+            client.parse_dbc(self._trivial_dbc())
+            r = client.set_properties([prop])
+            assert r["status"] == "success", r
+
+    def test_small_property_accepted(self) -> None:
+        """100 atoms (well under 1024) parses cleanly — sanity check that
+        the bound infrastructure does NOT regress acceptance of legitimate
+        small properties."""
+        preds = [Signal("S").equals(i) for i in range(100)]
+        prop = self._balanced_and(preds)
+        with AletheiaClient() as client:
+            client.parse_dbc(self._trivial_dbc())
+            r = client.set_properties([prop])
+            assert r["status"] == "success", r
+
+
+class TestListCardinalityBound:
+    """R19 cluster 8 phase e.3 — ``parseMessageList``/``parseSignalList``/
+    ``parseAttributeList`` cardinality caps.
+
+    `requireArrayBound` in `Aletheia/DBC/JSONParser.agda` wraps each
+    list-shaped parsed field with a post-parse `length xs <ᵇ suc bound`
+    check.  Three call sites wired:
+      * `parseMessageBody`: signals → `max-signals-per-message` (1024)
+      * `parseDBCWithErrors` messages → `max-messages-per-file` (10000)
+      * `parseDBCWithErrors` attributes → `max-attributes-per-file` (10000)
+
+    Wire surface for rejection is `InContext "<array> array"
+    (InputBoundExceeded ArrayCardinality observed limit)` (typed
+    ParseError); refining to a more specific wire code is downstream
+    parser-monad plumbing tracked alongside AGDA-D-13.4.
+
+    Tests only exercise the acceptance path (well under bound).  The
+    over-bound case is verified by code inspection — `requireArrayBound`
+    is invoked at the three call sites above with the canonical limits
+    — plus a manual one-off run at the canonical limit (memory note:
+    `feedback_parsedbc_quadratic_scaling.md`); reproducing in CI is
+    impractical until the pre-existing O(N²) parseDBC scaling is fixed.
+    Formal bound-soundness `parseDBC-arrays-bounded` follows in e.4.
+    """
+
+    def test_messages_well_under_bound_accepted(self) -> None:
+        """100 messages << 10000 → parses successfully."""
+        dbc = {
+            "version": "",
+            "messages": [
+                {"id": i + 1, "name": f"M{i}", "dlc": 8, "sender": "ECU",
+                 "senders": [], "signals": []}
+                for i in range(100)
+            ],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
+        with AletheiaClient() as client:
+            r = client.parse_dbc(dbc)
+            assert r["status"] == "success", r
+
+    def test_signals_well_under_bound_accepted(self) -> None:
+        """100 signals per message << 1024 → parses successfully."""
+        dbc = {
+            "version": "",
+            "messages": [{
+                "id": 100, "name": "M", "dlc": 8, "sender": "ECU",
+                "senders": [],
+                "signals": [
+                    {"name": f"S{i}", "startBit": i, "length": 1,
+                     "byteOrder": "little_endian", "signed": False,
+                     "presence": {"kind": "always"},
+                     "factor": {"numerator": 1, "denominator": 1},
+                     "offset": {"numerator": 0, "denominator": 1},
+                     "minimum": {"numerator": 0, "denominator": 1},
+                     "maximum": {"numerator": 1, "denominator": 1},
+                     "unit": "", "receivers": []}
+                    for i in range(64)  # 64 signals in an 8-byte message
+                ],
+            }],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
+        with AletheiaClient() as client:
+            r = client.parse_dbc(dbc)
+            assert r["status"] == "success", r
+
+    def test_empty_lists_accepted(self) -> None:
+        """Empty messages / attributes lists pass the bound check trivially
+        (length 0 < suc bound for any non-zero bound)."""
+        dbc = {
+            "version": "", "messages": [], "signalGroups": [],
+            "environmentVars": [], "valueTables": [], "nodes": [],
+            "comments": [], "attributes": [], "unresolvedValueDescs": [],
+        }
+        with AletheiaClient() as client:
+            r = client.parse_dbc(dbc)
+            assert r["status"] == "success", r
 
 
 class TestErrorCodes:

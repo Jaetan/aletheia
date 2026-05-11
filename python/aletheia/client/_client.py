@@ -71,7 +71,7 @@ from ._types import (
     validate_can_id,
     validate_payload_length,
 )
-from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_JSON_BYTES
+from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
@@ -321,7 +321,23 @@ class AletheiaClient(SignalOpsMixin):
 
         Mirrors :meth:`parse_dbc`'s response shape; both routes share the
         same Agda core post-B.3.f.
+
+        Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
+        rejects DBC text inputs longer than :data:`MAX_DBC_TEXT_BYTES` before
+        wrapping them in a JSON command, raising :class:`InputBoundExceededError`
+        with code ``"dbc_text_input_bound_exceeded"``.  The outer
+        :data:`MAX_JSON_BYTES` cap in :meth:`_send_command` still covers the
+        wrapped command separately; the additional inner cap matches the
+        Agda kernel's two-layer enforcement in ``handleParseDBCText``.
         """
+        text_bytes = text.encode("utf-8")
+        if len(text_bytes) > MAX_DBC_TEXT_BYTES:
+            raise InputBoundExceededError(
+                BOUND_KIND_INPUT_LENGTH_BYTES,
+                len(text_bytes),
+                MAX_DBC_TEXT_BYTES,
+                code="dbc_text_input_bound_exceeded",
+            )
         cmd: ParseDBCTextCommand = {"type": "command", "command": "parseDBCText", "text": text}
         return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))
 

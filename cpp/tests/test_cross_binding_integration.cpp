@@ -174,3 +174,36 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     auto xid = ExtendedId::create(0x20000000);
     CHECK_FALSE(xid.has_value());
 }
+
+// R19 cluster 8 phase e.1 — Identifier validity record enforces
+// max_identifier_length.  The Agda kernel's `validIdentifierᵇ` predicate
+// gained a third conjunct asserting `length name <ᵇ suc max-identifier-
+// length`.  Identifiers at the limit (128 chars) still parse; anything
+// longer is rejected at `mkIdentFromChars` and surfaces as a parse error
+// on the wire (currently `dbc_text_trailing_input` due to parser-monad
+// position semantics; refining to typed `InputBoundExceeded
+// IdentifierLength` is downstream parser-monad plumbing).
+
+TEST_CASE("identifier at max length is accepted", "[cross_binding][cluster8][e1]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    const std::string name(aletheia::max_identifier_length, 'A');
+    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
+    REQUIRE(result.has_value());
+    REQUIRE(result->dbc.messages.size() == 1);
+    CHECK(result->dbc.messages[0].name.get() == name);
+}
+
+TEST_CASE("identifier over max length is rejected", "[cross_binding][cluster8][e1]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    const std::string name(aletheia::max_identifier_length + 1, 'A');
+    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
+    REQUIRE_FALSE(result.has_value());
+}

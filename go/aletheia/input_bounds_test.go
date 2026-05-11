@@ -1,6 +1,7 @@
 package aletheia
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -265,5 +266,41 @@ func TestSerializeDBC_RejectsOversizeOutput(t *testing.T) {
 	}
 	if bex.Limit != MaxDBCTextBytes {
 		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+}
+
+// R19 cluster 8 (CPP-D-21.3 cross-binding parity): ParseDBCText pre-checks
+// the inner text size against MaxDBCTextBytes before wrapping it in a JSON
+// command, so the rejection carries the precise dbc_text_input_bound_exceeded
+// wire code and a Limit field matching the inner cap.
+
+func TestParseDBCText_RejectsOversizeText(t *testing.T) {
+	mock := NewMockBackend()
+	c, err := NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	bigText := strings.Repeat("x", MaxDBCTextBytes+1)
+	_, err = c.ParseDBCText(context.Background(), bigText)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
+		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
+	}
+	if bex.Limit != MaxDBCTextBytes {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+	if bex.Code != CodeDBCTextInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeDBCTextInputBoundExceeded)
 	}
 }

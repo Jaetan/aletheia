@@ -28,6 +28,7 @@ package aletheia
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -234,6 +235,38 @@ func TestCrossBinding_SendFrameError(t *testing.T) {
 	// CAN IDs and C++ returning an Error variant.
 	if _, err := NewExtendedID(0x20000000); err == nil {
 		t.Error("NewExtendedID(0x20000000): want error on out-of-range extended CAN ID, got nil")
+	}
+}
+
+// R19 cluster 8 phase e.1 — Identifier validity record enforces
+// MaxIdentifierLength. The Agda kernel's `validIdentifierᵇ` predicate
+// gained a third conjunct asserting `length name <ᵇ suc max-identifier-
+// length`. Identifiers at the limit (128 chars) still parse; anything
+// longer is rejected at `mkIdentFromChars` and surfaces as a parse
+// error on the wire (currently `dbc_text_trailing_input` due to parser
+// monad position semantics; refining to typed `InputBoundExceeded
+// IdentifierLength` is downstream parser-monad plumbing).
+
+func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
+	c := newCrossBindingClient(t)
+	name := strings.Repeat("A", MaxIdentifierLength)
+	dbcText := "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
+	parsed, err := c.ParseDBCText(context.Background(), dbcText)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if got := string(parsed.DBC.Messages[0].Name); got != name {
+		t.Errorf("Messages[0].Name length = %d, want %d", len(got), len(name))
+	}
+}
+
+func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
+	c := newCrossBindingClient(t)
+	name := strings.Repeat("A", MaxIdentifierLength+1)
+	dbcText := "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
+	_, err := c.ParseDBCText(context.Background(), dbcText)
+	if err == nil {
+		t.Fatal("expected parse error for 129-char identifier, got nil")
 	}
 }
 
