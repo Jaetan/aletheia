@@ -150,7 +150,7 @@ No findings.
 - `[ ]` AGDA-C-6.2 [src/Aletheia/Error.agda:66,183,356] `InputBoundExceeded : BoundKind → ℕ → ℕ → X` duplicated across 3 ADTs — lift to top-level Error
 - `[ ]` AGDA-C-6.3 [src/Aletheia/DBC/Validator/Checks.agda:506-541 + 551-567] 3 near-identical `checkUnknown*` functions — single helper
 - `[ ]` AGDA-C-6.4 [src/Aletheia/DBC/Formatter/MessageRoundtrip/{Standard,Extended}.agda] 72-line mirror twins — parameterise over CANId ctor
-- `[ ]` AGDA-C-6.5 [src/Aletheia/DBC/Formatter/MetadataRoundtrip.agda:153,189,217,242] 4 `-list-go` helpers identical template — `parseObjectList-roundtrip` combinator
+- `[x]` AGDA-C-6.5 [src/Aletheia/DBC/Formatter/MetadataRoundtrip.agda:153,189,217,242] 4 `-list-go` helpers identical template — closed by cluster 14 / AGDA-C-6.5 — added `parseObjectList-roundtrip` combinator in MetadataRoundtrip.agda; 4 per-entity `*-list-go` helpers (signalGroup / environmentVar / valueEntry / valueTable) collapsed to one-line combinator calls; combinator takes `formatter-eq` witness that `formatter ≡ JObject ∘ fields` (always `λ _ → refl` when formatter is `formatX x = JObject (...)` syntactically)
 - `[ ]` AGDA-C-6.6 [src/Aletheia/LTL/SimplifySound/Decomposition.agda] ≥5 And/Or-symmetric lemma pairs — extend `Aletheia.LTL.Semantics.Duality` (~150 LOC saving)
 
 #### Cat 27: Stdlib coverage & dedup (5)
