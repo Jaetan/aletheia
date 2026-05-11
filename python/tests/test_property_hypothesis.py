@@ -24,7 +24,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from _canonical_dbc import CANONICAL_SIGNAL
-from aletheia.client._helpers import dump_json
+from aletheia.client._helpers import dump_json, parse_rational
 from aletheia.protocols import DBCDefinition
 
 hypothesis.settings.register_profile("ci", max_examples=200)
@@ -110,6 +110,26 @@ def test_load_json_total_on_printable_ascii(payload: str) -> None:
         json.loads(payload)
     except (ValueError, TypeError, RuntimeError):
         pass  # documented error path, not a property failure
+
+
+@given(numerator=st.integers(min_value=-(10**18), max_value=10**18),
+       denominator=st.integers(min_value=-(10**18), max_value=10**18).filter(lambda d: d != 0))
+def test_parse_rational_normalises_to_positive_denominator(
+    numerator: int, denominator: int,
+) -> None:
+    """`parse_rational` canonicalises a rational dict to positive-denominator form.
+
+    The Agda kernel's DecRat stores denominators as ℕ (always positive) and
+    normalises sign-flip into the numerator (``Fraction(1, -2)`` →
+    ``-1/2``).  Python's ``parse_rational`` delegates to ``fractions.
+    Fraction``, which applies the same normalisation.  This test verifies
+    cross-binding parity over arbitrary signed-denominator inputs that the
+    wire format does not strictly forbid (R19 cluster 17 — PY-D-19.3).
+    """
+    rational_dict = {"numerator": numerator, "denominator": denominator}
+    parsed = parse_rational(rational_dict)
+    assert parsed.denominator > 0
+    assert parsed == Fraction(numerator, denominator)
 
 
 @given(numerator=st.integers(min_value=-(10**18), max_value=10**18),

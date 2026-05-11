@@ -237,6 +237,25 @@ def validate_rational(field_name: str, raw_value: object) -> RationalNumber:
     return {"numerator": n, "denominator": d}
 
 
+def validate_integer_rational(field_name: str, raw_value: object) -> RationalNumber:
+    """Validate a RationalNumber response field that must be integer-valued.
+
+    Same as :func:`validate_rational` plus a post-parse assertion that the
+    denominator is exactly ``1``.  Used for fields whose Agda-side type is
+    ``ℕ`` or ``ℤ`` (timestamps in microseconds, property indices) — they
+    arrive on the wire as a plain int or as ``{"numerator": N,
+    "denominator": 1}``, never with a fractional component.  A non-unit
+    denominator indicates a wire-format violation by the kernel.
+    """
+    rational = validate_rational(field_name, raw_value)
+    if rational["denominator"] != 1:
+        raise ProtocolError(
+            f"Expected {field_name} to be an integer (denominator == 1), "
+            + f"got {rational['numerator']}/{rational['denominator']}"
+        )
+    return rational
+
+
 def parse_rational(value_raw: object) -> Fraction:
     """Parse a value that may be a number, rational dict, or rational string.
 

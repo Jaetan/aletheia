@@ -71,6 +71,11 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "parse_rational",
     ),
     (
+        "test_property_hypothesis.py",
+        "aletheia.client._helpers",
+        "parse_rational",
+    ),
+    (
         "test_types_and_conditions.py",
         "aletheia.client._types",
         "validate_can_id",

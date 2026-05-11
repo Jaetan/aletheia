@@ -24,7 +24,7 @@ from ..protocols import (
     is_str_dict,
 )
 from ..validation import ValidationIssue
-from ._helpers import normalize_dbc, validate_rational
+from ._helpers import normalize_dbc, validate_integer_rational
 from ._log import LogEvent, log_event
 from ._types import ProtocolError
 
@@ -168,8 +168,8 @@ def parse_frame_response(
         prop_type = response.get("type")
         if prop_type != "property":
             raise ProtocolError(f"Expected type='property', got {prop_type}")
-        prop_index = validate_rational("property_index", response.get("property_index"))
-        ts_rational = validate_rational("timestamp", response.get("timestamp"))
+        prop_index = validate_integer_rational("property_index", response.get("property_index"))
+        ts_rational = validate_integer_rational("timestamp", response.get("timestamp"))
         result_violation: PropertyViolationResponse = {
             "status": "fails",
             "type": "property",
@@ -268,7 +268,7 @@ def parse_finalization_results(
             raise ProtocolError(
                 "Missing 'property_index' in finalization result entry"
             )
-        prop_index = validate_rational("property_index", raw_prop_index)
+        prop_index = validate_integer_rational("property_index", raw_prop_index)
         # entry_status is now narrowed to Literal["fails","holds","unresolved"]
         result_entry: PropertyResultEntry = {
             "type": "property",
@@ -278,7 +278,7 @@ def parse_finalization_results(
         if entry_status in ("fails", "unresolved"):
             ts = raw.get("timestamp")
             if ts is not None:
-                result_entry["timestamp"] = validate_rational("timestamp", ts)
+                result_entry["timestamp"] = validate_integer_rational("timestamp", ts)
             reason = raw.get("reason")
             if isinstance(reason, str):
                 result_entry["reason"] = reason
