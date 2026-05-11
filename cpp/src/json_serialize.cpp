@@ -25,13 +25,9 @@ namespace aletheia::detail {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static auto can_id_numeric(const CanId& id) -> std::uint32_t {
-    return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-}
-
-static auto can_id_extended(const CanId& id) -> bool {
-    return std::holds_alternative<ExtendedId>(id);
-}
+// (Both helpers consolidated 2026-05-11 per R19 cluster 14 / CPP-A-6.2 —
+// `can_id_value` / `can_id_is_extended` live in `<aletheia/types.hpp>`
+// and are pulled in via that header.)
 
 static auto rational_to_json(const Rational& r) -> Json {
     // Normalize via gcd so the wire shape is byte-identical with Python's
@@ -108,15 +104,15 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
     Json msg = {
-        {"id", can_id_numeric(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
-        {"sender", m.sender.get()},   {"senders", m.senders}, {"signals", std::move(sigs)},
+        {"id", can_id_value(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()}, {"senders", m.senders}, {"signals", std::move(sigs)},
     };
     // Mirror the Agda wire form: emit "extended" only when the CAN ID is
     // extended (29-bit). Agda omits the field for standard 11-bit frames;
     // its parser accepts both forms but the omit-when-false shape is
     // canonical (matches attach_can_id used for comment / attribute targets,
     // and the same convention enforced by the Python and Go bindings — B.3.j).
-    if (can_id_extended(m.id))
+    if (can_id_is_extended(m.id))
         msg["extended"] = true;
     return msg;
 }
@@ -319,10 +315,10 @@ static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
     Json entries = Json::array();
     for (const auto& e : rvd.entries)
         entries.push_back({{"value", e.value}, {"description", e.description}});
-    Json out = {{"id", can_id_numeric(rvd.can_id)},
+    Json out = {{"id", can_id_value(rvd.can_id)},
                 {"signalName", rvd.signal_name},
                 {"entries", std::move(entries)}};
-    if (can_id_extended(rvd.can_id))
+    if (can_id_is_extended(rvd.can_id))
         out["extended"] = true;
     return out;
 }
@@ -516,7 +512,7 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
     }
     return std::format(R"({{"type":"command","command":"extractAllSignals",)"
                        R"("canId":{},"extended":{},"dlc":{},"data":[{}]}})",
-                       can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
+                       can_id_value(id), can_id_is_extended(id) ? "true" : "false", dlc.value(),
                        data_str);
 }
 
@@ -545,7 +541,7 @@ auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<cons
     }
     return std::format(
         R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",
-        ts.count(), can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
+        ts.count(), can_id_value(id), can_id_is_extended(id) ? "true" : "false", dlc.value(),
         data_str);
 }
 
@@ -559,7 +555,7 @@ auto serialize_send_error(Timestamp ts) -> std::string {
 
 auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string {
     return std::format(R"({{"type":"remote","timestamp":{},"id":{},"extended":{}}})", ts.count(),
-                       can_id_numeric(id), can_id_extended(id) ? "true" : "false");
+                       can_id_value(id), can_id_is_extended(id) ? "true" : "false");
 }
 
 } // namespace aletheia::detail

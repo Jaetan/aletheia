@@ -143,9 +143,8 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
     signal_index_.clear();
     signal_names_.clear();
     for (const auto& msg : dbc.messages) {
-        auto id_value =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, msg.id);
-        auto is_extended = std::holds_alternative<ExtendedId>(msg.id);
+        auto id_value = can_id_value(msg.id);
+        auto is_extended = can_id_is_extended(msg.id);
         std::vector<std::string> names;
         names.reserve(msg.signals.size());
         for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
@@ -356,8 +355,8 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
     // ErrorKind::BinaryUnsupported (e.g. MockBackend) triggers the JSON
     // fallback — any other error (decode / truncation / real FFI failure)
     // propagates, matching Go's ErrBinaryPathUnsupported contract.
-    auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-    auto is_extended = std::holds_alternative<ExtendedId>(id);
+    auto id_value = can_id_value(id);
+    auto is_extended = can_id_is_extended(id);
     auto names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
         auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
@@ -382,8 +381,8 @@ auto AletheiaClient::ResolvedSignals::injection() const -> SignalInjection {
 
 auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> signals)
     -> Result<ResolvedSignals> {
-    auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-    auto is_extended = std::holds_alternative<ExtendedId>(id);
+    auto id_value = can_id_value(id);
+    auto is_extended = can_id_is_extended(id);
 
     ResolvedSignals resolved;
     resolved.indices.reserve(signals.size());
@@ -522,8 +521,8 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
     auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
-        auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        auto is_extended = std::holds_alternative<ExtendedId>(id);
+        auto id_value = can_id_value(id);
+        auto is_extended = can_id_is_extended(id);
         // Track last frame per CAN ID for end-of-stream enrichment (skip when no diagnostics).
         if (!diags_.empty())
             last_frames_.insert_or_assign(
@@ -605,7 +604,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
             {{"ts", static_cast<std::int64_t>(ts.count())},
              {"canId", static_cast<std::uint64_t>(std::visit(
                            [](const auto& v) -> std::uint32_t { return v.value(); }, id))},
-             {"extended", std::holds_alternative<ExtendedId>(id)},
+             {"extended", can_id_is_extended(id)},
              {"response", std::string_view{"ack"}}});
     }
     return r;

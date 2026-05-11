@@ -188,6 +188,22 @@ public:
 
 using CanId = std::variant<StandardId, ExtendedId>;
 
+/// Extract the underlying 11- or 29-bit value from a CanId, regardless
+/// of standard vs extended discrimination.  Replaces the
+/// `std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id)`
+/// pattern repeated across the source tree (R19 cluster 14 / CPP-A-6.2).
+[[nodiscard]] constexpr auto can_id_value(const CanId& id) -> std::uint32_t {
+    return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+}
+
+/// Returns true when the CanId carries an `ExtendedId` (29-bit) variant,
+/// false for `StandardId` (11-bit).  Replaces
+/// `std::holds_alternative<ExtendedId>(id)` site-by-site (R19 cluster 14
+/// / CPP-A-6.2).
+[[nodiscard]] constexpr auto can_id_is_extended(const CanId& id) -> bool {
+    return std::holds_alternative<ExtendedId>(id);
+}
+
 // ---------------------------------------------------------------------------
 // Timestamp: microseconds since trace start (chrono, not bare integer)
 // ---------------------------------------------------------------------------

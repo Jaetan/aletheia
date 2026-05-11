@@ -297,7 +297,7 @@ No findings.
 
 #### Cat 6: Redundant patterns
 - `[x]` CPP-A-6.1 (= CPP-A-1.1) FFI-string deleter pattern × 8 — closed by CPP-A-1.1 (same finding, different cat label)
-- `[ ]` CPP-A-6.2 [cpp/src/client.cpp + dbc.cpp + json_serialize.cpp + ffi_backend.cpp] `std::visit([](const auto& v) → uint32_t { return v.value(); }, id)` + `holds_alternative<ExtendedId>(id)` ~12 sites; promote `can_id_value`/`can_id_is_extended` to `aletheia::detail::` or types.hpp
+- `[x]` CPP-A-6.2 [cpp/src/client.cpp + dbc.cpp + json_serialize.cpp + ffi_backend.cpp] — closed by cluster 14 / CPP-A-6.2 — promoted `can_id_value(CanId) -> uint32_t` and `can_id_is_extended(CanId) -> bool` to `<aletheia/types.hpp>` as `constexpr [[nodiscard]]` free functions; ~14 sites refactored across ffi_backend.cpp / client.cpp / dbc.cpp / json_serialize.cpp; dropped json_serialize.cpp's private duplicates `can_id_numeric` / `can_id_extended`; dropped now-unused `#include <variant>` in ffi_backend.cpp
 
 #### Cat 30: Logging discipline
 - `[ ]` CPP-A-30.1 [docs/LOG_EVENTS.yaml:94 vs cpp/include/aletheia/client.hpp:167-172] `cache.full` description says "evicted oldest entry"; C++ implementation doesn't evict (= GO-A-30.1)

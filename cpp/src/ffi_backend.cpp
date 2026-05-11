@@ -18,7 +18,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace aletheia {
@@ -268,10 +267,8 @@ public:
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
         // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
         // malformed caller cannot smuggle 65–255 byte payloads into the
@@ -295,10 +292,8 @@ public:
 
     auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         return wrap_str_result(send_remote_fn_(state, timestamp, can_id, extended),
                                "aletheia_send_remote returned null");
     }
@@ -319,10 +314,8 @@ public:
 
     auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
         // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
         // malformed caller cannot smuggle 65–255 byte payloads into the
@@ -341,10 +334,8 @@ public:
     auto build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
                          std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
@@ -368,10 +359,8 @@ public:
                 AletheiaError{ErrorKind::Validation, "data length exceeds " +
                                                          std::to_string(max_can_fd_payload_bytes) +
                                                          " bytes (CAN-FD max)"});
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         std::vector<std::byte> buf(expected_bytes);
@@ -395,10 +384,8 @@ public:
                 AletheiaError{ErrorKind::Validation, "data length exceeds " +
                                                          std::to_string(max_can_fd_payload_bytes) +
                                                          " bytes (CAN-FD max)"});
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         std::uint8_t* out_buf = nullptr;
