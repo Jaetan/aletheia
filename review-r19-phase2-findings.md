@@ -195,7 +195,7 @@ No findings.
 - `[ ]` GO-A-5.5 [go/aletheia/error.go:8-13] `ErrBinaryPathUnsupported` is the only sentinel; consider `ErrClientClosed` for discoverability
 
 #### Cat 6: Redundant patterns
-- `[ ]` GO-A-6.1 [go/aletheia/client.go: 15 sites] `c.lock(ctx); defer c.unlock(); if err := ctx.Err()...` boilerplate × 15 — `c.acquire(ctx, name)` helper
+- `[x]` GO-A-6.1 [go/aletheia/client.go: 15 sites] `c.lock(ctx); defer c.unlock(); if err := ctx.Err()...` boilerplate × 15 — closed by cluster 14 / GO-A-6.1 — new `(c *Client) acquire(ctx, name) (release func(), err error)` helper combines lock + post-acquire ctx.Err() recheck + name-prefixed error wrap into a single call; 15 sites refactored from 7-line pattern to 5-line pattern (net -10 lines after +20-line helper); behavior preserved including TOCTOU-tightening recheck
 - `[ ]` GO-A-6.2 [go/aletheia/{dbc,error,result,types}.go] 6 iota-enum types each hand-roll `String()` — codegen candidate
 - `[ ]` GO-A-6.3 [go/aletheia/json.go: 8 sites] Tier 1/2 array parsers share shape — generic `parseObjects[T any]`
 

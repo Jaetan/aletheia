@@ -133,6 +133,27 @@ func (c *Client) unlock() {
 	<-c.lockCh
 }
 
+// acquire combines [Client.lock] + post-lock context recheck into a
+// single helper.  Returns a release closure the caller defers; the
+// release is a no-op when err is non-nil (lock was either never held
+// or already released by acquire before returning).
+//
+// Behavior matches the previous open-coded `c.lock(ctx); defer
+// c.unlock(); ctx.Err()` triple — including the TOCTOU-tightening
+// recheck that catches ctx cancellation between lock acquisition and
+// the next FFI call (R19 cluster 14 / GO-A-6.1).  The name parameter
+// is the public method name used for error-wrap prefixing.
+func (c *Client) acquire(ctx context.Context, name string) (release func(), err error) {
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if err := ctx.Err(); err != nil {
+		c.unlock()
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return c.unlock, nil
+}
+
 // IsClosed reports whether [Client.Close] has been called.  Acquires
 // the same internal lock as the data-path operations so the answer
 // reflects committed state (no torn reads).  Cross-binding parity
@@ -257,13 +278,11 @@ func (c *Client) ParseDBC(ctx context.Context, dbc DBCDefinition) (*ParsedDBC, e
 	if err != nil {
 		return nil, err
 	}
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("ParseDBC: %w", err)
+	release, err := c.acquire(ctx, "ParseDBC")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("ParseDBC: %w", err)
-	}
+	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -307,13 +326,11 @@ func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, err
 	if err != nil {
 		return nil, err
 	}
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("ParseDBCText: %w", err)
+	release, err := c.acquire(ctx, "ParseDBCText")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("ParseDBCText: %w", err)
-	}
+	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -346,13 +363,11 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 	if err != nil {
 		return nil, err
 	}
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("ValidateDBC: %w", err)
+	release, err := c.acquire(ctx, "ValidateDBC")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("ValidateDBC: %w", err)
-	}
+	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -365,13 +380,11 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("FormatDBC: %w", err)
+	release, err := c.acquire(ctx, "FormatDBC")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("FormatDBC: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -400,13 +413,11 @@ func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (string, 
 	if err != nil {
 		return "", err
 	}
-	if err := c.lock(ctx); err != nil {
-		return "", fmt.Errorf("FormatDBCText: %w", err)
+	release, err := c.acquire(ctx, "FormatDBCText")
+	if err != nil {
+		return "", err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("FormatDBCText: %w", err)
-	}
+	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return "", err
@@ -423,13 +434,11 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("ExtractSignals: %w", err)
+	release, err := c.acquire(ctx, "ExtractSignals")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("ExtractSignals: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -462,13 +471,11 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) BuildFrame(ctx context.Context, id CANID, signals []SignalValue, dlc DLC) (FramePayload, error) {
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("BuildFrame: %w", err)
+	release, err := c.acquire(ctx, "BuildFrame")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("BuildFrame: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -491,13 +498,11 @@ func (c *Client) UpdateFrame(ctx context.Context, id CANID, dlc DLC, data FrameP
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("UpdateFrame: %w", err)
+	release, err := c.acquire(ctx, "UpdateFrame")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("UpdateFrame: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -540,13 +545,11 @@ func (c *Client) SetProperties(ctx context.Context, properties []Formula) error 
 	}
 	// Hold lock for both the backend call and the diagnostics update
 	// to prevent SendFrame from seeing stale diags between the two.
-	if err := c.lock(ctx); err != nil {
-		return fmt.Errorf("SetProperties: %w", err)
+	release, err := c.acquire(ctx, "SetProperties")
+	if err != nil {
+		return err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("SetProperties: %w", err)
-	}
+	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return err
@@ -588,13 +591,11 @@ func (c *Client) AddChecks(ctx context.Context, checks []CheckResult) error {
 func (c *Client) StartStream(ctx context.Context) error {
 	// Hold lock for both the backend call and the cache clear
 	// to prevent SendFrame from using a stale cache.
-	if err := c.lock(ctx); err != nil {
-		return fmt.Errorf("StartStream: %w", err)
+	release, err := c.acquire(ctx, "StartStream")
+	if err != nil {
+		return err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("StartStream: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return stateError("client is closed")
 	}
@@ -629,13 +630,11 @@ func (c *Client) StartStream(ctx context.Context) error {
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) SendFrame(ctx context.Context, ts Timestamp, id CANID, dlc DLC, data FramePayload) (FrameResponse, error) {
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("SendFrame: %w", err)
+	release, err := c.acquire(ctx, "SendFrame")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("SendFrame: %w", err)
-	}
+	defer release()
 	return c.sendFrameLocked(ctx, ts, id, dlc, data)
 }
 
@@ -652,13 +651,11 @@ func (c *Client) SendFrame(ctx context.Context, ts Timestamp, id CANID, dlc DLC,
 // sent to the FFI; the caller can resume by re-calling SendFrames with the
 // uncommitted suffix.
 func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameResponse, error) {
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("SendFrames: %w", err)
+	release, err := c.acquire(ctx, "SendFrames")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("SendFrames: %w", err)
-	}
+	defer release()
 	results := make([]FrameResponse, 0, len(frames))
 	for i, f := range frames {
 		// Per-frame ctx check between FFI calls — the cancellation
@@ -682,13 +679,11 @@ func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameRespons
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
-	if err := c.lock(ctx); err != nil {
-		return fmt.Errorf("SendError: %w", err)
+	release, err := c.acquire(ctx, "SendError")
+	if err != nil {
+		return err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("SendError: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return stateError("client is closed")
 	}
@@ -715,13 +710,11 @@ func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CANID) error {
-	if err := c.lock(ctx); err != nil {
-		return fmt.Errorf("SendRemote: %w", err)
+	release, err := c.acquire(ctx, "SendRemote")
+	if err != nil {
+		return err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("SendRemote: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return stateError("client is closed")
 	}
@@ -795,13 +788,11 @@ func (c *Client) sendFrameLocked(ctx context.Context, ts Timestamp, id CANID, dl
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("EndStream: %w", err)
+	release, err := c.acquire(ctx, "EndStream")
+	if err != nil {
+		return nil, err
 	}
-	defer c.unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("EndStream: %w", err)
-	}
+	defer release()
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
