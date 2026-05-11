@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignalAlways
 
 CANONICAL_SIGNAL: DBCSignalAlways = {
@@ -45,13 +46,7 @@ def make_dbc(*, msg_id: int = 256, sender: str = "ECU") -> DBCDefinition:
     return {
         "version": "1.0",
         "messages": [msg],
-        "signalGroups": [],
-        "environmentVars": [],
-        "valueTables": [],
-        "nodes": [],
-        "comments": [],
-        "attributes": [],
-        "unresolvedValueDescs": [],
+        **empty_dbc_tier2(),
     }
 
 

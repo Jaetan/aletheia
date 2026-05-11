@@ -68,6 +68,7 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
+from ._dbc_types import empty_dbc_tier2
 from .protocols import (
     DBCDefinition,
     DBCMessage,
@@ -570,11 +571,5 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
     return {
         "version": "",
         "messages": messages,
-        "signalGroups": [],
-        "environmentVars": [],
-        "valueTables": [],
-        "nodes": [],
-        "comments": [],
-        "attributes": [],
-        "unresolvedValueDescs": [],
+        **empty_dbc_tier2(),
     }
