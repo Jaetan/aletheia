@@ -12,14 +12,29 @@ from .validation import ValidationIssue
 
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
-    """Narrow ``object`` to ``dict[str, object]``."""
+    """Narrow ``object`` to ``dict[str, object]``.
+
+    Returns:
+        ``True`` when *val* is a ``dict`` and every key is a ``str`` —
+        the precondition for safe ``dict.get(key)`` calls under
+        ``object`` keys.  The check is one ``isinstance`` plus a key
+        scan; not free for large dicts but the values are O(1) to
+        access afterwards under the narrowed type.
+    """
     return isinstance(val, dict) and all(
         isinstance(k, str) for k in cast(dict[object, object], val)
     )
 
 
 def is_object_list(val: object) -> TypeGuard[list[object]]:
-    """Narrow ``object`` to ``list[object]``, avoiding ``list[Unknown]``."""
+    """Narrow ``object`` to ``list[object]``, avoiding ``list[Unknown]``.
+
+    Returns:
+        ``True`` when *val* is a ``list``.  Element types remain
+        ``object``; the caller is responsible for per-element narrowing
+        before accessing them.  Used to dispatch on "is this a JSON
+        array" before iterating.
+    """
     return isinstance(val, list)
 
 
@@ -679,7 +694,14 @@ class SignalValue(TypedDict):
 
 
 class SignalError(TypedDict):
-    """Signal name-error pair for extraction errors"""
+    """Signal name-error pair for extraction failures.
+
+    Emitted when the Agda core cannot compute a signal value on a given
+    frame (DLC mismatch, bit range outside payload, unknown signal name
+    against the current DBC).  ``error`` is the human-readable reason
+    string from the core; pair with :class:`SignalValue` in extraction
+    responses, where successful and failed signals share one envelope.
+    """
     name: str
     error: str
 

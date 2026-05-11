@@ -112,6 +112,9 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
         """Signal must settle between *lo* and *hi* within *time_ms* ms.
 
         Compiles to ``Signal(s).between(lo, hi).for_at_least(time_ms)``.
+
+        Raises:
+            ValueError: ``time_ms`` is negative.
         """
         require_non_negative_time_ms(time_ms)
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)

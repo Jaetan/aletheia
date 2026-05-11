@@ -274,7 +274,14 @@ class Predicate:
     """
 
     def __init__(self, formula: LTLFormula) -> None:
-        """Internal constructor - use Signal methods instead"""
+        """Construct a Predicate wrapping a finished LTLFormula dict.
+
+        Not part of the public API — call ``Signal(name).equals(v)``
+        (or any other comparison method) instead.  Direct callers must
+        supply a fully-formed LTLFormula matching the Agda JSON schema;
+        the stored ``_formula`` is assumed to be schema-valid and is
+        passed verbatim to the kernel via ``to_formula()``.
+        """
         self._formula: LTLFormula = formula
 
     def to_formula(self) -> LTLFormula:
@@ -347,6 +354,9 @@ class Predicate:
         Returns:
             Bounded temporal property
 
+        Raises:
+            ValueError: ``time_ms`` is negative.
+
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
@@ -369,6 +379,9 @@ class Predicate:
 
         Returns:
             Bounded temporal property
+
+        Raises:
+            ValueError: ``time_ms`` is negative.
 
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
@@ -534,7 +547,17 @@ class Property:
     """
 
     def __init__(self, formula: LTLFormula) -> None:
-        """Internal constructor - use Predicate methods instead"""
+        """Construct a Property wrapping a finished LTLFormula dict.
+
+        Not part of the public API — derive Properties via temporal
+        combinators on a :class:`Predicate` (``always`` / ``eventually``
+        / ``never`` / ``within`` / ``for_at_least`` / ``metric_until``
+        / ``metric_release``) or via composition operators (``and_``
+        / ``or_`` / ``not_`` / ``implies``).  Direct callers must
+        supply a fully-formed LTLFormula matching the Agda JSON schema;
+        the stored ``_formula`` is assumed to be schema-valid and is
+        passed verbatim to the kernel via ``to_formula()``.
+        """
         self._formula: LTLFormula = formula
 
     def to_formula(self) -> LTLFormula:
@@ -651,6 +674,9 @@ class Property:
         Returns:
             Metric Until property
 
+        Raises:
+            ValueError: ``time_ms`` is negative.
+
         Example:
             # Speed must stay above 50 until brake within 1000ms
             speed_ok.metric_until(1000, brake_pressed)
@@ -673,6 +699,9 @@ class Property:
 
         Returns:
             Metric Release property
+
+        Raises:
+            ValueError: ``time_ms`` is negative.
 
         Example:
             # Brake must be engaged until ignition releases it, within 5000ms

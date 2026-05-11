@@ -193,7 +193,14 @@ def format_timestamp(us: int) -> str:
 
 
 def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
-    """Load DBC definition from --dbc or --excel flag."""
+    """Load a DBC definition from the parsed CLI namespace.
+
+    Dispatches on which of ``--dbc`` / ``--excel`` is set.  Excel
+    workbooks are routed through :func:`load_dbc_from_excel`; ``.dbc``
+    text files are parsed by :func:`dbc_to_json`.  Calls :func:`_die`
+    (exit code 2) when neither flag is set or the named path does not
+    exist — no exception escapes back to the caller.
+    """
     dbc_path: str | None = getattr(args, "dbc", None)
     excel_path: str | None = getattr(args, "excel", None)
 

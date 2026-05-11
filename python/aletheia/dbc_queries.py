@@ -11,24 +11,43 @@ from .protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexe
 
 
 def is_multiplexed(msg: DBCMessage) -> bool:
-    """Return True if the message contains any multiplexed signals."""
+    """Return ``True`` when *msg* contains any multiplexed signals.
+
+    A multiplexed signal is one whose presence in a frame depends on the
+    value of a multiplexor signal (DBC ``M`` / ``m<value>`` annotations).
+    """
     return any(
         s.get("multiplexor") is not None for s in msg["signals"]
     )
 
 
 def always_present_signals(msg: DBCMessage) -> list[DBCSignal]:
-    """Return signals that are present in every frame (not multiplexed)."""
+    """Return the signals that are present in every frame of *msg*.
+
+    Always-present signals have no ``multiplexor`` field — they appear in
+    the message body regardless of any multiplexor value.  Complements
+    :func:`multiplexed_signals`; their union is ``msg["signals"]``.
+    """
     return [s for s in msg["signals"] if s.get("multiplexor") is None]
 
 
 def multiplexed_signals(msg: DBCMessage) -> list[DBCSignal]:
-    """Return signals that are conditionally present (multiplexed)."""
+    """Return the signals whose presence is conditional on a multiplexor.
+
+    A signal is multiplexed when its dict carries a ``multiplexor`` field
+    naming the controlling signal and a ``multiplex_values`` list of the
+    values that activate it.  Complements :func:`always_present_signals`.
+    """
     return [s for s in msg["signals"] if s.get("multiplexor") is not None]
 
 
 def multiplexor_names(msg: DBCMessage) -> list[str]:
-    """Return distinct multiplexor signal names, in order of first occurrence."""
+    """Return the distinct multiplexor signal names referenced by *msg*.
+
+    Order is by first occurrence in ``msg["signals"]`` — stable across
+    repeated calls and matches the Go binding's ``DBCMessage.
+    MultiplexorNames`` output for the same DBC.
+    """
     seen: set[str] = set()
     out: list[str] = []
     for s in msg["signals"]:
@@ -40,7 +59,12 @@ def multiplexor_names(msg: DBCMessage) -> list[str]:
 
 
 def mux_values(msg: DBCMessage, multiplexor: str) -> list[int]:
-    """Return all multiplex values for the given multiplexor, in order of first occurrence."""
+    """Return the multiplex values associated with *multiplexor* in *msg*.
+
+    Values are deduplicated and returned in order of first occurrence
+    across the multiplexed signals.  Returns an empty list when no
+    multiplexed signal references the named multiplexor.
+    """
     seen: set[int] = set()
     out: list[int] = []
     for s in msg["signals"]:
@@ -55,10 +79,12 @@ def mux_values(msg: DBCMessage, multiplexor: str) -> list[int]:
 def signals_for_mux_value(
     msg: DBCMessage, multiplexor: str, value: int
 ) -> list[DBCSignal]:
-    """Return signals present when the multiplexor has the given value.
+    """Return the signals present when *multiplexor* has *value*.
 
-    Includes all always-present signals plus multiplexed signals matching
-    the multiplexor and value.
+    Includes every always-present signal plus the multiplexed signals
+    whose ``multiplex_values`` list contains *value* and whose
+    ``multiplexor`` field equals the supplied name.  Mirrors Go's
+    ``DBCMessage.SignalsForMuxValue``.
     """
     out: list[DBCSignal] = []
     for s in msg["signals"]:
@@ -73,7 +99,14 @@ def signals_for_mux_value(
 def message_by_id(
     dbc: DBCDefinition, can_id: int, *, extended: bool = False
 ) -> DBCMessage | None:
-    """Return the first message with the given CAN ID, or None if not found."""
+    """Look up a message by its CAN ID + extended flag.
+
+    Returns the first matching ``DBCMessage`` dict by linear scan, or
+    ``None`` when no message in *dbc* has both ``id == can_id`` and the
+    requested extended flag.  Unlike the Go binding the returned dict
+    is a reference into *dbc*'s ``messages`` list — mutating it mutates
+    the underlying definition.
+    """
     for msg in dbc["messages"]:
         if msg["id"] == can_id and msg.get("extended", False) == extended:
             return msg
@@ -81,7 +114,12 @@ def message_by_id(
 
 
 def message_by_name(dbc: DBCDefinition, name: str) -> DBCMessage | None:
-    """Return the first message with the given name, or None if not found."""
+    """Look up a message by its DBC ``BO_`` name.
+
+    Returns the first matching ``DBCMessage`` dict by linear scan, or
+    ``None`` when no message has ``name == name``.  The returned dict
+    is a reference into *dbc*'s ``messages`` list (no copy).
+    """
     for msg in dbc["messages"]:
         if msg["name"] == name:
             return msg
@@ -89,7 +127,12 @@ def message_by_name(dbc: DBCDefinition, name: str) -> DBCMessage | None:
 
 
 def signal_by_name(msg: DBCMessage, name: str) -> DBCSignal | None:
-    """Return the first signal with the given name, or None if not found."""
+    """Look up a signal by its DBC ``SG_`` name within *msg*.
+
+    Returns the first matching ``DBCSignal`` dict by linear scan, or
+    ``None`` when no signal has ``name == name``.  The returned dict
+    is a reference into *msg*'s ``signals`` list (no copy).
+    """
     for s in msg["signals"]:
         if s["name"] == name:
             return s

@@ -393,12 +393,12 @@ No findings.
 No findings (PEP 8 conformant).
 
 #### Cat 3: Doc strings
-- `[ ]` PY-A-3.1 [python/aletheia/protocols.py:670-684] `SignalValue/SignalError` TypedDicts have one-line docstrings vs richer peers
-- `[ ]` PY-A-3.2 [python/aletheia/cli.py:189] `_load_dbc` docstring doesn't document `_die`-on-missing-file branch
-- `[ ]` PY-A-3.3 [python/aletheia/checks.py:101-113 + dsl.py:343/367/651/675] Missing `Raises:` sections
-- `[ ]` PY-A-3.4 [python/aletheia/protocols.py:14-23] `is_str_dict`/`is_object_list` lack `Returns:` for TypeGuard
-- `[ ]` PY-A-3.5 [python/aletheia/dbc_queries.py:13-96] 8 query fns one-line docstrings; Go richer
-- `[ ]` PY-A-3.6 [python/aletheia/dsl.py:266-269] Internal-constructor docstrings don't document `_data` invariant
+- `[x]` PY-A-3.1 [python/aletheia/protocols.py:670-684] `SignalValue/SignalError` TypedDicts have one-line docstrings vs richer peers — closed by cluster 17 docstring sub-batch — `SignalError` docstring expanded to explain when/why it's emitted (DLC mismatch / bit range / unknown signal) and its pairing with `SignalValue`; `SignalValue` was already richer (Fraction rationale).
+- `[x]` PY-A-3.2 [python/aletheia/cli.py:189] `_load_dbc` docstring doesn't document `_die`-on-missing-file branch — closed by cluster 17 docstring sub-batch — docstring expanded to document the dispatch on `--dbc` / `--excel` flags, the path through `load_dbc_from_excel` vs `dbc_to_json`, and the `_die`-on-missing-file / missing-flag branch.
+- `[x]` PY-A-3.3 [python/aletheia/checks.py:101-113 + dsl.py:343/367/651/675] Missing `Raises:` sections — closed by cluster 17 docstring sub-batch — added `Raises: ValueError: time_ms is negative` sections to `SettlesBuilder.within` (checks.py:111) and the 4 dsl.py time-bounded methods (`Predicate.within` / `Predicate.for_at_least` / `Property.metric_until` / `Property.metric_release`).
+- `[x]` PY-A-3.4 [python/aletheia/protocols.py:14-23] `is_str_dict`/`is_object_list` lack `Returns:` for TypeGuard — closed by cluster 17 docstring sub-batch — added `Returns:` blocks to both TypeGuards explaining what each narrows to and what caller responsibilities remain (per-key str scan for `is_str_dict`; per-element narrowing for `is_object_list`).
+- `[x]` PY-A-3.5 [python/aletheia/dbc_queries.py:13-96] 8 query fns one-line docstrings; Go richer — closed by cluster 17 docstring sub-batch — all 8 query function docstrings (`is_multiplexed`, `always_present_signals`, `multiplexed_signals`, `multiplexor_names`, `mux_values`, `signals_for_mux_value`, `message_by_id`, `message_by_name`, `signal_by_name`) expanded with role / parameter semantics / "reference vs copy" caveat to match Go's `DBCMessage` method richness.
+- `[x]` PY-A-3.6 [python/aletheia/dsl.py:266-269] Internal-constructor docstrings don't document `_data` invariant — closed by cluster 17 docstring sub-batch — `Predicate.__init__` and `Property.__init__` docstrings expanded to document the schema-validity invariant on `_formula` (renamed from `_data` per PY-D-15.4) and explicitly redirect callers to `Signal(name)` builders / temporal combinators.
 
 #### Cat 4: Style
 - `[ ]` PY-A-4.1 [python/aletheia/dsl.py:46,52-58] Single-quoted dict keys (`'operator'`) vs project's double quotes elsewhere
