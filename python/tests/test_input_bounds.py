@@ -428,6 +428,20 @@ class TestErrorCodes:
         """Top-level adversarial-input bound wire code."""
         assert ErrorCode.INPUT_BOUND_EXCEEDED == "input_bound_exceeded"
 
+    def test_bound_kind_constants(self) -> None:
+        """``BOUND_KIND_*`` wire-payload discriminators (canonical strings).
+
+        These are the structured-payload discriminator values that
+        replaced the per-ADT wire codes in cluster 14 / AGDA-C-6.2.
+        """
+        assert limits.BOUND_KIND_INPUT_LENGTH_BYTES == "input_length_bytes"
+        assert limits.BOUND_KIND_NESTING_DEPTH == "nesting_depth"
+        assert limits.BOUND_KIND_ARRAY_CARDINALITY == "array_cardinality"
+        assert limits.BOUND_KIND_IDENTIFIER_LENGTH == "identifier_length"
+        assert limits.BOUND_KIND_STRING_LENGTH == "string_length"
+        assert limits.BOUND_KIND_ATOM_COUNT == "atom_count"
+        assert limits.BOUND_KIND_FRAME_BYTE_COUNT == "frame_byte_count"
+
 
 class TestPythonLoaderBoundChecks:
     """Per-loader bound checks fire and raise ``InputBoundExceededError``.
