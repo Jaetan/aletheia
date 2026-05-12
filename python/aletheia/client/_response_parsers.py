@@ -23,7 +23,7 @@ from ..protocols import (
     is_object_list,
     is_str_dict,
 )
-from ..validation import ValidationIssue
+from ..issue_codes import ValidationIssue
 from ._helpers import normalize_dbc, validate_integer_rational
 from ._log import LogEvent, log_event
 from ._types import ProtocolError

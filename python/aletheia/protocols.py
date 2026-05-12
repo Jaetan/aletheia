@@ -62,7 +62,7 @@ from ._dbc_types import (
     DLCCode,
     SignalPresence,
 )
-from .validation import ValidationIssue
+from .issue_codes import ValidationIssue
 
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:

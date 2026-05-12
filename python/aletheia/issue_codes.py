@@ -1,14 +1,10 @@
 """DBC validation issue types — severity, code, and single-issue record.
 
-Split out of ``protocols.py`` at Track E.11 (2026-05-08) when CHECK 23
-(``UnknownValueDescriptionTarget``) plus the CHECK 21 mirror gap fix
-(``UnknownSignalReceiver``) pushed ``protocols.py`` over the 1000-line
-pylint threshold.  Per ``feedback_no_weak_config_bumps.md``, splitting
-is the response to a tripped lint threshold — not bumping the limit.
-
-The public ``aletheia`` package re-exports ``IssueCode`` and
-``ValidationIssue`` from here (see ``__init__.py``); ``IssueSeverity`` is
-accessible as ``aletheia.validation.IssueSeverity``.
+Mirror of the Agda ``IssueCode`` ADT and the Go ``Issue*`` constants in
+``go/aletheia/result.go`` / C++ ``IssueCode`` enum in
+``cpp/include/aletheia/validation.hpp``.  The public ``aletheia`` package
+re-exports ``IssueCode`` and ``ValidationIssue`` (see ``__init__.py``);
+``IssueSeverity`` is accessible as ``aletheia.issue_codes.IssueSeverity``.
 """
 
 from enum import Enum

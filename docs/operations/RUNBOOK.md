@@ -463,7 +463,7 @@ codified in `Aletheia.DBC.Validator`.
 **Action:** Run `aletheia validate --dbc <file>` (or the binding
 equivalent) to enumerate issues. Each issue carries a stable
 `IssueCode` mapped across all three bindings — see the
-`IssueCode` enum (`python/aletheia/validation.py`,
+`IssueCode` enum (`python/aletheia/issue_codes.py`,
 `go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.

@@ -49,7 +49,7 @@ from .protocols import (
     PropertyViolationResponse,
     RationalNumber,
 )
-from .validation import IssueSeverity, ValidationIssue
+from .issue_codes import IssueSeverity, ValidationIssue
 
 if TYPE_CHECKING:
     # Type-only imports for the lazy helpers below — these are not available

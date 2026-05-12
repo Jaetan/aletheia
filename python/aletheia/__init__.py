@@ -88,7 +88,7 @@ from .protocols import (
     DBCDefinition,
     PropertyResultEntry,
 )
-from .validation import IssueCode, ValidationIssue
+from .issue_codes import IssueCode, ValidationIssue
 from .dbc_queries import (
     is_multiplexed,
     always_present_signals,

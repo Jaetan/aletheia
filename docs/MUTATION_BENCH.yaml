@@ -41,7 +41,7 @@ bindings:
       - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
       - python/aletheia/dbc_converter.py
       - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
-      - python/aletheia/validation.py        # NEW from Track E.11 (CHECK 23 IssueCode mirror)
+      - python/aletheia/issue_codes.py       # NEW from Track E.11 (CHECK 23 IssueCode mirror)
       - python/aletheia/protocols.py
     config:
       # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
