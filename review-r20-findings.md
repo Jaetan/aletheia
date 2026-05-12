@@ -723,9 +723,9 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 366. `[FIX]` DOC-A-1.5 — ✅ Cluster E: 34 → 38.
 367. `[FIX]` DOC-A-1.6 — ✅ Cluster E: 17 → 28.
 368. `[FIX]` DOC-A-1.7 — ✅ Cluster E: 1263 → 1440 (826 + 331 + 283).
-369. `[ ]` DOC-A-1.8 [FIX] — `cpp/README.md:32` `aletheia::Client client{...};` — actual class is `AletheiaClient`; example would not compile. Full Quick-start fence at L28-46 predates Track C.4 `stop_token`-first BREAKING.
-370. `[ ]` DOC-A-1.9 [FIX] — `go/README.md:43` `client.SendFrame(ctx, f.Timestamp, ...)` — 5-arg form; actual 7-arg post cluster 18.
-371. `[ ]` DOC-A-1.10 [FIX] — `docs/architecture/CANCELLATION.md:67-69, 85-87` — Go + C++ SendFrame signatures stale (missing BRS/ESI).
+369. `[FIX]` DOC-A-1.8 — ✅ Cluster G: Quick-start fence rebuilt — `AletheiaClient` + `std::stop_token{}` first arg + `parse_dbc_text` + `Frame` overload of `send_frame`.
+370. `[FIX]` DOC-A-1.9 — ✅ Cluster G: Quick-start `SendFrame` extended to 7-arg with `f.BRS, f.ESI`.
+371. `[FIX]` DOC-A-1.10 — ✅ Cluster G: CANCELLATION.md Go signature gains `brs, esi *bool`; C++ signature gains `std::optional<bool> brs, esi`.
 372. `[FIX]` DOC-A-1.11 [FIX] — ✅ Cluster E: 5 sites updated 3.12 → 3.13.
 373. `[ ]` DOC-A-1.12 — `docs/architecture/DESIGN.md:65` — "~470 lines across 3 files"; verified correct.
 374. `[ ]` DOC-A-1.13 — `CHANGELOG.md:289-291` — Lists `CodeParseInputBoundExceeded`/etc. as Added; R19 cluster 14 consolidated to `CodeInputBoundExceeded`.
@@ -736,13 +736,13 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 379. `[FIX]` DOC-A-2.4 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
 380. `[ ]` DOC-A-2.5 — `PROJECT_STATUS.md:439` — R17 Track A/B verification block has stale 1263 total.
 381. `[ ]` DOC-A-2.6 — `docs/development/BUILDING.md:12` — "Currently active phase" + PROJECT_STATUS.md "No active phase" — moving target.
-382. `[ ]` DOC-A-2.7 — `docs/architecture/CANCELLATION.md:67-69` — Go signature stale; tied to 1.10.
+382. `[FIX]` DOC-A-2.7 — ✅ Cluster G: closed via the same edit as DOC-A-1.10.
 383. `[ ]` DOC-A-2.8 — `CHANGELOG.md:242-243` — `parse_input_bound_exceeded`/`dbc_text_input_bound_exceeded`/`frame_input_bound_exceeded` not reflected in cluster-14 consolidation entry.
 384. `[FIX]` DOC-A-3.1 — ✅ Cluster E: PROJECT_STATUS.md aligned with CLAUDE.md (247).
 385. `[ ]` DOC-A-3.2 — `tools/run_ci.py` step count narrative: CHANGELOG 17→20→21→22, CI_LOCAL 27. Reader has to follow the trail.
 386. `[ ]` DOC-A-3.3 — Wire code for adversarial-input bounds: CHANGELOG 3 codes vs PROTOCOL.md consolidated.
 387. `[FIX]` DOC-A-3.4 — ✅ Cluster E.
-388. `[ ]` DOC-A-3.5 — Go `SendFrame` signature: README 5-arg, CANCELLATION 5-arg, INTERFACES 7-arg.
+388. `[FIX]` DOC-A-3.5 — ✅ Cluster G: README + CANCELLATION.md aligned with INTERFACES on 7-arg.
 389. `[ ]` DOC-A-4.1 [FIX] — `cpp/README.md` and `go/README.md` NOT in doc-example harnesses; `python/README.md` IS covered. Drift hides DOC-A-1.8/1.9 from gate.
 390. `[ ]` DOC-A-4.2 — `docs/architecture/PROTOCOL.md` § Error Code Reference (L1154-1238) missing `input_bound_exceeded` entry.
 391. `[ ]` DOC-A-4.3 — `PROTOCOL.md:48` Type Tags missing `format_dbc_text`/`parse_dbc_text`.
@@ -929,7 +929,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 549. `[ ]` GO-D-16.3 [MED] — `MockBackend.ExtractSignalsBin` unconditionally returns `ErrBinaryPathUnsupported`; test author can't inject canned binary.
 550. `[ ]` GO-D-16.4 [MED] — `Backend` 14 methods mixing `*Binary`/`*Bin` naming for different sides; document or rename.
 551. `[ ]` GO-D-16.5 [LOW] — Sealed interface comment "Sealed:" duplicated across 10+ types; consolidate in `doc.go`.
-552. `[ ]` GO-D-17.1 [HIGH] — **CHANGELOG.md misses 3 Go breaking changes from R19 Phase 2:** cluster 5 (`Dbc*`→`DBC*`), cluster 17 (`Delta`/`Tolerance`→`Rational`), cluster 18 (`SendFrame` 7-arg). Universal Rule UR-1 violation.
+552. `[FIX]` GO-D-17.1 — ✅ Cluster G: CHANGELOG gains 4 BREAKING sections (Python `ProcessError` removal, Go `Dbc*`→`DBC*`, Go predicate `float64`→`Rational`, Go `SendFrame` BRS/ESI args).
 553. `[ ]` GO-D-17.2 [MED] — Sum-type extensibility: 5× type-switch dispatch on `Predicate`/`Formula`; no `default` enforcement. Wire `exhaustive` lint or Visitor pattern.
 554. `[ ]` GO-D-17.3 [MED] — No `type LogEvent string` enum exposed; consumers must hardcode strings. Cross-binding parity gap.
 555. `[ ]` GO-D-17.4 [LOW] — `BoundKind*` const block has bare untyped string; should be `type BoundKind string` (matching `IssueCode`).

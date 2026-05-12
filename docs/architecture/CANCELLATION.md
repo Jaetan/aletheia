@@ -65,9 +65,13 @@ Go's cancellation idiom is `context.Context`, and Aletheia threads it through ev
 
 ```text
 func (c *Client) SendFrame(ctx context.Context,
-                            ts Timestamp, id CanID, dlc DLC, data FramePayload,
+                            ts Timestamp, id CANID, dlc DLC, data FramePayload,
+                            brs, esi *bool,
                           ) (FrameResponse, error)
 ```
+
+`brs` and `esi` carry the CAN-FD Bit Rate Switch and Error State Indicator
+(ISO 11898-1:2015 §10.4.2/3); pass `nil` for both on CAN 2.0B frames.
 
 Two methods deliberately *do not* take ctx: `Close()` (teardown is best-effort, idempotent, double-close safe — matches `db.Close()`) and `NewClient(...)` (construction is sync CGO + RTS initialization with no I/O — matches `sql.Open(...)`).
 
@@ -84,8 +88,13 @@ C++'s cancellation idiom is `std::stop_token` (paired with `std::stop_source` an
 ```text
 auto send_frame(std::stop_token stop,
                 Timestamp ts, CanId id, Dlc dlc,
-                std::span<const std::byte> data) -> Result<FrameResponse>;
+                std::span<const std::byte> data,
+                std::optional<bool> brs = std::nullopt,
+                std::optional<bool> esi = std::nullopt) -> Result<FrameResponse>;
 ```
+
+`brs` and `esi` carry the CAN-FD Bit Rate Switch and Error State Indicator
+(ISO 11898-1:2015 §10.4.2/3); default to `std::nullopt` for CAN 2.0B frames.
 
 Callers who do not care about cancellation pass a default-constructed `std::stop_token{}`, which never reports `stop_requested()` — equivalent to Go's `context.Background()`.
 

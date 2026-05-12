@@ -27,22 +27,26 @@ runnable examples.
 
 ```cpp
 #include <aletheia/aletheia.hpp>
+#include <stop_token>
 
 auto backend = aletheia::make_ffi_backend();
-aletheia::Client client{std::move(backend)};
+aletheia::AletheiaClient client{std::move(backend)};
 
-client.parse_dbc(dbc_json);
-client.set_properties(properties_json);
-client.start_stream();
+// std::stop_token{} never reports stop_requested — see CANCELLATION.md.
+std::stop_token stop{};
 
-for (auto const& [timestamp, can_id, dlc, data, extended] : frames) {
-    auto resp = client.send_frame(timestamp, can_id, dlc, data, extended);
-    if (std::holds_alternative<aletheia::PropertyViolationResponse>(resp)) {
+client.parse_dbc_text(stop, dbc_text);
+client.set_properties(stop, properties);
+client.start_stream(stop);
+
+for (auto const& f : frames) {  // aletheia::Frame { timestamp, id, dlc, data, brs, esi }
+    auto resp = client.send_frame(stop, f);
+    if (resp && std::holds_alternative<aletheia::PropertyViolationResponse>(*resp)) {
         // ...
     }
 }
 
-auto summary = client.end_stream();
+auto summary = client.end_stream(stop);
 ```
 
 ## Cancellation

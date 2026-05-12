@@ -532,6 +532,71 @@ Migration: pass `std::stop_token{}` to recover prior behavior.
 `~AletheiaClient()` and `make_ffi_backend(...)` deliberately do not
 take a stop_token (mirrors stdlib container constructor conventions).
 
+#### BREAKING — Python: `ProcessError` removed in favor of kind-tagged hierarchy (R19 Phase 2 cluster 17 / PY-D-20.1)
+
+The overloaded `aletheia.ProcessError` class was removed.  Replacement:
+the kind-tagged `AletheiaError` subclasses mirror Go's `ErrorKind`
+4-kind enum and C++'s `ErrorKind` 7-kind enum.  By category:
+  - FFI / null-pointer / RTS-init failures → `aletheia.FFIError`
+  - "Client not initialized" / "DBC not loaded" (client-side cache) →
+    `aletheia.StateError`
+  - "no DBC message for CAN ID" / "unknown signal" / "payload length
+    mismatch" (client-side validation) → `aletheia.ValidationError`
+  - Kernel `ErrorResponse` + binary FFI rejection paths →
+    `aletheia.ProtocolError`
+
+Migration: replace `except ProcessError` with `except AletheiaError` for
+the catch-all form, or with the specific subclass per the category map
+above for finer-grained handling.
+
+#### BREAKING — Go: `Dbc*` → `DBC*` and `CanID` → `CANID` rename across exported surface (R19 Phase 2 cluster 5)
+
+Go's acronym-casing convention (per `golangci-lint revive var-naming`)
+calls for fully-capitalised initialisms in exported names.  The R19
+Phase 2 cluster 5 sweep renamed 52 distinct `Dbc*` identifiers to
+`DBC*` and ~40 `CanID` references to `CANID`.  Affected names include
+the public types `DBCDefinition`, `DBCMessage`, `DBCSignal`,
+`DBCAttribute`, `DBCComment`, `DBCNode`, `DBCSignalGroup`,
+`DBCEnvironmentVar`, `DBCValueTable`, `DBCValueEntry`, and the
+identifier-type alias `CANID`.  Constructor functions retained the
+old `Dbc` casing (`NewDbcMessage`, `NewDbcDefinition`) and are
+themselves a follow-up rename pending — flagged under R20 GO-D-15.1.
+
+Migration: mechanical sed/perl rename on the consumer side
+(`s/\bDbc/DBC/g` on type references, `s/\bCanID\b/CANID/g`); no
+behavioral change.  C++ keeps the `Dbc*` form (its idiom); Python
+already had `DBCDefinition` as the canonical name.
+
+#### BREAKING — Go: predicate value fields are now `Rational` (R19 Phase 2 cluster 17 / GO-D-19.1)
+
+The Between / ChangedBy / StableWithin / Equals / LessThan / etc.
+predicate types previously declared `PhysicalValue` / `Delta` /
+`Tolerance` as `float64`.  Per the cross-binding DecRat universal
+principle (Python `Fraction`, C++ `Rational`), these fields are now
+`Rational`.
+
+New constructor helpers on `go/aletheia/types.go`:
+  - `IntRational(n int64) Rational` — exact `n/1`.
+  - `RationalFromFloat(v float64) Rational` — 10⁹ fixed-point scaling
+    matching the FFI signal-value ppb precision; NaN / ±Inf clamp to
+    `0/1`.
+
+Migration: change `Between{Signal: "Speed", Min: 0, Max: 250}` to
+`Between{Signal: "Speed", Min: aletheia.IntRational(0), Max:
+aletheia.IntRational(250)}` (or `RationalFromFloat(...)` for fractional
+literals).  ~150 test sites were updated mechanically in the same
+commit (`1e4becc`).
+
+#### BREAKING — Go: `Client.SendFrame` adds trailing `brs, esi *bool` parameters (R19 Phase 2 cluster 18 phase C)
+
+The `Backend.SendFrameBinary` interface and `Client.SendFrame` /
+`Client.SendFrames` method-set now accept CAN-FD BRS (bit-rate-switch)
+and ESI (error-state-indicator) metadata per ISO 11898-1:2015 §10.4.2
+/ §10.4.3.  Migration: pass `nil, nil` to recover prior CAN-2.0B
+behaviour; pass `&trueVal` / `&falseVal` for CAN-FD frames where the
+controller emitted the bits.  The Aletheia kernel does NOT consume
+these bits — pass-through metadata only.
+
 #### BREAKING — All bindings: `parse_dbc` returns a richer success-path result
 
 The success path now carries the parsed DBC plus validation warnings:
