@@ -310,7 +310,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 ##### Cat 1 — Dead code
 
 112. `[FIX]` GO-A-1.1 — `go/aletheia/ffi_nocgo.go:29` — ✅ Cluster B: stub extended to 7-arg + `var _ Backend = (*FFIBackend)(nil)` added to ffi.go + ffi_nocgo.go + mock.go.
-113. `[ ]` GO-A-1.2 — `go/aletheia/mock.go:127` — TODO `cluster-18 E` references CLOSED work. Either thread brs/esi or restate as permanent design DEFER.
+113. `[FIX]` GO-A-1.2 — ✅ Cluster F: TODO replaced with closure comment + brs/esi threading.
 114. `[ ]` GO-A-1.3 — `go/aletheia/enrich.go:204` — `collectSignalsInto`'s `default:` branch unreachable (`Formula` sealed); comment phrasing misleading.
 115. `[ ]` GO-A-1.4 — `go/aletheia/enrich.go:229` — symmetric to 1.3 (`predicateSignal`).
 116. `[ ]` GO-A-1.5 — `go/aletheia/yaml.go:122-144` — `parseYAMLChecks` double-decodes YAML (map+typed); dead work.
@@ -389,7 +389,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 164. `[FIX]` GO-B-31.1 [FIX-NOW] — ✅ Cluster B: stub signature extended + compile-time assertions added; `CGO_ENABLED=0 go build ./aletheia/` clean.
 165. `[FIX]` GO-B-24.1 [FIX-NOW] — ✅ Cluster C: `rationalLess` now uses `math/big.Int` cross-product.
 166. `[ ]` GO-B-12.1 [FIX-NOW] — `go/aletheia/json.go:696-726` `parseRational` — truncates wire floats to int64 without range check; sibling `parseNumberAsInt64:765-796` does check. Also denominator 0.5 silently truncates to 0.
-167. `[ ]` GO-B-14.1 [FIX-NOW] — `go/aletheia/mock.go:130-137` — `MockBackend.SendFrameBinary` accepts and discards `brs/esi`. Mock fidelity gap. (See GO-A-1.2.)
+167. `[FIX]` GO-B-14.1 [FIX-NOW] — ✅ Cluster F: `serializeDataFrame` extended with optional `brs, esi *bool` params, emit `"brs"`/`"esi"` fields when non-nil; `MockBackend.SendFrameBinary` threads through; `check_test.go` callsites pass `nil, nil`. Go race test ok 7.887s.
 168. `[FIX]` GO-B-7.1 [FIX-NOW] — ✅ Cluster B closure.
 
 #### Findings (FIX-LATER)
@@ -445,7 +445,7 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 
 ##### Cat 4 — Comments
 
-194. `[ ]` CPP-A-4.1 — `cpp/src/detail/mock_backend.hpp:65-69` — Stale `TODO(cluster-18 E)`; cluster 18 closed.
+194. `[FIX]` CPP-A-4.1 — ✅ Cluster F: TODO replaced; serialize_send_frame extended with optional brs/esi; MockBackend threads through.
 195. `[ ]` CPP-A-4.2 — `cpp/include/aletheia/client.hpp:198-202` — Runtime-cost note on field decl; should live at call site.
 196. `[ ]` CPP-A-4.3 — `cpp/src/ffi_backend.cpp:213-214` — Lifecycle invariant in destructor; promote to class-level docstring.
 197. `[ ]` CPP-A-4.4 — `cpp/include/aletheia/client.hpp:74` — Constructor missing doxygen on `default_checks`.
@@ -509,7 +509,7 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 
 232. `[ ]` CPP-B-10.1 — `cpp/src/ffi_backend.cpp:92-101,183-205` — `rts_state()` Meyers singleton; `rts_mismatch_` write outside lock (single-threaded ctor — OK but document).
 233. `[ ]` CPP-B-10.2 — `cpp/include/aletheia/client.hpp:41-43` — Thread-safety docstring (one-client-per-thread); document divergence vs Go's `sync.Mutex`.
-234. `[ ]` CPP-B-11.1 — `cpp/src/json_serialize.cpp:530-545` + `mock_backend.hpp:67-74` — `serialize_send_frame` drops BRS/ESI. (See CPP-A-4.1.)
+234. `[FIX]` CPP-B-11.1 — ✅ Cluster F closure.
 235. `[ ]` CPP-B-11.2 — `cpp/src/json_parse.cpp:194-197` — `parse_signal_value` silently degrades float `0.5` via `Rational::from_double` (10⁹ scaling) — Python/Go are stricter.
 236. `[ ]` CPP-B-11.3 — `cpp/src/json_parse.cpp:282-297` — `parse_rational_as_int` overflow guard only catches `INT64_MIN / -1`; missing rounded-toward-zero corner.
 237. `[FIX]` CPP-B-11.4 — ✅ Cluster C: `INT64_MIN` guard added before any negation / `std::abs`; defense-in-depth raw emission mirrors `Rational::make` invariant.
@@ -530,7 +530,7 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 ##### Cat 14 — Test adequacy
 
 245. `[ ]` CPP-B-14.1 — `cpp/tests/fuzz/fuzz_decode_binary_frame.cpp:42-48` — Fuzz harness is a no-op; replace with actual `parse_extraction_bin` call.
-246. `[ ]` CPP-B-14.2 — `cpp/src/detail/mock_backend.hpp:70-74` — MockBackend brs/esi drop breaks cat 14b/d.
+246. `[FIX]` CPP-B-14.2 — ✅ Cluster F closure.
 247. `[ ]` CPP-B-14.3 — `cpp/tests/test_cross_binding_integration.cpp:266-288` — Test fires at depth 65; no boundary test at depth 64.
 248. `[ ]` CPP-B-14.4 — `cpp/tests/unit_tests_cancel.cpp:91,176,181` — `std::this_thread::sleep_for` violates `feedback_no_physical_time_in_tests.md`.
 249. `[ ]` CPP-B-14.5 — `cpp/CMakeLists.txt:94-136` — `ALETHEIA_MUTATION` opt-in; no surviving-mutant report.
@@ -925,7 +925,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 545. `[ ]` GO-D-15.6 [LOW] — `Frame.BRS *bool` / `Frame.ESI *bool` no helper `PtrBool(bool) *bool` at public API.
 546. `[ ]` GO-D-15.7 [LOW] — `Client.SendFrame` 7 positional args; consider `FrameOption` options pattern.
 547. `[FIX]` GO-D-16.1 [HIGH] — ✅ Cluster B closure.
-548. `[ ]` GO-D-16.2 [HIGH] — `MockBackend.SendFrameBinary` accepts brs/esi and drops them; stale TODO references cluster 18 phase E (CLOSED). (See GO-B-14.1.)
+548. `[FIX]` GO-D-16.2 [HIGH] — ✅ Cluster F closure.
 549. `[ ]` GO-D-16.3 [MED] — `MockBackend.ExtractSignalsBin` unconditionally returns `ErrBinaryPathUnsupported`; test author can't inject canned binary.
 550. `[ ]` GO-D-16.4 [MED] — `Backend` 14 methods mixing `*Binary`/`*Bin` naming for different sides; document or rename.
 551. `[ ]` GO-D-16.5 [LOW] — Sealed interface comment "Sealed:" duplicated across 10+ types; consolidate in `doc.go`.
@@ -947,7 +947,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 567. `[ ]` GO-D-20.2 [MED] — `Client.SendFrames([]Frame)` exists but no `Client.SendFrame(Frame)` single-frame struct overload; API surface asymmetric.
 568. `[ ]` GO-D-20.3 [MED] — `*ParsedDBC`/`*ValidationResult`/`*StreamResult` pointer-returns; Python/C++ return by value. Cross-binding asymmetry.
 569. `[ ]` GO-D-20.4 [LOW] — `Client.AddChecks(checks)` overwrites despite "add" naming; rename `SetChecks` or true-append.
-570. `[ ]` GO-D-21.1 [MED] — CAN-FD `brs/esi` plumbed everywhere except mock (see GO-D-16.2).
+570. `[FIX]` GO-D-21.1 [MED] — ✅ Cluster F closure.
 571. `[ ]` GO-D-21.2 [MED] — `SendFrames` holds lock for full batch; cooperative cancellation at frame boundaries; document.
 572. `[ ]` GO-D-21.3 — Mux helpers aligned with Python/C++. **Clean.**
 573. `[ ]` GO-D-21.4 — Consider Go 1.23 `iter.Seq2` streaming over `[]FrameResponse`; Phase 6 candidate.
@@ -976,7 +976,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 589. `[ ]` CPP-D-15.3 [FIX-style] — `Strong<Tag,T>` + `StrongString<Tag>` should share CRTP base or constrained `Strong`.
 590. `[ ]` CPP-D-15.4 [DEFER] — `LtlFormula` extends `std::variant`; portability hazard across libstdc++ versions.
 591. `[ ]` CPP-D-15.5 [FIX-style] — `send_frame` `Frame` overload; `send_frames` lacks initializer-list overload.
-592. `[ ]` CPP-D-16.1 [FIX] — `serialize_send_frame` + `MockBackend::send_frame_binary` drop BRS/ESI. (Cross-references CPP-A-4.1, CPP-B-11.1.)
+592. `[FIX]` CPP-D-16.1 [FIX] — ✅ Cluster F closure.
 593. `[ ]` CPP-D-16.2 [FIX] — Mock fidelity gap: `MockBackend` doesn't override 4 of 7 binary endpoints; inherits JSON-fallback defaults.
 594. `[ ]` CPP-D-16.3 [FIX] — Tests cross public/private boundary via `target_include_directories(unit_tests PRIVATE src)`; promote `detail/` to `aletheia/testing/` or wrap behind opt-in.
 595. `[ ]` CPP-D-16.4 [FIX-style] — `IBackend::send_frame_binary` 7 params; hoist into `SendFrameParams` struct.
@@ -994,7 +994,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 607. `[ ]` CPP-D-19.4 [FIX] — `Rational::from_double` 10⁹ scaling; document combined num × den headroom.
 608. `[ ]` CPP-D-19.5 [FIX] — `validate_payload` no BRS validation on non-CAN-FD frames; ISO 11898-1 §10.4.2 says BRS only on CAN-FD.
 609. `[ ]` CPP-D-20.1 [FIX] — `max_cache_size = 256` hardcoded in `client.hpp`; SSOT across Python `MAX_EXTRACT_CACHE` / Go `maxExtractCache`. Promote to `aletheia/limits.hpp`.
-610. `[ ]` CPP-D-20.2 [FIX] — Stale TODO at `mock_backend.hpp:67-69` references closed cluster 18.
+610. `[FIX]` CPP-D-20.2 [FIX] — ✅ Cluster F closure.
 611. `[ ]` CPP-D-20.3 [FIX-style] — `parse_signal_value` + `parse_rational` near-identical; extract `parse_rational_strict_or_float`.
 612. `[ ]` CPP-D-20.4 [FIX-style] — `parse_issue_code` 22-branch if-chain; migrate to constexpr lookup table.
 613. `[ ]` CPP-D-21.1 [FIX] — `unit_tests_cancel.cpp:91,176,181` physical-time sleeps. (See CPP-B-14.4.)

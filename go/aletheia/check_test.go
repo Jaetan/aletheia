@@ -323,7 +323,7 @@ func TestSerializeDataFrame(t *testing.T) {
 	ts := Timestamp{Microseconds: 1000}
 	data := FramePayload{0x01, 0x02, 0x03, 0x04}
 
-	result := serializeDataFrame(ts, sid, dlc, data)
+	result := serializeDataFrame(ts, sid, dlc, data, nil, nil)
 
 	// Parse the output as JSON and verify fields.
 	var m map[string]any
@@ -371,7 +371,7 @@ func TestSerializeDataFrameExtended(t *testing.T) {
 	ts := Timestamp{Microseconds: 500}
 	data := FramePayload{0xFF, 0x00, 0xAA, 0x55, 0x01, 0x02, 0x03, 0x04}
 
-	result := serializeDataFrame(ts, eid, dlc, data)
+	result := serializeDataFrame(ts, eid, dlc, data, nil, nil)
 
 	var m map[string]any
 	if err := json.Unmarshal([]byte(result), &m); err != nil {

@@ -62,15 +62,14 @@ public:
         return R"({"status": "success"})";
     }
 
-    // BRS / ESI are accepted at the interface level for parity with the
-    // FFI backend but ignored here — the JSON `sendFrame` command's wire
-    // shape carries them once cluster 18 phase E lands.  TODO(cluster-18 E):
-    // thread brs / esi into serialize_send_frame so mock-driven tests can
-    // assert on the JSON wire shape.
+    // BRS / ESI (CAN-FD bit-rate-switch / error-state-indicator metadata,
+    // ISO 11898-1:2015 §10.4.2/3) are threaded through to the wire shape so
+    // mock-driven tests can assert on the bytes.  Pass std::nullopt for CAN
+    // 2.0B frames.  R20 cluster F (CPP-B-11.1 / CPP-D-16.1) closure.
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
-                           std::span<const std::byte> data, std::optional<bool> /*brs*/,
-                           std::optional<bool> /*esi*/) -> std::string override {
-        return process(state, detail::serialize_send_frame(ts, id, dlc, data));
+                           std::span<const std::byte> data, std::optional<bool> brs,
+                           std::optional<bool> esi) -> std::string override {
+        return process(state, detail::serialize_send_frame(ts, id, dlc, data, brs, esi));
     }
 
     auto send_error_binary(void* state, Timestamp ts) -> std::string override {

@@ -10,6 +10,7 @@
 #include <format>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -538,10 +539,17 @@ auto serialize_start_stream() -> std::string {
     return Json{{"type", "command"}, {"command", "startStream"}}.dump();
 }
 
-auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
-    -> std::string {
+auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data,
+                          std::optional<bool> brs, std::optional<bool> esi) -> std::string {
     // Used by the mock backend for testing; the real hot path uses binary FFI
     // (send_frame_binary) which bypasses JSON serialization entirely.
+    //
+    // R20 cluster F (CPP-B-11.1 / CPP-D-16.1): BRS/ESI are emitted as
+    // optional `"brs"`/`"esi"` fields when set, so mock-driven tests can
+    // assert on the wire shape end-to-end.  Pass `std::nullopt` for CAN
+    // 2.0B frames (ISO 11898-1:2015 §10.4.2/3 — CAN-FD only).  The Agda
+    // data-event parser ignores unknown fields; this is additive
+    // observability for cross-binding-test parity.
     std::string data_str;
     data_str.reserve(data.size() * 4); // "255," = 4 chars max per byte
     for (std::size_t i = 0; i < data.size(); ++i) {
@@ -549,10 +557,15 @@ auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<cons
             data_str += ',';
         data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
     }
+    std::string trailer;
+    if (brs.has_value())
+        trailer += std::format(R"(,"brs":{})", *brs ? "true" : "false");
+    if (esi.has_value())
+        trailer += std::format(R"(,"esi":{})", *esi ? "true" : "false");
     return std::format(
-        R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",
+        R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]{}}})",
         ts.count(), can_id_value(id), can_id_is_extended(id) ? "true" : "false", dlc.value(),
-        data_str);
+        data_str, trailer);
 }
 
 auto serialize_end_stream() -> std::string {

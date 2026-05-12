@@ -52,7 +52,15 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 // the existing single-allocation cost is already negligible, in exchange
 // for zero real-world benefit.  Re-evaluate only if a JSON streaming
 // surface is added that calls this function on a hot path.
-func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload) string {
+//
+// R20 cluster F (GO-B-14.1 / GO-D-16.2): BRS/ESI trailing args are
+// emitted as optional `"brs"`/`"esi"` fields when non-nil so
+// mock-driven tests can assert on the wire shape end-to-end.  Pass
+// `nil, nil` for CAN 2.0B frames where these bits don't exist (ISO
+// 11898-1:2015 §10.4.2/3 — CAN-FD only).  The Agda data-event parser
+// ignores unknown fields, so this is purely an additive wire-shape
+// observability for cross-binding-test parity.
+func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload, brs, esi *bool) string {
 	// Avoids map allocation, reflection-based marshaling, and []int conversion.
 	var buf strings.Builder
 	buf.Grow(128 + len(data)*4) // pre-size for typical frame
@@ -75,7 +83,24 @@ func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload) stri
 		}
 		buf.WriteString(strconv.FormatUint(uint64(b), 10))
 	}
-	buf.WriteString("]}")
+	buf.WriteByte(']')
+	if brs != nil {
+		buf.WriteString(`,"brs":`)
+		if *brs {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+	}
+	if esi != nil {
+		buf.WriteString(`,"esi":`)
+		if *esi {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+	}
+	buf.WriteByte('}')
 	return buf.String()
 }
 
