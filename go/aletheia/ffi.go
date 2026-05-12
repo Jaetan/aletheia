@@ -828,3 +828,8 @@ func (b *FFIBackend) Close(state unsafe.Pointer) {
 	C.call_close(b.closeFn, state)
 	stablePtrCount.Add(-1)
 }
+
+// Compile-time assertion that *FFIBackend satisfies the Backend interface.
+// Mirrors the !cgo branch in ffi_nocgo.go so interface signature drift fails
+// at `go build` rather than at the first downstream caller.
+var _ Backend = (*FFIBackend)(nil)

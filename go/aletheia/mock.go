@@ -226,3 +226,7 @@ func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []by
 
 // Close is a no-op for the mock backend.
 func (m *MockBackend) Close(_ unsafe.Pointer) {}
+
+// Compile-time assertion that *MockBackend satisfies the Backend interface.
+// Catches interface signature drift at `go build` time.
+var _ Backend = (*MockBackend)(nil)

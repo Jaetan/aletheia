@@ -26,9 +26,16 @@ func (b *FFIBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
 }
 
 // SendFrameBinary is unavailable without cgo.
-func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte) (string, error) {
+func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
+
+// Compile-time assertion that *FFIBackend satisfies the Backend interface
+// under the !cgo || !linux build tag, mirroring the cgo branch in ffi.go.
+// This catches Backend-interface signature drift at `go build` time rather
+// than at the first downstream caller — the gap that let R19P2 cluster 18
+// phase A (brs/esi *bool args) miss this stub for the !cgo build.
+var _ Backend = (*FFIBackend)(nil)
 
 // SendErrorBinary is unavailable without cgo.
 func (b *FFIBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {

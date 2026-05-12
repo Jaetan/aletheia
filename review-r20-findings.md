@@ -309,7 +309,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 ##### Cat 1 — Dead code
 
-112. `[ ]` GO-A-1.1 — `go/aletheia/ffi_nocgo.go:29` — `SendFrameBinary` stub still 5-arg pre-cluster-18 form; should be 7-arg (BRS/ESI). Silent drift because no compile-time `Backend` interface assertion.
+112. `[FIX]` GO-A-1.1 — `go/aletheia/ffi_nocgo.go:29` — ✅ Cluster B: stub extended to 7-arg + `var _ Backend = (*FFIBackend)(nil)` added to ffi.go + ffi_nocgo.go + mock.go.
 113. `[ ]` GO-A-1.2 — `go/aletheia/mock.go:127` — TODO `cluster-18 E` references CLOSED work. Either thread brs/esi or restate as permanent design DEFER.
 114. `[ ]` GO-A-1.3 — `go/aletheia/enrich.go:204` — `collectSignalsInto`'s `default:` branch unreachable (`Formula` sealed); comment phrasing misleading.
 115. `[ ]` GO-A-1.4 — `go/aletheia/enrich.go:229` — symmetric to 1.3 (`predicateSignal`).
@@ -327,7 +327,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 ##### Cat 3 — Naming
 
-124. `[ ]` GO-A-3.1 — `go/aletheia/backend.go` + `ffi_nocgo.go` — **No compile-time `var _ Backend = (*FFIBackend)(nil)` / `var _ Backend = (*MockBackend)(nil)` assertion.** Root cause of GO-A-1.1 silent drift.
+124. `[FIX]` GO-A-3.1 — ✅ Cluster B: assertions added to ffi.go + ffi_nocgo.go + mock.go.
 125. `[ ]` GO-A-3.2 — `go/aletheia/dbc.go:281-285` — `DBCRawValueDesc.CANID` field name stutters; rename to `ID CANID`.
 126. `[ ]` GO-A-3.3 — `go/aletheia/dbc.go:67, 599`; `excel.go:126`; `json.go:120, 1471, 1953, 2033`; `backend.go:66-75` — `Dbc*`/`DBC*` mixed acronym casing. Sweep to one style.
 127. `[ ]` GO-A-3.4 — `go/aletheia/error.go:222, 224` — `wrapValidation` private + `WrapValidationError` public; naming asymmetry.
@@ -361,7 +361,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 ##### Cat 6 — Formatting / godoc
 
-149. `[ ]` GO-A-6.1 — `go/aletheia/backend.go` — No `var _ Backend = (*…)(nil)` compile-time assertions. (See GO-A-3.1.)
+149. `[FIX]` GO-A-6.1 — ✅ Cluster B closure.
 150. `[ ]` GO-A-6.2 — `go/benchmarks/main.go:778` — `enc.Encode(out)` return error discarded.
 151. `[ ]` GO-A-6.3 — `go/benchmarks/main.go:800` — `fs.Parse(args)` return error discarded.
 152. `[ ]` GO-A-6.4 — `go/benchmarks/main.go` — 13× `for i := 0; i < N; i++ {` could use Go 1.24 `for range N`.
@@ -386,11 +386,11 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 #### Findings (FIX-NOW)
 
-164. `[ ]` GO-B-31.1 [FIX-NOW] — `go/aletheia/ffi_nocgo.go:29` — `SendFrameBinary` stub does NOT satisfy `Backend` interface under `CGO_ENABLED=0`. Empirically reproduced: `*aletheia.FFIBackend does not implement aletheia.Backend (wrong type for method SendFrameBinary)`. Add 2 trailing `*bool` args + `var _ Backend = (*FFIBackend)(nil)` assertion.
+164. `[FIX]` GO-B-31.1 [FIX-NOW] — ✅ Cluster B: stub signature extended + compile-time assertions added; `CGO_ENABLED=0 go build ./aletheia/` clean.
 165. `[ ]` GO-B-24.1 [FIX-NOW] — `go/aletheia/json.go:480-482` `rationalLess` — `int64 × int64` cross-product wraps silently. Worked failure: `{MaxInt64, 2} < {1, 2}` returns `true`. Use `math/big.Int` or pre-multiply guard. Mirror to C++ `Rational::operator<=>`.
 166. `[ ]` GO-B-12.1 [FIX-NOW] — `go/aletheia/json.go:696-726` `parseRational` — truncates wire floats to int64 without range check; sibling `parseNumberAsInt64:765-796` does check. Also denominator 0.5 silently truncates to 0.
 167. `[ ]` GO-B-14.1 [FIX-NOW] — `go/aletheia/mock.go:130-137` — `MockBackend.SendFrameBinary` accepts and discards `brs/esi`. Mock fidelity gap. (See GO-A-1.2.)
-168. `[ ]` GO-B-7.1 [FIX-NOW] — `go/aletheia/ffi.go:206`, `ffi_nocgo.go:11` — Missing `var _ Backend = (*FFIBackend)(nil)` compile-time assertion. Same root as GO-B-31.1.
+168. `[FIX]` GO-B-7.1 [FIX-NOW] — ✅ Cluster B closure.
 
 #### Findings (FIX-LATER)
 
@@ -924,7 +924,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 544. `[ ]` GO-D-15.5 [MED] — `Respond` / `RespondErr` / `RespondParseDBC` mock helpers naming inconsistent.
 545. `[ ]` GO-D-15.6 [LOW] — `Frame.BRS *bool` / `Frame.ESI *bool` no helper `PtrBool(bool) *bool` at public API.
 546. `[ ]` GO-D-15.7 [LOW] — `Client.SendFrame` 7 positional args; consider `FrameOption` options pattern.
-547. `[ ]` GO-D-16.1 [HIGH] — **No compile-time `var _ Backend = (*FFIBackend)(nil)` assertion.** Root cause of cluster 18 silent drift on `ffi_nocgo.go`. (See GO-B-31.1.)
+547. `[FIX]` GO-D-16.1 [HIGH] — ✅ Cluster B closure.
 548. `[ ]` GO-D-16.2 [HIGH] — `MockBackend.SendFrameBinary` accepts brs/esi and drops them; stale TODO references cluster 18 phase E (CLOSED). (See GO-B-14.1.)
 549. `[ ]` GO-D-16.3 [MED] — `MockBackend.ExtractSignalsBin` unconditionally returns `ErrBinaryPathUnsupported`; test author can't inject canned binary.
 550. `[ ]` GO-D-16.4 [MED] — `Backend` 14 methods mixing `*Binary`/`*Bin` naming for different sides; document or rename.
@@ -951,13 +951,13 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 571. `[ ]` GO-D-21.2 [MED] — `SendFrames` holds lock for full batch; cooperative cancellation at frame boundaries; document.
 572. `[ ]` GO-D-21.3 — Mux helpers aligned with Python/C++. **Clean.**
 573. `[ ]` GO-D-21.4 — Consider Go 1.23 `iter.Seq2` streaming over `[]FrameResponse`; Phase 6 candidate.
-574. `[ ]` GO-D-22.1 [HIGH] — `ffi.go:449` vs `ffi_nocgo.go:29` signature drift. (See GO-B-31.1.)
+574. `[FIX]` GO-D-22.1 [HIGH] — ✅ Cluster B closure.
 575. `[ ]` GO-D-22.2 [HIGH] — `call_send_frame` 11-arg ABI symmetric with Haskell shim; **clean** (documented).
 576. `[ ]` GO-D-22.3 [MED] — `Rational` binary FFI; no Go-side cross-product assertion at binary boundary.
 577. `[ ]` GO-D-22.4 [MED] — NUL/bound check on `Process` only; mock-driven tests bypass.
 578. `[ ]` GO-D-22.5 [LOW] — `aletheia_send_frame` symbol load list aligned. **Clean.**
-579. `[ ]` GO-D-31.1 [HIGH] — Build matrix `CGO_ENABLED=0 GOOS=linux` silently broken. (See GO-D-22.1.)
-580. `[ ]` GO-D-31.2 [MED] — `ffi_nocgo.go:7-8` comment claim "MockBackend-only testing works without cgo" verified broken until GO-D-31.1 fixed.
+579. `[FIX]` GO-D-31.1 [HIGH] — ✅ Cluster B closure. Both `CGO_ENABLED=0/1 go build ./aletheia/` clean; `go test -race -count=1 ./aletheia/` ok 7.738s.
+580. `[FIX]` GO-D-31.2 [MED] — ✅ Cluster B closure (claim now holds).
 581. `[ ]` GO-D-31.3 — `_test.go` build tag discipline aligned with Python `pytest.mark.ffi`. **Clean.**
 582. `[ ]` GO-D-31.4 — Stringer outputs `*_string.go` should be excluded from lint (already default).
 583. `[ ]` GO-D-32.1 [MED] — `serializeCommand` deterministic via lex-sort; `serializeDataFrame` uses manual key order. Pin cross-binding wire-byte parity expectation in PROTOCOL.md or unify.
