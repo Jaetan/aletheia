@@ -255,7 +255,7 @@ No findings (correct double-close avoidance, mutex hygiene clean).
 
 #### Cat 25: Hot-path perf
 - `[ ]` GO-B-25.1 [go/aletheia/client.go:725-728] `dataCopy := make(...)` correct — verified guarded
-- `[ ]` GO-B-25.2 [go/aletheia/json.go:42-69] `serializeDataFrame` builds `strings.Builder` per call; sync.Pool candidate
+- `[x]` GO-B-25.2 (design-held — see cluster 19 closure) [go/aletheia/json.go:42-69] `serializeDataFrame` builds `strings.Builder` per call; sync.Pool candidate
 - `[ ]` GO-B-25.3 [go/aletheia/json.go:111-114,266] `serializeDBC` allocates `make([]map[string]any,...)` twice on parse + defense-in-depth probe
 - `[ ]` GO-B-25.4 [go/aletheia/client.go:856-859] `extractLastKnownValues` allocates+sorts per call (cold path; OK)
 
@@ -362,7 +362,7 @@ No findings.
 - `[ ]` CPP-B-24.2 [cpp/src/ffi_backend.cpp:189-192] On RTS init failure, `dlclose` may run while RTS-spawned threads live; verify under TSan
 
 #### Cat 25: Hot-path perf
-- `[ ]` CPP-B-25.1 [cpp/src/client.cpp:484-486] `last_frames_.insert_or_assign(...FramePayload(...))` per-frame allocation when diagnostics installed; reuse storage candidate
+- `[x]` CPP-B-25.1 (cluster 19, `b36177c`) [cpp/src/client.cpp:484-486] `last_frames_.insert_or_assign(...FramePayload(...))` per-frame allocation when diagnostics installed; reuse storage candidate
 - `[ ]` CPP-B-25.4 [cpp/include/aletheia/log.hpp:54-62] `Logger::log()` short-circuits but `initializer_list<LogField>` allocates per callsite — outer `if (logger_)` gate inconsistent
 
 #### Cat 26: Stability
@@ -461,7 +461,7 @@ No findings (PEP 8 conformant).
 #### Cat 10: FFI
 - `[ ]` PY-B-10.1 [python/aletheia/client/_ffi.py:88-93] `RTSState.acquire` warning fires after refcount=0 reuse; document
 - `[ ]` PY-B-10.2 [python/aletheia/client/_ffi.py:96-101] `cls.lib` never cleared; stale-handle latent
-- `[ ]` PY-B-10.3 [python/aletheia/client/_client.py:600,749] Per-frame `ctypes.c_uint8 * len(data))(*data)` allocation on streaming hot path
+- `[x]` PY-B-10.3 (cluster 19, `b36177c`) [python/aletheia/client/_client.py:600,749] Per-frame `ctypes.c_uint8 * len(data))(*data)` allocation on streaming hot path
 - `[ ]` PY-B-10.5 [python/aletheia/client/_ffi.py:233-249] `ALETHEIA_LIB` symlink-following gap; use `os.lstat` and reject symlinks
 
 #### Cat 11: Tests
@@ -479,8 +479,8 @@ No findings (PEP 8 conformant).
 - `[ ]` PY-B-13.1 [python/aletheia/client/_types.py:222-244] `MappingProxyType(values)` no defensive `dict(values)` copy first
 
 #### Cat 14: Hot-path perf
-- `[ ]` PY-B-14.1 [python/aletheia/client/_log.py:106-116 + _client.py:621-625, 640-643] `log_event` short-circuits, but kwargs eval pre-call still allocates `**fields` dict
-- `[ ]` PY-B-14.2 [python/aletheia/client/_client.py:563-564,620] `(_ACK_BYTES, _ACK_BYTES_SPACED)` tuple built per frame; hoist to class const
+- `[x]` PY-B-14.1 (cluster 19, `b36177c`) [python/aletheia/client/_log.py:106-116 + _client.py:621-625, 640-643] `log_event` short-circuits, but kwargs eval pre-call still allocates `**fields` dict
+- `[x]` PY-B-14.2 (cluster 19, `b36177c`) [python/aletheia/client/_client.py:563-564,620] `(_ACK_BYTES, _ACK_BYTES_SPACED)` tuple built per frame; hoist to class const
 
 #### Cat 23: Security
 - `[ ]` PY-B-23.1 (= PY-B-10.5) Symlink gap on ALETHEIA_LIB
@@ -905,7 +905,7 @@ No NEW findings beyond cat 11 reframing per advisor.
 - `[ ]` PY-D-22.1 [python/aletheia/client/_helpers.py:64-66] `dump_json` doesn't pin `ensure_ascii`; cross-binding wire-byte parity at risk (cross-ref PY-B-8.2)
 - `[ ]` PY-D-22.3 [python/aletheia/client/_ffi.py:104-206] FFI binding by string lookup; renamed export silent until first call. `check-ffi-exports` Shake gate exists but type-stub wrapper would catch earlier
 - `[ ]` PY-D-22.4 [python/aletheia/client/_client.py:563-564] `_ACK_BYTES`/`_ACK_BYTES_SPACED` not asserted byte-equivalent at test level; pin `json.dumps(separators=(",",":"))` candidate
-- `[ ]` PY-D-22.5 [python/aletheia/client/_client.py:600,749,794] `(c_uint8 * N)(*data)` per-frame allocation; `(c_uint8 * N).from_buffer(bytearray(data))` zero-copy candidate
+- `[x]` PY-D-22.5 (cluster 19, `b36177c`) [python/aletheia/client/_client.py:600,749,794] `(c_uint8 * N)(*data)` per-frame allocation; `(c_uint8 * N).from_buffer(bytearray(data))` zero-copy candidate
 
 #### Cat 31: Packaging hygiene
 - `[ ]` PY-D-31.2 [python/pyproject.toml:48-55] `_install_config.py` generated post-install; document in pyproject docstring or BUILDING.md
@@ -1171,10 +1171,10 @@ Per-binding green: Python 19/19, Go `TestParseDBCText_RejectsOversizeText` pass,
 - Cat 17 cross-layer: every wire boundary needs the new fields per `feedback_audit_all_wire_boundaries.md` — binary FFI signature, JSON wire, 3 binding type structs, doc surface.
 - Effort: large (~4-6 weeks of cross-binding work). Best ordered AFTER Cluster 8 (defense-in-depth bounds) and Cluster 9 (extension points) so the new fields get bound checks + Backend-aware tests in one pass.
 
-**Cluster 19 — Hot-path allocations** (Theme K)
+**Cluster 19 — Hot-path allocations** (Theme K) — ✅ CLOSED 2026-05-12 via `b36177c`
 - Findings: GO-B-25.2 (strings.Builder), PY-B-10.3 / PY-D-22.5 (ctypes per-frame), CPP-B-25.1 (last_frames per-frame copy), PY-B-14.1 (log_event kwargs eval), PY-B-14.2 (`_ACK_BYTES` tuple per-frame).
-- Disposition: **DEFER-end-of-round** unless benchmarks show regression on cluster 17 ship.
-- Rationale: per `feedback_in_source_deferral_notes.md` + `feedback_hot_path_refactor_benchmark.md`, hot-path optimizations need benchmark evidence; current numbers are within WSL2 ±10% gate.
+- Original disposition: **DEFER-end-of-round** unless benchmarks show regression on cluster 17 ship.
+- Closure: User-directed engagement after cluster 18 ship.  4 sub-findings FIX (PY-B-14.2 / PY-B-10.3+PY-D-22.5 / PY-B-14.1 / CPP-B-25.1) + 1 design-held with in-source DEFER rationale (GO-B-25.2 — `serializeDataFrame` is mock-only path; real streaming uses binary FFI).  Bench (post-cluster-18 → cluster-19, two-batch noise diagnostic): touched Python streaming-hot lanes Stream LTL CAN 2.0B +10.05% / CAN-FD +12.14% / Signal Ext CAN 2.0B +6.24%; untouched lanes within host-side WSL2 noise envelope.  See `memory/project_review_round19.md` for full closure narrative.
 
 ### Clusters (DEFER-end-of-round / architectural)
 
