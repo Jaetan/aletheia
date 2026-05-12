@@ -96,7 +96,7 @@ dev = [
     # stability harness runs without an extra extras flag; the harness is
     # opt-in via ``ALETHEIA_STABILITY_CHECK=1`` so the dependency only
     # surfaces in dev environments.
-    "psutil>=5.0,<8",
+    "psutil>=7.2.2,<8",
 ]
 # AGENTS.md Python cat 34(c) (NEW R18) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
