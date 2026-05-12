@@ -193,9 +193,12 @@ def run_checks(  # pylint: disable=too-many-locals
         unresolved:   list[Violation] = []
         total_frames = 0
 
-        for ts, can_id, dlc, data, ext in _lazy_iter_can_log()(logfile):
+        for frame in _lazy_iter_can_log()(logfile):
             total_frames += 1
-            response = client.send_frame(ts, can_id, dlc, data, extended=ext)
+            response = client.send_frame(
+                frame.timestamp, frame.can_id, frame.dlc, frame.data,
+                extended=frame.extended, brs=frame.brs, esi=frame.esi,
+            )
             if response["status"] == "fails":
                 violations.append(_build_violation(response, all_checks))
 

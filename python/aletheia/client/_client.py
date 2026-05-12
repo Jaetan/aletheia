@@ -70,6 +70,7 @@ from ._types import (
     ValidationError,
     MAX_EXTRACT_CACHE,
     call_send_frame,
+    encode_maybe_bool,
     validate_can_id,
     validate_payload_length,
 )
@@ -599,6 +600,30 @@ class AletheiaClient(SignalOpsMixin):
     _ACK_BYTES = b'{"status":"ack"}'
     _ACK_BYTES_SPACED = b'{"status": "ack"}'
 
+    def _call_send_frame_ffi(  # pylint: disable=too-many-arguments
+        self, *,
+        timestamp: int, can_id: int, extended: bool, dlc: DLCCode,
+        data: bytes | bytearray, brs: bool | None, esi: bool | None,
+    ) -> int:
+        """Marshal frame components + invoke ``aletheia_send_frame``."""
+        assert self._lib is not None  # send_frame guards this
+        data_array = (ctypes.c_uint8 * len(data))(*data)
+        brs_b = encode_maybe_bool(brs)
+        esi_b = encode_maybe_bool(esi)
+        return self._lib.aletheia_send_frame(
+            self._state,
+            ctypes.c_uint64(timestamp),
+            ctypes.c_uint32(can_id),
+            ctypes.c_uint8(1 if extended else 0),
+            ctypes.c_uint8(dlc),
+            data_array,
+            ctypes.c_uint8(len(data)),
+            ctypes.c_uint8(brs_b[0]),
+            ctypes.c_uint8(brs_b[1]),
+            ctypes.c_uint8(esi_b[0]),
+            ctypes.c_uint8(esi_b[1]),
+        )
+
     def send_frame(  # pylint: disable=too-many-arguments
         self,
         timestamp: int,
@@ -607,6 +632,8 @@ class AletheiaClient(SignalOpsMixin):
         data: bytes | bytearray,
         *,
         extended: bool = False,
+        brs: bool | None = None,
+        esi: bool | None = None,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Send a CAN frame for incremental LTL checking.
 
@@ -621,6 +648,11 @@ class AletheiaClient(SignalOpsMixin):
             dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
             data: Frame payload
             extended: True for 29-bit extended CAN ID, False for 11-bit standard
+            brs: CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2);
+                ``None`` for CAN 2.0B. Pass-through metadata — not consumed
+                by the kernel; see :class:`aletheia.CANFrameTuple`.
+            esi: CAN-FD Error State Indicator (ISO 11898-1:2015 §10.4.3);
+                same semantics and pass-through status as ``brs``.
 
         Returns:
             AckResponse, PropertyViolationResponse, or ErrorResponse
@@ -632,16 +664,9 @@ class AletheiaClient(SignalOpsMixin):
         validate_can_id(can_id, extended=extended)
         validate_payload_length(dlc, data)  # validates dlc is in [0, 15]
 
-        # Binary FFI: pass frame components directly (no JSON serialization)
-        data_array = (ctypes.c_uint8 * len(data))(*data)
-        result_ptr = self._lib.aletheia_send_frame(
-            self._state,
-            ctypes.c_uint64(timestamp),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(len(data)),
+        result_ptr = self._call_send_frame_ffi(
+            timestamp=timestamp, can_id=can_id, extended=extended,
+            dlc=dlc, data=data, brs=brs, esi=esi,
         )
         try:
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
@@ -713,10 +738,8 @@ class AletheiaClient(SignalOpsMixin):
                 and carries ``partial_results`` and ``frame_index``.
         """
         results: list[AckResponse | PropertyViolationResponse] = []
-        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
-            results.append(call_send_frame(
-                self.send_frame, i, CANFrameTuple(ts, cid, dlc, d, ext), results,
-            ))
+        for i, frame in enumerate(frames):
+            results.append(call_send_frame(self.send_frame, i, frame, results))
         return results
 
     def send_frames_iter(
@@ -753,12 +776,11 @@ class AletheiaClient(SignalOpsMixin):
             BatchError: On non-cancellation errors (e.g., non-monotonic
                 timestamp); ``partial_results`` is empty.
         """
-        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
+        for i, frame in enumerate(frames):
             yield FrameResult(
-                frame_index=i, timestamp=ts, can_id=cid, extended=ext,
-                response=call_send_frame(
-                    self.send_frame, i, CANFrameTuple(ts, cid, dlc, d, ext), [],
-                ),
+                frame_index=i, timestamp=frame.timestamp,
+                can_id=frame.can_id, extended=frame.extended,
+                response=call_send_frame(self.send_frame, i, frame, []),
             )
 
     def send_error(self, timestamp: int) -> AckResponse:

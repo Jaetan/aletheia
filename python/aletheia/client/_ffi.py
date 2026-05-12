@@ -118,7 +118,11 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     lib.aletheia_close.argtypes = [ctypes.c_void_p]
     lib.aletheia_close.restype = None
 
-    # Binary frame endpoint (hot path — bypasses JSON serialization on input)
+    # Binary frame endpoint (hot path — bypasses JSON serialization on input).
+    # The 4 trailing u8 args encode the optional CAN-FD BRS / ESI bits as
+    # (present, value) pairs — `present=0` means the bit is absent (CAN 2.0B
+    # frame), `present!=0` means present with `value!=0` for True.  See
+    # `Aletheia.Trace.CANTrace.TimedFrame` + ISO 11898-1:2015 §10.4.2 / §10.4.3.
     lib.aletheia_send_frame.argtypes = [
         ctypes.c_void_p,                 # state
         ctypes.c_uint64,                 # timestamp
@@ -127,6 +131,10 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
         ctypes.c_uint8,                  # dlc
         ctypes.POINTER(ctypes.c_uint8),  # data pointer
         ctypes.c_uint8,                  # data_len
+        ctypes.c_uint8,                  # brs_present (0 or 1)
+        ctypes.c_uint8,                  # brs_value   (0 or 1)
+        ctypes.c_uint8,                  # esi_present (0 or 1)
+        ctypes.c_uint8,                  # esi_value   (0 or 1)
     ]
     lib.aletheia_send_frame.restype = ctypes.c_void_p
 

@@ -158,6 +158,13 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
     # security check needs to be tested in isolation with monkeypatched
     # env vars and synthetic permission modes.
     ("test_ffi_loader_security.py", "aletheia.client._ffi", "find_ffi_library"),
+    # CAN-FD BRS / ESI encoding helper (R19 Phase 2 cluster 18 —
+    # AGDA-D-10.1).  ``encode_maybe_bool`` mirrors the Haskell shim's
+    # ``mkMaybeBool`` and is exercised directly to lock the
+    # (present, value) byte pair convention against the C ABI; user
+    # code goes through ``send_frame(brs=…, esi=…)`` which calls this
+    # transitively.
+    ("test_canfd_brs_esi.py", "aletheia.client._types", "encode_maybe_bool"),
 })
 
 

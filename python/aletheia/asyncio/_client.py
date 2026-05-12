@@ -189,10 +189,13 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         data: bytes | bytearray,
         *,
         extended: bool = False,
+        brs: bool | None = None,
+        esi: bool | None = None,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.send_frame`."""
         return await asyncio.to_thread(
-            self._sync.send_frame, timestamp, can_id, dlc, data, extended=extended,
+            self._sync.send_frame, timestamp, can_id, dlc, data,
+            extended=extended, brs=brs, esi=esi,
         )
 
     async def send_frames(
@@ -211,10 +214,9 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # Exception` inside call_send_frame, propagates verbatim. Stream state
         # holds the committed prefix; bundling it would invite swallowing.
         results: list[AckResponse | PropertyViolationResponse] = []
-        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
+        for i, frame in enumerate(frames):
             results.append(await asyncio.to_thread(
-                call_send_frame, self._sync.send_frame, i,
-                CANFrameTuple(ts, cid, dlc, d, ext), results,
+                call_send_frame, self._sync.send_frame, i, frame, results,
             ))
         return results
 
@@ -232,13 +234,14 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # CancelledError propagates verbatim (BaseException since 3.8 → not
         # caught by `except Exception` inside call_send_frame). Already-
         # yielded results are durable in the consumer's hands.
-        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
+        for i, frame in enumerate(frames):
             resp = await asyncio.to_thread(
-                call_send_frame, self._sync.send_frame, i,
-                CANFrameTuple(ts, cid, dlc, d, ext), [],
+                call_send_frame, self._sync.send_frame, i, frame, [],
             )
             yield FrameResult(
-                frame_index=i, timestamp=ts, can_id=cid, extended=ext, response=resp,
+                frame_index=i, timestamp=frame.timestamp,
+                can_id=frame.can_id, extended=frame.extended,
+                response=resp,
             )
 
     async def send_error(self, timestamp: int) -> AckResponse:

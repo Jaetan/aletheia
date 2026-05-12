@@ -237,6 +237,35 @@ class TestCANFDFrames:
 
             client.end_stream()
 
+    def test_canfd_brs_esi_passthrough(self):
+        """End-to-end FFI test for CAN-FD BRS / ESI plumbing.
+
+        R19 Phase 2 cluster 18 (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia
+        kernel does not consume BRS / ESI, but the binding must accept
+        them as ``send_frame`` kwargs and the FFI must accept the 4
+        trailing ``u8`` arguments without crashing.  Verifies that
+        passing every combination of ``brs`` / ``esi`` ∈ ``{None, True,
+        False}`` returns ``ack`` for an otherwise-valid frame.
+        """
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_12)
+            client.start_stream()
+
+            ts = 0
+            for brs in (None, True, False):
+                for esi in (None, True, False):
+                    ts += 1000
+                    data = bytearray(12)
+                    resp = client.send_frame(
+                        timestamp=ts, can_id=0x200,
+                        dlc=DLCCode(9), data=data,
+                        brs=brs, esi=esi,
+                    )
+                    assert resp["status"] == "ack", (
+                        f"brs={brs} esi={esi}: {resp}"
+                    )
+            client.end_stream()
+
 
 class TestNestedMultiplexing:
     """Nested multiplexing: a multiplexor signal that is itself multiplexed.

@@ -189,7 +189,7 @@ def call_send_frame(
     """
     try:
         resp = send_fn(frame.timestamp, frame.can_id, frame.dlc, frame.data,
-                       extended=frame.extended)
+                       extended=frame.extended, brs=frame.brs, esi=frame.esi)
     except Exception as exc:
         raise BatchError(exc, partial, frame_index=frame_index) from exc
     return raise_on_error_response(resp, partial, frame_index)
@@ -318,6 +318,13 @@ class CANFrameTuple(NamedTuple):
         dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD).
         data: Frame payload (length must equal ``dlc_to_bytes(dlc)``).
         extended: ``True`` for 29-bit extended CAN ID.
+        brs: Bit Rate Switch (ISO 11898-1:2015 §10.4.2) — ``True`` if the
+            CAN-FD data phase ran at the faster bit rate, ``False`` if it
+            stayed at the arbitration bit rate, ``None`` for CAN 2.0B
+            frames where the bit does not exist.
+        esi: Error State Indicator (ISO 11898-1:2015 §10.4.3) — ``True``
+            if the transmitter is in error-passive state, ``False`` if
+            error-active, ``None`` for CAN 2.0B frames.
     """
     timestamp: int
     can_id: int
@@ -328,6 +335,8 @@ class CANFrameTuple(NamedTuple):
     # tests so the module-level data cannot be mutated between iterations.
     data: bytes | bytearray
     extended: bool
+    brs: bool | None = None
+    esi: bool | None = None
 
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID
 _MAX_EXTENDED_ID = (1 << 29) - 1  # 29-bit CAN ID
@@ -366,6 +375,21 @@ def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
 
 
 _BYTES_TO_DLC: dict[int, int] = {v: k for k, v in _DLC_TO_BYTES.items()}
+
+
+def encode_maybe_bool(b: bool | None) -> tuple[int, int]:
+    """Encode an Optional[bool] as the (present, value) byte pair used by
+    the binary FFI for CAN-FD BRS / ESI metadata.
+
+    ``None`` → ``(0, 0)`` (the bit is absent on the wire);
+    ``False`` → ``(1, 0)``; ``True`` → ``(1, 1)``.
+
+    Inverse of the Haskell shim's ``mkMaybeBool`` (see
+    ``haskell-shim/src/AletheiaFFI/Marshal.hs``).
+    """
+    if b is None:
+        return (0, 0)
+    return (1, 1 if b else 0)
 
 
 def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:

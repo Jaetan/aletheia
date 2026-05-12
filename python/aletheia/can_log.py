@@ -148,8 +148,18 @@ def _convert_message(
     # carries (CAN wire convention).
     dlc: DLCCode = bytes_to_dlc(DLCByteCount(msg.dlc))
     data = _normalize_data(msg.data, msg.dlc)
+    # python-can carries CAN-FD BRS / ESI as ``bitrate_switch`` /
+    # ``error_state_indicator`` on every ``Message``; both default to
+    # ``False`` for CAN 2.0B logs.  Surface them only when the frame is
+    # actually CAN-FD (``is_fd``), per ISO 11898-1:2015 — the bits do not
+    # exist on a CAN 2.0B frame and ``None`` is the correct lift.
+    brs: bool | None = msg.bitrate_switch if msg.is_fd else None
+    esi: bool | None = msg.error_state_indicator if msg.is_fd else None
 
-    return CANFrameTuple(timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id)
+    return CANFrameTuple(
+        timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id,
+        brs, esi,
+    )
 
 
 def _timestamp_to_us(timestamp: float) -> int:
