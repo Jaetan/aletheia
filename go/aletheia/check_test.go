@@ -222,7 +222,7 @@ func TestCheckWhenThenNegativeTime(t *testing.T) {
 
 func TestCheckNeverExceedsMatchesManual(t *testing.T) {
 	checkF := CheckSignal("Speed").NeverExceeds(220).Formula()
-	manualF := Always{Inner: Atomic{Predicate: LessThan{Signal: "Speed", Value: 220}}}
+	manualF := Always{Inner: Atomic{Predicate: LessThan{Signal: "Speed", Value: RationalFromFloat(220)}}}
 	if FormatFormula(checkF) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkF), FormatFormula(manualF))
@@ -234,7 +234,7 @@ func TestCheckStaysBetweenMatchesManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
-	manualF := Always{Inner: Atomic{Predicate: Between{Signal: "V", Min: 11.5, Max: 14.5}}}
+	manualF := Always{Inner: Atomic{Predicate: Between{Signal: "V", Min: RationalFromFloat(11.5), Max: RationalFromFloat(14.5)}}}
 	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkR.Formula()), FormatFormula(manualF))
@@ -243,7 +243,7 @@ func TestCheckStaysBetweenMatchesManual(t *testing.T) {
 
 func TestCheckNeverEqualsMatchesManual(t *testing.T) {
 	checkF := CheckSignal("Err").NeverEquals(255).Formula()
-	manualF := Never(Equals{Signal: "Err", Value: 255})
+	manualF := Never(Equals{Signal: "Err", Value: RationalFromFloat(255)})
 	if FormatFormula(checkF) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkF), FormatFormula(manualF))
@@ -257,7 +257,7 @@ func TestCheckSettlesMatchesManual(t *testing.T) {
 	}
 	manualF := AlwaysWithin(
 		TimeBound{Microseconds: 500_000},
-		Atomic{Predicate: Between{Signal: "T", Min: 60, Max: 80}},
+		Atomic{Predicate: Between{Signal: "T", Min: RationalFromFloat(60), Max: RationalFromFloat(80)}},
 	)
 	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
@@ -387,7 +387,7 @@ func TestSerializeDataFrameExtended(t *testing.T) {
 
 func TestSerializeFormulaDepthLimit(t *testing.T) {
 	// Build a formula nested 101 levels deep (exceeds maxFormulaDepth=100).
-	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: 1}}
+	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: RationalFromFloat(1)}}
 	for i := 0; i < 101; i++ {
 		f = Not{Inner: f}
 	}

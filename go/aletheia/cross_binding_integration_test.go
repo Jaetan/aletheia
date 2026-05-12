@@ -152,7 +152,7 @@ func TestCrossBinding_SendFrameAck(t *testing.T) {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 	if err := c.SetProperties(ctx, []Formula{
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: 1000}}},
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: RationalFromFloat(1000)}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 	if err := c.SetProperties(ctx, []Formula{
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: 100}}},
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: RationalFromFloat(100)}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 	// 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
-	inner := Formula(Atomic{Predicate: Equals{Signal: "TestSignal", Value: 0}})
+	inner := Formula(Atomic{Predicate: Equals{Signal: "TestSignal", Value: RationalFromFloat(0)}})
 	for range 63 {
 		inner = Always{Inner: inner}
 	}

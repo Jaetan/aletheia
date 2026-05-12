@@ -182,8 +182,8 @@ func TestExtendedID_String(t *testing.T) {
 }
 
 func TestImpliesConstructor(t *testing.T) {
-	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}
-	b := aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}}
+	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}
+	b := aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}}
 	f := aletheia.Implies(a, b)
 
 	or, ok := f.(aletheia.Or)

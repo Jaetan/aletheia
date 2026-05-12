@@ -103,27 +103,29 @@ func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 }
 
 // formatPredicate returns a human-readable representation of a predicate.
+// Display path only — Rational values flow through Float64() for the
+// %g format; precision loss is acceptable in human-readable output.
 func formatPredicate(p Predicate) string {
 	switch v := p.(type) {
 	case Equals:
-		return fmt.Sprintf("%s = %s", v.Signal, formatValue(float64(v.Value)))
+		return fmt.Sprintf("%s = %s", v.Signal, formatValue(v.Value.Float64()))
 	case LessThan:
-		return fmt.Sprintf("%s < %s", v.Signal, formatValue(float64(v.Value)))
+		return fmt.Sprintf("%s < %s", v.Signal, formatValue(v.Value.Float64()))
 	case GreaterThan:
-		return fmt.Sprintf("%s > %s", v.Signal, formatValue(float64(v.Value)))
+		return fmt.Sprintf("%s > %s", v.Signal, formatValue(v.Value.Float64()))
 	case LessThanOrEqual:
-		return fmt.Sprintf("%s <= %s", v.Signal, formatValue(float64(v.Value)))
+		return fmt.Sprintf("%s <= %s", v.Signal, formatValue(v.Value.Float64()))
 	case GreaterThanOrEqual:
-		return fmt.Sprintf("%s >= %s", v.Signal, formatValue(float64(v.Value)))
+		return fmt.Sprintf("%s >= %s", v.Signal, formatValue(v.Value.Float64()))
 	case Between:
-		return fmt.Sprintf("%s <= %s <= %s", formatValue(float64(v.Min)), v.Signal, formatValue(float64(v.Max)))
+		return fmt.Sprintf("%s <= %s <= %s", formatValue(v.Min.Float64()), v.Signal, formatValue(v.Max.Float64()))
 	case ChangedBy:
-		if v.Delta >= 0 {
-			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatValue(float64(v.Delta)))
+		if v.Delta.Numerator >= 0 {
+			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatValue(v.Delta.Float64()))
 		}
-		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatValue(float64(v.Delta)))
+		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatValue(v.Delta.Float64()))
 	case StableWithin:
-		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatValue(float64(v.Tolerance)))
+		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatValue(v.Tolerance.Float64()))
 	default:
 		return "<unknown predicate>"
 	}

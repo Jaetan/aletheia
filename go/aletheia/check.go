@@ -59,7 +59,8 @@ func CheckSignal(name string) CheckSignalBuilder {
 
 // NeverExceeds produces G(signal < value).
 func (b CheckSignalBuilder) NeverExceeds(value PhysicalValue) CheckResult {
-	f := Always{Inner: Atomic{Predicate: LessThan{Signal: SignalName(b.name), Value: value}}}
+	r := physicalAsRational(value)
+	f := Always{Inner: Atomic{Predicate: LessThan{Signal: SignalName(b.name), Value: r}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
 		conditionDesc: fmt.Sprintf("< %g", float64(value)),
@@ -68,7 +69,8 @@ func (b CheckSignalBuilder) NeverExceeds(value PhysicalValue) CheckResult {
 
 // NeverBelow produces G(signal >= value).
 func (b CheckSignalBuilder) NeverBelow(value PhysicalValue) CheckResult {
-	f := Always{Inner: Atomic{Predicate: GreaterThanOrEqual{Signal: SignalName(b.name), Value: value}}}
+	r := physicalAsRational(value)
+	f := Always{Inner: Atomic{Predicate: GreaterThanOrEqual{Signal: SignalName(b.name), Value: r}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
 		conditionDesc: fmt.Sprintf(">= %g", float64(value)),
@@ -81,7 +83,8 @@ func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) (CheckResult, err
 	if lo > hi {
 		return CheckResult{}, validationError(fmt.Sprintf("stays_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
 	}
-	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: lo, Max: hi}}}
+	rLo, rHi := physicalAsRational(lo), physicalAsRational(hi)
+	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: rLo, Max: rHi}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
 		conditionDesc: fmt.Sprintf("between %g and %g", float64(lo), float64(hi)),
@@ -90,7 +93,8 @@ func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) (CheckResult, err
 
 // NeverEquals produces G(¬(signal = value)).
 func (b CheckSignalBuilder) NeverEquals(value PhysicalValue) CheckResult {
-	f := Never(Equals{Signal: SignalName(b.name), Value: value})
+	r := physicalAsRational(value)
+	f := Never(Equals{Signal: SignalName(b.name), Value: r})
 	return CheckResult{
 		formula: f, signalName: b.name,
 		conditionDesc: fmt.Sprintf("!= %g", float64(value)),
@@ -99,7 +103,8 @@ func (b CheckSignalBuilder) NeverEquals(value PhysicalValue) CheckResult {
 
 // Equals begins an equals(v).Always() chain.
 func (b CheckSignalBuilder) Equals(value PhysicalValue) CheckSignalPredicate {
-	f := Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: value}}}
+	r := physicalAsRational(value)
+	f := Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: r}}}
 	return CheckSignalPredicate{
 		formula: f, signalName: b.name,
 		conditionDesc: fmt.Sprintf("= %g", float64(value)),
@@ -152,7 +157,11 @@ func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
 	}
 	f := AlwaysWithin(
 		TimeBound{Microseconds: timeMs * 1000},
-		Atomic{Predicate: Between{Signal: SignalName(b.signalName), Min: b.lo, Max: b.hi}},
+		Atomic{Predicate: Between{
+			Signal: SignalName(b.signalName),
+			Min:    physicalAsRational(b.lo),
+			Max:    physicalAsRational(b.hi),
+		}},
 	)
 	return CheckResult{
 		formula:    f,
@@ -178,17 +187,17 @@ func CheckWhen(name string) WhenSignalBuilder {
 
 // Exceeds fires when signal exceeds value.
 func (b WhenSignalBuilder) Exceeds(value PhysicalValue) WhenCondition {
-	return WhenCondition{trigger: GreaterThan{Signal: SignalName(b.name), Value: value}}
+	return WhenCondition{trigger: GreaterThan{Signal: SignalName(b.name), Value: physicalAsRational(value)}}
 }
 
 // Equals fires when signal equals value.
 func (b WhenSignalBuilder) Equals(value PhysicalValue) WhenCondition {
-	return WhenCondition{trigger: Equals{Signal: SignalName(b.name), Value: value}}
+	return WhenCondition{trigger: Equals{Signal: SignalName(b.name), Value: physicalAsRational(value)}}
 }
 
 // DropsBelow fires when signal drops below value.
 func (b WhenSignalBuilder) DropsBelow(value PhysicalValue) WhenCondition {
-	return WhenCondition{trigger: LessThan{Signal: SignalName(b.name), Value: value}}
+	return WhenCondition{trigger: LessThan{Signal: SignalName(b.name), Value: physicalAsRational(value)}}
 }
 
 // WhenCondition holds a trigger predicate and needs .Then() to continue.
@@ -211,7 +220,7 @@ type ThenSignalBuilder struct {
 func (b ThenSignalBuilder) Equals(value PhysicalValue) ThenCondition {
 	return ThenCondition{
 		trigger:    b.trigger,
-		thenPred:   Equals{Signal: SignalName(b.thenName), Value: value},
+		thenPred:   Equals{Signal: SignalName(b.thenName), Value: physicalAsRational(value)},
 		thenSignal: b.thenName,
 		thenDesc:   fmt.Sprintf("= %g", float64(value)),
 	}
@@ -221,7 +230,7 @@ func (b ThenSignalBuilder) Equals(value PhysicalValue) ThenCondition {
 func (b ThenSignalBuilder) Exceeds(value PhysicalValue) ThenCondition {
 	return ThenCondition{
 		trigger:    b.trigger,
-		thenPred:   GreaterThan{Signal: SignalName(b.thenName), Value: value},
+		thenPred:   GreaterThan{Signal: SignalName(b.thenName), Value: physicalAsRational(value)},
 		thenSignal: b.thenName,
 		thenDesc:   fmt.Sprintf("> %g", float64(value)),
 	}
@@ -233,7 +242,7 @@ func (b ThenSignalBuilder) Exceeds(value PhysicalValue) ThenCondition {
 func (b ThenSignalBuilder) StaysBetween(lo, hi PhysicalValue) ThenCondition {
 	tc := ThenCondition{
 		trigger:    b.trigger,
-		thenPred:   Between{Signal: SignalName(b.thenName), Min: lo, Max: hi},
+		thenPred:   Between{Signal: SignalName(b.thenName), Min: physicalAsRational(lo), Max: physicalAsRational(hi)},
 		thenSignal: b.thenName,
 		thenDesc:   fmt.Sprintf("between %g and %g", float64(lo), float64(hi)),
 	}

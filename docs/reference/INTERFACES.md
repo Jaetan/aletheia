@@ -68,7 +68,7 @@ Signal("Speed").less_than(220).always()
                              aletheia::PhysicalValue{aletheia::Rational{220, 1}})));
 ```
 ```go
-_ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
+_ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
 ```
 
 **YAML loader** — load a check file:

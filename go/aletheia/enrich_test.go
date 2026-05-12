@@ -11,7 +11,7 @@ import (
 // --- Formula pretty-printing ---
 
 func TestFormatFormula_AlwaysLessThan(t *testing.T) {
-	f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}}
+	f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}}
 	got := aletheia.FormatFormula(f)
 	expected := "always(Speed < 220)"
 	if got != expected {
@@ -20,7 +20,7 @@ func TestFormatFormula_AlwaysLessThan(t *testing.T) {
 }
 
 func TestFormatFormula_NeverPattern(t *testing.T) {
-	f := aletheia.Never(aletheia.GreaterThan{Signal: "Speed", Value: 100})
+	f := aletheia.Never(aletheia.GreaterThan{Signal: "Speed", Value: aletheia.RationalFromFloat(100)})
 	got := aletheia.FormatFormula(f)
 	expected := "never Speed > 100"
 	if got != expected {
@@ -29,7 +29,7 @@ func TestFormatFormula_NeverPattern(t *testing.T) {
 }
 
 func TestFormatFormula_Eventually(t *testing.T) {
-	f := aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: 1}}}
+	f := aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: aletheia.RationalFromFloat(1)}}}
 	got := aletheia.FormatFormula(f)
 	expected := "eventually(Mode = 1)"
 	if got != expected {
@@ -40,7 +40,7 @@ func TestFormatFormula_Eventually(t *testing.T) {
 func TestFormatFormula_MetricAlways(t *testing.T) {
 	f := aletheia.MetricAlways{
 		Bound: aletheia.TimeBound{Microseconds: 5000000},
-		Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
+		Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
 	}
 	got := aletheia.FormatFormula(f)
 	expected := "always within 5s (Speed < 220)"
@@ -52,7 +52,7 @@ func TestFormatFormula_MetricAlways(t *testing.T) {
 func TestFormatFormula_MetricEventually(t *testing.T) {
 	f := aletheia.MetricEventually{
 		Bound: aletheia.TimeBound{Microseconds: 2000000},
-		Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: 1}},
+		Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: aletheia.RationalFromFloat(1)}},
 	}
 	got := aletheia.FormatFormula(f)
 	expected := "eventually within 2s (Mode = 1)"
@@ -62,7 +62,7 @@ func TestFormatFormula_MetricEventually(t *testing.T) {
 }
 
 func TestFormatFormula_Next(t *testing.T) {
-	f := aletheia.Next{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}}
+	f := aletheia.Next{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}}
 	got := aletheia.FormatFormula(f)
 	expected := "next(Speed < 220)"
 	if got != expected {
@@ -72,8 +72,8 @@ func TestFormatFormula_Next(t *testing.T) {
 
 func TestFormatFormula_And(t *testing.T) {
 	f := aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
+		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
+		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},
 	}
 	got := aletheia.FormatFormula(f)
 	expected := "Speed < 220 and RPM > 500"
@@ -85,8 +85,8 @@ func TestFormatFormula_And(t *testing.T) {
 func TestFormatFormula_Complex(t *testing.T) {
 	// always(Speed < 220 and RPM > 500)
 	f := aletheia.Always{Inner: aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
+		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
+		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},
 	}}
 	got := aletheia.FormatFormula(f)
 	expected := "always(Speed < 220 and RPM > 500)"
@@ -97,8 +97,8 @@ func TestFormatFormula_Complex(t *testing.T) {
 
 func TestFormatFormula_Until(t *testing.T) {
 	f := aletheia.Until{
-		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
-		Right: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
+		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},
+		Right: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
 	}
 	got := aletheia.FormatFormula(f)
 	expected := "RPM > 500 until Speed < 220"
@@ -112,15 +112,15 @@ func TestFormatFormula_AllPredicates(t *testing.T) {
 		pred     aletheia.Predicate
 		expected string
 	}{
-		{aletheia.Equals{Signal: "S", Value: 10}, "S = 10"},
-		{aletheia.LessThan{Signal: "S", Value: 10}, "S < 10"},
-		{aletheia.GreaterThan{Signal: "S", Value: 10}, "S > 10"},
-		{aletheia.LessThanOrEqual{Signal: "S", Value: 10}, "S <= 10"},
-		{aletheia.GreaterThanOrEqual{Signal: "S", Value: 10}, "S >= 10"},
-		{aletheia.Between{Signal: "S", Min: 5, Max: 15}, "5 <= S <= 15"},
-		{aletheia.ChangedBy{Signal: "S", Delta: 2.5}, "ΔS >= 2.5"},
-		{aletheia.ChangedBy{Signal: "S", Delta: -3}, "ΔS <= -3"},
-		{aletheia.StableWithin{Signal: "S", Tolerance: 2.5}, "|ΔS| <= 2.5"},
+		{aletheia.Equals{Signal: "S", Value: aletheia.RationalFromFloat(10)}, "S = 10"},
+		{aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(10)}, "S < 10"},
+		{aletheia.GreaterThan{Signal: "S", Value: aletheia.RationalFromFloat(10)}, "S > 10"},
+		{aletheia.LessThanOrEqual{Signal: "S", Value: aletheia.RationalFromFloat(10)}, "S <= 10"},
+		{aletheia.GreaterThanOrEqual{Signal: "S", Value: aletheia.RationalFromFloat(10)}, "S >= 10"},
+		{aletheia.Between{Signal: "S", Min: aletheia.RationalFromFloat(5), Max: aletheia.RationalFromFloat(15)}, "5 <= S <= 15"},
+		{aletheia.ChangedBy{Signal: "S", Delta: aletheia.RationalFromFloat(2.5)}, "ΔS >= 2.5"},
+		{aletheia.ChangedBy{Signal: "S", Delta: aletheia.RationalFromFloat(-3)}, "ΔS <= -3"},
+		{aletheia.StableWithin{Signal: "S", Tolerance: aletheia.RationalFromFloat(2.5)}, "|ΔS| <= 2.5"},
 	}
 	for _, tt := range tests {
 		f := aletheia.Atomic{Predicate: tt.pred}
@@ -133,8 +133,8 @@ func TestFormatFormula_AllPredicates(t *testing.T) {
 
 func TestFormatFormula_Release(t *testing.T) {
 	f := aletheia.Release{
-		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
-		Right: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
+		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},
+		Right: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
 	}
 	got := aletheia.FormatFormula(f)
 	expected := "RPM > 500 release Speed < 220"
@@ -145,9 +145,9 @@ func TestFormatFormula_Release(t *testing.T) {
 
 func TestFormatFormula_NestedBinaryParens(t *testing.T) {
 	// And{Or{a, b}, c} should produce "(a or b) and c", not "a or b and c"
-	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}
-	b := aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}}
-	c := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Temp", Value: 80}}
+	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}
+	b := aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}}
+	c := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Temp", Value: aletheia.RationalFromFloat(80)}}
 	f := aletheia.And{
 		Left:  aletheia.Or{Left: a, Right: b},
 		Right: c,
@@ -163,8 +163,8 @@ func TestFormatFormula_NestedBinaryParens(t *testing.T) {
 
 func TestCollectSignals_MultiSignal(t *testing.T) {
 	f := aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
+		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
+		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},
 	}
 	signals := aletheia.CollectSignals(f)
 	if len(signals) != 2 {
@@ -177,8 +177,8 @@ func TestCollectSignals_MultiSignal(t *testing.T) {
 
 func TestCollectSignals_Dedup(t *testing.T) {
 	f := aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "Speed", Value: 0}},
+		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
+		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "Speed", Value: aletheia.RationalFromFloat(0)}},
 	}
 	signals := aletheia.CollectSignals(f)
 	if len(signals) != 1 {
@@ -191,31 +191,31 @@ func TestCollectSignals_Dedup(t *testing.T) {
 
 func TestBuildDiagnostic_AlwaysSucceeds(t *testing.T) {
 	formulas := []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}},
-		aletheia.Not{Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "S", Value: 1}}},
+		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}},
+		aletheia.Not{Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "S", Value: aletheia.RationalFromFloat(1)}}},
 		aletheia.And{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: 1}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: 2}},
+			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.RationalFromFloat(1)}},
+			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.RationalFromFloat(2)}},
 		},
 		aletheia.Or{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: 1}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: 2}},
+			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.RationalFromFloat(1)}},
+			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.RationalFromFloat(2)}},
 		},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}}},
-		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}}},
-		aletheia.Next{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}}},
+		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}}},
+		aletheia.Next{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}}},
 		aletheia.Until{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: 1}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: 2}},
+			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.RationalFromFloat(1)}},
+			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.RationalFromFloat(2)}},
 		},
 		aletheia.Release{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: 1}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: 2}},
+			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.RationalFromFloat(1)}},
+			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.RationalFromFloat(2)}},
 		},
-		aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: 1000000}, Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}}},
-		aletheia.MetricEventually{Bound: aletheia.TimeBound{Microseconds: 1000000}, Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}}},
-		aletheia.MetricUntil{Bound: aletheia.TimeBound{Microseconds: 1000000}, Left: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: 1}}, Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: 2}}},
-		aletheia.MetricRelease{Bound: aletheia.TimeBound{Microseconds: 1000000}, Left: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: 1}}, Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: 2}}},
+		aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: 1000000}, Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}}},
+		aletheia.MetricEventually{Bound: aletheia.TimeBound{Microseconds: 1000000}, Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}}},
+		aletheia.MetricUntil{Bound: aletheia.TimeBound{Microseconds: 1000000}, Left: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.RationalFromFloat(1)}}, Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.RationalFromFloat(2)}}},
+		aletheia.MetricRelease{Bound: aletheia.TimeBound{Microseconds: 1000000}, Left: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.RationalFromFloat(1)}}, Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.RationalFromFloat(2)}}},
 	}
 	for i, f := range formulas {
 		diag := aletheia.BuildDiagnostic(f)
@@ -241,7 +241,7 @@ func TestSetProperties_AutoDerive(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -265,7 +265,7 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -320,8 +320,8 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.And{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
+			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
+			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},
 		}},
 	})
 	if err != nil {
@@ -374,7 +374,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -440,7 +440,7 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -486,7 +486,7 @@ func TestEndStream_Enriched(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -552,7 +552,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -594,7 +594,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 }
 
 func TestFormatFormula_MetricTimeBounds(t *testing.T) {
-	inner := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: 1}}
+	inner := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.RationalFromFloat(1)}}
 	tests := []struct {
 		us   int64
 		want string // substring expected in formatted output
@@ -631,7 +631,7 @@ func TestEndStream_EnrichmentExtractionFailure(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package aletheia
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -35,6 +36,38 @@ type Rational struct {
 func (r Rational) Float64() float64 {
 	return float64(r.Numerator) / float64(r.Denominator)
 }
+
+// IntRational returns an exact [Rational] for an integer literal.
+// Useful for predicate construction: “Equals{Value: IntRational(220)}“.
+func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 1} }
+
+// RationalFromFloat converts a float64 to a [Rational] via 10^9 scaling.
+// Integer-valued floats get the exact “n/1“ form; non-integer floats
+// fall through to ~9 decimal-digit (≈ ppb) precision shared with the
+// FFI signal-value path.  NaN and ±Inf clamp to “0/1“.
+//
+// Use this for predicate construction when the user-facing value is a
+// float (“Equals{Value: aletheia.RationalFromFloat(11.5)}“); for
+// exact-precision use cases prefer “Rational{Numerator: 23, Denominator: 2}“.
+func RationalFromFloat(v float64) Rational {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return Rational{Numerator: 0, Denominator: 1}
+	}
+	if v == math.Trunc(v) && v >= math.MinInt64 && v <= math.MaxInt64 {
+		return Rational{Numerator: int64(v), Denominator: 1}
+	}
+	n, d, err := floatToRational(v)
+	if err != nil {
+		return Rational{Numerator: 0, Denominator: 1}
+	}
+	return Rational{Numerator: n, Denominator: d}
+}
+
+// physicalAsRational is the [PhysicalValue]-typed alias for
+// [RationalFromFloat] used at the [CheckSignal] / [CheckWhen] builder
+// boundary where the public API still accepts “PhysicalValue“ for
+// ergonomics.
+func physicalAsRational(v PhysicalValue) Rational { return RationalFromFloat(float64(v)) }
 
 // Delta is a signed change threshold for ChangedBy predicates.
 // Positive: curr - prev >= delta; negative: curr - prev <= delta.

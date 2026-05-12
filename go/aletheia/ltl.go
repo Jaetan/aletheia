@@ -6,54 +6,60 @@ type Predicate interface {
 	predicate() // sealed
 }
 
+// Predicate values carry exact [Rational] precision per the DecRat
+// universal principle — wire-symmetric with C++ ``rational_to_json`` and
+// Python's ``Fraction`` (cluster 17 / GO-D-19.1 mirror of PY-D-19.1).
+// Use [IntRational] for exact integer literals; for arbitrary floats,
+// see the convenience helpers used by the [CheckSignalBuilder] surface.
+
 // Equals tests whether a signal's value equals a specific value.
 type Equals struct {
 	Signal SignalName
-	Value  PhysicalValue
+	Value  Rational
 }
 
 // LessThan tests whether a signal's value is strictly less than a threshold.
 type LessThan struct {
 	Signal SignalName
-	Value  PhysicalValue
+	Value  Rational
 }
 
 // GreaterThan tests whether a signal's value is strictly greater than a threshold.
 type GreaterThan struct {
 	Signal SignalName
-	Value  PhysicalValue
+	Value  Rational
 }
 
 // LessThanOrEqual tests whether a signal's value is at most a threshold.
 type LessThanOrEqual struct {
 	Signal SignalName
-	Value  PhysicalValue
+	Value  Rational
 }
 
 // GreaterThanOrEqual tests whether a signal's value is at least a threshold.
 type GreaterThanOrEqual struct {
 	Signal SignalName
-	Value  PhysicalValue
+	Value  Rational
 }
 
 // Between tests whether a signal's value is within [Min, Max].
 type Between struct {
 	Signal SignalName
-	Min    PhysicalValue
-	Max    PhysicalValue
+	Min    Rational
+	Max    Rational
 }
 
 // ChangedBy tests whether a signal's value changed in a specific direction.
 // Positive delta: curr - prev >= delta; negative delta: curr - prev <= delta.
 type ChangedBy struct {
 	Signal SignalName
-	Delta  Delta
+	Delta  Rational
 }
 
 // StableWithin tests whether a signal's value stayed within Tolerance of its previous value.
 type StableWithin struct {
 	Signal    SignalName
-	Tolerance Tolerance
+	Tolerance Rational
 }
 
 func (Equals) predicate()             {}

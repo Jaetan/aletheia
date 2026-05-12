@@ -214,7 +214,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 		t.Fatalf("ParseDBCText: %v", err)
 	}
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}

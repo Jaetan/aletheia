@@ -169,7 +169,7 @@ aletheia.CheckSignal("Speed").NeverExceeds(220)
 _, _ = aletheia.LoadChecksFromYAMLFile("checks.yaml")
 _, _ = excel.LoadChecks("tests.xlsx")
 // LTL formulas via struct-based AST (compositional, not fluent DSL):
-f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
+f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
 _ = f
 ```
 
