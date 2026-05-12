@@ -581,8 +581,16 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             if (e.kind() == ErrorKind::Cancellation) {
                 batch.error = e;
             } else {
+                // R20 cluster D — CPP-D-22.1: forward `bound_info_` so a
+                // mid-batch `InputBoundExceededError` payload survives the
+                // per-frame context wrap.  Without this the 3-arg ctor
+                // defaulted `bound_info` to `std::nullopt`, dropping the
+                // structured `bound_kind/observed/limit` triple that the
+                // Python `InputBoundExceededError` and Go `*InputBoundExceededError`
+                // preserve across error paths.
                 batch.error =
-                    AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
+                    AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()),
+                                  e.code(), e.bound_info()};
             }
             return batch;
         }

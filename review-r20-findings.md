@@ -1003,7 +1003,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 616. `[ ]` CPP-D-21.4 [FIX] — `ErrorKind::Ffi` declared but never constructed in production. (See CPP-B-7.3.)
 617. `[ ]` CPP-D-21.5 [FIX] — `parse_bounded` SAX callback throws at depth 64+; recursive descent already 9600 bytes deep — SIGSEGV before throw. Lower bound or use non-recursive parse_sax.
 618. `[ ]` CPP-D-21.6 [FIX-style] — `send_frames` sequential per-frame FFI; consider `aletheia_send_frames_batch`.
-619. `[ ]` CPP-D-22.1 [FIX — CRITICAL] — `send_frames` (client.cpp:584-585) wraps `AletheiaError` with 3-arg ctor losing `bound_info_`. Mid-batch `InputBoundExceededError` payload discarded; cross-binding parity vs Python/Go broken.
+619. `[FIX]` CPP-D-22.1 [FIX — CRITICAL] — ✅ Cluster D: 4-arg `AletheiaError` ctor with `e.bound_info()` forwarded; cross-binding parity restored. ctest 10/10 clean.
 620. `[ ]` CPP-D-22.2 [FIX] — `FfiBackend` ctor passes stack-local `std::string.data()` to `hs_init`; verify GHC memcpy semantics or copy to static storage.
 621. `[ ]` CPP-D-22.3 [FIX] — `~FfiBackend() = default` — multiple FfiBackend instances leak dlopen handle + StablePtrs; document once-per-process contract.
 622. `[ ]` CPP-D-22.4 [FIX-style] — `rts_mismatch_info` stuck after first read; document.
