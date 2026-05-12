@@ -28,6 +28,15 @@ mkErrorJson msg = "{\"status\":\"error\",\"code\":\"ffi_validation_error\",\"err
 dlcToBytes :: Word8 -> Int
 dlcToBytes n = fromIntegral (AgdaDLC.d_dlcToBytes_6 (toInteger n))
 
+-- | Decode an optional Bool from two C bytes: a presence flag and a value.
+-- present == 0 → Nothing; present /= 0 → Just (value /= 0). Used to lift
+-- the CAN-FD BRS/ESI bits from the binary FFI into Agda's `Maybe Bool`.
+-- The kernel does not consume BRS/ESI; they are pass-through metadata for
+-- bindings (R19 Phase 2 cluster 18 — AGDA-D-10.1 closure).
+mkMaybeBool :: Word8 -> Word8 -> Maybe Bool
+mkMaybeBool 0 _ = Nothing
+mkMaybeBool _ v = Just (v /= 0)
+
 -- | Validate DLC code (must be ≤ 15) and dataLen/DLC consistency.
 validateDLCAndLen :: String -> Word8 -> Word8 -> Either String Int
 validateDLCAndLen ctx dlc dataLen

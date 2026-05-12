@@ -32,7 +32,16 @@ open import Data.Unit using (⊤)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
 -- A CAN data frame with timestamp and optional CAN-FD metadata.
--- brs/esi are Nothing for CAN 2.0B frames, Just for CAN-FD frames.
+--
+-- brs/esi convention (ISO 11898-1:2015 §10.4.2 / §10.4.3, R19P2 cluster 18
+-- — AGDA-D-10.1 closure): bindings populate `Just b` for CAN-FD frames
+-- carrying a Bit Rate Switch / Error State Indicator bit, and `Nothing`
+-- for CAN 2.0B frames where the bits do not exist on the wire.  The Agda
+-- kernel does not consume these fields — they are pass-through metadata
+-- surfaced to binding consumers via the FFI response and JSON wire shape.
+-- Phase 5.1 scope keeps LTL atomic predicates signal-level only; bus-bit
+-- predicates (BRS-set / ESI-set as truth values) would require lifting
+-- the Maybe Bool to the predicate vocabulary and are deferred to Phase 6.
 record TimedFrame : Set where
   field
     timestamp   : Timestamp μs  -- Microseconds since trace start

@@ -24,7 +24,6 @@ import Data.Word (Word8, Word32, Word64)
 import qualified Data.Text as T
 import Unsafe.Coerce (unsafeCoerce)
 
-import qualified MAlonzo.Code.Agda.Builtin.Maybe as AgdaMaybe
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
@@ -75,15 +74,23 @@ aletheia_process statePtr inputCStr = do
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)
 -- ============================================================================
 
--- CAN-FD note: BRS/ESI flags are not part of the binary FFI protocol —
--- bindings drop them before calling. The Agda core operates on payload
--- bytes + DLC only.
+-- CAN-FD BRS/ESI: each flag is encoded as a pair of Word8 arguments —
+-- `*_present` (0 = Nothing, non-zero = Just) and `*_value` (0 = False,
+-- non-zero = True). Bindings send (0, 0) for CAN 2.0B frames where the
+-- bits do not exist. The kernel does not consume BRS/ESI; they are
+-- pass-through metadata exposed to bindings via TimedFrame (R19 Phase 2
+-- cluster 18 — AGDA-D-10.1 closure).
 foreign export ccall aletheia_send_frame
     :: StateHandle -> Word64 -> Word32 -> Word8 -> Word8
-    -> Ptr Word8 -> Word8 -> IO CString
+    -> Ptr Word8 -> Word8
+    -> Word8 -> Word8 -> Word8 -> Word8
+    -> IO CString
 aletheia_send_frame :: StateHandle -> Word64 -> Word32 -> Word8 -> Word8
-                    -> Ptr Word8 -> Word8 -> IO CString
-aletheia_send_frame statePtr ts canId ext dlc dataPtr dataLen =
+                    -> Ptr Word8 -> Word8
+                    -> Word8 -> Word8 -> Word8 -> Word8
+                    -> IO CString
+aletheia_send_frame statePtr ts canId ext dlc dataPtr dataLen
+                    brsPres brsVal esiPres esiVal =
     case validateDLCAndLen "aletheia_send_frame" dlc dataLen >> mkAgdaCanId canId ext of
       Left err -> errorJSON err
       Right agdaCanId -> do
@@ -92,7 +99,8 @@ aletheia_send_frame statePtr ts canId ext dlc dataPtr dataLen =
                 (AgdaTime.C_mkTs_26 (toInteger ts))
                 (toInteger dataLen)
                 (AgdaFrame.C_constructor_36 agdaCanId (mkAgdaDLC (toInteger dlc)) (bytesToAgdaVec bytes))
-                AgdaMaybe.C_nothing_18 AgdaMaybe.C_nothing_18
+                (mkMaybeBool brsPres brsVal)
+                (mkMaybeBool esiPres esiVal)
         runJSON statePtr (\s -> AgdaBin.d_processFrameDirect_12 s (unsafeCoerce agdaTF))
 
 foreign export ccall aletheia_send_error :: StateHandle -> Word64 -> IO CString

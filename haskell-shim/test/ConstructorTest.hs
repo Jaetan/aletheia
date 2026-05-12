@@ -145,9 +145,13 @@ walkPartitionedResults ier =
 
 -- | Construct a TimedFrame via binary MAlonzo constructors.
 -- Mirrors aletheia_send_frame's construction in AletheiaFFI.hs.
+-- The brs/esi arguments populate `TimedFrame.brs` / `.esi`: pass `Nothing`
+-- for CAN 2.0B frames, `Just b` for CAN-FD frames carrying the BRS / ESI
+-- bits (R19 Phase 2 cluster 18 — AGDA-D-10.1 closure).
 mkTimedFrame :: Integer -> Integer -> Bool -> Integer -> [Word8]
+             -> Maybe Bool -> Maybe Bool
              -> AgdaTrace.T_TimedFrame_6
-mkTimedFrame timestamp canIdVal isExtended _dlc bytes =
+mkTimedFrame timestamp canIdVal isExtended _dlc bytes brs esi =
     let agdaCanId = mkAgdaCanId canIdVal isExtended
         agdaVec = bytesToAgdaVec bytes
         -- CAN 2.0B: C_constructor_36 CANId DLC Vec. DLC erased at runtime
@@ -155,8 +159,7 @@ mkTimedFrame timestamp canIdVal isExtended _dlc bytes =
         agdaFrame = AgdaFrame.C_constructor_36 agdaCanId (unsafeCoerce ()) agdaVec
         agdaTs = AgdaTime.C_mkTs_26 timestamp
         dataLen = toInteger (length bytes)
-    -- TimedFrame: timestamp, payloadSize, frame, brs, esi. Non-FD: Nothing/Nothing.
-    in AgdaTrace.C_constructor_32 agdaTs dataLen agdaFrame Nothing Nothing
+    in AgdaTrace.C_constructor_32 agdaTs dataLen agdaFrame brs esi
 
 -- | Process a frame via the binary path (processFrameDirect).
 sendFrame :: AgdaState.T_StreamState_28 -> AgdaTrace.T_TimedFrame_6
@@ -297,28 +300,28 @@ main = do
     -- Tests 1-4: d_processFrameDirect_12
     -- ------------------------------------------------------------------------
     putStrLn "Test 1: processFrameDirect — Speed=100, expect ack (100 < 1000)"
-    let tf1 = mkTimedFrame 1000 256 False 8 [100, 0, 0, 0, 0, 0, 0, 0]
+    let tf1 = mkTimedFrame 1000 256 False 8 [100, 0, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let (state4, r1) = sendFrame state3 tf1
     let r1s = T.unpack r1
     putStrLn $ "  Response: " ++ r1s
     pass1 <- assertContains "Ack response" "\"status\": \"ack\"" r1s
 
     putStrLn "Test 2: processFrameDirect — Speed=1500, expect violation (1500 ≥ 1000)"
-    let tf2 = mkTimedFrame 2000 256 False 8 [220, 5, 0, 0, 0, 0, 0, 0]
+    let tf2 = mkTimedFrame 2000 256 False 8 [220, 5, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let (_, r2) = sendFrame state4 tf2
     let r2s = T.unpack r2
     putStrLn $ "  Response: " ++ r2s
     pass2 <- assertContains "Violation response" "\"status\": \"fails\"" r2s
 
     putStrLn "Test 3: processFrameDirect — non-matching standard ID, expect ack"
-    let tf3 = mkTimedFrame 3000 512 False 8 [255, 255, 0, 0, 0, 0, 0, 0]
+    let tf3 = mkTimedFrame 3000 512 False 8 [255, 255, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let (_, r3) = sendFrame state3 tf3
     let r3s = T.unpack r3
     putStrLn $ "  Response: " ++ r3s
     pass3 <- assertContains "Ack for non-matching ID" "\"status\": \"ack\"" r3s
 
     putStrLn "Test 4: processFrameDirect — extended CAN ID, expect ack"
-    let tf4 = mkTimedFrame 4000 256 True 8 [0, 0, 0, 0, 0, 0, 0, 0]
+    let tf4 = mkTimedFrame 4000 256 True 8 [0, 0, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let (_, r4) = sendFrame state3 tf4
     let r4s = T.unpack r4
     putStrLn $ "  Response: " ++ r4s
@@ -440,20 +443,41 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Test 13: d_processEndStreamDirect_28
+    -- Tests 13-15: CAN-FD BRS/ESI metadata pass-through (R19P2 cluster 18)
+    -- BRS/ESI are stored on TimedFrame and never read by the kernel; the
+    -- constructor path must accept Just True / Just False / Nothing for both
+    -- bits without distorting downstream JSON output.
     -- ------------------------------------------------------------------------
-    putStrLn "Test 13: processEndStreamDirect — expect summary response"
-    let (_, r13) = endStream state3
-    let r13s = T.unpack r13
-    putStrLn $ "  Response: " ++ r13s
-    pass13 <- assertContains "End stream response is JSON" "\"status\":" r13s
+    putStrLn "Test 13: processFrameDirect — CAN-FD frame with brs=Just True, esi=Just False"
+    let tf13 = mkTimedFrame 7000 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0]
+                            (Just True) (Just False)
+    let (_, r13a) = sendFrame state3 tf13
+    let r13as = T.unpack r13a
+    putStrLn $ "  Response: " ++ r13as
+    pass13 <- assertContains "Ack with brs=Just True / esi=Just False"
+                             "\"status\": \"ack\"" r13as
+
+    putStrLn "Test 14: processFrameDirect — CAN-FD frame with brs=Just False, esi=Just True"
+    let tf14 = mkTimedFrame 7001 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0]
+                            (Just False) (Just True)
+    let (_, r14) = sendFrame state3 tf14
+    let r14s = T.unpack r14
+    putStrLn $ "  Response: " ++ r14s
+    pass14 <- assertContains "Ack with brs=Just False / esi=Just True"
+                             "\"status\": \"ack\"" r14s
+
+    putStrLn "Test 15: processEndStreamDirect — expect summary response"
+    let (_, r15) = endStream state3
+    let r15s = T.unpack r15
+    putStrLn $ "  Response: " ++ r15s
+    pass15 <- assertContains "End stream response is JSON" "\"status\":" r15s
     putStrLn ""
 
     -- ------------------------------------------------------------------------
     -- Summary
     -- ------------------------------------------------------------------------
     let allPass = and [pass1, pass2, pass3, pass4, pass5, pass6, pass7, pass8,
-                       pass9, pass10, pass11, pass12, pass13]
+                       pass9, pass10, pass11, pass12, pass13, pass14, pass15]
     if allPass
-        then putStrLn "All 13 checks passed (11/11 FFI exports exercised)." >> exitSuccess
+        then putStrLn "All 15 checks passed (11/11 FFI exports exercised, BRS/ESI lifted)." >> exitSuccess
         else putStrLn "SOME CHECKS FAILED." >> exitFailure
