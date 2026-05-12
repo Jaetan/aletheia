@@ -1,6 +1,6 @@
 # Building Aletheia
 
-**Last Updated**: 2026-05-10
+**Last Updated**: 2026-05-12
 
 Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); phase and status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
@@ -127,9 +127,9 @@ agda test.agda
 The project uses modern Python type hints with `from __future__ import annotations`.
 
 ```bash
-# Check if Python is installed (must be 3.12+)
+# Check if Python is installed (must be 3.13+)
 python3 --version
-# Should output: Python 3.12.0 or higher
+# Should output: Python 3.13.0 or higher
 
 # If you need to install a newer Python:
 # - On Ubuntu 26.04+: python3.14 is available via apt (no PPA needed)
@@ -298,7 +298,7 @@ For integrating `libaletheia-ffi.so` into C, C++, or Go projects, see [DISTRIBUT
 
 For deployment outside the git repository (Docker, CI/CD, shared servers), Aletheia can be installed
 as a self-contained bundle with all GHC runtime libraries included. No GHC or Agda is needed at
-runtime — only Python 3.12+.
+runtime — only Python 3.13+.
 
 #### Prerequisites
 
@@ -329,7 +329,7 @@ $PREFIX/
 ├── lib/aletheia/
 │   ├── libaletheia-ffi.so              # patched RPATH=$ORIGIN
 │   ├── libHSbase-*.so, libHSrts-*.so   # bundled GHC runtime (~31 MB)
-│   ├── venv/                           # Python 3.12+ venv with aletheia
+│   ├── venv/                           # Python 3.13+ venv with aletheia
 │   └── manifest.txt                    # for uninstall
 ├── share/doc/aletheia/                 # documentation
 └── share/aletheia/examples/            # example scripts

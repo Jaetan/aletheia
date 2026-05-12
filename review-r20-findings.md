@@ -716,32 +716,32 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 #### Findings
 
-362. `[ ]` DOC-A-1.1 — `PROJECT_STATUS.md:450` says **246**; actual count **247** (CLAUDE.md:87,92,252).
-363. `[ ]` DOC-A-1.2 — `PROJECT_STATUS.md:489` says **244**; third number for same fact in same file.
-364. `[ ]` DOC-A-1.3 — `PROJECT_STATUS.md:451` "Python modules: 22"; actual 32 (`find python/aletheia -name '*.py' -not -path '*__pycache__*'`).
-365. `[ ]` DOC-A-1.4 — `PROJECT_STATUS.md:457` "735 passing"; `pytest --collect-only` collects **816**.
-366. `[ ]` DOC-A-1.5 — `PROJECT_STATUS.md:457` "34 rows"; actual **38** rows in FEATURE_MATRIX.yaml.
-367. `[ ]` DOC-A-1.6 — `PROJECT_STATUS.md:459` "17 test files"; actual **28**.
-368. `[ ]` DOC-A-1.7 — `PROJECT_STATUS.md:460` total **1263**; wrong by every term in sum.
+362. `[FIX]` DOC-A-1.1 — ✅ Cluster E: 246 → 247.
+363. `[FIX]` DOC-A-1.2 — ✅ Cluster E: 244 → 246-of-247.
+364. `[FIX]` DOC-A-1.3 — ✅ Cluster E: 22 → 32.
+365. `[FIX]` DOC-A-1.4 — ✅ Cluster E: 735 → 826.
+366. `[FIX]` DOC-A-1.5 — ✅ Cluster E: 34 → 38.
+367. `[FIX]` DOC-A-1.6 — ✅ Cluster E: 17 → 28.
+368. `[FIX]` DOC-A-1.7 — ✅ Cluster E: 1263 → 1440 (826 + 331 + 283).
 369. `[ ]` DOC-A-1.8 [FIX] — `cpp/README.md:32` `aletheia::Client client{...};` — actual class is `AletheiaClient`; example would not compile. Full Quick-start fence at L28-46 predates Track C.4 `stop_token`-first BREAKING.
 370. `[ ]` DOC-A-1.9 [FIX] — `go/README.md:43` `client.SendFrame(ctx, f.Timestamp, ...)` — 5-arg form; actual 7-arg post cluster 18.
 371. `[ ]` DOC-A-1.10 [FIX] — `docs/architecture/CANCELLATION.md:67-69, 85-87` — Go + C++ SendFrame signatures stale (missing BRS/ESI).
-372. `[ ]` DOC-A-1.11 [FIX] — `QUICKSTART.md:14`, `BUILDING.md:132,301,332`, `PITCH.md:237` all say Python 3.12+; `pyproject.toml:10` is `>=3.13`.
+372. `[FIX]` DOC-A-1.11 [FIX] — ✅ Cluster E: 5 sites updated 3.12 → 3.13.
 373. `[ ]` DOC-A-1.12 — `docs/architecture/DESIGN.md:65` — "~470 lines across 3 files"; verified correct.
 374. `[ ]` DOC-A-1.13 — `CHANGELOG.md:289-291` — Lists `CodeParseInputBoundExceeded`/etc. as Added; R19 cluster 14 consolidated to `CodeInputBoundExceeded`.
 375. `[ ]` DOC-A-1.14 — `AGENTS.md:751` — Future-tense paragraph "first review round under this section will surface" already closed.
-376. `[ ]` DOC-A-2.1 — `DEFERRALS.md:5` — `Last updated: 2026-05-10`; predates R19 Phase 2 close.
-377. `[ ]` DOC-A-2.2 — `docs/PITCH.md:4` — `Last Updated: 2026-05-10`; predates cluster 18.
-378. `[ ]` DOC-A-2.3 — `docs/development/BUILDING.md:3` — Same stale stamp.
-379. `[ ]` DOC-A-2.4 — `DEPENDENCIES.md:3` — Same stale stamp.
+376. `[FIX]` DOC-A-2.1 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
+377. `[FIX]` DOC-A-2.2 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
+378. `[FIX]` DOC-A-2.3 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
+379. `[FIX]` DOC-A-2.4 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
 380. `[ ]` DOC-A-2.5 — `PROJECT_STATUS.md:439` — R17 Track A/B verification block has stale 1263 total.
 381. `[ ]` DOC-A-2.6 — `docs/development/BUILDING.md:12` — "Currently active phase" + PROJECT_STATUS.md "No active phase" — moving target.
 382. `[ ]` DOC-A-2.7 — `docs/architecture/CANCELLATION.md:67-69` — Go signature stale; tied to 1.10.
 383. `[ ]` DOC-A-2.8 — `CHANGELOG.md:242-243` — `parse_input_bound_exceeded`/`dbc_text_input_bound_exceeded`/`frame_input_bound_exceeded` not reflected in cluster-14 consolidation entry.
-384. `[ ]` DOC-A-3.1 — Module count divergence across 3 sources (Cat 14 + Cat 17 + Cat 1).
+384. `[FIX]` DOC-A-3.1 — ✅ Cluster E: PROJECT_STATUS.md aligned with CLAUDE.md (247).
 385. `[ ]` DOC-A-3.2 — `tools/run_ci.py` step count narrative: CHANGELOG 17→20→21→22, CI_LOCAL 27. Reader has to follow the trail.
 386. `[ ]` DOC-A-3.3 — Wire code for adversarial-input bounds: CHANGELOG 3 codes vs PROTOCOL.md consolidated.
-387. `[ ]` DOC-A-3.4 — Python version floor inconsistent across 5 sites.
+387. `[FIX]` DOC-A-3.4 — ✅ Cluster E.
 388. `[ ]` DOC-A-3.5 — Go `SendFrame` signature: README 5-arg, CANCELLATION 5-arg, INTERFACES 7-arg.
 389. `[ ]` DOC-A-4.1 [FIX] — `cpp/README.md` and `go/README.md` NOT in doc-example harnesses; `python/README.md` IS covered. Drift hides DOC-A-1.8/1.9 from gate.
 390. `[ ]` DOC-A-4.2 — `docs/architecture/PROTOCOL.md` § Error Code Reference (L1154-1238) missing `input_bound_exceeded` entry.
@@ -788,7 +788,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 424. `[ ]` DOC-B-13.3 — `TUTORIAL.md` Path 1 § Step 1 doesn't mention `aletheia[xlsx]` extras.
 425. `[ ]` DOC-B-13.4 — `TUTORIAL.md:13` Path 1 "Technician" assumes `cabal run shake -- build` prereq.
 426. `[ ]` DOC-B-13.5 — `PITCH.md:222` "four interface tiers" unqualified.
-427. `[ ]` DOC-B-14.1 — Module count drift (CLAUDE.md 247 / PROJECT_STATUS 246 / PROJECT_STATUS 244) cross-doc.
+427. `[FIX]` DOC-B-14.1 — ✅ Cluster E.
 428. `[ ]` DOC-B-14.2 — `go/README.md:55` + `CLAUDE.md:167` claim `sync.Mutex`; CANCELLATION.md:76,304 claims `chan struct{}` semaphore.
 429. `[ ]` DOC-B-14.3 — `tools/run_ci.py` step count: CHANGELOG 17→20→21→22 vs CI_LOCAL 27; 22→27 transition undocumented.
 430. `[ ]` DOC-B-14.4 — Version `1.1.1` in DISTRIBUTION.md / BUILDING.md / `pyproject.toml` / `aletheia.cabal`; CHANGELOG declares 2.0.0 Unreleased.
