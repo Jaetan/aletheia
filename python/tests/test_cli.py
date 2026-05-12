@@ -18,11 +18,11 @@ from pathlib import Path
 import can
 import pytest
 
+from aletheia.checks_runner import rational_to_int
 from aletheia.cli import (
     format_timestamp,
     parse_can_id,
     parse_hex_data,
-    rational_to_int,
     main,
 )
 from aletheia.protocols import DBCDefinition
