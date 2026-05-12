@@ -474,10 +474,43 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
+    -- Test 16: JSON sendFrame command (R19P2 cluster 18 phase E)
+    -- Routes through processJSONLine → parseCommand → trySendFrame →
+    -- handleSendFrame → handleDataFrame.  Mirrors the binary
+    -- processFrameDirect path verified in tests 1-4 above; this test
+    -- confirms the same TimedFrame plumbing flows from a JSON command
+    -- with BRS / ESI fields.  Re-uses state3 (active stream).
+    -- ------------------------------------------------------------------------
+    putStrLn "Test 16: JSON sendFrame command — BRS=true, ESI=false, expect ack"
+    let sendFrameJSON = concat
+            [ "{\"type\":\"command\",\"command\":\"sendFrame\","
+            , "\"timestamp\":8000,\"canId\":256,\"dlc\":8,"
+            , "\"data\":[100,0,0,0,0,0,0,0],"
+            , "\"brs\":true,\"esi\":false}"
+            ]
+    let (_, r16) = processJSON state3 sendFrameJSON
+    let r16s = T.unpack r16
+    putStrLn $ "  Response: " ++ r16s
+    pass16 <- assertContains "JSON sendFrame ack" "\"status\": \"ack\"" r16s
+
+    putStrLn "Test 17: JSON sendFrame command — brs/esi absent (CAN 2.0B), expect ack"
+    let sendFrameJSON2 = concat
+            [ "{\"type\":\"command\",\"command\":\"sendFrame\","
+            , "\"timestamp\":9000,\"canId\":256,\"dlc\":8,"
+            , "\"data\":[150,0,0,0,0,0,0,0]}"
+            ]
+    let (_, r17) = processJSON state3 sendFrameJSON2
+    let r17s = T.unpack r17
+    putStrLn $ "  Response: " ++ r17s
+    pass17 <- assertContains "JSON sendFrame ack (CAN 2.0B)" "\"status\": \"ack\"" r17s
+    putStrLn ""
+
+    -- ------------------------------------------------------------------------
     -- Summary
     -- ------------------------------------------------------------------------
     let allPass = and [pass1, pass2, pass3, pass4, pass5, pass6, pass7, pass8,
-                       pass9, pass10, pass11, pass12, pass13, pass14, pass15]
+                       pass9, pass10, pass11, pass12, pass13, pass14, pass15,
+                       pass16, pass17]
     if allPass
-        then putStrLn "All 15 checks passed (11/11 FFI exports exercised, BRS/ESI lifted)." >> exitSuccess
+        then putStrLn "All 17 checks passed (11/11 FFI exports + BRS/ESI binary + JSON sendFrame)." >> exitSuccess
         else putStrLn "SOME CHECKS FAILED." >> exitFailure

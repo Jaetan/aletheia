@@ -21,9 +21,10 @@ open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_)
-open import Data.Bool using (true; false; if_then_else_)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Relation.Binary.PropositionalEquality using (refl)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
@@ -34,9 +35,10 @@ open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)
 open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.LTL.Syntax using (atomCount)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
-open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
+open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; SendFrame; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Trace.Time using (Timestamp; μs; mkTs)
+open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults; PartitionedResults)
@@ -58,7 +60,7 @@ open import Aletheia.Limits using
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
 open import Aletheia.Protocol.StreamState using
   ( StreamState; WaitingForDBC; ReadyToStream; Streaming
-  ; getDBC
+  ; getDBC; handleDataFrame
   ; PropertyState; mkPropertyState
   )
 open import Aletheia.Protocol.StreamState.Internals using (collectAtoms; indexFormula)
@@ -233,6 +235,25 @@ handleEndStream (Streaming dbc props _ cache) =
 handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 
+-- Submit a CAN data frame via the JSON path — JSON mirror of the binary
+-- FFI `aletheia_send_frame` entry point.  Constructs a `TimedFrame`
+-- from the command arguments (including CAN-FD BRS / ESI metadata) and
+-- delegates to `handleDataFrame`, which enforces timestamp monotonicity
+-- and runs incremental LTL property checking.  R19 Phase 2 cluster 18 —
+-- AGDA-D-10.1 closure.
+handleSendFrame : ℕ → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc)
+                → Maybe Bool → Maybe Bool
+                → StreamState → StreamState × Response
+handleSendFrame ts canId dlc bytes brs esi state =
+  handleDataFrame state (record
+    { timestamp   = mkTs ts
+    ; payloadSize = dlcBytes dlc
+    ; frame       = makeFrame canId dlc bytes
+    ; dlcValid    = refl
+    ; brs         = brs
+    ; esi         = esi
+    })
+
 -- Extract all signals from a CAN frame
 handleExtractAllSignals : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamState → StreamState × Response
 handleExtractAllSignals canId dlc bytes state = withDBCContext "ExtractAllSignals" state λ dbc →
@@ -262,6 +283,8 @@ processStreamCommand : StreamCommand → StreamState → StreamState × Response
 processStreamCommand (ParseDBC dbcJSON) state = handleParseDBC dbcJSON state
 processStreamCommand (SetProperties props) state = handleSetProperties props state
 processStreamCommand StartStream state = handleStartStream state
+processStreamCommand (SendFrame ts canId dlc bytes brs esi) state =
+  handleSendFrame ts canId dlc bytes brs esi state
 processStreamCommand (ExtractAllSignals canId dlc bytes) state = handleExtractAllSignals canId dlc bytes state
 processStreamCommand EndStream state = handleEndStream state
 processStreamCommand (ValidateDBC dbcJSON) state = handleValidateDBC dbcJSON state

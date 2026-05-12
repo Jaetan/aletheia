@@ -20,9 +20,9 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
 open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; mapₑ; ifᵀ_then_else_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; getInt)
+open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; lookupBool; getInt)
 open import Aletheia.DBC.JSONParser using (parseCANId)
-open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
+open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; SendFrame; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.Error using
@@ -120,6 +120,19 @@ private
     parseBytePayload "ExtractAllSignals" dlc obj >>=ₑ λ bytes →
     inj₂ (ExtractAllSignals canId dlc bytes)
 
+  -- Parse SendFrame command — JSON mirror of the binary FFI
+  -- `aletheia_send_frame` entry point.  Required fields: `timestamp`
+  -- (ℕ µs), `canId`, `dlc`, `data` (byte array).  Optional fields:
+  -- `extended` (Bool, handled by `parseCANId`), `brs` (Bool, CAN-FD),
+  -- `esi` (Bool, CAN-FD).  Missing brs / esi are treated as Nothing
+  -- (CAN 2.0B frame).  R19 Phase 2 cluster 18 — AGDA-D-10.1 closure.
+  trySendFrame : List (String × JSON) → RouteError ⊎ StreamCommand
+  trySendFrame obj =
+    requireNat "SendFrame" "timestamp" obj >>=ₑ λ ts →
+    parseCanIdDlc "SendFrame" obj >>=ₑ λ (canId , dlc) →
+    parseBytePayload "SendFrame" dlc obj >>=ₑ λ bytes →
+    inj₂ (SendFrame ts canId dlc bytes (lookupBool "brs" obj) (lookupBool "esi" obj))
+
   -- Parse EndStream command
   tryEndStream : List (String × JSON) → RouteError ⊎ StreamCommand
   tryEndStream _ = inj₂ EndStream
@@ -152,6 +165,7 @@ private
     ("parseDBC" , tryParseDBC) ∷
     ("setProperties" , trySetProperties) ∷
     ("startStream" , tryStartStream) ∷
+    ("sendFrame" , trySendFrame) ∷
     ("extractAllSignals" , tryExtractAllSignals) ∷
     ("endStream" , tryEndStream) ∷
     ("validateDBC" , tryValidateDBC) ∷

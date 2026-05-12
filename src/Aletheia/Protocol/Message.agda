@@ -10,6 +10,9 @@ module Aletheia.Protocol.Message where
 
 open import Data.String using (String)
 open import Data.List using (List)
+open import Data.Bool using (Bool)
+open import Data.Maybe using (Maybe)
+open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec)
 open import Data.Product using (_×_)
@@ -36,6 +39,17 @@ data StreamCommand : Set where
 
   -- Begin streaming data frames
   StartStream : StreamCommand
+
+  -- Submit a CAN data frame to the active monitoring stream — JSON mirror
+  -- of the binary FFI `aletheia_send_frame` entry point.  R19 Phase 2
+  -- cluster 18 — AGDA-D-10.1 closure: the JSON path now carries CAN-FD
+  -- BRS / ESI metadata (ISO 11898-1:2015 §10.4.2 / §10.4.3) end-to-end.
+  -- Args: timestamp µs, CAN ID, validated DLC, payload (length =
+  --       dlcBytes DLC), optional BRS bit, optional ESI bit.
+  -- Returns: Ack on no-property-fired, Violation otherwise (same shape
+  --          as the binary FFI response).
+  SendFrame : (ts : ℕ) → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc)
+            → (brs : Maybe Bool) → (esi : Maybe Bool) → StreamCommand
 
   -- Extract all signals from a CAN frame
   -- Args: CAN ID, validated DLC, frame data (length = dlcBytes DLC)
