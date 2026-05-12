@@ -387,7 +387,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 #### Findings (FIX-NOW)
 
 164. `[FIX]` GO-B-31.1 [FIX-NOW] — ✅ Cluster B: stub signature extended + compile-time assertions added; `CGO_ENABLED=0 go build ./aletheia/` clean.
-165. `[ ]` GO-B-24.1 [FIX-NOW] — `go/aletheia/json.go:480-482` `rationalLess` — `int64 × int64` cross-product wraps silently. Worked failure: `{MaxInt64, 2} < {1, 2}` returns `true`. Use `math/big.Int` or pre-multiply guard. Mirror to C++ `Rational::operator<=>`.
+165. `[FIX]` GO-B-24.1 [FIX-NOW] — ✅ Cluster C: `rationalLess` now uses `math/big.Int` cross-product.
 166. `[ ]` GO-B-12.1 [FIX-NOW] — `go/aletheia/json.go:696-726` `parseRational` — truncates wire floats to int64 without range check; sibling `parseNumberAsInt64:765-796` does check. Also denominator 0.5 silently truncates to 0.
 167. `[ ]` GO-B-14.1 [FIX-NOW] — `go/aletheia/mock.go:130-137` — `MockBackend.SendFrameBinary` accepts and discards `brs/esi`. Mock fidelity gap. (See GO-A-1.2.)
 168. `[FIX]` GO-B-7.1 [FIX-NOW] — ✅ Cluster B closure.
@@ -512,7 +512,7 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 234. `[ ]` CPP-B-11.1 — `cpp/src/json_serialize.cpp:530-545` + `mock_backend.hpp:67-74` — `serialize_send_frame` drops BRS/ESI. (See CPP-A-4.1.)
 235. `[ ]` CPP-B-11.2 — `cpp/src/json_parse.cpp:194-197` — `parse_signal_value` silently degrades float `0.5` via `Rational::from_double` (10⁹ scaling) — Python/Go are stricter.
 236. `[ ]` CPP-B-11.3 — `cpp/src/json_parse.cpp:282-297` — `parse_rational_as_int` overflow guard only catches `INT64_MIN / -1`; missing rounded-toward-zero corner.
-237. `[ ]` CPP-B-11.4 — `cpp/src/json_serialize.cpp:32-53` — `rational_to_json` `std::abs(INT64_MIN)` is UB; guard via `numeric_limits<int64_t>::min()` check.
+237. `[FIX]` CPP-B-11.4 — ✅ Cluster C: `INT64_MIN` guard added before any negation / `std::abs`; defense-in-depth raw emission mirrors `Rational::make` invariant.
 238. `[ ]` CPP-B-11.5 — `cpp/src/json_parse.cpp:733-767` — `parse_validation` Validation vs other parsers' Protocol; minor asymmetry.
 
 ##### Cat 12 — Parsing robustness
@@ -648,7 +648,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 #### Findings
 
 314. `[ ]` PY-B-8.1 [FIX] — `python/aletheia/client/_types.py:354,374,404` — `validate_can_id`, `dlc_to_bytes`, `bytes_to_dlc` raise `ValueError`. Should be `ValidationError`. Cross-binding parity: Go `ErrValidation`, C++ `ErrorKind::Validation`.
-315. `[ ]` PY-B-8.2 [FIX] — `python/aletheia/client/_helpers.py:223,259,228,295` — `extract_rational_from_dict`/`parse_rational` only reject `denominator == 0`; Go rejects `<= 0`. Cross-binding wire-deserializer asymmetry.
+315. `[FIX]` PY-B-8.2 [FIX] — ✅ Cluster C: `<= 0` rejection added at both sites; cross-binding parity with Go `validateRational` / C++ `Rational::make`. Hypothesis test split into accept-positive + reject-non-positive pair.
 316. `[ ]` PY-B-8.3 [FIX] — `python/aletheia/client/_client.py:157-172` — `__enter__` leaks RTS refcount on `aletheia_init() → null`. Wrap post-acquire init in try/except.
 317. `[ ]` PY-B-8.4 — `python/aletheia/client/_types.py:198-211` — `validate_payload_length` docstring lies (raises `ValueError` via `dlc_to_bytes`, not `ValidationError`). Resolves with 8.1.
 318. `[ ]` PY-B-7.1 [FIX] — `_signal_ops.py:60,149,186`, `_client.py:252`, `_helpers.py:184`, `asyncio/_client.py:281,294` — Signal-ops typed `Mapping[str, float | Fraction]`; missing `int` from `_RationalInput`. Pyright rejects natural `{"Speed": 50}` callers.
@@ -1043,7 +1043,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 649. `[FIX]` PY-D-27.1 [HIGH] — **`conftest.py:46,193,195` imports removed `ProcessError`.** Same as PY-A-1.1. ✅ Closed by cluster A.
 650. `[ ]` PY-D-27.2 [MED] — `aletheia.limits` constants not re-exported from top-level `aletheia` package; downstream callers must dig.
 651. `[ ]` PY-D-27.3 [MED] — `validate_can_id`/`dlc_to_bytes`/`bytes_to_dlc` raise `ValueError` not `ValidationError`. (See PY-B-8.1.)
-652. `[ ]` PY-D-27.4 [MED] — `parse_rational`/`extract_rational_from_dict` silently flip negative denominator. (See PY-B-8.2.)
+652. `[FIX]` PY-D-27.4 [MED] — ✅ Cluster C closure.
 653. `[ ]` PY-D-27.5 [LOW] — `CANFrameTuple` BRS/ESI semantics not in docstring (only in `send_frame` docstring).
 654. `[ ]` PY-D-28.1 [LOW] — `is_closed` returns `True` pre-`__enter__` AND post-`__exit__`; ambiguous.
 655. `[ ]` PY-D-28.2 [LOW] — `send_frames` / `send_frames_iter` asymmetric `BatchError.partial_results`; add `iteration_kind`.

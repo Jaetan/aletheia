@@ -212,7 +212,11 @@ def extract_rational_from_dict(
 ) -> tuple[int, int]:
     """Extract (numerator, denominator) from a rational dict.
 
-    Raises ProtocolError if the dict is malformed or denominator is zero.
+    Raises ProtocolError if the dict is malformed or denominator is non-positive.
+    Mirrors Go ``validateRational`` (rejects ``<= 0``) and the Agda kernel
+    invariant that the denominator is a ``ℕ⁺``.  A negative denominator on
+    the wire would otherwise be silently sign-flipped by ``Fraction(n, d)``,
+    hiding the wire-format violation.
     """
     numerator = d.get("numerator")
     denominator = d.get("denominator")
@@ -220,8 +224,10 @@ def extract_rational_from_dict(
         raise ProtocolError(f"Expected {context}.numerator to be int")
     if not isinstance(denominator, int):
         raise ProtocolError(f"Expected {context}.denominator to be int")
-    if denominator == 0:
-        raise ProtocolError(f"Expected {context}.denominator to be nonzero")
+    if denominator <= 0:
+        raise ProtocolError(
+            f"Expected {context}.denominator to be positive, got {denominator}"
+        )
     return numerator, denominator
 
 
@@ -292,9 +298,10 @@ def parse_rational(value_raw: object) -> Fraction:
                 except ValueError:
                     pass
                 else:
-                    if denominator_s == 0:
+                    if denominator_s <= 0:
                         raise ProtocolError(
-                            f"Division by zero in rational string: {value_raw!r}"
+                            f"Expected positive denominator in rational string, "
+                            f"got {value_raw!r}"
                         )
                     return Fraction(numerator_s, denominator_s)
         try:

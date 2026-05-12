@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <format>
+#include <limits>
 #include <numeric>
 #include <span>
 #include <stdexcept>
@@ -33,6 +34,16 @@ static auto rational_to_json(const Rational& r) -> Json {
     // Normalize via gcd so the wire shape is byte-identical with Python's
     // ``Fraction`` (auto-canonical) and Go's parseRational sign convention.
     // R19 cluster 7 — CPP-B-8.1 / CPP-D-22.5 (cross-binding wire symmetry).
+    //
+    // R20 cluster C — CPP-B-11.4: guard ``INT64_MIN`` before any negation
+    // or ``std::abs``.  ``-INT64_MIN`` and ``std::abs(INT64_MIN)`` are both
+    // signed-overflow UB; the Rational::make invariant rejects such values
+    // at construction, but on the format-only path we emit raw to surface
+    // the upstream defect rather than UB-fault here.
+    constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
+    if (r.numerator == int64_min || r.denominator == int64_min) {
+        return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+    }
     auto num = r.numerator;
     auto den = r.denominator;
     if (den < 0) {

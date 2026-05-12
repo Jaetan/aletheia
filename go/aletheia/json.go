@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -477,8 +478,14 @@ func validateRational(name string, r Rational) error {
 
 // rationalLess reports r1 < r2 by comparing cross-products with the
 // (positive) denominators (validateRational is the precondition).
+//
+// Cross-product overflow is avoided by widening to math/big.Int — naive
+// int64 multiplication wraps silently (e.g. {MaxInt64, 2} vs {1, 2}
+// would falsely report r1 < r2 with int64 wraparound).
 func rationalLess(r1, r2 Rational) bool {
-	return r1.Numerator*r2.Denominator < r2.Numerator*r1.Denominator
+	a := new(big.Int).Mul(big.NewInt(r1.Numerator), big.NewInt(r2.Denominator))
+	b := new(big.Int).Mul(big.NewInt(r2.Numerator), big.NewInt(r1.Denominator))
+	return a.Cmp(b) < 0
 }
 
 // serializePredicate encodes a Predicate into the JSON tag/field shape
