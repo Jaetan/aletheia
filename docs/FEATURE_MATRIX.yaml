@@ -264,6 +264,24 @@ features:
       cpp:    { status: implemented, entry: "aletheia/types.hpp#Dlc" }
       go:     { status: implemented, entry: DLC }
 
+  - id: canfd_brs_esi_fields
+    name: CAN-FD BRS / ESI metadata pass-through
+    description: |
+      CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2) + Error State
+      Indicator (§10.4.3) carried as optional booleans from the binding
+      through the C FFI (`aletheia_send_frame` 11-arg ABI) into the
+      Agda `TimedFrame` record.  Cluster 18 (R19 Phase 2) closure of
+      AGDA-D-10.1 / 13.1 / 17.1.  The Aletheia kernel does NOT consume
+      these bits — pass-through metadata for binding consumers + the
+      JSON wire shape (`sendFrame` command's `brs` / `esi` fields).
+      Each binding's representative entry below points at the public
+      type carrying the fields; ``send_frame(brs=, esi=)`` / `BRS *bool`
+      / `std::optional<bool> brs` are the matching method-side surfaces.
+    bindings:
+      python: { status: implemented, entry: aletheia.CANFrameTuple }
+      cpp:    { status: implemented, entry: "aletheia/types.hpp#Frame" }
+      go:     { status: implemented, entry: Frame }
+
   # =====================================================================
   # Streaming LTL
   # =====================================================================
