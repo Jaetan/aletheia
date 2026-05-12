@@ -628,14 +628,24 @@ func (c *Client) StartStream(ctx context.Context) error {
 // formula description when diagnostics are available.
 // For batch operations, see [Client.SendFrames].
 //
+// CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
+// passed as *bool — pass nil for CAN 2.0B frames where the bits do
+// not exist on the wire.  The Aletheia kernel does not consume
+// BRS / ESI; they are pass-through metadata for binding consumers
+// and the JSON wire shape (R19P2 cluster 18).
+//
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
-func (c *Client) SendFrame(ctx context.Context, ts Timestamp, id CANID, dlc DLC, data FramePayload) (FrameResponse, error) {
+func (c *Client) SendFrame(
+	ctx context.Context, ts Timestamp,
+	id CANID, dlc DLC, data FramePayload,
+	brs *bool, esi *bool,
+) (FrameResponse, error) {
 	release, err := c.acquire(ctx, "SendFrame")
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	return c.sendFrameLocked(ctx, ts, id, dlc, data)
+	return c.sendFrameLocked(ctx, ts, id, dlc, data, brs, esi)
 }
 
 // SendFrames sends multiple CAN frames in a single batch, amortizing lock
@@ -664,7 +674,7 @@ func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameRespons
 		if err := ctx.Err(); err != nil {
 			return results, fmt.Errorf("SendFrames: %w", err)
 		}
-		resp, err := c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data)
+		resp, err := c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
 		if err != nil {
 			return results, fmt.Errorf("SendFrames frame %d: %w", i, err)
 		}
@@ -739,7 +749,11 @@ func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CANID) error {
 // sendFrameLocked is the inner implementation of SendFrame. Caller must hold
 // the client lock.  ctx is forwarded to slog so request-scoped attrs (trace
 // IDs, etc.) propagate into the structured-log records.
-func (c *Client) sendFrameLocked(ctx context.Context, ts Timestamp, id CANID, dlc DLC, data FramePayload) (FrameResponse, error) {
+func (c *Client) sendFrameLocked(
+	ctx context.Context, ts Timestamp,
+	id CANID, dlc DLC, data FramePayload,
+	brs *bool, esi *bool,
+) (FrameResponse, error) {
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -749,7 +763,7 @@ func (c *Client) sendFrameLocked(ctx context.Context, ts Timestamp, id CANID, dl
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	resp, err := c.backend.SendFrameBinary(c.state, ts, id, dlc, []byte(data))
+	resp, err := c.backend.SendFrameBinary(c.state, ts, id, dlc, []byte(data), brs, esi)
 	if err != nil {
 		return nil, err
 	}

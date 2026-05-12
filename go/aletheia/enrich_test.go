@@ -277,7 +277,7 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
 
-	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000000}, sid, dlc8(), data)
+	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 		t.Fatal("expected enriched violation 1")
 	}
 
-	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
+	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 	for i := 0; i < 257; i++ {
 		sid, _ := aletheia.NewStandardID(uint16(i % 2048))
 		data := aletheia.FramePayload{byte(i), byte(i >> 8), 0, 0, 0, 0, 0, 0}
-		resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+		resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 		if err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
@@ -498,7 +498,7 @@ func TestEndStream_Enriched(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +583,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
+	resp, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +641,7 @@ func TestEndStream_EnrichmentExtractionFailure(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -708,7 +708,7 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 			defer wg.Done()
 			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
 			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
+			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data, nil, nil)
 		}(i)
 	}
 	wg.Wait()

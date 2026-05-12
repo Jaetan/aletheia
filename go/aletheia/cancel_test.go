@@ -62,7 +62,7 @@ func (b *gateBackend) callCount() int {
 // All other Backend methods route to Process so the gate-and-count semantics
 // apply uniformly. Tests only need a couple of these — the rest exist to
 // satisfy the interface.
-func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte) (string, error) {
+func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *gateBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
@@ -250,7 +250,7 @@ func (b *cancelTriggerBackend) callCount() int {
 	return b.calls
 }
 
-func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte) (string, error) {
+func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *cancelTriggerBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {

@@ -107,6 +107,15 @@ type Frame struct {
 	DLC DLC
 	// Data is the payload — its length must equal DLC.ToBytes().
 	Data FramePayload
+	// BRS is the CAN-FD Bit Rate Switch bit (ISO 11898-1:2015 §10.4.2):
+	// non-nil for CAN-FD frames carrying the bit, nil for CAN 2.0B
+	// frames where it does not exist on the wire.  The Aletheia kernel
+	// does not consume BRS — it is pass-through metadata for binding
+	// consumers and the JSON wire shape (R19P2 cluster 18).
+	BRS *bool
+	// ESI is the CAN-FD Error State Indicator bit (ISO 11898-1:2015
+	// §10.4.3); same semantics + pass-through status as BRS.
+	ESI *bool
 }
 
 // ByteOrder specifies the byte ordering for a CAN signal.

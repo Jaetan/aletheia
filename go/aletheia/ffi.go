@@ -35,9 +35,14 @@ package aletheia
 //     ((void (*)(void*))fn)(state);
 // }
 // static char* call_send_frame(void *fn, void *state, uint64_t ts,
-//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len) {
+//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len,
+//     uint8_t brs_present, uint8_t brs_value,
+//     uint8_t esi_present, uint8_t esi_value) {
 //     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
-//                         uint8_t*, uint8_t))fn)(state, ts, id, ext, dlc, data, len);
+//                         uint8_t*, uint8_t,
+//                         uint8_t, uint8_t, uint8_t, uint8_t))fn)(
+//         state, ts, id, ext, dlc, data, len,
+//         brs_present, brs_value, esi_present, esi_value);
 // }
 // static char* call_send_error(void *fn, void *state, uint64_t ts) {
 //     return ((char* (*)(void*, uint64_t))fn)(state, ts);
@@ -438,8 +443,14 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 }
 
 // SendFrameBinary sends a CAN frame via the binary FFI entry point,
-// bypassing JSON serialization on the input side.
-func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CANID, dlc DLC, data []byte) (string, error) {
+// bypassing JSON serialization on the input side.  The optional BRS and
+// ESI CAN-FD bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are encoded as
+// (present, value) byte pairs — pass nil for CAN 2.0B frames.
+func (b *FFIBackend) SendFrameBinary(
+	state unsafe.Pointer, ts Timestamp,
+	id CANID, dlc DLC, data []byte,
+	brs *bool, esi *bool,
+) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -461,6 +472,9 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CANI
 		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
 	}
 
+	brsPresent, brsValue := encodeMaybeBool(brs)
+	esiPresent, esiValue := encodeMaybeBool(esi)
+
 	// C.uint8_t(len(data)) is safe: the bounds check above guarantees
 	// len(data) <= MaxFrameByteCount < 256, so the cast never truncates.
 	result := C.call_send_frame(
@@ -471,6 +485,8 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CANI
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
+		brsPresent, brsValue,
+		esiPresent, esiValue,
 	)
 	runtime.KeepAlive(data)
 	if result == nil {
@@ -478,6 +494,20 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CANI
 	}
 	defer C.call_free_str(b.freeStrFn, result)
 	return C.GoString(result), nil
+}
+
+// encodeMaybeBool encodes an Optional[bool] as the (present, value) byte
+// pair used by the binary FFI for CAN-FD BRS / ESI metadata.  Inverse of
+// the Haskell shim's mkMaybeBool — nil → (0, 0); &false → (1, 0);
+// &true → (1, 1).
+func encodeMaybeBool(b *bool) (C.uint8_t, C.uint8_t) {
+	if b == nil {
+		return 0, 0
+	}
+	if *b {
+		return 1, 1
+	}
+	return 1, 0
 }
 
 // SendErrorBinary sends a CAN error event via the binary FFI entry point.

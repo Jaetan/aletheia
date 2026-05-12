@@ -224,11 +224,11 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame ack: %v", err)
 	}
 	dataViolation := aletheia.FramePayload{0xFF, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), dataViolation); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), dataViolation, nil, nil); err != nil {
 		t.Fatalf("SendFrame violation: %v", err)
 	}
 	if _, err := c.EndStream(ctx); err != nil {

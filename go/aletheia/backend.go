@@ -38,10 +38,16 @@ type Backend interface {
 	Process(state unsafe.Pointer, input string) (string, error)
 	// SendFrameBinary sends a CAN frame via the binary FFI, bypassing JSON
 	// serialization on the input side. Returns the JSON response string.
-	// CAN-FD note: BRS/ESI flags are not part of the FFI protocol and must
-	// be stripped by the caller.  The Agda core uses payload bytes + DLC only.
+	// CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
+	// passed as *bool — pass nil for CAN 2.0B frames where the bits do
+	// not exist.  The Agda core does not consume BRS / ESI; they are
+	// pass-through metadata for binding consumers.
 	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendFrame]).
-	SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CANID, dlc DLC, data []byte) (string, error)
+	SendFrameBinary(
+		state unsafe.Pointer, ts Timestamp,
+		id CANID, dlc DLC, data []byte,
+		brs *bool, esi *bool,
+	) (string, error)
 	// SendErrorBinary sends a CAN error event (no ID, no payload).
 	// Error frames are acknowledged without LTL evaluation.
 	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendError]

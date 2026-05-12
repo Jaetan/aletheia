@@ -122,7 +122,16 @@ func (m *MockBackend) processLocked(input string) (string, error) {
 
 // SendFrameBinary delegates to Process by building the JSON string via
 // serializeDataFrame. This keeps mock tests working without the real .so.
-func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CANID, dlc DLC, data []byte) (string, error) {
+// BRS / ESI are accepted at the interface level for parity with the
+// FFI backend but ignored here — the JSON `sendFrame` command's wire
+// shape carries them once cluster 18 phase E lands.  TODO(cluster-18 E):
+// thread brs / esi into serializeDataFrame so mock-driven tests can
+// assert on the JSON wire shape.
+func (m *MockBackend) SendFrameBinary(
+	_ unsafe.Pointer, ts Timestamp,
+	id CANID, dlc DLC, data []byte,
+	_ *bool, _ *bool,
+) (string, error) {
 	input := serializeDataFrame(ts, id, dlc, FramePayload(data))
 	return m.Process(nil, input)
 }

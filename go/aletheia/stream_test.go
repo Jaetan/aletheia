@@ -43,7 +43,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0x64, 0, 0, 0, 0, 0, 0, 0}
 
-	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame 1: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 		t.Errorf("expected Ack, got %T", resp1)
 	}
 
-	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
+	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame 2: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}
 
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestViolation_CoreReason(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func TestConcurrentSendFrame(t *testing.T) {
 			defer wg.Done()
 			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
 			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
+			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data, nil, nil)
 		}(i)
 	}
 	wg.Wait()
@@ -541,7 +541,7 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: -1}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: -1}, sid, dlc8(), data, nil, nil)
 	requireErrorContains(t, err, "timestamp must be non-negative")
 }
 
@@ -578,12 +578,12 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
 
 	// First frame at t=5000 — accepted.
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("first SendFrame: %v", err)
 	}
 
 	// Regressing to t=4999 — rejected by Agda; binding surfaces the coded error.
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 4999}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 4999}, sid, dlc8(), data, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for backward timestamp")
 	}
@@ -600,12 +600,12 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 	requireErrorContains(t, err, "non-monotonic")
 
 	// Same-timestamp frames (≥, not >) should still be accepted.
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("equal-timestamp SendFrame: %v", err)
 	}
 
 	// Anchor unchanged after rejection — forward frame still works.
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 6000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 6000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("forward SendFrame: %v", err)
 	}
 }
@@ -632,7 +632,7 @@ func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	shortData := aletheia.FramePayload{0, 0, 0, 0} // 4 bytes vs DLC 8
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), shortData)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), shortData, nil, nil)
 	requireErrorContains(t, err, "payload length")
 }
 
@@ -708,7 +708,7 @@ func TestSendFrame_WithoutStartStream(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for SendFrame without StartStream")
 	}
@@ -794,7 +794,7 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -842,7 +842,7 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -958,7 +958,7 @@ func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
 	for i := range 5 {
 		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
-		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data); err != nil {
+		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data, nil, nil); err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
 	}
@@ -1009,7 +1009,7 @@ func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1066,7 +1066,7 @@ func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
 	for i := range 5 {
 		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
-		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data); err != nil {
+		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data, nil, nil); err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
 	}
@@ -1207,7 +1207,7 @@ func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x200)
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1260,7 +1260,7 @@ func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x200)
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1319,7 +1319,7 @@ func TestEOS_MixedVerdicts(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1374,7 +1374,7 @@ func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x200)
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 

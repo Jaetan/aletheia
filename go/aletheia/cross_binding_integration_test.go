@@ -164,7 +164,7 @@ func TestCrossBinding_SendFrameAck(t *testing.T) {
 	sid, _ := NewStandardID(256)
 	d, _ := NewDLC(8)
 	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
+		FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	d, _ := NewDLC(8)
 	// Signal value 0xFFFF (65535) > 100 → violation.
 	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0})
+		FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -235,6 +235,50 @@ func TestCrossBinding_SendFrameError(t *testing.T) {
 	// CAN IDs and C++ returning an Error variant.
 	if _, err := NewExtendedID(0x20000000); err == nil {
 		t.Error("NewExtendedID(0x20000000): want error on out-of-range extended CAN ID, got nil")
+	}
+}
+
+// TestCrossBinding_SendFrameBrsEsiPassthrough mirrors Python's
+// test_canfd_brs_esi_passthrough.  R19 Phase 2 cluster 18
+// (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia kernel does not consume
+// CAN-FD BRS / ESI metadata, but the binding must accept the bits as
+// *bool params and the FFI must accept the 4 trailing u8 args without
+// crashing.  Every combination of brs / esi ∈ {nil, &true, &false}
+// must return Ack for an otherwise-valid frame.
+func TestCrossBinding_SendFrameBrsEsiPassthrough(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	defer func() { _, _ = c.EndStream(ctx) }()
+
+	sid, _ := NewStandardID(256)
+	d, _ := NewDLC(8)
+	tval := true
+	fval := false
+	options := []*bool{nil, &tval, &fval}
+
+	var ts int64
+	for _, brs := range options {
+		for _, esi := range options {
+			ts += 1000
+			resp, err := c.SendFrame(
+				ctx, Timestamp{Microseconds: ts}, sid, d,
+				FramePayload{0, 0, 0, 0, 0, 0, 0, 0},
+				brs, esi,
+			)
+			if err != nil {
+				t.Fatalf("SendFrame brs=%v esi=%v: %v", brs, esi, err)
+			}
+			if _, ok := resp.(Ack); !ok {
+				t.Errorf("SendFrame brs=%v esi=%v: want Ack, got %T (%+v)",
+					brs, esi, resp, resp)
+			}
+		}
 	}
 }
 

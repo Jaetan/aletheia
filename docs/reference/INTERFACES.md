@@ -105,7 +105,7 @@ response = client.send_frame(ts, can_id, dlc, data)
 auto response = client.send_frame(std::stop_token{}, ts, can_id, dlc, data);
 ```
 ```go
-response, err := client.SendFrame(ctx, ts, canID, dlc, data)
+response, err := client.SendFrame(ctx, ts, canID, dlc, data, nil, nil)
 _, _ = response, err
 ```
 

@@ -205,7 +205,7 @@ func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DB
 	payload := aletheia.FramePayload([]byte{0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00})
 	for i := 0; i < framesPerCycle; i++ {
 		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
-		if _, err := client.SendFrame(ctx, ts, id, dlc, payload); err != nil {
+		if _, err := client.SendFrame(ctx, ts, id, dlc, payload, nil, nil); err != nil {
 			return fmt.Errorf("SendFrame %d: %w", i, err)
 		}
 	}
