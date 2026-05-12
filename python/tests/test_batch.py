@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aletheia import AletheiaClient, BatchError, ProcessError
+from aletheia import AletheiaClient, BatchError, ProtocolError
 
 
 def _make_client() -> AletheiaClient:
@@ -77,7 +77,7 @@ class TestSendFramesBatch:
         assert len(err.partial_results) == 1
         assert err.partial_results[0]["status"] == "ack"
         assert err.frame_index == 1
-        assert isinstance(err.cause, ProcessError)
+        assert isinstance(err.cause, ProtocolError)
         assert "handler_non_monotonic_timestamp" in str(err.cause)
         # Third frame was never sent
         assert client.send_frame.call_count == 2

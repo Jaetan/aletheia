@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from aletheia import AletheiaClient, DBCDefinition, ProcessError, Signal
+from aletheia import AletheiaClient, DBCDefinition, ProtocolError, Signal, StateError
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DLCCode
 
@@ -224,7 +224,7 @@ class TestAletheiaClientLifecycle:
 
         After ``close()`` both ``_lib`` and ``_state`` are ``None``.
         ``_send_command`` must detect the uninitialized state and raise
-        ``ProcessError``; any other behavior (crash, silent no-op, use of
+        ``StateError``; any other behavior (crash, silent no-op, use of
         a dangling state pointer) would be a serious safety bug.
         Mirrors Go's ``TestUseAfterClose``.
         """
@@ -232,7 +232,7 @@ class TestAletheiaClientLifecycle:
             client.parse_dbc(simple_dbc)
             client.close()
 
-            with pytest.raises(ProcessError, match="not initialized"):
+            with pytest.raises(StateError, match="not initialized"):
                 client.parse_dbc(simple_dbc)
 
     def test_exit_then_reenter_raises(self, simple_dbc: DBCDefinition) -> None:
@@ -247,7 +247,7 @@ class TestAletheiaClientLifecycle:
             client.parse_dbc(simple_dbc)
 
         # After the `with` block, the client is closed — any operation raises.
-        with pytest.raises(ProcessError, match="not initialized"):
+        with pytest.raises(StateError, match="not initialized"):
             client.parse_dbc(simple_dbc)
 
         # Double-close on the already-closed client must also be safe.
@@ -490,15 +490,24 @@ class TestStateMachineErrors:
     """Test that invalid state transitions produce correct errors."""
 
     def test_extract_signals_without_dbc(self) -> None:
-        """extract_signals before parse_dbc raises ProcessError."""
+        """extract_signals before parse_dbc — Agda kernel rejects (ProtocolError).
+
+        Unlike build_frame / update_frame (which check the populated
+        signal-lookup cache client-side and raise StateError), the
+        ``extract_signals`` JSON path is the rule the kernel enforces:
+        no signal_lookup is populated until ``parse_dbc`` succeeds, so
+        the request reaches the FFI and the Agda kernel returns
+        ``handler_no_dbc``, which the binding lifts to ``ProtocolError``
+        carrying the wire code.
+        """
         with AletheiaClient() as client:
-            with pytest.raises(ProcessError, match="DBC not loaded"):
+            with pytest.raises(ProtocolError, match="DBC not loaded"):
                 client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(8))
 
     def test_build_frame_without_dbc(self) -> None:
-        """build_frame before parse_dbc raises ProcessError."""
+        """build_frame before parse_dbc raises StateError client-side."""
         with AletheiaClient() as client:
-            with pytest.raises(ProcessError, match="DBC not loaded"):
+            with pytest.raises(StateError, match="DBC not loaded"):
                 client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
 
     def test_send_frame_without_stream(self, simple_dbc: DBCDefinition) -> None:

@@ -13,7 +13,7 @@ Fixtures (``simple_dbc``) come from ``conftest.py``.
 
 import pytest
 
-from aletheia import AletheiaClient, ProcessError, Signal, dlc_to_bytes
+from aletheia import AletheiaClient, Signal, ValidationError, dlc_to_bytes
 from aletheia.protocols import DLCCode
 
 
@@ -205,7 +205,7 @@ class TestCANFDFrames:
             client.parse_dbc(self.CANFD_DBC_12)
             # DLC 9 expects 12 bytes, send 11 — backend rejects the mismatch
             data = bytearray(11)
-            with pytest.raises(ProcessError, match="payload length .* does not match DLC"):
+            with pytest.raises(ValidationError, match="payload length .* does not match DLC"):
                 client.extract_signals(can_id=0x200, dlc=DLCCode(9), data=data)
 
     def test_canfd_ltl_streaming(self):

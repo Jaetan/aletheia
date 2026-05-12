@@ -58,15 +58,16 @@ from ._signal_ops import SignalOpsMixin
 from ._types import (
     AletheiaError,
     CANFrameTuple,
+    FFIError,
     FrameResult,
     InputBoundExceededError,
-    ProcessError,
-    ProtocolError,
-    ValidationError,
-    SignalExtractionResult,
     PropertyDiagnostic,
+    ProtocolError,
+    SignalExtractionResult,
     SignalLookup,
+    StateError,
     StreamCaches,
+    ValidationError,
     MAX_EXTRACT_CACHE,
     call_send_frame,
     validate_can_id,
@@ -164,7 +165,7 @@ class AletheiaClient(SignalOpsMixin):
         # Create Aletheia state
         raw = self._lib.aletheia_init()
         if not raw:
-            raise ProcessError("aletheia_init() returned null — FFI initialization failed")
+            raise FFIError("aletheia_init() returned null — FFI initialization failed")
         self._state = ctypes.c_void_p(raw)
 
         return self
@@ -211,7 +212,7 @@ class AletheiaClient(SignalOpsMixin):
         buffer only to be rejected on the other side.
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
 
         json_bytes = dump_json(command).encode("utf-8")
         if len(json_bytes) > MAX_JSON_BYTES:
@@ -236,7 +237,7 @@ class AletheiaClient(SignalOpsMixin):
     def _parse_ffi_result(self, result_ptr: int) -> Response:
         """Decode JSON response from a binary FFI call and free the C string."""
         if self._lib is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         try:
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:
@@ -258,15 +259,15 @@ class AletheiaClient(SignalOpsMixin):
         lookup = self._signal_lookup.get((can_id, extended))
         if lookup is None:
             if not self._signal_lookup:
-                raise ProcessError(f"{cmd_name}: DBC not loaded (call parse_dbc first)")
-            raise ProcessError(f"{cmd_name}: no DBC message for CAN ID {can_id}")
+                raise StateError(f"{cmd_name}: DBC not loaded (call parse_dbc first)")
+            raise ValidationError(f"{cmd_name}: no DBC message for CAN ID {can_id}")
         indices: list[int] = []
         nums: list[int] = []
         dens: list[int] = []
         for name, value in signals.items():
             idx = lookup.indices.get(name)
             if idx is None:
-                raise ProcessError(f"{cmd_name}: unknown signal '{name}'")
+                raise ValidationError(f"{cmd_name}: unknown signal '{name}'")
             n, d = coerce_to_rational(value)
             indices.append(idx)
             nums.append(n)
@@ -392,7 +393,7 @@ class AletheiaClient(SignalOpsMixin):
             ProtocolError: If no DBC is loaded or response is unexpected.
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         response = self._parse_ffi_result(
             self._lib.aletheia_format_dbc(self._state),
         )
@@ -511,7 +512,7 @@ class AletheiaClient(SignalOpsMixin):
             SuccessResponse or ErrorResponse
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         response = parse_success_or_error(
             self._parse_ffi_result(self._lib.aletheia_start_stream(self._state)),
         )
@@ -625,7 +626,7 @@ class AletheiaClient(SignalOpsMixin):
             AckResponse, PropertyViolationResponse, or ErrorResponse
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValidationError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
@@ -778,7 +779,7 @@ class AletheiaClient(SignalOpsMixin):
                 non-monotonic timestamp).
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValidationError("timestamp must be non-negative")
         result_ptr = self._lib.aletheia_send_error(
@@ -822,7 +823,7 @@ class AletheiaClient(SignalOpsMixin):
                 non-monotonic timestamp).
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValidationError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
@@ -868,7 +869,7 @@ class AletheiaClient(SignalOpsMixin):
         and ``core_reason`` when checks have been registered.
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         response = self._parse_ffi_result(
             self._lib.aletheia_end_stream(self._state),
         )

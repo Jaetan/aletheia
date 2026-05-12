@@ -33,31 +33,45 @@ class AletheiaError(Exception):
         self.code = code
 
 
-class ProcessError(AletheiaError):
-    """FFI or shared library errors.
+class FFIError(AletheiaError):
+    """Library-load / RTS-init / FFI-null-pointer failures.
 
-    Carries ``code`` (from :class:`AletheiaError`) so callers can
-    distinguish e.g. ``extraction_bit_extraction_failed`` from
-    ``frame_signal_not_found`` without parsing the message string.
-    The Go binding's ``*ProcessError`` and C++'s ``ExtractionError``
-    expose the same field; keep the three surfaces in sync.
+    Mirrors Go ``ErrFFI`` and C++ ``ErrorKind::Ffi`` — the kind for
+    `dlopen` / `dlsym` / `hs_init` / `aletheia_init() → null` failures
+    where the boundary itself failed before any Agda code ran.
+    """
+
+
+class StateError(AletheiaError):
+    """Operation attempted in the wrong client lifecycle state.
+
+    Mirrors Go ``ErrState`` and C++ ``ErrorKind::State`` — covers
+    "client not initialized (use ``with``)", "DBC not loaded",
+    "stream already / not started", and the equivalent Agda-side
+    handler-state rejections (``handler_no_dbc`` / ``handler_not_streaming`` /
+    ``handler_stream_active`` etc.).
     """
 
 
 class ProtocolError(AletheiaError):
-    """Protocol-related errors (invalid JSON, missing response, etc.).
+    """Wire-protocol failures.
 
-    ``code`` is inherited from :class:`AletheiaError`; kept as its own
-    subclass so ``except ProtocolError`` remains narrower than
-    ``except AletheiaError`` where the distinction matters.
+    Mirrors Go ``ErrProtocol`` and C++ ``ErrorKind::Protocol`` — covers
+    invalid JSON, missing response fields, FFI-returned-null where a
+    response was expected, AND the Agda kernel returning an
+    ``ErrorResponse`` with a wire ``code`` (e.g. ``frame_signal_not_found``,
+    ``extraction_bit_extraction_failed``).  Callers can branch on
+    :attr:`AletheiaError.code` to discriminate kernel error codes
+    without parsing the message string.
     """
 
 
 class ValidationError(AletheiaError):
     """Caller-supplied argument failed a Python-side validity check
-    (e.g. negative timestamp, malformed CAN ID).
+    (e.g. negative timestamp, malformed CAN ID, unknown signal name,
+    payload length mismatch).
 
-    Mirrors Go ``*ValidationError`` and C++ ``ValidationError`` —
+    Mirrors Go ``ErrValidation`` and C++ ``ErrorKind::Validation`` —
     cross-binding parity for argument-rejection paths.  Replaces ad-hoc
     ``ValueError`` raises that escaped the typed ``AletheiaError``
     hierarchy (R19 cluster 10 — PY-D-15.6).
@@ -151,7 +165,7 @@ def raise_on_error_response(
     list. See the ``BatchError`` docstring for the per-call contract.
     """
     if resp["status"] == "error":
-        err = ProcessError(
+        err = ProtocolError(
             f"error code={resp['code']}: {resp['message']}",
             code=resp["code"],
         )
@@ -182,7 +196,7 @@ def call_send_frame(
 
 
 def validate_payload_length(dlc: DLCCode, data: bytes | bytearray) -> DLCByteCount:
-    """Return ``dlc_to_bytes(dlc)``; raise :class:`ProcessError` on mismatch.
+    """Return ``dlc_to_bytes(dlc)``; raise :class:`ValidationError` on mismatch.
 
     Shared between ``send_frame`` / ``extract_signals`` / ``update_frame``
     so the validation + error message stay in lock-step at every payload
@@ -190,7 +204,7 @@ def validate_payload_length(dlc: DLCCode, data: bytes | bytearray) -> DLCByteCou
     """
     expected_bytes = dlc_to_bytes(dlc)
     if len(data) != expected_bytes:
-        raise ProcessError(
+        raise ValidationError(
             f"payload length {len(data)} does not match DLC {dlc}"
             + f" (expected {expected_bytes} bytes)"
         )

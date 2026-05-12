@@ -2,7 +2,7 @@
 
 import pytest
 
-from aletheia import AletheiaClient, ProcessError, ProtocolError
+from aletheia import AletheiaClient, ProtocolError, StateError, ValidationError
 from aletheia.client._helpers import float_to_rational, parse_rational
 from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia._check_conditions import (
@@ -237,14 +237,14 @@ class TestSignalIndexCache:
             }
             client.parse_dbc(dbc2)
             # dbc1's 256 key must be gone; dbc2's 512 key must be live.
-            with pytest.raises(ProcessError, match="no DBC message for CAN ID 256"):
+            with pytest.raises(ValidationError, match="no DBC message for CAN ID 256"):
                 client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1.0})
             client.build_frame(can_id=512, dlc=DLCCode(8), signals={"NewSig": 1.0})
 
     def test_build_frame_without_dbc_raises(self) -> None:
         """build_frame before parse_dbc raises with 'DBC not loaded'."""
         with AletheiaClient() as client:
-            with pytest.raises(ProcessError, match="DBC not loaded"):
+            with pytest.raises(StateError, match="DBC not loaded"):
                 client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
 
     def test_build_frame_unknown_signal_raises(self) -> None:
@@ -264,7 +264,7 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc)
-            with pytest.raises(ProcessError, match="unknown signal"):
+            with pytest.raises(ValidationError, match="unknown signal"):
                 client.build_frame(can_id=256, dlc=DLCCode(8), signals={"NoSuchSig": 1.0})
 
     def test_dlc_payload_mismatch_extract(self) -> None:
@@ -284,7 +284,7 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc)
-            with pytest.raises(ProcessError, match="payload length .* does not match DLC"):
+            with pytest.raises(ValidationError, match="payload length .* does not match DLC"):
                 client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(7))
 
 

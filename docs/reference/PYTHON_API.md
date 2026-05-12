@@ -598,7 +598,7 @@ Send a CAN frame for incremental checking.
 - `timestamp`: Microseconds (integer)
 - `can_id`: 0-2047 (standard) or 0-536870911 (extended)
 - `dlc`: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
-- `data`: Payload as `bytearray` (must match `dlc_to_bytes(dlc)`; mismatch raises `ProcessError` client-side)
+- `data`: Payload as `bytearray` (must match `dlc_to_bytes(dlc)`; mismatch raises `ValidationError` client-side)
 - `extended`: `True` for 29-bit extended CAN IDs (default `False`)
 
 **Returns** (acknowledged):
@@ -733,7 +733,7 @@ except FileNotFoundError as e:
 # Data length vs DLC mismatch is caught client-side before FFI call
 try:
     client.send_frame(1000, 256, dlc=8, data=bytearray([0xFF, 0xFF]))  # Only 2 bytes, DLC expects 8
-except ProcessError as e:
+except ValidationError as e:
     print(f"Error: {e}")  # payload length 2 does not match DLC 8
 ```
 
@@ -950,25 +950,39 @@ For the full event vocabulary and field list, see the `LogEvent` enum and its do
 
 ## Exceptions
 
-All Aletheia exceptions inherit from a common base class:
+All Aletheia exceptions inherit from a common base class.  The kind hierarchy
+mirrors Go's `ErrorKind` and C++'s `ErrorKind` so callers can branch on the
+same conceptual error categories across all three bindings:
 
 ```
 AletheiaError (base)
-├── ProcessError     # FFI or shared library errors (library not found, init failure)
-├── ProtocolError    # Protocol errors (invalid JSON, missing response, bad state)
-└── BatchError       # send_frames stopped mid-batch; carries .partial_results
+├── FFIError                  # Library load / hs_init / FFI null pointer
+├── StateError                # Wrong client lifecycle state (not initialized, no DBC, not streaming)
+├── ProtocolError             # JSON parse error / wire-shape mismatch / Agda kernel ErrorResponse (carries .code)
+├── ValidationError           # Caller-supplied bad input (unknown signal, payload length, malformed CAN ID)
+├── InputBoundExceededError   # Adversarial-input bound exceeded at a parser surface
+└── BatchError                # send_frames stopped mid-batch; carries .partial_results
 ```
 
 ```python
-from aletheia.client import AletheiaError, ProcessError, ProtocolError, BatchError
+from aletheia import (
+    AletheiaError, FFIError, StateError, ProtocolError, ValidationError,
+    InputBoundExceededError, BatchError,
+)
 
 try:
     client.parse_dbc(dbc)
-except ProcessError:
+except FFIError:
     # Shared library failed to load or initialize
     ...
-except ProtocolError:
-    # JSON parse error or invalid state transition
+except StateError:
+    # Operation in wrong client state (not initialized, no DBC, not streaming)
+    ...
+except ProtocolError as e:
+    # JSON parse error OR Agda kernel rejected with e.code (e.g. "frame_signal_not_found")
+    ...
+except ValidationError:
+    # Caller-supplied input failed local validation
     ...
 except AletheiaError:
     # Catch-all for any Aletheia error
