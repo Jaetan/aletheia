@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import sys
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, TypedDict, cast
@@ -120,6 +121,20 @@ class Violation(TypedDict):
     signal_name: str
     actual_value: Fraction | None
     condition: str
+
+
+@dataclass(frozen=True, slots=True)
+class CheckRunResult:
+    """Aggregate result of a :func:`run_checks` invocation.
+
+    ``unresolved`` carries end-of-stream finalization results whose three-valued
+    Kleene verdict was Unknown (``status="unresolved"``), e.g. ``Always(p)``
+    where ``p``'s signal was never observed — distinct from ``violations``,
+    where the property was proved to fail.
+    """
+    violations:   list[Violation]
+    unresolved:   list[Violation]
+    total_frames: int
 
 
 # ============================================================================
@@ -546,14 +561,12 @@ def run_checks(  # pylint: disable=too-many-locals
     checks: list[CheckResult],
     logfile: str,
     default_checks: list[CheckResult] | None = None,
-) -> tuple[list[Violation], list[Violation], int]:
+) -> CheckRunResult:
     """Stream a CAN log through the Aletheia engine.
 
-    Returns (violations, unresolved, total_frames). ``unresolved`` contains
-    end-of-stream finalization results whose three-valued Kleene verdict was
-    Unknown (``status="unresolved"``), e.g. ``Always(p)`` where ``p``'s
-    signal was never observed. These are distinct from violations: the
-    property was neither proved to hold nor proved to fail.
+    Returns a :class:`CheckRunResult` carrying the collected violations,
+    end-of-stream unresolved results (three-valued Kleene Unknown), and
+    the total frame count.
     """
     all_checks = (default_checks or []) + checks
     if not Path(logfile).exists():
@@ -591,16 +604,14 @@ def run_checks(  # pylint: disable=too-many-locals
             elif result["status"] == "unresolved":
                 unresolved.append(_build_eos_violation(result, all_checks))
 
-    return violations, unresolved, total_frames
+    return CheckRunResult(violations, unresolved, total_frames)
 
 
-def _print_check_results(
-    violations: list[Violation],
-    unresolved: list[Violation],
-    total_frames: int,
-    num_checks: int,
-) -> None:
+def _print_check_results(result: CheckRunResult, num_checks: int) -> None:
     """Print check results in human-readable text format."""
+    violations   = result.violations
+    unresolved   = result.unresolved
+    total_frames = result.total_frames
     print(f"Streaming {total_frames} frames...")
     print()
 
@@ -657,11 +668,13 @@ def _cmd_check(args: argparse.Namespace) -> int:
     logfile: str = args.logfile
 
     try:
-        violations, unresolved, total_frames = run_checks(
-            dbc, checks, logfile, default_checks
-        )
+        result = run_checks(dbc, checks, logfile, default_checks)
     except FileNotFoundError as exc:
         _die(str(exc))
+
+    violations   = result.violations
+    unresolved   = result.unresolved
+    total_frames = result.total_frames
 
     if getattr(args, "json", False):
         if violations:
@@ -695,7 +708,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
             print(f"Checks: {checks_label} ({len(checks)} checks)")
         print(f"Log:    {logfile}")
         print()
-        _print_check_results(violations, unresolved, total_frames, total_checks)
+        _print_check_results(result, total_checks)
 
     return _EXIT_VIOLATIONS if violations else _EXIT_OK
 

@@ -19,6 +19,6 @@ contents (CLI re-exports) are independent of that decision.
 """
 from __future__ import annotations
 
-from .cli import Violation, run_checks
+from .cli import CheckRunResult, Violation, run_checks
 
-__all__ = ["Violation", "run_checks"]
+__all__ = ["CheckRunResult", "Violation", "run_checks"]
