@@ -58,29 +58,36 @@ _COMPARISON_OPS: dict[str, str] = {
 }
 
 
+def _coerce_to_float(v: object) -> float:
+    """Best-effort numeric \u2192 float conversion for the pretty-printer.
+
+    Predicate values now flow as :class:`Fraction` per the DecRat universal
+    principle (cluster 17 / PY-D-19.1); the pretty-printer's role is only
+    human-readable display, so converting through float is fine here.
+    """
+    if isinstance(v, (int, float, Fraction)):
+        return float(v)
+    return 0.0
+
+
 def _format_predicate(pred: dict[str, object]) -> str:
     """Format a predicate dict as a human-readable string."""
     kind = pred.get("predicate")
     signal = str(pred.get("signal", ""))
     op = _COMPARISON_OPS.get(str(kind))
     if op is not None:
-        v = pred.get("value", 0)
-        return f"{signal} {op} {float(v) if isinstance(v, (int, float)) else 0:g}"
+        return f"{signal} {op} {_coerce_to_float(pred.get('value', 0)):g}"
     if kind == "between":
-        lo = pred.get("min", 0)
-        hi = pred.get("max", 0)
-        lo_f = float(lo) if isinstance(lo, (int, float)) else 0.0
-        hi_f = float(hi) if isinstance(hi, (int, float)) else 0.0
-        return f"{lo_f:g} <= {signal} <= {hi_f:g}"
+        lo = _coerce_to_float(pred.get("min", 0))
+        hi = _coerce_to_float(pred.get("max", 0))
+        return f"{lo:g} <= {signal} <= {hi:g}"
     if kind == "changedBy":
-        raw_delta = pred.get("delta", 0)
-        d = float(raw_delta) if isinstance(raw_delta, (int, float)) else 0.0
+        d = _coerce_to_float(pred.get("delta", 0))
         if d >= 0:
             return f"\u0394{signal} >= {d:g}"
         return f"\u0394{signal} <= {d:g}"
     if kind == "stableWithin":
-        raw_tol = pred.get("tolerance", 0)
-        t = float(raw_tol) if isinstance(raw_tol, (int, float)) else 0.0
+        t = _coerce_to_float(pred.get("tolerance", 0))
         return f"|\u0394{signal}| <= {t:g}"
     return "<unknown predicate>"
 

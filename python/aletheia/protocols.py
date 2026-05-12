@@ -113,48 +113,56 @@ class PredicateType(str, Enum):
 # "never" and "implies" are desugared by Python before sending to Agda.
 
 # -- Signal Predicates (inside "predicate" object) --
+#
+# Per the DecRat universal principle, every numeric value crossing the
+# wire from a predicate carries an exact :class:`Fraction` — the Agda
+# kernel's parser accepts bare integer literals, decimal floats, AND
+# rational dicts (``{"numerator": n, "denominator": d}``); the
+# :class:`FractionJSONEncoder` emits the latter shape via the
+# canonical numerator/denominator pair so cross-binding wire bytes match
+# C++'s ``rational_to_json`` (cluster 17 / PY-D-19.1).
 
 class EqualsPredicate(TypedDict):
     """Equals predicate: signal == value"""
     predicate: Literal["equals"]
     signal: str
-    value: float
+    value: Fraction
 
 
 class LessThanPredicate(TypedDict):
     """LessThan predicate: signal < value"""
     predicate: Literal["lessThan"]
     signal: str
-    value: float
+    value: Fraction
 
 
 class GreaterThanPredicate(TypedDict):
     """GreaterThan predicate: signal > value"""
     predicate: Literal["greaterThan"]
     signal: str
-    value: float
+    value: Fraction
 
 
 class LessThanOrEqualPredicate(TypedDict):
     """LessThanOrEqual predicate: signal <= value"""
     predicate: Literal["lessThanOrEqual"]
     signal: str
-    value: float
+    value: Fraction
 
 
 class GreaterThanOrEqualPredicate(TypedDict):
     """GreaterThanOrEqual predicate: signal >= value"""
     predicate: Literal["greaterThanOrEqual"]
     signal: str
-    value: float
+    value: Fraction
 
 
 class BetweenPredicate(TypedDict):
     """Between predicate: min <= signal <= max"""
     predicate: Literal["between"]
     signal: str
-    min: float
-    max: float
+    min: Fraction
+    max: Fraction
 
 
 class ChangedByPredicate(TypedDict):
@@ -165,14 +173,14 @@ class ChangedByPredicate(TypedDict):
     """
     predicate: Literal["changedBy"]
     signal: str
-    delta: float
+    delta: Fraction
 
 
 class StableWithinPredicate(TypedDict):
     """StableWithin predicate: |signal_now - signal_prev| <= tolerance"""
     predicate: Literal["stableWithin"]
     signal: str
-    tolerance: float
+    tolerance: Fraction
 
 
 SignalPredicate = (

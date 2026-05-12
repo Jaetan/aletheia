@@ -20,6 +20,8 @@ Output format matches the Agda JSON schema:
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 from .protocols import (
     PredicateType,
     LTLFormula,
@@ -39,6 +41,13 @@ from .protocols import (
     WeakNextFormula,
     SignalPredicate,
 )
+
+# Predicate value inputs accept any rational-coercible numeric type.
+# `Fraction(int)` and `Fraction(Fraction)` are exact; `Fraction(float)`
+# preserves whatever float64 already encoded — pass `Fraction(n, d)` for
+# exact 1/10-style values.  The Agda kernel and C++ binding both accept
+# the canonical rational dict on the wire (cluster 17 / PY-D-19.1).
+type _RationalInput = int | float | Fraction
 
 
 def _atomic(predicate: SignalPredicate) -> AtomicFormula:
@@ -97,11 +106,11 @@ class Signal:
         """
         self.name: str = name
 
-    def equals(self, value: float) -> 'Predicate':
+    def equals(self, value: _RationalInput) -> 'Predicate':
         """Signal equals a specific value
 
         Args:
-            value: Expected signal value
+            value: Expected signal value (int / float / Fraction; coerced to exact Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -112,15 +121,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.EQUALS.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def less_than(self, value: float) -> 'Predicate':
+    def less_than(self, value: _RationalInput) -> 'Predicate':
         """Signal is less than a value
 
         Args:
-            value: Upper bound (exclusive)
+            value: Upper bound (exclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -131,15 +140,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def greater_than(self, value: float) -> 'Predicate':
+    def greater_than(self, value: _RationalInput) -> 'Predicate':
         """Signal is greater than a value
 
         Args:
-            value: Lower bound (exclusive)
+            value: Lower bound (exclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -150,15 +159,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def less_than_or_equal(self, value: float) -> 'Predicate':
+    def less_than_or_equal(self, value: _RationalInput) -> 'Predicate':
         """Signal is less than or equal to a value
 
         Args:
-            value: Upper bound (inclusive)
+            value: Upper bound (inclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -166,15 +175,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def greater_than_or_equal(self, value: float) -> 'Predicate':
+    def greater_than_or_equal(self, value: _RationalInput) -> 'Predicate':
         """Signal is greater than or equal to a value
 
         Args:
-            value: Lower bound (inclusive)
+            value: Lower bound (inclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -182,11 +191,11 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def between(self, min_val: float, max_val: float) -> 'Predicate':
+    def between(self, min_val: _RationalInput, max_val: _RationalInput) -> 'Predicate':
         """Signal is within a range (inclusive)
 
         Args:
@@ -199,26 +208,28 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
-        if min_val > max_val:
+        lo = Fraction(min_val)
+        hi = Fraction(max_val)
+        if lo > hi:
             raise ValueError(
                 f"min_val ({min_val}) must be <= max_val ({max_val})"
             )
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.BETWEEN.value,
             'signal': self.name,
-            'min': min_val,
-            'max': max_val
+            'min': lo,
+            'max': hi
         })
         return Predicate(formula)
 
-    def changed_by(self, delta: float) -> 'Predicate':
+    def changed_by(self, delta: _RationalInput) -> 'Predicate':
         """Signal changed in a specific direction.
 
         Positive delta: curr - prev >= delta (increased by at least delta)
         Negative delta: curr - prev <= delta (decreased by at least |delta|)
 
         Args:
-            delta: Signed change threshold
+            delta: Signed change threshold (int / float / Fraction; coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -229,17 +240,17 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.CHANGED_BY.value,
             'signal': self.name,
-            'delta': delta
+            'delta': Fraction(delta)
         })
         return Predicate(formula)
 
-    def stable_within(self, tolerance: float) -> 'Predicate':
+    def stable_within(self, tolerance: _RationalInput) -> 'Predicate':
         """Signal value stayed within tolerance of previous value.
 
         Checks |signal_now - signal_prev| <= tolerance
 
         Args:
-            tolerance: Maximum allowed absolute change
+            tolerance: Maximum allowed absolute change (int / float / Fraction; coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -250,7 +261,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.STABLE_WITHIN.value,
             'signal': self.name,
-            'tolerance': tolerance
+            'tolerance': Fraction(tolerance)
         })
         return Predicate(formula)
 
