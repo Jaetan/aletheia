@@ -1066,45 +1066,92 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 ---
 
-# Action plan (TBD after clustering)
+# Action plan — cluster split (2026-05-12)
 
-The 514 raw findings will be clustered into FIX-early / FIX-middle / DEFER-end-of-round per `feedback_review_round_dispositions.md`. Key themes surfaced across multiple agents:
+671 raw findings → 47 marked `[FIX]` across Clusters A-G (✅ shipped); 624
+remain.  Clusters H-R organize the remaining work, ordered by blast-radius
+per `feedback_review_round_dispositions.md`.  Each cluster ships as one
+focused commit; gates run fresh at every cluster closure per
+`feedback_gate_claim_integrity.md`.
 
-**Blocking / critical (must FIX-early)**:
-- **PY-A-1.1 / PY-D-27.1** — `conftest.py` imports removed `ProcessError`; doc-example harness gate is currently RED. Fix first.
-- **GO-B-31.1 / GO-A-1.1 / GO-D-22.1 / GO-D-31.1** — `ffi_nocgo.go` SendFrameBinary signature drift; `CGO_ENABLED=0` build silently broken.
-- **GO-B-24.1** — `rationalLess` int64 cross-product overflow; demonstrated wrong result.
-- **CPP-D-22.1** — `send_frames` `AletheiaError` wrap drops `bound_info_`; cross-binding parity broken.
-- **AGDA-D-11.2 / AGDA-D-32.4** — `firstDBCOverBound` skips 4 list types; `max-value-descriptions-per-file` declared but unused.
-- **AGDA-D-32.1/32.2/32.3/32.5** — 3-of-7 BoundKind enforcement gap on universal rule.
+## ✅ Closed (commits)
+- **A** `4be9a84` — `conftest.py` ProcessError unblock (PY-A-1.1 / PY-D-27.1)
+- **B** `dbd3e60` — Go `CGO_ENABLED=0` build matrix + Backend interface assertions (GO-B-31.1 / GO-A-1.1 / GO-D-22.1 / GO-D-31.1 / GO-B-7.1)
+- **C** `c2c6bab` — cross-binding rational discipline (GO-B-24.1 / PY-B-8.2 / CPP cross-binding)
+- **D** `9a73a48` — C++ `send_frames` bound_info_ forwarding (CPP-D-22.1)
+- **E** `c795141` — docs hygiene: module count, Python 3.13 floor, Last-Updated stamps (DOC-A-1.1-1.7 / 1.11 / 2.1-2.4 / 3.1 / 3.4)
+- **F** `036a684` — BRS/ESI mock fidelity Go + C++ + `serialize_send_frame` (GO-B-14.1 / CPP-B-11.1 / CPP-D-16.1 / R20 cluster F)
+- **G** `00dc764` — CHANGELOG R19 BREAKING entries + cpp/go README + CANCELLATION.md drift (GO-D-17.1 / DOC-A-1.8-1.10 / 2.7 / 3.5)
 
-**Cross-binding parity gaps (FIX-middle)**:
-- BRS/ESI threading in mocks and JSON wire (GO-D-16.2 / CPP-D-16.1 / CPP-B-11.1).
-- `ErrorKind::Ffi` declared but never constructed in C++ (CPP-D-21.4 / CPP-B-7.3).
-- `ValidationError` migration incomplete in Python (PY-A-5.3 / PY-B-8.1).
-- Negative denominator handling asymmetric (PY-B-8.2 / Cross-binding).
-- Compile-time `Backend` interface assertions missing (GO-D-16.1 / GO-A-3.1 / GO-B-7.1).
-- CHANGELOG.md missing 3 Go breaking changes (GO-D-17.1).
+## Pending clusters
 
-**Documentation hygiene cluster (FIX-middle/early)**:
-- Module count drift (DOC-A-1.1/1.2 / DOC-B-14.1).
-- Python 3.12+ floor stale in 5 sites (DOC-A-1.11).
-- Cluster-18 BRS/ESI not in docs (DOC-A-1.9/1.10 / DOC-B-19.2).
-- C++/Go READMEs not in doc-example harness (DOC-A-4.1).
+### Cluster H — Remaining FIX-NOW + universal-rule gaps  *(small, urgent)*
+- `GO-B-12.1` — `parseRational` wire-float overflow + denominator-fraction silent truncation
+- `AGDA-D-11.2` — `firstDBCOverBound` skips 4 list types
+- `AGDA-D-32.4` — `max-value-descriptions-per-file` declared but never enforced
 
-**System gaps (DEFER-end-of-round or FIX-middle)**:
-- Python Backend Protocol DI seam (PY-D-24.1, R19 carry-over).
-- C++ Strong<Tag,T> ergonomics + LtlFormula portability.
-- Hot-path logger fast-paths (GO-A-30.1 / CPP-A-30.1 / PY-A-28.x).
-- Source-distant file I/O hardening (CPP-D-21.2 / PY-B-26.2 / Excel ZIP-bomb).
+### Cluster I — AGDA BoundKind enforcement audit
+- `AGDA-D-32.1/32.2/32.3/32.5` — `IdentifierLength` / `StringLength` / `FrameByteCount` declared but never emitted; lift binding-level rejections into kernel
+- `AGDA-D-30.1` — `ffi-exports.snapshot` constructor coverage gap
+- FEATURE_MATRIX row update
 
-**No-action items requiring re-disposition**:
-- DEFERRALS.md updates: PROJECT_STATUS.md "Last updated" stamp drift (DOC-A-2.1).
-- AGDA-B-9.2 `stepL-satisfied-stable` lemma feasibility re-check given closed Adequacy chain (potential R6-B9.1 re-disposition).
+### Cluster J — Python ValidationError migration
+- `PY-A-5.3` / `PY-B-8.1` / `PY-D-27.3` — ~20 `ValueError` sites should raise `ValidationError` per PY-D-20.1 kind-tagged hierarchy
+- Touches `_helpers.py`, `loaders/`, factory paths; pylint 10/10
 
-## Progress log (TBD)
+### Cluster K — C++ ErrorKind::Ffi emission
+- `CPP-D-21.4` / `CPP-B-7.3` — `ErrorKind::Ffi` declared but never constructed; mirrors Python `FFIError` and Go `ErrFFI`
+- Audit dlopen / dlsym / `hs_init` paths
 
-Round-N progress entries to be appended here as items close.
+### Cluster L — BRS/ESI doc-fence sweep  *(unblocks gate)*
+- Doc-fence harness regression: post-cluster-A unblock surfaced **102 fence failures** because `CANFrameTuple` is now 7-tuple (R19 cluster 18 BRS/ESI) but docs still unpack 5
+- Files: `docs/COOKBOOK.md`, `docs/TUTORIAL.md`, `docs/guides/QUICKSTART.md`, `docs/reference/PYTHON_API.md`, `docs/reference/INTERFACES.md` (+ siblings)
+- `DOC-B-19.2` and friends
+
+### Cluster M — Logger fast-path guards (Go + C++)
+- `GO-A-30.1` — 6 `LogAttrs` sites in `client.go` need `Enabled(ctx, slog.LevelDebug)` outer guard (mirror Python R19 cluster 19 / PY-B-14.1)
+- `CPP-A-30.1` — equivalent in C++ Logger callback path
+- Bench after
+
+### Cluster N — Excel / YAML loader I/O hardening
+- `CPP-B-29.x` — symlink-safe + ZIP-bomb bounds in `cpp/src/excel/`
+- `PY-B-26.2` — same in `python/aletheia/loaders/excel.py` / `yaml.py`
+- `CPP-D-21.2` — TOCTOU race on path-resolution
+- New tests for symlink loops + 1 KiB → 1 GiB decompression bombs
+
+### Cluster O — Go cluster-5 rename completion + naming Cat 3
+- `GO-D-15.1` — `NewDbcMessage` / `NewDbcDefinition` / `Backend.FormatDbcBinary` / `WithDbcSheet` / unexported `parseDbc*` / `formatDbcFn`
+- `GO-D-15.2` — `DBCRawValueDesc.CANID CANID` stutter → `ID CANID`
+- `GO-A-3.x` siblings
+
+### Cluster P — Python Backend(Protocol) DI seam (R19 carry-over)
+- `PY-D-24.1` — promote `Backend(Protocol)` + thread through `AletheiaClient.__init__`
+- Largest remaining cross-binding parity gap (C++ has `IBackend`, Go has `Backend` interface, Python has nothing)
+- Touches `_client.py`, conftest fixtures, public re-exports; FEATURE_MATRIX row
+
+### Cluster Q — Multi-binding Cat 1/4 cleanup  *(sweep)*
+- Dead code + stale comments across AGDA-A / GO-A / CPP-A / PY-A (~80 findings)
+- DEFER comments lacking concrete revisit signal (`GO-A-4.8` + siblings)
+- Cat 4 wording / godoc rendering
+
+### Cluster R — Misc HIGH follow-ups
+- `GO-D-19.1` — `Rational.Float64()` in enrichment loses precision; promote `Rational.String()` matching wire form
+- `GO-D-20.1` — `Backend` interface JSON-command + binary-FFI mix; document or split `CommandBackend` + `BinaryBackend`
+- Residual HIGH items uncovered while working other clusters
+
+### DEFER-end-of-round (final pass)
+- AGDA-B-26.x DEFER block re-evaluation (`stepL-satisfied-stable` lemma, Bool fast-path RE-DEFER post R19-CARRY-1)
+- Cat 27 stdlib coverage findings
+- C++ `Strong<Tag, T>` ergonomics + `LtlFormula` `std::variant` portability
+- `AGENTS.md` future-tense paragraph (DOC-A-1.14)
+- DEFERRALS.md / re-disposition file updates
+
+---
+
+## Progress log
+
+- 2026-05-12 — Clusters A-G shipped (commits 4be9a84, dbd3e60, c2c6bab, 9a73a48, c795141, 036a684, 00dc764).  47 findings marked `[FIX]`.  Cluster split saved.
+
 
 ---
 
