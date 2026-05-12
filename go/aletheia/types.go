@@ -69,13 +69,6 @@ func RationalFromFloat(v float64) Rational {
 // ergonomics.
 func physicalAsRational(v PhysicalValue) Rational { return RationalFromFloat(float64(v)) }
 
-// Delta is a signed change threshold for ChangedBy predicates.
-// Positive: curr - prev >= delta; negative: curr - prev <= delta.
-type Delta float64
-
-// Tolerance is an absolute tolerance for StableWithin predicates.
-type Tolerance float64
-
 // Timestamp is a point in time, measured in microseconds since trace start.
 type Timestamp struct {
 	Microseconds int64
