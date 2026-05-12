@@ -23,7 +23,7 @@ open import Data.Unit using (tt)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 
--- Helper: values ≥ 16 can't be ≤ 15
+-- Helper: values ≥ 16 can't be ≤ 15.
 private
   16+k≰15 : ∀ {k} → 16 + k ≤ 15 → ⊥
   16+k≰15 {k} p = 1+n≰n (≤-trans p (m≤m+n 15 k))
@@ -162,4 +162,11 @@ bytesToValidDLC-roundtrip (mkDLC 12 _) = refl
 bytesToValidDLC-roundtrip (mkDLC 13 _) = refl
 bytesToValidDLC-roundtrip (mkDLC 14 _) = refl
 bytesToValidDLC-roundtrip (mkDLC 15 _) = refl
+-- Absurd catchall: the @0-erased `bounded : T (code <ᵇ 16)` is structurally
+-- ⊥ for any code ≥ 16; Agda discharges via the `()` pattern.  G-A2's
+-- "no nested suc/s≤s" ideal would route through `Fin 16` / `_≤?_`, but
+-- those alternatives need a relevant witness — `bounded` is `@0` (record
+-- field on `DLC`, MAlonzo-erased), so the helper-lemma route breaks
+-- erasure.  16 explicit refl clauses + one `()`-on-erased-bounded clause
+-- is the minimum-cost shape (R19 cluster 5 — AGDA-A-1.3 audit closure).
 bytesToValidDLC-roundtrip (mkDLC (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))))))))) ())

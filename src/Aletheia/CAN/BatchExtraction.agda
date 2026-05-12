@@ -25,7 +25,7 @@ open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
-open import Aletheia.Error using (FrameError; CANIdNotFound; SignalNotFound; SignalValueOutOfBounds; formatFrameError; Error; ExtractionErr; MuxValueMismatch; formatError)
+open import Aletheia.Error using (FrameError; CANIdNotFound; SignalNotFound; SignalValueOutOfBounds; formatFrameError; ExtractionErr; MuxValueMismatch; formatError)
 
 -- ============================================================================
 -- PARAMETERIZED RESULT TYPE

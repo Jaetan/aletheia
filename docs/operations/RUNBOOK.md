@@ -55,9 +55,10 @@ informational below and authoritative in
 **Symptom:** info-level log line at `parse_dbc` / `parse_dbc_text`
 completion, carrying the parsed message / signal counts.
 
-**Cause:** A `DbcDefinition` was successfully loaded — either from
-the JSON-shape command (`parseDBC`) or the DBC-text path
-(`parseDBCText`). Both paths emit the same canonical event name.
+**Cause:** A DBC definition (Python `DBCDefinition` / Go `DBCDefinition` /
+C++ `DbcDefinition`) was successfully loaded — either from the JSON-shape
+command (`parseDBC`) or the DBC-text path (`parseDBCText`). Both paths emit
+the same canonical event name.
 
 **Action:** None. This is a normal lifecycle marker. If you expected
 a higher message count, check for `extraction.parse_failed` or
@@ -346,60 +347,54 @@ pure-Go fallback for `dlopen`/`dlsym` on `libaletheia-ffi.so`.
 need the FFI backend, `MockBackend` is pure Go and works under
 `CGO_ENABLED=0`.
 
-### Runtime — input bounds (`InputBoundExceeded`)
+### Runtime — input bounds (`input_bound_exceeded`)
 
-#### `parse_input_bound_exceeded`
+#### `input_bound_exceeded`
 
-**Symptom:** JSON-shape command (`parseDBC`, `setProperties`, etc.)
-returns
-`{"status": "error", "code": "parse_input_bound_exceeded", "message": "..."}`,
+Post R19 cluster 14 / AGDA-C-6.2 consolidation 2026-05-11: the three
+previously-split codes (`parse_input_bound_exceeded` /
+`dbc_text_input_bound_exceeded` / `frame_input_bound_exceeded`) merged
+into a single `input_bound_exceeded` code; discriminate by the
+`bound_kind` field on the structured payload.
+
+**Symptom:** Any command (JSON-shape `parseDBC` / `setProperties` /
+binary `aletheia_send_frame` / `parse_dbc_text`) returns
+`{"status": "error", "code": "input_bound_exceeded", "bound_kind": "...", ...}`,
 or the binding raises `aletheia.InputBoundExceededError` (Python) /
 `*aletheia.InputBoundExceededError` (Go) / throws
 `aletheia::InputBoundExceededError` (C++).
 
-**Cause:** A JSON command body exceeded one of the limits in
-[PROTOCOL.md § Limits](../architecture/PROTOCOL.md#limits) — most
-commonly `max_json_bytes` (64 MiB) at the FFI entry, or a structural
-bound (`max_messages_per_file`, `max_signals_per_message`,
-`max_atom_count_per_property`, etc.) inside the parser.
+**Cause:** An input exceeded one of the limits in
+[PROTOCOL.md § Limits](../architecture/PROTOCOL.md#limits).  The
+`bound_kind` field names which bound:
+- `input_length_bytes` — JSON or DBC-text input exceeded `max_json_bytes`
+  / `max_dbc_text_bytes` (64 MiB) at the FFI entry.
+- `nesting_depth` — JSON nesting exceeded `max_nesting_depth` (64).
+- `array_cardinality` — a list exceeded its per-section cardinality
+  cap (`max_messages_per_file`, `max_signals_per_message`,
+  `max_attributes_per_file`, `max_value_descriptions_per_file`).
+- `identifier_length` — a DBC identifier exceeded
+  `max_identifier_length` (128 chars).
+- `string_length` — a quoted-string body exceeded
+  `max_string_length_bytes` (64 KiB).
+- `atom_count` — an LTL property exceeded
+  `max_atom_count_per_property` (1024 atoms).
+- `frame_byte_count` — a frame payload exceeded
+  `max_frame_byte_count` (64 — CAN-FD maximum).  Structurally
+  impossible for a valid CAN / CAN-FD frame; indicates a
+  binding-side encoding bug (check the producer's DLC-to-bytes
+  mapping; valid table is `{0..8, 12, 16, 20, 24, 32, 48, 64}` for
+  DLC values `0..15`).
 
-**Action:** Read the `kind` / `observed` / `limit` fields on the
-typed error to identify which bound was crossed. If the input is
+**Action:** Read the `bound_kind` / `observed` / `limit` fields on
+the typed error to identify which bound was crossed. If the input is
 legitimately oversize, see
 [PROTOCOL.md § Updating bounds](../architecture/PROTOCOL.md#updating-bounds)
 — bounds are intentionally generous (~6× headroom for commercial
-DBCs) and adjustments are a kernel + per-binding mirror change. If
-the input is a synthetic stress test or unexpected user data, this
-is the correct rejection.
-
-#### `dbc_text_input_bound_exceeded`
-
-**Symptom:** `parse_dbc_text` returns
-`{"status": "error", "code": "dbc_text_input_bound_exceeded", ...}`,
-or the binding raises an `InputBoundExceededError` against
-`MAX_DBC_TEXT_BYTES`.
-
-**Cause:** The DBC text input exceeds 64 MiB (`max_dbc_text_bytes`).
-Same per-kind bounds otherwise — identifier length, string length,
-nesting depth, array cardinality, etc.
-
-**Action:** Same as `parse_input_bound_exceeded`. Commercial
-automotive DBCs are typically 1-10 MiB; an input over 64 MiB
-strongly suggests a malformed or synthetic file.
-
-#### `frame_input_bound_exceeded`
-
-**Symptom:** `aletheia_send_frame` returns an error response with
-code `frame_input_bound_exceeded`.
-
-**Cause:** The submitted frame's payload byte count exceeds 64
-(`max_frame_byte_count` — the CAN-FD maximum). This is structurally
-impossible for a valid CAN / CAN-FD frame and indicates a
-binding-side encoding bug.
-
-**Action:** Check the producer code for a DLC-to-bytes mapping
-error. The valid DLC table is `{0..8, 12, 16, 20, 24, 32, 48, 64}`
-bytes for DLC values `0..15`.
+DBCs; commercial automotive DBCs are typically 1-10 MiB) and
+adjustments are a kernel + per-binding mirror change. If the input
+is a synthetic stress test or unexpected user data, this is the
+correct rejection.
 
 ### Runtime — OOM / heap pressure
 
@@ -468,7 +463,7 @@ codified in `Aletheia.DBC.Validator`.
 **Action:** Run `aletheia validate --dbc <file>` (or the binding
 equivalent) to enumerate issues. Each issue carries a stable
 `IssueCode` mapped across all three bindings — see the
-`IssueCode` enum (`python/aletheia/validation.py`,
+`IssueCode` enum (`python/aletheia/issue_codes.py`,
 `go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.

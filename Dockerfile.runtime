@@ -19,9 +19,24 @@
 # pinning by digest makes `docker build` bit-reproducible at the base layer.
 FROM python:3.13-slim@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fde89ed5efe0a3d
 
-# Only non-default system dependency
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends libgmp10 && \
+# CICD-2.2: pin apt mirror to snapshot.debian.org and the libgmp10 package
+# version, so the install layer is reproducible against upstream Debian
+# package churn.  Combined with the @sha256 base-image digest pin above,
+# this makes the entire image bit-stable across rebuilds.
+#
+# Refresh procedure (do this on a release-cut commit alongside the base
+# image digest refresh):
+#   1. Bump DEBIAN_SNAPSHOT to a recent timestamp from
+#      https://snapshot.debian.org/archive/debian/  (date+time of the
+#      bookworm point you want to pin against).
+#   2. Confirm libgmp10 version at that snapshot via
+#      https://snapshot.debian.org/package/gmp/  and update the
+#      `libgmp10=...` pin if Debian shipped a security update.
+ARG DEBIAN_SNAPSHOT=20250509T000000Z
+RUN sed -i "s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g; s|http://security.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g" /etc/apt/sources.list.d/debian.sources && \
+    echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/10no-check-valid-until && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libgmp10=2:6.2.1+dfsg1-1.1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built shared libraries and C header

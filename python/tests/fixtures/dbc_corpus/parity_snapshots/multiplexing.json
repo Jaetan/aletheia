@@ -39,6 +39,7 @@
           "multiplexor": "Mode",
           "name": "PayloadA",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],
@@ -65,6 +66,7 @@
           "multiplexor": "Mode",
           "name": "PayloadB",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],
@@ -85,6 +87,7 @@
           "multiplexor": "Mode",
           "name": "PayloadC",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],
@@ -148,6 +151,7 @@
           "multiplexor": "PrimaryMux",
           "name": "SecondaryMux",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],
@@ -168,6 +172,7 @@
           "multiplexor": "PrimaryMux",
           "name": "LeafSignalX",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],
@@ -188,6 +193,7 @@
           "multiplexor": "PrimaryMux",
           "name": "LeafSignalY",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],

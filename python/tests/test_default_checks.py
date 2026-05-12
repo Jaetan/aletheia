@@ -7,6 +7,7 @@ and that property indices are consistent across defaults + session checks.
 import pytest
 
 from aletheia import AletheiaClient, Check
+from aletheia.protocols import DLCCode
 
 
 # Simple DBC for testing
@@ -73,7 +74,7 @@ class TestAddChecks:
 
             client.start_stream()
             # Speed = 100 raw * 0.1 = 10.0 kph — should pass
-            result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
+            result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
             assert result["status"] == "ack"
             client.end_stream()
 
@@ -87,7 +88,7 @@ class TestAddChecks:
 
             client.start_stream()
             # Speed = 100 raw * 0.1 = 10.0 kph — should pass
-            result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
+            result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
             assert result["status"] == "ack"
             client.end_stream()
 
@@ -103,7 +104,7 @@ class TestAddChecks:
 
             client.start_stream()
             # Both signals within limits
-            result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
+            result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
             assert result["status"] == "ack"
             client.end_stream()
 
@@ -118,7 +119,7 @@ class TestAddChecks:
             client.start_stream()
 
             # Speed = 100 raw * 0.1 = 10.0 kph — exceeds limit of 5
-            result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
+            result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
             assert result["status"] == "fails"
             # Default is property 0
             prop_index = result["property_index"]
@@ -136,7 +137,7 @@ class TestAddChecks:
             client.start_stream()
 
             # Voltage = 1200 raw * 0.01 = 12.0 V — exceeds limit of 5
-            result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
+            result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
             assert result["status"] == "fails"
             # Session check is property 1 (after 1 default)
             prop_index = result["property_index"]
@@ -153,7 +154,7 @@ class TestAddChecks:
             client.start_stream()
 
             # Speed = 100 raw * 0.1 = 10.0 kph — violation
-            result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
+            result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
             assert result["status"] == "fails"
             enrichment = result.get("enrichment")
             assert enrichment is not None

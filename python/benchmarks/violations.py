@@ -36,7 +36,7 @@ import can
 from aletheia import AletheiaClient
 from aletheia.checks import Check, CheckResult
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import DBCDefinition, DLCCode
 from aletheia.testing import run_checks
 
 _TARGET_FPS = 8000
@@ -126,7 +126,7 @@ def _stream_identical(client: AletheiaClient, num_frames: int) -> float:
     data = _raw_data(10000)
     start = time.perf_counter()
     for i in range(num_frames):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=data)
     return time.perf_counter() - start
 
 
@@ -135,7 +135,7 @@ def _stream_unique(client: AletheiaClient, num_frames: int) -> float:
     frames = [_raw_data(5100 + i) for i in range(num_frames)]
     start = time.perf_counter()
     for i, data in enumerate(frames):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=data)
     return time.perf_counter() - start
 
 
@@ -144,7 +144,7 @@ def _stream_mixed(client: AletheiaClient, num_frames: int) -> float:
     start = time.perf_counter()
     for i in range(num_frames):
         raw = 10000 if i % 10 == 0 else 2000
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=_raw_data(raw))
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=_raw_data(raw))
     return time.perf_counter() - start
 
 
@@ -153,7 +153,7 @@ def _stream_no_violations(client: AletheiaClient, num_frames: int) -> float:
     data = _raw_data(2000)
     start = time.perf_counter()
     for i in range(num_frames):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=data)
     return time.perf_counter() - start
 
 
@@ -190,17 +190,12 @@ def bench_cli(
 ) -> tuple[float, int]:
     """Benchmark ``run_checks`` (CLI pipeline).
 
-    Returns (fps, violation_count).  ``run_checks`` returns a 3-tuple
-    ``(violations, unresolved, total_frames)``; the prior version of this
-    benchmark unpacked only 2 values, silently using ``unresolved`` as
-    the FPS divisor (which is typically 0 → division by zero or a wildly
-    wrong number).  The fix unpacks all three explicitly and divides by
-    ``total_frames``.
+    Returns (fps, violation_count).
     """
     start = time.perf_counter()
-    violations, _unresolved, total_frames = run_checks(dbc, checks, asc_path)
+    result = run_checks(dbc, checks, asc_path)
     elapsed = time.perf_counter() - start
-    return total_frames / elapsed, len(violations)
+    return result.total_frames / elapsed, len(result.violations)
 
 
 # ============================================================================

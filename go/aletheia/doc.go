@@ -42,6 +42,23 @@
 //	)
 //	if err != nil { log.Fatal(err) }
 //
+// Streaming adequacy (Unresolved verdicts):
+//
+// The streaming evaluator is sound but requires that every property's
+// target signal is observed in the input trace at least once — the
+// AllObserved invariant from
+// Aletheia.Protocol.Adequacy.StreamingWarm.streaming-warms-cache. This
+// is a user obligation on the trace; the FFI does not check it.
+//
+// When the obligation is violated (e.g., a property references a signal
+// that no frame in the trace carries), the property may finalize as
+// [Unresolved] — the three-valued Kleene "Unsure" — rather than [Holds]
+// or [Fails]. Reported verdicts remain sound; coverage is the caller's
+// responsibility.
+//
+// See docs/architecture/PROTOCOL.md § Streaming Semantics: Soundness
+// vs. Completeness for the full contract.
+//
 // Observability event vocabulary:
 //
 // When a *slog.Logger is wired in (via WithLogger or WithFFILogger), the

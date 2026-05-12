@@ -20,7 +20,7 @@ extended-can-id-max = 536870912  -- 2^29 (29-bit extended CAN IDs: 0x00000000-0x
 max-physical-bits : ℕ
 max-physical-bits = 512
 
--- 8 ≤ 512 (one byte fits in max-physical-bits)
+-- 8 ≤ max-physical-bits (one byte fits in max-physical-bits)
 -- Defined once to avoid duplicating the 8-deep s≤s chain
 8≤max-physical-bits : 8 ≤ max-physical-bits
 8≤max-physical-bits = s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s z≤n)))))))

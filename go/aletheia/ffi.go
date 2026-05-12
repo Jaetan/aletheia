@@ -35,9 +35,14 @@ package aletheia
 //     ((void (*)(void*))fn)(state);
 // }
 // static char* call_send_frame(void *fn, void *state, uint64_t ts,
-//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len) {
+//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len,
+//     uint8_t brs_present, uint8_t brs_value,
+//     uint8_t esi_present, uint8_t esi_value) {
 //     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
-//                         uint8_t*, uint8_t))fn)(state, ts, id, ext, dlc, data, len);
+//                         uint8_t*, uint8_t,
+//                         uint8_t, uint8_t, uint8_t, uint8_t))fn)(
+//         state, ts, id, ext, dlc, data, len,
+//         brs_present, brs_value, esi_present, esi_value);
 // }
 // static char* call_send_error(void *fn, void *state, uint64_t ts) {
 //     return ((char* (*)(void*, uint64_t))fn)(state, ts);
@@ -95,7 +100,28 @@ package aletheia
 // }
 //
 // // call_hs_init_rts builds argv and calls hs_init with +RTS -N<cores> -RTS.
-// // Keeps argv in C heap — hs_init may retain pointers.
+// //
+// // Why strdup() rather than passing &args directly to hs_init:
+// //   per the GHC user's guide §16.2 / Haskell-side "GHC.RTS.startupHaskell",
+// //   hs_init's contract is that argv pointers MAY be retained for the
+// //   process lifetime — the runtime parses +RTS flags lazily, and some
+// //   bookkeeping (e.g. the stored program name returned by getProgName)
+// //   keeps a live reference to the original strings.  Stack-allocated or
+// //   Go-managed memory would not be safe across the hs_init return.
+// //
+// // Why we never free():
+// //   (a) The retention window is the entire process lifetime — GHC has no
+// //       hs_release_argv hook and no documented point at which the strings
+// //       become unreachable.
+// //   (b) The leak is bounded — exactly four small heap blocks
+// //       ("aletheia" / "+RTS" / "-N<cores>" / "-RTS"), allocated once per
+// //       process at first FFIBackend.Init() call (see lazyInit() guard
+// //       below).  Total ~40 bytes, no growth.
+// //   (c) Cross-binding parity — Python's `aletheia/_ffi.py` and C++'s
+// //       `cpp/src/ffi_backend.cpp` both follow the same one-shot retain-
+// //       forever pattern with the same rationale.  Diverging here would
+// //       complicate the cross-binding leak audit (RUNBOOK.md §4 describes
+// //       the expected steady-state RSS profile).
 // static void call_hs_init_rts(void *fn, int cores) {
 //     char buf[16];
 //     snprintf(buf, sizeof(buf), "-N%d", cores);
@@ -107,7 +133,8 @@ package aletheia
 //     int argc = 4;
 //     char **argv = args;
 //     ((void (*)(int*, char***))fn)(&argc, &argv);
-//     // Intentionally not freed — GHC RTS may retain argv pointers.
+//     // Per the multi-line rationale above: bounded one-shot leak, retained
+//     // for hs_init's documented argv lifetime; not freed.
 // }
 import "C"
 
@@ -118,6 +145,7 @@ import (
 	"math"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -204,6 +232,12 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	defer runtime.UnlockOSThread()
 
 	libPath = filepath.Clean(libPath)
+	// Reject NUL bytes before C.CString silently truncates.  R19 cluster 12
+	// — GO-B-27.2: filepath.Clean does not validate NUL; a NUL-bearing
+	// libPath would translate to a different on-disk path inside cgo.
+	if strings.ContainsRune(libPath, 0) {
+		return nil, validationError("libPath contains NUL byte")
+	}
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 
@@ -382,8 +416,16 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 			BoundKindInputLengthBytes,
 			uint64(len(input)),
 			MaxJSONBytes,
-			CodeParseInputBoundExceeded,
+			CodeInputBoundExceeded,
 		)
+	}
+	// Reject embedded NUL bytes before C.CString truncates.  R19 cluster
+	// 12 — GO-B-27.3: the Agda parser is byte-oriented (not C-string-
+	// oriented); a NUL-bearing input would silently truncate at the FFI
+	// boundary.  The bound check above is bytes-of-Go-string, so the
+	// post-truncation length disagreement is otherwise undetectable.
+	if strings.IndexByte(input, 0) >= 0 {
+		return "", validationError("input contains NUL byte")
 	}
 
 	runtime.LockOSThread()
@@ -401,8 +443,14 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 }
 
 // SendFrameBinary sends a CAN frame via the binary FFI entry point,
-// bypassing JSON serialization on the input side.
-func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error) {
+// bypassing JSON serialization on the input side.  The optional BRS and
+// ESI CAN-FD bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are encoded as
+// (present, value) byte pairs — pass nil for CAN 2.0B frames.
+func (b *FFIBackend) SendFrameBinary(
+	state unsafe.Pointer, ts Timestamp,
+	id CANID, dlc DLC, data []byte,
+	brs *bool, esi *bool,
+) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -415,8 +463,8 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 		return "", validationError("timestamp must be non-negative")
 	}
 
-	if len(data) > maxPayloadBytes {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
+	if len(data) > MaxFrameByteCount {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
 	}
 
 	var dataPtr *C.uint8_t
@@ -424,8 +472,11 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
 	}
 
+	brsPresent, brsValue := encodeMaybeBool(brs)
+	esiPresent, esiValue := encodeMaybeBool(esi)
+
 	// C.uint8_t(len(data)) is safe: the bounds check above guarantees
-	// len(data) <= maxPayloadBytes < 256, so the cast never truncates.
+	// len(data) <= MaxFrameByteCount < 256, so the cast never truncates.
 	result := C.call_send_frame(
 		b.sendFrameFn, state,
 		C.uint64_t(ts.Microseconds),
@@ -434,12 +485,29 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
+		brsPresent, brsValue,
+		esiPresent, esiValue,
 	)
+	runtime.KeepAlive(data)
 	if result == nil {
 		return "", ffiError("aletheia_send_frame returned null")
 	}
 	defer C.call_free_str(b.freeStrFn, result)
 	return C.GoString(result), nil
+}
+
+// encodeMaybeBool encodes an Optional[bool] as the (present, value) byte
+// pair used by the binary FFI for CAN-FD BRS / ESI metadata.  Inverse of
+// the Haskell shim's mkMaybeBool — nil → (0, 0); &false → (1, 0);
+// &true → (1, 1).
+func encodeMaybeBool(b *bool) (C.uint8_t, C.uint8_t) {
+	if b == nil {
+		return 0, 0
+	}
+	if *b {
+		return 1, 1
+	}
+	return 1, 0
 }
 
 // SendErrorBinary sends a CAN error event via the binary FFI entry point.
@@ -460,7 +528,7 @@ func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string
 }
 
 // SendRemoteBinary sends a CAN remote frame event via the binary FFI entry point.
-func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CanID) (string, error) {
+func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CANID) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -521,7 +589,7 @@ func (b *FFIBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
 }
 
 // ExtractSignalsBinary extracts signals from a binary CAN frame via the binary FFI entry point.
-func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte) (string, error) {
+func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -530,8 +598,8 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DL
 		ext = 1
 	}
 
-	if len(data) > maxPayloadBytes {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
+	if len(data) > MaxFrameByteCount {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
 	}
 
 	var dataPtr *C.uint8_t
@@ -547,6 +615,7 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DL
 		dataPtr,
 		C.uint8_t(len(data)),
 	)
+	runtime.KeepAlive(data)
 	if result == nil {
 		return "", ffiError("aletheia_extract_signals returned null")
 	}
@@ -555,7 +624,7 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DL
 }
 
 // BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON entirely.
-func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -597,6 +666,16 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numS
 		outBufPtr,
 		&outErr,
 	)
+	// Defensive against future inliner / GC: keep the Go-side slices alive
+	// until after the cgo call returns.  Without these, a sufficiently
+	// aggressive inliner could observe that `indices`/`nums`/`dens`/`outBuf`
+	// are no longer referenced from Go after their pointers cross the cgo
+	// boundary, and the GC could reclaim them while the C code is still
+	// reading.  R19 cluster 12 — GO-B-10.3.
+	runtime.KeepAlive(indices)
+	runtime.KeepAlive(nums)
+	runtime.KeepAlive(dens)
+	runtime.KeepAlive(outBuf)
 	if status != 0 {
 		var msg string
 		if outErr != nil {
@@ -611,7 +690,7 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numS
 }
 
 // UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON entirely.
-func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -623,8 +702,8 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 	// Cap at the CAN-FD maximum payload size; every other data-accepting
 	// method (SendFrameBinary, ExtractSignalsBinary) applies the same bound
 	// before taking &data[0] into cgo.
-	if len(data) > maxPayloadBytes {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
+	if len(data) > MaxFrameByteCount {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
 	}
 
 	var dataPtr *C.uint8_t
@@ -667,6 +746,11 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 		outBufPtr,
 		&outErr,
 	)
+	runtime.KeepAlive(data)
+	runtime.KeepAlive(indices)
+	runtime.KeepAlive(nums)
+	runtime.KeepAlive(dens)
+	runtime.KeepAlive(outBuf)
 	if status != 0 {
 		var msg string
 		if outErr != nil {
@@ -681,7 +765,7 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 }
 
 // ExtractSignalsBin extracts signals returning packed binary, bypassing JSON entirely.
-func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte) ([]byte, error) {
+func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -692,8 +776,8 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, 
 
 	// Cap at the CAN-FD maximum payload size; every other data-accepting
 	// method applies the same bound before taking &data[0] into cgo.
-	if len(data) > maxPayloadBytes {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
+	if len(data) > MaxFrameByteCount {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
 	}
 
 	var dataPtr *C.uint8_t

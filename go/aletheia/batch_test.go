@@ -21,7 +21,7 @@ func TestSendFrames_AllAck(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestSendFrames_WithViolation(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestSendFrames_StopsOnError(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSendFrames_Empty(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestSendFrames_NegativeTimestamp(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}

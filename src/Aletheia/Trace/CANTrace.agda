@@ -32,7 +32,16 @@ open import Data.Unit using (⊤)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
 -- A CAN data frame with timestamp and optional CAN-FD metadata.
--- brs/esi are Nothing for CAN 2.0B frames, Just for CAN-FD frames.
+--
+-- brs/esi convention (ISO 11898-1:2015 §10.4.2 / §10.4.3, R19P2 cluster 18
+-- — AGDA-D-10.1 closure): bindings populate `Just b` for CAN-FD frames
+-- carrying a Bit Rate Switch / Error State Indicator bit, and `Nothing`
+-- for CAN 2.0B frames where the bits do not exist on the wire.  The Agda
+-- kernel does not consume these fields — they are pass-through metadata
+-- surfaced to binding consumers via the FFI response and JSON wire shape.
+-- Phase 5.1 scope keeps LTL atomic predicates signal-level only; bus-bit
+-- predicates (BRS-set / ESI-set as truth values) would require lifting
+-- the Maybe Bool to the predicate vocabulary and are deferred to Phase 6.
 record TimedFrame : Set where
   field
     timestamp   : Timestamp μs  -- Microseconds since trace start
@@ -66,6 +75,30 @@ open TimedFrame public
 -- by the request frame. A remote frame is therefore a pass-through event
 -- whose only LTL-relevant field is the CAN ID (for ID-scoped predicates)
 -- and the timestamp.
+-- Deliberately omitted CAN 2.0B / ISO 11898-1 events:
+--
+-- (a) Overload frames (CAN 2.0B §3.1.5) — bus-level inter-frame fillers
+--     emitted by stations that need extra time before the next data frame.
+--     Carry no signal payload; the only observable is timing pressure on
+--     subsequent frames, which is already captured by the timestamp delta
+--     between adjacent `Data` events.  Since Aletheia's LTL atomic
+--     predicates are signal-level (not bit-level / frame-format-level),
+--     overload frames have no observable to predicate against.
+--
+-- (b) Single-shot transmission failure events (ISO 11898-1 §6.6, "tx
+--     attempts exhausted" reported by the local controller) — driver-side
+--     condition with no on-bus emission; for trace replay they would
+--     appear as a *gap* (the frame was never broadcast), not a distinct
+--     event type.  Aletheia's trace model is the on-bus byte stream, so
+--     the gap is the natural representation: the `Data` frame for that
+--     ID simply does not appear at the expected timestamp, and any
+--     freshness / liveness predicate over it will report the violation.
+--
+-- This is the Phase 5.1 "minimal trace, signal-level LTL" scope; the
+-- ADT can be extended later if the LTL atomic-predicate vocabulary is
+-- broadened to bit-level / frame-format-level checks (see PROJECT_STATUS.md
+-- Phase 6 candidate-goal list — none currently planned).  R19 Phase 2
+-- cluster 5 — AGDA-D-10.3 audit closure.
 data TraceEvent : Set where
   Data   : TimedFrame → TraceEvent
   Error  : Timestamp μs → TraceEvent

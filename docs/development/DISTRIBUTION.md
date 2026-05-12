@@ -2,7 +2,7 @@
 
 ---
 **Version**: 1.1.1 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
-**Last Updated**: 2026-04-15
+**Last Updated**: 2026-05-10
 **Platform**: Linux x86-64 only
 ---
 

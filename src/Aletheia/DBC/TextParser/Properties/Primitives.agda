@@ -108,12 +108,19 @@ private
     let (pc , pcs) = T-∧-split {p c} {allᵇ p cs} ab
     in pc ∷ T-allᵇ→All p cs pcs
 
+-- R19 cluster 8 phase e.1: `validIdentifierᵇ (h ∷ t)` is now a 3-conjunct
+-- `isIdentStart h ∧ (allᵇ isIdentCont t ∧ length (h ∷ t) <ᵇ suc max-…)`.
+-- Two splits unpack the start-char and cont-list witnesses; the length
+-- bound is preserved by the Identifier record's `valid` field for callers
+-- that need it (decompose-valid drops it because no existing consumer
+-- threads it through).  Implicit args inferred from `valid`'s type.
 decompose-valid : ∀ (cs : List Char) → T (validIdentifierᵇ cs)
   → ∃[ h ] ∃[ t ]
     (cs ≡ h ∷ t) × T (isIdentStart h) × All (T ∘ isIdentCont) t
 decompose-valid []       ()
 decompose-valid (h ∷ t) valid =
-  let (ph , pt) = T-∧-split {isIdentStart h} {allᵇ isIdentCont t} valid
+  let (ph , rest) = T-∧-split valid
+      (pt , _)    = T-∧-split rest
   in h , t , refl , ph , T-allᵇ→All isIdentCont t pt
 
 -- ============================================================================

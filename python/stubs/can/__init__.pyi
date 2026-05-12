@@ -17,6 +17,9 @@ class Message:
     is_error_frame: bool
     is_remote_frame: bool
     is_extended_id: bool
+    is_fd: bool
+    bitrate_switch: bool
+    error_state_indicator: bool
     channel: int | str | None
 
     def __init__(
@@ -28,6 +31,9 @@ class Message:
         is_error_frame: bool = ...,
         is_remote_frame: bool = ...,
         is_extended_id: bool = ...,
+        is_fd: bool = ...,
+        bitrate_switch: bool = ...,
+        error_state_indicator: bool = ...,
         channel: int | str | None = ...,
     ) -> None: ...
 

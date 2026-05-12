@@ -4,6 +4,7 @@ import System.Directory (createDirectoryLink, removePathForcibly,
                          getHomeDirectory, createDirectoryIfMissing,
                          removeDirectoryRecursive,
                          getCurrentDirectory)
+import qualified System.Directory as SysDir
 import System.Info (os)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
@@ -216,6 +217,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/JSONParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
         agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
+        agdaWithRTS "Aletheia/DBC/Formatter/Bounded.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
         -- TextParser / TextFormatter aggregator modules.  These are not
@@ -464,7 +466,32 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
           error $ "check-erasure failed: Sum stdlib constructor names changed. "
                ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
                ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
-        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors."
+        -- Maybe / Sigma builtin constructor names used by Marshal.hs +
+        -- BinaryOutput.hs.  R19 cluster 13 — AGDA-D-30.1 / AGDA-D-GA23.2:
+        -- the FFI shim's `unsafeCoerce` sites assume specific MAlonzo
+        -- constructor shapes for Agda.Builtin.Maybe and Agda.Builtin.Sigma;
+        -- a stdlib bump or builtin-module rename can drift them silently.
+        maybeBase <- liftIO $ readFile "build/MAlonzo/Code/Agda/Builtin/Maybe.hs"
+        sigmaBase <- liftIO $ readFile "build/MAlonzo/Code/Agda/Builtin/Sigma.hs"
+        let maybeCtors =
+              "C_nothing_18" `isInfixOf` maybeBase &&
+              "C_just_16"    `isInfixOf` maybeBase
+        unless maybeCtors $
+          error $ "check-erasure failed: Maybe builtin constructor names "
+               ++ "changed. Marshal.hs / BinaryOutput.hs pattern-match on "
+               ++ "C_nothing_18 / C_just_16 — update to match current "
+               ++ "MAlonzo output."
+        let sigmaCtors =
+              "T_Σ_14"        `isInfixOf` sigmaBase &&
+              "C__'44'__32"   `isInfixOf` sigmaBase &&
+              "d_fst_28"      `isInfixOf` sigmaBase &&
+              "d_snd_30"      `isInfixOf` sigmaBase
+        unless sigmaCtors $
+          error $ "check-erasure failed: Sigma builtin constructor / "
+               ++ "accessor names changed. Marshal.hs / BinaryOutput.hs "
+               ++ "rely on T_Σ_14 / C__'44'__32 / d_fst_28 / d_snd_30 — "
+               ++ "update to match current MAlonzo output."
+        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors + Maybe/Sigma builtins."
 
     phony "check-ffi-exports" $ do
         -- Diff MAlonzo-mangled FFI export names against the checked-in
@@ -487,13 +514,29 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 [ p
                 | Just p <- map parseSnapshotLine (lines snapshotContent)
                 ]
-        moduleContents <- loadFFIModuleContents
+        -- Load every module mentioned in the snapshot, not just those in
+        -- `ffiExports`.  R19 cluster 13 — AGDA-D-30.2 extended the snapshot
+        -- to cover indirect helper accessors (Sigma fst/snd, DLC, Rational
+        -- numerator/denominator, BatchExtraction values/errors/absent),
+        -- which are NOT in `ffiExports` because the FFI shim accesses
+        -- them via qualified imports rather than as `foreign export`.
+        let snapshotModules = nub (map fst expected)
+        moduleContents <- liftIO $ forM snapshotModules $ \m -> do
+            let path = "build/MAlonzo/Code" </> m <.> "hs"
+            existsHere <- SysDir.doesFileExist path
+            if existsHere
+              then do c <- readFile path; return (m, Just c)
+              else return (m, Nothing)
         let failures =
               [ (modName, mangled,
-                 extractMangledName (inferFuncName mangled) c)
+                 case mc of
+                   Just c  -> extractMangledName (inferFuncName mangled) c
+                   Nothing -> Nothing)
               | (modName, mangled) <- expected
-              , Just c <- [lookup modName moduleContents]
-              , not ((mangled ++ " ::") `isInfixOf` c)
+              , Just mc <- [lookup modName moduleContents]
+              , case mc of
+                  Just c  -> not ((mangled ++ " ::") `isInfixOf` c)
+                  Nothing -> True
               ]
         unless (null failures) $ do
             forM_ failures $ \(m, expected', actual) ->
@@ -971,7 +1014,19 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]
-        cmd_ (Cwd "python") "pip3 install -e ."
+        -- R19 cluster E2 (CICD-3.1 closure): strip secret env vars
+        -- before invoking pip3 so a future CI workflow that wires
+        -- this target doesn't leak ambient credentials to the package
+        -- index resolver.  Stripped: GitHub Actions auth tokens
+        -- (GITHUB_TOKEN / GH_TOKEN / GITHUB_API_URL), Aletheia signing
+        -- credentials (ALETHEIA_COSIGN_KEY / ALETHEIA_COSIGN_TLOG),
+        -- and the generic CI auth knobs (TWINE_PASSWORD / NPM_TOKEN).
+        cmd_ (Cwd "python")
+            (RemEnv "GITHUB_TOKEN") (RemEnv "GH_TOKEN")
+            (RemEnv "GITHUB_API_URL")
+            (RemEnv "ALETHEIA_COSIGN_KEY") (RemEnv "ALETHEIA_COSIGN_TLOG")
+            (RemEnv "TWINE_PASSWORD") (RemEnv "NPM_TOKEN")
+            "pip3 install -e ."
 
     phony "docker" $ do
         need ["dist"]
@@ -1084,8 +1139,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- enabling debug info on a downstream rebuild.  C++ binding gets the
         -- equivalent flag in cpp/CMakeLists.txt.
         repoRoot <- liftIO getCurrentDirectory
-        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j"
+        -- Memory-bound the GHC compilation of MAlonzo .hs files.
+        -- `-jN` caps parallelism (each worker = one GHC process); per-worker
+        -- `+RTS -M3G -RTS` is the tripwire ceiling — typical MAlonzo modules
+        -- compile in 0.3-1 GB, the 3G ceiling fails fast on pathological
+        -- growth rather than silently exhausting WSL2's 50%-of-host budget.
+        -- Worst-case peak: 16 × 3 GB = 48 GB on a 62 GiB host.  Bump only
+        -- if a specific MAlonzo module legitimately needs more (mirror of
+        -- the Agda elaborator's -M16G discipline).  -A64M raises GHC's
+        -- nursery size from the 4 MB default for slight throughput win.
+        -- Wrap in `[String]` so Shake's `cmd_` does NOT whitespace-split
+        -- the value (otherwise `+RTS`, `-A64M`, `-M3G`, `-RTS` get sent as
+        -- separate argv elements and cabal rejects them as unknown options).
+        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j16"
             ("--ghc-options=-optc-ffile-prefix-map=" ++ repoRoot ++ "=.")
+            ["--ghc-options=+RTS -A64M -M3G -RTS"]
             "aletheia-ffi"
 
         -- Find and copy the built .so file

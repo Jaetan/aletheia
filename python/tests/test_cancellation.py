@@ -17,37 +17,49 @@ durable in stream state" half of the contract is actually exercised.
 """
 
 import asyncio
-from collections.abc import Iterable
+import contextlib
+from collections.abc import AsyncIterable, Iterable
 
 import pytest
 
-from aletheia import AletheiaClient as SyncClient, BatchError, FrameResult, Signal
+from aletheia import (
+    AletheiaClient as SyncClient,
+    BatchError,
+    CANFrameTuple,
+    FrameResult,
+    Signal,
+)
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gate_send_frame
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import (
+    AckResponse, DBCDefinition, DLCCode, PropertyViolationResponse,
+)
 
 
 def _make_frames(
     n: int, *, can_id: int = 256, start_ts: int = 1000,
-) -> list[tuple[int, int, int, bytearray, bool]]:
+) -> list[CANFrameTuple]:
     """Build n monotonically-timestamped frames with payload (i, 0, 0, …)."""
     return [
-        (start_ts + i * 1000, can_id, 8, bytearray([i & 0xFF, 0, 0, 0, 0, 0, 0, 0]), False)
+        CANFrameTuple(
+            timestamp=start_ts + i * 1000,
+            can_id=can_id,
+            dlc=DLCCode(8),
+            data=bytearray([i & 0xFF, 0, 0, 0, 0, 0, 0, 0]),
+            extended=False,
+        )
         for i in range(n)
     ]
 
 
-async def _consume_iter(it: object) -> int:
+async def _consume_iter(it: AsyncIterable[FrameResult]) -> int:
     """Drain an async iterator and return the consumed count.
 
     Used by ``test_timeout_during_iter`` so the consumer runs as a
     distinct task whose ``await`` boundary the timeout can interrupt.
-    The annotation is ``object`` because ``send_frames_iter`` returns
-    ``AsyncGenerator[FrameResult, None]`` and rebinding here would force
-    importing the concrete type for one test helper.
     """
     consumed = 0
-    async for _ in it:  # type: ignore[attr-defined]
+    async for _ in it:
         consumed += 1
     return consumed
 
@@ -136,10 +148,10 @@ class TestSyncIter:
             client.start_stream()
 
             # Frames: ts 1000, 2000, 500 (regression — Agda rejects).
-            bad: list[tuple[int, int, int, bytearray, bool]] = [
-                (1000, 256, 8, bytearray(8), False),
-                (2000, 256, 8, bytearray(8), False),
-                (500, 256, 8, bytearray(8), False),
+            bad: list[CANFrameTuple] = [
+                CANFrameTuple(1000, 256, DLCCode(8), bytearray(8), False),
+                CANFrameTuple(2000, 256, DLCCode(8), bytearray(8), False),
+                CANFrameTuple(500, 256, DLCCode(8), bytearray(8), False),
             ]
 
             yielded: list[FrameResult] = []
@@ -162,10 +174,10 @@ class TestSyncIter:
         prop = Signal("TestSignal").less_than(1000).always()
         consumed_from_source: list[int] = []
 
-        def lazy_source() -> Iterable[tuple[int, int, int, bytearray, bool]]:
+        def lazy_source() -> Iterable[CANFrameTuple]:
             for i in range(100):
                 consumed_from_source.append(i)
-                yield (1000 + i * 1000, 256, 8, bytearray(8), False)
+                yield CANFrameTuple(1000 + i * 1000, 256, DLCCode(8), bytearray(8), False)
 
         with SyncClient() as client:
             client.parse_dbc(simple_dbc)
@@ -206,7 +218,7 @@ class TestAsyncSmoke:
                 assert set_resp["status"] == "success"
                 start_resp = await client.start_stream()
                 assert start_resp["status"] == "success"
-                ack = await client.send_frame(1000, 256, 8, bytearray(8))
+                ack = await client.send_frame(1000, 256, DLCCode(8), bytearray(8))
                 assert ack["status"] in ("ack", "fails")
                 end_resp = await client.end_stream()
                 return end_resp["status"]
@@ -298,9 +310,9 @@ class TestAsyncBatchCancellation:
                     await client.set_properties([prop.to_dict()])
                     await client.start_stream()
 
-                    task: asyncio.Task[list[object]] = (
-                        asyncio.create_task(  # type: ignore[type-arg]
-                            client.send_frames(_make_frames(50)),  # type: ignore[arg-type]
+                    task: asyncio.Task[list[AckResponse | PropertyViolationResponse]] = (
+                        asyncio.create_task(
+                            client.send_frames(_make_frames(50)),
                         )
                     )
                     # Block until frame 1 has committed in the worker.
@@ -314,6 +326,51 @@ class TestAsyncBatchCancellation:
                     # frames committed — end_stream succeeds.
                     result = await client.end_stream()
                     assert result["status"] == "complete"
+
+        asyncio.run(_run())
+
+    def test_cancel_during_close_does_not_leak_state(self) -> None:
+        """Cancellation delivered while ``__aexit__`` is closing must not leak FFI state.
+
+        R19 cluster 11 — PY-B-12.1 / PY-D-15.2 / PY-D-20.2: ``__aexit__`` /
+        ``close()`` wrap their ``asyncio.to_thread(self._sync.close)`` in
+        ``asyncio.shield`` so the underlying close runs to completion even
+        if the awaiting coroutine is cancelled.  Verified by cancelling
+        the task running ``client.close()`` after the shielded coroutine
+        has had a chance to start; the inner ``to_thread`` keeps running
+        in the background and ``is_closed`` flips to True.
+
+        Pattern adapted from python/tests/test_cancellation.py's existing
+        ``gate_send_frame`` deterministic-yield-point pattern (no
+        ``Event.wait(timeout=…)`` or wall-clock sleeps; pytest session
+        timeout is the only safety net).
+        """
+
+        async def _run() -> None:
+            sync = SyncClient()
+            client = AsyncClient(sync_client=sync)
+            await client.__aenter__()
+            assert not sync.is_closed
+            close_task = asyncio.create_task(client.close())
+            # Yield enough times for the shielded inner task to start.
+            # asyncio.shield wraps the inner future; cancelling the outer
+            # coroutine after the inner has been scheduled lets the inner
+            # complete in the background.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            close_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await close_task
+            # The shielded close runs in the asyncio default executor; wait
+            # for it to land via a deterministic poll on the observable
+            # ``is_closed`` flag.  Per feedback_no_physical_time_in_tests, we
+            # use ``asyncio.sleep(0)`` (single-tick yield) rather than a
+            # wall-clock wait; pytest's session timeout catches genuine hangs.
+            for _ in range(10_000):  # bounded so a real bug surfaces
+                if sync.is_closed:
+                    break
+                await asyncio.sleep(0)
+            assert sync.is_closed, "FFI session must be released even when close was cancelled"
 
         asyncio.run(_run())
 
@@ -409,17 +466,17 @@ class TestFrameResultShape:
 
     def test_fails_response_returns_violation(self) -> None:
         """FrameResult.violation returns the response when it is a fails verdict."""
-        viol_response = {
+        viol_response: PropertyViolationResponse = {
             "status": "fails",
-            "results": [],
-            "metric": {"steps": 1},
-            "frame_index": 0,
+            "type": "property",
+            "property_index": {"numerator": 0, "denominator": 1},
+            "timestamp": {"numerator": 1000, "denominator": 1},
         }
         r = FrameResult(
             frame_index=0,
             timestamp=1000,
             can_id=0x100,
             extended=False,
-            response=viol_response,  # type: ignore[arg-type]
+            response=viol_response,
         )
         assert r.violation is viol_response

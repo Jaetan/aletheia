@@ -231,9 +231,9 @@ class TestDBCMetadataTier2Roundtrip:
             assert result["status"] == "success", result
             formatted = client.format_dbc()
 
-        assert formatted["nodes"] == []
-        assert formatted["comments"] == []
-        assert formatted["attributes"] == []
+        assert len(formatted["nodes"]) == 0
+        assert len(formatted["comments"]) == 0
+        assert len(formatted["attributes"]) == 0
 
     def test_absent_tier2_keys_default_to_empty(self) -> None:
         """Pre-Tier-2 input (no NotRequired keys) is accepted; formatter emits
@@ -244,9 +244,9 @@ class TestDBCMetadataTier2Roundtrip:
             assert result["status"] == "success", result
             formatted = client.format_dbc()
 
-        assert formatted["nodes"] == []
-        assert formatted["comments"] == []
-        assert formatted["attributes"] == []
+        assert len(formatted["nodes"]) == 0
+        assert len(formatted["comments"]) == 0
+        assert len(formatted["attributes"]) == 0
 
     def test_float_attr_bounds_are_exact_rationals(self) -> None:
         """Float ``min`` / ``max`` / ``value`` survive as ``Fraction`` — the

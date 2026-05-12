@@ -23,8 +23,8 @@ from ..protocols import (
     is_object_list,
     is_str_dict,
 )
-from ..validation import ValidationIssue
-from ._helpers import normalize_dbc, validate_rational
+from ..issue_codes import ValidationIssue
+from ._helpers import normalize_dbc, validate_integer_rational
 from ._log import LogEvent, log_event
 from ._types import ProtocolError
 
@@ -56,6 +56,13 @@ def build_error_response(response: Response) -> ErrorResponse:
     the defaults (``""`` for Python, ``"Unknown error"`` for C++) used
     to diverge across bindings, and R16 shipped with a silent "unknown
     error code" regression in production logs.
+
+    InputBoundExceeded errors carry an additional ``bound_kind`` /
+    ``observed`` / ``limit`` triple via ``Protocol/ResponseFormat.
+    errorExtras`` (AGDA-D-13.4 phase 2a); all three must be present and
+    well-typed when any one is, else the payload is treated as missing
+    rather than partial (matches the C++ binding's degrade-to-nullopt
+    rule in ``make_json_error``).
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -69,7 +76,17 @@ def build_error_response(response: Response) -> ErrorResponse:
             "Error response missing or non-string 'message' field;"
             + f" got {type(message).__name__}"
         )
-    return {"status": "error", "code": code, "message": message}
+    out: ErrorResponse = {"status": "error", "code": code, "message": message}
+    bound_kind = response.get("bound_kind")
+    observed   = response.get("observed")
+    limit      = response.get("limit")
+    if (isinstance(bound_kind, str)
+            and isinstance(observed, int) and not isinstance(observed, bool)
+            and isinstance(limit, int)    and not isinstance(limit, bool)):
+        out["bound_kind"] = bound_kind
+        out["observed"]   = observed
+        out["limit"]      = limit
+    return out
 
 
 def parse_success_or_error(
@@ -151,8 +168,8 @@ def parse_frame_response(
         prop_type = response.get("type")
         if prop_type != "property":
             raise ProtocolError(f"Expected type='property', got {prop_type}")
-        prop_index = validate_rational("property_index", response.get("property_index"))
-        ts_rational = validate_rational("timestamp", response.get("timestamp"))
+        prop_index = validate_integer_rational("property_index", response.get("property_index"))
+        ts_rational = validate_integer_rational("timestamp", response.get("timestamp"))
         result_violation: PropertyViolationResponse = {
             "status": "fails",
             "type": "property",
@@ -251,7 +268,7 @@ def parse_finalization_results(
             raise ProtocolError(
                 "Missing 'property_index' in finalization result entry"
             )
-        prop_index = validate_rational("property_index", raw_prop_index)
+        prop_index = validate_integer_rational("property_index", raw_prop_index)
         # entry_status is now narrowed to Literal["fails","holds","unresolved"]
         result_entry: PropertyResultEntry = {
             "type": "property",
@@ -261,7 +278,7 @@ def parse_finalization_results(
         if entry_status in ("fails", "unresolved"):
             ts = raw.get("timestamp")
             if ts is not None:
-                result_entry["timestamp"] = validate_rational("timestamp", ts)
+                result_entry["timestamp"] = validate_integer_rational("timestamp", ts)
             reason = raw.get("reason")
             if isinstance(reason, str):
                 result_entry["reason"] = reason

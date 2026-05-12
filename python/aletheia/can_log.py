@@ -19,9 +19,20 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
-import can
+# python-can is an optional extra (`pip install aletheia[can]`).  Surface a
+# clear, narrow ImportError naming the optional install rather than letting
+# a bare `ModuleNotFoundError: No module named 'can'` bubble up.  R19
+# cluster 16 — PY-D-18.5; mirrors the narrow-swallow pattern in
+# aletheia.__init__ for openpyxl / yaml.
+try:
+    import can
+except ImportError as exc:
+    raise ImportError(
+        "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
+    ) from exc
 
 from .client import CANFrameTuple, bytes_to_dlc
+from .protocols import DLCByteCount, DLCCode
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
     ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",
@@ -132,10 +143,23 @@ def _convert_message(
         return None
 
     timestamp_us = _timestamp_to_us(msg.timestamp)
-    dlc: int = bytes_to_dlc(msg.dlc)
+    # ``msg.dlc`` from python-can is the byte count (cantools convention);
+    # ``bytes_to_dlc`` converts to the 4-bit DLC code that ``CANFrameTuple``
+    # carries (CAN wire convention).
+    dlc: DLCCode = bytes_to_dlc(DLCByteCount(msg.dlc))
     data = _normalize_data(msg.data, msg.dlc)
+    # python-can carries CAN-FD BRS / ESI as ``bitrate_switch`` /
+    # ``error_state_indicator`` on every ``Message``; both default to
+    # ``False`` for CAN 2.0B logs.  Surface them only when the frame is
+    # actually CAN-FD (``is_fd``), per ISO 11898-1:2015 — the bits do not
+    # exist on a CAN 2.0B frame and ``None`` is the correct lift.
+    brs: bool | None = msg.bitrate_switch if msg.is_fd else None
+    esi: bool | None = msg.error_state_indicator if msg.is_fd else None
 
-    return CANFrameTuple(timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id)
+    return CANFrameTuple(
+        timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id,
+        brs, esi,
+    )
 
 
 def _timestamp_to_us(timestamp: float) -> int:

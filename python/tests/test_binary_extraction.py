@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aletheia import ProcessError
+from aletheia import ProtocolError
 from aletheia.client._client_bin import (
     EXTRACTION_ERROR_MESSAGES,
     EXTRACTION_ERROR_MESSAGES_BY_CODE,
@@ -53,10 +53,10 @@ class TestParseExtractionBuffer:
         assert result.values == {"Speed": 220.0, "RPM": 3500.0, "Temp": 42.5}
 
     def test_denominator_zero_raises(self) -> None:
-        """Denominator zero raises ProcessError (not silent coercion)."""
+        """Denominator zero raises ProtocolError (not silent coercion)."""
         header = struct.pack("<HHH", 1, 0, 0)
         values = struct.pack("<Hqq", 0, 999, 0)
-        with pytest.raises(ProcessError, match="Zero denominator"):
+        with pytest.raises(ProtocolError, match="Zero denominator"):
             parse_extraction_buffer(header + values, NAMES)
 
     def test_signal_index_out_of_range(self) -> None:
@@ -102,13 +102,13 @@ class TestParseExtractionBuffer:
         assert result.absent == ("Temp",)
 
     def test_empty_buffer_too_short(self) -> None:
-        """Buffer shorter than 6 bytes raises ProcessError."""
-        with pytest.raises(ProcessError, match="too short"):
+        """Buffer shorter than 6 bytes raises ProtocolError."""
+        with pytest.raises(ProtocolError, match="too short"):
             parse_extraction_buffer(b"", NAMES)
 
     def test_five_byte_buffer_too_short(self) -> None:
         """5-byte buffer is still too short for the header."""
-        with pytest.raises(ProcessError, match="too short"):
+        with pytest.raises(ProtocolError, match="too short"):
             parse_extraction_buffer(b"\x00" * 5, NAMES)
 
     def test_empty_result(self) -> None:

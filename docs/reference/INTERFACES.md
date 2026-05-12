@@ -68,12 +68,13 @@ Signal("Speed").less_than(220).always()
                              aletheia::PhysicalValue{aletheia::Rational{220, 1}})));
 ```
 ```go
-_ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
+_ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
 ```
 
 **YAML loader** — load a check file:
 ```python
-checks = load_checks("checks.yaml")
+from pathlib import Path
+checks = load_checks(Path("checks.yaml"))
 ```
 ```cpp
 auto checks = aletheia::load_checks_from_yaml("checks.yaml");
@@ -104,11 +105,11 @@ response = client.send_frame(ts, can_id, dlc, data)
 auto response = client.send_frame(std::stop_token{}, ts, can_id, dlc, data);
 ```
 ```go
-response, err := client.SendFrame(ctx, ts, canID, dlc, data)
+response, err := client.SendFrame(ctx, ts, canID, dlc, data, nil, nil)
 _, _ = response, err
 ```
 
-**DBC text formatting** — render a `DbcDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level):
+**DBC text formatting** — render a `DBCDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level):
 ```python
 text = client.format_dbc_text(dbc)
 ```
@@ -313,10 +314,12 @@ from aletheia import load_checks
 ### Loading Checks
 
 ```python
-# From a file
-checks = load_checks("checks.yaml")
+from pathlib import Path
 
-# From a YAML string
+# From a file (must be a pathlib.Path)
+checks = load_checks(Path("checks.yaml"))
+
+# From a YAML string (must be a str)
 checks = load_checks("""
 checks:
   - signal: VehicleSpeed
@@ -329,7 +332,7 @@ checks:
 client.add_checks(checks)
 ```
 
-**String auto-detection**: `load_checks()` accepts either a file path or an inline YAML string. If the string is an existing file path, the file is loaded (file takes priority). Otherwise, it detects inline YAML when the input contains a newline (`\n`) or starts with `checks:`, `-`, `{`, or `[`. Strings that match neither are treated as a missing file path (`FileNotFoundError`).
+**Type-based dispatch**: `load_checks()` distinguishes file vs. inline YAML by argument type. Pass a `pathlib.Path` to load from a file (`FileNotFoundError` if missing). Pass a `str` to parse inline YAML (`ValueError` on a malformed YAML body). The previous heuristic that auto-promoted a file-path-shaped string to a file load was removed in R19 cluster B (`PY-B-26.12`) to close a path-confusion vector. Static type checkers (pyright/mypy) catch non-(`str` | `Path`) arguments at check time.
 
 ### YAML Schema
 

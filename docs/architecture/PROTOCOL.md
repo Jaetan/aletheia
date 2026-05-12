@@ -45,7 +45,7 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
 All messages have a `"type"` field that determines how they are processed.
 
 ### Type Tags
-- `"command"`: Control commands (parseDBC, extractAllSignals, validateDBC, formatDBC, setProperties, startStream, endStream). Frame build/update uses the binary FFI path (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`) — no JSON command exists for these operations.
+- `"command"`: Control commands (parseDBC, extractAllSignals, validateDBC, formatDBC, setProperties, startStream, sendFrame, endStream, parseDBCText, formatDBCText). Frame build/update uses the binary FFI path (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`) — no JSON command exists for these operations. `sendFrame` is the JSON mirror of the binary `aletheia_send_frame` streaming entry point.
 
 > **Note**: Data frames are sent via the binary `aletheia_send_frame()` entry point, not as JSON. See [Binary Frame Entry Point](#binary-frame-entry-point) below.
 
@@ -419,7 +419,75 @@ Begin streaming mode for processing data frames.
 
 ---
 
-### 7. EndStream
+### 7. SendFrame
+
+Submit a CAN data frame to the active monitoring stream via the JSON path.
+JSON mirror of the binary FFI `aletheia_send_frame` entry point — use this
+form when ergonomic JSON tooling is preferable to the binary ABI; the binary
+path remains the throughput-optimised route for tight streaming loops.
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "sendFrame",
+  "timestamp": 1000,
+  "canId": 256,
+  "dlc": 8,
+  "extended": false,
+  "data": [232, 3, 0, 0, 0, 0, 0, 0],
+  "brs": true,
+  "esi": false
+}
+```
+
+**Fields**:
+- `timestamp`: Frame timestamp in microseconds (non-negative integer).
+  Must be monotonically non-decreasing relative to the previous accepted
+  frame; backward timestamps return `handler_non_monotonic_timestamp`.
+- `canId`: CAN message ID (must match a message in the loaded DBC).
+- `dlc`: Data Length Code (0–15).
+- `extended` (optional): `true` for 29-bit extended CAN ID, `false`
+  (default) for 11-bit standard.
+- `data`: Array of bytes (0–255), length must match `dlcToBytes(dlc)`.
+- `brs` (optional, CAN-FD only): Bit Rate Switch (ISO 11898-1:2015
+  §10.4.2). `true` if the data phase ran at the higher bit rate, `false`
+  if at the arbitration rate.  Omit (or set to anything non-boolean) for
+  CAN 2.0B frames where the bit does not exist on the wire.
+- `esi` (optional, CAN-FD only): Error State Indicator (ISO 11898-1:2015
+  §10.4.3). `true` if the transmitter is error-passive, `false` if
+  error-active.  Same wire semantics as `brs`.
+
+**BRS / ESI semantics**: The Aletheia kernel does not consume these
+bits — LTL atomic predicates are signal-level (see
+[Aletheia.Trace.CANTrace](../../src/Aletheia/Trace/CANTrace.agda) design
+comment).  Bindings preserve them as pass-through metadata available via
+`Frame.brs` / `Frame.esi` (or the binding's equivalent) for downstream
+consumers.  The response shape never echoes BRS / ESI back per the
+send-only wire-symmetry contract.
+
+**Response** (Ack — no property fired):
+```json
+{"status": "ack"}
+```
+
+**Response** (Violation):
+```json
+{
+  "status": "fails",
+  "type": "property",
+  "property_index": {"numerator": 0, "denominator": 1},
+  "timestamp": {"numerator": 1000, "denominator": 1},
+  "reason": "Always violated"
+}
+```
+
+**State Requirements**: Must be in `Streaming` state (after `startStream`
+command).
+
+---
+
+### 8. EndStream
 
 End streaming mode and return final results.
 
@@ -458,7 +526,9 @@ Send a CAN data frame for LTL analysis. This is the high-performance streaming e
 char *aletheia_send_frame(void *state, unsigned long long timestamp,
                           unsigned int can_id, unsigned char extended,
                           unsigned char dlc, const unsigned char *data,
-                          unsigned char data_len);
+                          unsigned char data_len,
+                          unsigned char brs_present, unsigned char brs_value,
+                          unsigned char esi_present, unsigned char esi_value);
 ```
 
 **Parameters**:
@@ -468,6 +538,13 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
 - `dlc`: Data Length Code (0-15)
 - `data`: Pointer to payload bytes
 - `data_len`: Number of payload bytes (must equal `dlcToBytes(dlc)`)
+- `brs_present` / `brs_value`: CAN-FD Bit Rate Switch encoding (ISO
+  11898-1:2015 §10.4.2). `*_present = 0` → bit absent (CAN 2.0B);
+  `*_present != 0` → bit present with `*_value != 0` for `true`.
+  See the JSON `sendFrame` § above for full semantics.  (R19 Phase 2
+  cluster 18 — AGDA-D-10.1 closure.)
+- `esi_present` / `esi_value`: CAN-FD Error State Indicator encoding
+  (ISO 11898-1:2015 §10.4.3); same wire encoding as BRS.
 
 **Response** (Acknowledged):
 ```json
@@ -959,16 +1036,26 @@ Used in responses for exact representation.
 <<< {"status": "success", "message": "Streaming started"}
 ```
 
-### 4. Send Data Frames (via `aletheia_send_frame`)
+### 4. Send Data Frames (via `aletheia_send_frame` or JSON `sendFrame`)
+
+Binary path (high-throughput streaming hot path; the 4 trailing `0, 0, 0, 0`
+bytes encode absent CAN-FD BRS / ESI metadata):
 ```
->>> aletheia_send_frame(state, 100, 256, 0, 8, [0xE8,0x03,0,0,0,0,0,0], 8)
+>>> aletheia_send_frame(state, 100, 256, 0, 8, [0xE8,0x03,0,0,0,0,0,0], 8, 0, 0, 0, 0)
 <<< {"status": "ack"}
 
->>> aletheia_send_frame(state, 200, 256, 0, 8, [0xD0,0x07,0,0,0,0,0,0], 8)
+>>> aletheia_send_frame(state, 200, 256, 0, 8, [0xD0,0x07,0,0,0,0,0,0], 8, 0, 0, 0, 0)
 <<< {"status": "ack"}
 
->>> aletheia_send_frame(state, 300, 256, 0, 8, [0x28,0x0A,0,0,0,0,0,0], 8)
+>>> aletheia_send_frame(state, 300, 256, 0, 8, [0x28,0x0A,0,0,0,0,0,0], 8, 0, 0, 0, 0)
 <<< {"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
+```
+
+JSON path (ergonomic; same wire response shape, omit `brs` / `esi` for
+CAN 2.0B):
+```json
+>>> {"type":"command","command":"sendFrame","timestamp":100,"canId":256,"dlc":8,"data":[232,3,0,0,0,0,0,0]}
+<<< {"status": "ack"}
 ```
 
 ### 5. End Streaming
@@ -1003,18 +1090,16 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 ### Wire shape
 
-`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with one of the codes below, matching the `BoundKind` enum in `Aletheia.Limits`:
+`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with the consolidated code `input_bound_exceeded` (post R19 cluster 14 / AGDA-C-6.2 consolidation 2026-05-11; previously split into `parse_input_bound_exceeded` / `dbc_text_input_bound_exceeded` / `frame_input_bound_exceeded`). The `bound_kind` field in the structured payload discriminates which kind of bound was crossed, matching the `BoundKind` enum in `Aletheia.Limits`:
 
-| Code | Bound |
+| Code | bound_kind values |
 |---|---|
-| `parse_input_bound_exceeded` | JSON parser-side bound (any kind) |
-| `dbc_text_input_bound_exceeded` | DBC text parser-side bound (any kind) |
-| `frame_input_bound_exceeded` | Frame-decoder bound (`FrameByteCount`) |
+| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `frame_byte_count` |
 
-The `message` field embeds the kind label, observed value, and limit. Example:
+The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
 
 ```
-<<< {"status": "error", "code": "parse_input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864"}
+<<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ```
 
 ### Two-layer enforcement

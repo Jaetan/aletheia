@@ -68,14 +68,16 @@ from .client import (
     AletheiaError,
     BatchError,
     CANFrameTuple,
+    FFIError,
     FrameResponse,
     FrameResult,
     InputBoundExceededError,
-    ProcessError,
     PropertyDiagnostic,
     ProtocolError,
     RTSState,
     SignalExtractionResult,
+    StateError,
+    ValidationError,
     bytes_to_dlc,
     dlc_to_bytes,
 )
@@ -87,7 +89,7 @@ from .protocols import (
     DBCDefinition,
     PropertyResultEntry,
 )
-from .validation import IssueCode, ValidationIssue
+from .issue_codes import IssueCode, ValidationIssue
 from .dbc_queries import (
     is_multiplexed,
     always_present_signals,
@@ -151,13 +153,15 @@ __all__ = [
     # Exceptions & response types
     "AletheiaError",
     "BatchError",
+    "FFIError",
     "FrameResponse",
     "FrameResult",
     "InputBoundExceededError",
-    "ProcessError",
     "PropertyDiagnostic",
     "ProtocolError",
     "RTSState",
+    "StateError",
+    "ValidationError",
     # Check API
     "Check",
     "CheckResult",

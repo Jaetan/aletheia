@@ -29,25 +29,25 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil, nil)
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version:  "1.0",
-		Messages: []aletheia.DbcMessage{msg},
-		SignalGroups: []aletheia.DbcSignalGroup{
+		Messages: []aletheia.DBCMessage{msg},
+		SignalGroups: []aletheia.DBCSignalGroup{
 			{Name: "EngineGroup", Signals: []aletheia.SignalName{"RPM", "Coolant"}},
 		},
-		EnvironmentVars: []aletheia.DbcEnvironmentVar{
+		EnvironmentVars: []aletheia.DBCEnvironmentVar{
 			{
 				Name:    "AmbientTemp",
-				VarType: aletheia.DbcVarTypeFloat,
+				VarType: aletheia.DBCVarTypeFloat,
 				Initial: aletheia.Rational{Numerator: 25, Denominator: 1},
 				Minimum: aletheia.Rational{Numerator: -40, Denominator: 1},
 				Maximum: aletheia.Rational{Numerator: 125, Denominator: 1},
 			},
 		},
-		ValueTables: []aletheia.DbcValueTable{
+		ValueTables: []aletheia.DBCValueTable{
 			{
 				Name: "GearState",
-				Entries: []aletheia.DbcValueEntry{
+				Entries: []aletheia.DBCValueEntry{
 					{Value: 0, Description: "Park"},
 					{Value: 1, Description: "Reverse"},
 				},
@@ -92,8 +92,8 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 	if ev["name"] != "AmbientTemp" {
 		t.Errorf("env var name: got %v", ev["name"])
 	}
-	if vt, _ := ev["varType"].(float64); int(vt) != int(aletheia.DbcVarTypeFloat) {
-		t.Errorf("env var varType: got %v, want %d", ev["varType"], aletheia.DbcVarTypeFloat)
+	if vt, _ := ev["varType"].(float64); int(vt) != int(aletheia.DBCVarTypeFloat) {
+		t.Errorf("env var varType: got %v, want %d", ev["varType"], aletheia.DBCVarTypeFloat)
 	}
 
 	tables, ok := dbcObj["valueTables"].([]any)
@@ -114,9 +114,9 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version:  "1.0",
-		Messages: []aletheia.DbcMessage{msg},
+		Messages: []aletheia.DBCMessage{msg},
 		// Tier 1 slices left nil
 	}
 	mock := aletheia.NewMockBackend(aletheia.RespondParseDBC(dbc))
@@ -198,8 +198,8 @@ func TestFormatDBC_AcceptsTier1Metadata(t *testing.T) {
 		t.Fatalf("EnvironmentVars: got %d, want 1", len(dbc.EnvironmentVars))
 	}
 	ev := dbc.EnvironmentVars[0]
-	if ev.Name != "AmbientTemp" || ev.VarType != aletheia.DbcVarTypeFloat {
-		t.Errorf("env var: got (%s, %d), want (AmbientTemp, %d)", ev.Name, ev.VarType, aletheia.DbcVarTypeFloat)
+	if ev.Name != "AmbientTemp" || ev.VarType != aletheia.DBCVarTypeFloat {
+		t.Errorf("env var: got (%s, %d), want (AmbientTemp, %d)", ev.Name, ev.VarType, aletheia.DBCVarTypeFloat)
 	}
 
 	if len(dbc.ValueTables) != 1 {
@@ -323,20 +323,20 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 	id, _ := aletheia.NewStandardID(100)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "Test", dlc, "X", nil, nil)
-	original := aletheia.DbcDefinition{
+	original := aletheia.DBCDefinition{
 		Version:  "1.0",
-		Messages: []aletheia.DbcMessage{msg},
-		SignalGroups: []aletheia.DbcSignalGroup{
+		Messages: []aletheia.DBCMessage{msg},
+		SignalGroups: []aletheia.DBCSignalGroup{
 			{Name: "G", Signals: []aletheia.SignalName{"A"}},
 		},
-		EnvironmentVars: []aletheia.DbcEnvironmentVar{
-			{Name: "E", VarType: aletheia.DbcVarTypeInt,
+		EnvironmentVars: []aletheia.DBCEnvironmentVar{
+			{Name: "E", VarType: aletheia.DBCVarTypeInt,
 				Initial: aletheia.Rational{Numerator: 0, Denominator: 1},
 				Minimum: aletheia.Rational{Numerator: -10, Denominator: 1},
 				Maximum: aletheia.Rational{Numerator: 10, Denominator: 1}},
 		},
-		ValueTables: []aletheia.DbcValueTable{
-			{Name: "V", Entries: []aletheia.DbcValueEntry{{Value: 42, Description: "answer"}}},
+		ValueTables: []aletheia.DBCValueTable{
+			{Name: "V", Entries: []aletheia.DBCValueEntry{{Value: 42, Description: "answer"}}},
 		},
 	}
 	originalSend := aletheia.NewMockBackend(aletheia.RespondParseDBC(original))
@@ -376,7 +376,7 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 	if len(decoded.SignalGroups) != 1 || decoded.SignalGroups[0].Name != "G" {
 		t.Errorf("signal group lost in round-trip: %v", decoded.SignalGroups)
 	}
-	if len(decoded.EnvironmentVars) != 1 || decoded.EnvironmentVars[0].VarType != aletheia.DbcVarTypeInt {
+	if len(decoded.EnvironmentVars) != 1 || decoded.EnvironmentVars[0].VarType != aletheia.DBCVarTypeInt {
 		t.Errorf("env var lost in round-trip: %v", decoded.EnvironmentVars)
 	}
 	if len(decoded.ValueTables) != 1 || decoded.ValueTables[0].Entries[0].Value != 42 {

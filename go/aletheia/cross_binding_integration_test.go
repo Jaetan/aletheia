@@ -28,6 +28,7 @@ package aletheia
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -37,18 +38,18 @@ import (
 //
 // The three definitions are content-equivalent; structural drift across
 // languages is the actual cross-binding hazard the test is designed to catch.
-func canonicalDBC() DbcDefinition {
+func canonicalDBC() DBCDefinition {
 	sid, _ := NewStandardID(256)
 	d, _ := NewDLC(8)
-	return DbcDefinition{
+	return DBCDefinition{
 		Version: "1.0",
-		Messages: []DbcMessage{
+		Messages: []DBCMessage{
 			{
 				ID:     sid,
 				Name:   "TestMessage",
 				DLC:    d,
 				Sender: "ECU",
-				Signals: []DbcSignal{
+				Signals: []DBCSignal{
 					{
 						Name:      "TestSignal",
 						StartBit:  0,
@@ -151,7 +152,7 @@ func TestCrossBinding_SendFrameAck(t *testing.T) {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 	if err := c.SetProperties(ctx, []Formula{
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: 1000}}},
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: RationalFromFloat(1000)}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestCrossBinding_SendFrameAck(t *testing.T) {
 	sid, _ := NewStandardID(256)
 	d, _ := NewDLC(8)
 	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
+		FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 	if err := c.SetProperties(ctx, []Formula{
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: 100}}},
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: RationalFromFloat(100)}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	d, _ := NewDLC(8)
 	// Signal value 0xFFFF (65535) > 100 → violation.
 	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0})
+		FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -237,6 +238,82 @@ func TestCrossBinding_SendFrameError(t *testing.T) {
 	}
 }
 
+// TestCrossBinding_SendFrameBrsEsiPassthrough mirrors Python's
+// test_canfd_brs_esi_passthrough.  R19 Phase 2 cluster 18
+// (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia kernel does not consume
+// CAN-FD BRS / ESI metadata, but the binding must accept the bits as
+// *bool params and the FFI must accept the 4 trailing u8 args without
+// crashing.  Every combination of brs / esi ∈ {nil, &true, &false}
+// must return Ack for an otherwise-valid frame.
+func TestCrossBinding_SendFrameBrsEsiPassthrough(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	defer func() { _, _ = c.EndStream(ctx) }()
+
+	sid, _ := NewStandardID(256)
+	d, _ := NewDLC(8)
+	tval := true
+	fval := false
+	options := []*bool{nil, &tval, &fval}
+
+	var ts int64
+	for _, brs := range options {
+		for _, esi := range options {
+			ts += 1000
+			resp, err := c.SendFrame(
+				ctx, Timestamp{Microseconds: ts}, sid, d,
+				FramePayload{0, 0, 0, 0, 0, 0, 0, 0},
+				brs, esi,
+			)
+			if err != nil {
+				t.Fatalf("SendFrame brs=%v esi=%v: %v", brs, esi, err)
+			}
+			if _, ok := resp.(Ack); !ok {
+				t.Errorf("SendFrame brs=%v esi=%v: want Ack, got %T (%+v)",
+					brs, esi, resp, resp)
+			}
+		}
+	}
+}
+
+// R19 cluster 8 phase e.1 — Identifier validity record enforces
+// MaxIdentifierLength. The Agda kernel's `validIdentifierᵇ` predicate
+// gained a third conjunct asserting `length name <ᵇ suc max-identifier-
+// length`. Identifiers at the limit (128 chars) still parse; anything
+// longer is rejected at `mkIdentFromChars` and surfaces as a parse
+// error on the wire (currently `dbc_text_trailing_input` due to parser
+// monad position semantics; refining to typed `InputBoundExceeded
+// IdentifierLength` is downstream parser-monad plumbing).
+
+func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
+	c := newCrossBindingClient(t)
+	name := strings.Repeat("A", MaxIdentifierLength)
+	dbcText := "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
+	parsed, err := c.ParseDBCText(context.Background(), dbcText)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if got := string(parsed.DBC.Messages[0].Name); got != name {
+		t.Errorf("Messages[0].Name length = %d, want %d", len(got), len(name))
+	}
+}
+
+func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
+	c := newCrossBindingClient(t)
+	name := strings.Repeat("A", MaxIdentifierLength+1)
+	dbcText := "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
+	_, err := c.ParseDBCText(context.Background(), dbcText)
+	if err == nil {
+		t.Fatal("expected parse error for 129-char identifier, got nil")
+	}
+}
+
 // TestCrossBinding_ErrorTypeShape asserts that *aletheia.Error has the
 // documented field set when surfaced (mirrors Python's
 // test_error_response_keys_when_observed_directly).
@@ -260,5 +337,55 @@ func TestCrossBinding_ErrorTypeShape(t *testing.T) {
 	var target *Error
 	if !errors.As(e, &target) {
 		t.Error("errors.As(*Error): want true")
+	}
+}
+
+// R19 AGDA-D-13.4 phase 2a — typed NestingDepth wire-error refinement.
+// A deeply-nested LTL formula triggers the kernel-side `jsonDepth`
+// check at `handleParsedJSON`, which emits
+// `ParseErr (InputBoundExceeded NestingDepth …)` instead of the
+// pre-phase-2a `DispatchErr InvalidJSON`.  The wire response now carries
+// `bound_kind / observed / limit`, lifted into `*InputBoundExceededError`
+// by `checkErrorStatus`.  Mirrors Python's
+// `TestNestingDepthBound::test_nested_at_depth_63_rejected`.
+//
+// Phase 2b (AtomCount) note: `inputBoundExceededFromResponse` is BoundKind-
+// generic — it dispatches on `bound_kind` string, not on `code`.  This
+// NestingDepth test exercises the same lifter that handles AtomCount
+// (>1024 atom-per-property) and IdentifierLength.  AtomCount over-bound
+// rejection is verified at the kernel + Python boundary by
+// `python/tests/test_input_bounds.py::TestAtomCountBound`; building a
+// 1025-atom And-tree across the Go FFI takes ~109s which is unsuitable
+// for a unit-test budget.
+func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	// 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
+	inner := Formula(Atomic{Predicate: Equals{Signal: "TestSignal", Value: RationalFromFloat(0)}})
+	for range 63 {
+		inner = Always{Inner: inner}
+	}
+	err := c.SetProperties(ctx, []Formula{inner})
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError for 65-deep formula, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
+	}
+	if bex.BoundKind != BoundKindNestingDepth {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindNestingDepth)
+	}
+	if bex.Limit != uint64(MaxNestingDepth) {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxNestingDepth)
+	}
+	if bex.Observed <= uint64(MaxNestingDepth) {
+		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxNestingDepth)
 	}
 }

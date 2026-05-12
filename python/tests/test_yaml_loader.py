@@ -287,26 +287,28 @@ class TestLoadFromFile:
         assert len(checks) == 1
         assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
 
-    def test_load_from_path_string(self, tmp_path: Path) -> None:
-        """Verify load from path string."""
-        yaml_file = tmp_path / "checks.yml"
-        yaml_file.write_text(textwrap.dedent("""\
-            checks:
-              - signal: Voltage
-                condition: stays_between
-                min: 11.5
-                max: 14.5
-        """), encoding="utf-8")
-        checks = load_checks(str(yaml_file))
-        assert len(checks) == 1
-        assert checks[0].to_dict() == (
-            Check.signal("Voltage").stays_between(11.5, 14.5).to_dict()
-        )
+    def test_string_path_now_treated_as_inline_yaml(self, tmp_path: Path) -> None:
+        """A bare string is parsed as inline YAML — never auto-promoted to a file path.
 
-    def test_file_not_found(self) -> None:
-        """Verify file not found."""
-        with pytest.raises(FileNotFoundError, match="YAML file not found"):
-            load_checks("/nonexistent/path/checks.yaml")
+        R19 cluster B / PY-B-26.12 closes the path-confusion vector: dispatch
+        is now strict by parameter type (``Path`` → file, ``str`` → inline
+        YAML).  A string that happens to name an existing file is no longer
+        opened; it is fed to ``yaml.safe_load`` as a YAML scalar.  Callers
+        who want file behaviour wrap in ``pathlib.Path``.
+        """
+        yaml_file = tmp_path / "checks.yml"
+        yaml_file.write_text("dummy", encoding="utf-8")
+        # Passing the path as a bare str now parses the string itself as YAML
+        # (a scalar) rather than opening the file — fails the structural check.
+        with pytest.raises(ValueError, match="YAML must contain a 'checks' list"):
+            load_checks(str(yaml_file))
+
+    def test_file_not_found(self, tmp_path: Path) -> None:
+        """Verify file not found via Path argument."""
+        missing = tmp_path / "does_not_exist.yaml"
+        with pytest.raises(FileNotFoundError):
+            load_checks(missing)
+
 
 
 # ============================================================================

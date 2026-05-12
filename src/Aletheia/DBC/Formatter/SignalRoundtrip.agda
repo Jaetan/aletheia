@@ -31,7 +31,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; tran
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON; formatDBCSignal; formatByteOrder; formatPresence; formatValueEntry)
 open import Aletheia.DBC.JSONParser using (parseSignal; parseSignalList; parseNatList)
-open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip; validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier; valueEntryList-roundtrip)
+open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip; validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier; valueEntry-list-roundtrip)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
@@ -99,7 +99,7 @@ private
           | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
-          | valueEntryList-roundtrip vds
+          | valueEntry-list-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
           | mkCanonicalFromList-list rs
@@ -118,7 +118,7 @@ private
           | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
-          | valueEntryList-roundtrip vds
+          | valueEntry-list-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
@@ -150,7 +150,7 @@ private
           | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's `1 ≤ᵇ bl` branch
           | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
-          | valueEntryList-roundtrip vds
+          | valueEntry-list-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
           | mkCanonicalFromList-list rs
@@ -173,7 +173,7 @@ private
           | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's `1 ≤ᵇ bl` branch
           | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
-          | valueEntryList-roundtrip vds
+          | valueEntry-list-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)

@@ -1,7 +1,10 @@
 package aletheia
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unsafe"
@@ -22,7 +25,7 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 			BoundKind: BoundKindInputLengthBytes,
 			Observed:  100,
 			Limit:     50,
-			Code:      CodeParseInputBoundExceeded,
+			Code:      CodeInputBoundExceeded,
 		}
 		if err.BoundKind != "input_length_bytes" {
 			t.Errorf("BoundKind = %q, want %q", err.BoundKind, "input_length_bytes")
@@ -30,8 +33,8 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 		if err.Observed != 100 || err.Limit != 50 {
 			t.Errorf("Observed/Limit = %d/%d, want 100/50", err.Observed, err.Limit)
 		}
-		if err.Code != "parse_input_bound_exceeded" {
-			t.Errorf("Code = %q, want %q", err.Code, "parse_input_bound_exceeded")
+		if err.Code != "input_bound_exceeded" {
+			t.Errorf("Code = %q, want %q", err.Code, "input_bound_exceeded")
 		}
 	})
 
@@ -138,7 +141,166 @@ func TestProcess_RejectsOversizeJSON(t *testing.T) {
 	if bex.Limit != MaxJSONBytes {
 		t.Errorf("Limit = %d, want %d", bex.Limit, MaxJSONBytes)
 	}
-	if bex.Code != CodeParseInputBoundExceeded {
-		t.Errorf("Code = %q, want %q", bex.Code, CodeParseInputBoundExceeded)
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
+	}
+}
+
+// R19 cluster A: per-loader bound checks for the YAML loader entry points,
+// closing the cross-binding asymmetry where Python's yaml_loader caps but
+// Go's loadYAMLData / LoadChecksFromYAMLFile previously did not.
+//
+// Uses a sparse file (truncate to MaxDBCTextBytes+1) so the test does not
+// write 64+ MiB of real bytes; the bound check reads st_size which reports
+// the truncated size unconditionally on Linux.
+
+func TestLoadChecksFromYAMLFile_RejectsOversize(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "huge.yaml")
+	f, err := os.Create(tmpFile)
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	if err := f.Truncate(int64(MaxDBCTextBytes) + 1); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	_, err = LoadChecksFromYAMLFile(tmpFile)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
+		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
+	}
+	if bex.Limit != MaxDBCTextBytes {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+}
+
+func TestLoadYAMLData_FilePathOversize(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "huge.yaml")
+	f, err := os.Create(tmpFile)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := f.Truncate(int64(MaxDBCTextBytes) + 1); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	_, err = loadYAMLData(tmpFile)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
+		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
+	}
+}
+
+func TestLoadYAMLData_InlineStringOversize(t *testing.T) {
+	// loadYAMLData treats source as inline YAML when os.Stat fails (no file).
+	// A repeated-x string of length > MaxDBCTextBytes that's not a valid path
+	// triggers the inline-form bound check.
+	bigInline := strings.Repeat("x", MaxDBCTextBytes+1)
+	_, err := loadYAMLData(bigInline)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
+		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
+	}
+	if bex.Limit != MaxDBCTextBytes {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+}
+
+// R19 cluster E1: defense-in-depth output bound on serializeDBC.
+// Constructs a DBCDefinition whose marshaled JSON exceeds MaxDBCTextBytes
+// and verifies serializeDBC returns *InputBoundExceededError before the
+// payload is handed to the FFI.  In normal flow the upstream parser cap
+// makes this redundant; this guard catches any internal blowup or future
+// bypass.
+
+func TestSerializeDBC_RejectsOversizeOutput(t *testing.T) {
+	// A 64 MiB+ Version string drives the marshaled JSON over the cap.
+	// Allocating a 64 MiB string is acceptable for a single test —
+	// completes in <1s on a typical CI box.
+	bigVersion := strings.Repeat("x", MaxDBCTextBytes+100)
+	dbc := DBCDefinition{Version: bigVersion}
+
+	_, err := serializeDBC(dbc)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Observed <= uint64(MaxDBCTextBytes) {
+		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxDBCTextBytes)
+	}
+	if bex.Limit != MaxDBCTextBytes {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+}
+
+// R19 cluster 8 (CPP-D-21.3 cross-binding parity): ParseDBCText pre-checks
+// the inner text size against MaxDBCTextBytes before wrapping it in a JSON
+// command, so the rejection carries the precise dbc_text_input_bound_exceeded
+// wire code and a Limit field matching the inner cap.
+
+func TestParseDBCText_RejectsOversizeText(t *testing.T) {
+	mock := NewMockBackend()
+	c, err := NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	bigText := strings.Repeat("x", MaxDBCTextBytes+1)
+	_, err = c.ParseDBCText(context.Background(), bigText)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
+		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
+	}
+	if bex.Limit != MaxDBCTextBytes {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
 	}
 }

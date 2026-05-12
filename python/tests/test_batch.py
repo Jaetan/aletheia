@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aletheia import AletheiaClient, BatchError, ProcessError
+from aletheia import AletheiaClient, BatchError, CANFrameTuple, ProtocolError
+from aletheia.protocols import DLCCode
 
 
 def _make_client() -> AletheiaClient:
@@ -24,9 +25,9 @@ class TestSendFramesBatch:
         client.send_frame = MagicMock(side_effect=responses)
 
         frames = [
-            (1000, 0x100, 8, bytearray(8), False),
-            (2000, 0x100, 8, bytearray(8), False),
-            (3000, 0x100, 8, bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
         ]
         result = client.send_frames(frames)
         assert len(result) == 3
@@ -40,9 +41,9 @@ class TestSendFramesBatch:
         )
 
         frames = [
-            (1000, 0x100, 8, bytearray(8), False),
-            (2000, 0x100, 8, bytearray(8), False),
-            (3000, 0x100, 8, bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
         ]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
@@ -63,9 +64,9 @@ class TestSendFramesBatch:
         )
 
         frames = [
-            (1000, 0x100, 8, bytearray(8), False),
-            (2000, 0x100, 8, bytearray(8), False),
-            (3000, 0x100, 8, bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
         ]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
@@ -77,7 +78,7 @@ class TestSendFramesBatch:
         assert len(err.partial_results) == 1
         assert err.partial_results[0]["status"] == "ack"
         assert err.frame_index == 1
-        assert isinstance(err.cause, ProcessError)
+        assert isinstance(err.cause, ProtocolError)
         assert "handler_non_monotonic_timestamp" in str(err.cause)
         # Third frame was never sent
         assert client.send_frame.call_count == 2
@@ -87,7 +88,7 @@ class TestSendFramesBatch:
         client = _make_client()
         client.send_frame = MagicMock(side_effect=RuntimeError("fail"))
 
-        frames = [(1000, 0x100, 8, bytearray(8), False)]
+        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 
@@ -107,9 +108,9 @@ class TestSendFramesBatch:
         )
 
         frames = [
-            (1000, 0x100, 8, bytearray(8), False),
-            (2000, 0x100, 8, bytearray(8), False),
-            (3000, 0x100, 8, bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
         ]
         result = client.send_frames(frames)
         assert len(result) == 3
@@ -122,7 +123,7 @@ class TestSendFramesBatch:
         client = _make_client()
         client.send_frame = MagicMock(side_effect=RuntimeError("boom"))
 
-        frames = [(1000, 0x100, 8, bytearray(8), False)]
+        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 
@@ -135,7 +136,7 @@ class TestSendFramesBatch:
         client = _make_client()
         client.send_frame = MagicMock(side_effect=ValueError("bad data"))
 
-        frames = [(1000, 0x100, 8, bytearray(8), False)]
+        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 

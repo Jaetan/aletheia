@@ -20,17 +20,17 @@ from __future__ import annotations
 import argparse
 import importlib
 import sys
-from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, TypedDict, cast
+from typing import TYPE_CHECKING, NoReturn, cast
 
 from . import __version__
 from .checks import CheckResult
+from .checks_runner import CheckRunResult, Violation, run_checks
 from .client import (
     AletheiaClient,
     AletheiaError,
     SignalExtractionResult,
-    dlc_to_bytes,
+    bytes_to_dlc,
 )
 from .client._helpers import dump_json
 from .dbc_queries import (
@@ -41,22 +41,17 @@ from .dbc_queries import (
     mux_values,
     signals_for_mux_value,
 )
+from .issue_codes import IssueSeverity, ValidationIssue
 from .protocols import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
-    PropertyResultEntry,
-    PropertyViolationResponse,
-    RationalNumber,
 )
-from .validation import IssueSeverity, ValidationIssue
 
 if TYPE_CHECKING:
     # Type-only imports for the lazy helpers below — these are not available
     # at runtime when the corresponding optional dependency is not installed.
-    from collections.abc import Callable, Iterator
-
-    from .client import CANFrameTuple
+    from collections.abc import Callable
 
 
 # Optional-dependency loaders: each CLI helper resolves its target via
@@ -88,13 +83,6 @@ def _lazy_load_yaml_checks() -> Callable[[str | Path], list[CheckResult]]:
     return cast("Callable[[str | Path], list[CheckResult]]", mod.load_checks)
 
 
-def _lazy_iter_can_log() -> Callable[[str | Path], Iterator[CANFrameTuple]]:
-    mod = importlib.import_module(".can_log", __package__)
-    return cast(
-        "Callable[[str | Path], Iterator[CANFrameTuple]]", mod.iter_can_log
-    )
-
-
 # ============================================================================
 # Exit codes
 # ============================================================================
@@ -102,24 +90,6 @@ def _lazy_iter_can_log() -> Callable[[str | Path], Iterator[CANFrameTuple]]:
 _EXIT_OK = 0
 _EXIT_VIOLATIONS = 1
 _EXIT_ERROR = 2
-
-class Violation(TypedDict):
-    """Single violation record produced by ``run_checks``.
-
-    Stable wire shape consumed by the CLI's text/JSON output formatters,
-    by ``aletheia.testing`` re-exports, and by benchmark harnesses that
-    measure the full CLI pipeline.  Every field is required — no
-    ``NotRequired`` keys — so consumers can index without guarding.
-    """
-
-    check_index: int
-    check_name: str
-    severity: str
-    timestamp_us: int
-    reason: str
-    signal_name: str
-    actual_value: Fraction | None
-    condition: str
 
 
 # ============================================================================
@@ -130,6 +100,12 @@ def _die(msg: str) -> NoReturn:
     """Print error to stderr and exit with code 2."""
     print(f"Error: {msg}", file=sys.stderr)
     sys.exit(_EXIT_ERROR)
+
+
+def _require_existing_path(p: Path, label: str, source: str) -> None:
+    """Exit with code 2 if path *p* does not exist."""
+    if not p.exists():
+        _die(f"{label} not found: {source}")
 
 
 def parse_can_id(s: str) -> int:
@@ -169,14 +145,6 @@ def parse_hex_data(s: str) -> bytearray:
         raise ValueError(f"Invalid hex data: {s!r}") from exc
 
 
-def rational_to_int(r: RationalNumber) -> int:
-    """Convert a RationalNumber {numerator, denominator} to int."""
-    denom = r["denominator"]
-    if denom == 0:
-        raise ValueError(f"Invalid rational: denominator is zero ({r!r})")
-    return r["numerator"] // denom
-
-
 def format_timestamp(us: int) -> str:
     """Format microseconds as a human-readable timestamp.
 
@@ -187,22 +155,27 @@ def format_timestamp(us: int) -> str:
 
 
 def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
-    """Load DBC definition from --dbc or --excel flag."""
+    """Load a DBC definition from the parsed CLI namespace.
+
+    Dispatches on which of ``--dbc`` / ``--excel`` is set.  Excel
+    workbooks are routed through :func:`load_dbc_from_excel`; ``.dbc``
+    text files are parsed by :func:`dbc_to_json`.  Calls :func:`_die`
+    (exit code 2) when neither flag is set or the named path does not
+    exist — no exception escapes back to the caller.
+    """
     dbc_path: str | None = getattr(args, "dbc", None)
     excel_path: str | None = getattr(args, "excel", None)
 
     if dbc_path is not None:
         p = Path(dbc_path)
-        if not p.exists():
-            _die(f"DBC file not found: {dbc_path}")
+        _require_existing_path(p, "DBC file", dbc_path)
         if p.suffix == ".xlsx":
             return _lazy_load_dbc_from_excel()(p)
         return _lazy_dbc_to_json()(p)
 
     if excel_path is not None:
         p = Path(excel_path)
-        if not p.exists():
-            _die(f"Excel file not found: {excel_path}")
+        _require_existing_path(p, "Excel file", excel_path)
         return _lazy_load_dbc_from_excel()(p)
 
     _die("no DBC source specified (use --dbc or --excel)")
@@ -217,8 +190,7 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 
     if checks_path is not None:
         p = Path(checks_path)
-        if not p.exists():
-            _die(f"checks file not found: {checks_path}")
+        _require_existing_path(p, "checks file", checks_path)
         if p.suffix == ".xlsx":
             results.extend(_lazy_load_checks_from_excel()(p))
         else:
@@ -226,8 +198,7 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 
     if excel_path is not None and checks_path is None:
         p = Path(excel_path)
-        if not p.exists():
-            _die(f"Excel file not found: {excel_path}")
+        _require_existing_path(p, "Excel file", excel_path)
         results.extend(_lazy_load_checks_from_excel()(p))
 
     if not results:
@@ -416,19 +387,27 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     if msg is None:
         id_kind = "extended" if extended else "standard"
         _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
-    expected_bytes = dlc_to_bytes(msg["dlc"])
+    # ``msg["dlc"]`` is the payload byte count (DBC convention), not the
+    # raw DLC code — no conversion needed.  R19 cluster 17 / PY-D-19.4
+    # surfaced the latent ``dlc_to_bytes(byte_count)`` bug: for CAN-FD
+    # byte counts > 8, that call raised ``ValueError`` because 12/16/...
+    # are not valid DLC codes.
+    expected_bytes = msg["dlc"]
     if len(data) != expected_bytes:
         _die(
             f"data length ({len(data)} bytes) does not match "
-            + f"DBC message DLC ({msg['dlc']} → {expected_bytes} bytes)"
+            + f"DBC message DLC ({msg['dlc']} bytes)"
         )
 
     with AletheiaClient() as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
             _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
+        # ``extract_signals`` takes the DLC code (CAN frame wire convention),
+        # not the byte count; convert via ``bytes_to_dlc``.
         result = client.extract_signals(
-            can_id=can_id, dlc=msg["dlc"], data=data, extended=extended,
+            can_id=can_id, dlc=bytes_to_dlc(msg["dlc"]), data=data,
+            extended=extended,
         )
 
     if getattr(args, "json", False):
@@ -450,138 +429,11 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 # Subcommand: check
 # ============================================================================
 
-def _check_meta(
-    prop_index: int, checks: list[CheckResult],
-) -> tuple[str, str]:
-    """Look up check name and severity by property index."""
-    if 0 <= prop_index < len(checks):
-        name = checks[prop_index].name or f"Check #{prop_index}"
-        sev = checks[prop_index].check_severity or ""
-        return name, sev
-    return f"Check #{prop_index}", ""
-
-
-def _build_violation(
-    response: PropertyViolationResponse, checks: list[CheckResult],
-) -> Violation:
-    """Extract violation details from an (already enriched) violation response."""
-    prop_index = rational_to_int(response["property_index"])
-    check_name, severity = _check_meta(prop_index, checks)
-
-    enrichment = response.get("enrichment")
-    if enrichment is not None:
-        reason = enrichment["enriched_reason"]
-        signals = enrichment["signals"]
-        condition = enrichment["formula_desc"]
-    else:
-        reason = response.get("reason", "")
-        signals = {}
-        condition = ""
-    # Pick first signal for single-line violation display
-    signal_name = ""
-    actual_value: Fraction | None = None
-    if signals:
-        sig = next(iter(signals))
-        signal_name = sig
-        actual_value = signals[sig]
-
-    return {
-        "check_index": prop_index,
-        "check_name": check_name,
-        "severity": severity,
-        "timestamp_us": rational_to_int(response["timestamp"]),
-        "reason": reason,
-        "signal_name": signal_name,
-        "actual_value": actual_value,
-        "condition": condition,
-    }
-
-
-def _build_eos_violation(
-    result: PropertyResultEntry, checks: list[CheckResult],
-) -> Violation:
-    """Extract violation details from an end-of-stream finalization result."""
-    prop_index = rational_to_int(result["property_index"])
-    check_name, severity = _check_meta(prop_index, checks)
-
-    enrichment = result.get("enrichment")
-    if enrichment is not None:
-        reason = enrichment["enriched_reason"] or "end-of-stream violation"
-        condition = enrichment["formula_desc"]
-    else:
-        reason = result.get("reason", "end-of-stream violation")
-        condition = ""
-
-    return {
-        "check_index": prop_index,
-        "check_name": check_name,
-        "severity": severity,
-        "timestamp_us": 0,  # End-of-stream has no specific timestamp
-        "reason": reason,
-        "signal_name": "",
-        "actual_value": None,
-        "condition": condition,
-    }
-
-
-def run_checks(  # pylint: disable=too-many-locals
-    dbc: DBCDefinition,
-    checks: list[CheckResult],
-    logfile: str,
-    default_checks: list[CheckResult] | None = None,
-) -> tuple[list[Violation], list[Violation], int]:
-    """Stream a CAN log through the Aletheia engine.
-
-    Returns (violations, unresolved, total_frames). ``unresolved`` contains
-    end-of-stream finalization results whose three-valued Kleene verdict was
-    Unknown (``status="unresolved"``), e.g. ``Always(p)`` where ``p``'s
-    signal was never observed. These are distinct from violations: the
-    property was neither proved to hold nor proved to fail.
-    """
-    all_checks = (default_checks or []) + checks
-    with AletheiaClient(default_checks=default_checks) as client:
-        resp = client.parse_dbc(dbc)
-        if resp["status"] != "success":
-            _die(f"DBC parse failed: {resp['message']}")
-
-        resp = client.add_checks(checks)
-        if resp["status"] != "success":
-            _die(f"set properties failed: {resp['message']}")
-
-        resp = client.start_stream()
-        if resp["status"] != "success":
-            _die(f"start stream failed: {resp['message']}")
-
-        violations: list[Violation] = []
-        unresolved: list[Violation] = []
-        total_frames = 0
-
-        for ts, can_id, dlc, data, ext in _lazy_iter_can_log()(logfile):
-            total_frames += 1
-            response = client.send_frame(ts, can_id, dlc, data, extended=ext)
-            if response["status"] == "fails":
-                violations.append(_build_violation(response, all_checks))
-
-        end_resp = client.end_stream()
-        if end_resp["status"] == "error":
-            _die(f"end stream failed: {end_resp['message']}")
-        # Collect end-of-stream results from finalization
-        for result in end_resp["results"]:
-            if result["status"] == "fails":
-                violations.append(_build_eos_violation(result, all_checks))
-            elif result["status"] == "unresolved":
-                unresolved.append(_build_eos_violation(result, all_checks))
-
-    return violations, unresolved, total_frames
-
-
-def _print_check_results(
-    violations: list[Violation],
-    unresolved: list[Violation],
-    total_frames: int,
-    num_checks: int,
-) -> None:
+def _print_check_results(result: CheckRunResult, num_checks: int) -> None:
     """Print check results in human-readable text format."""
+    violations   = result.violations
+    unresolved   = result.unresolved
+    total_frames = result.total_frames
     print(f"Streaming {total_frames} frames...")
     print()
 
@@ -624,8 +476,7 @@ def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
     if defaults_path is None:
         return []
     p = Path(defaults_path)
-    if not p.exists():
-        _die(f"defaults file not found: {defaults_path}")
+    _require_existing_path(p, "defaults file", defaults_path)
     if p.suffix == ".xlsx":
         return _lazy_load_checks_from_excel()(p)
     return _lazy_load_yaml_checks()(p)
@@ -638,12 +489,14 @@ def _cmd_check(args: argparse.Namespace) -> int:
     default_checks = _load_defaults(args)
     logfile: str = args.logfile
 
-    if not Path(logfile).exists():
-        _die(f"log file not found: {logfile}")
+    try:
+        result = run_checks(dbc, checks, logfile, default_checks)
+    except (FileNotFoundError, AletheiaError) as exc:
+        _die(str(exc))
 
-    violations, unresolved, total_frames = run_checks(
-        dbc, checks, logfile, default_checks
-    )
+    violations   = result.violations
+    unresolved   = result.unresolved
+    total_frames = result.total_frames
 
     if getattr(args, "json", False):
         if violations:
@@ -677,7 +530,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
             print(f"Checks: {checks_label} ({len(checks)} checks)")
         print(f"Log:    {logfile}")
         print()
-        _print_check_results(violations, unresolved, total_frames, total_checks)
+        _print_check_results(result, total_checks)
 
     return _EXIT_VIOLATIONS if violations else _EXIT_OK
 

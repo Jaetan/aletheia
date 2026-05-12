@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from fractions import Fraction
 from typing import cast
 
-from ..protocols import Response, is_object_list
+from ..protocols import DLCCode, Response, is_object_list
 from ._client_bin import BinaryFFI, FrameIdentity, SignalValues
 from ._helpers import (
     parse_absent_list,
@@ -26,10 +26,10 @@ from ._helpers import (
 )
 from ._log import LogEvent, log_event
 from ._types import (
-    ProcessError,
     ProtocolError,
     SignalExtractionResult,
     SignalLookup,
+    StateError,
     dlc_to_bytes,
     validate_can_id,
     validate_payload_length,
@@ -67,7 +67,7 @@ class SignalOpsMixin(ABC):
         """Decode a JSON FFI response and free the C string."""
 
     def extract_signals(
-        self, can_id: int, dlc: int, data: bytes | bytearray,
+        self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
@@ -82,14 +82,14 @@ class SignalOpsMixin(ABC):
             SignalExtractionResult with values/errors/absent partitioning
 
         Raises:
-            ProcessError: If extraction fails
+            ProtocolError: If the kernel rejects the extraction request
             ValueError: If dlc is outside 0-15
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         validate_payload_length(dlc, data)
         validate_can_id(can_id, extended=extended)
-        data_array = (ctypes.c_uint8 * len(data))(*data)
+        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
 
         # Use binary path when signal name cache is populated
         lookup = self._signal_lookup.get((can_id, extended))
@@ -108,7 +108,7 @@ class SignalOpsMixin(ABC):
         )
         try:
             response = self._parse_ffi_result(result_ptr)
-        except (ProcessError, ProtocolError) as exc:
+        except ProtocolError as exc:
             log_event(
                 _logger, logging.WARNING, LogEvent.EXTRACTION_PROCESS_FAILED,
                 canId=can_id, error=str(exc),
@@ -126,7 +126,7 @@ class SignalOpsMixin(ABC):
             # Forward the Agda wire ``code`` so callers can branch on e.g.
             # ``extraction_bit_extraction_failed`` vs ``frame_signal_not_found``
             # without parsing the message string (matches Go / C++ bindings).
-            raise ProcessError(
+            raise ProtocolError(
                 f"extract_signals failed: {error_msg}", code=error_code,
             )
         if response.get("status") != "success":
@@ -144,7 +144,7 @@ class SignalOpsMixin(ABC):
     def update_frame(  # pylint: disable=too-many-arguments
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         frame: bytes | bytearray,
         signals: Mapping[str, float | Fraction],
         *,
@@ -165,13 +165,13 @@ class SignalOpsMixin(ABC):
             New frame with updated signals
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         expected_bytes = validate_payload_length(dlc, frame)
         validate_can_id(can_id, extended=extended)
         sig_values = self._resolve_signal_indices(
             signals, can_id, extended, "update_frame",
         )
-        frame_array = (ctypes.c_uint8 * len(frame))(*frame)
+        frame_array = (ctypes.c_uint8 * len(frame)).from_buffer_copy(frame)
         return BinaryFFI(self._lib, self._state).update_frame(
             FrameIdentity(can_id, extended, dlc),
             frame_array,
@@ -182,7 +182,7 @@ class SignalOpsMixin(ABC):
     def build_frame(
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         signals: Mapping[str, float | Fraction],
         *,
         extended: bool = False,
@@ -199,7 +199,7 @@ class SignalOpsMixin(ABC):
             CAN frame payload (length = dlc_to_bytes(dlc))
         """
         if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
+            raise StateError("Client not initialized — use 'with' statement")
         validate_can_id(can_id, extended=extended)
         sig_values = self._resolve_signal_indices(
             signals, can_id, extended, "build_frame",

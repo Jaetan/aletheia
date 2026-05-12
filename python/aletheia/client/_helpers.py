@@ -32,6 +32,7 @@ from ..protocols import (
     is_object_list,
 )
 from ._types import ProtocolError
+from .._loader_utils import is_pure_int
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
@@ -62,8 +63,18 @@ class FractionJSONEncoder(json.JSONEncoder):
 
 
 def dump_json(value: object, *, indent: int | None = None) -> str:
-    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder."""
-    return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
+    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
+
+    ``ensure_ascii=False`` is pinned so identifier and string-literal
+    fields with non-ASCII characters (DBC permits non-ASCII in
+    ``CM_`` text bodies, comments, and similar opaque-tail consumers)
+    serialize as their UTF-8 bytes rather than ``\\uXXXX`` escapes.  The
+    Agda-side parser is byte-oriented; the Go and C++ bindings emit
+    UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
+    byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
+    (cross-binding wire-byte parity).
+    """
+    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
 
 
 # Outgoing-DBC normalization: C++/Go always emit these list keys (their
@@ -226,6 +237,25 @@ def validate_rational(field_name: str, raw_value: object) -> RationalNumber:
     return {"numerator": n, "denominator": d}
 
 
+def validate_integer_rational(field_name: str, raw_value: object) -> RationalNumber:
+    """Validate a RationalNumber response field that must be integer-valued.
+
+    Same as :func:`validate_rational` plus a post-parse assertion that the
+    denominator is exactly ``1``.  Used for fields whose Agda-side type is
+    ``ℕ`` or ``ℤ`` (timestamps in microseconds, property indices) — they
+    arrive on the wire as a plain int or as ``{"numerator": N,
+    "denominator": 1}``, never with a fractional component.  A non-unit
+    denominator indicates a wire-format violation by the kernel.
+    """
+    rational = validate_rational(field_name, raw_value)
+    if rational["denominator"] != 1:
+        raise ProtocolError(
+            f"Expected {field_name} to be an integer (denominator == 1), "
+            + f"got {rational['numerator']}/{rational['denominator']}"
+        )
+    return rational
+
+
 def parse_rational(value_raw: object) -> Fraction:
     """Parse a value that may be a number, rational dict, or rational string.
 
@@ -304,7 +334,7 @@ def _normalize_signal_group(raw: dict[str, object]) -> DBCSignalGroup:
 
 def _normalize_var_type(raw: object) -> DBCVarType:
     """Narrow an Agda ``varType`` (ℕ 0/1/2) to the ``DBCVarType`` Literal."""
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw not in (0, 1, 2):
+    if not is_pure_int(raw) or raw not in (0, 1, 2):
         raise ProtocolError(
             f"Expected environment var 'varType' to be 0, 1, or 2, got {raw!r}"
         )
@@ -330,7 +360,7 @@ def _normalize_environment_var(raw: dict[str, object]) -> DBCEnvironmentVar:
 def _normalize_value_entry(raw: dict[str, object]) -> DBCValueEntry:
     """Normalize one ``entries`` item from a ``valueTables`` entry."""
     value_raw = raw.get("value")
-    if isinstance(value_raw, bool) or not isinstance(value_raw, int) or value_raw < 0:
+    if not is_pure_int(value_raw) or value_raw < 0:
         raise ProtocolError(
             f"Expected value table entry 'value' to be non-negative int, got {value_raw!r}"
         )
@@ -400,7 +430,7 @@ def _require_str_field(raw: dict[str, object], field: str, context: str) -> str:
 
 def _require_int_field(raw: dict[str, object], field: str, context: str) -> int:
     v = raw.get(field)
-    if isinstance(v, bool) or not isinstance(v, int):
+    if not is_pure_int(v):
         raise ProtocolError(f"Expected {context} {field!r} to be int, got {type(v).__name__}")
     return v
 
@@ -654,22 +684,22 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     result: DBCDefinition = {
         "version": str(raw.get("version", "")),
         "messages": messages,
+        "signalGroups": _normalize_optional_list(
+            raw, "signalGroups", _normalize_signal_group,
+        ),
+        "environmentVars": _normalize_optional_list(
+            raw, "environmentVars", _normalize_environment_var,
+        ),
+        "valueTables": _normalize_optional_list(
+            raw, "valueTables", _normalize_value_table,
+        ),
+        "nodes": _normalize_optional_list(raw, "nodes", _normalize_node),
+        "comments": _normalize_optional_list(raw, "comments", _normalize_comment),
+        "attributes": _normalize_optional_list(raw, "attributes", _normalize_attribute),
+        "unresolvedValueDescs": _normalize_optional_list(
+            raw, "unresolvedValueDescs", _normalize_raw_value_desc,
+        ),
     }
-    result["signalGroups"] = _normalize_optional_list(
-        raw, "signalGroups", _normalize_signal_group
-    )
-    result["environmentVars"] = _normalize_optional_list(
-        raw, "environmentVars", _normalize_environment_var
-    )
-    result["valueTables"] = _normalize_optional_list(
-        raw, "valueTables", _normalize_value_table
-    )
-    result["nodes"] = _normalize_optional_list(raw, "nodes", _normalize_node)
-    result["comments"] = _normalize_optional_list(raw, "comments", _normalize_comment)
-    result["attributes"] = _normalize_optional_list(raw, "attributes", _normalize_attribute)
-    result["unresolvedValueDescs"] = _normalize_optional_list(
-        raw, "unresolvedValueDescs", _normalize_raw_value_desc
-    )
     return result
 
 

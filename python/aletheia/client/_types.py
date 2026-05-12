@@ -7,7 +7,10 @@ from fractions import Fraction
 from types import MappingProxyType
 from typing import NamedTuple, cast, override
 
-from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
+from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
+from ..protocols import (
+    AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyViolationResponse,
+)
 
 type FrameResponse = AckResponse | PropertyViolationResponse | ErrorResponse
 
@@ -30,23 +33,48 @@ class AletheiaError(Exception):
         self.code = code
 
 
-class ProcessError(AletheiaError):
-    """FFI or shared library errors.
+class FFIError(AletheiaError):
+    """Library-load / RTS-init / FFI-null-pointer failures.
 
-    Carries ``code`` (from :class:`AletheiaError`) so callers can
-    distinguish e.g. ``extraction_bit_extraction_failed`` from
-    ``frame_signal_not_found`` without parsing the message string.
-    The Go binding's ``*ProcessError`` and C++'s ``ExtractionError``
-    expose the same field; keep the three surfaces in sync.
+    Mirrors Go ``ErrFFI`` and C++ ``ErrorKind::Ffi`` — the kind for
+    `dlopen` / `dlsym` / `hs_init` / `aletheia_init() → null` failures
+    where the boundary itself failed before any Agda code ran.
+    """
+
+
+class StateError(AletheiaError):
+    """Operation attempted in the wrong client lifecycle state.
+
+    Mirrors Go ``ErrState`` and C++ ``ErrorKind::State`` — covers
+    "client not initialized (use ``with``)", "DBC not loaded",
+    "stream already / not started", and the equivalent Agda-side
+    handler-state rejections (``handler_no_dbc`` / ``handler_not_streaming`` /
+    ``handler_stream_active`` etc.).
     """
 
 
 class ProtocolError(AletheiaError):
-    """Protocol-related errors (invalid JSON, missing response, etc.).
+    """Wire-protocol failures.
 
-    ``code`` is inherited from :class:`AletheiaError`; kept as its own
-    subclass so ``except ProtocolError`` remains narrower than
-    ``except AletheiaError`` where the distinction matters.
+    Mirrors Go ``ErrProtocol`` and C++ ``ErrorKind::Protocol`` — covers
+    invalid JSON, missing response fields, FFI-returned-null where a
+    response was expected, AND the Agda kernel returning an
+    ``ErrorResponse`` with a wire ``code`` (e.g. ``frame_signal_not_found``,
+    ``extraction_bit_extraction_failed``).  Callers can branch on
+    :attr:`AletheiaError.code` to discriminate kernel error codes
+    without parsing the message string.
+    """
+
+
+class ValidationError(AletheiaError):
+    """Caller-supplied argument failed a Python-side validity check
+    (e.g. negative timestamp, malformed CAN ID, unknown signal name,
+    payload length mismatch).
+
+    Mirrors Go ``ErrValidation`` and C++ ``ErrorKind::Validation`` —
+    cross-binding parity for argument-rejection paths.  Replaces ad-hoc
+    ``ValueError`` raises that escaped the typed ``AletheiaError``
+    hierarchy (R19 cluster 10 — PY-D-15.6).
     """
 
 
@@ -74,6 +102,24 @@ class InputBoundExceededError(AletheiaError):
         self.kind = kind
         self.observed = observed
         self.limit = limit
+
+
+def check_dbc_text_size_bound(observed: int) -> None:
+    """Raise :class:`InputBoundExceededError` if observed > MAX_DBC_TEXT_BYTES.
+
+    Defense-in-depth size cap shared by every parser surface that reads DBC
+    text, YAML check definitions, or Excel workbooks.  Re-exported from
+    :mod:`aletheia.limits` (PY-D-16.2) — non-client modules should import
+    via the public path; this canonical definition stays here so
+    InputBoundExceededError lives next to its raiser.
+    """
+    if observed > MAX_DBC_TEXT_BYTES:
+        raise InputBoundExceededError(
+            BOUND_KIND_INPUT_LENGTH_BYTES,
+            observed,
+            MAX_DBC_TEXT_BYTES,
+        )
+
 
 
 class BatchError(AletheiaError):
@@ -119,7 +165,7 @@ def raise_on_error_response(
     list. See the ``BatchError`` docstring for the per-call contract.
     """
     if resp["status"] == "error":
-        err = ProcessError(
+        err = ProtocolError(
             f"error code={resp['code']}: {resp['message']}",
             code=resp["code"],
         )
@@ -143,14 +189,14 @@ def call_send_frame(
     """
     try:
         resp = send_fn(frame.timestamp, frame.can_id, frame.dlc, frame.data,
-                       extended=frame.extended)
+                       extended=frame.extended, brs=frame.brs, esi=frame.esi)
     except Exception as exc:
         raise BatchError(exc, partial, frame_index=frame_index) from exc
     return raise_on_error_response(resp, partial, frame_index)
 
 
-def validate_payload_length(dlc: int, data: bytes | bytearray) -> int:
-    """Return ``dlc_to_bytes(dlc)``; raise :class:`ProcessError` on mismatch.
+def validate_payload_length(dlc: DLCCode, data: bytes | bytearray) -> DLCByteCount:
+    """Return ``dlc_to_bytes(dlc)``; raise :class:`ValidationError` on mismatch.
 
     Shared between ``send_frame`` / ``extract_signals`` / ``update_frame``
     so the validation + error message stay in lock-step at every payload
@@ -158,7 +204,7 @@ def validate_payload_length(dlc: int, data: bytes | bytearray) -> int:
     """
     expected_bytes = dlc_to_bytes(dlc)
     if len(data) != expected_bytes:
-        raise ProcessError(
+        raise ValidationError(
             f"payload length {len(data)} does not match DLC {dlc}"
             + f" (expected {expected_bytes} bytes)"
         )
@@ -246,7 +292,7 @@ type ExtractionCache = dict[FrameKey, SignalExtractionResult]
 
 # (can_id, extended) → (can_id, dlc, data) for EOS signal extraction.
 type LastFrameKey = tuple[int, bool]
-type LastFrameData = tuple[int, bytearray]
+type LastFrameData = tuple[DLCCode, bytearray]
 
 MAX_EXTRACT_CACHE: int = 256
 
@@ -272,16 +318,25 @@ class CANFrameTuple(NamedTuple):
         dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD).
         data: Frame payload (length must equal ``dlc_to_bytes(dlc)``).
         extended: ``True`` for 29-bit extended CAN ID.
+        brs: Bit Rate Switch (ISO 11898-1:2015 §10.4.2) — ``True`` if the
+            CAN-FD data phase ran at the faster bit rate, ``False`` if it
+            stayed at the arbitration bit rate, ``None`` for CAN 2.0B
+            frames where the bit does not exist.
+        esi: Error State Indicator (ISO 11898-1:2015 §10.4.3) — ``True``
+            if the transmitter is in error-passive state, ``False`` if
+            error-active, ``None`` for CAN 2.0B frames.
     """
     timestamp: int
     can_id: int
-    dlc: int
+    dlc: DLCCode
     # Either ``bytes`` (immutable read-only payload) or ``bytearray`` (mutable
     # buffer filled from a SocketCAN read).  Both work at the ctypes boundary;
     # ``bytes`` is preferred for precomputed frame constants in benchmarks and
     # tests so the module-level data cannot be mutated between iterations.
     data: bytes | bytearray
     extended: bool
+    brs: bool | None = None
+    esi: bool | None = None
 
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID
 _MAX_EXTENDED_ID = (1 << 29) - 1  # 29-bit CAN ID
@@ -307,14 +362,14 @@ _DLC_TO_BYTES: dict[int, int] = {
 }
 
 
-def dlc_to_bytes(dlc: int) -> int:
+def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
     """Convert a DLC code (0-15) to payload byte count.
 
     CAN 2.0B: DLC 0-8 maps directly.
     CAN-FD: DLC 9-15 maps to 12, 16, 20, 24, 32, 48, 64.
     """
     try:
-        return _DLC_TO_BYTES[dlc]
+        return DLCByteCount(_DLC_TO_BYTES[dlc])
     except KeyError:
         raise ValueError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
 
@@ -322,14 +377,29 @@ def dlc_to_bytes(dlc: int) -> int:
 _BYTES_TO_DLC: dict[int, int] = {v: k for k, v in _DLC_TO_BYTES.items()}
 
 
-def bytes_to_dlc(byte_count: int) -> int:
+def encode_maybe_bool(b: bool | None) -> tuple[int, int]:
+    """Encode an Optional[bool] as the (present, value) byte pair used by
+    the binary FFI for CAN-FD BRS / ESI metadata.
+
+    ``None`` → ``(0, 0)`` (the bit is absent on the wire);
+    ``False`` → ``(1, 0)``; ``True`` → ``(1, 1)``.
+
+    Inverse of the Haskell shim's ``mkMaybeBool`` (see
+    ``haskell-shim/src/AletheiaFFI/Marshal.hs``).
+    """
+    if b is None:
+        return (0, 0)
+    return (1, 1 if b else 0)
+
+
+def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
     """Convert a payload byte count to a DLC code (0-15).
 
     CAN 2.0B: byte counts 0-8 map directly.
     CAN-FD: byte counts 12, 16, 20, 24, 32, 48, 64 map to DLC 9-15.
     """
     try:
-        return _BYTES_TO_DLC[byte_count]
+        return DLCCode(_BYTES_TO_DLC[byte_count])
     except KeyError:
         raise ValueError(
             f"Invalid byte count: {byte_count}"

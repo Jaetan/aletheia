@@ -40,8 +40,18 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 
 // serializeDataFrame serializes a CAN frame as a JSON data event.
 // Uses direct string building rather than json.Marshal to avoid map allocation
-// and reflection overhead on the streaming hot path.
-func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) string {
+// and reflection overhead.
+//
+// R19 cluster 19 / GO-B-25.2 DEFER (2026-05-12): the per-call
+// `strings.Builder` allocation here was flagged as a `sync.Pool` candidate.
+// Audit (`grep -rn 'serializeDataFrame'`) confirmed the function is only
+// invoked from `mock.go:135` (the test backend) and `check_test.go` —
+// real streaming uses the binary FFI `sendFrameBinary` and never enters
+// this path.  A pool would add `Get`/`Put` overhead on test paths where
+// the existing single-allocation cost is already negligible, in exchange
+// for zero real-world benefit.  Re-evaluate only if a JSON streaming
+// surface is added that calls this function on a hot path.
+func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload) string {
 	// Avoids map allocation, reflection-based marshaling, and []int conversion.
 	var buf strings.Builder
 	buf.Grow(128 + len(data)*4) // pre-size for typical frame
@@ -81,7 +91,7 @@ func serializeErrorEvent(ts Timestamp) string {
 
 // serializeRemoteEvent serializes a CAN remote frame event as JSON. Used by the
 // MockBackend so tests can observe remote events alongside data frames.
-func serializeRemoteEvent(ts Timestamp, id CanID) string {
+func serializeRemoteEvent(ts Timestamp, id CANID) string {
 	var buf strings.Builder
 	buf.Grow(80)
 	buf.WriteString(`{"type":"remote","timestamp":`)
@@ -98,9 +108,16 @@ func serializeRemoteEvent(ts Timestamp, id CanID) string {
 	return buf.String()
 }
 
-// serializeDBC converts a DbcDefinition into the map shape Agda expects
+// serializeDBC converts a DBCDefinition into the map shape Agda expects
 // under the "dbc" field of the parseDBC / validateDBC command envelopes.
-func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
+//
+// Defense-in-depth (R19 cluster E1, R19-CARRY-3 / GO-B-28.4 closure): a
+// `MaxDBCTextBytes` size cap is applied to the marshaled envelope before
+// it leaves Go.  In normal flow the upstream parser bound (per UR-2)
+// makes this redundant; the guard catches any internal blowup or future
+// bypass that lets an oversized in-memory `DBCDefinition` reach the
+// serializer.
+func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
 		sigs := make([]map[string]any, 0, len(msg.Signals))
@@ -109,9 +126,9 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			if receivers == nil {
 				receivers = []string{}
 			}
-			vds := make([]map[string]any, 0, len(sig.ValueDescriptions))
+			valueDescs := make([]map[string]any, 0, len(sig.ValueDescriptions))
 			for _, e := range sig.ValueDescriptions {
-				vds = append(vds, map[string]any{
+				valueDescs = append(valueDescs, map[string]any{
 					"value":       e.Value,
 					"description": e.Description,
 				})
@@ -127,7 +144,7 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 				"maximum":           serializeRational(sig.Maximum),
 				"unit":              string(sig.Unit),
 				"receivers":         receivers,
-				"valueDescriptions": vds,
+				"valueDescriptions": valueDescs,
 			}
 			switch sig.ByteOrder {
 			case BigEndian:
@@ -137,7 +154,12 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			default:
 				return nil, validationError(fmt.Sprintf("invalid byte order %d", sig.ByteOrder))
 			}
+			// R19 cluster 17 / PY-D-19.2: emit explicit "presence"
+			// discriminator on multiplexed signals (mirrors Always
+			// signals' "presence": "always").  Cross-binding parity
+			// with the Agda Formatter and the Python TypedDict.
 			if mux, ok := sig.Presence.(Multiplexed); ok {
+				s["presence"] = "multiplexed"
 				s["multiplexor"] = string(mux.Multiplexor)
 				vals := make([]uint32, len(mux.MuxValues))
 				for i, v := range mux.MuxValues {
@@ -156,7 +178,7 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		// Mirror the Agda wire form: emit "extended" only when the CAN ID is
 		// extended (29-bit). Agda omits the field for standard 11-bit frames;
 		// its parser accepts both forms but the omit-when-false shape is
-		// canonical (matches attachCanID used for comment / attribute targets,
+		// canonical (matches attachCANID used for comment / attribute targets,
 		// and the same convention enforced by the Python and C++ bindings — B.3.j).
 		m := map[string]any{
 			"name":    string(msg.Name),
@@ -165,7 +187,7 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			"senders": senders,
 			"signals": sigs,
 		}
-		attachCanID(m, msg.ID.Value(), msg.ID.IsExtended())
+		attachCANID(m, msg.ID.Value(), msg.ID.IsExtended())
 		msgs = append(msgs, m)
 	}
 
@@ -226,8 +248,8 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 
 	// Track E.8 (Plan B): unresolved RawValueDescs from the text-parse path.
 	// Wire shape mirrors message_to_json's leading {id, extended} pair via
-	// attachCanID; the rest is signalName + entries (parallel to value tables).
-	unresolvedVDs := make([]map[string]any, 0, len(dbc.UnresolvedValueDescriptions))
+	// attachCANID; the rest is signalName + entries (parallel to value tables).
+	unresolvedValueDescs := make([]map[string]any, 0, len(dbc.UnresolvedValueDescriptions))
 	for _, rvd := range dbc.UnresolvedValueDescriptions {
 		entries := make([]map[string]any, 0, len(rvd.Entries))
 		for _, e := range rvd.Entries {
@@ -240,11 +262,11 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			"signalName": rvd.SignalName,
 			"entries":    entries,
 		}
-		attachCanID(obj, rvd.CanID.Value(), rvd.CanID.IsExtended())
-		unresolvedVDs = append(unresolvedVDs, obj)
+		attachCANID(obj, rvd.CANID.Value(), rvd.CANID.IsExtended())
+		unresolvedValueDescs = append(unresolvedValueDescs, obj)
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"version":              dbc.Version,
 		"messages":             msgs,
 		"signalGroups":         groups,
@@ -253,129 +275,142 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		"nodes":                nodes,
 		"comments":             comments,
 		"attributes":           attributes,
-		"unresolvedValueDescs": unresolvedVDs,
-	}, nil
+		"unresolvedValueDescs": unresolvedValueDescs,
+	}
+	// Defense-in-depth bound check (see function-level comment).
+	probe, err := json.Marshal(out)
+	if err != nil {
+		return nil, wrapProtocol("failed to size-check DBC", err)
+	}
+	if size := uint64(len(probe)); size > MaxDBCTextBytes {
+		return nil, &InputBoundExceededError{
+			BoundKind: BoundKindInputLengthBytes,
+			Observed:  size,
+			Limit:     MaxDBCTextBytes,
+		}
+	}
+	return out, nil
 }
 
 // --- Tier 2 serializers (Go → JSON for Agda core) ---
 
-// attachCanID mirrors the Agda formatter: emits "id" unconditionally and
+// attachCANID mirrors the Agda formatter: emits "id" unconditionally and
 // "extended" only when true. Matching formatCANId keeps 11-bit frames
 // byte-identical to Tier 1 wire output.
-func attachCanID(m map[string]any, id uint32, extended bool) {
+func attachCANID(m map[string]any, id uint32, extended bool) {
 	m["id"] = id
 	if extended {
 		m["extended"] = true
 	}
 }
 
-func serializeCommentTarget(t DbcCommentTarget) (map[string]any, error) {
+func serializeCommentTarget(t DBCCommentTarget) (map[string]any, error) {
 	switch v := t.(type) {
-	case DbcCommentTargetNetwork:
+	case DBCCommentTargetNetwork:
 		return map[string]any{"kind": "network"}, nil
-	case DbcCommentTargetNode:
+	case DBCCommentTargetNode:
 		return map[string]any{"kind": "node", "node": v.Node}, nil
-	case DbcCommentTargetMessage:
+	case DBCCommentTargetMessage:
 		out := map[string]any{"kind": "message"}
-		attachCanID(out, v.ID, v.Extended)
+		attachCANID(out, v.ID, v.Extended)
 		return out, nil
-	case DbcCommentTargetSignal:
+	case DBCCommentTargetSignal:
 		out := map[string]any{"kind": "signal"}
-		attachCanID(out, v.ID, v.Extended)
+		attachCANID(out, v.ID, v.Extended)
 		out["signal"] = v.Signal
 		return out, nil
-	case DbcCommentTargetEnvVar:
+	case DBCCommentTargetEnvVar:
 		return map[string]any{"kind": "envVar", "envVar": v.EnvVar}, nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported comment target type %T", t))
 	}
 }
 
-func serializeAttrScope(s DbcAttrScope) (string, error) {
+func serializeAttrScope(s DBCAttrScope) (string, error) {
 	switch s {
-	case DbcAttrScopeNetwork:
+	case DBCAttrScopeNetwork:
 		return "network", nil
-	case DbcAttrScopeNode:
+	case DBCAttrScopeNode:
 		return "node", nil
-	case DbcAttrScopeMessage:
+	case DBCAttrScopeMessage:
 		return "message", nil
-	case DbcAttrScopeSignal:
+	case DBCAttrScopeSignal:
 		return "signal", nil
-	case DbcAttrScopeEnvVar:
+	case DBCAttrScopeEnvVar:
 		return "envVar", nil
-	case DbcAttrScopeNodeMsg:
+	case DBCAttrScopeNodeMsg:
 		return "nodeMsg", nil
-	case DbcAttrScopeNodeSig:
+	case DBCAttrScopeNodeSig:
 		return "nodeSig", nil
 	default:
 		return "", validationError(fmt.Sprintf("invalid attr scope %d", s))
 	}
 }
 
-func serializeAttrType(t DbcAttrType) (map[string]any, error) {
+func serializeAttrType(t DBCAttrType) (map[string]any, error) {
 	switch v := t.(type) {
-	case DbcAttrTypeInt:
+	case DBCAttrTypeInt:
 		return map[string]any{"kind": "int", "min": v.Min, "max": v.Max}, nil
-	case DbcAttrTypeFloat:
+	case DBCAttrTypeFloat:
 		return map[string]any{
 			"kind": "float",
 			"min":  serializeRational(v.Min),
 			"max":  serializeRational(v.Max),
 		}, nil
-	case DbcAttrTypeString:
+	case DBCAttrTypeString:
 		return map[string]any{"kind": "string"}, nil
-	case DbcAttrTypeEnum:
+	case DBCAttrTypeEnum:
 		values := make([]string, len(v.Values))
 		copy(values, v.Values)
 		return map[string]any{"kind": "enum", "values": values}, nil
-	case DbcAttrTypeHex:
+	case DBCAttrTypeHex:
 		return map[string]any{"kind": "hex", "min": v.Min, "max": v.Max}, nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported attr type %T", t))
 	}
 }
 
-func serializeAttrValue(v DbcAttrValue) (map[string]any, error) {
+func serializeAttrValue(v DBCAttrValue) (map[string]any, error) {
 	switch a := v.(type) {
-	case DbcAttrValueInt:
+	case DBCAttrValueInt:
 		return map[string]any{"kind": "int", "value": a.Value}, nil
-	case DbcAttrValueFloat:
+	case DBCAttrValueFloat:
 		return map[string]any{"kind": "float", "value": serializeRational(a.Value)}, nil
-	case DbcAttrValueString:
+	case DBCAttrValueString:
 		return map[string]any{"kind": "string", "value": a.Value}, nil
-	case DbcAttrValueEnum:
+	case DBCAttrValueEnum:
 		return map[string]any{"kind": "enum", "value": a.Value}, nil
-	case DbcAttrValueHex:
+	case DBCAttrValueHex:
 		return map[string]any{"kind": "hex", "value": a.Value}, nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported attr value type %T", v))
 	}
 }
 
-func serializeAttrTarget(t DbcAttrTarget) (map[string]any, error) {
+func serializeAttrTarget(t DBCAttrTarget) (map[string]any, error) {
 	switch v := t.(type) {
-	case DbcAttrTargetNetwork:
+	case DBCAttrTargetNetwork:
 		return map[string]any{"kind": "network"}, nil
-	case DbcAttrTargetNode:
+	case DBCAttrTargetNode:
 		return map[string]any{"kind": "node", "node": v.Node}, nil
-	case DbcAttrTargetMessage:
+	case DBCAttrTargetMessage:
 		out := map[string]any{"kind": "message"}
-		attachCanID(out, v.ID, v.Extended)
+		attachCANID(out, v.ID, v.Extended)
 		return out, nil
-	case DbcAttrTargetSignal:
+	case DBCAttrTargetSignal:
 		out := map[string]any{"kind": "signal"}
-		attachCanID(out, v.ID, v.Extended)
+		attachCANID(out, v.ID, v.Extended)
 		out["signal"] = v.Signal
 		return out, nil
-	case DbcAttrTargetEnvVar:
+	case DBCAttrTargetEnvVar:
 		return map[string]any{"kind": "envVar", "envVar": v.EnvVar}, nil
-	case DbcAttrTargetNodeMsg:
+	case DBCAttrTargetNodeMsg:
 		out := map[string]any{"kind": "nodeMsg", "node": v.Node}
-		attachCanID(out, v.ID, v.Extended)
+		attachCANID(out, v.ID, v.Extended)
 		return out, nil
-	case DbcAttrTargetNodeSig:
+	case DBCAttrTargetNodeSig:
 		out := map[string]any{"kind": "nodeSig", "node": v.Node}
-		attachCanID(out, v.ID, v.Extended)
+		attachCANID(out, v.ID, v.Extended)
 		out["signal"] = v.Signal
 		return out, nil
 	default:
@@ -383,9 +418,9 @@ func serializeAttrTarget(t DbcAttrTarget) (map[string]any, error) {
 	}
 }
 
-func serializeAttribute(a DbcAttribute) (map[string]any, error) {
+func serializeAttribute(a DBCAttribute) (map[string]any, error) {
 	switch v := a.(type) {
-	case DbcAttrDef:
+	case DBCAttrDef:
 		scope, err := serializeAttrScope(v.Scope)
 		if err != nil {
 			return nil, err
@@ -400,13 +435,13 @@ func serializeAttribute(a DbcAttribute) (map[string]any, error) {
 			"scope":    scope,
 			"attrType": at,
 		}, nil
-	case DbcAttrDefault:
+	case DBCAttrDefault:
 		val, err := serializeAttrValue(v.Value)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"kind": "default", "name": v.Name, "value": val}, nil
-	case DbcAttrAssign:
+	case DBCAttrAssign:
 		target, err := serializeAttrTarget(v.Target)
 		if err != nil {
 			return nil, err
@@ -426,32 +461,80 @@ func serializeAttribute(a DbcAttribute) (map[string]any, error) {
 	}
 }
 
+// validateRational rejects rationals the wire format cannot represent
+// (zero or negative denominator).  Predicate values carry exact
+// [Rational] per the DecRat universal principle (cluster 17 / GO-D-19.1
+// mirror of PY-D-19.1); the NaN / ±Inf rejection that the float64 path
+// needed (R19 cluster 7 — GO-B-8.1) is structurally absent — Rational
+// has no NaN / Inf representation — but denominator validation remains.
+func validateRational(name string, r Rational) error {
+	if r.Denominator <= 0 {
+		return validationError(fmt.Sprintf("%s: non-positive denominator %d (must be > 0)",
+			name, r.Denominator))
+	}
+	return nil
+}
+
+// rationalLess reports r1 < r2 by comparing cross-products with the
+// (positive) denominators (validateRational is the precondition).
+func rationalLess(r1, r2 Rational) bool {
+	return r1.Numerator*r2.Denominator < r2.Numerator*r1.Denominator
+}
+
 // serializePredicate encodes a Predicate into the JSON tag/field shape
 // consumed by the Agda LTL parser (SignalPredicate.JSON).
 func serializePredicate(p Predicate) (map[string]any, error) {
 	switch p := p.(type) {
 	case Equals:
-		return map[string]any{"predicate": "equals", "signal": string(p.Signal), "value": float64(p.Value)}, nil
+		if err := validateRational("equals.value", p.Value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"predicate": "equals", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
 	case LessThan:
-		return map[string]any{"predicate": "lessThan", "signal": string(p.Signal), "value": float64(p.Value)}, nil
+		if err := validateRational("lessThan.value", p.Value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"predicate": "lessThan", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
 	case GreaterThan:
-		return map[string]any{"predicate": "greaterThan", "signal": string(p.Signal), "value": float64(p.Value)}, nil
+		if err := validateRational("greaterThan.value", p.Value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"predicate": "greaterThan", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
 	case LessThanOrEqual:
-		return map[string]any{"predicate": "lessThanOrEqual", "signal": string(p.Signal), "value": float64(p.Value)}, nil
+		if err := validateRational("lessThanOrEqual.value", p.Value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"predicate": "lessThanOrEqual", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
 	case GreaterThanOrEqual:
-		return map[string]any{"predicate": "greaterThanOrEqual", "signal": string(p.Signal), "value": float64(p.Value)}, nil
+		if err := validateRational("greaterThanOrEqual.value", p.Value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"predicate": "greaterThanOrEqual", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
 	case Between:
-		if p.Min > p.Max {
-			return nil, validationError(fmt.Sprintf("between: min (%g) exceeds max (%g)", float64(p.Min), float64(p.Max)))
+		if err := validateRational("between.min", p.Min); err != nil {
+			return nil, err
 		}
-		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": float64(p.Min), "max": float64(p.Max)}, nil
+		if err := validateRational("between.max", p.Max); err != nil {
+			return nil, err
+		}
+		if rationalLess(p.Max, p.Min) {
+			return nil, validationError(fmt.Sprintf("between: min (%g) exceeds max (%g)",
+				p.Min.Float64(), p.Max.Float64()))
+		}
+		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": serializeRational(p.Min), "max": serializeRational(p.Max)}, nil
 	case ChangedBy:
-		return map[string]any{"predicate": "changedBy", "signal": string(p.Signal), "delta": float64(p.Delta)}, nil
-	case StableWithin:
-		if p.Tolerance < 0 {
-			return nil, validationError(fmt.Sprintf("negative tolerance: %g", float64(p.Tolerance)))
+		if err := validateRational("changedBy.delta", p.Delta); err != nil {
+			return nil, err
 		}
-		return map[string]any{"predicate": "stableWithin", "signal": string(p.Signal), "tolerance": float64(p.Tolerance)}, nil
+		return map[string]any{"predicate": "changedBy", "signal": string(p.Signal), "delta": serializeRational(p.Delta)}, nil
+	case StableWithin:
+		if err := validateRational("stableWithin.tolerance", p.Tolerance); err != nil {
+			return nil, err
+		}
+		if p.Tolerance.Numerator < 0 {
+			return nil, validationError(fmt.Sprintf("negative tolerance: %g", p.Tolerance.Float64()))
+		}
+		return map[string]any{"predicate": "stableWithin", "signal": string(p.Signal), "tolerance": serializeRational(p.Tolerance)}, nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported predicate type %T", p))
 	}
@@ -627,13 +710,16 @@ func parseRational(v any) (Rational, error) {
 		if den == 0 {
 			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
 		}
-		d := int64(den)
-		nu := int64(num)
-		if d < 0 {
-			nu = -nu
-			d = -d
+		// Reject negative denominators rather than rewriting them.
+		// Python and the Agda core reject `den < 0` at parse time;
+		// silently rewriting here would let asymmetric wire shapes
+		// pass through Go-only paths and surface as parity failures
+		// (per `feedback_cross_binding_wire_symmetry.md`).  R19
+		// cluster 7 — GO-B-8.2.
+		if den < 0 {
+			return Rational{}, protocolError(fmt.Sprintf("negative denominator in rational: %v", v))
 		}
-		return Rational{Numerator: nu, Denominator: d}, nil
+		return Rational{Numerator: int64(num), Denominator: int64(den)}, nil
 	default:
 		return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 	}
@@ -778,11 +864,73 @@ func requireString(m map[string]any, key string) (string, error) {
 	return s, nil
 }
 
+// inputBoundExceededFromResponse lifts a wire response carrying
+// “bound_kind“ / “observed“ / “limit“ into a typed
+// [InputBoundExceededError].  Returns nil when any of the three fields
+// is missing or ill-typed (matches C++ “make_json_error“'s
+// degrade-to-nullopt rule and Python “build_error_response“'s
+// triple-must-be-complete check).  The wire “message“ string is not
+// threaded through — “*InputBoundExceededError.Error()“ reconstructs an
+// equivalent string from kind/observed/limit, matching cross-binding
+// convention where each language formats the message in its own idiom.
+// AGDA-D-13.4 phase 2a — cross-binding wire-symmetric lifting; previously
+// only the binding-side short-circuit raised this type, so kernel-rejected
+// paths (NestingDepth, AtomCount) returned a generic *Error.
+func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
+	if code != CodeInputBoundExceeded {
+		return nil
+	}
+	kind, ok := m["bound_kind"].(string)
+	if !ok {
+		return nil
+	}
+	observed, ok := jsonNumberToUint64(m["observed"])
+	if !ok {
+		return nil
+	}
+	limit, ok := jsonNumberToUint64(m["limit"])
+	if !ok {
+		return nil
+	}
+	return newInputBoundExceededError(kind, observed, limit, code)
+}
+
+// jsonNumberToUint64 narrows a JSON-decoded numeric value to uint64.
+// Rejects negatives, non-integers, and overflowing magnitudes.
+func jsonNumberToUint64(v any) (uint64, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n < 0 || n > float64(^uint64(0)) || n != float64(uint64(n)) {
+			return 0, false
+		}
+		return uint64(n), true
+	case int:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case int64:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case uint64:
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
 // checkErrorStatus converts a parsed response with status="error" into
 // a typed error carrying the Agda-side code and message. Both “code“
 // and “message“ must be non-null strings — a missing or non-string
 // value surfaces as a protocol error rather than being papered over with
 // a default, matching Python's “build_error_response“ strict contract.
+//
+// InputBoundExceeded responses lift the structured triple into a typed
+// [InputBoundExceededError] when all three of “bound_kind“ /
+// “observed“ / “limit“ are present; mirrors Python's
+// “build_error_response“ and C++'s “make_json_error“ lifting.
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
 	if status != "error" {
@@ -795,6 +943,9 @@ func checkErrorStatus(m map[string]any) error {
 	msg, err := requireString(m, "message")
 	if err != nil {
 		return err
+	}
+	if bex := inputBoundExceededFromResponse(code, m); bex != nil {
+		return bex
 	}
 	return newCodedError(ErrProtocol, code, msg)
 }
@@ -1031,9 +1182,11 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		code := buf[off+2]
 		off += 3
 		name := signalNameByIndex(names, idx)
-		msg := fmt.Sprintf("unknown error code %d", code)
+		var msg string
 		if int(code) < len(extractionErrorMessages) {
 			msg = extractionErrorMessages[code]
+		} else {
+			msg = fmt.Sprintf("unknown error code %d", code)
 		}
 		result.Errors = append(result.Errors, SignalError{Name: name, Error: msg})
 	}
@@ -1067,13 +1220,17 @@ func signalNameByIndex(names []string, idx uint16) SignalName {
 	return SignalName(fmt.Sprintf("signal_%d", idx))
 }
 
+// maxFormulaDepth bounds recursion in the parsed-formula tree (parseFormulaJSON).
+// Unrelated to the streaming hot path; defined here because both this and the
+// ack-fast-path constants live in json.go's parse-side helpers.
+const maxFormulaDepth = 100
+
 // Ack fast path constants — avoid json.Unmarshal for ~99% of streaming frames.
 // The Agda core emits exactly {"status":"ack"} (compact). The spaced variant
 // covers json.Marshal output used by MockBackend.
 const (
-	maxFormulaDepth = 100
-	ackCompact      = `{"status":"ack"}`
-	ackSpaced       = `{"status": "ack"}`
+	ackCompact = `{"status":"ack"}`
+	ackSpaced  = `{"status": "ack"}`
 )
 
 // parseFrameResponse decodes the per-frame LTL verdict returned by
@@ -1206,8 +1363,8 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 	return pr, nil
 }
 
-// parseDbcResponse decodes a formatDBC response into a DbcDefinition.
-func parseDbcResponse(raw string) (*DbcDefinition, error) {
+// parseDbcResponse decodes a formatDBC response into a DBCDefinition.
+func parseDbcResponse(raw string) (*DBCDefinition, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
 		return nil, err
@@ -1308,11 +1465,11 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 }
 
 // parseDbcDefinition decodes the "dbc" sub-object of a formatDBC
-// response into its typed DbcDefinition form. Tier 1 metadata arrays
+// response into its typed DBCDefinition form. Tier 1 metadata arrays
 // (signalGroups / environmentVars / valueTables) are optional on the
 // wire — absent or null keys become empty slices.
-func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
-	var messages []DbcMessage
+func parseDbcDefinition(j map[string]any) (*DBCDefinition, error) {
+	var messages []DBCMessage
 	for _, item := range getArray(j, "messages") {
 		mRaw, ok := item.(map[string]any)
 		if !ok {
@@ -1349,12 +1506,12 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 	if err != nil {
 		return nil, err
 	}
-	unresolvedVDs, err := parseUnresolvedValueDescs(j)
+	unresolvedValueDescs, err := parseUnresolvedValueDescs(j)
 	if err != nil {
 		return nil, err
 	}
 
-	def := &DbcDefinition{
+	def := &DBCDefinition{
 		Version:                     getString(j, "version"),
 		Messages:                    messages,
 		SignalGroups:                signalGroups,
@@ -1363,196 +1520,170 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 		Nodes:                       nodes,
 		Comments:                    comments,
 		Attributes:                  attributes,
-		UnresolvedValueDescriptions: unresolvedVDs,
+		UnresolvedValueDescriptions: unresolvedValueDescs,
 	}
 	def.buildIndexes()
 	return def, nil
 }
 
-// parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array
-// (Track E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
-// Empty/absent on the JSON-parse path is the common case.
-func parseUnresolvedValueDescs(j map[string]any) ([]DbcRawValueDesc, error) {
-	raw := getArray(j, "unresolvedValueDescs")
+// parseObjects is the shared template for decoding an array-of-objects field
+// on the JSON wire.  Returns (nil, nil) for an empty/absent field, a protocol
+// error at the first non-object entry, and propagates per-entry decoder
+// errors verbatim.  The 7 list parsers in this file (parseSignalGroups /
+// parseEnvironmentVars / parseValueTables / parseNodes / parseComments /
+// parseAttributes / parseUnresolvedValueDescs) all share this outer
+// plumbing; their per-entry decode is the `decode` callback.
+func parseObjects[T any](
+	j map[string]any,
+	fieldName string,
+	decode func(map[string]any) (T, error),
+) ([]T, error) {
+	raw := getArray(j, fieldName)
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	out := make([]DbcRawValueDesc, 0, len(raw))
+	out := make([]T, 0, len(raw))
 	for _, item := range raw {
-		rvdRaw, ok := item.(map[string]any)
+		m, ok := item.(map[string]any)
 		if !ok {
-			return nil, protocolError("expected object in unresolvedValueDescs array")
+			return nil, protocolError(fmt.Sprintf("expected object in %s array", fieldName))
 		}
+		v, err := decode(m)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array
+// (Track E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
+// Empty/absent on the JSON-parse path is the common case.
+func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
+	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {
 		idVal, ext, err := parseCanIDFields(rvdRaw)
 		if err != nil {
-			return nil, wrapProtocol("invalid unresolvedValueDesc id", err)
+			return DBCRawValueDesc{}, wrapProtocol("invalid unresolvedValueDesc id", err)
 		}
-		var canID CanID
+		var canID CANID
 		if ext {
 			eid, err := NewExtendedID(idVal)
 			if err != nil {
-				return nil, err
+				return DBCRawValueDesc{}, err
 			}
 			canID = eid
 		} else {
 			sid, err := NewStandardID(uint16(idVal))
 			if err != nil {
-				return nil, err
+				return DBCRawValueDesc{}, err
 			}
 			canID = sid
 		}
-		entriesRaw := getArray(rvdRaw, "entries")
-		entries := make([]DbcValueEntry, 0, len(entriesRaw))
-		for _, er := range entriesRaw {
-			eRaw, ok := er.(map[string]any)
-			if !ok {
-				return nil, protocolError("expected object in unresolvedValueDescs.entries array")
-			}
+		entries, err := parseObjects(rvdRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
 			if err != nil {
-				return nil, wrapProtocol("invalid unresolvedValueDescs entry value", err)
+				return DBCValueEntry{}, wrapProtocol("invalid unresolvedValueDescs entry value", err)
 			}
-			entries = append(entries, DbcValueEntry{
+			return DBCValueEntry{
 				Value:       v,
 				Description: getString(eRaw, "description"),
-			})
+			}, nil
+		})
+		if err != nil {
+			return DBCRawValueDesc{}, err
 		}
-		out = append(out, DbcRawValueDesc{
-			CanID:      canID,
+		return DBCRawValueDesc{
+			CANID:      canID,
 			SignalName: getString(rvdRaw, "signalName"),
 			Entries:    entries,
-		})
-	}
-	return out, nil
+		}, nil
+	})
 }
 
 // parseSignalGroups decodes the optional "signalGroups" array from a
 // formatDBC "dbc" sub-object.
-func parseSignalGroups(j map[string]any) ([]DbcSignalGroup, error) {
-	raw := getArray(j, "signalGroups")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DbcSignalGroup, 0, len(raw))
-	for _, item := range raw {
-		gRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in signalGroups array")
-		}
-		name := getString(gRaw, "name")
+func parseSignalGroups(j map[string]any) ([]DBCSignalGroup, error) {
+	return parseObjects(j, "signalGroups", func(gRaw map[string]any) (DBCSignalGroup, error) {
 		sigsRaw := getArray(gRaw, "signals")
 		sigs := make([]SignalName, 0, len(sigsRaw))
 		for _, sn := range sigsRaw {
 			s, ok := sn.(string)
 			if !ok {
-				return nil, protocolError("signalGroups.signals entry is not a string")
+				return DBCSignalGroup{}, protocolError("signalGroups.signals entry is not a string")
 			}
 			sigs = append(sigs, SignalName(s))
 		}
-		out = append(out, DbcSignalGroup{Name: name, Signals: sigs})
-	}
-	return out, nil
+		return DBCSignalGroup{Name: getString(gRaw, "name"), Signals: sigs}, nil
+	})
 }
 
 // parseEnvironmentVars decodes the optional "environmentVars" array.
 // The wire-tag “varType“ must be one of 0/1/2 (Int/Float/String); any
 // other value is a protocol error.
-func parseEnvironmentVars(j map[string]any) ([]DbcEnvironmentVar, error) {
-	raw := getArray(j, "environmentVars")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DbcEnvironmentVar, 0, len(raw))
-	for _, item := range raw {
-		evRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in environmentVars array")
-		}
+func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
+	return parseObjects(j, "environmentVars", func(evRaw map[string]any) (DBCEnvironmentVar, error) {
 		tagVal, err := parseNumberAsInt64(evRaw["varType"])
 		if err != nil {
-			return nil, wrapProtocol("invalid varType", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid varType", err)
 		}
 		if tagVal < 0 || tagVal > 2 {
-			return nil, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
+			return DBCEnvironmentVar{}, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
 		}
 		initial, err := parseRational(evRaw["initial"])
 		if err != nil {
-			return nil, wrapProtocol("invalid environmentVar initial", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar initial", err)
 		}
 		minimum, err := parseRational(evRaw["minimum"])
 		if err != nil {
-			return nil, wrapProtocol("invalid environmentVar minimum", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar minimum", err)
 		}
 		maximum, err := parseRational(evRaw["maximum"])
 		if err != nil {
-			return nil, wrapProtocol("invalid environmentVar maximum", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar maximum", err)
 		}
-		out = append(out, DbcEnvironmentVar{
+		return DBCEnvironmentVar{
 			Name:    getString(evRaw, "name"),
-			VarType: DbcVarType(tagVal),
+			VarType: DBCVarType(tagVal),
 			Initial: initial,
 			Minimum: minimum,
 			Maximum: maximum,
-		})
-	}
-	return out, nil
+		}, nil
+	})
 }
 
 // parseValueTables decodes the optional "valueTables" array. Each entry's
 // integer value is parsed through [parseNumberAsInt64] to tolerate JSON's
 // float decoder on whole-number values.
-func parseValueTables(j map[string]any) ([]DbcValueTable, error) {
-	raw := getArray(j, "valueTables")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DbcValueTable, 0, len(raw))
-	for _, item := range raw {
-		vtRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in valueTables array")
-		}
-		entriesRaw := getArray(vtRaw, "entries")
-		entries := make([]DbcValueEntry, 0, len(entriesRaw))
-		for _, er := range entriesRaw {
-			eRaw, ok := er.(map[string]any)
-			if !ok {
-				return nil, protocolError("expected object in valueTables.entries array")
-			}
+func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
+	return parseObjects(j, "valueTables", func(vtRaw map[string]any) (DBCValueTable, error) {
+		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
 			if err != nil {
-				return nil, wrapProtocol("invalid valueTable entry value", err)
+				return DBCValueEntry{}, wrapProtocol("invalid valueTable entry value", err)
 			}
-			entries = append(entries, DbcValueEntry{
+			return DBCValueEntry{
 				Value:       v,
 				Description: getString(eRaw, "description"),
-			})
+			}, nil
+		})
+		if err != nil {
+			return DBCValueTable{}, err
 		}
-		out = append(out, DbcValueTable{
+		return DBCValueTable{
 			Name:    getString(vtRaw, "name"),
 			Entries: entries,
-		})
-	}
-	return out, nil
+		}, nil
+	})
 }
 
 // --- Tier 2 parsers (JSON from Agda core → Go) ---
 
 // parseNodes decodes the optional "nodes" array.
-func parseNodes(j map[string]any) ([]DbcNode, error) {
-	raw := getArray(j, "nodes")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DbcNode, 0, len(raw))
-	for _, item := range raw {
-		nRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in nodes array")
-		}
-		out = append(out, DbcNode{Name: getString(nRaw, "name")})
-	}
-	return out, nil
+func parseNodes(j map[string]any) ([]DBCNode, error) {
+	return parseObjects(j, "nodes", func(nRaw map[string]any) (DBCNode, error) {
+		return DBCNode{Name: getString(nRaw, "name")}, nil
+	})
 }
 
 // parseCanIDFields reads the {"id", "extended"} pair that every
@@ -1572,79 +1703,69 @@ func parseCanIDFields(m map[string]any) (uint32, bool, error) {
 // parseCommentTarget decodes one comment target object, dispatching on
 // the "kind" discriminator and rejecting unknown kinds as protocol
 // errors (matches Agda's parseCommentTarget).
-func parseCommentTarget(m map[string]any) (DbcCommentTarget, error) {
+func parseCommentTarget(m map[string]any) (DBCCommentTarget, error) {
 	kind := getString(m, "kind")
 	switch kind {
 	case "network":
-		return DbcCommentTargetNetwork{}, nil
+		return DBCCommentTargetNetwork{}, nil
 	case "node":
-		return DbcCommentTargetNode{Node: getString(m, "node")}, nil
+		return DBCCommentTargetNode{Node: getString(m, "node")}, nil
 	case "message":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
-		return DbcCommentTargetMessage{ID: id, Extended: ext}, nil
+		return DBCCommentTargetMessage{ID: id, Extended: ext}, nil
 	case "signal":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
-		return DbcCommentTargetSignal{ID: id, Extended: ext, Signal: getString(m, "signal")}, nil
+		return DBCCommentTargetSignal{ID: id, Extended: ext, Signal: getString(m, "signal")}, nil
 	case "envVar":
-		return DbcCommentTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
+		return DBCCommentTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
 	default:
 		return nil, protocolError(fmt.Sprintf("unknown comment target kind: %q", kind))
 	}
 }
 
 // parseComments decodes the optional "comments" array.
-func parseComments(j map[string]any) ([]DbcComment, error) {
-	raw := getArray(j, "comments")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DbcComment, 0, len(raw))
-	for _, item := range raw {
-		cRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in comments array")
-		}
+func parseComments(j map[string]any) ([]DBCComment, error) {
+	return parseObjects(j, "comments", func(cRaw map[string]any) (DBCComment, error) {
 		targetRaw, ok := cRaw["target"].(map[string]any)
 		if !ok {
-			return nil, protocolError("comment entry missing target object")
+			return DBCComment{}, protocolError("comment entry missing target object")
 		}
 		target, err := parseCommentTarget(targetRaw)
 		if err != nil {
-			return nil, err
+			return DBCComment{}, err
 		}
-		out = append(out, DbcComment{Target: target, Text: getString(cRaw, "text")})
-	}
-	return out, nil
+		return DBCComment{Target: target, Text: getString(cRaw, "text")}, nil
+	})
 }
 
-func parseAttrScope(s string) (DbcAttrScope, error) {
+func parseAttrScope(s string) (DBCAttrScope, error) {
 	switch s {
 	case "network":
-		return DbcAttrScopeNetwork, nil
+		return DBCAttrScopeNetwork, nil
 	case "node":
-		return DbcAttrScopeNode, nil
+		return DBCAttrScopeNode, nil
 	case "message":
-		return DbcAttrScopeMessage, nil
+		return DBCAttrScopeMessage, nil
 	case "signal":
-		return DbcAttrScopeSignal, nil
+		return DBCAttrScopeSignal, nil
 	case "envVar":
-		return DbcAttrScopeEnvVar, nil
+		return DBCAttrScopeEnvVar, nil
 	case "nodeMsg":
-		return DbcAttrScopeNodeMsg, nil
+		return DBCAttrScopeNodeMsg, nil
 	case "nodeSig":
-		return DbcAttrScopeNodeSig, nil
+		return DBCAttrScopeNodeSig, nil
 	default:
 		return 0, protocolError(fmt.Sprintf("unknown attr scope: %q", s))
 	}
 }
 
-func parseAttrType(m map[string]any) (DbcAttrType, error) {
+func parseAttrType(m map[string]any) (DBCAttrType, error) {
 	kind := getString(m, "kind")
 	switch kind {
 	case "int":
@@ -1656,7 +1777,7 @@ func parseAttrType(m map[string]any) (DbcAttrType, error) {
 		if err != nil {
 			return nil, wrapProtocol("invalid int attr max", err)
 		}
-		return DbcAttrTypeInt{Min: minV, Max: maxV}, nil
+		return DBCAttrTypeInt{Min: minV, Max: maxV}, nil
 	case "float":
 		minV, err := parseRational(m["min"])
 		if err != nil {
@@ -1666,9 +1787,9 @@ func parseAttrType(m map[string]any) (DbcAttrType, error) {
 		if err != nil {
 			return nil, wrapProtocol("invalid float attr max", err)
 		}
-		return DbcAttrTypeFloat{Min: minV, Max: maxV}, nil
+		return DBCAttrTypeFloat{Min: minV, Max: maxV}, nil
 	case "string":
-		return DbcAttrTypeString{}, nil
+		return DBCAttrTypeString{}, nil
 	case "enum":
 		valuesRaw := getArray(m, "values")
 		values := make([]string, 0, len(valuesRaw))
@@ -1679,7 +1800,7 @@ func parseAttrType(m map[string]any) (DbcAttrType, error) {
 			}
 			values = append(values, s)
 		}
-		return DbcAttrTypeEnum{Values: values}, nil
+		return DBCAttrTypeEnum{Values: values}, nil
 	case "hex":
 		minV, err := parseNumberAsInt64(m["min"])
 		if err != nil {
@@ -1689,13 +1810,13 @@ func parseAttrType(m map[string]any) (DbcAttrType, error) {
 		if err != nil {
 			return nil, wrapProtocol("invalid hex attr max", err)
 		}
-		return DbcAttrTypeHex{Min: minV, Max: maxV}, nil
+		return DBCAttrTypeHex{Min: minV, Max: maxV}, nil
 	default:
 		return nil, protocolError(fmt.Sprintf("unknown attr type kind: %q", kind))
 	}
 }
 
-func parseAttrValue(m map[string]any) (DbcAttrValue, error) {
+func parseAttrValue(m map[string]any) (DBCAttrValue, error) {
 	kind := getString(m, "kind")
 	switch kind {
 	case "int":
@@ -1703,65 +1824,65 @@ func parseAttrValue(m map[string]any) (DbcAttrValue, error) {
 		if err != nil {
 			return nil, wrapProtocol("invalid int attr value", err)
 		}
-		return DbcAttrValueInt{Value: v}, nil
+		return DBCAttrValueInt{Value: v}, nil
 	case "float":
 		v, err := parseRational(m["value"])
 		if err != nil {
 			return nil, wrapProtocol("invalid float attr value", err)
 		}
-		return DbcAttrValueFloat{Value: v}, nil
+		return DBCAttrValueFloat{Value: v}, nil
 	case "string":
-		return DbcAttrValueString{Value: getString(m, "value")}, nil
+		return DBCAttrValueString{Value: getString(m, "value")}, nil
 	case "enum":
 		v, err := parseNumberAsInt64(m["value"])
 		if err != nil {
 			return nil, wrapProtocol("invalid enum attr value", err)
 		}
-		return DbcAttrValueEnum{Value: v}, nil
+		return DBCAttrValueEnum{Value: v}, nil
 	case "hex":
 		v, err := parseNumberAsInt64(m["value"])
 		if err != nil {
 			return nil, wrapProtocol("invalid hex attr value", err)
 		}
-		return DbcAttrValueHex{Value: v}, nil
+		return DBCAttrValueHex{Value: v}, nil
 	default:
 		return nil, protocolError(fmt.Sprintf("unknown attr value kind: %q", kind))
 	}
 }
 
-func parseAttrTarget(m map[string]any) (DbcAttrTarget, error) {
+func parseAttrTarget(m map[string]any) (DBCAttrTarget, error) {
 	kind := getString(m, "kind")
 	switch kind {
 	case "network":
-		return DbcAttrTargetNetwork{}, nil
+		return DBCAttrTargetNetwork{}, nil
 	case "node":
-		return DbcAttrTargetNode{Node: getString(m, "node")}, nil
+		return DBCAttrTargetNode{Node: getString(m, "node")}, nil
 	case "message":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrTargetMessage{ID: id, Extended: ext}, nil
+		return DBCAttrTargetMessage{ID: id, Extended: ext}, nil
 	case "signal":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrTargetSignal{ID: id, Extended: ext, Signal: getString(m, "signal")}, nil
+		return DBCAttrTargetSignal{ID: id, Extended: ext, Signal: getString(m, "signal")}, nil
 	case "envVar":
-		return DbcAttrTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
+		return DBCAttrTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
 	case "nodeMsg":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrTargetNodeMsg{Node: getString(m, "node"), ID: id, Extended: ext}, nil
+		return DBCAttrTargetNodeMsg{Node: getString(m, "node"), ID: id, Extended: ext}, nil
 	case "nodeSig":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrTargetNodeSig{
+		return DBCAttrTargetNodeSig{
 			Node:     getString(m, "node"),
 			ID:       id,
 			Extended: ext,
@@ -1772,7 +1893,7 @@ func parseAttrTarget(m map[string]any) (DbcAttrTarget, error) {
 	}
 }
 
-func parseAttribute(m map[string]any) (DbcAttribute, error) {
+func parseAttribute(m map[string]any) (DBCAttribute, error) {
 	kind := getString(m, "kind")
 	switch kind {
 	case "definition":
@@ -1788,7 +1909,7 @@ func parseAttribute(m map[string]any) (DbcAttribute, error) {
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrDef{Name: getString(m, "name"), Scope: scope, AttrType: at}, nil
+		return DBCAttrDef{Name: getString(m, "name"), Scope: scope, AttrType: at}, nil
 	case "default":
 		valRaw, ok := m["value"].(map[string]any)
 		if !ok {
@@ -1798,7 +1919,7 @@ func parseAttribute(m map[string]any) (DbcAttribute, error) {
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrDefault{Name: getString(m, "name"), Value: val}, nil
+		return DBCAttrDefault{Name: getString(m, "name"), Value: val}, nil
 	case "assignment":
 		targetRaw, ok := m["target"].(map[string]any)
 		if !ok {
@@ -1816,36 +1937,20 @@ func parseAttribute(m map[string]any) (DbcAttribute, error) {
 		if err != nil {
 			return nil, err
 		}
-		return DbcAttrAssign{Name: getString(m, "name"), Target: target, Value: val}, nil
+		return DBCAttrAssign{Name: getString(m, "name"), Target: target, Value: val}, nil
 	default:
 		return nil, protocolError(fmt.Sprintf("unknown attribute kind: %q", kind))
 	}
 }
 
 // parseAttributes decodes the optional "attributes" array.
-func parseAttributes(j map[string]any) ([]DbcAttribute, error) {
-	raw := getArray(j, "attributes")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DbcAttribute, 0, len(raw))
-	for _, item := range raw {
-		aRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in attributes array")
-		}
-		a, err := parseAttribute(aRaw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, nil
+func parseAttributes(j map[string]any) ([]DBCAttribute, error) {
+	return parseObjects(j, "attributes", parseAttribute)
 }
 
-// parseDbcMessage decodes a single message from a DbcDefinition JSON
+// parseDbcMessage decodes a single message from a DBCDefinition JSON
 // object, including its signals and multiplexing metadata.
-func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
+func parseDbcMessage(j map[string]any) (*DBCMessage, error) {
 	idVal, err := parseNumberAsInt64(j["id"])
 	if err != nil {
 		return nil, wrapProtocol("invalid message id", err)
@@ -1855,7 +1960,7 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 	}
 	extended := getBool(j, "extended")
 
-	var id CanID
+	var id CANID
 	if extended {
 		if idVal > math.MaxUint32 {
 			return nil, protocolError(fmt.Sprintf("CAN ID %d exceeds uint32 range", idVal))
@@ -1882,7 +1987,7 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 		return nil, err
 	}
 
-	var signals []DbcSignal
+	var signals []DBCSignal
 	for _, item := range getArray(j, "signals") {
 		sRaw, ok := item.(map[string]any)
 		if !ok {
@@ -1912,7 +2017,7 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 		}
 	}
 
-	msg := &DbcMessage{
+	msg := &DBCMessage{
 		ID:      id,
 		Name:    MessageName(msgName),
 		DLC:     dlc,
@@ -1925,8 +2030,8 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 }
 
 // parseDbcSignal decodes one signal definition from a DBC JSON object.
-func parseDbcSignal(j map[string]any) (DbcSignal, error) {
-	var zero DbcSignal
+func parseDbcSignal(j map[string]any) (DBCSignal, error) {
+	var zero DBCSignal
 	var bo ByteOrder
 	switch getString(j, "byteOrder") {
 	case "little_endian":
@@ -2001,9 +2106,9 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		}
 	}
 
-	var valueDescriptions []DbcValueEntry
+	var valueDescriptions []DBCValueEntry
 	if raw, ok := j["valueDescriptions"].([]any); ok {
-		valueDescriptions = make([]DbcValueEntry, 0, len(raw))
+		valueDescriptions = make([]DBCValueEntry, 0, len(raw))
 		for _, item := range raw {
 			eMap, eOk := item.(map[string]any)
 			if !eOk {
@@ -2013,14 +2118,14 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 			if err != nil {
 				return zero, wrapProtocol("invalid valueDescriptions entry value", err)
 			}
-			valueDescriptions = append(valueDescriptions, DbcValueEntry{
+			valueDescriptions = append(valueDescriptions, DBCValueEntry{
 				Value:       v,
 				Description: getString(eMap, "description"),
 			})
 		}
 	}
 
-	return DbcSignal{
+	return DBCSignal{
 		Name:              SignalName(name),
 		StartBit:          BitPosition(startBit),
 		BitLength:         BitLength(length),

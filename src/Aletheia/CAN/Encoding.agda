@@ -99,20 +99,26 @@ injectSignal value signalDef byteOrder frame =
      then injectHelper value signalDef byteOrder frame
      else nothing
   where
-    -- Deferred Bool fast path (AA-16.5): the `_<?_` guard below builds a
-    -- `Dec (fromSigned … < 2 ^ bitLength)` per signal per frame-build.
-    -- A `_<ᵇ_` + `<ᵇ⇒<` refactor would avoid the per-call Dec allocation,
-    -- but the proof files `Encoding/Properties/Roundtrip.agda` (via the
-    -- `fits-check` / `dec-yes-irr` / `inject-reduces` lemmas) and
-    -- `Encoding/Properties/Disjoint.agda` (via `with … <? … | yes bounded`
-    -- patterns at lines 70 and 140) structurally pattern-match on this
-    -- `Dec`. Switching the guard requires rewriting those proofs to use
-    -- `with … <ᵇ … in eq` plus a `<ᵇ⇒<` bridge in every lemma, which
-    -- is a larger proof refactor than the marginal `removeScaling`-dominated
-    -- frame-build throughput gain justifies. Left as-is pending a measured
-    -- Frame Building regression or a dedicated proof-refactor pass.
-    -- (Post-Round-8 Batch 1 benchmarks: Frame Building +1.5%/+4.3% for
-    -- C++/CAN-FD; -2.7%/+1.8% for Go; within noise of the 5% gate.)
+    -- Deferred Bool fast path (AA-16.5; R19 cluster D PARTIAL 2026-05-09):
+    -- the `_<?_` guard below builds a `Dec (fromSigned … < 2 ^ bitLength)`
+    -- per signal per frame-build.  R19 cluster D landed `@0` on
+    -- `ℕToBitVec`'s bound slot (in `Aletheia.Data.BitVec.Conversion`), so
+    -- the proof witness inside the `yes`-constructor flows into a slot
+    -- that MAlonzo erases — the proof's runtime payload is now zero-cost.
+    -- The `Dec` wrapper itself (`yes`/`no` + Bool decision via `_<ᵇ_`)
+    -- still allocates per call.  Eliminating that wrapper via a `_<ᵇ_`
+    -- in-place rewrite was attempted at R19 cluster D (three distinct
+    -- approaches: direct rewrite, `mkBoundedBitVec` helper restructure,
+    -- and `@0`-erasure-with-Bool-rewrite) but blocks at Agda's
+    -- with-abstraction elaboration mechanism: `with ... in eq` inside
+    -- `injectHelper` creates a closed scope that the proof side's outer
+    -- `with`-abstraction cannot penetrate (cf. agda.readthedocs.io
+    -- /with-abstraction.html#ill-typed-with-abstractions).  The blocker
+    -- is structural to Agda's `with`, not to the proof effort estimate;
+    -- revisit only viable via an upstream Agda fix or eliminating the
+    -- Dec dispatch entirely.  (Post-Round-8 Batch 1 benchmarks: Frame
+    -- Building +1.5%/+4.3% for C++/CAN-FD; -2.7%/+1.8% for Go; within
+    -- noise of the 5% gate.)
     injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
     injectHelper {m} value signalDef byteOrder frame
       with removeScaling value (toℚ factor) (toℚ offset)

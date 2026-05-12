@@ -12,15 +12,15 @@ module Aletheia.DBC.Validity.Theorem where
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.Validator using
   ( errorIssues; validateDBCFull
-  ; checkDuplicateMessageIds; checkAllDuplicateSignalNames
+  ; checkAllDuplicateMessageIds; checkAllDuplicateSignalNames
   ; checkAllFactorZero; checkAllMuxFound; checkAllMuxCycle
   ; checkAllMuxScaling; checkAllGlobalNameCollisions; checkAllMinMax
   ; checkAllSignalExceedsDLC; checkAllSignalOverlaps
-  ; checkAllBitLengthZero; checkDuplicateMessageNames
+  ; checkAllBitLengthZero; checkAllDuplicateMessageNames
   ; checkAllOffsetScaleRange
   ; checkAllEmptyMessage; checkAllStartBitOutOfRange
   ; checkAllBitLengthExcessive
-  ; checkDuplicateAttributeNames; checkAllUnknownCommentTargets
+  ; checkAllDuplicateAttributeNames; checkAllUnknownCommentTargets
   ; checkAllUnknownMessageSenders; checkAllUnknownSignalReceivers
   ; checkAllUnknownAdditionalSenders
   ; checkAllUnknownValueDescriptionTargets
@@ -29,13 +29,13 @@ open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.Validity.Composition using
   ( ei-split; ei-combine; ei-from-≡[]; errorIssues-allE-nil
   ; errorIssues-allW
-  ; checkDuplicateMessageIds-allE; checkAllDuplicateSignalNames-allE
+  ; checkAllDuplicateMessageIds-allE; checkAllDuplicateSignalNames-allE
   ; checkAllFactorZero-allE; checkAllMuxFound-allE
   ; checkAllMuxCycle-allE; checkAllSignalExceedsDLC-allE
   ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE
   )
 open import Aletheia.DBC.Validity.ErrorChecks using
-  ( checkDuplicateMessageIds-sound; checkDuplicateMessageIds-complete
+  ( checkAllDuplicateMessageIds-sound; checkAllDuplicateMessageIds-complete
   ; checkAllDuplicateSignalNames-sound
   ; checkAllDuplicateSignalNames-complete
   ; checkAllFactorZero-sound; checkAllFactorZero-complete
@@ -48,10 +48,10 @@ open import Aletheia.DBC.Validity.ErrorChecks using
   )
 open import Aletheia.DBC.Validity.WarningChecks using
   ( checkAllMuxScaling-allW; checkAllGlobalNameCollisions-allW
-  ; checkAllMinMax-allW; checkDuplicateMessageNames-allW
+  ; checkAllMinMax-allW; checkAllDuplicateMessageNames-allW
   ; checkAllOffsetScaleRange-allW; checkAllEmptyMessage-allW
   ; checkAllStartBitOutOfRange-allW; checkAllBitLengthExcessive-allW
-  ; checkDuplicateAttributeNames-allW; checkAllUnknownCommentTargets-allW
+  ; checkAllDuplicateAttributeNames-allW; checkAllUnknownCommentTargets-allW
   ; checkAllUnknownMessageSenders-allW; checkAllUnknownSignalReceivers-allW
   ; checkAllUnknownAdditionalSenders-allW
   ; checkAllUnknownValueDescriptionTargets-allW
@@ -66,8 +66,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 soundness : ∀ dbc → errorIssues (validateDBCFull dbc) ≡ [] → ValidDBC dbc
 soundness dbc eq₀ = record
-  { uniqueIds        = checkDuplicateMessageIds-sound msgs
-      (errorIssues-allE-nil _ (checkDuplicateMessageIds-allE msgs) (proj₁ s₁))
+  { uniqueIds        = checkAllDuplicateMessageIds-sound msgs
+      (errorIssues-allE-nil _ (checkAllDuplicateMessageIds-allE msgs) (proj₁ s₁))
   ; uniqueSigNames   = checkAllDuplicateSignalNames-sound msgs
       (errorIssues-allE-nil _ (checkAllDuplicateSignalNames-allE msgs) (proj₁ s₂))
   ; nonZeroFactors   = checkAllFactorZero-sound msgs
@@ -85,7 +85,7 @@ soundness dbc eq₀ = record
   }
   where
     msgs = DBC.messages dbc
-    s₁  = ei-split (checkDuplicateMessageIds msgs) _ eq₀
+    s₁  = ei-split (checkAllDuplicateMessageIds msgs) _ eq₀
     s₂  = ei-split (checkAllDuplicateSignalNames msgs) _ (proj₂ s₁)
     s₃  = ei-split (checkAllFactorZero msgs) _ (proj₂ s₂)
     s₄  = ei-split (checkAllMuxFound msgs) _ (proj₂ s₃)
@@ -103,8 +103,8 @@ soundness dbc eq₀ = record
 
 completeness : ∀ dbc → ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
 completeness dbc v =
-  ei-combine (checkDuplicateMessageIds msgs) _
-    (ei-from-≡[] _ (checkDuplicateMessageIds-complete msgs (ValidDBC.uniqueIds v)))
+  ei-combine (checkAllDuplicateMessageIds msgs) _
+    (ei-from-≡[] _ (checkAllDuplicateMessageIds-complete msgs (ValidDBC.uniqueIds v)))
   (ei-combine (checkAllDuplicateSignalNames msgs) _
     (ei-from-≡[] _ (checkAllDuplicateSignalNames-complete msgs (ValidDBC.uniqueSigNames v)))
   (ei-combine (checkAllFactorZero msgs) _
@@ -125,8 +125,8 @@ completeness dbc v =
     (ei-from-≡[] _ (checkAllSignalOverlaps-complete msgs (ValidDBC.sigPairsValid v)))
   (ei-combine (checkAllBitLengthZero msgs) _
     (ei-from-≡[] _ (checkAllBitLengthZero-complete msgs (ValidDBC.nonZeroBitLengths v)))
-  (ei-combine (checkDuplicateMessageNames msgs) _
-    (errorIssues-allW _ (checkDuplicateMessageNames-allW msgs))
+  (ei-combine (checkAllDuplicateMessageNames msgs) _
+    (errorIssues-allW _ (checkAllDuplicateMessageNames-allW msgs))
   (ei-combine (checkAllOffsetScaleRange msgs) _
     (errorIssues-allW _ (checkAllOffsetScaleRange-allW msgs))
   (ei-combine (checkAllEmptyMessage msgs) _
@@ -135,8 +135,8 @@ completeness dbc v =
     (errorIssues-allW _ (checkAllStartBitOutOfRange-allW msgs))
   (ei-combine (checkAllBitLengthExcessive msgs) _
     (errorIssues-allW _ (checkAllBitLengthExcessive-allW msgs))
-  (ei-combine (checkDuplicateAttributeNames attrs) _
-    (errorIssues-allW _ (checkDuplicateAttributeNames-allW attrs))
+  (ei-combine (checkAllDuplicateAttributeNames attrs) _
+    (errorIssues-allW _ (checkAllDuplicateAttributeNames-allW attrs))
   (ei-combine (checkAllUnknownCommentTargets msgs nodes envVars cmts) _
     (errorIssues-allW _ (checkAllUnknownCommentTargets-allW msgs nodes envVars cmts))
   (ei-combine (checkAllUnknownMessageSenders msgs nodes) _

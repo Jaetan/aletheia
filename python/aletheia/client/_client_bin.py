@@ -16,7 +16,8 @@ from enum import IntEnum
 from fractions import Fraction
 from typing import NoReturn
 
-from ._types import ProcessError, SignalExtractionResult
+from ..protocols import DLCCode
+from ._types import ProtocolError, SignalExtractionResult
 
 
 class ExtractionErrorCode(IntEnum):
@@ -66,7 +67,7 @@ class FrameIdentity:
     """CAN frame identity (ID + ID width + DLC) used by all binary calls."""
     can_id: int
     extended: bool
-    dlc: int
+    dlc: DLCCode
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,19 +83,19 @@ def _decode_and_raise(
     out_err: ctypes.c_char_p,
     prefix: str,
 ) -> NoReturn:
-    """Decode a C error string out-parameter, free it, and raise ProcessError.
+    """Decode a C error string out-parameter, free it, and raise ProtocolError.
 
-    Raises ``ProcessError`` with the decoded UTF-8 message prefixed by
+    Raises ``ProtocolError`` with the decoded UTF-8 message prefixed by
     *prefix*, or ``"Unknown error"`` if the pointer is null.
     """
     # ctypes.cast narrows to bytes|None correctly for pylint (direct
     # out_err.value flags .decode as no-member).
     raw_err = ctypes.cast(out_err, ctypes.c_char_p).value
     if raw_err is None:
-        raise ProcessError(f"{prefix}: Unknown error")
+        raise ProtocolError(f"{prefix}: Unknown error")
     err_msg = raw_err.decode("utf-8")
     lib.aletheia_free_str(out_err)
-    raise ProcessError(f"{prefix}: {err_msg}")
+    raise ProtocolError(f"{prefix}: {err_msg}")
 
 
 def _parse_values_segment(
@@ -108,7 +109,7 @@ def _parse_values_segment(
     """
     needed = off + count * 18
     if len(buf) < needed:
-        raise ProcessError(
+        raise ProtocolError(
             f"Truncated values segment: need {needed} bytes, have {len(buf)}"
         )
     values: dict[str, Fraction] = {}
@@ -117,7 +118,7 @@ def _parse_values_segment(
         off += 18
         name = names[idx] if idx < len(names) else f"signal_{idx}"
         if den == 0:
-            raise ProcessError(
+            raise ProtocolError(
                 f"Zero denominator in extraction value for {name!r}"
             )
         values[name] = Fraction(num, den)
@@ -130,7 +131,7 @@ def _parse_errors_segment(
     """Parse the errors segment: ``count`` × ``<HB`` (3 bytes each)."""
     needed = off + count * 3
     if len(buf) < needed:
-        raise ProcessError(
+        raise ProtocolError(
             f"Truncated errors segment: need {needed} bytes, have {len(buf)}"
         )
     errors: dict[str, str] = {}
@@ -154,7 +155,7 @@ def _parse_absent_segment(
     """Parse the absent segment: ``count`` × ``<H`` (2 bytes each)."""
     needed = off + count * 2
     if len(buf) < needed:
-        raise ProcessError(
+        raise ProtocolError(
             f"Truncated absent segment: need {needed} bytes, have {len(buf)}"
         )
     absent: list[str] = []
@@ -174,7 +175,7 @@ def parse_extraction_buffer(
     followed by each segment in that order.
     """
     if len(buf) < 6:
-        raise ProcessError(
+        raise ProtocolError(
             f"Binary extraction buffer too short: {len(buf)} bytes (need >= 6)"
         )
     nvals, nerrs, nabss = map(int, struct.unpack_from("<HHH", buf, 0))

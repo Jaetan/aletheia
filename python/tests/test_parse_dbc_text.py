@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aletheia import AletheiaClient
+from aletheia.protocols import DLCCode
 
 CORPUS_DIR = Path(__file__).parent / "fixtures" / "dbc_corpus"
 
@@ -45,7 +46,7 @@ class TestParseDBCTextSuccess:
             resp = client.parse_dbc_text(text)
             assert resp["status"] == "success"
             # 8 zero bytes — extraction should resolve every signal in EngineStatus.
-            result = client.extract_signals(can_id=256, dlc=8, data=b"\x00" * 8)
+            result = client.extract_signals(can_id=256, dlc=DLCCode(8), data=b"\x00" * 8)
         assert "EngineSpeed" in result.values
         assert "EngineTemp" in result.values
         # CoolantLevel has Vector__XXX → stripped to [] receivers, but the

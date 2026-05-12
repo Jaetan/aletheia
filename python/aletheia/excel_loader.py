@@ -45,6 +45,7 @@ signal is multiplexed; if both are empty, the signal is always-present.
     Within (ms) | Severity
 """
 
+import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .checks import Check, CheckResult
+from .client import AletheiaError, check_dbc_text_size_bound
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -66,12 +68,14 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
+from ._dbc_types import empty_dbc_tier2
 from .protocols import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
     DBCSignalAlways,
     DBCSignalMultiplexed,
+    DLCByteCount,
 )
 from ._loader_utils import (
     is_str,
@@ -81,6 +85,25 @@ from ._loader_utils import (
     get_bool,
 )
 from .client._helpers import to_signal_fraction
+
+
+def _check_xlsx_uncompressed_bound(path: Path) -> None:
+    """Sum the uncompressed sizes of every entry in the .xlsx (ZIP archive).
+
+    R19 cluster 12 — PY-B-23.4: openpyxl all-loads the workbook into memory;
+    the outer-file-size cap (`check_dbc_text_size_bound`) doesn't catch a
+    pathological ZIP that compresses, say, 10 GiB of XML down to 50 KiB.
+    Walk the central directory and reject if the sum of `file_size`
+    (uncompressed) exceeds the same bound.  No decompression is performed
+    here — `ZipFile.infolist()` reads the central directory only.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            total = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
+    check_dbc_text_size_bound(total)
+
 
 # Excel cell values: str, numbers, booleans, or None (empty)
 # PEP 695 native ``type`` statement — lazy, no ``from __future__ import``
@@ -184,11 +207,19 @@ def load_checks_from_excel(
 
     Raises:
         FileNotFoundError: File doesn't exist
+        InputBoundExceededError: If the file is larger than
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).  Excel
+            workbooks are ZIP archives that openpyxl all-loads into memory;
+            the cap protects against ZIP-bomb / oversized-input DOS per
+            AGENTS.md universal rule "Adversarial-input bounds at parser
+            surfaces".
         ValueError: Invalid data in cells
     """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
+    check_dbc_text_size_bound(p.stat().st_size)
+    _check_xlsx_uncompressed_bound(p)
 
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:
@@ -227,11 +258,19 @@ def load_dbc_from_excel(
 
     Raises:
         FileNotFoundError: File doesn't exist
+        InputBoundExceededError: If the file is larger than
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).  Excel
+            workbooks are ZIP archives that openpyxl all-loads into memory;
+            the cap protects against ZIP-bomb / oversized-input DOS per
+            AGENTS.md universal rule "Adversarial-input bounds at parser
+            surfaces".
         ValueError: Invalid or missing data
     """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
+    check_dbc_text_size_bound(p.stat().st_size)
+    _check_xlsx_uncompressed_bound(p)
 
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:
@@ -277,7 +316,7 @@ def create_template(path: str | Path) -> None:
     # DBC sheet (rename the default sheet)
     ws_dbc = wb.active
     if ws_dbc is None:
-        raise RuntimeError("Workbook has no active sheet")
+        raise AletheiaError("Workbook has no active sheet")
     ws_dbc.title = "DBC"
     _write_header_row(ws_dbc, DBC_HEADERS)
 
@@ -468,6 +507,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
             "minimum": to_signal_fraction(get_number(row, "Min", ctx)),
             "maximum": to_signal_fraction(get_number(row, "Max", ctx)),
             "unit": unit_str,
+            "presence": "multiplexed",
             "multiplexor": get_str(row, "Multiplexor", ctx),
             "multiplex_values": [get_int(row, "Multiplex Value", ctx)],
         }
@@ -520,7 +560,7 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
         msg = DBCMessage(
             id=key.msg_id,
             name=key.name,
-            dlc=key.dlc,
+            dlc=DLCByteCount(key.dlc),
             sender="",
             signals=signals,
         )
@@ -528,4 +568,8 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
             msg["extended"] = True
         messages.append(msg)
 
-    return {"version": "", "messages": messages}
+    return {
+        "version": "",
+        "messages": messages,
+        **empty_dbc_tier2(),
+    }

@@ -20,13 +20,30 @@ func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 }
 
 // LoadChecksFromYAMLFile loads checks from a YAML file.
+//
+// Returns *InputBoundExceededError if the file is larger than
+// MaxDBCTextBytes (64 MiB).  YAML check definitions reference signal
+// names from a parsed DBC, so the same input-length cap applies; cf.
+// Python aletheia.yaml_loader._check_input_bound and AGENTS.md
+// universal rule "Adversarial-input bounds at parser surfaces".
 func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 	path = filepath.Clean(path)
-	data, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, validationError(fmt.Sprintf("YAML file not found: %s", path))
 		}
+		return nil, wrapValidation("stat YAML file", err)
+	}
+	if size := uint64(info.Size()); size > MaxDBCTextBytes {
+		return nil, &InputBoundExceededError{
+			BoundKind: BoundKindInputLengthBytes,
+			Observed:  size,
+			Limit:     MaxDBCTextBytes,
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return nil, wrapValidation("reading YAML file", err)
 	}
 	return parseYAMLChecks(data)
@@ -35,9 +52,20 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 // loadYAMLData reads YAML data from either a file path or an inline string.
 // If source refers to an existing file, it is read; otherwise it is treated
 // as inline YAML content.
+//
+// Returns *InputBoundExceededError if either form exceeds MaxDBCTextBytes
+// (64 MiB).  Mirrors Python aletheia.yaml_loader._check_input_bound per
+// AGENTS.md universal rule "Adversarial-input bounds at parser surfaces".
 func loadYAMLData(source string) ([]byte, error) {
 	source = filepath.Clean(source)
-	if _, err := os.Stat(source); err == nil {
+	if info, err := os.Stat(source); err == nil {
+		if size := uint64(info.Size()); size > MaxDBCTextBytes {
+			return nil, &InputBoundExceededError{
+				BoundKind: BoundKindInputLengthBytes,
+				Observed:  size,
+				Limit:     MaxDBCTextBytes,
+			}
+		}
 		data, err := os.ReadFile(source)
 		if err != nil {
 			return nil, wrapValidation("reading YAML file", err)
@@ -45,6 +73,13 @@ func loadYAMLData(source string) ([]byte, error) {
 		return data, nil
 	}
 	// Not a file -- treat as inline YAML.
+	if size := uint64(len(source)); size > MaxDBCTextBytes {
+		return nil, &InputBoundExceededError{
+			BoundKind: BoundKindInputLengthBytes,
+			Observed:  size,
+			Limit:     MaxDBCTextBytes,
+		}
+	}
 	return []byte(source), nil
 }
 

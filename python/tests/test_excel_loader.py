@@ -12,10 +12,12 @@ Tests cover:
 """
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 import openpyxl  # type: ignore[import-untyped]
 from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
+from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
 from aletheia.checks import Check
 from aletheia.excel_loader import (
@@ -26,6 +28,23 @@ from aletheia.excel_loader import (
     load_checks_from_excel,
     load_dbc_from_excel,
 )
+from aletheia.protocols import DBCSignalAlways, DBCSignalMultiplexed
+
+
+def _active_sheet(wb: Workbook) -> Worksheet:
+    """Return ``wb.active`` narrowed to ``Worksheet``.
+
+    openpyxl types ``Workbook.active`` as ``Worksheet | None`` for the
+    edge case of a workbook with zero sheets — but a freshly-constructed
+    ``Workbook()`` always has its default sheet present.  Asserting that
+    invariant here drops 21 ``# type: ignore[union-attr]`` suppressions
+    (per ``feedback_no_suppression_without_approval.md`` + R19P2 cluster
+    4) at every fixture site.
+    """
+    ws: Worksheet | None = wb.active
+    if ws is None:
+        raise AssertionError("workbook has no active sheet — fixture broken")
+    return ws
 
 
 def _make_checks_workbook(
@@ -35,11 +54,11 @@ def _make_checks_workbook(
 ) -> Path:
     """Shortcut: workbook with only a Checks sheet."""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Checks"  # type: ignore[union-attr]
-    ws.append(CHECKS_HEADERS)  # type: ignore[union-attr]
+    ws = _active_sheet(wb)
+    ws.title = "Checks"
+    ws.append(CHECKS_HEADERS)
     for row in rows:
-        ws.append(row)  # type: ignore[union-attr]
+        ws.append(row)
     p = tmp_path / filename
     wb.save(str(p))
     return p
@@ -52,11 +71,11 @@ def _make_when_then_workbook(
 ) -> Path:
     """Shortcut: workbook with only a When-Then sheet."""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "When-Then"  # type: ignore[union-attr]
-    ws.append(WHEN_THEN_HEADERS)  # type: ignore[union-attr]
+    ws = _active_sheet(wb)
+    ws.title = "When-Then"
+    ws.append(WHEN_THEN_HEADERS)
     for row in rows:
-        ws.append(row)  # type: ignore[union-attr]
+        ws.append(row)
     p = tmp_path / filename
     wb.save(str(p))
     return p
@@ -69,11 +88,11 @@ def _make_dbc_workbook(
 ) -> Path:
     """Shortcut: workbook with only a DBC sheet."""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "DBC"  # type: ignore[union-attr]
-    ws.append(DBC_HEADERS)  # type: ignore[union-attr]
+    ws = _active_sheet(wb)
+    ws.title = "DBC"
+    ws.append(DBC_HEADERS)
     for row in rows:
-        ws.append(row)  # type: ignore[union-attr]
+        ws.append(row)
     p = tmp_path / filename
     wb.save(str(p))
     return p
@@ -299,7 +318,10 @@ class TestLoadDBCFromExcel:
         assert msg["name"] == "EngineData"
         assert msg["dlc"] == 8
         assert len(msg["signals"]) == 1
-        sig = msg["signals"][0]
+        # Fixture omits Multiplexor / Multiplex Value columns → always-present.
+        # cast narrows the DBCSignalAlways | DBCSignalMultiplexed union so
+        # presence-key access type-checks without a `# type: ignore`.
+        sig = cast(DBCSignalAlways, msg["signals"][0])
         assert sig["name"] == "RPM"
         assert sig["startBit"] == 0
         assert sig["length"] == 16
@@ -407,7 +429,9 @@ class TestLoadDBCMultiplexed:
         assert "multiplexor" in sig
         assert sig["multiplexor"] == "Selector"
         assert sig["multiplex_values"] == [3]
-        assert "presence" not in sig
+        # R19 cluster 17 / PY-D-19.2: multiplexed signals carry an
+        # explicit ``"presence": "multiplexed"`` discriminator.
+        assert sig["presence"] == "multiplexed"
 
     def test_always_signal_no_mux_columns(self, tmp_path: Path) -> None:
         """Signal without Multiplexor/Multiplex Value columns is always-present."""
@@ -418,9 +442,11 @@ class TestLoadDBCMultiplexed:
             ],
         ])
         dbc = load_dbc_from_excel(p)
-        sig = dbc["messages"][0]["signals"][0]
+        # cast narrows the DBCSignal union; the `multiplexor` key absence is
+        # the structural invariant the test asserts.
+        sig = cast(DBCSignalAlways, dbc["messages"][0]["signals"][0])
         assert sig["presence"] == "always"
-        assert "multiplexor" not in sig
+        assert sig.get("multiplexor") is None
 
     def test_mixed_always_and_multiplexed(self, tmp_path: Path) -> None:
         """Same message can have both always-present and multiplexed signals."""
@@ -441,11 +467,16 @@ class TestLoadDBCMultiplexed:
         dbc = load_dbc_from_excel(p)
         msg = dbc["messages"][0]
         assert len(msg["signals"]) == 3
-        assert msg["signals"][0]["presence"] == "always"
-        assert msg["signals"][1]["multiplexor"] == "Selector"
-        assert msg["signals"][1]["multiplex_values"] == [0]
-        assert msg["signals"][2]["multiplexor"] == "Selector"
-        assert msg["signals"][2]["multiplex_values"] == [1]
+        # First fixture row has no Multiplexor/Value columns → always-present.
+        # Other two carry "Selector" / value 0|1 → multiplexed variant.
+        sig0 = cast(DBCSignalAlways, msg["signals"][0])
+        sig1 = cast(DBCSignalMultiplexed, msg["signals"][1])
+        sig2 = cast(DBCSignalMultiplexed, msg["signals"][2])
+        assert sig0["presence"] == "always"
+        assert sig1["multiplexor"] == "Selector"
+        assert sig1["multiplex_values"] == [0]
+        assert sig2["multiplexor"] == "Selector"
+        assert sig2["multiplex_values"] == [1]
 
     def test_partial_mux_raises(self, tmp_path: Path) -> None:
         """Only Multiplexor without Multiplex Value raises ValueError."""
@@ -559,8 +590,8 @@ class TestLoadErrors:
     def test_no_checks_or_when_then_sheet(self, tmp_path: Path) -> None:
         """Workbook with neither Checks nor When-Then raises ValueError."""
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Other"  # type: ignore[union-attr]
+        ws = _active_sheet(wb)
+        ws.title = "Other"
         p = tmp_path / "bad.xlsx"
         wb.save(str(p))
         with pytest.raises(ValueError, match="no 'Checks' or 'When-Then' sheet"):
@@ -569,8 +600,8 @@ class TestLoadErrors:
     def test_no_dbc_sheet(self, tmp_path: Path) -> None:
         """Verify no dbc sheet."""
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Other"  # type: ignore[union-attr]
+        ws = _active_sheet(wb)
+        ws.title = "Other"
         p = tmp_path / "bad.xlsx"
         wb.save(str(p))
         with pytest.raises(ValueError, match="no 'DBC' sheet"):
@@ -646,9 +677,9 @@ class TestLoadErrors:
     def test_dbc_empty_data(self, tmp_path: Path) -> None:
         """DBC sheet with only header row raises ValueError."""
         wb = Workbook()
-        ws = wb.active
-        ws.title = "DBC"  # type: ignore[union-attr]
-        ws.append(DBC_HEADERS)  # type: ignore[union-attr]
+        ws = _active_sheet(wb)
+        ws.title = "DBC"
+        ws.append(DBC_HEADERS)
         p = tmp_path / "empty.xlsx"
         wb.save(str(p))
         with pytest.raises(ValueError, match="at least one data row"):
@@ -676,10 +707,10 @@ class TestLoadFromFile:
     def test_combined_checks_and_when_then(self, tmp_path: Path) -> None:
         """Workbook with both Checks and When-Then sheets."""
         wb = Workbook()
-        ws_checks = wb.active
-        ws_checks.title = "Checks"  # type: ignore[union-attr]
-        ws_checks.append(CHECKS_HEADERS)  # type: ignore[union-attr]
-        ws_checks.append(  # type: ignore[union-attr]
+        ws_checks = _active_sheet(wb)
+        ws_checks.title = "Checks"
+        ws_checks.append(CHECKS_HEADERS)
+        ws_checks.append(
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         )
 
@@ -736,16 +767,16 @@ class TestLoadFromFile:
 def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
     """Verify empty row skipped in checks."""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Checks"  # type: ignore[union-attr]
-    ws.append(CHECKS_HEADERS)  # type: ignore[union-attr]
-    ws.append(  # type: ignore[union-attr]
+    ws = _active_sheet(wb)
+    ws.title = "Checks"
+    ws.append(CHECKS_HEADERS)
+    ws.append(
         [None, "Speed", "never_exceeds", 220, None, None, None, None],
     )
-    ws.append(  # type: ignore[union-attr]  # empty row
+    ws.append(  # empty row
         [None, None, None, None, None, None, None, None],
     )
-    ws.append(  # type: ignore[union-attr]
+    ws.append(
         [None, "Voltage", "never_below", 11.5, None, None, None, None],
     )
     p = tmp_path / "gaps.xlsx"

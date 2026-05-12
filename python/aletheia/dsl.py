@@ -20,6 +20,8 @@ Output format matches the Agda JSON schema:
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 from .protocols import (
     PredicateType,
     LTLFormula,
@@ -40,10 +42,27 @@ from .protocols import (
     SignalPredicate,
 )
 
+# Predicate value inputs accept any rational-coercible numeric type.
+# `Fraction(int)` and `Fraction(Fraction)` are exact; `Fraction(float)`
+# preserves whatever float64 already encoded — pass `Fraction(n, d)` for
+# exact 1/10-style values.  The Agda kernel and C++ binding both accept
+# the canonical rational dict on the wire (cluster 17 / PY-D-19.1).
+type _RationalInput = int | float | Fraction
+
 
 def _atomic(predicate: SignalPredicate) -> AtomicFormula:
     """Wrap a signal predicate in an atomic formula"""
     return {'operator': 'atomic', 'predicate': predicate}
+
+
+def require_non_negative_time_ms(time_ms: int) -> None:
+    """Reject negative durations in metric temporal operators.
+
+    Raises:
+        ValueError: When *time_ms* is negative.
+    """
+    if time_ms < 0:
+        raise ValueError(f"time_ms must be non-negative, got {time_ms}")
 
 
 def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
@@ -87,11 +106,11 @@ class Signal:
         """
         self.name: str = name
 
-    def equals(self, value: float) -> 'Predicate':
+    def equals(self, value: _RationalInput) -> 'Predicate':
         """Signal equals a specific value
 
         Args:
-            value: Expected signal value
+            value: Expected signal value (int / float / Fraction; coerced to exact Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -102,15 +121,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.EQUALS.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def less_than(self, value: float) -> 'Predicate':
+    def less_than(self, value: _RationalInput) -> 'Predicate':
         """Signal is less than a value
 
         Args:
-            value: Upper bound (exclusive)
+            value: Upper bound (exclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -121,15 +140,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def greater_than(self, value: float) -> 'Predicate':
+    def greater_than(self, value: _RationalInput) -> 'Predicate':
         """Signal is greater than a value
 
         Args:
-            value: Lower bound (exclusive)
+            value: Lower bound (exclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -140,15 +159,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def less_than_or_equal(self, value: float) -> 'Predicate':
+    def less_than_or_equal(self, value: _RationalInput) -> 'Predicate':
         """Signal is less than or equal to a value
 
         Args:
-            value: Upper bound (inclusive)
+            value: Upper bound (inclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -156,15 +175,15 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def greater_than_or_equal(self, value: float) -> 'Predicate':
+    def greater_than_or_equal(self, value: _RationalInput) -> 'Predicate':
         """Signal is greater than or equal to a value
 
         Args:
-            value: Lower bound (inclusive)
+            value: Lower bound (inclusive); int / float / Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -172,11 +191,11 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': value
+            'value': Fraction(value)
         })
         return Predicate(formula)
 
-    def between(self, min_val: float, max_val: float) -> 'Predicate':
+    def between(self, min_val: _RationalInput, max_val: _RationalInput) -> 'Predicate':
         """Signal is within a range (inclusive)
 
         Args:
@@ -189,26 +208,28 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
-        if min_val > max_val:
+        lo = Fraction(min_val)
+        hi = Fraction(max_val)
+        if lo > hi:
             raise ValueError(
                 f"min_val ({min_val}) must be <= max_val ({max_val})"
             )
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.BETWEEN.value,
             'signal': self.name,
-            'min': min_val,
-            'max': max_val
+            'min': lo,
+            'max': hi
         })
         return Predicate(formula)
 
-    def changed_by(self, delta: float) -> 'Predicate':
+    def changed_by(self, delta: _RationalInput) -> 'Predicate':
         """Signal changed in a specific direction.
 
         Positive delta: curr - prev >= delta (increased by at least delta)
         Negative delta: curr - prev <= delta (decreased by at least |delta|)
 
         Args:
-            delta: Signed change threshold
+            delta: Signed change threshold (int / float / Fraction; coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -219,17 +240,17 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.CHANGED_BY.value,
             'signal': self.name,
-            'delta': delta
+            'delta': Fraction(delta)
         })
         return Predicate(formula)
 
-    def stable_within(self, tolerance: float) -> 'Predicate':
+    def stable_within(self, tolerance: _RationalInput) -> 'Predicate':
         """Signal value stayed within tolerance of previous value.
 
         Checks |signal_now - signal_prev| <= tolerance
 
         Args:
-            tolerance: Maximum allowed absolute change
+            tolerance: Maximum allowed absolute change (int / float / Fraction; coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -240,7 +261,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.STABLE_WITHIN.value,
             'signal': self.name,
-            'tolerance': tolerance
+            'tolerance': Fraction(tolerance)
         })
         return Predicate(formula)
 
@@ -264,8 +285,15 @@ class Predicate:
     """
 
     def __init__(self, formula: LTLFormula) -> None:
-        """Internal constructor - use Signal methods instead"""
-        self._data: LTLFormula = formula
+        """Construct a Predicate wrapping a finished LTLFormula dict.
+
+        Not part of the public API — call ``Signal(name).equals(v)``
+        (or any other comparison method) instead.  Direct callers must
+        supply a fully-formed LTLFormula matching the Agda JSON schema;
+        the stored ``_formula`` is assumed to be schema-valid and is
+        passed verbatim to the kernel via ``to_formula()``.
+        """
+        self._formula: LTLFormula = formula
 
     def to_formula(self) -> LTLFormula:
         """Convert to LTL formula for use in composition
@@ -273,7 +301,7 @@ class Predicate:
         Returns:
             LTL formula representation
         """
-        return self._data
+        return self._formula
 
     def always(self) -> 'Property':
         """Property must always hold (globally)
@@ -286,7 +314,7 @@ class Predicate:
         """
         formula: AlwaysFormula = {
             'operator': 'always',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -301,7 +329,7 @@ class Predicate:
         """
         formula: EventuallyFormula = {
             'operator': 'eventually',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -320,7 +348,7 @@ class Predicate:
             'operator': 'always',
             'formula': {
                 'operator': 'not',
-                'formula': self._data
+                'formula': self._formula
             }
         }
         return Property(formula)
@@ -337,15 +365,17 @@ class Predicate:
         Returns:
             Bounded temporal property
 
+        Raises:
+            ValueError: ``time_ms`` is negative.
+
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricEventuallyFormula = {
             'operator': 'metricEventually',
             'timebound': time_ms * 1000,
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -361,15 +391,17 @@ class Predicate:
         Returns:
             Bounded temporal property
 
+        Raises:
+            ValueError: ``time_ms`` is negative.
+
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricAlwaysFormula = {
             'operator': 'metricAlways',
             'timebound': time_ms * 1000,
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -387,7 +419,7 @@ class Predicate:
         """
         formula: AndFormula = {
             'operator': 'and',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Predicate(formula)
@@ -406,7 +438,7 @@ class Predicate:
         """
         formula: OrFormula = {
             'operator': 'or',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Predicate(formula)
@@ -422,7 +454,7 @@ class Predicate:
         """
         formula: NotFormula = {
             'operator': 'not',
-            'formula': self._data
+            'formula': self._formula
         }
         return Predicate(formula)
 
@@ -440,7 +472,7 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        return Property(_implies_formula(self._data, other.to_formula()))
+        return Property(_implies_formula(self._formula, other.to_formula()))
 
     # ------------------------------------------------------------------
     # Discouraged in CAN analysis — kept for standard-LTLf completeness.
@@ -483,7 +515,7 @@ class Predicate:
         """
         formula: NextFormula = {
             'operator': 'next',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -505,7 +537,7 @@ class Predicate:
         """
         formula: WeakNextFormula = {
             'operator': 'weakNext',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -526,8 +558,18 @@ class Property:
     """
 
     def __init__(self, formula: LTLFormula) -> None:
-        """Internal constructor - use Predicate methods instead"""
-        self._data: LTLFormula = formula
+        """Construct a Property wrapping a finished LTLFormula dict.
+
+        Not part of the public API — derive Properties via temporal
+        combinators on a :class:`Predicate` (``always`` / ``eventually``
+        / ``never`` / ``within`` / ``for_at_least`` / ``metric_until``
+        / ``metric_release``) or via composition operators (``and_``
+        / ``or_`` / ``not_`` / ``implies``).  Direct callers must
+        supply a fully-formed LTLFormula matching the Agda JSON schema;
+        the stored ``_formula`` is assumed to be schema-valid and is
+        passed verbatim to the kernel via ``to_formula()``.
+        """
+        self._formula: LTLFormula = formula
 
     def to_formula(self) -> LTLFormula:
         """Convert to LTL formula for use in composition
@@ -535,7 +577,7 @@ class Property:
         Returns:
             LTL formula representation
         """
-        return self._data
+        return self._formula
 
     def and_(self, other: 'Property') -> 'Property':
         """Logical AND of two properties
@@ -551,7 +593,7 @@ class Property:
         """
         formula: AndFormula = {
             'operator': 'and',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -570,7 +612,7 @@ class Property:
         """
         formula: OrFormula = {
             'operator': 'or',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -589,7 +631,7 @@ class Property:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        return Property(_implies_formula(self._data, other.to_formula()))
+        return Property(_implies_formula(self._formula, other.to_formula()))
 
     def until(self, other: 'Property') -> 'Property':
         """Temporal until: self holds until other becomes true
@@ -605,7 +647,7 @@ class Property:
         """
         formula: UntilFormula = {
             'operator': 'until',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -625,7 +667,7 @@ class Property:
         """
         formula: ReleaseFormula = {
             'operator': 'release',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -643,16 +685,18 @@ class Property:
         Returns:
             Metric Until property
 
+        Raises:
+            ValueError: ``time_ms`` is negative.
+
         Example:
             # Speed must stay above 50 until brake within 1000ms
             speed_ok.metric_until(1000, brake_pressed)
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricUntilFormula = {
             'operator': 'metricUntil',
             'timebound': time_ms * 1000,
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -667,16 +711,18 @@ class Property:
         Returns:
             Metric Release property
 
+        Raises:
+            ValueError: ``time_ms`` is negative.
+
         Example:
             # Brake must be engaged until ignition releases it, within 5000ms
             ignition_on.metric_release(5000, brake_engaged)
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricReleaseFormula = {
             'operator': 'metricRelease',
             'timebound': time_ms * 1000,
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -693,7 +739,7 @@ class Property:
         """
         formula: AlwaysFormula = {
             'operator': 'always',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -709,7 +755,7 @@ class Property:
         """
         formula: EventuallyFormula = {
             'operator': 'eventually',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -726,7 +772,7 @@ class Property:
         """
         formula: NotFormula = {
             'operator': 'not',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -740,7 +786,7 @@ class Property:
             property = Signal("Speed").less_than(220).always()
             client.set_properties([property.to_dict()])
         """
-        return self._data
+        return self._formula
 
     # ------------------------------------------------------------------
     # Discouraged in CAN analysis — kept for standard-LTLf completeness.
@@ -766,7 +812,7 @@ class Property:
         """
         formula: NextFormula = {
             'operator': 'next',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -785,7 +831,7 @@ class Property:
         """
         formula: WeakNextFormula = {
             'operator': 'weakNext',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 

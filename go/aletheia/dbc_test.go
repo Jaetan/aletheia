@@ -405,9 +405,9 @@ func TestUpdateFrame(t *testing.T) {
 func TestExtendedIDInDBC(t *testing.T) {
 	eid, _ := aletheia.NewExtendedID(0x18FEF100)
 	dlc, _ := aletheia.NewDLC(8)
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version: "",
-		Messages: []aletheia.DbcMessage{{
+		Messages: []aletheia.DBCMessage{{
 			ID: eid, Name: "J1939Msg", DLC: dlc, Sender: "Node",
 			Signals: nil,
 		}},
@@ -430,11 +430,11 @@ func TestExtendedIDInDBC(t *testing.T) {
 func TestMultiplexedSignal(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x200)
 	dlc, _ := aletheia.NewDLC(8)
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version: "",
-		Messages: []aletheia.DbcMessage{{
+		Messages: []aletheia.DBCMessage{{
 			ID: sid, Name: "MuxMsg", DLC: dlc, Sender: "ECU",
-			Signals: []aletheia.DbcSignal{
+			Signals: []aletheia.DBCSignal{
 				{
 					Name: "MuxSelector", StartBit: 0, BitLength: 8,
 					ByteOrder: aletheia.LittleEndian, Presence: aletheia.AlwaysPresent{},
@@ -590,7 +590,7 @@ func TestChangedByPredicate(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "RPM", Delta: 500}},
+		aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "RPM", Delta: aletheia.RationalFromFloat(500)}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -620,7 +620,7 @@ func TestBetweenPredicate(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: -40, Max: 120}},
+		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: aletheia.RationalFromFloat(-40), Max: aletheia.RationalFromFloat(120)}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -858,7 +858,7 @@ func TestBetween_MinExceedsMax(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: 100, Max: 50}},
+		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: aletheia.RationalFromFloat(100), Max: aletheia.RationalFromFloat(50)}},
 	})
 	if err == nil {
 		t.Fatal("expected error for Between with Min > Max")

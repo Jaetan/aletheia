@@ -2,7 +2,7 @@
 
 import pytest
 
-from aletheia import AletheiaClient, ProcessError, ProtocolError
+from aletheia import AletheiaClient, ProtocolError, StateError, ValidationError
 from aletheia.client._helpers import float_to_rational, parse_rational
 from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia._check_conditions import (
@@ -12,6 +12,7 @@ from aletheia._check_conditions import (
     SIMPLE_SETTLES_CONDITIONS,
     SIMPLE_EQUALS_CONDITIONS,
 )
+from aletheia.protocols import DLCByteCount, DLCCode
 
 
 # ============================================================================
@@ -24,7 +25,7 @@ class TestBytesToDlc:
     @pytest.mark.parametrize("byte_count", range(9))
     def test_can20_direct_mapping(self, byte_count: int) -> None:
         """CAN 2.0 DLC codes 0-8 map directly from byte counts 0-8."""
-        assert bytes_to_dlc(byte_count) == byte_count
+        assert bytes_to_dlc(DLCByteCount(byte_count)) == byte_count
 
     @pytest.mark.parametrize(
         ("byte_count", "expected_dlc"),
@@ -32,18 +33,18 @@ class TestBytesToDlc:
     )
     def test_canfd_byte_counts(self, byte_count: int, expected_dlc: int) -> None:
         """CAN-FD byte counts map to DLC codes 9-15."""
-        assert bytes_to_dlc(byte_count) == expected_dlc
+        assert bytes_to_dlc(DLCByteCount(byte_count)) == expected_dlc
 
     @pytest.mark.parametrize("invalid", [9, 10, 11, 13, 15, 33, 65, 100, 256])
     def test_invalid_byte_count_raises(self, invalid: int) -> None:
         """Invalid byte counts (not in the CAN-FD table) raise ValueError."""
         with pytest.raises(ValueError, match="Invalid byte count"):
-            bytes_to_dlc(invalid)
+            bytes_to_dlc(DLCByteCount(invalid))
 
     @pytest.mark.parametrize("dlc_code", range(16))
     def test_roundtrip(self, dlc_code: int) -> None:
         """bytes_to_dlc(dlc_to_bytes(code)) == code for all valid DLC codes."""
-        assert bytes_to_dlc(dlc_to_bytes(dlc_code)) == dlc_code
+        assert bytes_to_dlc(dlc_to_bytes(DLCCode(dlc_code))) == dlc_code
 
 
 # ============================================================================
@@ -197,7 +198,7 @@ class TestSignalIndexCache:
             client.parse_dbc(dbc)
             # Both signals defined in the DBC must resolve.
             frame = client.build_frame(
-                can_id=256, dlc=8, signals={"Sig0": 1.0, "Sig1": 2.0},
+                can_id=256, dlc=DLCCode(8), signals={"Sig0": 1.0, "Sig1": 2.0},
             )
             assert len(frame) == 8
 
@@ -219,7 +220,7 @@ class TestSignalIndexCache:
             }
             client.parse_dbc(dbc1)
             # Sanity: dbc1 is live.
-            client.build_frame(can_id=256, dlc=8, signals={"OldSig": 1.0})
+            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1.0})
 
             dbc2 = {
                 "version": "1.0",
@@ -236,15 +237,15 @@ class TestSignalIndexCache:
             }
             client.parse_dbc(dbc2)
             # dbc1's 256 key must be gone; dbc2's 512 key must be live.
-            with pytest.raises(ProcessError, match="no DBC message for CAN ID 256"):
-                client.build_frame(can_id=256, dlc=8, signals={"OldSig": 1.0})
-            client.build_frame(can_id=512, dlc=8, signals={"NewSig": 1.0})
+            with pytest.raises(ValidationError, match="no DBC message for CAN ID 256"):
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1.0})
+            client.build_frame(can_id=512, dlc=DLCCode(8), signals={"NewSig": 1.0})
 
     def test_build_frame_without_dbc_raises(self) -> None:
         """build_frame before parse_dbc raises with 'DBC not loaded'."""
         with AletheiaClient() as client:
-            with pytest.raises(ProcessError, match="DBC not loaded"):
-                client.build_frame(can_id=256, dlc=8, signals={"Sig": 1.0})
+            with pytest.raises(StateError, match="DBC not loaded"):
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
 
     def test_build_frame_unknown_signal_raises(self) -> None:
         """build_frame with unknown signal name raises."""
@@ -263,8 +264,8 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc)
-            with pytest.raises(ProcessError, match="unknown signal"):
-                client.build_frame(can_id=256, dlc=8, signals={"NoSuchSig": 1.0})
+            with pytest.raises(ValidationError, match="unknown signal"):
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"NoSuchSig": 1.0})
 
     def test_dlc_payload_mismatch_extract(self) -> None:
         """extract_signals rejects payload/DLC size mismatch."""
@@ -283,8 +284,8 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc)
-            with pytest.raises(ProcessError, match="payload length .* does not match DLC"):
-                client.extract_signals(can_id=256, dlc=8, data=bytearray(7))
+            with pytest.raises(ValidationError, match="payload length .* does not match DLC"):
+                client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(7))
 
 
 # ============================================================================

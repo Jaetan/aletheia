@@ -18,13 +18,15 @@ from pathlib import Path
 import can
 import pytest
 
+from aletheia.checks_runner import rational_to_int
 from aletheia.cli import (
     format_timestamp,
     parse_can_id,
     parse_hex_data,
-    rational_to_int,
     main,
 )
+from aletheia.protocols import DBCDefinition
+from aletheia.testing import run_checks
 
 
 # ============================================================================
@@ -47,6 +49,17 @@ _DBC_ENGINE_MSG = (
 _DBC_BRAKE_MSG = (
     "BO_ 512 BrakeStatus: 8 ECU2\n"
     + ' SG_ BrakePressure : 0|16@1+ (0.1,0) [0|6553.5] "bar" Vector__XXX\n'
+)
+
+# 16-byte CAN-FD message — payload byte count 16 (DLC code 10).  Exercises
+# the cli.py extract path that PY-D-19.4 latent-bug-fixed: pre-fix the code
+# called ``dlc_to_bytes(msg["dlc"])`` where ``msg["dlc"]`` is the byte count
+# (cantools convention), so for any CAN-FD message the call raised
+# ``ValueError("Invalid DLC code: 16")``.  This test regresses that fix.
+_DBC_CANFD_MSG = (
+    "BO_ 768 FDPayload: 16 ECU3\n"
+    + ' SG_ FrontByte : 0|16@1+ (1,0) [0|65535] "raw" Vector__XXX\n'
+    + ' SG_ BackByte  : 96|16@1+ (1,0) [0|65535] "raw" Vector__XXX\n'
 )
 
 _CHECKS_YAML = (
@@ -305,6 +318,31 @@ class TestExtractCommand:
         code = main(["extract", "--dbc", "/nonexistent.dbc", "0x100", "0000000000000000"])
         assert code == 2
 
+    def test_canfd_16_byte_payload(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Locks in R19 cluster 17 / PY-D-19.4 latent-bug fix.
+
+        Pre-fix, ``_cmd_extract`` called ``dlc_to_bytes(msg["dlc"])`` where
+        ``msg["dlc"]`` is the payload byte count (cantools convention).
+        For CAN-FD messages the byte count exceeds 8 (12/16/20/24/32/48/64),
+        none of which are valid DLC codes — the call raised
+        ``ValueError("Invalid DLC code: 16")`` and the command crashed.
+        After the fix, ``msg["dlc"]`` is used directly as the byte count
+        and ``bytes_to_dlc`` is applied at the FFI boundary instead.
+        """
+        p = tmp_path / "canfd.dbc"
+        _write_dbc(p, _DBC_CANFD_MSG)
+        # 16-byte payload: FrontByte = 0x0102 (bits 0:16), BackByte = 0xABCD
+        # (bits 96:112).  Little-endian raw: 02 01 .. .. .. .. .. .. .. .. ..
+        # .. CD AB .. ..
+        payload = "0201" + "00" * 10 + "CDAB" + "0000"
+        code = main(["extract", "--dbc", str(p), "768", payload, "--json"])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["values"]["FrontByte"] == 0x0102
+        assert data["values"]["BackByte"] == 0xABCD
+
 
 # ============================================================================
 # Check subcommand (requires FFI)
@@ -484,6 +522,20 @@ class TestCheckCommand:
             str(asc_file),
         ])
         assert code == 2
+
+    def test_run_checks_raises_on_missing_logfile(self) -> None:
+        """``run_checks`` must reject a missing logfile at its own entry,
+        not let the failure surface from inside ``iter_can_log`` two calls
+        deeper.  Programmatic API contract: ``FileNotFoundError`` at the
+        orchestrator boundary so callers get a clear error site."""
+        dbc: DBCDefinition = {
+            "version": "", "messages": [],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
+        with pytest.raises(FileNotFoundError, match="log file not found"):
+            run_checks(dbc, [], "/nonexistent/drive.asc")
 
 
 # ============================================================================

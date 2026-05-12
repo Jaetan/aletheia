@@ -7,6 +7,7 @@ package aletheia
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -20,15 +21,18 @@ import (
 // needed. The struct also records how many times Process was hit so the test
 // can assert "the cancelled goroutine never reached the FFI."
 type gateBackend struct {
-	mu      sync.Mutex
-	calls   int
-	release chan struct{}
-	resp    string
+	mu          sync.Mutex
+	calls       int
+	release     chan struct{}
+	resp        string
+	entered     chan struct{} // closed on first Process entry; lets tests synchronize without polling
+	enteredOnce sync.Once
 }
 
 func newGateBackend(resp string) *gateBackend {
 	return &gateBackend{
 		release: make(chan struct{}),
+		entered: make(chan struct{}),
 		resp:    resp,
 	}
 }
@@ -44,6 +48,7 @@ func (b *gateBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
 	b.mu.Lock()
 	b.calls++
 	b.mu.Unlock()
+	b.enteredOnce.Do(func() { close(b.entered) })
 	<-b.release
 	return b.resp, nil
 }
@@ -57,13 +62,13 @@ func (b *gateBackend) callCount() int {
 // All other Backend methods route to Process so the gate-and-count semantics
 // apply uniformly. Tests only need a couple of these — the rest exist to
 // satisfy the interface.
-func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *gateBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
+func (b *gateBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *gateBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
@@ -75,18 +80,18 @@ func (b *gateBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
 func (b *gateBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *gateBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) BuildFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *gateBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *gateBackend) UpdateFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *gateBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *gateBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+func (b *gateBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
 func (b *gateBackend) Close(_ unsafe.Pointer) {}
@@ -95,6 +100,12 @@ func (b *gateBackend) Close(_ unsafe.Pointer) {}
 // an already-cancelled context returns the wrapped ctx.Err() without making
 // the FFI call. This is CANCELLATION.md §1.1 at its most direct.
 func TestClient_CancelAtEntry(t *testing.T) {
+	// Cleanup-order note: the two defers below register the channel-close
+	// FIRST and the client-close SECOND, so LIFO gives client-close first
+	// (preventing it from using the release channel afterward) followed by
+	// channel-close.  Splitting (rather than combining into one deferred
+	// closure) keeps the channel-close registered even if NewClient fails
+	// before the client-close defer can be set up.
 	backend := newGateBackend(`{"status":"success"}`)
 	defer close(backend.release)
 
@@ -141,24 +152,14 @@ func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 
 	// Goroutine A: holds the lock by sitting inside backend.Process, which
 	// blocks on `release` until the test fires it. SetProperties takes the
-	// client lock and stays inside the FFI call until release.
+	// client lock and stays inside the FFI call until release.  We learn A
+	// has entered Process via backend.entered (closed on first Process
+	// entry), so the test does not poll on time.Sleep.
 	aDone := make(chan error, 1)
-	aReached := make(chan struct{}) // closed once A's FFI call has been entered
 	go func() {
-		// We need to know when A is INSIDE the Process call (and therefore
-		// holds the client lock). Detect that by polling backend.calls;
-		// AddChecks → SetProperties → processLocked → backend.Process is the
-		// path, and Process records its entry before blocking on `release`.
 		aDone <- c.SetProperties(context.Background(), nil)
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for backend.callCount() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if backend.callCount() == 0 {
-		t.Fatal("goroutine A never reached the backend — test setup broken")
-	}
-	close(aReached)
+	<-backend.entered
 	// At this point A holds the client lock and is blocked inside Process.
 
 	// Goroutine B: tries to acquire the lock under a cancellable ctx.
@@ -169,10 +170,15 @@ func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 		bDone <- c.SetProperties(bctx, nil)
 	}()
 
-	// Give B time to start blocking on the lock. (We can't deterministically
-	// detect "blocked on a channel send" without instrumentation, but a
-	// short sleep is plenty for the scheduler to park the goroutine.)
-	time.Sleep(50 * time.Millisecond)
+	// Wait for B to be parked inside [Client.lock]'s select.  The
+	// `lockWaiters` counter is incremented on entry and decremented on
+	// return; observing it >= 1 here means B has reached the select (A is
+	// already past, holding the lockCh).  runtime.Gosched yields to the
+	// scheduler without consuming wall-clock time, so this is a
+	// synchronization primitive, not a sleep.
+	for c.lockWaiters.Load() < 1 {
+		runtime.Gosched()
+	}
 
 	// Cancel B's context while it's still waiting on the lock.
 	cancelB()
@@ -244,13 +250,13 @@ func (b *cancelTriggerBackend) callCount() int {
 	return b.calls
 }
 
-func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *cancelTriggerBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
+func (b *cancelTriggerBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *cancelTriggerBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
@@ -262,18 +268,18 @@ func (b *cancelTriggerBackend) EndStreamBinary(_ unsafe.Pointer) (string, error)
 func (b *cancelTriggerBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *cancelTriggerBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) BuildFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *cancelTriggerBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *cancelTriggerBackend) UpdateFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *cancelTriggerBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *cancelTriggerBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+func (b *cancelTriggerBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
 func (b *cancelTriggerBackend) Close(_ unsafe.Pointer) {}
@@ -352,18 +358,19 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 		done <- c.SetProperties(cctx, nil)
 	}()
 
-	// Wait for the FFI to be entered.
-	deadline := time.Now().Add(2 * time.Second)
-	for backend.callCount() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if backend.callCount() == 0 {
-		t.Fatal("FFI never entered — test setup broken")
-	}
+	// Wait for the FFI to be entered (channel signal, not time-based poll).
+	<-backend.entered
 
 	// Fire cancellation mid-FFI. The call must NOT abort.
 	cancel()
-	time.Sleep(20 * time.Millisecond) // give the cancellation time to "do nothing"
+
+	// Yield a few times so any erroneously-cancellable goroutine can make
+	// progress (no time.Sleep — runtime.Gosched is a scheduler hint, not a
+	// duration).  If a spurious return is going to happen, the goroutine
+	// will get the chance to write `done` before we check.
+	for range 8 {
+		runtime.Gosched()
+	}
 
 	select {
 	case err := <-done:

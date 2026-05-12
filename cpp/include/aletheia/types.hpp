@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -67,7 +69,15 @@ struct Rational {
 
     constexpr Rational() = default;
     constexpr Rational(std::int64_t n, std::int64_t d) : numerator(n), denominator(d) {
-        assert(d > 0 && "Rational: denominator must be positive");
+        // The bare `assert` would disappear under -DNDEBUG (the default Release
+        // CMake mode); throwing keeps the invariant enforced at every callsite
+        // so a Release-build hot-path call cannot silently accept den == 0 or
+        // den < 0.  Use Rational::make for fallible (returns std::expected)
+        // construction in untrusted-input contexts.  R19 cluster 12 — CPP-B-7.1.
+        if (d <= 0) {
+            throw std::invalid_argument("Rational: denominator must be positive (was " +
+                                        std::to_string(d) + ")");
+        }
     }
 
     [[nodiscard]] constexpr auto to_double() const -> double {
@@ -113,10 +123,13 @@ struct Rational {
 // Uses Rational for exact precision — Agda sends signal values as
 // {numerator, denominator} pairs; double would lose precision on 1/3, 1/7 etc.
 using PhysicalValue = Strong<struct PhysicalValueTag, Rational>;
-// Signed change threshold for ChangedBy predicates (sign determines direction)
-using Delta = Strong<struct DeltaTag, double>;
-// Absolute tolerance for StableWithin predicates
-using Tolerance = Strong<struct ToleranceTag, double>;
+// Signed change threshold for ChangedBy predicates (sign determines direction).
+// R19 cluster 7 — CPP-D-19.2: cross-binding parity with Python (Fraction)
+// and Go (Rational) — was double, now Rational so the wire-shape is
+// numerator/denominator-exact across all three bindings.
+using Delta = Strong<struct DeltaTag, Rational>;
+// Absolute tolerance for StableWithin predicates (Rational for the same reason).
+using Tolerance = Strong<struct ToleranceTag, Rational>;
 
 // DBC signal scaling parameters — stored as exact rationals.
 using RationalFactor = Strong<struct RationalFactorTag, Rational>;
@@ -175,6 +188,22 @@ public:
 };
 
 using CanId = std::variant<StandardId, ExtendedId>;
+
+/// Extract the underlying 11- or 29-bit value from a CanId, regardless
+/// of standard vs extended discrimination.  Replaces the
+/// `std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id)`
+/// pattern repeated across the source tree (R19 cluster 14 / CPP-A-6.2).
+[[nodiscard]] constexpr auto can_id_value(const CanId& id) -> std::uint32_t {
+    return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+}
+
+/// Returns true when the CanId carries an `ExtendedId` (29-bit) variant,
+/// false for `StandardId` (11-bit).  Replaces
+/// `std::holds_alternative<ExtendedId>(id)` site-by-site (R19 cluster 14
+/// / CPP-A-6.2).
+[[nodiscard]] constexpr auto can_id_is_extended(const CanId& id) -> bool {
+    return std::holds_alternative<ExtendedId>(id);
+}
 
 // ---------------------------------------------------------------------------
 // Timestamp: microseconds since trace start (chrono, not bare integer)
@@ -259,6 +288,15 @@ struct Frame {
     CanId id;
     Dlc dlc;
     FramePayload data;
+    // CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2): set for CAN-FD
+    // frames carrying the bit, std::nullopt for CAN 2.0B frames where it
+    // does not exist on the wire.  The Aletheia kernel does not consume
+    // BRS — pass-through metadata for binding consumers and the JSON wire
+    // shape (R19P2 cluster 18 — AGDA-D-10.1 closure).
+    std::optional<bool> brs;
+    // CAN-FD Error State Indicator (ISO 11898-1:2015 §10.4.3); same
+    // semantics + pass-through status as brs.
+    std::optional<bool> esi;
 };
 
 } // namespace aletheia

@@ -133,9 +133,9 @@ class TestDBCMetadataTier1Roundtrip:
             assert result["status"] == "success"
             formatted = client.format_dbc()
 
-        assert formatted["signalGroups"] == []
-        assert formatted["environmentVars"] == []
-        assert formatted["valueTables"] == []
+        assert len(formatted["signalGroups"]) == 0
+        assert len(formatted["environmentVars"]) == 0
+        assert len(formatted["valueTables"]) == 0
 
     def test_absent_metadata_keys_default_to_empty(self) -> None:
         """A pre-Tier-1 input (no NotRequired keys) is accepted and produces
@@ -147,9 +147,9 @@ class TestDBCMetadataTier1Roundtrip:
             assert result["status"] == "success"
             formatted = client.format_dbc()
 
-        assert formatted["signalGroups"] == []
-        assert formatted["environmentVars"] == []
-        assert formatted["valueTables"] == []
+        assert len(formatted["signalGroups"]) == 0
+        assert len(formatted["environmentVars"]) == 0
+        assert len(formatted["valueTables"]) == 0
 
     def test_numeric_env_var_fields_are_fractions(self) -> None:
         """Environment-variable numeric fields use ``Fraction`` on the way out,

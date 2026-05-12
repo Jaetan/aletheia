@@ -190,10 +190,17 @@ private
 
 -- Core conversion function: takes parity as a witness parameter
 -- This is the key: parity is DATA, not COMPUTATION
--- Mutual with public API so core can recurse via wrapper
+-- Mutual with public API so core can recurse via wrapper.
+-- The `value < 2 ^ n` bound is `@0`-erased (R19 cluster D, AGDA-A-16.4
+-- 2026-05-09): the proof slot is structurally needed for type-checking
+-- but never inspected at runtime, so MAlonzo can erase it.  Two
+-- different proofs of `value < 2 ^ n` produce propositionally equal
+-- BitVecs (witness propositional equality of `ℕToBitVec`'s output is
+-- now trivial because the proof argument doesn't appear in the result).
+-- Unblocks the `injectHelper` Bool fast-path in `Aletheia.CAN.Encoding`.
 mutual
   private
-    ℕToBitVec′ : ∀ {n} (value : ℕ) → ParityDecomp value → value < 2 ^ n → BitVec n
+    ℕToBitVec′ : ∀ {n} (value : ℕ) → ParityDecomp value → @0 (value < 2 ^ n) → BitVec n
     ℕToBitVec′ {zero} value _ bound = []
     ℕToBitVec′ {suc n} value (even k eq) bound =
       false ∷ ℕToBitVec {n} k (half-bound-even {value} {k} {n} eq bound)
@@ -201,7 +208,7 @@ mutual
       true ∷ ℕToBitVec {n} k (half-bound-odd {value} {k} {n} eq bound)
 
   -- Public API: thin wrapper that computes parity once
-  ℕToBitVec : ∀ {n} (value : ℕ) → value < 2 ^ n → BitVec n
+  ℕToBitVec : ∀ {n} (value : ℕ) → @0 (value < 2 ^ n) → BitVec n
   ℕToBitVec {n} value bound = ℕToBitVec′ {n} value (parity-decomp value) bound
 
 -- ============================================================================

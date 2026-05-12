@@ -27,7 +27,7 @@ from pathlib import Path
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition, LTLFormula
+from aletheia.protocols import DBCDefinition, DLCCode, LTLFormula
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py
 # → ../../examples/.  Path is resolved once so re-importing this module
@@ -56,7 +56,7 @@ def load_canfd_dbc() -> DBCDefinition:
 
 CAN20_FRAME: bytes = bytes([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
 CAN20_CAN_ID: int = 0x100
-CAN20_DLC: int = 8
+CAN20_DLC: DLCCode = DLCCode(8)
 CAN20_SIGNALS: dict[str, float] = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
 
 # ============================================================================
@@ -80,7 +80,7 @@ CANFD_FRAME: bytes = bytes(
     + [0x00] * 36               # Remaining signals + padding to 64 bytes
 )
 CANFD_CAN_ID: int = 0x200
-CANFD_DLC: int = 15
+CANFD_DLC: DLCCode = DLCCode(15)
 CANFD_SIGNALS: dict[str, float] = {
     "GPSSpeed": 20.0,
     "YawRate": 0.0,
@@ -107,13 +107,17 @@ class FrameSpec:
     """
 
     can_id: int
-    dlc: int
+    dlc: DLCCode
     payload: bytes
     signals: dict[str, float]
 
 
-CAN20_SPEC: FrameSpec = FrameSpec(CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS)
-CANFD_SPEC: FrameSpec = FrameSpec(CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS)
+CAN20_SPEC: FrameSpec = FrameSpec(
+    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
+)
+CANFD_SPEC: FrameSpec = FrameSpec(
+    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
+)
 
 
 # ============================================================================

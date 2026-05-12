@@ -3,10 +3,12 @@
 #include <aletheia/client.hpp>
 #include <aletheia/detail/cache_keys.hpp>
 #include <aletheia/enrich.hpp>
+#include <aletheia/limits.hpp>
 
 #include "detail/json.hpp"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -25,6 +27,14 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+// R19 cluster 12 — CPP-B-13.1: parse_extraction_bin uses std::memcpy reads
+// in native byte order (per the wire-format note at AletheiaFFI.hs:235).
+// On a big-endian host the same memcpy would silently misinterpret the
+// bytes; refuse to compile rather than ship an architecture-dependent ABI.
+static_assert(std::endian::native == std::endian::little,
+              "Aletheia FFI binary layout assumes little-endian native byte order; "
+              "see haskell-shim/src/AletheiaFFI.hs:235 for the wire-format note.");
 
 namespace aletheia {
 
@@ -133,9 +143,8 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
     signal_index_.clear();
     signal_names_.clear();
     for (const auto& msg : dbc.messages) {
-        auto id_value =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, msg.id);
-        auto is_extended = std::holds_alternative<ExtendedId>(msg.id);
+        auto id_value = can_id_value(msg.id);
+        auto is_extended = can_id_is_extended(msg.id);
         std::vector<std::string> names;
         names.reserve(msg.signals.size());
         for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
@@ -160,7 +169,7 @@ auto AletheiaClient::parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
         populate_signal_lookup(result->dbc);
         if (logger_)
             logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::int64_t>(result->dbc.messages.size())}});
+                         {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
     }
     return result;
 }
@@ -169,6 +178,24 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
     -> Result<ParsedDBC> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("parse_dbc_text"));
+    // Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
+    // reject DBC text inputs longer than max_dbc_text_bytes before wrapping
+    // them in a JSON command.  The outer max_json_bytes cap in
+    // FfiBackend::process covers the wrapped command separately; the
+    // additional inner cap matches the Agda kernel's two-layer enforcement
+    // in handleParseDBCText.
+    if (text.size() > max_dbc_text_bytes) {
+        return std::unexpected(
+            AletheiaError{ErrorKind::InputBoundExceeded,
+                          "input length (bytes) " + std::to_string(text.size()) +
+                              " exceeds limit " + std::to_string(max_dbc_text_bytes),
+                          ErrorCode::InputBoundExceeded,
+                          InputBoundExceededError{
+                              .bound_kind = std::string{bound_kind_input_length_bytes},
+                              .observed = static_cast<std::uint64_t>(text.size()),
+                              .limit = max_dbc_text_bytes,
+                          }});
+    }
     auto cmd = detail::serialize_parse_dbc_text(text);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_parsed_dbc(resp);
@@ -176,7 +203,7 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
         populate_signal_lookup(result->dbc);
         if (logger_)
             logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::int64_t>(result->dbc.messages.size())}});
+                         {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
     }
     return result;
 }
@@ -218,6 +245,27 @@ constexpr std::array extraction_error_messages = {
     std::string_view{"Value out of bounds"},     // 1
     std::string_view{"Extraction failed"},       // 2
 };
+
+// Constructs a SignalValue from a wire-extracted (idx, num, den) triple.
+// Centralizes the den-positive normalization required for cross-binding
+// wire symmetry (R19 cluster 12 — CPP-B-7.3) and keeps `parse_extraction_bin`
+// under the clang-tidy readability-function-size threshold.
+auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
+                       const std::vector<std::string>& names) -> Result<SignalValue> {
+    auto name =
+        idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+    if (den == 0)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("Zero denominator in extraction value for {}", std::string_view{name})});
+    auto rat_or_err = Rational::make(num, den);
+    if (!rat_or_err)
+        return std::unexpected(
+            AletheiaError{ErrorKind::Protocol,
+                          std::format("Invalid rational in extraction value for {}: num={}, den={}",
+                                      std::string_view{name}, num, den)});
+    return SignalValue{.name = std::move(name), .value = PhysicalValue{*rat_or_err}};
+}
 
 // Parses the binary extraction layout emitted by `aletheia_extract_signals_bin`.
 // Layout and byte-order (native; little-endian on all supported platforms) are
@@ -262,14 +310,10 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
         auto num = read_i64(off + 2);
         auto den = read_i64(off + 10);
         off += 18;
-        auto name =
-            idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
-        if (den == 0)
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, std::format("Zero denominator in extraction value for {}",
-                                                 std::string_view{name})});
-        auto value = PhysicalValue{Rational{num, den}};
-        result.values.push_back(SignalValue{.name = std::move(name), .value = value});
+        auto sv = wire_signal_value(idx, num, den, names);
+        if (!sv)
+            return std::unexpected(sv.error());
+        result.values.push_back(std::move(*sv));
     }
     result.errors.reserve(nerrs);
     for (std::uint16_t i = 0; i < nerrs; ++i) {
@@ -311,8 +355,8 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
     // ErrorKind::BinaryUnsupported (e.g. MockBackend) triggers the JSON
     // fallback — any other error (decode / truncation / real FFI failure)
     // propagates, matching Go's ErrBinaryPathUnsupported contract.
-    auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-    auto is_extended = std::holds_alternative<ExtendedId>(id);
+    auto id_value = can_id_value(id);
+    auto is_extended = can_id_is_extended(id);
     auto names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
         auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
@@ -337,8 +381,8 @@ auto AletheiaClient::ResolvedSignals::injection() const -> SignalInjection {
 
 auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> signals)
     -> Result<ResolvedSignals> {
-    auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-    auto is_extended = std::holds_alternative<ExtendedId>(id);
+    auto id_value = can_id_value(id);
+    auto is_extended = can_id_is_extended(id);
 
     ResolvedSignals resolved;
     resolved.indices.reserve(signals.size());
@@ -416,7 +460,7 @@ auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFor
         diags_.push_back(build_diagnostic(f));
     cache_.clear();
     if (logger_)
-        logger_.info("properties.set", {{"count", static_cast<std::int64_t>(properties.size())}});
+        logger_.info("properties.set", {{"count", static_cast<std::uint64_t>(properties.size())}});
     return result;
 }
 
@@ -466,7 +510,8 @@ auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
 }
 
 auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
-                                std::span<const std::byte> data) -> Result<FrameResponse> {
+                                std::span<const std::byte> data, std::optional<bool> brs,
+                                std::optional<bool> esi) -> Result<FrameResponse> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_frame"));
     if (ts.count() < 0)
@@ -474,16 +519,31 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
-    auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data);
+    auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
-        auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        auto is_extended = std::holds_alternative<ExtendedId>(id);
+        auto id_value = can_id_value(id);
+        auto is_extended = can_id_is_extended(id);
         // Track last frame per CAN ID for end-of-stream enrichment (skip when no diagnostics).
-        if (!diags_.empty())
-            last_frames_.insert_or_assign(
-                detail::MessageKey{id_value, is_extended},
-                LastFrame{.id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
+        // Find-then-assign reuses the existing FramePayload's heap buffer
+        // on subsequent frames for the same key — `assign` keeps the vector's
+        // capacity intact when the new size fits, avoiding the temporary
+        // `FramePayload(data.begin(), data.end())` allocation that
+        // `insert_or_assign` would force per call.  First frame for a key
+        // still allocates via `emplace`; this is the common cold path on a
+        // bounded number of unique CAN IDs.  (R19 cluster 19 / CPP-B-25.1.)
+        if (!diags_.empty()) {
+            auto key = detail::MessageKey{id_value, is_extended};
+            if (auto it = last_frames_.find(key); it != last_frames_.end()) {
+                it->second.id = id;
+                it->second.dlc = dlc;
+                it->second.data.assign(data.begin(), data.end());
+            } else {
+                last_frames_.emplace(
+                    key, LastFrame{
+                             .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
+            }
+        }
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty()) {
             enrich_violation(*v, id, dlc, data, id_value, is_extended);
             if (logger_)
@@ -560,7 +620,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
             {{"ts", static_cast<std::int64_t>(ts.count())},
              {"canId", static_cast<std::uint64_t>(std::visit(
                            [](const auto& v) -> std::uint32_t { return v.value(); }, id))},
-             {"extended", std::holds_alternative<ExtendedId>(id)},
+             {"extended", can_id_is_extended(id)},
              {"response", std::string_view{"ack"}}});
     }
     return r;
@@ -579,8 +639,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             }
         }
         if (logger_) {
-            std::int64_t num_fails = 0;
-            std::int64_t num_unresolved = 0;
+            std::uint64_t num_fails = 0;
+            std::uint64_t num_unresolved = 0;
             for (const auto& pr : result->results) {
                 if (pr.verdict == Verdict::Fails)
                     ++num_fails;
@@ -588,7 +648,7 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
                     ++num_unresolved;
             }
             logger_.info("stream.ended",
-                         {{"numResults", static_cast<std::int64_t>(result->results.size())},
+                         {{"numResults", static_cast<std::uint64_t>(result->results.size())},
                           {"numFails", num_fails},
                           {"numUnresolved", num_unresolved}});
         }
@@ -656,7 +716,7 @@ void AletheiaClient::enrich_violation(Violation& v, CanId id, Dlc dlc,
         if (logger_)
             logger_.warn("enrichment.property_index_oob",
                          {{"index", static_cast<std::int64_t>(idx)},
-                          {"count", static_cast<std::int64_t>(diags_.size())}});
+                          {"count", static_cast<std::uint64_t>(diags_.size())}});
         return;
     }
     const auto& diag = diags_[idx];
@@ -677,7 +737,7 @@ void AletheiaClient::enrich_property_result(PropertyResult& pr) {
         if (logger_)
             logger_.warn("enrichment.property_index_oob",
                          {{"index", static_cast<std::int64_t>(idx)},
-                          {"count", static_cast<std::int64_t>(diags_.size())}});
+                          {"count", static_cast<std::uint64_t>(diags_.size())}});
         return;
     }
     const auto& diag = diags_[idx];
@@ -717,7 +777,7 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
             cache_it = cache_.emplace(std::move(key), std::move(*extraction)).first;
         } else {
             if (logger_)
-                logger_.warn("cache.full", {{"size", static_cast<std::int64_t>(cache_.size())}});
+                logger_.warn("cache.full", {{"size", static_cast<std::uint64_t>(cache_.size())}});
             // Over capacity — use result directly without caching
             return collect_matching_signals(diag, *extraction);
         }

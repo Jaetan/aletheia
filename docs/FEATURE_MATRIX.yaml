@@ -78,7 +78,7 @@ features:
 
   - id: dbc_text_parse
     name: Parse .dbc text
-    description: Parse a raw .dbc text file into a DbcDefinition via the verified Agda parser.
+    description: Parse a raw .dbc text file into a DBCDefinition via the verified Agda parser.
     related: R17-DEF-4, B.3, B.3.e, B.3.f, B.3.g
     bindings:
       python:
@@ -95,8 +95,8 @@ features:
         notes: "B.3.e — same Agda core via FFI; returns *ParsedDBC carrying DBC + Warnings."
 
   - id: dbc_text_format
-    name: Format DbcDefinition as .dbc text
-    description: Render a DbcDefinition as .dbc file text via the verified Agda formatter. Inverse of ``parse_dbc_text`` at the wire level — ``parse_dbc_text(format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed DBC.
+    name: Format DBCDefinition as .dbc text
+    description: Render a DBCDefinition as .dbc file text via the verified Agda formatter. Inverse of ``parse_dbc_text`` at the wire level — ``parse_dbc_text(format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed DBC.
     related: Track E, E.10
     bindings:
       python:
@@ -127,8 +127,8 @@ features:
         notes: "Tier 1 structs (DbcSignalGroup, DbcEnvironmentVar, DbcValueTable) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
       go:
         status: implemented
-        entry: DbcSignalGroup
-        notes: "Tier 1 types (DbcSignalGroup, DbcEnvironmentVar, DbcValueTable) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
+        entry: DBCSignalGroup
+        notes: "Tier 1 types (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) live alongside DBCDefinition; serializer emits all three arrays, parser accepts them."
 
   - id: dbc_metadata_tier2
     name: DBC metadata Tier 2 (nodes, comments, attributes)
@@ -145,8 +145,8 @@ features:
         notes: "Tier 2 structs (DbcNode, DbcComment, DbcAttribute with tagged variants) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
       go:
         status: implemented
-        entry: DbcNode
-        notes: "Tier 2 types (DbcNode, DbcComment, DbcAttribute with sealed-interface variants) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
+        entry: DBCNode
+        notes: "Tier 2 types (DBCNode, DBCComment, DBCAttribute with sealed-interface variants) live alongside DBCDefinition; serializer emits all three arrays, parser accepts them."
 
   - id: dbc_signal_receivers
     name: DBC signal receivers (per-signal receiver nodes from SG_)
@@ -163,12 +163,12 @@ features:
         notes: "DbcSignal gains std::vector<std::string> receivers; serializer emits it on every signal; parser reads an absent key as empty."
       go:
         status: implemented
-        entry: DbcSignal
-        notes: "DbcSignal gains Receivers []string; serializer emits it on every signal; parser treats an absent key as nil."
+        entry: DBCSignal
+        notes: "DBCSignal gains Receivers []string; serializer emits it on every signal; parser treats an absent key as nil."
 
   - id: dbc_signal_value_descriptions
     name: DBC signal value descriptions (per-signal VAL_ entries)
-    description: Expose the ``valueDescriptions`` per-signal list on DBCSignal — the ``(value, description)`` entries from top-level ``VAL_`` lines, attached to the owning ``(message-id, signal-name)`` pair. Orphan ``VAL_`` entries (no matching signal) are preserved on ``DbcDefinition.unresolvedValueDescs`` so callers can introspect them and the validator can warn. The Agda formatter re-emits the ``VAL_`` block on ``format_dbc_text``. New ``unknown_value_description_target`` warning fires when a ``VAL_`` line points at a ``(message-id, signal-name)`` pair not declared in ``BO_`` / ``SG_``.
+    description: Expose the ``valueDescriptions`` per-signal list on DBCSignal — the ``(value, description)`` entries from top-level ``VAL_`` lines, attached to the owning ``(message-id, signal-name)`` pair. Orphan ``VAL_`` entries (no matching signal) are preserved on ``DBCDefinition.unresolvedValueDescs`` so callers can introspect them and the validator can warn. The Agda formatter re-emits the ``VAL_`` block on ``format_dbc_text``. New ``unknown_value_description_target`` warning fires when a ``VAL_`` line points at a ``(message-id, signal-name)`` pair not declared in ``BO_`` / ``SG_``.
     related: R17-DEF-2, Track E
     bindings:
       python:
@@ -181,8 +181,8 @@ features:
         notes: "Track E — DbcSignal gains std::vector<DbcValueEntry> value_descriptions; reuses DbcValueEntry from value tables."
       go:
         status: implemented
-        entry: DbcSignal
-        notes: "Track E — DbcSignal gains ValueDescriptions []DbcValueEntry; reuses DbcValueEntry from value tables."
+        entry: DBCSignal
+        notes: "Track E — DBCSignal gains ValueDescriptions []DBCValueEntry; reuses DBCValueEntry from value tables."
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
@@ -199,8 +199,8 @@ features:
         notes: "DbcMessage gains std::vector<std::string> senders; serializer emits it on every message; parser reads an absent key as empty."
       go:
         status: implemented
-        entry: DbcMessage
-        notes: "DbcMessage gains Senders []string; serializer normalises nil to []string{}; parser treats an absent key as nil."
+        entry: DBCMessage
+        notes: "DBCMessage gains Senders []string; serializer normalises nil to []string{}; parser treats an absent key as nil."
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
@@ -209,16 +209,16 @@ features:
     bindings:
       python: { status: implemented, entry: aletheia.is_multiplexed }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#is_multiplexed" }
-      go:     { status: implemented, entry: DbcMessage.IsMultiplexed }
+      go:     { status: implemented, entry: DBCMessage.IsMultiplexed }
 
   - id: dbc_lookup
     name: DBC entity lookup helpers
-    description: Look up DBC entities by key — message_by_id, message_by_name (on DbcDefinition), signal_by_name (on DbcMessage).
+    description: Look up DBC entities by key — message_by_id, message_by_name (on DBCDefinition), signal_by_name (on DBCMessage).
     related: R8, B.2
     bindings:
       python: { status: implemented, entry: aletheia.message_by_id }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#message_by_id" }
-      go:     { status: implemented, entry: DbcDefinition.MessageByID }
+      go:     { status: implemented, entry: DBCDefinition.MessageByID }
 
   # =====================================================================
   # Signal extraction and frame manipulation
@@ -263,6 +263,24 @@ features:
       python: { status: implemented, entry: aletheia.dlc_to_bytes }
       cpp:    { status: implemented, entry: "aletheia/types.hpp#Dlc" }
       go:     { status: implemented, entry: DLC }
+
+  - id: canfd_brs_esi_fields
+    name: CAN-FD BRS / ESI metadata pass-through
+    description: |
+      CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2) + Error State
+      Indicator (§10.4.3) carried as optional booleans from the binding
+      through the C FFI (`aletheia_send_frame` 11-arg ABI) into the
+      Agda `TimedFrame` record.  Cluster 18 (R19 Phase 2) closure of
+      AGDA-D-10.1 / 13.1 / 17.1.  The Aletheia kernel does NOT consume
+      these bits — pass-through metadata for binding consumers + the
+      JSON wire shape (`sendFrame` command's `brs` / `esi` fields).
+      Each binding's representative entry below points at the public
+      type carrying the fields; ``send_frame(brs=, esi=)`` / `BRS *bool`
+      / `std::optional<bool> brs` are the matching method-side surfaces.
+    bindings:
+      python: { status: implemented, entry: aletheia.CANFrameTuple }
+      cpp:    { status: implemented, entry: "aletheia/types.hpp#Frame" }
+      go:     { status: implemented, entry: Frame }
 
   # =====================================================================
   # Streaming LTL

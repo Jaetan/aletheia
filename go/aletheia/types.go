@@ -2,6 +2,7 @@ package aletheia
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -36,12 +37,37 @@ func (r Rational) Float64() float64 {
 	return float64(r.Numerator) / float64(r.Denominator)
 }
 
-// Delta is a signed change threshold for ChangedBy predicates.
-// Positive: curr - prev >= delta; negative: curr - prev <= delta.
-type Delta float64
+// IntRational returns an exact [Rational] for an integer literal.
+// Useful for predicate construction: “Equals{Value: IntRational(220)}“.
+func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 1} }
 
-// Tolerance is an absolute tolerance for StableWithin predicates.
-type Tolerance float64
+// RationalFromFloat converts a float64 to a [Rational] via 10^9 scaling.
+// Integer-valued floats get the exact “n/1“ form; non-integer floats
+// fall through to ~9 decimal-digit (≈ ppb) precision shared with the
+// FFI signal-value path.  NaN and ±Inf clamp to “0/1“.
+//
+// Use this for predicate construction when the user-facing value is a
+// float (“Equals{Value: aletheia.RationalFromFloat(11.5)}“); for
+// exact-precision use cases prefer “Rational{Numerator: 23, Denominator: 2}“.
+func RationalFromFloat(v float64) Rational {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return Rational{Numerator: 0, Denominator: 1}
+	}
+	if v == math.Trunc(v) && v >= math.MinInt64 && v <= math.MaxInt64 {
+		return Rational{Numerator: int64(v), Denominator: 1}
+	}
+	n, d, err := floatToRational(v)
+	if err != nil {
+		return Rational{Numerator: 0, Denominator: 1}
+	}
+	return Rational{Numerator: n, Denominator: d}
+}
+
+// physicalAsRational is the [PhysicalValue]-typed alias for
+// [RationalFromFloat] used at the [CheckSignal] / [CheckWhen] builder
+// boundary where the public API still accepts “PhysicalValue“ for
+// ergonomics.
+func physicalAsRational(v PhysicalValue) Rational { return RationalFromFloat(float64(v)) }
 
 // Timestamp is a point in time, measured in microseconds since trace start.
 type Timestamp struct {
@@ -73,33 +99,36 @@ type MultiplexValue uint32
 // Frame bundles all parameters needed to send a CAN frame during streaming.
 // Use with [Client.SendFrames] for batch operations.
 type Frame struct {
+	// Timestamp is the frame's microsecond-precision timestamp.
 	Timestamp Timestamp
-	ID        CanID
-	DLC       DLC
-	Data      FramePayload
+	// ID is the CAN identifier (11-bit standard or 29-bit extended).
+	ID CANID
+	// DLC is the data length code (0–8 for CAN 2.0B, 0–15 for CAN-FD).
+	DLC DLC
+	// Data is the payload — its length must equal DLC.ToBytes().
+	Data FramePayload
+	// BRS is the CAN-FD Bit Rate Switch bit (ISO 11898-1:2015 §10.4.2):
+	// non-nil for CAN-FD frames carrying the bit, nil for CAN 2.0B
+	// frames where it does not exist on the wire.  The Aletheia kernel
+	// does not consume BRS — it is pass-through metadata for binding
+	// consumers and the JSON wire shape (R19P2 cluster 18).
+	BRS *bool
+	// ESI is the CAN-FD Error State Indicator bit (ISO 11898-1:2015
+	// §10.4.3); same semantics + pass-through status as BRS.
+	ESI *bool
 }
 
 // ByteOrder specifies the byte ordering for a CAN signal.
 type ByteOrder int
 
+//go:generate stringer -type=ByteOrder -linecomment -output=byteorder_string.go
+
 const (
 	// LittleEndian is Intel byte order (LSB first).
-	LittleEndian ByteOrder = iota
+	LittleEndian ByteOrder = iota // little_endian
 	// BigEndian is Motorola byte order (MSB first).
-	BigEndian
+	BigEndian // big_endian
 )
-
-// String returns the protocol wire name: "little_endian" or "big_endian".
-func (b ByteOrder) String() string {
-	switch b {
-	case LittleEndian:
-		return "little_endian"
-	case BigEndian:
-		return "big_endian"
-	default:
-		return "unknown"
-	}
-}
 
 // BitPosition is a start bit position within a CAN frame.
 // Valid domain is 0-511 (64 bytes × 8 bits). Use [NewBitPosition] to create one.
@@ -133,8 +162,8 @@ func NewBitLength(v uint8) (BitLength, error) {
 	return BitLength(v), nil
 }
 
-// CanID is a CAN bus identifier. Use [NewStandardID] or [NewExtendedID] to create one.
-type CanID interface {
+// CANID is a CAN bus identifier. Use [NewStandardID] or [NewExtendedID] to create one.
+type CANID interface {
 	canID() // sealed
 	// Value returns the raw numeric ID.
 	Value() uint32
@@ -203,12 +232,6 @@ func NewDLC(v uint8) (DLC, error) {
 	}
 	return DLC{value: v}, nil
 }
-
-// maxPayloadBytes is the largest CAN-FD payload size in bytes (DLC 15 → 64).
-// Used by the binary FFI path to bound `len(data)` before handing a pointer
-// to cgo; the numeric value coincides with [MaxBitLength] but the two are
-// dimensionally distinct (bytes vs bits).
-const maxPayloadBytes = 64
 
 // dlcTable maps DLC values 0-15 to payload byte counts.
 var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}

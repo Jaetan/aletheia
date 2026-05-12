@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Track E — VAL_ value descriptions on DbcSignal.ValueDescriptions and the
+// Track E — VAL_ value descriptions on DBCSignal.ValueDescriptions and the
 // matching CHECK 23 (UnknownValueDescriptionTarget) emitted by parse_dbc_text
 // when a VAL_ line points at a (message-id, signal-name) pair not declared in
 // BO_ / SG_.
@@ -44,7 +44,7 @@ func newFFIClient(t *testing.T) *Client {
 
 // TestParseDBCText_ValueDescriptionsRoundTrip parses a fixture that carries a
 // non-empty VAL_ line, asserts the entries land on
-// DbcSignal.ValueDescriptions, then re-emits via FormatDBCText and confirms the
+// DBCSignal.ValueDescriptions, then re-emits via FormatDBCText and confirms the
 // VAL_ block is part of the textual output.
 func TestParseDBCText_ValueDescriptionsRoundTrip(t *testing.T) {
 	client := newFFIClient(t)
@@ -75,7 +75,7 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
 		t.Fatalf("expected 4 value descriptions, got %d: %+v",
 			len(sig.ValueDescriptions), sig.ValueDescriptions)
 	}
-	want := []DbcValueEntry{
+	want := []DBCValueEntry{
 		{Value: 0, Description: "Off"},
 		{Value: 1, Description: "Cranking"},
 		{Value: 2, Description: "Running"},

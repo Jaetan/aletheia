@@ -257,10 +257,10 @@ var (
 	_ = excel.LoadChecks
 )
 
-func buildDocDBC() aletheia.DbcDefinition {
+func buildDocDBC() aletheia.DBCDefinition {
 	rat := func(n, d int64) aletheia.Rational { return aletheia.Rational{Numerator: n, Denominator: d} }
-	signal := func(name aletheia.SignalName, start aletheia.BitPosition, length aletheia.BitLength, maxVal int64) aletheia.DbcSignal {
-		return aletheia.DbcSignal{
+	signal := func(name aletheia.SignalName, start aletheia.BitPosition, length aletheia.BitLength, maxVal int64) aletheia.DBCSignal {
+		return aletheia.DBCSignal{
 			Name:      name,
 			StartBit:  start,
 			BitLength: length,
@@ -281,15 +281,15 @@ func buildDocDBC() aletheia.DbcDefinition {
 	// BatteryVoltage at start_bit 0 so each YAML check fence resolves
 	// against a real signal definition.
 	sid2, _ := aletheia.NewStandardID(0x110)
-	return aletheia.DbcDefinition{
+	return aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{
+		Messages: []aletheia.DBCMessage{
 			{
 				ID:     sid,
 				Name:   "VehicleState",
 				DLC:    dlc,
 				Sender: "ECU",
-				Signals: []aletheia.DbcSignal{
+				Signals: []aletheia.DBCSignal{
 					signal("VehicleSpeed", 0, 16, 65535),
 					signal("Speed", 16, 16, 65535),
 					signal("BrakePedal", 32, 8, 255),
@@ -303,7 +303,7 @@ func buildDocDBC() aletheia.DbcDefinition {
 				Name:   "Voltages",
 				DLC:    dlc,
 				Sender: "BMS",
-				Signals: []aletheia.DbcSignal{
+				Signals: []aletheia.DBCSignal{
 					signal("Voltage", 0, 16, 65535),
 					signal("BatteryVoltage", 16, 16, 65535),
 					signal("CoolantTemp", 32, 8, 255),

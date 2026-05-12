@@ -39,12 +39,10 @@ class ErrorCode(str, Enum):
     PARSE_INVALID_KIND = "parse_invalid_kind"
     PARSE_NON_TERMINATING_RATIONAL = "parse_non_terminating_rational"
     PARSE_INVALID_IDENTIFIER = "parse_invalid_identifier"
-    PARSE_INPUT_BOUND_EXCEEDED = "parse_input_bound_exceeded"
     # DBC text parse errors
     DBC_TEXT_PARSE_FAILURE = "dbc_text_parse_failure"
     DBC_TEXT_TRAILING_INPUT = "dbc_text_trailing_input"
     DBC_TEXT_ATTRIBUTE_REFINEMENT_FAILED = "dbc_text_attribute_refinement_failed"
-    DBC_TEXT_INPUT_BOUND_EXCEEDED = "dbc_text_input_bound_exceeded"
     # Frame errors
     FRAME_SIGNAL_NOT_FOUND = "frame_signal_not_found"
     FRAME_SIGNAL_INDEX_OOB = "frame_signal_index_oob"
@@ -53,7 +51,11 @@ class ErrorCode(str, Enum):
     FRAME_CAN_ID_NOT_FOUND = "frame_can_id_not_found"
     FRAME_CAN_ID_MISMATCH = "frame_can_id_mismatch"
     FRAME_SIGNAL_VALUE_OUT_OF_BOUNDS = "frame_signal_value_out_of_bounds"
-    FRAME_INPUT_BOUND_EXCEEDED = "frame_input_bound_exceeded"
+    # Top-level adversarial-input bound (consolidated 2026-05-11 per
+    # R19 cluster 14 / AGDA-C-6.2 — replaces PARSE_INPUT_BOUND_EXCEEDED /
+    # FRAME_INPUT_BOUND_EXCEEDED / DBC_TEXT_INPUT_BOUND_EXCEEDED;
+    # discriminate by `bound_kind` from the structured payload).
+    INPUT_BOUND_EXCEEDED = "input_bound_exceeded"
     # Route errors
     ROUTE_MISSING_FIELD = "route_missing_field"
     ROUTE_MISSING_ARRAY = "route_missing_array"

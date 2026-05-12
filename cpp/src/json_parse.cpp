@@ -2,6 +2,8 @@
 // JSON parsing: Agda core response strings → C++ types.
 #include "detail/json.hpp"
 
+#include <aletheia/limits.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <array>
@@ -47,12 +49,10 @@ constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
     {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
-    {"parse_input_bound_exceeded", ErrorCode::ParseInputBoundExceeded},
     // DBC text parse errors
     {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
     {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
     {"dbc_text_attribute_refinement_failed", ErrorCode::DBCTextAttributeRefinementFailed},
-    {"dbc_text_input_bound_exceeded", ErrorCode::DBCTextInputBoundExceeded},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
@@ -61,7 +61,8 @@ constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
-    {"frame_input_bound_exceeded", ErrorCode::FrameInputBoundExceeded},
+    // Top-level adversarial-input bound (R19 cluster 14 / AGDA-C-6.2)
+    {"input_bound_exceeded", ErrorCode::InputBoundExceeded},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
     {"route_missing_array", ErrorCode::RouteMissingArray},
@@ -117,6 +118,27 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
     return {kind, std::move(msg), code};
 }
 
+// Parse JSON with the `max_nesting_depth` bound enforced via nlohmann's
+// SAX-style parse callback.  Defense-in-depth against malformed-but-bound-
+// passing responses (the FFI-entry size cap fires first for oversize inputs;
+// a 1 MiB response with 10⁵ nesting still depth-bombs the recursive-descent
+// parser via stack overflow without this guard).  See AGENTS.md universal
+// rule "Adversarial-input bounds at parser surfaces" + R18 cluster 2 closure.
+//
+// Throws `std::runtime_error` with a descriptive message on depth exceedance;
+// the existing `catch (const std::exception&)` block at every parse_*
+// callsite converts it to a `Result<>` error via `make_error`.
+static auto parse_bounded(std::string_view input) -> Json {
+    auto callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
+        if (static_cast<std::uint64_t>(depth) > max_nesting_depth) {
+            throw std::runtime_error("JSON nesting depth " + std::to_string(depth) +
+                                     " exceeds limit " + std::to_string(max_nesting_depth));
+        }
+        return true;
+    };
+    return Json::parse(input, callback);
+}
+
 /// Extract error from a JSON response with status=="error", parsing the code field.
 ///
 /// Both ``code`` and ``message`` must be non-null strings — a missing or
@@ -126,6 +148,16 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 /// regression in production logs because the old ``j.value("code", "")``
 /// / ``j.value("message", "Unknown error")`` defaults masked malformed
 /// responses.
+// R19 cluster 8 — CPP-D-21.5: any of these three codes routes the response
+// through `ErrorKind::InputBoundExceeded` regardless of the kind the caller
+// guessed from the response section (Protocol / Validation), so the typed
+// bound-info shape is exposed uniformly across the JSON / DBC-text / binary
+// parser surfaces.  Mirrors Python's `InputBoundExceededError` subclassing
+// and Go's typed `*InputBoundExceededError` discriminator.
+static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
+    return code == ErrorCode::InputBoundExceeded;
+}
+
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     if (!j.contains("code") || !j.at("code").is_string())
         return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
@@ -133,7 +165,26 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
         return make_error(ErrorKind::Protocol,
                           "Error response missing or non-string 'message' field");
     auto code = error_code_from_string(j.at("code").get<std::string>());
-    return make_error(kind, j.at("message").get<std::string>(), code);
+    auto effective_kind = is_input_bound_exceeded_code(code) ? ErrorKind::InputBoundExceeded : kind;
+    // Lift the structured `bound_kind / observed / limit` triple into the
+    // AletheiaError when the response carries it.  All three must be
+    // present and well-typed for `bound_info` to be populated; partial
+    // fields are treated as nullopt rather than as a Protocol error, so
+    // older Agda responses (or future cores that drop the fields) degrade
+    // gracefully (the AletheiaError still carries kind/code/message).
+    std::optional<InputBoundExceededError> bound_info;
+    if (effective_kind == ErrorKind::InputBoundExceeded && j.contains("bound_kind") &&
+        j.at("bound_kind").is_string() && j.contains("observed") &&
+        j.at("observed").is_number_unsigned() && j.contains("limit") &&
+        j.at("limit").is_number_unsigned()) {
+        bound_info = InputBoundExceededError{
+            .bound_kind = j.at("bound_kind").get<std::string>(),
+            .observed = j.at("observed").get<std::uint64_t>(),
+            .limit = j.at("limit").get<std::uint64_t>(),
+        };
+    }
+    return AletheiaError{effective_kind, j.at("message").get<std::string>(), code,
+                         std::move(bound_info)};
 }
 
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.
@@ -653,7 +704,7 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
 
 auto parse_success(std::string_view input) -> Result<void> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "success")
             return {};
@@ -667,7 +718,7 @@ auto parse_success(std::string_view input) -> Result<void> {
 
 auto parse_event_ack(std::string_view input) -> Result<void> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "ack")
             return {};
@@ -681,7 +732,7 @@ auto parse_event_ack(std::string_view input) -> Result<void> {
 
 auto parse_validation(std::string_view input) -> Result<ValidationResult> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Validation, j));
@@ -717,7 +768,7 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
 
 auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -750,7 +801,7 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
 auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -778,7 +829,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         return FrameResponse{Ack{}};
 
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
 
         if (status == "ack")
@@ -815,7 +866,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
 
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
 
         if (status == "error")
@@ -866,7 +917,7 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
 
 auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -884,7 +935,7 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
 
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -924,7 +975,7 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
 
 auto parse_dbc_text_response(std::string_view input) -> Result<std::string> {
     try {
-        auto j = Json::parse(input);
+        auto j = parse_bounded(input);
         auto status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));

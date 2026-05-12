@@ -161,6 +161,43 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     CHECK(v.timestamp.count() > 0);
 }
 
+TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd][cluster18]") {
+    // R19 Phase 2 cluster 18 (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia
+    // kernel does not consume CAN-FD BRS / ESI metadata, but the binding
+    // must accept the bits as std::optional<bool> and the FFI must accept
+    // the 4 trailing u8 args without crashing.  Every combination of
+    // brs / esi in {nullopt, true, false} must return Ack for an
+    // otherwise-valid frame.  Mirror of Python's
+    // test_canfd_brs_esi_passthrough + Go's
+    // TestCrossBinding_SendFrameBrsEsiPassthrough.
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto sid = StandardId::create(256).value();
+    auto dlc = Dlc::create(8).value();
+    auto payload = std::array<std::byte, 8>{};
+
+    const std::array<std::optional<bool>, 3> options = {
+        std::nullopt,
+        std::optional<bool>{true},
+        std::optional<bool>{false},
+    };
+    std::int64_t ts = 0;
+    for (const auto& brs : options) {
+        for (const auto& esi : options) {
+            ts += 1000;
+            auto resp = client.send_frame(std::stop_token{}, Timestamp{ts}, CanId{sid}, dlc,
+                                          std::span<const std::byte>{payload}, brs, esi);
+            REQUIRE(resp.has_value());
+            CHECK(std::holds_alternative<Ack>(resp.value()));
+        }
+    }
+}
+
 TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     // CAN ID 0x800 = 2048 is out of standard 11-bit range; StandardId::create
     // rejects it before the FFI is reached. This is the C++ analogue of
@@ -173,4 +210,79 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     // Extended ID just over the 29-bit cap (2^29 = 0x20000000) is also rejected.
     auto xid = ExtendedId::create(0x20000000);
     CHECK_FALSE(xid.has_value());
+}
+
+// R19 cluster 8 phase e.1 — Identifier validity record enforces
+// max_identifier_length.  The Agda kernel's `validIdentifierᵇ` predicate
+// gained a third conjunct asserting `length name <ᵇ suc max-identifier-
+// length`.  Identifiers at the limit (128 chars) still parse; anything
+// longer is rejected at `mkIdentFromChars` and surfaces as a parse error
+// on the wire (currently `dbc_text_trailing_input` due to parser-monad
+// position semantics; refining to typed `InputBoundExceeded
+// IdentifierLength` is downstream parser-monad plumbing).
+
+TEST_CASE("identifier at max length is accepted", "[cross_binding][cluster8][e1]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    const std::string name(aletheia::max_identifier_length, 'A');
+    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
+    REQUIRE(result.has_value());
+    REQUIRE(result->dbc.messages.size() == 1);
+    CHECK(result->dbc.messages[0].name.get() == name);
+}
+
+TEST_CASE("identifier over max length is rejected", "[cross_binding][cluster8][e1]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    const std::string name(aletheia::max_identifier_length + 1, 'A');
+    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
+    REQUIRE_FALSE(result.has_value());
+}
+
+// R19 AGDA-D-13.4 phase 2a — typed NestingDepth wire-error.  A
+// deeply-nested LTL formula triggers the kernel's `jsonDepth` check at
+// `handleParsedJSON`, emitting `ParseErr (InputBoundExceeded NestingDepth …)`
+// instead of the pre-phase-2a untyped `DispatchErr InvalidJSON`.  The wire
+// carries `bound_kind / observed / limit` which `make_json_error` lifts
+// into `AletheiaError::bound_info()`.  Mirrors Python's
+// `TestNestingDepthBound::test_nested_at_depth_63_rejected` and Go's
+// `TestCrossBinding_NestingDepthLiftsToInputBoundExceeded`.
+//
+// Phase 2b (AtomCount) note: `make_json_error` is BoundKind-generic — it
+// reads `bound_kind` from the wire and populates `bound_info()`
+// uniformly across NestingDepth / AtomCount / IdentifierLength.  This
+// NestingDepth test exercises the same lifter that handles AtomCount
+// (>1024 atoms-per-property).  AtomCount over-bound rejection is
+// verified at the kernel + Python boundary by
+// `python/tests/test_input_bounds.py::TestAtomCountBound`; building a
+// 1025-atom And-tree across the C++ FFI takes ~109s which is
+// unsuitable for a unit-test budget.
+TEST_CASE("nesting depth over limit lifts to InputBoundExceeded",
+          "[cross_binding][cluster8][phase2a]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
+    // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
+    LtlFormula inner =
+        ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
+    for (std::size_t i = 0; i < 63; ++i)
+        inner = ltl::always(std::move(inner));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(inner));
+    auto result = client.set_properties(std::stop_token{}, props);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == ErrorCode::InputBoundExceeded);
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == bound_kind_nesting_depth);
+    CHECK(result.error().bound_info()->limit == max_nesting_depth);
+    CHECK(result.error().bound_info()->observed > max_nesting_depth);
 }

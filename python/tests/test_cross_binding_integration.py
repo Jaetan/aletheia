@@ -33,6 +33,7 @@ import pytest
 from _canonical_dbc import CANONICAL_DBC as _CANONICAL_DBC
 
 from aletheia import AletheiaClient, Signal
+from aletheia.protocols import DLCCode
 
 
 # Documented structural invariants — these mirror PROTOCOL.md's response
@@ -101,7 +102,7 @@ class TestCrossBindingIntegration:
             client.set_properties([prop.to_dict()])
             client.start_stream()
             response = client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([0, 0, 0, 0, 0, 0, 0, 0]),  # signal value 0 < 1000
             )
             client.end_stream()
@@ -127,7 +128,7 @@ class TestCrossBindingIntegration:
             client.start_stream()
             # Signal value 0xFFFF (65535) > 100 → violation.
             response = client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([0xFF, 0xFF, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -146,7 +147,7 @@ class TestCrossBindingIntegration:
             # CAN ID 0x800 (2048) is out of standard 11-bit range; FFI rejects.
             with pytest.raises((ValueError, RuntimeError, OSError)):
                 client.send_frame(
-                    timestamp=1000, can_id=0x800, dlc=8,
+                    timestamp=1000, can_id=0x800, dlc=DLCCode(8),
                     data=bytearray([0, 0, 0, 0, 0, 0, 0, 0]),
                 )
 

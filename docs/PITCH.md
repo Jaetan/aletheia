@@ -1,7 +1,7 @@
 # Aletheia: Project Pitch
 
 **Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
-**Last Updated**: 2026-04-15
+**Last Updated**: 2026-05-10
 
 LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
 
@@ -147,10 +147,11 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 Python:
 ```python
+from pathlib import Path
 Check.signal("Speed").never_exceeds(220)            # Check API
-load_checks("checks.yaml")                          # YAML
+load_checks(Path("checks.yaml"))                    # YAML (Path → file)
 load_checks_from_excel("tests.xlsx")                # Excel
-Signal("Speed").less_than(220).always()              # Full DSL
+Signal("Speed").less_than(220).always()             # Full DSL
 ```
 
 C++:
@@ -168,7 +169,7 @@ aletheia.CheckSignal("Speed").NeverExceeds(220)
 _, _ = aletheia.LoadChecksFromYAMLFile("checks.yaml")
 _, _ = excel.LoadChecks("tests.xlsx")
 // LTL formulas via struct-based AST (compositional, not fluent DSL):
-f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
+f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
 _ = f
 ```
 

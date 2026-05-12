@@ -131,15 +131,23 @@ treat that as supply-chain compromise, not a tooling bug.
 
 ### Installing cosign
 
-Single Go binary; no system package needed:
+Single Go binary; no system package needed.  Per CICD-5.9, the tool the
+release-verification chain trusts must itself be fetched verifiably —
+sigstore publishes a signed `cosign_checksums.txt` alongside each release:
 
 ```bash
-curl -fsSLo ~/.local/bin/cosign \
-  https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
-chmod +x ~/.local/bin/cosign
+COSIGN_VERSION=2.4.1
+COSIGN_SHA256=8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b
+curl -fsSLo /tmp/cosign \
+  "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+install -m 755 /tmp/cosign ~/.local/bin/cosign
+rm /tmp/cosign
 ```
 
-Pin matches `keys/README.md`.
+Pin matches `keys/README.md`.  Refresh both files together when bumping
+cosign — the canonical hash for each platform lives in upstream's
+`cosign_checksums.txt` next to the release binaries.
 
 ### Key rotation
 
@@ -196,7 +204,7 @@ Before tagging a release:
 - [ ] Working tree clean (`git status --porcelain` empty).  A dirty
       tree shows up as `Git tree: dirty` in the MANIFEST and signals
       that the dist may not match any committed source.
-- [ ] `tools/run_ci.py` passes end-to-end (21 steps, ~18 min).
+- [ ] `tools/run_ci.py` passes end-to-end (27 always-on steps, ~17-22 min warm).
 - [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
 - [ ] `CHANGELOG.md` has an entry under `## [X.Y.Z] — Unreleased`
       describing the release.

@@ -32,7 +32,7 @@ validateDBCFull dbc =
       envVars = DBC.environmentVars dbc
       cmts    = DBC.comments dbc
       attrs   = DBC.attributes dbc
-  in checkDuplicateMessageIds msgs
+  in checkAllDuplicateMessageIds msgs
      ++ₗ checkAllDuplicateSignalNames msgs
      ++ₗ checkAllFactorZero msgs
      ++ₗ checkAllMuxFound msgs
@@ -43,12 +43,12 @@ validateDBCFull dbc =
      ++ₗ checkAllSignalExceedsDLC msgs
      ++ₗ checkAllSignalOverlaps msgs
      ++ₗ checkAllBitLengthZero msgs
-     ++ₗ checkDuplicateMessageNames msgs
+     ++ₗ checkAllDuplicateMessageNames msgs
      ++ₗ checkAllOffsetScaleRange msgs
      ++ₗ checkAllEmptyMessage msgs
      ++ₗ checkAllStartBitOutOfRange msgs
      ++ₗ checkAllBitLengthExcessive msgs
-     ++ₗ checkDuplicateAttributeNames attrs
+     ++ₗ checkAllDuplicateAttributeNames attrs
      ++ₗ checkAllUnknownCommentTargets msgs nodes envVars cmts
      ++ₗ checkAllUnknownMessageSenders msgs nodes
      ++ₗ checkAllUnknownSignalReceivers msgs nodes

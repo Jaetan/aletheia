@@ -28,7 +28,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "Speed", Value: 200,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(200),
 		}}},
 	})
 	if err != nil {
@@ -43,7 +43,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0x64, 0, 0, 0, 0, 0, 0, 0}
 
-	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame 1: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 		t.Errorf("expected Ack, got %T", resp1)
 	}
 
-	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
+	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame 2: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Never(aletheia.GreaterThanOrEqual{Signal: "Speed", Value: 200}),
+		aletheia.Never(aletheia.GreaterThanOrEqual{Signal: "Speed", Value: aletheia.RationalFromFloat(200)}),
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -109,7 +109,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}
 
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestViolation_CoreReason(t *testing.T) {
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.MetricEventually{
 			Bound: aletheia.TimeBound{Microseconds: 5_000_000},
-			Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "Speed", Value: 100}},
+			Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "Speed", Value: aletheia.RationalFromFloat(100)}},
 		},
 	})
 	if err != nil {
@@ -181,7 +181,7 @@ func TestViolation_CoreReason(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,11 +281,11 @@ func TestMetricFormulas(t *testing.T) {
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.AlwaysWithin(
 			aletheia.TimeBound{Microseconds: 5_000_000},
-			aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 200}},
+			aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(200)}},
 		),
 		aletheia.EventuallyWithin(
 			aletheia.TimeBound{Microseconds: 1_000_000},
-			aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: 1}},
+			aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: aletheia.RationalFromFloat(1)}},
 		),
 	})
 	if err != nil {
@@ -314,7 +314,7 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestSendError_Ack(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestSendRemote_Ack(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -498,7 +498,7 @@ func TestConcurrentSendFrame(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func TestConcurrentSendFrame(t *testing.T) {
 			defer wg.Done()
 			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
 			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
+			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data, nil, nil)
 		}(i)
 	}
 	wg.Wait()
@@ -531,7 +531,7 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +541,7 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: -1}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: -1}, sid, dlc8(), data, nil, nil)
 	requireErrorContains(t, err, "timestamp must be non-negative")
 }
 
@@ -566,7 +566,7 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 500}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(500)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -578,12 +578,12 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
 
 	// First frame at t=5000 — accepted.
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("first SendFrame: %v", err)
 	}
 
 	// Regressing to t=4999 — rejected by Agda; binding surfaces the coded error.
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 4999}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 4999}, sid, dlc8(), data, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for backward timestamp")
 	}
@@ -600,12 +600,12 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 	requireErrorContains(t, err, "non-monotonic")
 
 	// Same-timestamp frames (≥, not >) should still be accepted.
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("equal-timestamp SendFrame: %v", err)
 	}
 
 	// Anchor unchanged after rejection — forward frame still works.
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 6000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 6000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("forward SendFrame: %v", err)
 	}
 }
@@ -622,7 +622,7 @@ func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +632,7 @@ func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	shortData := aletheia.FramePayload{0, 0, 0, 0} // 4 bytes vs DLC 8
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), shortData)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), shortData, nil, nil)
 	requireErrorContains(t, err, "payload length")
 }
 
@@ -647,7 +647,7 @@ func TestSetProperties_NegativeTimeBound(t *testing.T) {
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.MetricAlways{
 			Bound: aletheia.TimeBound{Microseconds: -1000},
-			Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
+			Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}},
 		},
 	})
 	requireErrorContains(t, err, "negative time bound")
@@ -665,7 +665,7 @@ func TestSetProperties_NegativeDelta(t *testing.T) {
 
 	// Negative delta is valid — directional semantics (curr - prev <= delta)
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: -5}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: aletheia.RationalFromFloat(-5)}}},
 	})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -681,7 +681,7 @@ func TestSetProperties_NegativeTolerance(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.StableWithin{Signal: "Speed", Tolerance: -2}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.StableWithin{Signal: "Speed", Tolerance: aletheia.RationalFromFloat(-2)}}},
 	})
 	requireErrorContains(t, err, "negative tolerance")
 }
@@ -701,14 +701,14 @@ func TestSendFrame_WithoutStartStream(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for SendFrame without StartStream")
 	}
@@ -726,7 +726,7 @@ func TestEndStream_WithoutStartStream(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -750,7 +750,7 @@ func TestConsecutiveStartStream(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +784,7 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -794,7 +794,7 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -831,7 +831,7 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "UnobservedSignal", Value: 100,
+			Signal: "UnobservedSignal", Value: aletheia.RationalFromFloat(100),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -842,7 +842,7 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -877,7 +877,7 @@ func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -945,7 +945,7 @@ func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "Speed", Value: 100,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(100),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -958,7 +958,7 @@ func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
 	for i := range 5 {
 		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
-		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data); err != nil {
+		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data, nil, nil); err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
 	}
@@ -998,7 +998,7 @@ func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Not{Inner: aletheia.Atomic{
-			Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: 0},
+			Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: aletheia.RationalFromFloat(0)},
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -1009,7 +1009,7 @@ func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1053,7 +1053,7 @@ func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
-			Signal: "Speed", Value: 10,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(10),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -1066,7 +1066,7 @@ func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
 	for i := range 5 {
 		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
-		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data); err != nil {
+		if _, err := c.SendFrame(ctx, ts, sid, dlc8(), data, nil, nil); err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
 	}
@@ -1104,7 +1104,7 @@ func TestEOS_EventuallyZeroFrames_Fails(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
-			Signal: "Speed", Value: 10,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(10),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -1147,7 +1147,7 @@ func TestEOS_AlwaysZeroFrames_Holds(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "Speed", Value: 100,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(100),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -1192,10 +1192,10 @@ func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.And{
 			Left: aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-				Signal: "Speed", Value: 100,
+				Signal: "Speed", Value: aletheia.RationalFromFloat(100),
 			}}},
 			Right: aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-				Signal: "Rpm", Value: 100,
+				Signal: "Rpm", Value: aletheia.RationalFromFloat(100),
 			}}},
 		},
 	}); err != nil {
@@ -1207,7 +1207,7 @@ func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x200)
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1245,10 +1245,10 @@ func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Or{
 			Left: aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-				Signal: "Speed", Value: 100,
+				Signal: "Speed", Value: aletheia.RationalFromFloat(100),
 			}}},
 			Right: aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
-				Signal: "Rpm", Value: 999999,
+				Signal: "Rpm", Value: aletheia.RationalFromFloat(999999),
 			}}},
 		},
 	}); err != nil {
@@ -1260,7 +1260,7 @@ func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x200)
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1302,13 +1302,13 @@ func TestEOS_MixedVerdicts(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "Speed", Value: 1000,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(1000),
 		}}},
 		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
-			Signal: "Speed", Value: 999999,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(999999),
 		}}},
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "Rpm", Value: 100,
+			Signal: "Rpm", Value: aletheia.RationalFromFloat(100),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -1319,7 +1319,7 @@ func TestEOS_MixedVerdicts(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
@@ -1363,7 +1363,7 @@ func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
-			Signal: "Speed", Value: 100,
+			Signal: "Speed", Value: aletheia.RationalFromFloat(100),
 		}}},
 	}); err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -1374,7 +1374,7 @@ func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x200)
 	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data, nil, nil); err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
 

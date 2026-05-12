@@ -11,7 +11,9 @@ from aletheia.dbc_queries import (
     signal_by_name,
     signals_for_mux_value,
 )
-from aletheia.protocols import DBCDefinition, DBCSignalAlways, DBCSignalMultiplexed
+from aletheia.protocols import (
+    DBCDefinition, DBCSignalAlways, DBCSignalMultiplexed, DLCByteCount,
+)
 
 
 def _mux_dbc() -> DBCDefinition:
@@ -21,7 +23,7 @@ def _mux_dbc() -> DBCDefinition:
             {
                 "id": 0x200,
                 "name": "MuxMessage",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [
                     DBCSignalAlways(
@@ -34,14 +36,14 @@ def _mux_dbc() -> DBCDefinition:
                         name="Temperature", startBit=8, length=16,
                         byteOrder="little_endian", signed=True,
                         factor=0.1, offset=-40, minimum=-40, maximum=215,
-                        unit="degC",
+                        unit="degC", presence="multiplexed",
                         multiplexor="MuxSelector", multiplex_values=[0],
                     ),
                     DBCSignalMultiplexed(
                         name="Pressure", startBit=8, length=16,
                         byteOrder="little_endian", signed=False,
                         factor=0.01, offset=0, minimum=0, maximum=655,
-                        unit="bar",
+                        unit="bar", presence="multiplexed",
                         multiplexor="MuxSelector", multiplex_values=[1],
                     ),
                     DBCSignalAlways(
@@ -53,6 +55,9 @@ def _mux_dbc() -> DBCDefinition:
                 ],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -63,7 +68,7 @@ def _plain_dbc() -> DBCDefinition:
             {
                 "id": 0x100,
                 "name": "EngineData",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [
                     DBCSignalAlways(
@@ -75,6 +80,9 @@ def _plain_dbc() -> DBCDefinition:
                 ],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -245,11 +253,14 @@ def _empty_msg() -> DBCDefinition:
             {
                 "id": 0x500,
                 "name": "EmptyMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -280,7 +291,7 @@ def _dual_mux_dbc() -> DBCDefinition:
             {
                 "id": 0x400,
                 "name": "DualMuxMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [
                     DBCSignalAlways(
@@ -293,7 +304,7 @@ def _dual_mux_dbc() -> DBCDefinition:
                         name="SigA1", startBit=8, length=8,
                         byteOrder="little_endian", signed=False,
                         factor=1, offset=0, minimum=0, maximum=255,
-                        unit="",
+                        unit="", presence="multiplexed",
                         multiplexor="MuxA", multiplex_values=[0],
                     ),
                     DBCSignalAlways(
@@ -306,19 +317,22 @@ def _dual_mux_dbc() -> DBCDefinition:
                         name="SigB1", startBit=16, length=8,
                         byteOrder="little_endian", signed=False,
                         factor=1, offset=0, minimum=0, maximum=255,
-                        unit="",
+                        unit="", presence="multiplexed",
                         multiplexor="MuxB", multiplex_values=[0],
                     ),
                     DBCSignalMultiplexed(
                         name="SigA2", startBit=8, length=8,
                         byteOrder="little_endian", signed=False,
                         factor=1, offset=0, minimum=0, maximum=255,
-                        unit="",
+                        unit="", presence="multiplexed",
                         multiplexor="MuxA", multiplex_values=[1],
                     ),
                 ],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -347,19 +361,22 @@ def _extended_dbc() -> DBCDefinition:
             {
                 "id": 0x200,
                 "name": "StdMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [],
             },
             {
                 "id": 0x200,
                 "name": "ExtMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "extended": True,
                 "signals": [],
             },
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 

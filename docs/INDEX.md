@@ -30,7 +30,7 @@ Complete API documentation:
 
 - **[Interface Guide](reference/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
 - **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
-- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, mux-query
+- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query
 - **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
 ---
@@ -40,6 +40,8 @@ Complete API documentation:
 Understand how Aletheia works:
 
 - **[Design Overview](architecture/DESIGN.md)** - Three-layer architecture, design decisions, and rationale
+- **[Cancellation Contract](architecture/CANCELLATION.md)** - Cross-binding async/sync cancellation semantics (Python `asyncio`, Go `context.Context`, C++ `std::stop_token`)
+- **[cgo / dlopen Notes](architecture/CGO_NOTES.md)** - Go binding's cgo + dlopen rationale, GHC RTS thread pinning, build constraints
 
 ---
 
@@ -49,6 +51,7 @@ For deployment and on-call:
 
 - **[Operations Runbook](operations/RUNBOOK.md)** - Symptom → cause → action for every structured log event and every documented failure mode (build, runtime, cancellation, input bounds, OOM, validation rejection)
 - **[Long-Run Stability Bench](operations/STABILITY.md)** - Per-binding harnesses for RSS / FD / handle-count drift detection across ≥ 1M frames; spec at `docs/STABILITY_BENCH.yaml`, gated by `tools/check_stability_bench.py` (static) + `tools/stability_run.py` (dynamic, opt-in via `ALETHEIA_STABILITY_CHECK=1`)
+- **[Mutation Testing](operations/MUTATION.md)** - Per-binding mutation testing infrastructure (Python `mutmut`, Go `gremlins`, C++ `Mull`); threshold model, install procedure, forward-revert verification protocol
 
 ---
 
@@ -58,9 +61,13 @@ Build and contribute:
 
 1. **[Building Guide](development/BUILDING.md)** - Setup, installation, and development workflow
 2. **[Distribution Guide](development/DISTRIBUTION.md)** - Packaging and integrating `libaletheia-ffi.so` into C, C++, and Go projects
-3. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-4. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-5. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+3. **[Local CI](development/CI_LOCAL.md)** - Three-layer CI architecture (always-on / opt-in / external); pre-push hook; orchestrator (`tools/run_ci.py`)
+4. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
+5. **[Parity Plan](development/PARITY_PLAN.md)** - Cross-binding feature parity roadmap (Tracks A–E + post-R17 follow-ups); paired with `docs/FEATURE_MATRIX.yaml`
+6. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+7. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+8. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+9. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
 
 ---
 
@@ -99,6 +106,7 @@ aletheia/
 ├── CLAUDE.md                          # AI development guide
 ├── CONTRIBUTING.md                    # Contribution guidelines
 ├── PROJECT_STATUS.md                  # Phase tracking (canonical metrics)
+├── CHANGELOG.md                       # Public-API change log
 ├── LICENSE.md                         # Legal
 ├── AGENTS.md                          # Per-language coding standards / review categories
 ├── DEPENDENCIES.md                    # Third-party dependencies & licenses
@@ -117,19 +125,26 @@ aletheia/
 │   ├── reference/
 │   │   ├── INTERFACES.md              # Check API, YAML, Excel
 │   │   ├── PYTHON_API.md              # Raw DSL and AletheiaClient
-│   │   └── CLI.md                     # CLI subcommands
+│   │   └── CLI.md                     # CLI subcommands (check / validate / extract / signals / format-dbc / mux-query)
 │   │
 │   ├── architecture/
 │   │   ├── DESIGN.md                  # Architecture overview
-│   │   └── PROTOCOL.md                # JSON protocol spec
+│   │   ├── PROTOCOL.md                # JSON protocol spec
+│   │   ├── CANCELLATION.md            # Cross-binding cancellation contract
+│   │   └── CGO_NOTES.md               # Go cgo + dlopen rationale
 │   │
 │   ├── operations/
-│   │   └── RUNBOOK.md                 # Symptom → cause → action runbook
+│   │   ├── RUNBOOK.md                 # Symptom → cause → action runbook
+│   │   ├── STABILITY.md               # Long-run stability harnesses (RSS / FD drift)
+│   │   └── MUTATION.md                # Mutation testing (mutmut / gremlins / Mull)
 │   │
 │   ├── development/
 │   │   ├── BUILDING.md                # Build instructions
 │   │   ├── BENCHMARKS.md              # Benchmark suite and methodology
-│   │   └── DISTRIBUTION.md            # Packaging & native integration
+│   │   ├── DISTRIBUTION.md            # Packaging & native integration
+│   │   ├── CI_LOCAL.md                # Three-layer CI architecture
+│   │   ├── RELEASE.md                 # Tag / sign / publish procedure
+│   │   └── PARITY_PLAN.md             # Cross-binding feature parity roadmap
 │   │
 │   └── presentation/
 │       └── index.html                 # Slide deck for talks and demos

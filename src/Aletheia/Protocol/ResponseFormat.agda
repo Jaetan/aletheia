@@ -8,6 +8,7 @@ module Aletheia.Protocol.ResponseFormat where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
@@ -18,6 +19,7 @@ open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
 import Aletheia.Error as Err
+open import Aletheia.Limits using (BoundKind; boundKindCode)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
 open import Aletheia.Trace.Time using (tsValue)
@@ -94,16 +96,30 @@ formatValidationIssue issue =
     ("detail"   , JStringS (ValidationIssue.detail issue)) ∷
     [])
 
--- Per-error structured fields appended to the Error JSON envelope.  Today
--- only `DBCTextParseErr (TrailingInput pos)` carries extras (line + column);
+-- Per-error structured fields appended to the Error JSON envelope:
+--   * `DBCTextParseErr (TrailingInput pos)` exposes `line` + `column`.
+--   * `Error.InputBoundExceeded kind observed limit` (top-level after
+--     R19 cluster 14 / AGDA-C-6.2 consolidation) exposes `bound_kind` +
+--     `observed` + `limit` (AGDA-D-13.4 phase 2a/2b typed wire-error
+--     refinement; the C++ / Go / Python bindings dispatch on `bound_kind`
+--     from this structured payload).
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
+private
+  boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
+  boundInfoFields kind observed limit =
+    ("bound_kind" , JStringS (boundKindCode kind)) ∷
+    ("observed"   , JNumber (ℕtoℚ observed)) ∷
+    ("limit"      , JNumber (ℕtoℚ limit)) ∷
+    []
+
 errorExtras : Err.Error → List (String × JSON)
 errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos)) =
   ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
   ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
   []
-errorExtras (Err.WithContext _ inner) = errorExtras inner
-errorExtras _                         = []
+errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
+errorExtras (Err.WithContext _ inner)      = errorExtras inner
+errorExtras _                              = []
 
 -- Format Response as JSON
 formatResponse : Response → JSON

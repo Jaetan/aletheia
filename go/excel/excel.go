@@ -123,7 +123,7 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 }
 
 // LoadDbc loads a DBC definition from the DBC sheet of an Excel workbook.
-func LoadDbc(path string, opts ...Option) (*aletheia.DbcDefinition, error) {
+func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 	path = filepath.Clean(path)
 	cfg := defaultConfig()
 	for _, o := range opts {
@@ -508,7 +508,7 @@ type messageKey struct {
 	dlc      int64
 }
 
-func parseDbcRows(rows []map[string]string) (*aletheia.DbcDefinition, error) {
+func parseDbcRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 	type groupEntry struct {
 		key     messageKey
 		indices []int
@@ -550,10 +550,10 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DbcDefinition, error) {
 		}
 	}
 
-	messages := make([]aletheia.DbcMessage, 0, len(insertionOrder))
+	messages := make([]aletheia.DBCMessage, 0, len(insertionOrder))
 	for _, key := range insertionOrder {
 		g := groups[key]
-		signals := make([]aletheia.DbcSignal, 0, len(g.indices))
+		signals := make([]aletheia.DBCSignal, 0, len(g.indices))
 		for _, i := range g.indices {
 			sig, err := xlsxDbcSignal(rows[i], i+2)
 			if err != nil {
@@ -563,7 +563,7 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DbcDefinition, error) {
 		}
 
 		// Create the CAN ID based on the "Extended" column.
-		var canID aletheia.CanID
+		var canID aletheia.CANID
 		if key.extended {
 			if key.id < 0 || key.id > aletheia.MaxExtendedID {
 				return nil, aletheia.NewValidationError(fmt.Sprintf("extended CAN ID %d out of range [0, %d]", key.id, aletheia.MaxExtendedID))
@@ -605,33 +605,33 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DbcDefinition, error) {
 	return aletheia.NewDbcDefinition("", messages), nil
 }
 
-func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DbcSignal, error) {
+func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error) {
 	name, err := xlsxStr(row, "Signal", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 
 	startBit, err := xlsxInt(row, "Start Bit", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 	if startBit < 0 || startBit > int64(aletheia.MaxBitPosition) {
-		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
+		return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: 'Start Bit' %d out of range [0, %d]", rowNum, startBit, aletheia.MaxBitPosition))
 	}
 
 	length, err := xlsxInt(row, "Length", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 	if length < 1 || length > int64(aletheia.MaxBitLength) {
-		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
+		return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: 'Length' %d out of range [1, %d]", rowNum, length, aletheia.MaxBitLength))
 	}
 
 	byteOrderStr, err := xlsxStr(row, "Byte Order", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 	var byteOrder aletheia.ByteOrder
 	switch byteOrderStr {
@@ -640,29 +640,29 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DbcSignal, error
 	case "big_endian":
 		byteOrder = aletheia.BigEndian
 	default:
-		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf("row %d: 'Byte Order' must be 'little_endian' or 'big_endian'", rowNum))
+		return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf("row %d: 'Byte Order' must be 'little_endian' or 'big_endian'", rowNum))
 	}
 
 	signed, err := xlsxBool(row, "Signed", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 
 	factor, err := xlsxRational(row, "Factor", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 	offset, err := xlsxRational(row, "Offset", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 	minimum, err := xlsxRational(row, "Min", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 	maximum, err := xlsxRational(row, "Max", rowNum)
 	if err != nil {
-		return aletheia.DbcSignal{}, err
+		return aletheia.DBCSignal{}, err
 	}
 
 	unit := ""
@@ -675,7 +675,7 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DbcSignal, error
 	_, hasMuxVal := row["Multiplex Value"]
 
 	if hasMuxor != hasMuxVal {
-		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
+		return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: 'Multiplexor' and 'Multiplex Value' must both be provided or both be empty",
 			rowNum,
 		))
@@ -685,14 +685,14 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DbcSignal, error
 	if hasMuxor {
 		muxor, err := xlsxStr(row, "Multiplexor", rowNum)
 		if err != nil {
-			return aletheia.DbcSignal{}, err
+			return aletheia.DBCSignal{}, err
 		}
 		muxVal, err := xlsxInt(row, "Multiplex Value", rowNum)
 		if err != nil {
-			return aletheia.DbcSignal{}, err
+			return aletheia.DBCSignal{}, err
 		}
 		if muxVal < 0 {
-			return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
+			return aletheia.DBCSignal{}, aletheia.NewValidationError(fmt.Sprintf(
 				"row %d: 'Multiplex Value' must be non-negative, got %d", rowNum, muxVal))
 		}
 		presence = aletheia.Multiplexed{
@@ -703,7 +703,7 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DbcSignal, error
 		presence = aletheia.AlwaysPresent{}
 	}
 
-	return aletheia.DbcSignal{
+	return aletheia.DBCSignal{
 		Name:      aletheia.SignalName(name),
 		StartBit:  aletheia.BitPosition(startBit),
 		BitLength: aletheia.BitLength(length),

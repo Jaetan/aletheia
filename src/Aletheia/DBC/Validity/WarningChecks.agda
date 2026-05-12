@@ -23,14 +23,14 @@ open import Aletheia.DBC.Validator using
   ; checkAllGlobalNameCollisions; messageSignalNames
   ; checkMinMaxSig; checkAllMinMax
   ; checkDuplicateNamePair; checkDuplicateNameAgainstList
-  ; checkDuplicateMessageNames
+  ; checkAllDuplicateMessageNames
   ; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ
   ; checkOffsetScaleRange; checkAllOffsetScaleRange
   ; checkEmptyMessage; checkAllEmptyMessage
   ; checkStartBitOutOfRange; checkAllStartBitOutOfRange
   ; checkBitLengthExcessive; checkAllBitLengthExcessive
   ; checkMuxScaling; checkMuxScalingSig; checkAllMuxScaling
-  ; attrDefNames; checkDuplicateAttrNamePair; checkDuplicateAttributeNames
+  ; attrDefNames; checkDuplicateAttrNamePair; checkAllDuplicateAttributeNames
   ; findMessageInList
   ; checkCommentTargetExists; checkAllUnknownCommentTargets
   ; checkUnknownSender; checkAllUnknownMessageSenders
@@ -230,10 +230,10 @@ checkDuplicateNamePair-allW m1 m2 with messageNameStr m1 ≟ₛ messageNameStr m
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
-checkDuplicateMessageNames-allW : ∀ msgs → All W (checkDuplicateMessageNames msgs)
-checkDuplicateMessageNames-allW [] = []
-checkDuplicateMessageNames-allW (m ∷ rest) =
-  ++⁺ (go m rest) (checkDuplicateMessageNames-allW rest)
+checkAllDuplicateMessageNames-allW : ∀ msgs → All W (checkAllDuplicateMessageNames msgs)
+checkAllDuplicateMessageNames-allW [] = []
+checkAllDuplicateMessageNames-allW (m ∷ rest) =
+  ++⁺ (go m rest) (checkAllDuplicateMessageNames-allW rest)
   where
     go : ∀ m rest → All W (checkDuplicateNameAgainstList m rest)
     go _ [] = []
@@ -265,16 +265,16 @@ checkDuplicateNameAgainstList-complete : ∀ m rest →
 checkDuplicateNameAgainstList-complete m =
   liftConcatMap-complete (checkDuplicateNamePair m) (checkDuplicateNamePair-complete m)
 
-checkDuplicateMessageNames-sound : ∀ msgs →
-  checkDuplicateMessageNames msgs ≡ [] →
+checkAllDuplicateMessageNames-sound : ∀ msgs →
+  checkAllDuplicateMessageNames msgs ≡ [] →
   AllPairs DistinctMessageNames msgs
-checkDuplicateMessageNames-sound =
+checkAllDuplicateMessageNames-sound =
   liftTriangular-sound checkDuplicateNamePair checkDuplicateNamePair-sound
 
-checkDuplicateMessageNames-complete : ∀ msgs →
+checkAllDuplicateMessageNames-complete : ∀ msgs →
   AllPairs DistinctMessageNames msgs →
-  checkDuplicateMessageNames msgs ≡ []
-checkDuplicateMessageNames-complete =
+  checkAllDuplicateMessageNames msgs ≡ []
+checkAllDuplicateMessageNames-complete =
   liftTriangular-complete checkDuplicateNamePair checkDuplicateNamePair-complete
 
 -- ============================================================================
@@ -609,8 +609,8 @@ checkDuplicateAttrNamePair-allW n1 n2 with n1 ≟ₛ n2
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
-checkDuplicateAttributeNames-allW : ∀ attrs → All W (checkDuplicateAttributeNames attrs)
-checkDuplicateAttributeNames-allW attrs = go (attrDefNames attrs)
+checkAllDuplicateAttributeNames-allW : ∀ attrs → All W (checkAllDuplicateAttributeNames attrs)
+checkAllDuplicateAttributeNames-allW attrs = go (attrDefNames attrs)
   where
     against : ∀ n rest → All W (concatMap (checkDuplicateAttrNamePair n) rest)
     against _ [] = []

@@ -11,7 +11,7 @@ domain. What this test validates instead — and why corpus-sampled
 testing is the appropriate tool here, even though it would be
 inappropriate as a parser-correctness proof — is that each binding's
 wire-to-native conversion (Agda JSON → Python ``DBCDefinition`` /
-C++ ``DbcDefinition`` / Go ``DbcDefinition``) preserves the wire bytes
+C++ ``DbcDefinition`` / Go ``DBCDefinition``) preserves the wire bytes
 faithfully. A failure here means a binding lost or mangled fields on
 parse, not that the Agda parser is wrong.
 
@@ -21,7 +21,8 @@ snapshot in ``fixtures/dbc_corpus/parity_snapshots/``. The same snapshots
 are the oracle for the C++ (``cpp/tests/dbc_corpus_parity_tests.cpp``)
 and Go (``go/aletheia/dbc_corpus_parity_test.go``) parity tests — when
 all three match the same bytes, the bindings have observed identical
-``DbcDefinition`` structure for every fixture.
+DBC structure for every fixture (Python/Go ``DBCDefinition``,
+C++ ``DbcDefinition``).
 
 Canonical form: ``json.dumps(..., sort_keys=True, indent=2)`` with
 ``FractionJSONEncoder`` + a trailing newline. Sorted keys + the

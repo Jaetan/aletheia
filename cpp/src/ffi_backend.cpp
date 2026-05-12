@@ -18,24 +18,26 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace aletheia {
 
 namespace {
 
-// CAN-FD's largest payload. Used to bound FFI data arguments before they
-// are forwarded to the Haskell core — this keeps the bound symmetric with
-// the core's own length check (dlcValid) and rejects caller-side attempts
-// to smuggle larger payloads.
-constexpr std::size_t max_can_fd_payload_bytes = 64;
+// CAN-FD's largest payload, sourced from the public limits header (SSOT).
+// R19 cluster 12 — CPP-B-7.4: this anonymous-namespace constant used to
+// duplicate `aletheia::max_frame_byte_count` (also 64); now it is a thin
+// alias so a future bound change at the public surface automatically
+// propagates here.
+constexpr std::size_t max_can_fd_payload_bytes =
+    static_cast<std::size_t>(aletheia::max_frame_byte_count);
 
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
 using AletheiaProcessFn = char* (*)(void*, const char*);
 using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t,
-                                      std::uint8_t, const std::uint8_t*, std::uint8_t);
+                                      std::uint8_t, const std::uint8_t*, std::uint8_t, std::uint8_t,
+                                      std::uint8_t, std::uint8_t, std::uint8_t);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
@@ -132,6 +134,22 @@ class FfiBackend : public IBackend {
         return reinterpret_cast<Fn>(sym);
     }
 
+    // Wrap an FFI char* result with the standard null-check + RAII deleter
+    // + std::string conversion pattern.  Throws std::runtime_error with
+    // `error_msg` when result is null; otherwise materializes the C string
+    // into a std::string and frees the FFI buffer via free_str_fn_.
+    // R19 cluster 14 / CPP-A-1.1 — replaces 8 hand-rolled copies of this
+    // pattern across process / send_frame_binary / send_error_binary /
+    // send_remote_binary / start_stream_binary / end_stream_binary /
+    // format_dbc_binary / extract_signals_binary.
+    [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg) -> std::string {
+        if (result == nullptr)
+            throw std::runtime_error(std::string{error_msg});
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
 public:
     explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores)
         : handle_(dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)) {
@@ -216,36 +234,43 @@ public:
         // C-side null-terminated copy only to be rejected on the other
         // side.  Returns the wire-format error JSON so the existing
         // `detail::parse_*` paths translate to AletheiaError with
-        // code == ErrorCode::ParseInputBoundExceeded uniformly.
+        // code == ErrorCode::InputBoundExceeded uniformly (post R19
+        // cluster 14 / AGDA-C-6.2 consolidation).
         if (input.size() > aletheia::max_json_bytes) {
+            // R19 cluster 8 — CPP-D-21.5: emit structured bound_kind /
+            // observed / limit fields alongside `code` and `message` so
+            // downstream `parse_*` paths can lift them into the
+            // AletheiaError's optional InputBoundExceededError, matching
+            // Python's typed `InputBoundExceededError(...)` shape and Go's
+            // `*InputBoundExceededError{Kind/Observed/Limit/Code}`.
             std::string out;
-            out.reserve(160);
+            out.reserve(256);
             out.append(
-                R"({"status":"error","code":"parse_input_bound_exceeded","message":"input length (bytes) )");
+                R"({"status":"error","code":"input_bound_exceeded","message":"input length (bytes) )");
             out.append(std::to_string(input.size()));
             out.append(R"( exceeds limit )");
             out.append(std::to_string(aletheia::max_json_bytes));
-            out.append(R"("})");
+            out.append(R"(","bound_kind":")");
+            out.append(aletheia::bound_kind_input_length_bytes);
+            out.append(R"(","observed":)");
+            out.append(std::to_string(input.size()));
+            out.append(R"(,"limit":)");
+            out.append(std::to_string(aletheia::max_json_bytes));
+            out.append(R"(})");
             return out;
         }
         // The Agda core expects a null-terminated string.
         const std::string input_str{input};
-        char* result = process_fn_(state, input_str.c_str());
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_process returned null");
-        // RAII guard ensures free_str_fn_ runs even if string construction throws.
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(process_fn_(state, input_str.c_str()),
+                               "aletheia_process returned null");
     }
 
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
-                           std::span<const std::byte> data) -> std::string override {
+                           std::span<const std::byte> data, std::optional<bool> brs,
+                           std::optional<bool> esi) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
         // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
         // malformed caller cannot smuggle 65–255 byte payloads into the
@@ -256,74 +281,54 @@ public:
                                      " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        char* result = send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
-                                      as_u8(data.data()), data_len);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_send_frame returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        // Encode optional<bool> as (present, value) byte pairs — inverse
+        // of the Haskell shim's mkMaybeBool.
+        const auto encode = [](std::optional<bool> b) -> std::pair<std::uint8_t, std::uint8_t> {
+            if (!b.has_value())
+                return {0, 0};
+            return {1, static_cast<std::uint8_t>(*b ? 1 : 0)};
+        };
+        const auto [brs_p, brs_v] = encode(brs);
+        const auto [esi_p, esi_v] = encode(esi);
+
+        return wrap_str_result(send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
+                                              as_u8(data.data()), data_len, brs_p, brs_v, esi_p,
+                                              esi_v),
+                               "aletheia_send_frame returned null");
     }
 
     auto send_error_binary(void* state, Timestamp ts) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        char* result = send_error_fn_(state, timestamp);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_send_error returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(send_error_fn_(state, timestamp),
+                               "aletheia_send_error returned null");
     }
 
     auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
-        char* result = send_remote_fn_(state, timestamp, can_id, extended);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_send_remote returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        return wrap_str_result(send_remote_fn_(state, timestamp, can_id, extended),
+                               "aletheia_send_remote returned null");
     }
 
     void close(void* state) override { close_fn_(state); }
 
     auto start_stream_binary(void* state) -> std::string override {
-        char* result = start_stream_fn_(state);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_start_stream returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(start_stream_fn_(state), "aletheia_start_stream returned null");
     }
 
     auto end_stream_binary(void* state) -> std::string override {
-        char* result = end_stream_fn_(state);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_end_stream returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(end_stream_fn_(state), "aletheia_end_stream returned null");
     }
 
     auto format_dbc_binary(void* state) -> std::string override {
-        char* result = format_dbc_fn_(state);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_format_dbc returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(format_dbc_fn_(state), "aletheia_format_dbc returned null");
     }
 
     auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
         // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
         // malformed caller cannot smuggle 65–255 byte payloads into the
@@ -334,22 +339,16 @@ public:
                                      " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        char* result =
-            extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_extract_signals returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(
+            extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len),
+            "aletheia_extract_signals returned null");
     }
 
     auto build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
                          std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
@@ -373,10 +372,8 @@ public:
                 AletheiaError{ErrorKind::Validation, "data length exceeds " +
                                                          std::to_string(max_can_fd_payload_bytes) +
                                                          " bytes (CAN-FD max)"});
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         std::vector<std::byte> buf(expected_bytes);
@@ -400,10 +397,8 @@ public:
                 AletheiaError{ErrorKind::Validation, "data length exceeds " +
                                                          std::to_string(max_can_fd_payload_bytes) +
                                                          " bytes (CAN-FD max)"});
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id = can_id_value(id);
+        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         std::uint8_t* out_buf = nullptr;

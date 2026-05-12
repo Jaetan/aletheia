@@ -28,10 +28,11 @@ open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isAlpha; _≈ᵇ_; toℕ)
 open import Data.Char.Properties using (≈⇒≡)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; length)
 import Data.List.Properties as ListProps
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (suc; _<ᵇ_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String as String using (String; fromList; toList)
@@ -41,6 +42,7 @@ open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; cong; cong₂; subst)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
+open import Aletheia.Limits using (max-identifier-length)
 open import Aletheia.Parser.Combinators using (isAlphaNum)
 
 -- ============================================================================
@@ -66,9 +68,19 @@ allᵇ : (Char → Bool) → List Char → Bool
 allᵇ _ []       = true
 allᵇ p (c ∷ cs) = p c ∧ allᵇ p cs
 
+-- R19 cluster 8 phase e.1: extended with a length bound against
+-- `max-identifier-length` (128) so every constructed `Identifier`
+-- provably satisfies AGENTS.md "Adversarial-input bounds at parser
+-- surfaces".  The bound check is the third conjunct; existing
+-- `mkIdentFromChars` / `mkIdentFromString` callers go through
+-- `T? (validIdentifierᵇ cs)` so they pick up the bound automatically.
+-- Hard-coded `mkIdent (toList "<short>") tt` callsites still typecheck
+-- because the conjunct reduces to `true` on every concrete string
+-- shorter than 128 chars (closed-term reduction).
 validIdentifierᵇ : List Char → Bool
 validIdentifierᵇ []       = false
-validIdentifierᵇ (c ∷ cs) = isIdentStart c ∧ allᵇ isIdentCont cs
+validIdentifierᵇ (c ∷ cs) =
+  isIdentStart c ∧ allᵇ isIdentCont cs ∧ (length (c ∷ cs) <ᵇ suc max-identifier-length)
 
 -- ============================================================================
 -- Identifier — `List Char`-internal record with char-list-level witness

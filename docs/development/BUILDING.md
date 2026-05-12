@@ -1,5 +1,7 @@
 # Building Aletheia
 
+**Last Updated**: 2026-05-10
+
 Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); phase and status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 This document provides step-by-step instructions for building Aletheia from source.
@@ -559,10 +561,10 @@ cabal run shake -- build  # Only rebuilds affected modules
 For faster iteration when developing Agda code:
 ```bash
 cd src
-agda +RTS -N32 -RTS Aletheia/YourModule.agda  # Type-check only (parallel)
+agda +RTS -N32 -M16G -RTS Aletheia/YourModule.agda  # Type-check only (parallel, heap-capped)
 ```
 
-**Important**: Always use `+RTS -N32 -RTS` for parallel type-checking. Without it, modules like `StreamState.agda` and `Main.agda` can take >2 minutes instead of ~17 seconds.
+**Important**: Always use `+RTS -N32 -M16G -RTS` for ad-hoc type-checking. `-N32` enables parallel GHC (otherwise modules like `StreamState.agda` and `Main.agda` can take >2 minutes instead of ~17 seconds); `-M16G` caps the heap and doubles as a runaway-elaboration tripwire on the 62 GiB host. See AGENTS.md § Agda > Verification for the review-tightening (`-M4G`) variant.
 
 ### Verbose Build Output
 ```bash
@@ -581,8 +583,8 @@ cabal run shake -- build
 ### Checking Individual Modules
 ```bash
 cd src
-agda +RTS -N32 -RTS Aletheia/Main.agda              # Check Main and all dependencies
-agda +RTS -N32 -RTS Aletheia/Protocol/Message.agda  # Check just Message module
+agda +RTS -N32 -M16G -RTS Aletheia/Main.agda              # Check Main and all dependencies
+agda +RTS -N32 -M16G -RTS Aletheia/Protocol/Message.agda  # Check just Message module
 ```
 
 ## Platform-Specific Notes

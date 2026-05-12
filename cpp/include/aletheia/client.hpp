@@ -53,6 +53,23 @@ namespace aletheia {
 // which never reports stop_requested (mirrors Go's `context.Background()`).
 // Construction and destruction do NOT take stop_token (synchronous and
 // uncancellable by design).
+//
+// Streaming adequacy (Unresolved verdicts):
+//
+// The streaming evaluator is sound but requires that every property's
+// target signal is observed in the input trace at least once — the
+// AllObserved invariant from
+// Aletheia.Protocol.Adequacy.StreamingWarm.streaming-warms-cache. This
+// is a user obligation on the trace; the FFI does not check it.
+//
+// When the obligation is violated (e.g., a property references a signal
+// that no frame in the trace carries), the property may finalize as
+// Verdict::Unresolved — the three-valued Kleene "Unsure" — rather than
+// Verdict::Holds or Verdict::Fails. Reported verdicts remain sound;
+// coverage is the caller's responsibility.
+//
+// See docs/architecture/PROTOCOL.md § Streaming Semantics: Soundness
+// vs. Completeness for the full contract.
 class AletheiaClient {
 public:
     explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
@@ -106,14 +123,19 @@ public:
     // with extracted signal values and a formatted reason string (requires
     // set_properties() to have been called to install diagnostics).
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
-    // CAN-FD note: BRS/ESI flags are not part of the FFI protocol and are silently
-    // dropped.  The Agda core operates on payload bytes + DLC only.
+    // CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are passed
+    // as std::optional<bool> — std::nullopt for CAN 2.0B frames where the
+    // bits do not exist on the wire.  The Aletheia kernel does not consume
+    // BRS / ESI; they are pass-through metadata for binding consumers and
+    // the JSON wire shape (R19P2 cluster 18 — AGDA-D-10.1 closure).
     // For batch operations, see send_frames().
     [[nodiscard]] auto send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
-                                  std::span<const std::byte> data) -> Result<FrameResponse>;
+                                  std::span<const std::byte> data,
+                                  std::optional<bool> brs = std::nullopt,
+                                  std::optional<bool> esi = std::nullopt) -> Result<FrameResponse>;
     // Convenience: send a Frame directly.
     [[nodiscard]] auto send_frame(std::stop_token stop, const Frame& f) -> Result<FrameResponse> {
-        return send_frame(stop, f.timestamp, f.id, f.dlc, f.data);
+        return send_frame(stop, f.timestamp, f.id, f.dlc, f.data, f.brs, f.esi);
     }
     // CAN error event (no ID, no payload). Acknowledged without LTL evaluation.
     [[nodiscard]] auto send_error(std::stop_token stop, Timestamp ts) -> Result<void>;
@@ -174,7 +196,10 @@ private:
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.
     // Populated by send_frame() (guarded by !diags_.empty()); cleared by start_stream().
-    // Cost: one FramePayload copy per unique CAN ID (not per frame), via insert_or_assign.
+    // Storage: one entry per unique (CAN ID, extended) pair.
+    // Cost: one FramePayload copy per frame.  First frame for a key
+    // allocates via `emplace`; subsequent frames reuse the existing
+    // vector capacity via `assign` — see R19 cluster 19 / CPP-B-25.1.
     struct LastFrame {
         CanId id;
         Dlc dlc;

@@ -27,6 +27,7 @@ open import Data.Bool using (T)
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
+open import Data.List.Properties using (map-∘)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -68,6 +69,7 @@ open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
   parseCANId; parseMessageId;
   parseRawValueDesc; parseRawValueDescList;
   validateIdent; validateIdentList)
+open import Aletheia.Error using (ParseError)
 open import Aletheia.JSON using (JSON; JObject; JString; JStringS; JNumber; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
@@ -81,6 +83,33 @@ private
   >>=ₑ-congʳ : ∀ {E A B : Set} {x : E ⊎ A} {a : A} (f : A → E ⊎ B)
     → x ≡ inj₂ a → (x >>=ₑ f) ≡ f a
   >>=ₑ-congʳ f refl = refl
+
+-- ============================================================================
+-- LIST-ROUNDTRIP COMBINATOR (AGDA-C-6.5)
+-- ============================================================================
+
+-- Generic roundtrip for `parseObjectList` when each list element's
+-- formatter unfolds to `JObject ∘ fields`.  Replaces 4 identical
+-- per-entity `*-list-go` templates (signalGroup / environmentVar /
+-- valueEntry / valueTable) — see R19 cluster 14 / AGDA-C-6.5.
+--
+-- Constraint: caller supplies `formatter-eq` witnessing
+-- `formatter a ≡ JObject (fields a)`.  When the formatter is defined as
+-- `formatX a = JObject (Xfields a)` syntactically, this witness is
+-- `λ _ → refl`.
+parseObjectList-roundtrip : {A : Set}
+  (typeName : String)
+  (parser : List (String × JSON) → ParseError ⊎ A)
+  (formatter : A → JSON)
+  (fields : A → List (String × JSON))
+  (formatter-eq : ∀ a → formatter a ≡ JObject (fields a))
+  (rt : ∀ a → parser (fields a) ≡ inj₂ a)
+  → ∀ n as
+  → parseObjectList typeName parser n (map formatter as) ≡ inj₂ as
+parseObjectList-roundtrip _ _ _ _ _ _ _ [] = refl
+parseObjectList-roundtrip kind parser fmt flds fmt-eq rt n (a ∷ as)
+  rewrite fmt-eq a | rt a
+        | parseObjectList-roundtrip kind parser fmt flds fmt-eq rt (suc n) as = refl
 
 -- ============================================================================
 -- CHARS LIST ROUNDTRIP
@@ -107,10 +136,11 @@ validateIdent-roundtrip (mkIdent name valid)
 -- receivers / senders roundtrips where the formatter emits
 -- `map (JString ∘ Identifier.name) xs`.  Exported for SignalRoundtrip /
 -- MessageRoundtrip which need the same lemma for their identifier fields.
+-- Re-exports stdlib `map-∘` at the specialised arity callers want
+-- (R19 cluster 15 — AGDA-C-27.1).
 map-∘-identifier : ∀ {A : Set} (f : List Char → A) (is : List Identifier)
   → map (λ i → f (Identifier.name i)) is ≡ map f (map Identifier.name is)
-map-∘-identifier _ []       = refl
-map-∘-identifier f (_ ∷ is) = cong (_ ∷_) (map-∘-identifier f is)
+map-∘-identifier _ is = map-∘ is
 
 -- List-of-identifiers roundtrip: mapped validateIdentList matches.
 validateIdentList-roundtrip :
@@ -149,17 +179,11 @@ signalGroup-roundtrip sg
         | validateIdent-roundtrip (SignalGroup.name sg)
         | validateIdentList-roundtrip (SignalGroup.signals sg) = refl
 
-private
-  signalGroup-list-go : ∀ n gs
-    → parseObjectList "signalGroup" parseSignalGroup n (map formatSignalGroup gs) ≡ inj₂ gs
-  signalGroup-list-go _ [] = refl
-  signalGroup-list-go n (sg ∷ gs)
-    rewrite signalGroup-roundtrip sg
-          | signalGroup-list-go (suc n) gs = refl
-
 signalGroup-list-roundtrip : ∀ gs
   → parseSignalGroupList (map formatSignalGroup gs) ≡ inj₂ gs
-signalGroup-list-roundtrip = signalGroup-list-go 0
+signalGroup-list-roundtrip =
+  parseObjectList-roundtrip "signalGroup" parseSignalGroup formatSignalGroup
+    signalGroupFields (λ _ → refl) signalGroup-roundtrip 0
 
 -- ============================================================================
 -- ENVIRONMENT VARIABLE ROUNDTRIP
@@ -185,17 +209,11 @@ environmentVar-roundtrip ev
         | fromℚ?-after-toℚ (EnvironmentVar.maximum ev)
         | validateIdent-roundtrip (EnvironmentVar.name ev) = refl
 
-private
-  environmentVar-list-go : ∀ n evs
-    → parseObjectList "environmentVar" parseEnvironmentVar n (map formatEnvironmentVar evs) ≡ inj₂ evs
-  environmentVar-list-go _ [] = refl
-  environmentVar-list-go n (ev ∷ evs)
-    rewrite environmentVar-roundtrip ev
-          | environmentVar-list-go (suc n) evs = refl
-
 environmentVar-list-roundtrip : ∀ evs
   → parseEnvironmentVarList (map formatEnvironmentVar evs) ≡ inj₂ evs
-environmentVar-list-roundtrip = environmentVar-list-go 0
+environmentVar-list-roundtrip =
+  parseObjectList-roundtrip "environmentVar" parseEnvironmentVar formatEnvironmentVar
+    environmentVarFields (λ _ → refl) environmentVar-roundtrip 0
 
 -- ============================================================================
 -- VALUE TABLE ROUNDTRIP
@@ -213,17 +231,11 @@ valueEntry-roundtrip : ∀ e
 valueEntry-roundtrip (n , s)
   rewrite getNat-ℕtoJSON n = refl
 
-private
-  valueEntryList-go : ∀ n es
-    → parseObjectList "valueEntry" parseValueEntry n (map formatValueEntry es) ≡ inj₂ es
-  valueEntryList-go _ [] = refl
-  valueEntryList-go n (e ∷ es)
-    rewrite valueEntry-roundtrip e
-          | valueEntryList-go (suc n) es = refl
-
-valueEntryList-roundtrip : ∀ es
+valueEntry-list-roundtrip : ∀ es
   → parseValueEntryList (map formatValueEntry es) ≡ inj₂ es
-valueEntryList-roundtrip = valueEntryList-go 0
+valueEntry-list-roundtrip =
+  parseObjectList-roundtrip "valueEntry" parseValueEntry formatValueEntry
+    valueEntryFields (λ _ → refl) valueEntry-roundtrip 0
 
 private
   valueTableFields : ValueTable → List (String × JSON)
@@ -235,20 +247,14 @@ private
 valueTable-roundtrip : ∀ vt
   → parseValueTable (valueTableFields vt) ≡ inj₂ vt
 valueTable-roundtrip vt
-  rewrite valueEntryList-roundtrip (ValueTable.entries vt)
+  rewrite valueEntry-list-roundtrip (ValueTable.entries vt)
         | validateIdent-roundtrip (ValueTable.name vt) = refl
-
-private
-  valueTable-list-go : ∀ n vts
-    → parseObjectList "valueTable" parseValueTable n (map formatValueTable vts) ≡ inj₂ vts
-  valueTable-list-go _ [] = refl
-  valueTable-list-go n (vt ∷ vts)
-    rewrite valueTable-roundtrip vt
-          | valueTable-list-go (suc n) vts = refl
 
 valueTable-list-roundtrip : ∀ vts
   → parseValueTableList (map formatValueTable vts) ≡ inj₂ vts
-valueTable-list-roundtrip = valueTable-list-go 0
+valueTable-list-roundtrip =
+  parseObjectList-roundtrip "valueTable" parseValueTable formatValueTable
+    valueTableFields (λ _ → refl) valueTable-roundtrip 0
 
 -- ============================================================================
 -- RawValueDesc ROUNDTRIP (Track E.8 Plan B)
@@ -305,7 +311,7 @@ private
       ≡ inj₂ (mkRawValueDesc (Standard rawId pf) n es)
   rawValueDesc-roundtrip-std rawId pf n es
     rewrite rvd-msgId-std rawId pf n es
-          | valueEntryList-roundtrip es
+          | valueEntry-list-roundtrip es
           | validateIdent-roundtrip n
     = refl
 
@@ -316,7 +322,7 @@ private
       ≡ inj₂ (mkRawValueDesc (Extended rawId pf) n es)
   rawValueDesc-roundtrip-ext rawId pf n es
     rewrite rvd-msgId-ext rawId pf n es
-          | valueEntryList-roundtrip es
+          | valueEntry-list-roundtrip es
           | validateIdent-roundtrip n
     = refl
 

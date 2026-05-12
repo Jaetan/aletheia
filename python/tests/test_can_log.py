@@ -152,12 +152,15 @@ class TestFrameFiltering:
             msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is not None
-        ts, can_id, dlc, data, ext = result
-        assert ts == 1_000_000
-        assert can_id == 0x100
-        assert dlc == 8
-        assert data == bytearray([0xDE, 0xAD, 0, 0, 0, 0, 0, 0])
-        assert ext is False
+        assert result.timestamp == 1_000_000
+        assert result.can_id == 0x100
+        assert result.dlc == 8
+        assert result.data == bytearray([0xDE, 0xAD, 0, 0, 0, 0, 0, 0])
+        assert result.extended is False
+        # CAN 2.0B frame — BRS/ESI must be None on the wire and in the
+        # NamedTuple shape.
+        assert result.brs is None
+        assert result.esi is None
 
     def test_error_frame_skipped(self) -> None:
         """Verify error frame skipped."""
@@ -296,13 +299,13 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 1
-        _, can_id, dlc, data, _ = frames[0]
+        frame = frames[0]
         # ASC uses relative timestamps (first message is t=0), so we only
         # verify CAN ID, DLC, and data survive the round-trip.
-        assert can_id == 0x100
-        assert dlc == 8
-        assert data == bytearray([0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0])
-        assert isinstance(data, bytearray)
+        assert frame.can_id == 0x100
+        assert frame.dlc == 8
+        assert frame.data == bytearray([0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0])
+        assert isinstance(frame.data, bytearray)
 
     def test_relative_timestamps(self, tmp_path: Path) -> None:
         """Verify relative timing is preserved across messages."""
@@ -317,7 +320,7 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 2
-        delta_us = frames[1][0] - frames[0][0]
+        delta_us = frames[1].timestamp - frames[0].timestamp
         assert delta_us == 500_000
 
     def test_multiple_frames(self, tmp_path: Path) -> None:
@@ -336,9 +339,9 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 5
-        for i, (_ts, can_id, _dlc, data, _ext) in enumerate(frames):
-            assert can_id == 0x100 + i
-            assert data[0] == i
+        for i, frame in enumerate(frames):
+            assert frame.can_id == 0x100 + i
+            assert frame.data[0] == i
 
     def test_error_frames_skipped_by_default(self, tmp_path: Path) -> None:
         """Verify error frames skipped by default."""

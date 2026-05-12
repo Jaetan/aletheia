@@ -12,7 +12,7 @@ open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
   ( errorIssues; findSignalPresence; walkMux
-  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkDuplicateMessageIds
+  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
   ; checkFactorZeroSig; checkAllFactorZero
@@ -159,10 +159,10 @@ checkDuplicateIdAgainstList-allE _ [] = []
 checkDuplicateIdAgainstList-allE m (other ∷ rest) =
   ++⁺ (checkDuplicateIdPair-allE m other) (checkDuplicateIdAgainstList-allE m rest)
 
-checkDuplicateMessageIds-allE : ∀ msgs → All E (checkDuplicateMessageIds msgs)
-checkDuplicateMessageIds-allE [] = []
-checkDuplicateMessageIds-allE (m ∷ rest) =
-  ++⁺ (checkDuplicateIdAgainstList-allE m rest) (checkDuplicateMessageIds-allE rest)
+checkAllDuplicateMessageIds-allE : ∀ msgs → All E (checkAllDuplicateMessageIds msgs)
+checkAllDuplicateMessageIds-allE [] = []
+checkAllDuplicateMessageIds-allE (m ∷ rest) =
+  ++⁺ (checkDuplicateIdAgainstList-allE m rest) (checkAllDuplicateMessageIds-allE rest)
 
 -- Check 2
 checkDuplicateSignalAgainstList-allE : ∀ msgName sig rest →

@@ -379,6 +379,7 @@
           "multiplexor": "Mode",
           "name": "Pressure",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],
@@ -399,6 +400,7 @@
           "multiplexor": "Mode",
           "name": "PedalPct",
           "offset": 0,
+          "presence": "multiplexed",
           "receivers": [
             "Gateway"
           ],

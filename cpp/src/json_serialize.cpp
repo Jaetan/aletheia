@@ -6,7 +6,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
+#include <numeric>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -23,33 +25,45 @@ namespace aletheia::detail {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static auto can_id_numeric(const CanId& id) -> std::uint32_t {
-    return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-}
-
-static auto can_id_extended(const CanId& id) -> bool {
-    return std::holds_alternative<ExtendedId>(id);
-}
+// (Both helpers consolidated 2026-05-11 per R19 cluster 14 / CPP-A-6.2 —
+// `can_id_value` / `can_id_is_extended` live in `<aletheia/types.hpp>`
+// and are pulled in via that header.)
 
 static auto rational_to_json(const Rational& r) -> Json {
-    if (r.denominator == 1)
-        return r.numerator;
-    return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+    // Normalize via gcd so the wire shape is byte-identical with Python's
+    // ``Fraction`` (auto-canonical) and Go's parseRational sign convention.
+    // R19 cluster 7 — CPP-B-8.1 / CPP-D-22.5 (cross-binding wire symmetry).
+    auto num = r.numerator;
+    auto den = r.denominator;
+    if (den < 0) {
+        num = -num;
+        den = -den;
+    }
+    if (den == 0) {
+        // Mirrored at the `Rational::make` invariant; emit raw to surface
+        // the bug rather than masking it.
+        return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+    }
+    const auto g = std::gcd(std::abs(num), den);
+    num /= (g == 0 ? 1 : g);
+    den /= (g == 0 ? 1 : g);
+    if (den == 1)
+        return num;
+    return {{"numerator", num}, {"denominator", den}};
 }
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
-    // Mirror the Agda wire form: emit "presence": "always" explicitly for
-    // AlwaysPresent signals; emit "multiplexor" + "multiplex_values" for
-    // Multiplexed. Cross-binding parity: Python and Go both emit the
-    // explicit "presence": "always", and parse_dbc_text returns it on the
-    // wire. Agda's parser accepts the absence-of-multiplexor shorthand
-    // too, but the explicit form is the canonical one (B.3.j).
+    // Mirror the Agda wire form: emit "presence": "always" / "multiplexed"
+    // explicitly. R19 cluster 17 / PY-D-19.2: both variants now carry the
+    // explicit discriminator (cross-binding parity with Agda Formatter and
+    // Python TypedDict / Go serializeDBC).
     std::visit(
         [&sig](auto&& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, AlwaysPresent>) {
                 sig["presence"] = "always";
             } else if constexpr (std::is_same_v<T, Multiplexed>) {
+                sig["presence"] = "multiplexed";
                 sig["multiplexor"] = v.multiplexor.get();
                 auto arr = Json::array();
                 for (const auto& mv : v.mux_values)
@@ -89,15 +103,15 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
     Json msg = {
-        {"id", can_id_numeric(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
-        {"sender", m.sender.get()},   {"senders", m.senders}, {"signals", std::move(sigs)},
+        {"id", can_id_value(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()}, {"senders", m.senders}, {"signals", std::move(sigs)},
     };
     // Mirror the Agda wire form: emit "extended" only when the CAN ID is
     // extended (29-bit). Agda omits the field for standard 11-bit frames;
     // its parser accepts both forms but the omit-when-false shape is
     // canonical (matches attach_can_id used for comment / attribute targets,
     // and the same convention enforced by the Python and Go bindings — B.3.j).
-    if (can_id_extended(m.id))
+    if (can_id_is_extended(m.id))
         msg["extended"] = true;
     return msg;
 }
@@ -300,10 +314,10 @@ static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
     Json entries = Json::array();
     for (const auto& e : rvd.entries)
         entries.push_back({{"value", e.value}, {"description", e.description}});
-    Json out = {{"id", can_id_numeric(rvd.can_id)},
+    Json out = {{"id", can_id_value(rvd.can_id)},
                 {"signalName", rvd.signal_name},
                 {"entries", std::move(entries)}};
-    if (can_id_extended(rvd.can_id))
+    if (can_id_is_extended(rvd.can_id))
         out["extended"] = true;
     return out;
 }
@@ -379,11 +393,11 @@ static auto predicate_to_json(const Predicate& p) -> Json {
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 return {{"predicate", "changedBy"},
                         {"signal", v.signal.get()},
-                        {"delta", v.delta.get()}};
+                        {"delta", rational_to_json(v.delta.get())}};
             else if constexpr (std::is_same_v<T, StableWithin>)
                 return {{"predicate", "stableWithin"},
                         {"signal", v.signal.get()},
-                        {"tolerance", v.tolerance.get()}};
+                        {"tolerance", rational_to_json(v.tolerance.get())}};
             else
                 static_assert(sizeof(T) == 0, "Unhandled predicate type in predicate_to_json");
         },
@@ -497,7 +511,7 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
     }
     return std::format(R"({{"type":"command","command":"extractAllSignals",)"
                        R"("canId":{},"extended":{},"dlc":{},"data":[{}]}})",
-                       can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
+                       can_id_value(id), can_id_is_extended(id) ? "true" : "false", dlc.value(),
                        data_str);
 }
 
@@ -526,7 +540,7 @@ auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<cons
     }
     return std::format(
         R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",
-        ts.count(), can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
+        ts.count(), can_id_value(id), can_id_is_extended(id) ? "true" : "false", dlc.value(),
         data_str);
 }
 
@@ -540,7 +554,7 @@ auto serialize_send_error(Timestamp ts) -> std::string {
 
 auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string {
     return std::format(R"({{"type":"remote","timestamp":{},"id":{},"extended":{}}})", ts.count(),
-                       can_id_numeric(id), can_id_extended(id) ? "true" : "false");
+                       can_id_value(id), can_id_is_extended(id) ? "true" : "false");
 }
 
 } // namespace aletheia::detail

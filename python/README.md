@@ -18,6 +18,7 @@ The Aletheia Python API provides a unified client with streaming LTL verificatio
 
 ```python
 from aletheia import AletheiaClient, Signal
+from aletheia.can_log import iter_can_log
 from aletheia.dbc_converter import dbc_to_json
 
 # Load DBC specification
@@ -32,13 +33,17 @@ with AletheiaClient() as client:
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, dlc, data in can_trace:
-        response = client.send_frame(timestamp, can_id, dlc, data)
+    for timestamp, can_id, dlc, data, extended in iter_can_log("drive.blf"):
+        response = client.send_frame(timestamp, can_id, dlc, data, extended=extended)
         if response.get("status") == "fails":
             print(f"Violation: {response['reason']}")
 
     client.end_stream()
 ```
+
+For a higher-level API that hides the streaming loop, see the
+[Check API](../docs/reference/INTERFACES.md) and `aletheia.testing.run_checks`
+helper. The raw `AletheiaClient` shown here is the lowest-level entry point.
 
 For more details, see:
 - [Interface Guide](../docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders

@@ -210,5 +210,18 @@ mutual
 -- PUBLIC API
 -- ============================================================================
 
+-- Entry point: structural parse of a property JSON into the LTL ADT.
+-- Returns `nothing` only on malformed JSON shape (missing operator
+-- discriminator, ill-typed sub-fields).  The adversarial atom-count cap
+-- (`max-atom-count-per-property`, 1024) is enforced ONE LAYER UP by
+-- `parseAllProperties` (`Protocol.Handlers`) as a typed `ParseErr
+-- (InputBoundExceeded AtomCount …)` rejection (AGDA-D-13.4 phase 2b —
+-- closes R19 cluster 8 phase e.2 typed-error half).  Placing the check
+-- at the handler boundary distinguishes "shape-malformed" (untyped
+-- `HandlerErr PropertyParseFailed`) from "shape-OK but over-bound"
+-- (typed `ParseErr (InputBoundExceeded AtomCount o l)` with the
+-- structured triple), and keeps `parseProperty` a pure JSON → LTL
+-- parser.  Formatter-side bound preservation lives in
+-- `DBC/Formatter/Bounded.agda` (cluster 8 e.4 length-map lemmas).
 parseProperty : JSON → Maybe (LTL SignalPredicate)
-parseProperty = parseLTL
+parseProperty j = parseLTL j

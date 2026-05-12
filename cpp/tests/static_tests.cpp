@@ -109,7 +109,8 @@ static_assert(PhysicalValue{Rational{-3, 2}}.get() == Rational{-3, 2});
 static_assert(RationalFactor{Rational{1, 4}}.get() == Rational{1, 4});
 static_assert(RationalOffset{Rational{-40, 1}}.get() == Rational{-40, 1});
 static_assert(RationalBound{Rational{0, 1}}.get() == Rational{0, 1});
-static_assert(Delta{100.0}.get() == 100.0);
+static_assert(Delta{Rational{100, 1}}.get() == Rational{100, 1});
+static_assert(Tolerance{Rational{1, 2}}.get() == Rational{1, 2});
 
 static_assert(BitPosition{0}.get() == 0);
 static_assert(BitPosition{63}.get() == 63);

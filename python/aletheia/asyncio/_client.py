@@ -36,6 +36,7 @@ from ..protocols import (
     AckResponse,
     CompleteResponse,
     DBCDefinition,
+    DLCCode,
     ErrorResponse,
     LTLFormula,
     ParsedDBCResponse,
@@ -45,8 +46,8 @@ from ..protocols import (
 )
 
 # AckResponse/PropertyViolationResponse retained as imports for return-type
-# annotations on send_frame / send_frames; ProcessError no longer needed
-# now that raise_on_error_response owns that path.
+# annotations on send_frame / send_frames; the kernel-rejected path is
+# owned by raise_on_error_response → ProtocolError.
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
@@ -90,8 +91,16 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
             self._sync = _SyncClient(default_checks=default_checks, rts_cores=rts_cores)
 
     async def __aenter__(self) -> Self:
-        """Load the FFI library + initialize RTS on a background thread."""
-        await asyncio.to_thread(self._sync.__enter__)
+        """Load the FFI library + initialize RTS on a background thread.
+
+        Wrapped in :func:`asyncio.shield` so a cancellation on the awaiting
+        task cannot leave RTS state half-initialized — the underlying
+        ``hs_init`` call is not interruptible cooperatively (CANCELLATION.md
+        §5.1), and a partial init would orphan the StablePtr.  Cancellation
+        delivered during init still propagates: the shield only protects the
+        init from being cancelled mid-call; it doesn't suppress.
+        """
+        await asyncio.shield(asyncio.to_thread(self._sync.__enter__))
         return self
 
     async def __aexit__(
@@ -100,13 +109,29 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        """Free state and release the RTS reference. Best-effort, uncancellable."""
+        """Free state and release the RTS reference.
+
+        Wrapped in :func:`asyncio.shield` so cancellation cannot leak the
+        FFI session — partial close would leave the StablePtr alive and the
+        backing IORef unreachable.  The shield delays the CancelledError
+        delivery until after the close has completed (see CANCELLATION.md
+        §5.1 — "teardown is best-effort, idempotent, and double-close safe;
+        cancellation cannot preempt the GHC RTS").
+        """
         del exc_type, exc_val, exc_tb
-        await asyncio.to_thread(self._sync.close)
+        await asyncio.shield(asyncio.to_thread(self._sync.close))
 
     async def close(self) -> None:
         """Free state and release RTS reference. Same uncancellable contract as ``__aexit__``."""
-        await asyncio.to_thread(self._sync.close)
+        await asyncio.shield(asyncio.to_thread(self._sync.close))
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether :meth:`close` has been called.  Cross-binding parity
+        with sync :class:`aletheia.AletheiaClient.is_closed` and Go
+        ``Client.IsClosed()``; R19 cluster 10 — PY-D-15.1.
+        """
+        return self._sync.is_closed
 
     # =========================================================================
     # DBC and Properties
@@ -160,14 +185,17 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         self,
         timestamp: int,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         data: bytes | bytearray,
         *,
         extended: bool = False,
+        brs: bool | None = None,
+        esi: bool | None = None,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.send_frame`."""
         return await asyncio.to_thread(
-            self._sync.send_frame, timestamp, can_id, dlc, data, extended=extended,
+            self._sync.send_frame, timestamp, can_id, dlc, data,
+            extended=extended, brs=brs, esi=esi,
         )
 
     async def send_frames(
@@ -186,10 +214,9 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # Exception` inside call_send_frame, propagates verbatim. Stream state
         # holds the committed prefix; bundling it would invite swallowing.
         results: list[AckResponse | PropertyViolationResponse] = []
-        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
+        for i, frame in enumerate(frames):
             results.append(await asyncio.to_thread(
-                call_send_frame, self._sync.send_frame, i,
-                CANFrameTuple(ts, cid, dlc, d, ext), results,
+                call_send_frame, self._sync.send_frame, i, frame, results,
             ))
         return results
 
@@ -207,13 +234,14 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # CancelledError propagates verbatim (BaseException since 3.8 → not
         # caught by `except Exception` inside call_send_frame). Already-
         # yielded results are durable in the consumer's hands.
-        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
+        for i, frame in enumerate(frames):
             resp = await asyncio.to_thread(
-                call_send_frame, self._sync.send_frame, i,
-                CANFrameTuple(ts, cid, dlc, d, ext), [],
+                call_send_frame, self._sync.send_frame, i, frame, [],
             )
             yield FrameResult(
-                frame_index=i, timestamp=ts, can_id=cid, extended=ext, response=resp,
+                frame_index=i, timestamp=frame.timestamp,
+                can_id=frame.can_id, extended=frame.extended,
+                response=resp,
             )
 
     async def send_error(self, timestamp: int) -> AckResponse:
@@ -237,7 +265,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     # =========================================================================
 
     async def extract_signals(
-        self, can_id: int, dlc: int, data: bytes | bytearray,
+        self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> SignalExtractionResult:
         """Async mirror of :meth:`aletheia.AletheiaClient.extract_signals`."""
@@ -248,7 +276,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     async def update_frame(  # pylint: disable=too-many-arguments
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         frame: bytes | bytearray,
         signals: Mapping[str, float | Fraction],
         *,
@@ -262,7 +290,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     async def build_frame(
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         signals: Mapping[str, float | Fraction],
         *,
         extended: bool = False,

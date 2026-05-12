@@ -56,7 +56,8 @@ public:
     }
 
     auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/) -> std::string override {
+                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
+                           std::optional<bool> /*esi*/) -> std::string override {
         return process(state, "");
     }
 };
@@ -92,7 +93,8 @@ public:
     }
 
     auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/) -> std::string override {
+                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
+                           std::optional<bool> /*esi*/) -> std::string override {
         return process(state, "");
     }
 };

@@ -36,10 +36,38 @@ Usage::
 from __future__ import annotations
 
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from typing import ParamSpec, TypeVar
 
-from ..client._client import AletheiaClient as _SyncClient
+from ..client import AletheiaClient as _SyncClient
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+
+def _make_counting_gate(
+    original: Callable[_P, _T],
+    after_n: int,
+    started: threading.Event,
+    proceed: threading.Event,
+    counter: list[int],
+) -> Callable[_P, _T]:
+    """Build a ``send_frame``-shape wrapper that counts and gates calls.
+
+    Variadic ParamSpec keeps the public signature of ``send_frame`` intact
+    on the wrapper — basedpyright strict still type-checks every callsite
+    against the real method's argument list — without re-stating the
+    growing keyword surface (``extended`` / ``brs`` / ``esi`` / …) here.
+    """
+    def gated(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+        counter[0] += 1
+        result = original(*args, **kwargs)
+        if counter[0] == after_n:
+            started.set()
+            proceed.wait()
+        return result
+    return gated
 
 
 @contextmanager
@@ -75,20 +103,16 @@ def gate_send_frame(
     original = sync_client.send_frame
     counter = [0]
 
-    def gated(  # noqa: PLR0913
-        timestamp: int, can_id: int, dlc: int, data: bytes | bytearray,
-        *, extended: bool = False,
-    ) -> object:
-        counter[0] += 1
-        result = original(timestamp, can_id, dlc, data, extended=extended)
-        if counter[0] == after_n:
-            started.set()
-            proceed.wait()
-        return result
+    gated = _make_counting_gate(original, after_n, started, proceed, counter)
 
-    sync_client.send_frame = gated  # type: ignore[method-assign]
+    # Monkey-patch via setattr: pyright correctly flags direct
+    # `sync_client.send_frame = gated` because methods are class-level
+    # read-only members, but setattr is dynamic and acceptable for the
+    # documented test-only rebind pattern.  Restored in `finally` so
+    # exceptions in the body don't leak the wrap.
+    setattr(sync_client, "send_frame", gated)
     try:
         yield started, proceed
     finally:
-        sync_client.send_frame = original  # type: ignore[method-assign]
+        setattr(sync_client, "send_frame", original)
         proceed.set()

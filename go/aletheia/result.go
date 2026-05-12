@@ -63,33 +63,23 @@ func (Violation) frameResponse() {}
 // "Unsure" verdict: the property was neither proved to hold nor proved to
 // fail on the observed trace. The typical cause is an atomic predicate
 // whose signal was never observed (e.g. Always(p) where no frame carrying
-// p's signal arrived before end-of-stream). The denotational semantics
-// agrees this is Unknown, so it is reported as a distinct verdict rather
-// than collapsed to Fails.
+// p's signal arrived before end-of-stream). This is the user-observable
+// manifestation of a violated AllObserved invariant — see the package
+// doc § "Streaming adequacy" for the full contract. The denotational
+// semantics agrees this is Unknown, so it is reported as a distinct
+// verdict rather than collapsed to Fails.
 type Verdict int
+
+//go:generate stringer -type=Verdict -linecomment -output=verdict_string.go
 
 const (
 	// Holds means the property was satisfied.
-	Holds Verdict = iota
+	Holds Verdict = iota // holds
 	// Fails means the property was violated.
-	Fails
+	Fails // fails
 	// Unresolved means the verdict is Unknown (three-valued Kleene).
-	Unresolved
+	Unresolved // unresolved
 )
-
-// String returns "holds", "fails", "unresolved", or "unknown".
-func (v Verdict) String() string {
-	switch v {
-	case Holds:
-		return "holds"
-	case Fails:
-		return "fails"
-	case Unresolved:
-		return "unresolved"
-	default:
-		return "unknown"
-	}
-}
 
 // PropertyResult is the end-of-stream verdict for a single property.
 type PropertyResult struct {
@@ -108,51 +98,63 @@ type StreamResult struct {
 // IssueSeverity classifies a validation issue.
 type IssueSeverity int
 
+//go:generate stringer -type=IssueSeverity -linecomment -output=issueseverity_string.go
+
 const (
 	// SeverityError indicates a structural issue that prevents correct operation.
-	SeverityError IssueSeverity = iota
+	SeverityError IssueSeverity = iota // error
 	// SeverityWarning indicates a suspicious but non-fatal issue.
-	SeverityWarning
+	SeverityWarning // warning
 )
-
-// String returns "error", "warning", or "unknown".
-func (s IssueSeverity) String() string {
-	switch s {
-	case SeverityError:
-		return "error"
-	case SeverityWarning:
-		return "warning"
-	default:
-		return "unknown"
-	}
-}
 
 // IssueCode identifies a specific type of DBC validation issue.
 type IssueCode string
 
 const (
-	IssueDuplicateMessageID            IssueCode = "duplicate_message_id"             // Two messages share the same CAN ID.
-	IssueDuplicateMessageName          IssueCode = "duplicate_message_name"           // Two messages share the same name.
-	IssueDuplicateSignalName           IssueCode = "duplicate_signal_name"            // Two signals in the same message share a name.
-	IssueFactorZero                    IssueCode = "factor_zero"                      // Signal scaling factor is zero (division by zero).
-	IssueMultiplexorNotFound           IssueCode = "multiplexor_not_found"            // Multiplexed signal references a missing multiplexor.
-	IssueMultiplexorCycle              IssueCode = "multiplexor_cycle"                // Multiplexor chain references itself (cycle).
-	IssueGlobalNameCollision           IssueCode = "global_name_collision"            // Signal name is not unique across all messages.
-	IssueMinExceedsMax                 IssueCode = "min_exceeds_max"                  // Signal physical min exceeds max.
-	IssueSignalExceedsDLC              IssueCode = "signal_exceeds_dlc"               // Signal bit range extends beyond the message DLC.
-	IssueSignalOverlap                 IssueCode = "signal_overlap"                   // Two signals occupy overlapping bit positions.
-	IssueBitLengthZero                 IssueCode = "bit_length_zero"                  // Signal has zero bit length.
-	IssueOffsetScaleRange              IssueCode = "offset_scale_range"               // Offset/scale combination produces out-of-range values.
-	IssueEmptyMessage                  IssueCode = "empty_message"                    // Message declares no signals.
-	IssueStartBitOutOfRange            IssueCode = "start_bit_out_of_range"           // Signal start bit exceeds frame capacity.
-	IssueBitLengthExcessive            IssueCode = "bit_length_excessive"             // Signal bit length exceeds 64 bits.
-	IssueMultiplexorNonUnitScaling     IssueCode = "multiplexor_non_unit_scaling"     // Multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
-	IssueDuplicateAttributeName        IssueCode = "duplicate_attribute_name"         // BA_DEF_ declares the same attribute name twice.
-	IssueUnknownCommentTarget          IssueCode = "unknown_comment_target"           // CM_ entry references a node/message/signal/env-var that is not declared.
-	IssueUnknownMessageSender          IssueCode = "unknown_message_sender"           // Message sender node is not listed in BU_.
-	IssueUnknownSignalReceiver         IssueCode = "unknown_signal_receiver"          // Signal receiver node is not listed in BU_.
-	IssueUnknownValueDescriptionTarget IssueCode = "unknown_value_description_target" // VAL_ line references (canId, signalName) with no matching signal in any message.
-	IssueUnknown                       IssueCode = "unknown"                          // Unrecognized issue code from the Agda core.
+	// IssueDuplicateMessageID — two messages share the same CAN ID.
+	IssueDuplicateMessageID IssueCode = "duplicate_message_id"
+	// IssueDuplicateMessageName — two messages share the same name.
+	IssueDuplicateMessageName IssueCode = "duplicate_message_name"
+	// IssueDuplicateSignalName — two signals in the same message share a name.
+	IssueDuplicateSignalName IssueCode = "duplicate_signal_name"
+	// IssueFactorZero — signal scaling factor is zero (division by zero).
+	IssueFactorZero IssueCode = "factor_zero"
+	// IssueMultiplexorNotFound — multiplexed signal references a missing multiplexor.
+	IssueMultiplexorNotFound IssueCode = "multiplexor_not_found"
+	// IssueMultiplexorCycle — multiplexor chain references itself (cycle).
+	IssueMultiplexorCycle IssueCode = "multiplexor_cycle"
+	// IssueGlobalNameCollision — signal name is not unique across all messages.
+	IssueGlobalNameCollision IssueCode = "global_name_collision"
+	// IssueMinExceedsMax — signal physical min exceeds max.
+	IssueMinExceedsMax IssueCode = "min_exceeds_max"
+	// IssueSignalExceedsDLC — signal bit range extends beyond the message DLC.
+	IssueSignalExceedsDLC IssueCode = "signal_exceeds_dlc"
+	// IssueSignalOverlap — two signals occupy overlapping bit positions.
+	IssueSignalOverlap IssueCode = "signal_overlap"
+	// IssueBitLengthZero — signal has zero bit length.
+	IssueBitLengthZero IssueCode = "bit_length_zero"
+	// IssueOffsetScaleRange — offset/scale combination produces out-of-range values.
+	IssueOffsetScaleRange IssueCode = "offset_scale_range"
+	// IssueEmptyMessage — message declares no signals.
+	IssueEmptyMessage IssueCode = "empty_message"
+	// IssueStartBitOutOfRange — signal start bit exceeds frame capacity.
+	IssueStartBitOutOfRange IssueCode = "start_bit_out_of_range"
+	// IssueBitLengthExcessive — signal bit length exceeds 64 bits.
+	IssueBitLengthExcessive IssueCode = "bit_length_excessive"
+	// IssueMultiplexorNonUnitScaling — multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
+	IssueMultiplexorNonUnitScaling IssueCode = "multiplexor_non_unit_scaling"
+	// IssueDuplicateAttributeName — BA_DEF_ declares the same attribute name twice.
+	IssueDuplicateAttributeName IssueCode = "duplicate_attribute_name"
+	// IssueUnknownCommentTarget — CM_ entry references a node/message/signal/env-var that is not declared.
+	IssueUnknownCommentTarget IssueCode = "unknown_comment_target"
+	// IssueUnknownMessageSender — message sender node is not listed in BU_.
+	IssueUnknownMessageSender IssueCode = "unknown_message_sender"
+	// IssueUnknownSignalReceiver — signal receiver node is not listed in BU_.
+	IssueUnknownSignalReceiver IssueCode = "unknown_signal_receiver"
+	// IssueUnknownValueDescriptionTarget — VAL_ line references (canID, signalName) with no matching signal in any message.
+	IssueUnknownValueDescriptionTarget IssueCode = "unknown_value_description_target"
+	// IssueUnknown — unrecognized issue code from the Agda core.
+	IssueUnknown IssueCode = "unknown"
 )
 
 // ValidationIssue is a single issue found during DBC validation.
@@ -176,6 +178,6 @@ type ValidationResult struct {
 // (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
 // error half.
 type ParsedDBC struct {
-	DBC      DbcDefinition
+	DBC      DBCDefinition
 	Warnings []ValidationIssue
 }

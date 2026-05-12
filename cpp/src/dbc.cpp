@@ -103,15 +103,14 @@ auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal
 auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     id_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < messages.size(); ++i) {
-            auto val = std::visit([](const auto& v) -> std::uint32_t { return v.value(); },
-                                  messages[i].id);
-            auto ext = std::holds_alternative<ExtendedId>(messages[i].id);
+            auto val = can_id_value(messages[i].id);
+            auto ext = can_id_is_extended(messages[i].id);
             const std::uint64_t key = static_cast<std::uint64_t>(val) | (ext ? (1ULL << 32U) : 0);
             map.emplace(key, i);
         }
     });
-    auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-    auto ext = std::holds_alternative<ExtendedId>(id);
+    auto id_value = can_id_value(id);
+    auto ext = can_id_is_extended(id);
     const std::uint64_t key = static_cast<std::uint64_t>(id_value) | (ext ? (1ULL << 32U) : 0);
     auto idx = id_index_cache.find(key);
     if (!idx) {

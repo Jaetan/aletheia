@@ -71,6 +71,11 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "parse_rational",
     ),
     (
+        "test_property_hypothesis.py",
+        "aletheia.client._helpers",
+        "parse_rational",
+    ),
+    (
         "test_types_and_conditions.py",
         "aletheia.client._types",
         "validate_can_id",
@@ -146,6 +151,20 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._enrichment",
         "format_formula",
     ),
+    # FFI loader security test (R19 cluster B / PY-B-26.11) exercises the
+    # ALETHEIA_LIB world/group-writable rejection path directly.
+    # ``find_ffi_library`` is binding-internal — public callers go
+    # through ``AletheiaClient`` which calls the loader transitively; the
+    # security check needs to be tested in isolation with monkeypatched
+    # env vars and synthetic permission modes.
+    ("test_ffi_loader_security.py", "aletheia.client._ffi", "find_ffi_library"),
+    # CAN-FD BRS / ESI encoding helper (R19 Phase 2 cluster 18 —
+    # AGDA-D-10.1).  ``encode_maybe_bool`` mirrors the Haskell shim's
+    # ``mkMaybeBool`` and is exercised directly to lock the
+    # (present, value) byte pair convention against the C ABI; user
+    # code goes through ``send_frame(brs=…, esi=…)`` which calls this
+    # transitively.
+    ("test_canfd_brs_esi.py", "aletheia.client._types", "encode_maybe_bool"),
 })
 
 
