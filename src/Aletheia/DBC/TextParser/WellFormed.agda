@@ -41,7 +41,7 @@
 --
 -- Companion AGDA-D-11.2 / AGDA-D-19.6 (FormatDBCText FFI handler must
 -- discharge `WellFormedTextDBCAgg` at runtime) is tracked separately
--- in `review-r18-findings.md`.
+-- as an R18 cluster 14 deferral.
 module Aletheia.DBC.TextParser.WellFormed where
 
 open import Data.List using (List; []; map)
