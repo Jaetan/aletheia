@@ -584,7 +584,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 #### Findings
 
-276. `[ ]` PY-A-1.1 [BLOCKING] — `conftest.py:46,193` — imports `ProcessError` from `aletheia` which was REMOVED in R19 cluster 17 / PY-D-20.1 (`5b8791a`). **Doc-example harness gate currently red** — `pytest --markdown-docs` fails at collection. Replace with `FFIError`/`ProtocolError`/`StateError`/`ValidationError` per harness needs.
+276. `[FIX]` PY-A-1.1 [BLOCKING] — `conftest.py:46,193` — imports `ProcessError` from `aletheia` which was REMOVED in R19 cluster 17 / PY-D-20.1 (`5b8791a`). ✅ Closed by cluster A: removed `ProcessError` from imports + `_make_globals` dict (no doc fence references it). Import-time block lifted; downstream 7-tuple-unpack fence failures from cluster 18 BRS/ESI drift surfaced — tracked under cluster F+L.
 277. `[ ]` PY-A-1.2 — `python/aletheia/asyncio/_client.py:48-50` — Stale "retained as imports" rationale comment; live imports defend against accidental removal but read defensively.
 278. `[ ]` PY-A-2.1 — `python/aletheia/dsl.py:377, 403, 698, 724` — `time_ms * 1000` 4× literal; add `_MS_TO_US` const.
 279. `[ ]` PY-A-2.2 — `python/aletheia/client/_enrichment.py:97-101` — `1_000_000` / `1_000` literals duplicate `_MS_TO_US`.
@@ -631,7 +631,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 ##### Cat 32 — Doctest validity
 
-308. `[ ]` PY-A-32.1 — Tied to PY-A-1.1. Doc harness currently broken.
+308. `[FIX]` PY-A-32.1 — Tied to PY-A-1.1. ✅ Cluster A unblocks import-time fail; downstream fence-execution failures from cluster 18 7-tuple drift tracked under cluster F+L.
 309. `[ ]` PY-A-32.2 — `test_doc_examples_harness.py:37-50` — `DOC_FILES` validation structural-only, not runnable.
 
 ##### Cat 33 — CLI quality
@@ -1040,7 +1040,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 646. `[ ]` PY-D-26.2 [LOW] — `[tool.mutmut]` config in pyproject.toml ships in wheel; move to mutmut.toml.
 647. `[ ]` PY-D-26.3 [LOW] — `_install_config` lazy import documented; no test fails-shut on top-level import.
 648. `[ ]` PY-D-26.4 [LOW] — `pytest-markdown-docs` pinned in `[dev]` but harness lives at repo root.
-649. `[ ]` PY-D-27.1 [HIGH] — **`conftest.py:46,193,195` imports removed `ProcessError`.** Same as PY-A-1.1. Doc-example harness gate red.
+649. `[FIX]` PY-D-27.1 [HIGH] — **`conftest.py:46,193,195` imports removed `ProcessError`.** Same as PY-A-1.1. ✅ Closed by cluster A.
 650. `[ ]` PY-D-27.2 [MED] — `aletheia.limits` constants not re-exported from top-level `aletheia` package; downstream callers must dig.
 651. `[ ]` PY-D-27.3 [MED] — `validate_can_id`/`dlc_to_bytes`/`bytes_to_dlc` raise `ValueError` not `ValidationError`. (See PY-B-8.1.)
 652. `[ ]` PY-D-27.4 [MED] — `parse_rational`/`extract_rational_from_dict` silently flip negative denominator. (See PY-B-8.2.)
