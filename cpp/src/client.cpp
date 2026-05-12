@@ -525,10 +525,25 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         auto id_value = can_id_value(id);
         auto is_extended = can_id_is_extended(id);
         // Track last frame per CAN ID for end-of-stream enrichment (skip when no diagnostics).
-        if (!diags_.empty())
-            last_frames_.insert_or_assign(
-                detail::MessageKey{id_value, is_extended},
-                LastFrame{.id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
+        // Find-then-assign reuses the existing FramePayload's heap buffer
+        // on subsequent frames for the same key — `assign` keeps the vector's
+        // capacity intact when the new size fits, avoiding the temporary
+        // `FramePayload(data.begin(), data.end())` allocation that
+        // `insert_or_assign` would force per call.  First frame for a key
+        // still allocates via `emplace`; this is the common cold path on a
+        // bounded number of unique CAN IDs.  (R19 cluster 19 / CPP-B-25.1.)
+        if (!diags_.empty()) {
+            auto key = detail::MessageKey{id_value, is_extended};
+            if (auto it = last_frames_.find(key); it != last_frames_.end()) {
+                it->second.id = id;
+                it->second.dlc = dlc;
+                it->second.data.assign(data.begin(), data.end());
+            } else {
+                last_frames_.emplace(
+                    key, LastFrame{
+                             .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
+            }
+        }
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty()) {
             enrich_violation(*v, id, dlc, data, id_value, is_extended);
             if (logger_)

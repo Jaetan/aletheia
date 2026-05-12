@@ -40,7 +40,17 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 
 // serializeDataFrame serializes a CAN frame as a JSON data event.
 // Uses direct string building rather than json.Marshal to avoid map allocation
-// and reflection overhead on the streaming hot path.
+// and reflection overhead.
+//
+// R19 cluster 19 / GO-B-25.2 DEFER (2026-05-12): the per-call
+// `strings.Builder` allocation here was flagged as a `sync.Pool` candidate.
+// Audit (`grep -rn 'serializeDataFrame'`) confirmed the function is only
+// invoked from `mock.go:135` (the test backend) and `check_test.go` —
+// real streaming uses the binary FFI `sendFrameBinary` and never enters
+// this path.  A pool would add `Get`/`Put` overhead on test paths where
+// the existing single-allocation cost is already negligible, in exchange
+// for zero real-world benefit.  Re-evaluate only if a JSON streaming
+// surface is added that calls this function on a hot path.
 func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload) string {
 	// Avoids map allocation, reflection-based marshaling, and []int conversion.
 	var buf strings.Builder

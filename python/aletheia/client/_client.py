@@ -591,14 +591,13 @@ class AletheiaClient(SignalOpsMixin):
             "core_reason": core_reason,
         }
 
-    # Pre-encoded ack response bytes for fast-path comparison.
-    # _ACK_BYTES is the compact form produced by the binary FFI path;
-    # _ACK_BYTES_SPACED is the form from the JSON FFI path (json.dumps
-    # adds a space after the colon).  Both are checked so that the hot
-    # path avoids a full JSON parse regardless of which FFI path emitted
-    # the response.
+    # Pre-encoded ack-response shapes (binary FFI is compact; JSON FFI has
+    # the post-colon space `json.dumps` emits).  `_ACK_RESPONSES` is the
+    # 2-tuple used by the streaming hot path's membership test — hoisting
+    # it to a class const avoids per-frame tuple allocation.
     _ACK_BYTES = b'{"status":"ack"}'
     _ACK_BYTES_SPACED = b'{"status": "ack"}'
+    _ACK_RESPONSES = (_ACK_BYTES, _ACK_BYTES_SPACED)
 
     def _call_send_frame_ffi(  # pylint: disable=too-many-arguments
         self, *,
@@ -607,7 +606,9 @@ class AletheiaClient(SignalOpsMixin):
     ) -> int:
         """Marshal frame components + invoke ``aletheia_send_frame``."""
         assert self._lib is not None  # send_frame guards this
-        data_array = (ctypes.c_uint8 * len(data))(*data)
+        # `from_buffer_copy` is a single C-level memcpy; the varargs form
+        # `(c_uint8 * N)(*data)` does O(N) Python-level per-byte coercion.
+        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
         brs_b = encode_maybe_bool(brs)
         esi_b = encode_maybe_bool(esi)
         return self._lib.aletheia_send_frame(
@@ -677,13 +678,17 @@ class AletheiaClient(SignalOpsMixin):
             if self._diags:
                 self._caches.last_frames[(can_id, extended)] = (dlc, bytearray(data))
 
-            # Fast path: ack response (overwhelmingly common in streaming)
-            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
-                log_event(
-                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
-                    ts=timestamp, canId=can_id, extended=extended,
-                    response="ack",
-                )
+            # Fast path: ack response (overwhelmingly common in streaming).
+            # The `isEnabledFor` guard mirrors stdlib `Logger.debug` — kwargs
+            # are eagerly evaluated, so without it the per-frame 4-field
+            # dict still allocates even when `log_event` would short-circuit.
+            if result_bytes in self._ACK_RESPONSES:
+                if _logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                        ts=timestamp, canId=can_id, extended=extended,
+                        response="ack",
+                    )
                 return {"status": "ack"}
 
             # Slow path: violations/errors — full JSON parse
@@ -698,17 +703,19 @@ class AletheiaClient(SignalOpsMixin):
             self._enrich_violation(
                 result, FrameIdentity(can_id, extended, dlc), data,
             )
-            log_event(
-                _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
-                ts=timestamp, canId=can_id, extended=extended,
-                response="violation",
-            )
+            if _logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                    ts=timestamp, canId=can_id, extended=extended,
+                    response="violation",
+                )
         else:
-            log_event(
-                _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
-                ts=timestamp, canId=can_id, extended=extended,
-                response=result.get("status", "unknown"),
-            )
+            if _logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                    ts=timestamp, canId=can_id, extended=extended,
+                    response=result.get("status", "unknown"),
+                )
 
         return result
 
@@ -811,7 +818,7 @@ class AletheiaClient(SignalOpsMixin):
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
-            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
+            if result_bytes in self._ACK_RESPONSES:
                 log_event(
                     _logger, logging.DEBUG, LogEvent.ERROR_EVENT_SENT,
                     ts=timestamp, response="ack",
@@ -859,7 +866,7 @@ class AletheiaClient(SignalOpsMixin):
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
-            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
+            if result_bytes in self._ACK_RESPONSES:
                 log_event(
                     _logger, logging.DEBUG, LogEvent.REMOTE_EVENT_SENT,
                     ts=timestamp, canId=can_id, extended=extended,

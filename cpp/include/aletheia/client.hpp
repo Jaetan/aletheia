@@ -196,7 +196,10 @@ private:
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.
     // Populated by send_frame() (guarded by !diags_.empty()); cleared by start_stream().
-    // Cost: one FramePayload copy per unique CAN ID (not per frame), via insert_or_assign.
+    // Storage: one entry per unique (CAN ID, extended) pair.
+    // Cost: one FramePayload copy per frame.  First frame for a key
+    // allocates via `emplace`; subsequent frames reuse the existing
+    // vector capacity via `assign` — see R19 cluster 19 / CPP-B-25.1.
     struct LastFrame {
         CanId id;
         Dlc dlc;

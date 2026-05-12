@@ -89,7 +89,7 @@ class SignalOpsMixin(ABC):
             raise StateError("Client not initialized — use 'with' statement")
         validate_payload_length(dlc, data)
         validate_can_id(can_id, extended=extended)
-        data_array = (ctypes.c_uint8 * len(data))(*data)
+        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
 
         # Use binary path when signal name cache is populated
         lookup = self._signal_lookup.get((can_id, extended))
@@ -171,7 +171,7 @@ class SignalOpsMixin(ABC):
         sig_values = self._resolve_signal_indices(
             signals, can_id, extended, "update_frame",
         )
-        frame_array = (ctypes.c_uint8 * len(frame))(*frame)
+        frame_array = (ctypes.c_uint8 * len(frame)).from_buffer_copy(frame)
         return BinaryFFI(self._lib, self._state).update_frame(
             FrameIdentity(can_id, extended, dlc),
             frame_array,
