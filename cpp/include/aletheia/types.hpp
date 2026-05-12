@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -287,6 +288,15 @@ struct Frame {
     CanId id;
     Dlc dlc;
     FramePayload data;
+    // CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2): set for CAN-FD
+    // frames carrying the bit, std::nullopt for CAN 2.0B frames where it
+    // does not exist on the wire.  The Aletheia kernel does not consume
+    // BRS — pass-through metadata for binding consumers and the JSON wire
+    // shape (R19P2 cluster 18 — AGDA-D-10.1 closure).
+    std::optional<bool> brs;
+    // CAN-FD Error State Indicator (ISO 11898-1:2015 §10.4.3); same
+    // semantics + pass-through status as brs.
+    std::optional<bool> esi;
 };
 
 } // namespace aletheia

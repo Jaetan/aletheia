@@ -36,7 +36,8 @@ using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
 using AletheiaProcessFn = char* (*)(void*, const char*);
 using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t,
-                                      std::uint8_t, const std::uint8_t*, std::uint8_t);
+                                      std::uint8_t, const std::uint8_t*, std::uint8_t, std::uint8_t,
+                                      std::uint8_t, std::uint8_t, std::uint8_t);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
@@ -265,7 +266,8 @@ public:
     }
 
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
-                           std::span<const std::byte> data) -> std::string override {
+                           std::span<const std::byte> data, std::optional<bool> brs,
+                           std::optional<bool> esi) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
         const auto can_id = can_id_value(id);
         const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
@@ -279,8 +281,19 @@ public:
                                      " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
+        // Encode optional<bool> as (present, value) byte pairs — inverse
+        // of the Haskell shim's mkMaybeBool.
+        const auto encode = [](std::optional<bool> b) -> std::pair<std::uint8_t, std::uint8_t> {
+            if (!b.has_value())
+                return {0, 0};
+            return {1, static_cast<std::uint8_t>(*b ? 1 : 0)};
+        };
+        const auto [brs_p, brs_v] = encode(brs);
+        const auto [esi_p, esi_v] = encode(esi);
+
         return wrap_str_result(send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
-                                              as_u8(data.data()), data_len),
+                                              as_u8(data.data()), data_len, brs_p, brs_v, esi_p,
+                                              esi_v),
                                "aletheia_send_frame returned null");
     }
 

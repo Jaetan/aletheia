@@ -161,6 +161,43 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     CHECK(v.timestamp.count() > 0);
 }
 
+TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd][cluster18]") {
+    // R19 Phase 2 cluster 18 (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia
+    // kernel does not consume CAN-FD BRS / ESI metadata, but the binding
+    // must accept the bits as std::optional<bool> and the FFI must accept
+    // the 4 trailing u8 args without crashing.  Every combination of
+    // brs / esi in {nullopt, true, false} must return Ack for an
+    // otherwise-valid frame.  Mirror of Python's
+    // test_canfd_brs_esi_passthrough + Go's
+    // TestCrossBinding_SendFrameBrsEsiPassthrough.
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto sid = StandardId::create(256).value();
+    auto dlc = Dlc::create(8).value();
+    auto payload = std::array<std::byte, 8>{};
+
+    const std::array<std::optional<bool>, 3> options = {
+        std::nullopt,
+        std::optional<bool>{true},
+        std::optional<bool>{false},
+    };
+    std::int64_t ts = 0;
+    for (const auto& brs : options) {
+        for (const auto& esi : options) {
+            ts += 1000;
+            auto resp = client.send_frame(std::stop_token{}, Timestamp{ts}, CanId{sid}, dlc,
+                                          std::span<const std::byte>{payload}, brs, esi);
+            REQUIRE(resp.has_value());
+            CHECK(std::holds_alternative<Ack>(resp.value()));
+        }
+    }
+}
+
 TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     // CAN ID 0x800 = 2048 is out of standard 11-bit range; StandardId::create
     // rejects it before the FFI is reached. This is the C++ analogue of

@@ -60,8 +60,14 @@ public:
 
     // Binary frame FFI — bypasses JSON serialization on the send path.
     // Returns the raw JSON response string from the backend.
+    // CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
+    // passed as std::optional<bool> — std::nullopt for CAN 2.0B frames
+    // where the bits do not exist.  The Aletheia kernel does not consume
+    // BRS / ESI; they are pass-through metadata for binding consumers
+    // (R19P2 cluster 18 — AGDA-D-10.1 closure).
     [[nodiscard]] virtual auto send_frame_binary(void* state, Timestamp ts, const CanId& id,
-                                                 Dlc dlc, std::span<const std::byte> data)
+                                                 Dlc dlc, std::span<const std::byte> data,
+                                                 std::optional<bool> brs, std::optional<bool> esi)
         -> std::string = 0;
 
     // ========================================================================

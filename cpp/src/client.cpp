@@ -510,7 +510,8 @@ auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
 }
 
 auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
-                                std::span<const std::byte> data) -> Result<FrameResponse> {
+                                std::span<const std::byte> data, std::optional<bool> brs,
+                                std::optional<bool> esi) -> Result<FrameResponse> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_frame"));
     if (ts.count() < 0)
@@ -518,7 +519,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
-    auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data);
+    auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
         auto id_value = can_id_value(id);
