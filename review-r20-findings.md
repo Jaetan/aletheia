@@ -388,7 +388,7 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 164. `[FIX]` GO-B-31.1 [FIX-NOW] — ✅ Cluster B: stub signature extended + compile-time assertions added; `CGO_ENABLED=0 go build ./aletheia/` clean.
 165. `[FIX]` GO-B-24.1 [FIX-NOW] — ✅ Cluster C: `rationalLess` now uses `math/big.Int` cross-product.
-166. `[ ]` GO-B-12.1 [FIX-NOW] — `go/aletheia/json.go:696-726` `parseRational` — truncates wire floats to int64 without range check; sibling `parseNumberAsInt64:765-796` does check. Also denominator 0.5 silently truncates to 0.
+166. `[FIX]` GO-B-12.1 — ✅ Cluster H: `parseRational` gains the same defenses as `parseNumberAsInt64` — fractional-numerator + fractional-denominator + out-of-int64-range checks (mirrored in both scalar and dict forms).  5 new `TestParseRational_Reject*` cases.
 167. `[FIX]` GO-B-14.1 [FIX-NOW] — ✅ Cluster F: `serializeDataFrame` extended with optional `brs, esi *bool` params, emit `"brs"`/`"esi"` fields when non-nil; `MockBackend.SendFrameBinary` threads through; `check_test.go` callsites pass `nil, nil`. Go race test ok 7.887s.
 168. `[FIX]` GO-B-7.1 [FIX-NOW] — ✅ Cluster B closure.
 
@@ -865,7 +865,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 492. `[ ]` AGDA-D-10.3 — `Protocol/Message.agda:51-52` — `SendFrame.brs/esi` end-to-end docstring overstates; kernel doesn't consume.
 493. `[ ]` AGDA-D-10.4 — `Protocol/StreamState/Types.agda:40` — No `Faulted`/`Closing` terminal state; clients can't distinguish never-loaded from rejected.
 494. `[ ]` AGDA-D-11.1 — `Protocol/Handlers.agda:112-125` vs `ParseDBCText.agda:60-74` — `firstDBCOverBound` duplicated; cycle-avoidance documented but shared helper module would close drift.
-495. `[ ]` AGDA-D-11.2 [FIX] — `Protocol/Handlers.agda` `firstDBCOverBound` — does NOT walk `comments`/`nodes`/`valueTables`/`valueDescriptions`. `max-value-descriptions-per-file = 1000000` declared in `Limits.agda` but never consulted. 10M VAL_ entries pass cardinality refinement.
+495. `[FIX]` AGDA-D-11.2 — ✅ Cluster H: `firstDBCOverBound` (both Handlers.agda and Handlers/ParseDBCText.agda copies) extended with 4 new cardinality checks (`comments`, `nodes`, `valueTables`, `totalValueDescriptions`); 3 new bound constants added to `Aletheia.Limits` (`max-comments-per-file`, `max-nodes-per-file`, `max-value-tables-per-file`); `max-value-descriptions-per-file` now consulted via per-DBC totaling across signal vds + table entries + unresolved.
 496. `[ ]` AGDA-D-11.3 — `classifyStepResult Satisfied prop` informal stability (R6-B9.1 NO-FIX). New angle in AGDA-D-19.x.
 497. `[ ]` AGDA-D-11.4 — `Protocol/StreamState.agda:67-69` — `checkMonotonic` rejection skips cache update; document.
 498. `[ ]` AGDA-D-11.5 — `Protocol/Handlers.agda:75-79` + `Marshal.hs:42-46` — `validateDLCAndLen` runtime check is precondition for `.dlcValid = refl`; document FFI-validation→Agda-`refl` chain.
@@ -887,7 +887,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 514. `[ ]` AGDA-D-32.1 — `Limits.agda:56-57,115-116` — `IdentifierLength` BoundKind declared with wire-code `"identifier_length"` but NO code emits it (`validIdentifierᵇ` rejects at construction, surfaces as ParseFailure). **Wire code unreachable.**
 515. `[ ]` AGDA-D-32.2 — `Limits.agda:58-59,119-120` — `StringLength`/`max-string-length-bytes` never emitted by any error site.
 516. `[ ]` AGDA-D-32.3 — `Limits.agda:62-63,127-128` — `FrameByteCount`/`max-frame-byte-count` never emitted as typed `InputBoundExceeded`.
-517. `[ ]` AGDA-D-32.4 [FIX] — `Limits.agda:112` `max-value-descriptions-per-file = 1000000` declared, never consulted. (Same as AGDA-D-11.2.)
+517. `[FIX]` AGDA-D-32.4 — ✅ Cluster H: closed via the same edit as AGDA-D-11.2 (the bound is now consulted at the handler boundary via `totalValueDescriptions`).
 518. `[ ]` AGDA-D-32.5 [FIX] — **3-of-7 enforcement gap on universal rule.** 4 BoundKind ctors enforced as typed `InputBoundExceeded`, 3 not. Add `check-bound-enforcement` Shake gate that greps for emitting sites.
 519. `[ ]` AGDA-D-14.1 — `Main.agda:89` — `checkMonotonic` re-exported but no real external consumer.
 520. `[ ]` AGDA-D-14.2 — `Main.agda:99-119` — `Response` re-exports asymmetric (omits 4 ctors).
@@ -1150,7 +1150,8 @@ focused commit; gates run fresh at every cluster closure per
 
 ## Progress log
 
-- 2026-05-12 — Clusters A-G shipped (commits 4be9a84, dbd3e60, c2c6bab, 9a73a48, c795141, 036a684, 00dc764).  47 findings marked `[FIX]`.  Cluster split saved.
+- 2026-05-12 — Clusters A-G shipped (commits 4be9a84, dbd3e60, c2c6bab, 9a73a48, c795141, 036a684, 00dc764).  47 findings marked `[FIX]`.  Cluster split saved (3fa8e65).
+- 2026-05-12 — Cluster H shipped: AGDA bound enforcement gap (firstDBCOverBound + 4 list types + max-value-descriptions-per-file consulted); GO-B-12.1 parseRational range-check + fractional-component rejection; 5 new TestParseRational_Reject* coverage.  Stragglers bundled: cluster-C test rename `test_division_by_zero_string_raises → test_non_positive_denominator_string_raises` (test caught the cluster-C reordering of the `<= 0` check); cluster-D `cpp/src/client.cpp` clang-format reflow.
 
 
 ---

@@ -588,9 +588,8 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
                 // structured `bound_kind/observed/limit` triple that the
                 // Python `InputBoundExceededError` and Go `*InputBoundExceededError`
                 // preserve across error paths.
-                batch.error =
-                    AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()),
-                                  e.code(), e.bound_info()};
+                batch.error = AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()),
+                                            e.code(), e.bound_info()};
             }
             return batch;
         }

@@ -107,9 +107,29 @@ max-signals-per-message = 1024
 max-attributes-per-file : ℕ
 max-attributes-per-file = 10000
 
--- Value-description entries per DBC file (VAL_ + VAL_TABLE_).
+-- Value-description entries per DBC file (VAL_ + VAL_TABLE_), counted
+-- as the SUM across `DBCSignal.valueDescriptions`, `ValueTable.entries`,
+-- and `DBC.unresolvedValueDescs.entries`.  The 64 MiB input cap already
+-- protects against the largest fan-outs; this bound is the explicit
+-- cardinality gate at the handler boundary.
 max-value-descriptions-per-file : ℕ
 max-value-descriptions-per-file = 1000000
+
+-- Comments per DBC file (`CM_`).  10k matches `max-attributes-per-file`
+-- as the metadata-cap convention; real DBCs are well under.
+max-comments-per-file : ℕ
+max-comments-per-file = 10000
+
+-- Nodes per DBC file (`BU_`).  Real DBCs have <200 nodes; 10k is
+-- generous headroom matching the metadata-cap convention.
+max-nodes-per-file : ℕ
+max-nodes-per-file = 10000
+
+-- Value-table definitions per DBC file (`VAL_TABLE_`).  The per-file
+-- count, NOT the per-table entry count — that flows through
+-- `max-value-descriptions-per-file`.
+max-value-tables-per-file : ℕ
+max-value-tables-per-file = 10000
 
 -- DBC identifier (signal name, message name, etc.) length in characters.
 max-identifier-length : ℕ

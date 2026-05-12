@@ -300,8 +300,7 @@ def parse_rational(value_raw: object) -> Fraction:
                 else:
                     if denominator_s <= 0:
                         raise ProtocolError(
-                            f"Expected positive denominator in rational string, "
-                            f"got {value_raw!r}"
+                            f"Expected positive denominator in rational string, got {value_raw!r}"
                         )
                     return Fraction(numerator_s, denominator_s)
         try:

@@ -25,7 +25,7 @@ open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (refl)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; Node; DBCComment; RawValueDesc)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
@@ -54,6 +54,8 @@ open import Aletheia.Error as Err using
 open import Aletheia.Limits using
   ( ArrayCardinality; AtomCount
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
+  ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
+  ; max-value-descriptions-per-file
   ; max-atom-count-per-property
   )
 
@@ -115,14 +117,51 @@ private
   ... | true  = signalsBound rest
   ... | false = just ("signals array" , length (DBCMessage.signals msg) , max-signals-per-message)
 
+  -- R20 cluster H — AGDA-D-11.2 / AGDA-D-32.4.  Total value-description
+  -- count is the sum across all three carriers (per-signal `VAL_` entries,
+  -- top-level `VAL_TABLE_` definitions, and `unresolvedValueDescs` for
+  -- VAL_ lines whose `(canId, signalName)` did not resolve to a signal).
+  -- Walked at the handler boundary alongside the other cardinality
+  -- checks; one cap closes `max-value-descriptions-per-file` previously
+  -- declared in `Aletheia.Limits` but never consulted.
+  vdsInSignals : List DBCSignal → ℕ
+  vdsInSignals [] = 0
+  vdsInSignals (s ∷ rest) = length (DBCSignal.valueDescriptions s) + vdsInSignals rest
+
+  vdsInMessages : List DBCMessage → ℕ
+  vdsInMessages [] = 0
+  vdsInMessages (m ∷ rest) = vdsInSignals (DBCMessage.signals m) + vdsInMessages rest
+
+  vdsInTables : List ValueTable → ℕ
+  vdsInTables [] = 0
+  vdsInTables (t ∷ rest) = length (ValueTable.entries t) + vdsInTables rest
+
+  vdsInUnresolved : List RawValueDesc → ℕ
+  vdsInUnresolved [] = 0
+  vdsInUnresolved (rv ∷ rest) = length (RawValueDesc.entries rv) + vdsInUnresolved rest
+
+  totalValueDescriptions : DBC → ℕ
+  totalValueDescriptions dbc =
+    vdsInMessages (DBC.messages dbc) +
+    vdsInTables (DBC.valueTables dbc) +
+    vdsInUnresolved (DBC.unresolvedValueDescs dbc)
+
   firstDBCOverBound : DBC → Maybe (String × ℕ × ℕ)
   firstDBCOverBound dbc with length (DBC.messages dbc) <ᵇ suc max-messages-per-file
   ... | false = just ("messages array" , length (DBC.messages dbc) , max-messages-per-file)
   ... | true  with signalsBound (DBC.messages dbc)
   ...   | just over = just over
   ...   | nothing with length (DBC.attributes dbc) <ᵇ suc max-attributes-per-file
-  ...     | true  = nothing
   ...     | false = just ("attributes array" , length (DBC.attributes dbc) , max-attributes-per-file)
+  ...     | true  with length (DBC.comments dbc) <ᵇ suc max-comments-per-file
+  ...       | false = just ("comments array" , length (DBC.comments dbc) , max-comments-per-file)
+  ...       | true  with length (DBC.nodes dbc) <ᵇ suc max-nodes-per-file
+  ...         | false = just ("nodes array" , length (DBC.nodes dbc) , max-nodes-per-file)
+  ...         | true  with length (DBC.valueTables dbc) <ᵇ suc max-value-tables-per-file
+  ...           | false = just ("value tables array" , length (DBC.valueTables dbc) , max-value-tables-per-file)
+  ...           | true  with totalValueDescriptions dbc <ᵇ suc max-value-descriptions-per-file
+  ...             | false = just ("value descriptions total" , totalValueDescriptions dbc , max-value-descriptions-per-file)
+  ...             | true  = nothing
 
   -- Build a typed error response for a cardinality violation.
   cardinalityErrorResponse : String → String → ℕ → ℕ → StreamState → StreamState × Response

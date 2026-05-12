@@ -15,11 +15,11 @@ module Aletheia.Protocol.Handlers.ParseDBCText where
 open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; _≤ᵇ_; _<ᵇ_)
+open import Data.Nat using (ℕ; suc; _+_; _≤ᵇ_; _<ᵇ_)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Aletheia.DBC.Types using (DBC; DBCMessage)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; RawValueDesc)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.TextParser using (parseText)
@@ -35,6 +35,8 @@ open import Aletheia.Limits using
   ( InputLengthBytes; ArrayCardinality
   ; max-dbc-text-bytes
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
+  ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
+  ; max-value-descriptions-per-file
   )
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
@@ -62,14 +64,47 @@ private
   ... | true  = signalsBound rest
   ... | false = just (length (DBCMessage.signals msg) , max-signals-per-message)
 
+  -- R20 cluster H — mirror of `Handlers.totalValueDescriptions`; see the
+  -- rationale comment there.  Duplicated here (not imported) for the same
+  -- cycle-avoidance reason the rest of this private block is duplicated.
+  vdsInSignals : List DBCSignal → ℕ
+  vdsInSignals [] = 0
+  vdsInSignals (s ∷ rest) = length (DBCSignal.valueDescriptions s) + vdsInSignals rest
+
+  vdsInMessages : List DBCMessage → ℕ
+  vdsInMessages [] = 0
+  vdsInMessages (m ∷ rest) = vdsInSignals (DBCMessage.signals m) + vdsInMessages rest
+
+  vdsInTables : List ValueTable → ℕ
+  vdsInTables [] = 0
+  vdsInTables (t ∷ rest) = length (ValueTable.entries t) + vdsInTables rest
+
+  vdsInUnresolved : List RawValueDesc → ℕ
+  vdsInUnresolved [] = 0
+  vdsInUnresolved (rv ∷ rest) = length (RawValueDesc.entries rv) + vdsInUnresolved rest
+
+  totalValueDescriptions : DBC → ℕ
+  totalValueDescriptions dbc =
+    vdsInMessages (DBC.messages dbc) +
+    vdsInTables (DBC.valueTables dbc) +
+    vdsInUnresolved (DBC.unresolvedValueDescs dbc)
+
   firstDBCOverBound : DBC → Maybe (ℕ × ℕ)
   firstDBCOverBound dbc with length (DBC.messages dbc) <ᵇ suc max-messages-per-file
   ... | false = just (length (DBC.messages dbc) , max-messages-per-file)
   ... | true  with signalsBound (DBC.messages dbc)
   ...   | just over = just over
   ...   | nothing with length (DBC.attributes dbc) <ᵇ suc max-attributes-per-file
-  ...     | true  = nothing
   ...     | false = just (length (DBC.attributes dbc) , max-attributes-per-file)
+  ...     | true  with length (DBC.comments dbc) <ᵇ suc max-comments-per-file
+  ...       | false = just (length (DBC.comments dbc) , max-comments-per-file)
+  ...       | true  with length (DBC.nodes dbc) <ᵇ suc max-nodes-per-file
+  ...         | false = just (length (DBC.nodes dbc) , max-nodes-per-file)
+  ...         | true  with length (DBC.valueTables dbc) <ᵇ suc max-value-tables-per-file
+  ...           | false = just (length (DBC.valueTables dbc) , max-value-tables-per-file)
+  ...           | true  with totalValueDescriptions dbc <ᵇ suc max-value-descriptions-per-file
+  ...             | false = just (totalValueDescriptions dbc , max-value-descriptions-per-file)
+  ...             | true  = nothing
 
 handleParseDBCTextResult : DBCTextParseError ⊎ DBC → StreamState → StreamState × Response
 handleParseDBCTextResult (inj₁ err)  state =

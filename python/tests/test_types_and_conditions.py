@@ -110,10 +110,12 @@ class TestParseRational:
             {"numerator": 1, "denominator": 3}
         ) == pytest.approx(1 / 3)
 
-    def test_division_by_zero_string_raises(self) -> None:
-        """Verify division by zero string raises."""
-        with pytest.raises(ProtocolError, match="Division by zero"):
+    def test_non_positive_denominator_string_raises(self) -> None:
+        """Zero and negative denominators raise (positive-denom canonical form)."""
+        with pytest.raises(ProtocolError, match="positive denominator"):
             parse_rational("1/0")
+        with pytest.raises(ProtocolError, match="positive denominator"):
+            parse_rational("1/-2")
 
     def test_invalid_type_raises(self) -> None:
         """Verify invalid type raises."""

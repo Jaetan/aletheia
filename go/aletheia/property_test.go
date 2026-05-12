@@ -143,6 +143,53 @@ func jsonNumber(v int64) []byte {
 	return b
 }
 
+// R20 cluster H — GO-B-12.1 reject cases.  parseRational must reject
+// adversarial wire forms BEFORE the int64 cast silently truncates them:
+// (1) non-integer scalar, (2) non-integer numerator/denominator in the
+// dict form, (3) numerator/denominator outside the int64 range.  Mirror
+// the defenses already in parseNumberAsInt64 (json.go:797).
+func TestParseRational_RejectFractionalScalar(t *testing.T) {
+	if _, err := parseRational(1.5); err == nil {
+		t.Fatalf("expected fractional scalar 1.5 to be rejected")
+	}
+}
+
+func TestParseRational_RejectFractionalNumerator(t *testing.T) {
+	if _, err := parseRational(map[string]any{"numerator": 1.5, "denominator": 2.0}); err == nil {
+		t.Fatalf("expected fractional numerator 1.5 to be rejected")
+	}
+}
+
+func TestParseRational_RejectFractionalDenominator(t *testing.T) {
+	// Pre-fix `int64(0.5)` silently truncated to 0, which then tripped
+	// the zero-denominator branch with a misleading "zero denominator"
+	// message.  The truncation-check now fires first.
+	if _, err := parseRational(map[string]any{"numerator": 1.0, "denominator": 0.5}); err == nil {
+		t.Fatalf("expected fractional denominator 0.5 to be rejected")
+	}
+}
+
+func TestParseRational_RejectOverflowingScalar(t *testing.T) {
+	if _, err := parseRational(math.MaxFloat64); err == nil {
+		t.Fatalf("expected MaxFloat64 numerator to be rejected as out-of-range")
+	}
+}
+
+func TestParseRational_RejectOverflowingDict(t *testing.T) {
+	if _, err := parseRational(map[string]any{
+		"numerator":   math.MaxFloat64,
+		"denominator": 1.0,
+	}); err == nil {
+		t.Fatalf("expected MaxFloat64 numerator in dict form to be rejected")
+	}
+	if _, err := parseRational(map[string]any{
+		"numerator":   1.0,
+		"denominator": math.MaxFloat64,
+	}); err == nil {
+		t.Fatalf("expected MaxFloat64 denominator in dict form to be rejected")
+	}
+}
+
 // Property: MockBackend and FFIBackend agree on the parsed JSON shape for
 // every Process(input) where the input is a parseable JSON command.  Mock
 // returns a canned response; this property checks that the typed-decode

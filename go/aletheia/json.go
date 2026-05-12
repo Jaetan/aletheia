@@ -732,12 +732,25 @@ func parseRational(v any) (Rational, error) {
 		if math.Trunc(n) != n {
 			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional float64: %v", n))
 		}
+		if n > math.MaxInt64 || n < math.MinInt64 {
+			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", n))
+		}
 		return Rational{Numerator: int64(n), Denominator: 1}, nil
 	case map[string]any:
 		num, ok1 := n["numerator"].(float64)
 		den, ok2 := n["denominator"].(float64)
 		if !ok1 || !ok2 {
 			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
+		}
+		// Reject non-integer components before any int64 cast: `int64(0.5)`
+		// silently truncates to 0, which would mis-classify a fractional
+		// denominator as "zero denominator" and a fractional numerator as
+		// a silent precision loss.  R20 cluster H — GO-B-12.1.
+		if num != math.Trunc(num) || den != math.Trunc(den) {
+			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", num, den))
+		}
+		if num > math.MaxInt64 || num < math.MinInt64 || den > math.MaxInt64 || den < math.MinInt64 {
+			return Rational{}, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", num, den))
 		}
 		if den == 0 {
 			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
