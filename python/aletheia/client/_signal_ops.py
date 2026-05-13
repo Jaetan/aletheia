@@ -4,13 +4,12 @@ Hosts ``extract_signals`` / ``update_frame`` / ``build_frame`` so the
 streaming-and-DBC core in ``_client.py`` stays under the configured
 module size threshold. Pure split — no behavioral change. The mixin
 relies on the host class providing the same private state attributes
-(``_lib``, ``_state``, ``_signal_lookup``, ``_resolve_signal_indices``,
-``_parse_ffi_result``) that the original methods used in-place.
+(``_backend``, ``_state``, ``_signal_lookup``, ``_resolve_signal_indices``)
+that the original methods used in-place.
 """
 
 from __future__ import annotations
 
-import ctypes
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -18,7 +17,9 @@ from fractions import Fraction
 from typing import cast
 
 from ..protocols import DLCCode, Response, is_object_list
-from ._client_bin import BinaryFFI, FrameIdentity, SignalValues
+from ._backend import Backend, BinaryPathUnsupportedError
+from ._client_bin import parse_extraction_buffer
+from ._ffi import parse_json_object
 from ._helpers import (
     parse_absent_list,
     parse_errors_list,
@@ -51,20 +52,16 @@ class SignalOpsMixin(ABC):
     recognises the stubs as legitimate forward declarations.
     """
 
-    _lib: ctypes.CDLL | None
-    _state: ctypes.c_void_p | None
+    _backend: Backend | None
+    _state: int | None
     _signal_lookup: dict[tuple[int, bool], SignalLookup]
 
     @abstractmethod
     def _resolve_signal_indices(
         self, signals: Mapping[str, float | Fraction],
         can_id: int, extended: bool, cmd_name: str,
-    ) -> SignalValues:
-        """Resolve signal name → index via the host class's lookup cache."""
-
-    @abstractmethod
-    def _parse_ffi_result(self, result_ptr: int) -> Response:
-        """Decode a JSON FFI response and free the C string."""
+    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+        """Resolve signal name → (indices, numerators, denominators)."""
 
     def extract_signals(
         self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
@@ -85,29 +82,34 @@ class SignalOpsMixin(ABC):
             ProtocolError: If the kernel rejects the extraction request
             ValidationError: If dlc is outside 0-15
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
         validate_payload_length(dlc, data)
         validate_can_id(can_id, extended=extended)
-        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
 
-        # Use binary path when signal name cache is populated
+        # Use binary path when signal name cache is populated.  MockBackend
+        # raises BinaryPathUnsupportedError to fall through to the JSON
+        # path (cross-binding parity with Go's ErrBinaryPathUnsupported
+        # contract in client.go:447).
         lookup = self._signal_lookup.get((can_id, extended))
         if lookup is not None:
-            return BinaryFFI(self._lib, self._state).extract_signals(
-                FrameIdentity(can_id, extended, dlc),
-                data_array,
-                lookup.names,
-            )
+            try:
+                buf = self._backend.extract_signals_bin(
+                    self._state,
+                    can_id=can_id, extended=extended, dlc=dlc, data=data,
+                )
+            except BinaryPathUnsupportedError:
+                pass
+            else:
+                return parse_extraction_buffer(buf, lookup.names)
 
-        # Fallback: JSON path. ctypes argtypes (set in configure_ffi_signatures)
-        # auto-convert Python ints — explicit wrappers omitted to keep the call
-        # site terse where the surrounding code is self-explanatory.
-        result_ptr = self._lib.aletheia_extract_signals(
-            self._state, can_id, 1 if extended else 0, dlc, data_array, len(data),
-        )
+        # JSON path (no DBC lookup OR backend without binary-bin support).
         try:
-            response = self._parse_ffi_result(result_ptr)
+            response_bytes = self._backend.extract_signals_binary(
+                self._state,
+                can_id=can_id, extended=extended, dlc=dlc, data=data,
+            )
+            response = cast(Response, parse_json_object(response_bytes.decode("utf-8")))
         except ProtocolError as exc:
             log_event(
                 _logger, logging.WARNING, LogEvent.EXTRACTION_PROCESS_FAILED,
@@ -164,20 +166,19 @@ class SignalOpsMixin(ABC):
         Returns:
             New frame with updated signals
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
         expected_bytes = validate_payload_length(dlc, frame)
         validate_can_id(can_id, extended=extended)
-        sig_values = self._resolve_signal_indices(
+        indices, nums, dens = self._resolve_signal_indices(
             signals, can_id, extended, "update_frame",
         )
-        frame_array = (ctypes.c_uint8 * len(frame)).from_buffer_copy(frame)
-        return BinaryFFI(self._lib, self._state).update_frame(
-            FrameIdentity(can_id, extended, dlc),
-            frame_array,
-            sig_values,
-            expected_bytes,
-        )
+        return bytearray(self._backend.update_frame_bin(
+            self._state,
+            can_id=can_id, extended=extended, dlc=dlc, data=frame,
+            indices=indices, numerators=nums, denominators=dens,
+            expected_bytes=expected_bytes,
+        ))
 
     def build_frame(
         self,
@@ -198,14 +199,15 @@ class SignalOpsMixin(ABC):
         Returns:
             CAN frame payload (length = dlc_to_bytes(dlc))
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
         validate_can_id(can_id, extended=extended)
-        sig_values = self._resolve_signal_indices(
+        indices, nums, dens = self._resolve_signal_indices(
             signals, can_id, extended, "build_frame",
         )
-        return BinaryFFI(self._lib, self._state).build_frame(
-            FrameIdentity(can_id, extended, dlc),
-            sig_values,
-            dlc_to_bytes(dlc),
-        )
+        return bytearray(self._backend.build_frame_bin(
+            self._state,
+            can_id=can_id, extended=extended, dlc=dlc,
+            indices=indices, numerators=nums, denominators=dens,
+            expected_bytes=dlc_to_bytes(dlc),
+        ))

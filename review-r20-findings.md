@@ -654,10 +654,10 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 318. `[ ]` PY-B-7.1 [FIX] — `_signal_ops.py:60,149,186`, `_client.py:252`, `_helpers.py:184`, `asyncio/_client.py:281,294` — Signal-ops typed `Mapping[str, float | Fraction]`; missing `int` from `_RationalInput`. Pyright rejects natural `{"Speed": 50}` callers.
 319. `[ ]` PY-B-7.2 — `python/aletheia/protocols.py:68-80` — `is_str_dict` O(N) key scan; fast-path consideration.
 320. `[ ]` PY-B-25.1 — `python/aletheia/client/_client_bin.py:255-257, 281-283` — `(c_uint32 * n)(*signals.indices)` O(N) splat; benchmark vs `struct.pack` threshold.
-321. `[ ]` PY-B-25.2 — `python/aletheia/client/_client_bin.py:188-201` — `BinaryFFI` per-call construction; cache instance on `__enter__`.
+321. `[FIX]` PY-B-25.2 — ✅ Cluster P closure: `BinaryFFI` class removed entirely; its three binary-FFI methods now live on `FFIBackend` (single backend instance owned per Client, no per-call construction).
 322. `[ ]` PY-B-26.1 [FIX] — `python/aletheia/client/_client_bin.py:226-234` — `out_size.value` from FFI consumed without upper bound; malicious 4 GiB allocation possible.
 323. `[ ]` PY-B-12.1 — `python/tests/test_cancellation.py:369-373` — 10000-cycle poll bound informational; use `asyncio.wait_for`.
-324. `[ ]` PY-B-12.2 — `python/aletheia/asyncio/testing.py:113, 117` — `setattr` monkey-patch defeats type-checking; promote `Hook` interface. (See PY-D-24.2.)
+324. `[FIX]` PY-B-12.2 — ✅ Cluster P closure: `setattr(sync_client, "send_frame", gated)` monkey-patch replaced by `_CountingGateBackend` wrapping the public `Backend` Protocol, injected via `AletheiaClient(backend=…)`.
 325. `[ ]` PY-B-25.3 — `_signal_ops.py:135-137` — `is_object_list` tuple rebuilt per call; hoist.
 326. `[ ]` PY-B-14.1 — `python/aletheia/client/_ffi.py:96-101` — `RTSState.release` silent skip; add WARN log on asymmetry.
 327. `[FIX]` PY-B-26.2 — ✅ Cluster N: see PY-A-27.2 fix; `_validate_lib_path` helper now covers all 4 resolution paths, not only `ALETHEIA_LIB`.
@@ -667,7 +667,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 331. `[ ]` PY-B-29.1 — `python/aletheia/client/_helpers.py:300-303` — `parse_rational` swallows `ValueError`/`ZeroDivisionError` without `from exc`.
 332. `[ ]` PY-B-30.1 — `python/aletheia/client/_client.py:928-963` — `_extract_last_known_values` sorted iteration verified parity; informational.
 333. `[ ]` PY-B-10.1 — `python/aletheia/client/_ffi.py:16-28` — `parse_json_object` no nesting-depth bound; 64 MiB cap allows few-thousand-deep dict skeleton blowing recursion stack.
-334. `[ ]` PY-B-22.2 — `python/aletheia/testing.py:14-19` — `MockBackend` documented but not provided; parity gap. (See PY-D-24.1.)
+334. `[FIX]` PY-B-22.2 — ✅ Cluster P closure: `aletheia.MockBackend` shipped as a public class implementing the 13-method `Backend` Protocol; recorded inputs + FIFO canned response queue + cross-binding fire-and-forget defaults. `FEATURE_MATRIX.yaml` row `mock_backend` Python entry flipped `not_applicable` → `implemented`.
 
 ---
 
@@ -1030,9 +1030,9 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 636. `[ ]` PY-D-23.3 [LOW] — `validate_dbc()` returns dict; promote typed `errors()`/`warnings()` partitioning.
 637. `[ ]` PY-D-23.4 [MED] — `_RationalInput` private but appears in every Signal builder; promote to `RationalInput` + top-level export.
 638. `[ ]` PY-D-23.5 [LOW] — `Predicate.__init__`/`Property.__init__` accept formula dict but docstrings say "not public API"; either gate or accept honestly.
-639. `[ ]` PY-D-24.1 [HIGH] — **Backend Protocol DI seam still missing** (carry-over from R19 cluster 9 / PY-D-17.1). Largest cross-binding parity gap. Promote `Backend(Protocol)` + thread through `__init__`.
-640. `[ ]` PY-D-24.2 [MED] — `asyncio.testing.gate_send_frame` setattr monkey-patch; closes naturally with PY-D-24.1.
-641. `[ ]` PY-D-24.3 [LOW] — `RTSState` module-level singleton; closes with PY-D-24.1.
+639. `[FIX]` PY-D-24.1 [HIGH] — ✅ Cluster P closure: `aletheia.Backend` Protocol shipped (13 methods mirroring Go `Backend` + C++ `IBackend`); `aletheia.FFIBackend` production class + `aletheia.MockBackend` test mock; `AletheiaClient(backend=…)` DI seam threads through `__init__`; client-vs-caller-owned backend lifetime distinction via internal factory. `FEATURE_MATRIX.yaml` row `backend_di_seam` added (all three bindings implemented).
+640. `[FIX]` PY-D-24.2 [MED] — ✅ Cluster P closure: `gate_send_frame(sync, after_n)` (setattr monkey-patch) replaced by `gated_backend(inner, after_n)` (`_CountingGateBackend` wrapping any `Backend`); injected via `AletheiaClient(backend=…)`. Same `(started, proceed)` `threading.Event` rendezvous, no `setattr`, no protected access. BREAKING entry in CHANGELOG.
+641. `[FIX]` PY-D-24.3 [LOW] — ✅ Cluster P closure: `RTSState` remains the module-level singleton (GHC RTS is once-per-process structurally), but its testability concern is closed by `MockBackend` bypassing `RTSState.acquire`/`release` entirely (mock keeps no per-state lifecycle).
 642. `[ ]` PY-D-25.1 [INFO] — `Signal` three-point coupling no test asserts three lists stay in sync. Verify `test_predicate_sync.py` coverage.
 643. `[ ]` PY-D-25.2 [LOW] — TypedDict discriminator unions in `_dbc_types.py` no runtime parity test; add Agda-source-truth walk.
 644. `[ ]` PY-D-25.3 [LOW] — `Predicate.implies(other)` accepts `Property | Predicate`; widen to `LTLFormula` or document wrap idiom.
@@ -1131,10 +1131,13 @@ focused commit; gates run fresh at every cluster closure per
 - `GO-A-3.6` ✅ DROP (see line 129 disposition).
 - `GO-A-3.7` ✅ DROP (see line 130 disposition).
 
-### Cluster P — Python Backend(Protocol) DI seam (R19 carry-over)
-- `PY-D-24.1` — promote `Backend(Protocol)` + thread through `AletheiaClient.__init__`
-- Largest remaining cross-binding parity gap (C++ has `IBackend`, Go has `Backend` interface, Python has nothing)
-- Touches `_client.py`, conftest fixtures, public re-exports; FEATURE_MATRIX row
+### Cluster P — Python Backend(Protocol) DI seam ✅ CLOSED
+- `PY-D-24.1` ✅ — `aletheia.Backend` Protocol shipped (13 methods) + `aletheia.FFIBackend` production class + `aletheia.MockBackend` test mock; `AletheiaClient.__init__(backend=…)` DI seam; FEATURE_MATRIX `backend_di_seam` row + Python `mock_backend` flipped to implemented.
+- `PY-D-24.2` ✅ — `gate_send_frame` setattr monkey-patch replaced by `gated_backend(inner, after_n)` returning a `_CountingGateBackend` wrapping any `Backend`; injected via `AletheiaClient(backend=…)`.
+- `PY-D-24.3` ✅ — `RTSState` testability concern closed by `MockBackend` bypassing RTS entirely; singleton kept structurally (GHC RTS is once-per-process).
+- `PY-B-22.2` ✅ — `aletheia.MockBackend` shipped (PY-B-22.2 in-scope cross-binding parity).
+- `PY-B-12.2` ✅ — `setattr` monkey-patch retired; new helper uses public Backend Protocol DI.
+- `PY-B-25.2` ✅ — `BinaryFFI` per-call construction obsolete: class removed, methods live on the single `FFIBackend` instance.
 
 ### Cluster Q — Multi-binding Cat 1/4 cleanup  *(sweep)*
 - Dead code + stale comments across AGDA-A / GO-A / CPP-A / PY-A (~80 findings)

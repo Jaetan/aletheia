@@ -66,12 +66,16 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from .client import (
     AletheiaClient,
     AletheiaError,
+    Backend,
     BatchError,
+    BinaryPathUnsupportedError,
     CANFrameTuple,
+    FFIBackend,
     FFIError,
     FrameResponse,
     FrameResult,
     InputBoundExceededError,
+    MockBackend,
     PropertyDiagnostic,
     ProtocolError,
     RTSState,
@@ -150,6 +154,12 @@ __all__ = [
     "SignalExtractionResult",
     "bytes_to_dlc",
     "dlc_to_bytes",
+    # Backend DI seam (R20 cluster P — PY-D-24.1; cross-binding parity
+    # with Go ``Backend`` interface and C++ ``IBackend`` virtual surface).
+    "Backend",
+    "FFIBackend",
+    "MockBackend",
+    "BinaryPathUnsupportedError",
     # Exceptions & response types
     "AletheiaError",
     "BatchError",

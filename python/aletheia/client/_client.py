@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import ctypes
 import logging
-from collections.abc import Generator, Iterable, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping
 from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override, cast
 
@@ -30,14 +29,10 @@ from ..protocols import (
     ParsedDBCResponse,
     is_str_dict,
 )
-from ._client_bin import FrameIdentity, SignalValues
+from ._backend import Backend, FFIBackend
+from ._client_bin import FrameIdentity
 from ._enrichment import build_diagnostic, format_enriched_reason
-from ._ffi import (
-    parse_json_object,
-    RTSState,
-    find_ffi_library,
-    configure_ffi_signatures,
-)
+from ._ffi import parse_json_object
 from ._helpers import (
     coerce_to_rational,
     dump_json,
@@ -58,7 +53,6 @@ from ._signal_ops import SignalOpsMixin
 from ._types import (
     AletheiaError,
     CANFrameTuple,
-    FFIError,
     FrameResult,
     InputBoundExceededError,
     PropertyDiagnostic,
@@ -70,7 +64,6 @@ from ._types import (
     ValidationError,
     MAX_EXTRACT_CACHE,
     call_send_frame,
-    encode_maybe_bool,
     validate_can_id,
     validate_payload_length,
 )
@@ -89,11 +82,27 @@ def _rational_index(r: RationalNumber, context: str) -> int:
     return r["numerator"] // r["denominator"]
 
 
-class AletheiaClient(SignalOpsMixin):
+def _send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
+    """Stub assigned to ``_send_frame_binary`` before ``__enter__`` runs.
+
+    Replaced in :meth:`AletheiaClient.__enter__` with the backend's actual
+    bound method (a hot-path optimisation that dodges the
+    ``self._backend.send_frame_binary`` two-attribute lookup per frame).
+    If a caller bypasses ``__enter__`` and invokes ``send_frame`` directly,
+    this stub raises :class:`StateError` so the failure is loud rather
+    than ``NoneType is not callable``.
+    """
+    raise StateError("Client not initialized — use 'with' statement")
+
+
+class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attributes
     """Client for streaming LTL checking and signal operations.
 
-    Uses ctypes to load libaletheia-ffi.so and call Haskell/Agda functions
-    directly via FFI — no subprocess overhead.
+    Calls the formally verified Agda core via a :class:`Backend` —
+    :class:`FFIBackend` in production (wraps ``libaletheia-ffi.so`` via
+    ``ctypes``), :class:`MockBackend` in tests.  The DI seam closes
+    cross-binding parity with Go ``aletheia.Backend`` and C++
+    ``aletheia::IBackend`` (R20 cluster P).
 
     Protocol state machine:
     1. parse_dbc() - Load DBC definition (required first)
@@ -136,6 +145,8 @@ class AletheiaClient(SignalOpsMixin):
         self,
         default_checks: list[CheckResult] | None = None,
         rts_cores: int = 1,
+        *,
+        backend: Backend | None = None,
     ) -> None:
         """Initialize a client.
 
@@ -143,44 +154,59 @@ class AletheiaClient(SignalOpsMixin):
             default_checks: Pre-built checks applied on every ``start_stream``
                 call. Shallow-copied; **do not** mutate originals after passing.
             rts_cores: GHC RTS capabilities (default 1). Mismatch across
-                clients logs a warning.
+                clients logs a warning.  Ignored when ``backend`` is
+                non-None (the injected backend already owns RTS state).
+            backend: Optional :class:`Backend` for dependency injection.
+                When ``None`` (default), a :class:`FFIBackend` is
+                constructed on ``__enter__`` from the resolved
+                ``libaletheia-ffi.so`` path.  Pass a :class:`MockBackend`
+                instance to drive tests without loading the shared
+                library; cross-binding parity with Go ``WithBackend`` /
+                C++ ``AletheiaClient(unique_ptr<IBackend>)``.
         """
-        self._lib: ctypes.CDLL | None = None
-        self._state: ctypes.c_void_p | None = None
+        self._backend: Backend | None = backend
+        self._state: int | None = None
         self._diags: dict[int, PropertyDiagnostic] = {}
         self._caches = StreamCaches()
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
-        self._rts_cores: int = rts_cores
         # Per-message signal name/index lookup, populated by ``parse_dbc``.
         self._signal_lookup: dict[tuple[int, bool], SignalLookup] = {}
+        # Backend factory: non-None iff the Client owns the backend
+        # lifecycle (closes over rts_cores; cleared on ``close()``).
+        # User-injected backends are caller-owned: factory stays None.
+        self._make_backend: Callable[[], Backend] | None = (
+            None if backend is not None
+            else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))
+        )
+        # Hot-path send_frame_binary bound method; rebound on __enter__,
+        # cleared back to the stub on ``close()``.
+        self._send_frame_binary: Callable[..., bytes] = _send_frame_unbound
 
     def __enter__(self) -> Self:
-        """Load shared library and initialize Haskell RTS."""
-        lib_path = find_ffi_library()
-        self._lib = ctypes.CDLL(str(lib_path))
-        configure_ffi_signatures(self._lib)
-
-        # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
-        RTSState.acquire(self._lib, self._rts_cores)
-
-        # Create Aletheia state
-        raw = self._lib.aletheia_init()
-        if not raw:
-            raise FFIError("aletheia_init() returned null — FFI initialization failed")
-        self._state = ctypes.c_void_p(raw)
-
+        """Construct the FFIBackend (if not injected), initialize state."""
+        if self._backend is None:
+            assert self._make_backend is not None
+            self._backend = self._make_backend()
+        self._state = self._backend.init()
+        # Cache the hot-path bound method to skip per-frame
+        # `self._backend.send_frame_binary` attribute lookup.  Set on
+        # __enter__ so a test that wraps the backend BEFORE construction
+        # picks up the wrapped instance's bound method.
+        self._send_frame_binary = self._backend.send_frame_binary
         return self
 
     def close(self) -> None:
         """Free state and release RTS reference."""
         try:
-            if self._lib is not None and self._state is not None:
-                self._lib.aletheia_close(self._state)
+            if self._backend is not None and self._state is not None:
+                self._backend.close(self._state)
         finally:
             self._state = None
-            if self._lib is not None:
-                RTSState.release()
-                self._lib = None
+            self._send_frame_binary = _send_frame_unbound
+            # Only drop the backend reference when the Client constructed
+            # it; user-injected backends are caller-owned.
+            if self._make_backend is not None:
+                self._backend = None
 
     @property
     def is_closed(self) -> bool:
@@ -190,7 +216,7 @@ class AletheiaClient(SignalOpsMixin):
         of exposing a public predicate over the post-close invariant
         (state pointer cleared).  Lets stability / leak harnesses verify
         the cleanup pathway without reaching for the underlying ``_state``
-        ctypes pointer.
+        handle.
         """
         return self._state is None
 
@@ -203,16 +229,16 @@ class AletheiaClient(SignalOpsMixin):
         self.close()
 
     def _send_command(self, command: Command) -> Response:
-        """Send command via FFI.
+        """Send a JSON command via the Backend.
 
         Rejects oversize JSON payloads (`> MAX_JSON_BYTES`) with a typed
-        :class:`InputBoundExceededError` before marshaling across ctypes,
+        :class:`InputBoundExceededError` before crossing the FFI boundary,
         per AGENTS.md universal rule "Adversarial-input bounds at parser
         surfaces".  The Agda kernel enforces the same bound; this is the
         binding's short-circuit so we do not allocate a 100 MB ctypes
         buffer only to be rejected on the other side.
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
 
         json_bytes = dump_json(command).encode("utf-8")
@@ -223,36 +249,14 @@ class AletheiaClient(SignalOpsMixin):
                 MAX_JSON_BYTES,
                 code="input_bound_exceeded",
             )
-        result_ptr = self._lib.aletheia_process(self._state, json_bytes)
-
-        try:
-            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
-            if result_bytes is None:
-                raise ProtocolError("FFI returned null pointer")
-            result_str = result_bytes.decode("utf-8")
-        finally:
-            self._lib.aletheia_free_str(result_ptr)
-
-        return cast(Response, parse_json_object(result_str))
-
-    def _parse_ffi_result(self, result_ptr: int) -> Response:
-        """Decode JSON response from a binary FFI call and free the C string."""
-        if self._lib is None:
-            raise StateError("Client not initialized — use 'with' statement")
-        try:
-            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
-            if result_bytes is None:
-                raise ProtocolError("FFI returned null pointer")
-            result_str = result_bytes.decode("utf-8")
-        finally:
-            self._lib.aletheia_free_str(result_ptr)
-        return cast(Response, parse_json_object(result_str))
+        result_bytes = self._backend.process(self._state, json_bytes)
+        return cast(Response, parse_json_object(result_bytes.decode("utf-8")))
 
     def _resolve_signal_indices(
         self, signals: Mapping[str, float | Fraction],
         can_id: int, extended: bool, cmd_name: str,
-    ) -> SignalValues:
-        """Resolve signal names to indices and convert values to rationals.
+    ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+        """Resolve signal names to (indices, numerators, denominators).
 
         Accepts float or Fraction inputs — Fraction flows through losslessly
         via ``coerce_to_rational``, matching the Agda core's ℚ arithmetic.
@@ -273,9 +277,7 @@ class AletheiaClient(SignalOpsMixin):
             indices.append(idx)
             nums.append(n)
             dens.append(d)
-        return SignalValues(
-            indices=tuple(indices), numerators=tuple(nums), denominators=tuple(dens),
-        )
+        return tuple(indices), tuple(nums), tuple(dens)
 
     def _populate_signal_lookup(self, dbc: DBCDefinition) -> None:
         """Refresh the per-message signal name/index cache from a DBC body."""
@@ -393,11 +395,10 @@ class AletheiaClient(SignalOpsMixin):
         Raises:
             ProtocolError: If no DBC is loaded or response is unexpected.
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
-        response = self._parse_ffi_result(
-            self._lib.aletheia_format_dbc(self._state),
-        )
+        response_bytes = self._backend.format_dbc_binary(self._state)
+        response = cast(Response, parse_json_object(response_bytes.decode("utf-8")))
         status = response.get("status")
 
         if status == "success":
@@ -512,10 +513,11 @@ class AletheiaClient(SignalOpsMixin):
         Returns:
             SuccessResponse or ErrorResponse
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
+        response_bytes = self._backend.start_stream_binary(self._state)
         response = parse_success_or_error(
-            self._parse_ffi_result(self._lib.aletheia_start_stream(self._state)),
+            cast(Response, parse_json_object(response_bytes.decode("utf-8"))),
         )
         if response["status"] == "success":
             self._caches.clear()
@@ -599,32 +601,6 @@ class AletheiaClient(SignalOpsMixin):
     _ACK_BYTES_SPACED = b'{"status": "ack"}'
     _ACK_RESPONSES = (_ACK_BYTES, _ACK_BYTES_SPACED)
 
-    def _call_send_frame_ffi(  # pylint: disable=too-many-arguments
-        self, *,
-        timestamp: int, can_id: int, extended: bool, dlc: DLCCode,
-        data: bytes | bytearray, brs: bool | None, esi: bool | None,
-    ) -> int:
-        """Marshal frame components + invoke ``aletheia_send_frame``."""
-        assert self._lib is not None  # send_frame guards this
-        # `from_buffer_copy` is a single C-level memcpy; the varargs form
-        # `(c_uint8 * N)(*data)` does O(N) Python-level per-byte coercion.
-        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
-        brs_b = encode_maybe_bool(brs)
-        esi_b = encode_maybe_bool(esi)
-        return self._lib.aletheia_send_frame(
-            self._state,
-            ctypes.c_uint64(timestamp),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(len(data)),
-            ctypes.c_uint8(brs_b[0]),
-            ctypes.c_uint8(brs_b[1]),
-            ctypes.c_uint8(esi_b[0]),
-            ctypes.c_uint8(esi_b[1]),
-        )
-
     def send_frame(  # pylint: disable=too-many-arguments
         self,
         timestamp: int,
@@ -658,45 +634,40 @@ class AletheiaClient(SignalOpsMixin):
         Returns:
             AckResponse, PropertyViolationResponse, or ErrorResponse
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValidationError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
         validate_payload_length(dlc, data)  # validates dlc is in [0, 15]
 
-        result_ptr = self._call_send_frame_ffi(
+        # Use the bound method cached at __enter__ to dodge per-frame
+        # attribute-lookup cost on ``self._backend.send_frame_binary``.
+        result_bytes = self._send_frame_binary(
+            self._state,
             timestamp=timestamp, can_id=can_id, extended=extended,
             dlc=dlc, data=data, brs=brs, esi=esi,
         )
-        try:
-            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
-            if result_bytes is None:
-                raise ProtocolError("FFI returned null pointer")
 
-            # Track last frame per CAN ID for EOS enrichment.
-            if self._diags:
-                self._caches.last_frames[(can_id, extended)] = (dlc, bytearray(data))
+        # Track last frame per CAN ID for EOS enrichment.
+        if self._diags:
+            self._caches.last_frames[(can_id, extended)] = (dlc, bytearray(data))
 
-            # Fast path: ack response (overwhelmingly common in streaming).
-            # The `isEnabledFor` guard mirrors stdlib `Logger.debug` — kwargs
-            # are eagerly evaluated, so without it the per-frame 4-field
-            # dict still allocates even when `log_event` would short-circuit.
-            if result_bytes in self._ACK_RESPONSES:
-                if _logger.isEnabledFor(logging.DEBUG):
-                    log_event(
-                        _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
-                        ts=timestamp, canId=can_id, extended=extended,
-                        response="ack",
-                    )
-                return {"status": "ack"}
+        # Fast path: ack response (overwhelmingly common in streaming).
+        # The `isEnabledFor` guard mirrors stdlib `Logger.debug` — kwargs
+        # are eagerly evaluated, so without it the per-frame 4-field
+        # dict still allocates even when `log_event` would short-circuit.
+        if result_bytes in self._ACK_RESPONSES:
+            if _logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                    ts=timestamp, canId=can_id, extended=extended,
+                    response="ack",
+                )
+            return {"status": "ack"}
 
-            # Slow path: violations/errors — full JSON parse
-            result_str = result_bytes.decode("utf-8")
-        finally:
-            self._lib.aletheia_free_str(result_ptr)
-
-        response = cast(Response, parse_json_object(result_str))
+        # Slow path: violations/errors — full JSON parse
+        response = cast(Response, parse_json_object(result_bytes.decode("utf-8")))
         result = parse_frame_response(response)
 
         if result["status"] == "fails":
@@ -807,27 +778,18 @@ class AletheiaClient(SignalOpsMixin):
             ProtocolError: If the Agda core rejects the event (e.g.
                 non-monotonic timestamp).
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValidationError("timestamp must be non-negative")
-        result_ptr = self._lib.aletheia_send_error(
-            self._state, ctypes.c_uint64(timestamp),
-        )
-        try:
-            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
-            if result_bytes is None:
-                raise ProtocolError("FFI returned null pointer")
-            if result_bytes in self._ACK_RESPONSES:
-                log_event(
-                    _logger, logging.DEBUG, LogEvent.ERROR_EVENT_SENT,
-                    ts=timestamp, response="ack",
-                )
-                return {"status": "ack"}
-            result_str = result_bytes.decode("utf-8")
-        finally:
-            self._lib.aletheia_free_str(result_ptr)
-        response = cast(Response, parse_json_object(result_str))
+        result_bytes = self._backend.send_error_binary(self._state, timestamp)
+        if result_bytes in self._ACK_RESPONSES:
+            log_event(
+                _logger, logging.DEBUG, LogEvent.ERROR_EVENT_SENT,
+                ts=timestamp, response="ack",
+            )
+            return {"status": "ack"}
+        response = cast(Response, parse_json_object(result_bytes.decode("utf-8")))
         return parse_event_response(response, "error_event", timestamp)
 
     def send_remote(
@@ -851,32 +813,22 @@ class AletheiaClient(SignalOpsMixin):
             ProtocolError: If the Agda core rejects the event (e.g.
                 non-monotonic timestamp).
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValidationError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
-        result_ptr = self._lib.aletheia_send_remote(
-            self._state,
-            ctypes.c_uint64(timestamp),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
+        result_bytes = self._backend.send_remote_binary(
+            self._state, timestamp=timestamp, can_id=can_id, extended=extended,
         )
-        try:
-            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
-            if result_bytes is None:
-                raise ProtocolError("FFI returned null pointer")
-            if result_bytes in self._ACK_RESPONSES:
-                log_event(
-                    _logger, logging.DEBUG, LogEvent.REMOTE_EVENT_SENT,
-                    ts=timestamp, canId=can_id, extended=extended,
-                    response="ack",
-                )
-                return {"status": "ack"}
-            result_str = result_bytes.decode("utf-8")
-        finally:
-            self._lib.aletheia_free_str(result_ptr)
-        response = cast(Response, parse_json_object(result_str))
+        if result_bytes in self._ACK_RESPONSES:
+            log_event(
+                _logger, logging.DEBUG, LogEvent.REMOTE_EVENT_SENT,
+                ts=timestamp, canId=can_id, extended=extended,
+                response="ack",
+            )
+            return {"status": "ack"}
+        response = cast(Response, parse_json_object(result_bytes.decode("utf-8")))
         return parse_event_response(response, "remote_event", timestamp)
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
@@ -897,11 +849,10 @@ class AletheiaClient(SignalOpsMixin):
         field containing ``signals``, ``formula_desc``, ``enriched_reason``,
         and ``core_reason`` when checks have been registered.
         """
-        if self._lib is None or self._state is None:
+        if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
-        response = self._parse_ffi_result(
-            self._lib.aletheia_end_stream(self._state),
-        )
+        response_bytes = self._backend.end_stream_binary(self._state)
+        response = cast(Response, parse_json_object(response_bytes.decode("utf-8")))
         status = response.get("status")
 
         if status == "complete":

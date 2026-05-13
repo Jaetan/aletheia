@@ -82,8 +82,9 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         ``sync_client=...`` are responsible for ``default_checks`` /
         ``rts_cores`` configuration on the injected instance; the
         kwargs of the same names are ignored when ``sync_client`` is
-        non-None.  See ``aletheia.asyncio.testing.gate_send_frame``
-        for the canonical use case (deterministic cancellation tests).
+        non-None.  See ``aletheia.asyncio.testing.gated_backend``
+        for the canonical use case (deterministic cancellation tests
+        via the public Backend DI seam — R20 cluster P).
         """
         if sync_client is not None:
             self._sync = sync_client

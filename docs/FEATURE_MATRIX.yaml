@@ -409,13 +409,19 @@ features:
     name: Mock backend for testing
     description: Drop-in backend replaying canned JSON responses; used for unit testing without loading the .so.
     bindings:
-      python:
-        status: not_applicable
-        reason: "Python tests use monkeypatch at the FFI boundary (tests/fake_backend.py) rather than a public mock class. ``aletheia.testing`` exists (since R18 end-of-round 2026-05-09) as a CLI-helper alias namespace; promoting a public MockBackend into it remains a separate design decision and would flip this row to implemented."
+      python: { status: implemented, entry: aletheia.MockBackend }
       cpp:
         status: not_applicable
         reason: "MockBackend exists as test-internal scaffolding at cpp/src/detail/mock_backend.hpp, not as a public exported class (cpp/include/ is the installed API surface). Promoting to aletheia/testing.hpp is a separate design decision; this row flips to implemented if that happens."
       go:  { status: implemented, entry: MockBackend }
+
+  - id: backend_di_seam
+    name: Backend dependency-injection seam
+    description: Public Backend interface / Protocol exposed as the FFI-boundary abstraction; injected through the client constructor for test substitution.
+    bindings:
+      python: { status: implemented, entry: aletheia.Backend }
+      cpp:    { status: implemented, entry: "aletheia/backend.hpp#IBackend" }
+      go:     { status: implemented, entry: Backend }
 
   # =====================================================================
   # Ergonomics — Part 2 (all planned, design rounds required)

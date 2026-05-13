@@ -244,6 +244,26 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 
 #### Python
 
+- `aletheia.Backend` Protocol (R20 cluster P — PY-D-24.1) — FFI-boundary
+  abstraction promoted to the public surface alongside `aletheia.FFIBackend`
+  (production wrapper around `libaletheia-ffi.so`) and `aletheia.MockBackend`
+  (canned-response replay for tests).  Cross-binding parity with Go
+  `aletheia.Backend` interface (`go/aletheia/backend.go`) and C++
+  `aletheia::IBackend` (`cpp/include/aletheia/backend.hpp`).
+  `AletheiaClient.__init__` accepts a new `backend=` kwarg; when omitted
+  an `FFIBackend` is constructed on `__enter__` from the resolved .so
+  path. Client-constructed backends are torn down on `close()`;
+  caller-injected backends persist (cross-binding ownership parity).
+- `aletheia.MockBackend` (R20 cluster P — PY-B-22.2) — drop-in mock
+  exposing the 13-method `Backend` Protocol.  Records every input
+  (`process()` JSON commands + binary-shim sentinels), pops canned
+  responses from a FIFO queue, falls back to fire-and-forget ack /
+  success defaults on empty queue.  `extract_signals_bin` raises
+  `aletheia.BinaryPathUnsupportedError` — Client catches it and falls
+  back to the JSON-out `extract_signals_binary` path (mirrors Go's
+  `ErrBinaryPathUnsupported` contract at `go/aletheia/mock.go:222`).
+  Closes `docs/FEATURE_MATRIX.yaml` row `mock_backend` Python entry +
+  new row `backend_di_seam` (all three bindings).
 - `aletheia.asyncio.AletheiaClient` — async mirror of the sync client;
   cancellation observed at per-frame `await` boundaries via
   `asyncio.CancelledError` (Track C.1).
@@ -544,6 +564,38 @@ Always-on step count: 26 → 27 (+1 for `check-mutation-setup` at
 step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
+
+#### BREAKING — Python: `aletheia.asyncio.testing.gate_send_frame` replaced by `gated_backend` (R20 cluster P — PY-D-24.2)
+
+Test scaffolding for deterministic cancellation rendezvous moves from
+monkey-patching `sync_client.send_frame` (via `setattr`) to wrapping the
+Backend via the new public DI seam. Old:
+
+```python
+sync = AletheiaClient()
+with gate_send_frame(sync, after_n=1) as (started, proceed):
+    async with AsyncClient(sync_client=sync) as client:
+        ...
+```
+
+New:
+
+```python
+from aletheia import AletheiaClient, FFIBackend
+from aletheia.asyncio.testing import gated_backend
+
+with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
+    sync = AletheiaClient(backend=backend)
+    async with AsyncClient(sync_client=sync) as client:
+        ...
+```
+
+Same `(started, proceed)` `threading.Event` rendezvous; same
+deterministic cancellation point between frame `after_n - 1` and frame
+`after_n`. The wrapper is a `_CountingGateBackend` instance that
+delegates all 13 Backend methods to the inner backend and counts
+`send_frame_binary` calls only. Closes PY-D-24.2 (closed naturally with
+the Backend DI seam).
 
 #### BREAKING — Python: `aletheia.load_checks` dispatch is now strict by argument type (R19 cluster B)
 
