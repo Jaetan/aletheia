@@ -548,12 +548,12 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         }
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty()) {
             enrich_violation(*v, id, dlc, data, id_value, is_extended);
-            if (logger_)
+            if (logger_.enabled(LogLevel::Debug))
                 logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
                                                   {"canId", static_cast<std::uint64_t>(id_value)},
                                                   {"extended", is_extended},
                                                   {"response", std::string_view{"violation"}}});
-        } else if (logger_) {
+        } else if (logger_.enabled(LogLevel::Debug)) {
             logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
                                               {"canId", static_cast<std::uint64_t>(id_value)},
                                               {"extended", is_extended},
@@ -608,7 +608,7 @@ auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<vo
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     auto resp = backend_->send_error_binary(state_, ts);
     auto r = detail::parse_event_ack(resp);
-    if (r.has_value() && logger_) {
+    if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                            {"response", std::string_view{"ack"}}});
     }
@@ -623,7 +623,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     auto resp = backend_->send_remote_binary(state_, ts, id);
     auto r = detail::parse_event_ack(resp);
-    if (r.has_value() && logger_) {
+    if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
         logger_.debug(
             "remote_event.sent",
             {{"ts", static_cast<std::int64_t>(ts.count())},
@@ -771,7 +771,7 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
 
     auto cache_it = cache_.find(lookup);
     if (cache_it == cache_.end()) {
-        if (logger_)
+        if (logger_.enabled(LogLevel::Debug))
             logger_.debug("cache.miss", {{"canId", static_cast<std::uint64_t>(id_value)},
                                          {"dlc", static_cast<std::uint64_t>(dlc.value())}});
         auto extraction = extract_signals_internal(id, dlc, data, id_value, is_extended);
@@ -790,7 +790,7 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
             // Over capacity — use result directly without caching
             return collect_matching_signals(diag, *extraction);
         }
-    } else if (logger_) {
+    } else if (logger_.enabled(LogLevel::Debug)) {
         logger_.debug("cache.hit", {{"canId", static_cast<std::uint64_t>(id_value)},
                                     {"dlc", static_cast<std::uint64_t>(dlc.value())}});
     }

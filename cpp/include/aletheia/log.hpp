@@ -94,6 +94,17 @@ public:
         log(LogLevel::Error, event, fields, loc);
     }
 
+    // Fast-path check: lets hot-path callers short-circuit before constructing
+    // the `initializer_list<LogField>`.  Mirrors the inverse of `log()`'s
+    // internal early-return guard (`sinks_.empty() || lvl < min_`); keeping the
+    // two in lockstep is what makes the outer guard equivalent.  Go binding's
+    // `slog.Logger.Enabled` is the cross-binding analogue; Python uses
+    // `logging.Logger.isEnabledFor` (see `python/aletheia/client/_client.py`
+    // R19 cluster 19 fast-path guards).
+    [[nodiscard]] bool enabled(LogLevel lvl) const noexcept {
+        return !sinks_.empty() && lvl >= min_;
+    }
+
     explicit operator bool() const { return !sinks_.empty(); }
 
 private:

@@ -372,6 +372,16 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `create_excel_template` additionally validates the destination's
   parent directory exists before letting OpenXLSX raise an opaque
   exception (R20 cluster N — CPP-B-29.1/2/3 / CPP-D-21.2).
+- `aletheia::Logger::enabled(LogLevel) const noexcept` — fast-path
+  predicate letting hot-path callers short-circuit before
+  constructing `std::initializer_list<LogField>`. Mirrors Go
+  `slog.Logger.Enabled(ctx, level)` and Python
+  `logging.Logger.isEnabledFor(level)`. Hot-path Debug call sites
+  in `AletheiaClient` (`frame.processed`, `error_event.sent`,
+  `remote_event.sent`, `cache.hit`, `cache.miss`) now guard with
+  `enabled(LogLevel::Debug)` before building the field list, so a
+  disabled-Debug logger never pays the per-frame `LogField`
+  construction cost (R20 cluster M — CPP-A-30.1).
 
 #### Build / release tooling (R18 cluster 3)
 

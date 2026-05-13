@@ -707,7 +707,7 @@ func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
 	if err := parseEventAck(resp); err != nil {
 		return err
 	}
-	if c.logger != nil {
+	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "error_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.String("response", "ack"))
 	}
@@ -738,7 +738,7 @@ func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CANID) error {
 	if err := parseEventAck(resp); err != nil {
 		return err
 	}
-	if c.logger != nil {
+	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "remote_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
@@ -780,14 +780,14 @@ func (c *Client) sendFrameLocked(
 	}
 	if v, ok := fr.(Violation); ok && c.diags != nil {
 		c.enrichViolation(ctx, &v, id, dlc, data)
-		if c.logger != nil {
+		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 				slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 				slog.Bool("extended", id.IsExtended()), slog.String("response", "violation"))
 		}
 		return v, nil
 	}
-	if c.logger != nil {
+	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
@@ -949,12 +949,12 @@ func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnosti
 	key := frameKey{idValue: id.Value(), isExtended: id.IsExtended(), dlc: dlc.Value(), data: string(data)}
 	result, ok := c.cache.get(key)
 	if ok {
-		if c.logger != nil {
+		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.hit",
 				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
 	} else {
-		if c.logger != nil {
+		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.miss",
 				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
