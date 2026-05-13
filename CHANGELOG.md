@@ -779,6 +779,25 @@ callers that consumed a bare success acknowledgement need to access
   endpoints) mirroring C++ `IBackend`'s [MANDATORY] / [OPTIONAL] split
   at `cpp/include/aletheia/backend.hpp`.  Doc-only; method signatures
   and behaviour unchanged (R20 cluster R — GO-D-20.1).
+- Two new step-level structural lemmas in
+  `Aletheia.LTL.Coalgebra.Properties`:
+  `stepL-always-never-satisfied` (proves `stepL (Always φ) y ≢
+  Satisfied` — the `Satisfied` branch of the streaming runtime's
+  `classifyStepResult` is unreachable when properties are wrapped in
+  `Always(...)`, the canonical CAN safety pattern) and
+  `stepL-eventually-never-violated` (proves `stepL (Eventually φ) y ≢
+  Violated ce` — re-stepping an `Eventually`-shaped proc after
+  `Satisfied` is safe).  Comment rewrite in
+  `Aletheia.Protocol.StreamState.Internals.classifyStepResult` corrects
+  the prior informal "stability argument" which conflated runL-level
+  short-circuit semantics with stepL-level invariance and named
+  `Always`/`Release` as "the only safety operators that yield
+  Satisfied" — `Always` in fact never yields `Satisfied` (its
+  `combineAnd` RHS is always `Continue`).  Latent gap for top-level
+  `Until`/`Release`/`MetricUntil`/`MetricRelease`/raw `Atomic` proc
+  shapes documented in-source + carried to DEFER-end-of-round as
+  `AGDA-B-9.2-residual` (R20 cluster S — AGDA-B-9.2 partial closure).
+  No runtime change.
 
 ### Removed
 

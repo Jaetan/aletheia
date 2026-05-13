@@ -186,7 +186,7 @@ Files scanned (depth): `Protocol/StreamState/{Internals,Types}.agda`, `Protocol/
 ##### Cat 9 — Proof soundness
 
 53. `[ ]` AGDA-B-9.1 — `Protocol/Adequacy/StreamingWarm.agda` — no top-level `streaming-pipeline-sound : Monotonic σ → AllObserved … → runL = ⟦ ⟧ₘ` composition. Users wire 4-layer chain manually.
-54. `[ ]` AGDA-B-9.2 — `StreamState/Internals.agda:238` `classifyStepResult Satisfied prop = advance prop` — stability informal; per R6-B9.1 NO-FIX but new angle: `stepL-satisfied-stable` lemma is now-feasible given closed Adequacy chain.
+54. `[FIX-PARTIAL]` AGDA-B-9.2 — `StreamState/Internals.agda:238` `classifyStepResult Satisfied prop = advance prop` — stability informal; per R6-B9.1 NO-FIX but new angle: `stepL-satisfied-stable` lemma is now-feasible given closed Adequacy chain.  Cluster S **partial closure**: the original informal "stability argument" comment was factually WRONG (it claimed `Always`/`Release` were "the only safety operators that yield Satisfied" but `Always` never returns Satisfied in fact; it also claimed re-stepping a Satisfied proc always returns Satisfied or Continue, which is false for `Until`/`Release`/raw `Atomic`).  Rewrote the comment to be accurate + added two **provable** step-level lemmas in `Coalgebra/Properties.agda`: `stepL-always-never-satisfied` (Satisfied branch unreachable for the canonical CAN safety pattern) and `stepL-eventually-never-violated` (re-stepping safe for Eventually).  Latent gap on `Until`/`Release`/`MetricUntil`/`MetricRelease`/raw atomic shapes documented in-source + new memory `project_classify_satisfied_soundness_gap.md`; two viable closures (operational fix vs surface restriction) noted as runtime-behaviour changes requiring user direction per [[feedback-no-silent-proof-reframing]] → carried to DEFERRALS as `AGDA-B-9.2-residual`.  A universal `stepL-satisfied-stable` quantifying over arbitrary `LTLProc` is NOT a theorem (it would require closing the latent gap first); per [[feedback-no-silent-proof-reframing]] cluster S delivers the structural lemmas that are actually true, not a reframed false-target.
 55. `[ ]` AGDA-B-9.3 — `Adequacy/Agreement.agda:240` `agreement` requires `TwoValued table`; production callers can't discharge. Downgrade to `private` OR add WARNING docstring on theorem signature.
 56. `[ ]` AGDA-B-9.4 — `DBC/Validity.agda:82` `MuxAcyclic sigs presence = walkMux (length sigs) sigs presence ≡ true` — fuel-based; verify `walkMux` enforces visit-set-shrinking, not just fuel-decreasing.
 57. `[ ]` AGDA-B-9.5 — `LTL/SimplifySound.Composition` — missing headline `simplify-stepL-correct` composition: `runL table (simplify proc) σ ≡ runL table proc σ × AllBelow b proc → AllBelow b (simplify proc)`.
@@ -195,7 +195,7 @@ Files scanned (depth): `Protocol/StreamState/{Internals,Types}.agda`, `Protocol/
 
 58. `[ ]` AGDA-B-18.1 — `Endianness.agda:81` `lookupSafe zero _ _ = 0` — `lookupSafe-total` lemma analogous to `mkPredTable-bounded` would close soundness gap.
 59. `[ ]` AGDA-B-18.2 — `CAN/DLC.agda:32` `dlcToBytes n = n` catch-all — split into explicit identity for 0..8 + validated invariant clause.
-60. `[ ]` AGDA-B-18.3 — `CAN/Encoding.agda:130` `injectHelper` `with <? 2 ^ bitLength` `no _ = nothing` — reachable post-R19 cluster D `@0`; tied to AGDA-B-26.5 RE-DEFER scope.
+60. `[DEFER]` AGDA-B-18.3 — `CAN/Encoding.agda:130` `injectHelper` `with <? 2 ^ bitLength` `no _ = nothing` — reachable post-R19 cluster D `@0`; tied to AGDA-B-26.3 RE-DEFER scope (Bool fast-path).  Same `with ... in eq` outer-abstraction barrier per [[feedback-with-in-eq-outer-abstraction-barrier]] blocks `no` branch elimination — promoting `injectHelper` to bypass the `Dec` dispatch would close the dead branch but the four-approach probe in R19 clusters D + F established that the elaboration barrier sits at Agda's `with`-abstraction mechanism, not the witness layer.  RE-DEFER for the same upstream-Agda-fix or `Dec`-dispatch elimination condition.
 
 ##### Cat 20 — Termination metric hygiene
 
@@ -227,16 +227,16 @@ Files scanned (depth): `Protocol/StreamState/{Internals,Types}.agda`, `Protocol/
 
 ##### Cat 26 — Equality discipline
 
-74. `[ ]` AGDA-B-26.1 — `DBC/Validator/Checks.agda:44,48` — Dec uses on parse-time validator; acceptable. No finding.
-75. `[ ]` AGDA-B-26.2 — `Prelude.lookupByKey` — cold-path; documented DEFER. No finding.
-76. `[ ]` AGDA-B-26.3 — `CAN/Encoding.agda:128` `injectHelper` Dec on frame-build hot path — R19-CARRY-1 RE-DEFER. No new finding.
+74. `[FP]` AGDA-B-26.1 — `DBC/Validator/Checks.agda:44,48` — Dec uses (`_≟ₛ_`, `_≟_`) imported and used on parse-time validator paths; acceptable per Cat 26 since the parse-time validator is cold-path (one-shot at DBC ingest, not per-frame).  No finding.
+75. `[FP]` AGDA-B-26.2 — `Prelude.lookupByKey:80-86` — `if ⌊ k ≟ₛ key ⌋` strips Dec→Bool but the Dec witness is still allocated.  Cold-path (no per-frame caller); in-source comment at line 80 documents "left as-is unless `lookupByKey` is later promoted to a hot-path" as the revisit signal.  No finding.
+76. `[DEFER]` AGDA-B-26.3 — `CAN/Encoding.agda:128` `injectHelper` Dec on frame-build hot path — R19-CARRY-1 RE-DEFER (Bool fast-path).  R19 cluster D + F's four-approach probe (direct rewrite / `mkBoundedBitVec` helper restructure / `@0`-with-Bool / `.()`-irrelevance) all hit the `with ... in eq` outer-abstraction barrier per [[feedback-with-in-eq-outer-abstraction-barrier]].  Standalone `@0`-erasure on `ℕToBitVec`'s bound slot shipped in R19 cluster D `471a9ce` (proof witness inside `_<?_`'s `yes`-constructor flows into MAlonzo-erased slot); the `Dec` wrapper allocation remainder waits on upstream Agda fix or `Dec`-dispatch elimination.  In-source DEFER block at `CAN/Encoding.agda:102-118` documents the rationale + cross-references the feedback memory.  RE-DEFER.
 
 ##### G-A guideline findings
 
 77. `[ ]` AGDA-B-GA2.1 — `Cache/Properties.agda:80-91` `lookupEntries-updateEntries-miss` — chained `rewrite ... | ≡csᵇ-refl-eq` is textbook G-A2 example.
 78. `[ ]` AGDA-B-GA2.2 — `Coalgebra/Properties.agda` `finalize-empty-equiv` — small-goal `rewrite sym ih` chains acceptable per G-A2.
 79. `[ ]` AGDA-B-GA3.1 — Surveyed reviewed modules; all `with` scrutinee+eq pairs use modern `in eq` syntax. No finding.
-80. `[ ]` AGDA-B-GA9.1 — `CAN/Encoding.agda:122-151` `injectHelper` canonical where-block on runtime path; R19 cluster D `with...in eq` barrier blocks promotion.
+80. `[DEFER]` AGDA-B-GA9.1 — `CAN/Encoding.agda:122-151` `injectHelper` canonical where-block on runtime path; R19 cluster D `with...in eq` barrier blocks promotion.  Same scope as AGDA-B-26.3 — the where-block hosts the `with` chain whose Dec dispatch + bounded-witness flow cannot be promoted to `_<ᵇ_` Bool fast path under the elaboration barrier per [[feedback-with-in-eq-outer-abstraction-barrier]].  RE-DEFER.
 
 ---
 
@@ -1156,8 +1156,21 @@ focused commit; gates run fresh at every cluster closure per
 - `GO-D-20.1` [FIX] — Backend interface gains structured grouping comments mirroring C++ `IBackend`.  Doc-only.  Three groups: lifecycle + JSON command bus; binary-FFI send / event / state-transition; binary-FFI bidirectional.  Splitting into `CommandBackend` + `BinaryBackend` was considered + rejected: `c.backend.*` grep on `go/aletheia/client.go` confirms every consumer uses the full surface.
 - **Disposition drift cleanup** — flipped per [[feedback-findings-doc-disposition-sync]]: `GO-D-15.1` and `GO-D-15.2` (closed by cluster O `8bb0055` but markers were left `[ ]`); `GO-D-22.2` (body documents "clean", marker → `[FP]`).
 
+### Cluster S — AGDA-B-26.x DEFER block + AGDA-B-9.2 partial closure ✅ CLOSED
+- `AGDA-B-26.1` [FP] — `DBC/Validator/Checks.agda:44,48` Dec uses on parse-time validator are acceptable (cold-path, one-shot at DBC ingest, not per-frame).  No finding.
+- `AGDA-B-26.2` [FP] — `Prelude.lookupByKey:80-86` `if ⌊ k ≟ₛ key ⌋` cold-path; in-source comment at line 80 documents the "promote-to-hot-path" revisit signal.  No finding.
+- `AGDA-B-26.3` [DEFER] — `CAN/Encoding.agda:128` `injectHelper` `Dec` on frame-build hot path RE-DEFER per R19 cluster D + F's four-approach probe (direct rewrite / `mkBoundedBitVec` helper restructure / `@0`-with-Bool / `.()`-irrelevance) all hitting Agda's `with ... in eq` outer-abstraction barrier per [[feedback-with-in-eq-outer-abstraction-barrier]].  Standalone `@0`-erasure on `ℕToBitVec`'s bound slot shipped in R19 `471a9ce`; `Dec` wrapper remainder waits on upstream Agda fix or `Dec`-dispatch elimination.
+- `AGDA-B-18.3` [DEFER] — `CAN/Encoding.agda:130` injectHelper `no _ = nothing` branch — same scope as `AGDA-B-26.3`.  Typo in original finding text (`AGDA-B-26.5`) corrected to `AGDA-B-26.3` (the actual Bool fast-path RE-DEFER).
+- `AGDA-B-GA9.1` [DEFER] — `CAN/Encoding.agda:122-151` injectHelper canonical where-block on runtime path — same scope as `AGDA-B-26.3` (the where-block hosts the `with` chain).
+- `AGDA-B-9.2` [FIX-PARTIAL] — `Internals.agda:225-238` `classifyStepResult Satisfied prop = advance prop` comment correctness + partial structural lemmas.  Discovery: the original "stability argument" comment was FACTUALLY WRONG (claimed Always returns Satisfied and that re-stepping after Satisfied always returns Satisfied/Continue; direct definitional unfolding of `stepL` + `combineAnd`/`combineOr` in `LTL/Coalgebra.agda` produces a concrete `Until (Atomic 0) (Atomic 1)` witness flipping `Satisfied → Violated` between frames).  Cluster S delivers:
+  - Comment rewrite: now accurate about which proc shapes are safe (Always-wrapped: Satisfied branch unreachable; Eventually-wrapped: re-stepping after Satisfied cannot produce Violated) vs latent (top-level Until/Release/MetricUntil/MetricRelease/raw Atomic — these can flip).
+  - Two new step-level lemmas in `Coalgebra/Properties.agda`: `stepL-always-never-satisfied` and `stepL-eventually-never-violated` (both provable; both useful for typical CAN property surfaces).
+  - In-source documentation: comment block + cross-references between `Internals.agda` and `Coalgebra/Properties.agda` lemma block.
+  - New memory `project_classify_satisfied_soundness_gap.md` documenting the latent gap + two viable closures (operational fix / surface restriction) that need user direction per [[feedback-no-silent-proof-reframing]].
+  - A universal `stepL-satisfied-stable` quantifying over arbitrary `LTLProc` is NOT a theorem (the latent gap proves it).  Per [[feedback-no-silent-proof-reframing]], cluster S delivers the structural lemmas that are actually true; the residual closure (`AGDA-B-9.2-residual`) is carried to DEFER-end-of-round.
+
 ### DEFER-end-of-round (final pass)
-- AGDA-B-26.x DEFER block re-evaluation (`stepL-satisfied-stable` lemma, Bool fast-path RE-DEFER post R19-CARRY-1)
+- **AGDA-B-9.2-residual** (latent classifyStepResult Satisfied → advance prop gap) — cluster S's partial closure ships the comment correctness + provable structural lemmas (`stepL-always-never-satisfied`, `stepL-eventually-never-violated`); the universal stability theorem is not provable as stated.  Two viable closures need user direction: (a) operational fix — drop the prop from the iteration list on Satisfied (runtime behaviour change; extends `StepOutcome` with a third `complete` constructor; needs full gate suite + benchmark); (b) surface restriction — `parseProperty`-tier rejection of top-level non-Always/non-Eventually formulas (API break).  See `memory/project_classify_satisfied_soundness_gap.md`.
 - Cat 27 stdlib coverage findings
 - C++ `Strong<Tag, T>` ergonomics + `LtlFormula` `std::variant` portability
 - `AGENTS.md` future-tense paragraph (DOC-A-1.14)

@@ -26,7 +26,7 @@ open import Data.Nat.Properties using (∸-monoˡ-≤; ∸-monoʳ-≤)
 open import Data.Bool using (true; false)
 open import Data.List using (List; []; _∷_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; cong)
 
 open import Aletheia.LTL.Syntax using (LTL; mapLTL; decodeStart;
   Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
@@ -142,9 +142,70 @@ runL-stepL-satisfied table proc y rest refl | .Satisfied = refl
 --   runL-stepL-satisfied  :  stepL proc y ≡ Satisfied → runL proc (y ∷ rest) ≡ True
 --   runL-stepL-violated   :  stepL proc y ≡ Violated ce → runL proc (y ∷ rest) ≡ False
 --
--- These are the two halves of verdict stability. The type system enforces
--- that Satisfied/Violated carry no successor LTLProc, so there is literally
--- no state to feed additional frames to — stability is structural.
+-- These are the two halves of verdict stability *for `runL`* — they say what
+-- happens to the trace-level result, NOT what `stepL` does on a subsequent
+-- frame with the same proc.  The streaming runtime
+-- (`Protocol.StreamState.Internals.classifyStepResult Satisfied prop = advance
+-- prop`) reuses the OLD proc on the next frame; `runL-stepL-satisfied` does
+-- NOT guarantee anything about that subsequent `stepL` call's output, because
+-- `runL` short-circuits at the first terminal verdict and never reaches a
+-- "second `stepL` on the same proc" configuration.  Step-level invariants for
+-- the streaming runtime's reuse pattern are below.
+
+-- ============================================================================
+-- STEP-LEVEL STABILITY (AGDA-B-9.2)
+-- ============================================================================
+
+-- The streaming runtime keeps a property's proc in the iteration list after
+-- `stepL` returns `Satisfied` (it has no successor proc to swap in).  Re-
+-- evaluating that proc on a subsequent frame is *only* sound if the proc's
+-- shape rules out a `Violated` result on any frame — otherwise the runtime
+-- could emit a counterexample for a property it already declared satisfied.
+--
+-- The two lemmas below cover the two LTLProc shapes most relevant for
+-- typical CAN-analysis property surfaces:
+--
+--   * `Always φ` proc: stepL never returns Satisfied (its `combineAnd` RHS
+--     is `Continue 0 (Always φ)`, and `combineAnd Satisfied (Continue _ _)
+--     = Continue`, `combineAnd (Violated _) _ = Violated`).  This means the
+--     `Satisfied` branch of the streaming runtime is UNREACHABLE when the
+--     user wraps their property in `Always(...)` (the standard CAN safety
+--     pattern; cf. `python/aletheia/dsl.py:.always()`).
+--
+--   * `Eventually φ` proc: stepL never returns Violated (its `combineOr`
+--     RHS is `Continue 0 (Eventually φ)`, and `combineOr (Violated _)
+--     (Continue _ _) = Continue _ _`).  Re-stepping after `Satisfied` is
+--     safe for this shape — the next `stepL` produces either `Satisfied`
+--     or `Continue _ _`, never a spurious `Violated`.
+--
+-- Latent gap (not closed by these lemmas, surfaced as a known concern):
+-- `Until`, `Release`, `MetricUntil`, `MetricRelease`, and raw `Atomic n`
+-- proc shapes CAN return `Satisfied` at one frame and `Violated` at the
+-- next.  Worked example: `Until (Atomic 0) (Atomic 1)` with `table 1 y₁ =
+-- True` returns `Satisfied` at y₁ via `combineOr Satisfied _ = Satisfied`;
+-- with `table 0 y₂ = False` and `table 1 y₂ = False` it returns `Violated`
+-- at y₂ via `combineOr (Violated _) (Violated _) = Violated`.  The runtime
+-- behaviour (advance with the same proc) would emit a false counterexample
+-- in that case.  Closing the latent gap requires either dropping the prop
+-- from the iteration list on `Satisfied` or restricting the user-facing
+-- property surface to Always/Eventually-wrapped formulas.  Both are
+-- runtime-behaviour changes and require user direction; the comment in
+-- `Protocol.StreamState.Internals.classifyStepResult` documents the
+-- restriction.
+
+stepL-always-never-satisfied : ∀ (table : PredTable) (φ : LTLProc) (y : TimedFrame)
+  → stepL table (Always φ) y ≢ Satisfied
+stepL-always-never-satisfied table φ y eq with stepL table φ y
+... | Satisfied    with () ← eq
+... | Violated _   with () ← eq
+... | Continue _ _ with () ← eq
+
+stepL-eventually-never-violated : ∀ (table : PredTable) (φ : LTLProc) (y : TimedFrame) (ce : Counterexample)
+  → stepL table (Eventually φ) y ≢ Violated ce
+stepL-eventually-never-violated table φ y ce eq with stepL table φ y
+... | Satisfied    with () ← eq
+... | Violated _   with () ← eq
+... | Continue _ _ with () ← eq
 
 -- ============================================================================
 -- METRIC OPERATOR WINDOW EXPIRY (runL)

@@ -222,19 +222,49 @@ classifyStepResult : StepResult LTLProc → PropertyState → StepOutcome Proper
 classifyStepResult (Continue _ newProc) prop =
   advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
 classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
--- Satisfied: property holds at this step. The property stays in the iteration
--- list and its proc continues being stepped on subsequent frames. This is
--- correct (re-evaluating a satisfied formula is harmless) but wasteful.
--- The LTL type lacks a Top constructor, so there's no trivially-true formula
--- to substitute that wouldn't risk false violations via stepL evaluation.
+-- Satisfied: property holds at this step. The property stays in the
+-- iteration list and its proc continues being stepped on subsequent frames.
+-- The LTL type lacks a Top constructor, so there's no trivially-true
+-- formula to substitute.  Re-evaluating the same proc on the next frame is
+-- wasteful but sound under the user-property surface this runtime is built
+-- for: standard CAN-analysis safety properties wrap predicates in
+-- `Always(...)` (the canonical pattern, exposed by the Python DSL as
+-- `Signal(...).cmp(...).always()`) and liveness properties wrap in
+-- `Eventually(...)`.  The two lemmas in `Aletheia.LTL.Coalgebra.Properties`
+-- pin down why:
 --
--- Stability argument: once stepL returns Satisfied for a formula, re-stepping
--- the same proc with any subsequent frame also returns Satisfied or Continue.
--- This follows from stepL's structural decomposition: Satisfied is a terminal
--- state for Always/Release (the only safety operators that yield Satisfied),
--- and combining Satisfied with any other StepResult via combineAnd/combineOr
--- preserves or downgrades — it cannot produce Violated. The runL-stepL-satisfied
--- lemma in Coalgebra/Properties.agda formalises the trace-level consequence.
+--   * `stepL-always-never-satisfied`: `stepL (Always φ) y ≢ Satisfied`.
+--     The `Always` proc steps as `combineAnd (stepL φ y) (Continue 0
+--     (Always φ))`; since the RHS is always `Continue`, the output is
+--     `Continue` or `Violated`, never `Satisfied`.  This branch is
+--     unreachable for `Always`-wrapped properties — the dominant case.
+--   * `stepL-eventually-never-violated`: `stepL (Eventually φ) y ≢
+--     Violated ce`.  The `Eventually` proc steps as `combineOr (stepL φ y)
+--     (Continue 0 (Eventually φ))`; `combineOr (Violated _) (Continue _ _)
+--     = Continue _ _`, so the output is `Satisfied` or `Continue`, never
+--     `Violated`.  Re-stepping an `Eventually` proc after `Satisfied` is
+--     therefore safe: subsequent frames either confirm `Satisfied` again
+--     or produce `Continue`.
+--
+-- Latent gap (DEFER, AGDA-B-9.2): top-level `Until`, `Release`,
+-- `MetricUntil`, `MetricRelease`, raw `Atomic`, or `And`/`Or`-of-atomic
+-- proc shapes CAN return `Satisfied` at y₁ and `Violated` at y₂ on the
+-- same proc.  Concrete witness: `Until (Atomic 0) (Atomic 1)` with table 1
+-- True at y₁ → `Satisfied`; with table 0 and table 1 both False at y₂ →
+-- `Violated` (via the inner `combineAnd (Violated _) _` → `Violated`, then
+-- `combineOr (Violated _) (Violated _)` returning the second arg by
+-- pattern order).  In that case this branch's `advance prop` would emit a
+-- false counterexample on the next frame.  The Python DSL surface (and
+-- canonical user docs) wrap predicates in `.always()` / `.eventually()`,
+-- so the typical workflow never reaches this configuration; the gap is
+-- latent for users who submit a raw `Until`/`Release`/`Atomic` via the
+-- JSON wire format (`parseLTL` accepts any LTL constructor at top level
+-- without wrapping).  Closing the gap requires either (a) dropping the
+-- prop from the iteration list on `Satisfied` (runtime change; the
+-- correct fix but needs a separate review), or (b) restricting the
+-- user-facing property surface to wrapped formulas (API break).  See the
+-- comment block above `stepL-always-never-satisfied` in
+-- `Coalgebra/Properties.agda` and `memory/project_classify_satisfied_soundness_gap.md`.
 classifyStepResult Satisfied prop = advance prop
 
 -- Step one property: build PredTable, call stepL, classify result.
