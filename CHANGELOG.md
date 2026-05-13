@@ -632,6 +632,33 @@ Migration: mechanical sed/perl rename on the consumer side
 behavioral change.  C++ keeps the `Dbc*` form (its idiom); Python
 already had `DBCDefinition` as the canonical name.
 
+#### BREAKING — Go: `Dbc*` → `DBC*` rename completion + `DBCRawValueDesc.CANID` stutter fix (R20 cluster O / GO-D-15.1 / GO-D-15.2)
+
+Closes the R19 cluster 5 follow-up flagged in the entry above.
+Constructor functions, the `Backend` binary-FFI method, the excel
+sub-module option, the unexported `parseDbc*` family, and the
+private `formatDbcFn` field-of-struct all gain the fully-capitalised
+initialism:
+
+  - `aletheia.NewDbcMessage` → `aletheia.NewDBCMessage`
+  - `aletheia.NewDbcDefinition` → `aletheia.NewDBCDefinition`
+  - `Backend.FormatDbcBinary` interface method (and its `FFIBackend`
+    / `MockBackend` / nocgo-stub implementations) →
+    `Backend.FormatDBCBinary`
+  - `excel.WithDbcSheet` option function → `excel.WithDBCSheet`
+
+`DBCRawValueDesc.CANID` field renamed to `ID` (Go field-stutter
+convention — field name should not repeat its containing type).
+Affects struct-literal construction and field access.
+
+Migration: mechanical sed on consumer side
+(`s/\bNewDbcMessage\b/NewDBCMessage/g`,
+ `s/\bNewDbcDefinition\b/NewDBCDefinition/g`,
+ `s/\bFormatDbcBinary\b/FormatDBCBinary/g`,
+ `s/\bWithDbcSheet\b/WithDBCSheet/g`,
+ `s/\.CANID\b/.ID/g` scoped to `DBCRawValueDesc` value sites).  No
+behavioral change.
+
 #### BREAKING — Go: predicate value fields are now `Rational` (R19 Phase 2 cluster 17 / GO-D-19.1)
 
 The Between / ChangedBy / StableWithin / Equals / LessThan / etc.

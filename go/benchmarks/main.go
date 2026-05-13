@@ -77,26 +77,26 @@ func rat(num, den int64) aletheia.Rational {
 }
 
 func can20DBC() aletheia.DBCDefinition {
-	// Use NewDbcMessage / NewDbcDefinition so the generated indices exercise
+	// Use NewDBCMessage / NewDBCDefinition so the generated indices exercise
 	// the map-backed lookup path real users get. Directly populating the
 	// structs leaves the signalIndex / nameIndex / idIndex fields nil and
 	// drops SignalByName, MessageByID, and MessageByName onto their linear-
 	// scan fallback — a benchmark-correctness defect.
 	msgs := []aletheia.DBCMessage{
-		aletheia.NewDbcMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DBCSignal{
+		aletheia.NewDBCMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DBCSignal{
 			{Name: "EngineSpeed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 4), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(8000, 1), Unit: "rpm", Presence: aletheia.AlwaysPresent{}},
 			{Name: "EngineTemp", StartBit: 16, BitLength: 8, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 1), Offset: rat(-40, 1), Minimum: rat(-40, 1), Maximum: rat(215, 1), Unit: "celsius", Presence: aletheia.AlwaysPresent{}},
 		}),
-		aletheia.NewDbcMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DBCSignal{
+		aletheia.NewDBCMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DBCSignal{
 			{Name: "BrakePressure", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(65535, 10), Unit: "bar", Presence: aletheia.AlwaysPresent{}},
 			{Name: "BrakePressed", StartBit: 16, BitLength: 1, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(1, 1), Unit: "", Presence: aletheia.AlwaysPresent{}},
 		}),
 	}
-	return *aletheia.NewDbcDefinition("", msgs)
+	return *aletheia.NewDBCDefinition("", msgs)
 }
 
 func canfdDBC() aletheia.DBCDefinition {
@@ -105,7 +105,7 @@ func canfdDBC() aletheia.DBCDefinition {
 	// See comment on can20DBC — constructors populate the map-backed indices
 	// so the benchmark measures the lookup path real users exercise.
 	msgs := []aletheia.DBCMessage{
-		aletheia.NewDbcMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
+		aletheia.NewDBCMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
 			nil,
 			[]aletheia.DBCSignal{
 				{Name: "GPSLatitude", StartBit: 0, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-90, 1), Maximum: rat(90, 1), Unit: "deg", Presence: ap},
@@ -135,7 +135,7 @@ func canfdDBC() aletheia.DBCDefinition {
 				{Name: "TimestampMs", StartBit: 348, BitLength: 32, ByteOrder: le, IsSigned: false, Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(4294967295, 1), Unit: "ms", Presence: ap},
 			}),
 	}
-	return *aletheia.NewDbcDefinition("", msgs)
+	return *aletheia.NewDBCDefinition("", msgs)
 }
 
 // ---------------------------------------------------------------------------

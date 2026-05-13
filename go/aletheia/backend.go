@@ -62,8 +62,8 @@ type Backend interface {
 	StartStreamBinary(state unsafe.Pointer) (string, error)
 	// EndStreamBinary finalizes streaming and returns verdicts without JSON parsing on input.
 	EndStreamBinary(state unsafe.Pointer) (string, error)
-	// FormatDbcBinary returns the loaded DBC as JSON without JSON parsing on input.
-	FormatDbcBinary(state unsafe.Pointer) (string, error)
+	// FormatDBCBinary returns the loaded DBC as JSON without JSON parsing on input.
+	FormatDBCBinary(state unsafe.Pointer) (string, error)
 	// ExtractSignalsBinary extracts signals from a binary CAN frame without JSON parsing on input.
 	ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error)
 	// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON on both input and output.

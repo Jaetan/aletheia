@@ -165,7 +165,7 @@ func minimalDBC() aletheia.DBCDefinition {
 	rat := func(n, d int64) aletheia.Rational {
 		return aletheia.Rational{Numerator: n, Denominator: d}
 	}
-	msg := aletheia.NewDbcMessage(id, "EngineStatus", dlc, "ECU1", nil, []aletheia.DBCSignal{
+	msg := aletheia.NewDBCMessage(id, "EngineStatus", dlc, "ECU1", nil, []aletheia.DBCSignal{
 		{
 			Name: "EngineSpeed", StartBit: 0, BitLength: 16,
 			ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -174,7 +174,7 @@ func minimalDBC() aletheia.DBCDefinition {
 			Unit: "rpm", Presence: aletheia.AlwaysPresent{},
 		},
 	})
-	return *aletheia.NewDbcDefinition("", []aletheia.DBCMessage{msg})
+	return *aletheia.NewDBCDefinition("", []aletheia.DBCMessage{msg})
 }
 
 // runCycle opens a Client, parses a DBC, runs a stream of framesPerCycle

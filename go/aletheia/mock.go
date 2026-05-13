@@ -165,8 +165,8 @@ func (m *MockBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
 	return m.Process(state, cmd)
 }
 
-// FormatDbcBinary delegates to Process with a JSON formatDBC command.
-func (m *MockBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
+// FormatDBCBinary delegates to Process with a JSON formatDBC command.
+func (m *MockBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
 	cmd, err := serializeCommand("formatDBC", nil)
 	if err != nil {
 		return "", err

@@ -388,11 +388,11 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
-	resp, err := c.backend.FormatDbcBinary(c.state)
+	resp, err := c.backend.FormatDBCBinary(c.state)
 	if err != nil {
 		return nil, err
 	}
-	return parseDbcResponse(resp)
+	return parseDBCResponse(resp)
 }
 
 // FormatDBCText renders a DBCDefinition as .dbc file text via the verified
@@ -422,7 +422,7 @@ func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (string, 
 	if err != nil {
 		return "", err
 	}
-	return parseDbcTextResponse(resp)
+	return parseDBCTextResponse(resp)
 }
 
 // --- Signal operations ---

@@ -8,9 +8,9 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// extractDbcObject pulls the "dbc" sub-object out of a parseDBC / validateDBC
+// extractDBCObject pulls the "dbc" sub-object out of a parseDBC / validateDBC
 // command envelope captured by MockBackend.Inputs().
-func extractDbcObject(t *testing.T, raw string) map[string]any {
+func extractDBCObject(t *testing.T, raw string) map[string]any {
 	t.Helper()
 	var env map[string]any
 	if err := json.Unmarshal([]byte(raw), &env); err != nil {
@@ -28,7 +28,7 @@ func extractDbcObject(t *testing.T, raw string) map[string]any {
 func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil, nil)
+	msg := aletheia.NewDBCMessage(id, "EngineData", dlc, "ECU", nil, nil)
 	dbc := aletheia.DBCDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DBCMessage{msg},
@@ -69,7 +69,7 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 	if len(inputs) != 1 {
 		t.Fatalf("expected 1 input, got %d", len(inputs))
 	}
-	dbcObj := extractDbcObject(t, inputs[0])
+	dbcObj := extractDBCObject(t, inputs[0])
 
 	groups, ok := dbcObj["signalGroups"].([]any)
 	if !ok || len(groups) != 1 {
@@ -113,7 +113,7 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
+	msg := aletheia.NewDBCMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
 	dbc := aletheia.DBCDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DBCMessage{msg},
@@ -131,7 +131,7 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 	}
 
 	inputs := mock.Inputs()
-	dbcObj := extractDbcObject(t, inputs[0])
+	dbcObj := extractDBCObject(t, inputs[0])
 
 	// Each key must be present as an empty array (match Python / C++ behavior).
 	for _, key := range []string{"signalGroups", "environmentVars", "valueTables"} {
@@ -322,7 +322,7 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 	// response. Checks that the wire representation is self-compatible.
 	id, _ := aletheia.NewStandardID(100)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "Test", dlc, "X", nil, nil)
+	msg := aletheia.NewDBCMessage(id, "Test", dlc, "X", nil, nil)
 	original := aletheia.DBCDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DBCMessage{msg},

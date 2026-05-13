@@ -193,7 +193,7 @@ type FFIBackend struct {
 	sendRemoteFn        unsafe.Pointer
 	startStreamFn       unsafe.Pointer
 	endStreamFn         unsafe.Pointer
-	formatDbcFn         unsafe.Pointer
+	formatDBCFn         unsafe.Pointer
 	extractSignalsFn    unsafe.Pointer
 	buildFrameBinFn     unsafe.Pointer
 	updateFrameBinFn    unsafe.Pointer
@@ -304,7 +304,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
-	formatDbcFn, err := loadSym(handle, "aletheia_format_dbc")
+	formatDBCFn, err := loadSym(handle, "aletheia_format_dbc")
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +376,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		sendRemoteFn:        sendRemoteFn,
 		startStreamFn:       startStreamFn,
 		endStreamFn:         endStreamFn,
-		formatDbcFn:         formatDbcFn,
+		formatDBCFn:         formatDBCFn,
 		extractSignalsFn:    extractSignalsFn,
 		buildFrameBinFn:     buildFrameBinFn,
 		updateFrameBinFn:    updateFrameBinFn,
@@ -575,12 +575,12 @@ func (b *FFIBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
 	return C.GoString(result), nil
 }
 
-// FormatDbcBinary returns the loaded DBC as JSON via the binary FFI entry point.
-func (b *FFIBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
+// FormatDBCBinary returns the loaded DBC as JSON via the binary FFI entry point.
+func (b *FFIBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	result := C.call_format_dbc(b.formatDbcFn, state)
+	result := C.call_format_dbc(b.formatDBCFn, state)
 	if result == nil {
 		return "", ffiError("aletheia_format_dbc returned null")
 	}

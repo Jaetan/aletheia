@@ -57,8 +57,8 @@ func (b *FFIBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
 
-// FormatDbcBinary is unavailable without cgo.
-func (b *FFIBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
+// FormatDBCBinary is unavailable without cgo.
+func (b *FFIBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
 

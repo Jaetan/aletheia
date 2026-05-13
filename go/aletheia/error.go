@@ -220,11 +220,11 @@ func stateError(msg string) *Error { return newError(ErrState, msg) }
 // ffiError reports failures inside the dlopen/dlsym/hs_init path.
 func ffiError(msg string) *Error { return newError(ErrFFI, msg) }
 
-// wrapProtocol is the wrap variant of protocolError for JSON decode / I/O failures.
-func wrapProtocol(msg string, cause error) *Error { return wrapError(ErrProtocol, msg, cause) }
+// wrapProtocolError is the wrap variant of protocolError for JSON decode / I/O failures.
+func wrapProtocolError(msg string, cause error) *Error { return wrapError(ErrProtocol, msg, cause) }
 
-// wrapValidation is the wrap variant of validationError for nested parse failures.
-func wrapValidation(msg string, cause error) *Error { return wrapError(ErrValidation, msg, cause) }
+// wrapValidationError is the wrap variant of validationError for nested parse failures.
+func wrapValidationError(msg string, cause error) *Error { return wrapError(ErrValidation, msg, cause) }
 
 // NewValidationError returns an [ErrValidation] error with the given message.
 // Exported so external loaders (the Excel subpackage, custom plug-ins) report
@@ -236,7 +236,7 @@ func NewValidationError(msg string) *Error { return validationError(msg) }
 // [NewValidationError] — external loaders should reuse this instead of
 // constructing *Error directly.
 func WrapValidationError(msg string, cause error) *Error {
-	return wrapValidation(msg, cause)
+	return wrapValidationError(msg, cause)
 }
 
 // InputBoundExceededError reports an adversarial-input bound violation.

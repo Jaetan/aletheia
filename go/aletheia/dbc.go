@@ -57,14 +57,14 @@ type DBCMessage struct {
 	signalIndex map[string]int // maps signal name -> index into Signals
 }
 
-// NewDbcMessage creates a [DBCMessage] with its signal-name lookup index
+// NewDBCMessage creates a [DBCMessage] with its signal-name lookup index
 // populated. External loaders must use this constructor — directly populating
 // the struct leaves signalIndex nil and forces [DBCMessage.SignalByName] onto
 // its linear fallback path.
 //
 // senders carries the BO_TX_BU_ additional-transmitter list; pass nil or an
 // empty slice when the DBC source has no BO_TX_BU_ line for this message.
-func NewDbcMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DBCSignal) DBCMessage {
+func NewDBCMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DBCSignal) DBCMessage {
 	m := DBCMessage{
 		ID:      id,
 		Name:    name,
@@ -229,7 +229,7 @@ type DBCSignalGroup struct {
 // ---------------------------------------------------------------------------
 
 // DBCVarType is the integer tag of a DBC environment variable's declared
-// type. Values other than the three listed are rejected by parseDbcDefinition
+// type. Values other than the three listed are rejected by parseDBCDefinition
 // as a protocol error.
 type DBCVarType int
 
@@ -280,7 +280,7 @@ type DBCValueTable struct {
 // the validator's CHECK 23 UnknownValueDescriptionTarget can warn at
 // validation time.
 type DBCRawValueDesc struct {
-	CANID      CANID
+	ID         CANID
 	SignalName string
 	Entries    []DBCValueEntry
 }
@@ -591,12 +591,12 @@ type DBCDefinition struct {
 	idIndex                     map[uint64]int // maps composite CAN ID key -> index
 }
 
-// NewDbcDefinition creates a [DBCDefinition] with its message-name and
+// NewDBCDefinition creates a [DBCDefinition] with its message-name and
 // CAN-ID lookup indexes populated. External loaders must use this
 // constructor — directly populating the struct leaves the indexes nil and
 // forces [DBCDefinition.MessageByID] and [DBCDefinition.MessageByName] onto
 // their linear fallback paths.
-func NewDbcDefinition(version string, messages []DBCMessage) *DBCDefinition {
+func NewDBCDefinition(version string, messages []DBCMessage) *DBCDefinition {
 	d := &DBCDefinition{Version: version, Messages: messages}
 	d.buildIndexes()
 	return d
