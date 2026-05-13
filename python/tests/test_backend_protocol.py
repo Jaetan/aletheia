@@ -244,8 +244,13 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
     in Go's MockBackend implementation).
     """
     backend = MockBackend([
-        # parseDBC (a single-message DBC populating signal_lookup).
-        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',
+        # parseDBC: one message at can_id=0x100 with one signal "Sig" so that
+        # _signal_lookup gets populated; otherwise the client short-circuits
+        # to the JSON path BEFORE ever calling extract_signals_bin (the path
+        # we want to exercise).
+        b'{"status":"success","dbc":{"version":"",'
+        b'"messages":[{"id":256,"extended":false,"signals":[{"name":"Sig"}]}]'
+        b'},"warnings":[]}',
         # extract_signals_binary JSON fallback returns success + empty lists.
         b'{"status":"success","values":[],"errors":[],"absent":[]}',
     ])
