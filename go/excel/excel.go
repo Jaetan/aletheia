@@ -83,8 +83,15 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 		o(&cfg)
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, aletheia.NewValidationError(fmt.Sprintf("excel file not found: %s", path))
+	// R20 cluster N — symlink + size + ZIP-bomb gates before excelize open.
+	if err := validateLoaderPath(path, "excel"); err != nil {
+		return nil, err
+	}
+	if err := checkFileSizeBound(path); err != nil {
+		return nil, err
+	}
+	if err := checkXlsxUncompressedBound(path); err != nil {
+		return nil, err
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -130,8 +137,15 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 		o(&cfg)
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, aletheia.NewValidationError(fmt.Sprintf("excel file not found: %s", path))
+	// R20 cluster N — same hardening as LoadChecks.
+	if err := validateLoaderPath(path, "excel"); err != nil {
+		return nil, err
+	}
+	if err := checkFileSizeBound(path); err != nil {
+		return nil, err
+	}
+	if err := checkXlsxUncompressedBound(path); err != nil {
+		return nil, err
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -174,6 +188,10 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 // CreateTemplate creates a blank Excel template with headers and formatting.
 // Does not overwrite existing files.
 func CreateTemplate(path string) error {
+	// R20 cluster N — parent-dir gate before excelize.NewFile/SaveAs.
+	if err := validateOutputParentDir(path); err != nil {
+		return err
+	}
 	if _, err := os.Stat(path); err == nil {
 		return aletheia.NewValidationError(fmt.Sprintf("file already exists: %s", path))
 	}

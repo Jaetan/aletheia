@@ -307,6 +307,17 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `CodeDBCTextTrailingInput`, `CodeDBCTextAttributeRefinementFailed`,
   `CodeDBCTextInputBoundExceeded`, `CodeFrameInputBoundExceeded`
   (R18 cluster 2 / Universal Rule UR-2).
+- Loader hardening: `excel.LoadChecks`, `excel.LoadDbc`,
+  `excel.CreateTemplate`, `aletheia.LoadChecksFromYAMLFile`, and the
+  file-branch of `aletheia.LoadChecksFromYAML` now reject symbolic
+  links outright; the excel entry points additionally enforce a
+  64 MiB raw file-size cap and walk the ZIP central directory via
+  stdlib `archive/zip`, returning `*InputBoundExceededError`
+  (`BoundKind="input_length_bytes"`) when the sum of uncompressed
+  entry sizes exceeds the cap (ZIP-bomb defence).
+  `excel.CreateTemplate` validates the destination's parent dir.
+  Cross-binding mirror of the C++ and Python hardening (R20
+  cluster N follow-up).
 
 #### C++
 

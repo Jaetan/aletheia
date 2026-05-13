@@ -26,14 +26,28 @@ func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 // names from a parsed DBC, so the same input-length cap applies; cf.
 // Python aletheia.yaml_loader._check_input_bound and AGENTS.md
 // universal rule "Adversarial-input bounds at parser surfaces".
+//
+// R20 cluster N — also rejects symbolic links outright (cross-binding
+// parity with C++ aletheia::detail::validate_loader_path and Python
+// aletheia._loader_utils.reject_symlink_loader_path).  Callers passing
+// legitimate symlinks must resolve them first.
 func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 	path = filepath.Clean(path)
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, validationError(fmt.Sprintf("YAML file not found: %s", path))
 		}
 		return nil, wrapValidation("stat YAML file", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, validationError(fmt.Sprintf(
+			"YAML file is a symbolic link; refusing to load: %s.  Resolve the link and pass the real path.",
+			path,
+		))
+	}
+	if !info.Mode().IsRegular() {
+		return nil, validationError(fmt.Sprintf("YAML path is not a regular file: %s", path))
 	}
 	if size := uint64(info.Size()); size > MaxDBCTextBytes {
 		return nil, &InputBoundExceededError{
@@ -56,9 +70,14 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 // Returns *InputBoundExceededError if either form exceeds MaxDBCTextBytes
 // (64 MiB).  Mirrors Python aletheia.yaml_loader._check_input_bound per
 // AGENTS.md universal rule "Adversarial-input bounds at parser surfaces".
+//
+// R20 cluster N — when the file branch is taken, also reject symbolic
+// links (cross-binding parity with C++/Python).  Inline-content
+// branch is unaffected.
 func loadYAMLData(source string) ([]byte, error) {
 	source = filepath.Clean(source)
-	if info, err := os.Stat(source); err == nil {
+	info, statErr := os.Lstat(source)
+	if statErr == nil && info.Mode().IsRegular() {
 		if size := uint64(info.Size()); size > MaxDBCTextBytes {
 			return nil, &InputBoundExceededError{
 				BoundKind: BoundKindInputLengthBytes,
@@ -72,6 +91,16 @@ func loadYAMLData(source string) ([]byte, error) {
 		}
 		return data, nil
 	}
+	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		// Stat-succeeds + symlink — refuse rather than silently follow.
+		// Cross-binding parity with C++ aletheia::detail::validate_loader_path
+		// and Python aletheia._loader_utils.reject_symlink_loader_path.
+		return nil, validationError(fmt.Sprintf(
+			"YAML file is a symbolic link; refusing to load: %s.  Resolve the link and pass the real path.",
+			source,
+		))
+	}
+	// Stat-fails or non-regular non-symlink — treat as inline YAML.
 	// Not a file -- treat as inline YAML.
 	if size := uint64(len(source)); size > MaxDBCTextBytes {
 		return nil, &InputBoundExceededError{

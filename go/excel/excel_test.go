@@ -1,7 +1,9 @@
 package excel
 
 import (
+	"archive/zip"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -1135,4 +1137,118 @@ func TestLoadExcelDbcLowIDExtended(t *testing.T) {
 	if dbc.Messages[0].ID.Value() != 100 {
 		t.Errorf("ID: got %d, want 100", dbc.Messages[0].ID.Value())
 	}
+}
+
+// ---------------------------------------------------------------------------
+// R20 cluster N — adversarial-input hardening (cross-binding mirror)
+// ---------------------------------------------------------------------------
+
+func TestLoadChecks_RejectsSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	real_ := filepath.Join(tmp, "real.xlsx")
+	// Build a minimal valid .xlsx so the symlink target itself is loadable.
+	f := excelize.NewFile()
+	if err := f.SetSheetName("Sheet1", "Checks"); err != nil {
+		t.Fatalf("SetSheetName: %v", err)
+	}
+	for i, h := range checksHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue("Checks", cell, h)
+	}
+	_ = f.SetCellValue("Checks", "B2", "Speed")
+	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
+	_ = f.SetCellValue("Checks", "D2", 220)
+	if err := f.SaveAs(real_); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+	_ = f.Close()
+
+	link := filepath.Join(tmp, "link.xlsx")
+	if err := os.Symlink(real_, link); err != nil {
+		t.Skip("symlink creation not permitted on this filesystem")
+	}
+
+	_, err := LoadChecks(link)
+	requireErrorContains(t, err, "symbolic link")
+}
+
+func TestLoadChecks_RejectsOversize(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "oversize.xlsx")
+	// 65 MiB plain bytes — fails the raw-size cap before any ZIP parsing.
+	chunk := make([]byte, 1024*1024)
+	for i := range chunk {
+		chunk[i] = 0xAA
+	}
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for i := 0; i < 65; i++ {
+		if _, err := out.Write(chunk); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	_ = out.Close()
+
+	_, err = LoadChecks(path)
+	var bound *aletheia.InputBoundExceededError
+	if !errors.As(err, &bound) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
+		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
+	}
+	if bound.Limit != aletheia.MaxDBCTextBytes {
+		t.Errorf("Limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
+	}
+}
+
+func TestLoadChecks_RejectsZipBomb(t *testing.T) {
+	// Build a real ZIP with five entries totalling > MaxDBCTextBytes
+	// uncompressed.  Each entry is highly compressible (all zeros) so the
+	// archive on disk stays well under the raw cap; the central-directory
+	// walker is what flags it.
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "bomb.xlsx")
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	zw := zip.NewWriter(out)
+	zeros := make([]byte, 14*1024*1024) // 14 MiB
+	for i := 0; i < 5; i++ {            // 5 × 14 MiB = 70 MiB > 64 MiB cap
+		w, err := zw.CreateHeader(&zip.FileHeader{
+			Name:   fmt.Sprintf("part-%d", i),
+			Method: zip.Deflate,
+		})
+		if err != nil {
+			t.Fatalf("CreateHeader: %v", err)
+		}
+		if _, err := w.Write(zeros); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zw.Close: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("out.Close: %v", err)
+	}
+
+	_, err = LoadChecks(path)
+	var bound *aletheia.InputBoundExceededError
+	if !errors.As(err, &bound) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
+		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
+	}
+}
+
+func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
+	tmp := t.TempDir()
+	bad := filepath.Join(tmp, "does_not_exist", "template.xlsx")
+	err := CreateTemplate(bad)
+	requireErrorContains(t, err, "parent directory does not exist")
 }
