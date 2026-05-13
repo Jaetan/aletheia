@@ -331,9 +331,9 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 125. `[ ]` GO-A-3.2 — `go/aletheia/dbc.go:281-285` — `DBCRawValueDesc.CANID` field name stutters; rename to `ID CANID`.
 126. `[ ]` GO-A-3.3 — `go/aletheia/dbc.go:67, 599`; `excel.go:126`; `json.go:120, 1471, 1953, 2033`; `backend.go:66-75` — `Dbc*`/`DBC*` mixed acronym casing. Sweep to one style.
 127. `[ ]` GO-A-3.4 — `go/aletheia/error.go:222, 224` — `wrapValidation` private + `WrapValidationError` public; naming asymmetry.
-128. `[ ]` GO-A-3.5 — `go/aletheia/dbc.go:144` — `MuxValues()` method shadows `Multiplexed.MuxValues` field name.
-129. `[ ]` GO-A-3.6 — `go/aletheia/types.go:184, 200` — `StandardID`/`ExtendedID` have `Value() uint32` but `BitPosition`/`BitLength` typedefs don't; asymmetric.
-130. `[ ]` GO-A-3.7 — `go/aletheia/client.go:47-63` — `lockCh` vs `closeOnce` style split; minor.
+128. `[DEFER]` GO-A-3.5 — `go/aletheia/dbc.go:144` — `MuxValues()` method shadows `Multiplexed.MuxValues` field name. ✅ Cluster O deferred: cross-binding scope.  C++ has identical `Multiplexed.mux_values` field + `mux_values()` method shape (`cpp/include/aletheia/dbc.hpp:62,120`); Python uses `multiplex_values`.  Go-only rename widens the parity gap.  → DEFER-end-of-round for cross-binding "mux field naming" cluster.
+129. `[DROP]` GO-A-3.6 — `go/aletheia/types.go:184, 200` — `StandardID`/`ExtendedID` have `Value() uint32` but `BitPosition`/`BitLength` typedefs don't; asymmetric. ✅ Cluster O wontfix: asymmetry is structural (typedef vs struct), not naming.  Go typedef accessor is `uint16(bp)` / `uint8(bl)` — idiomatic for primitive typedefs.  `StandardID`/`ExtendedID` need `Value()` because they wrap an unexported struct field, not for naming consistency.
+130. `[DROP]` GO-A-3.7 — `go/aletheia/client.go:47-63` — `lockCh` vs `closeOnce` style split; minor. ✅ Cluster O wontfix: different sync mechanisms.  `lockCh` is a 1-deep channel semaphore providing context-aware `TryLock` via `select { case ch <- struct{}{}: ... case <-ctx.Done(): ... }`; `closeOnce` is `sync.Once` for one-shot close.  Consolidating either would lose a capability.
 
 ##### Cat 4 — Comments
 
@@ -1122,10 +1122,14 @@ focused commit; gates run fresh at every cluster closure per
 - 5 new C++ Catch2 hardening tests (excel symlink + size cap + ZIP-bomb + create_template parent missing; yaml symlink + size cap) + 3 Python pytest tests (excel symlink × 2 — checks + DBC; yaml symlink) + inline-string regression guard for yaml.
 - Cluster K straggler bundled per [[feedback-gate-claim-integrity]]: `cpp/tests/integration_tests.cpp:1505-1506` `make_ffi_backend rejects rts_cores < 1` was still asserting `std::invalid_argument` after cluster K migrated those throw sites to `AletheiaException(ErrorKind::Validation)`; assertion updated.
 
-### Cluster O — Go cluster-5 rename completion + naming Cat 3
-- `GO-D-15.1` — `NewDbcMessage` / `NewDbcDefinition` / `Backend.FormatDbcBinary` / `WithDbcSheet` / unexported `parseDbc*` / `formatDbcFn`
-- `GO-D-15.2` — `DBCRawValueDesc.CANID CANID` stutter → `ID CANID`
-- `GO-A-3.x` siblings
+### Cluster O — Go cluster-5 rename completion + naming Cat 3 — ✅ CLOSED `8bb0055`
+- `GO-D-15.1` ✅ — `NewDbcMessage` → `NewDBCMessage`, `NewDbcDefinition` → `NewDBCDefinition`, `Backend.FormatDbcBinary` interface + 4 implementations → `FormatDBCBinary`, `excel.WithDbcSheet` → `WithDBCSheet`, unexported `parseDbc{Response,TextResponse,Definition,Message,Signal}` / `parseDbcRows` / `xlsxDbcSignal` / `formatDbcFn` / `extractDbcObject` / `makeDbcWorkbook` / ~15 `Test*Dbc*` names all gain the `DBC` initialism.
+- `GO-D-15.2` ✅ — `DBCRawValueDesc.CANID CANID` stutter → `ID CANID` (Go field-stutter convention).  Affects struct literal at `json.go:1641` + 2 field accesses at `json.go:291`.
+- `GO-A-3.3` ✅ — covered by GO-D-15.1 family (same `Dbc*`/`DBC*` casing fix).
+- `GO-A-3.4` ✅ — private `wrapValidation` (5 sites in yaml.go) → `wrapValidationError`; private `wrapProtocol` (~20 sites in json.go) → `wrapProtocolError`.  Symmetry with private `validationError`/`protocolError`/`ffiError`/`stateError` family.  Both renamed per advisor "don't half-fix" — renaming only one would create new asymmetry.
+- `GO-A-3.5` → DEFER-end-of-round (see line 128 disposition).
+- `GO-A-3.6` ✅ DROP (see line 129 disposition).
+- `GO-A-3.7` ✅ DROP (see line 130 disposition).
 
 ### Cluster P — Python Backend(Protocol) DI seam (R19 carry-over)
 - `PY-D-24.1` — promote `Backend(Protocol)` + thread through `AletheiaClient.__init__`
@@ -1148,6 +1152,7 @@ focused commit; gates run fresh at every cluster closure per
 - C++ `Strong<Tag, T>` ergonomics + `LtlFormula` `std::variant` portability
 - `AGENTS.md` future-tense paragraph (DOC-A-1.14)
 - DEFERRALS.md / re-disposition file updates
+- **GO-A-3.5** (cross-binding "mux field naming" — deferred from cluster O `8bb0055`; needs synchronized rename across Python `multiplex_values` / Go `Multiplexed.MuxValues` / C++ `Multiplexed.mux_values`).
 
 ---
 
