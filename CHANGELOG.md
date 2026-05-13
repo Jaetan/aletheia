@@ -266,6 +266,14 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   when a YAML file/string exceeds `MAX_DBC_TEXT_BYTES`. Importable as
   `from aletheia import InputBoundExceededError` (R18 cluster 2 /
   Universal Rule UR-2).
+- `CANFrameTuple` gains `brs` / `esi` fields — pass-through CAN-FD
+  Bit Rate Switch (ISO 11898-1:2015 §10.4.2) and Error State Indicator
+  (§10.4.3) metadata. Both default to `None` for CAN 2.0B frames where
+  the bits do not exist; `AletheiaClient.send_frame` / `send_frames`
+  accept matching kwargs and `iter_can_log` / `load_can_log` surface
+  them per-frame from python-can readers. The Aletheia kernel does
+  NOT consume these bits — pass-through metadata only (R19 Phase 2
+  cluster 18).
 
 #### Go
 
@@ -609,6 +617,18 @@ and ESI (error-state-indicator) metadata per ISO 11898-1:2015 §10.4.2
 behaviour; pass `&trueVal` / `&falseVal` for CAN-FD frames where the
 controller emitted the bits.  The Aletheia kernel does NOT consume
 these bits — pass-through metadata only.
+
+#### BREAKING — Python: `CANFrameTuple` is now a 7-tuple (`brs` / `esi` appended) (R19 Phase 2 cluster 18 / R20 cluster L)
+
+`CANFrameTuple` gains two trailing optional fields — `brs` and `esi`
+— exposing CAN-FD Bit Rate Switch / Error State Indicator metadata
+per ISO 11898-1:2015 §10.4.2 / §10.4.3. Construction stays back-compat
+(both default to `None`), but **unpacking arity changes** from 5 to
+7. Migration: extend `for ts, can_id, dlc, data, _ext in
+iter_can_log(...)` to `for ts, can_id, dlc, data, _ext, _brs, _esi in
+iter_can_log(...)`, or switch to named-tuple field access (`frame.brs`,
+`frame.esi`). The Aletheia kernel does NOT consume these bits —
+pass-through metadata only.
 
 #### BREAKING — All bindings: `parse_dbc` returns a richer success-path result
 

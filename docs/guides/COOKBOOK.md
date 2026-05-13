@@ -186,7 +186,7 @@ frames = load_can_log("drive.blf")
 ```python
 from aletheia.can_log import iter_can_log
 
-for ts, can_id, dlc, data, _extended in iter_can_log("highway.asc"):
+for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("highway.asc"):
     response = client.send_frame(ts, can_id, dlc, data)
 ```
 
@@ -340,7 +340,7 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 
 ```python
 client.start_stream()
-for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
     # Modify speed to test property with altered values
     modified = client.update_frame(
         can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130.0}
@@ -416,7 +416,7 @@ if response.get("status") == "fails":
 from aletheia import iter_can_log
 
 violations = []
-for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
     response = client.send_frame(ts, can_id, dlc, data)
     if response.get("status") == "fails":
         violations.append(response)
@@ -451,7 +451,7 @@ with AletheiaClient() as client:
     client.add_checks(checks)
     client.start_stream()
 
-    for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+    for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
         if response.get("status") != "fails":
             continue

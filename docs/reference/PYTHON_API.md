@@ -30,7 +30,7 @@ property = Signal("Speed").less_than(250).always()
 # `data` must be a `bytes` / `bytearray` of the correct length for the DLC.
 # Three common ways to produce it:
 #   1. From a recorded trace file (.blf / .asc / .log / .mf4):
-#        for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+#        for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
 #   2. From a hex string (useful for hand-written test cases):
 #        ts, can_id, dlc, data = 0, 0x100, 8, bytes.fromhex("E803000000000000")
 #   3. From a literal byte sequence:
@@ -41,7 +41,7 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+    for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
@@ -356,7 +356,7 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, dlc, data in frames:
+    for timestamp, can_id, dlc, data, _extended, _brs, _esi in frames:
         response = client.send_frame(timestamp, can_id, dlc, data)
 
         if response.get("status") == "fails":
@@ -623,7 +623,7 @@ responses = client.send_frames(frames)
 violations = [r for r in responses if r["status"] == "fails"]
 ```
 
-**Parameters**: List of `CANFrameTuple(timestamp, can_id, dlc, data, extended)`.
+**Parameters**: List of `CANFrameTuple(timestamp, can_id, dlc, data, extended, brs, esi)`. The trailing `brs` / `esi` default to `None` for CAN 2.0B frames; supply `True` / `False` for CAN-FD when surfacing the Bit Rate Switch and Error State Indicator (ISO 11898-1:2015 §10.4.2 / §10.4.3).
 **Returns**: List of responses in same order as input frames.
 
 #### `end_stream() -> CompleteResponse | ErrorResponse`
@@ -730,6 +730,8 @@ except FileNotFoundError as e:
 ### Invalid Frame Data
 
 ```python
+from aletheia import ValidationError
+
 # Data length vs DLC mismatch is caught client-side before FFI call
 try:
     client.send_frame(1000, 256, dlc=8, data=bytearray([0xFF, 0xFF]))  # Only 2 bytes, DLC expects 8
@@ -768,7 +770,7 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for ts, can_id, dlc, data, _extended in iter_can_log("huge_trace.log"):
+    for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("huge_trace.log"):
         response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
@@ -876,7 +878,7 @@ Lazily iterate CAN frames from a log file (O(1) memory).
 ```python
 from aletheia.can_log import iter_can_log
 
-for ts, can_id, dlc, data, _extended in iter_can_log("highway.asc"):
+for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("highway.asc"):
     response = client.send_frame(ts, can_id, dlc, data)
 ```
 

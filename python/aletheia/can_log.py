@@ -11,8 +11,8 @@ Example:
     responses = client.send_frames(frames)
 
     # Lazy: iterate one frame at a time
-    for ts, can_id, dlc, data, ext in iter_can_log("highway.asc"):
-        response = client.send_frame(ts, can_id, dlc, data, extended=ext)
+    for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("highway.asc"):
+        response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
 """
 
 from collections.abc import Iterator
