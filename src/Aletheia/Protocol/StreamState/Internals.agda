@@ -264,7 +264,8 @@ classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
 -- correct fix but needs a separate review), or (b) restricting the
 -- user-facing property surface to wrapped formulas (API break).  See the
 -- comment block above `stepL-always-never-satisfied` in
--- `Coalgebra/Properties.agda` and `memory/project_classify_satisfied_soundness_gap.md`.
+-- `Coalgebra/Properties.agda` (the AGDA-B-9.2-residual project memory
+-- carries the full witness + closure options for the next review round).
 classifyStepResult Satisfied prop = advance prop
 
 -- Step one property: build PredTable, call stepL, classify result.
