@@ -19,6 +19,7 @@ import openpyxl  # type: ignore[import-untyped]
 from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
 from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
+from aletheia import ValidationError
 from aletheia.checks import Check
 from aletheia.excel_loader import (
     CHECKS_HEADERS,
@@ -479,25 +480,25 @@ class TestLoadDBCMultiplexed:
         assert sig2["multiplex_values"] == [1]
 
     def test_partial_mux_raises(self, tmp_path: Path) -> None:
-        """Only Multiplexor without Multiplex Value raises ValueError."""
+        """Only Multiplexor without Multiplex Value raises ValidationError."""
         p = _make_dbc_workbook(tmp_path, [
             [
                 256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
                 False, 1, 0, 0, 100, "", "Selector", None,
             ],
         ])
-        with pytest.raises(ValueError, match="must both be provided or both be empty"):
+        with pytest.raises(ValidationError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
 
     def test_partial_mux_value_only_raises(self, tmp_path: Path) -> None:
-        """Only Multiplex Value without Multiplexor raises ValueError."""
+        """Only Multiplex Value without Multiplexor raises ValidationError."""
         p = _make_dbc_workbook(tmp_path, [
             [
                 256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
                 False, 1, 0, 0, 100, "", None, 3,
             ],
         ])
-        with pytest.raises(ValueError, match="must both be provided or both be empty"):
+        with pytest.raises(ValidationError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
 
 
@@ -575,7 +576,7 @@ class TestCreateTemplate:
 # ============================================================================
 
 class TestLoadErrors:
-    """All validation error cases raise ValueError or FileNotFoundError."""
+    """All validation error cases raise ValidationError or FileNotFoundError."""
 
     def test_file_not_found(self) -> None:
         """Verify file not found."""
@@ -588,13 +589,13 @@ class TestLoadErrors:
             load_dbc_from_excel("/nonexistent/path/dbc.xlsx")
 
     def test_no_checks_or_when_then_sheet(self, tmp_path: Path) -> None:
-        """Workbook with neither Checks nor When-Then raises ValueError."""
+        """Workbook with neither Checks nor When-Then raises ValidationError."""
         wb = Workbook()
         ws = _active_sheet(wb)
         ws.title = "Other"
         p = tmp_path / "bad.xlsx"
         wb.save(str(p))
-        with pytest.raises(ValueError, match="no 'Checks' or 'When-Then' sheet"):
+        with pytest.raises(ValidationError, match="no 'Checks' or 'When-Then' sheet"):
             load_checks_from_excel(p)
 
     def test_no_dbc_sheet(self, tmp_path: Path) -> None:
@@ -604,7 +605,7 @@ class TestLoadErrors:
         ws.title = "Other"
         p = tmp_path / "bad.xlsx"
         wb.save(str(p))
-        with pytest.raises(ValueError, match="no 'DBC' sheet"):
+        with pytest.raises(ValidationError, match="no 'DBC' sheet"):
             load_dbc_from_excel(p)
 
     def test_unknown_simple_condition(self, tmp_path: Path) -> None:
@@ -612,7 +613,7 @@ class TestLoadErrors:
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "bogus", 100, None, None, None, None],
         ])
-        with pytest.raises(ValueError, match="unknown condition 'bogus'"):
+        with pytest.raises(ValidationError, match="unknown condition 'bogus'"):
             load_checks_from_excel(p)
 
     def test_missing_value_for_never_exceeds(self, tmp_path: Path) -> None:
@@ -620,7 +621,7 @@ class TestLoadErrors:
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", None, None, None, None, None],
         ])
-        with pytest.raises(ValueError, match="missing or invalid 'Value'"):
+        with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
             load_checks_from_excel(p)
 
     def test_stays_between_missing_min(self, tmp_path: Path) -> None:
@@ -628,7 +629,7 @@ class TestLoadErrors:
         p = _make_checks_workbook(tmp_path, [
             [None, "Voltage", "stays_between", None, None, 14.5, None, None],
         ])
-        with pytest.raises(ValueError, match="requires 'Min' and 'Max'"):
+        with pytest.raises(ValidationError, match="requires 'Min' and 'Max'"):
             load_checks_from_excel(p)
 
     def test_settles_between_missing_time(self, tmp_path: Path) -> None:
@@ -636,7 +637,7 @@ class TestLoadErrors:
         p = _make_checks_workbook(tmp_path, [
             [None, "Temp", "settles_between", None, 80, 100, None, None],
         ])
-        with pytest.raises(ValueError, match="requires 'Time \\(ms\\)'"):
+        with pytest.raises(ValidationError, match="requires 'Time \\(ms\\)'"):
             load_checks_from_excel(p)
 
     def test_unknown_when_condition(self, tmp_path: Path) -> None:
@@ -644,7 +645,7 @@ class TestLoadErrors:
         p = _make_when_then_workbook(tmp_path, [
             [None, "Brake", "bogus", 50, "BrakeLight", "equals", 1, None, None, 100, None],
         ])
-        with pytest.raises(ValueError, match="unknown when condition 'bogus'"):
+        with pytest.raises(ValidationError, match="unknown when condition 'bogus'"):
             load_checks_from_excel(p)
 
     def test_unknown_then_condition(self, tmp_path: Path) -> None:
@@ -652,7 +653,7 @@ class TestLoadErrors:
         p = _make_when_then_workbook(tmp_path, [
             [None, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, None, None, 100, None],
         ])
-        with pytest.raises(ValueError, match="unknown then condition 'bogus'"):
+        with pytest.raises(ValidationError, match="unknown then condition 'bogus'"):
             load_checks_from_excel(p)
 
     def test_invalid_byte_order(self, tmp_path: Path) -> None:
@@ -660,7 +661,7 @@ class TestLoadErrors:
         p = _make_dbc_workbook(tmp_path, [
             [256, "Msg", None, 8, "Sig", 0, 16, "mixed_endian", False, 1, 0, 0, 100, ""],
         ])
-        with pytest.raises(ValueError, match="Byte Order"):
+        with pytest.raises(ValidationError, match="Byte Order"):
             load_dbc_from_excel(p)
 
     def test_invalid_message_id(self, tmp_path: Path) -> None:
@@ -671,18 +672,18 @@ class TestLoadErrors:
                 False, 1, 0, 0, 100, "",
             ],
         ])
-        with pytest.raises(ValueError, match="invalid 'Message ID'"):
+        with pytest.raises(ValidationError, match="invalid 'Message ID'"):
             load_dbc_from_excel(p)
 
     def test_dbc_empty_data(self, tmp_path: Path) -> None:
-        """DBC sheet with only header row raises ValueError."""
+        """DBC sheet with only header row raises ValidationError."""
         wb = Workbook()
         ws = _active_sheet(wb)
         ws.title = "DBC"
         ws.append(DBC_HEADERS)
         p = tmp_path / "empty.xlsx"
         wb.save(str(p))
-        with pytest.raises(ValueError, match="at least one data row"):
+        with pytest.raises(ValidationError, match="at least one data row"):
             load_dbc_from_excel(p)
 
 

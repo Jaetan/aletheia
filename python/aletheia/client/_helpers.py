@@ -31,7 +31,7 @@ from ..protocols import (
     is_str_dict,
     is_object_list,
 )
-from ._types import ProtocolError
+from ._types import ProtocolError, ValidationError
 from .._loader_utils import is_pure_int
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
@@ -147,17 +147,17 @@ def float_to_rational(value: float) -> tuple[int, int]:
     The Haskell side normalizes to coprime form via GCD.
 
     Raises:
-        ValueError: If *value* is NaN, infinite, or too large for int64.
+        ValidationError: If *value* is NaN, infinite, or too large for int64.
     """
     if math.isnan(value) or math.isinf(value):
-        raise ValueError(f"Cannot convert {value!r} to rational")
+        raise ValidationError(f"Cannot convert {value!r} to rational")
     numerator = round(value * _DECIMAL_PRECISION_DEN)
     # Guard against values that would overflow int64 in the binary FFI.
     # Use the full int64 range, not the 53-bit float mantissa bound — the
     # denominator is a compile-time constant ≤ int64 so any numerator that
     # fits int64 is safe to pack as ``<q`` little-endian.
     if not _INT64_MIN <= numerator <= _INT64_MAX:
-        raise ValueError(
+        raise ValidationError(
             f"signal value {value!r} too large for rational representation"
         )
     return (numerator, _DECIMAL_PRECISION_DEN)
@@ -171,11 +171,11 @@ def fraction_to_rational(value: Fraction) -> tuple[int, int]:
     so Fractions flow through without the 10^9 quantization step.
 
     Raises:
-        ValueError: If either component overflows int64.
+        ValidationError: If either component overflows int64.
     """
     n, d = value.numerator, value.denominator
     if not _INT64_MIN <= n <= _INT64_MAX or not _INT64_MIN <= d <= _INT64_MAX:
-        raise ValueError(
+        raise ValidationError(
             f"Fraction {value!r} components exceed int64 range"
         )
     return (n, d)

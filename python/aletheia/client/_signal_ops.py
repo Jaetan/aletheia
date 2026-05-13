@@ -83,7 +83,7 @@ class SignalOpsMixin(ABC):
 
         Raises:
             ProtocolError: If the kernel rejects the extraction request
-            ValueError: If dlc is outside 0-15
+            ValidationError: If dlc is outside 0-15
         """
         if self._lib is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")

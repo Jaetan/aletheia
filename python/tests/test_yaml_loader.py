@@ -5,7 +5,7 @@ Tests cover:
 - When/Then checks: all trigger/response combinations
 - Metadata: name and severity carried on CheckResult
 - File loading: write temp YAML file, load it, verify
-- Error handling: all validation error cases raise ValueError
+- Error handling: all validation error cases raise ValidationError
 - Equivalence: YAML-loaded checks produce same formula as Check API
 """
 
@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from aletheia import ValidationError
 from aletheia.checks import Check
 from aletheia.yaml_loader import load_checks
 
@@ -300,7 +301,7 @@ class TestLoadFromFile:
         yaml_file.write_text("dummy", encoding="utf-8")
         # Passing the path as a bare str now parses the string itself as YAML
         # (a scalar) rather than opening the file — fails the structural check.
-        with pytest.raises(ValueError, match="YAML must contain a 'checks' list"):
+        with pytest.raises(ValidationError, match="YAML must contain a 'checks' list"):
             load_checks(str(yaml_file))
 
     def test_file_not_found(self, tmp_path: Path) -> None:
@@ -316,21 +317,21 @@ class TestLoadFromFile:
 # ============================================================================
 
 class TestLoadErrors:
-    """All validation error cases raise ValueError with useful messages."""
+    """All validation error cases raise ValidationError with useful messages."""
 
     def test_missing_checks_key(self) -> None:
         """Verify missing checks key."""
-        with pytest.raises(ValueError, match="YAML must contain a 'checks' list"):
+        with pytest.raises(ValidationError, match="YAML must contain a 'checks' list"):
             load_checks("signals:\n  - foo\n")
 
     def test_checks_not_a_list(self) -> None:
         """Verify checks not a list."""
-        with pytest.raises(ValueError, match="YAML must contain a 'checks' list"):
+        with pytest.raises(ValidationError, match="YAML must contain a 'checks' list"):
             load_checks("checks: not_a_list\n")
 
     def test_no_signal_or_when(self) -> None:
         """Verify no signal or when."""
-        with pytest.raises(ValueError, match="must have 'signal' or 'when'/'then'"):
+        with pytest.raises(ValidationError, match="must have 'signal' or 'when'/'then'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - name: "Bad check"
@@ -340,7 +341,7 @@ class TestLoadErrors:
 
     def test_unknown_simple_condition(self) -> None:
         """Verify unknown simple condition."""
-        with pytest.raises(ValueError, match="unknown condition 'bogus'"):
+        with pytest.raises(ValidationError, match="unknown condition 'bogus'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Speed
@@ -350,7 +351,7 @@ class TestLoadErrors:
 
     def test_never_exceeds_missing_value(self) -> None:
         """Verify never exceeds missing value."""
-        with pytest.raises(ValueError, match="requires 'value'"):
+        with pytest.raises(ValidationError, match="requires 'value'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Speed
@@ -359,7 +360,7 @@ class TestLoadErrors:
 
     def test_stays_between_missing_min(self) -> None:
         """Verify stays between missing min."""
-        with pytest.raises(ValueError, match="requires 'min' and 'max'"):
+        with pytest.raises(ValidationError, match="requires 'min' and 'max'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Voltage
@@ -369,7 +370,7 @@ class TestLoadErrors:
 
     def test_stays_between_missing_max(self) -> None:
         """Verify stays between missing max."""
-        with pytest.raises(ValueError, match="requires 'min' and 'max'"):
+        with pytest.raises(ValidationError, match="requires 'min' and 'max'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Voltage
@@ -379,7 +380,7 @@ class TestLoadErrors:
 
     def test_settles_between_missing_within_ms(self) -> None:
         """Verify settles between missing within ms."""
-        with pytest.raises(ValueError, match="requires 'within_ms'"):
+        with pytest.raises(ValidationError, match="requires 'within_ms'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Temp
@@ -390,7 +391,7 @@ class TestLoadErrors:
 
     def test_settles_between_missing_range(self) -> None:
         """Verify settles between missing range."""
-        with pytest.raises(ValueError, match="requires 'min' and 'max'"):
+        with pytest.raises(ValidationError, match="requires 'min' and 'max'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Temp
@@ -400,7 +401,7 @@ class TestLoadErrors:
 
     def test_equals_missing_value(self) -> None:
         """Verify equals missing value."""
-        with pytest.raises(ValueError, match="requires 'value'"):
+        with pytest.raises(ValidationError, match="requires 'value'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Gear
@@ -409,7 +410,7 @@ class TestLoadErrors:
 
     def test_when_then_missing_then(self) -> None:
         """Verify when then missing then."""
-        with pytest.raises(ValueError, match="must have 'signal' or 'when'/'then'"):
+        with pytest.raises(ValidationError, match="must have 'signal' or 'when'/'then'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - name: "Incomplete"
@@ -422,7 +423,7 @@ class TestLoadErrors:
 
     def test_when_then_missing_within_ms(self) -> None:
         """Verify when then missing within ms."""
-        with pytest.raises(ValueError, match="require 'within_ms'"):
+        with pytest.raises(ValidationError, match="require 'within_ms'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - when:
@@ -437,7 +438,7 @@ class TestLoadErrors:
 
     def test_unknown_when_condition(self) -> None:
         """Verify unknown when condition."""
-        with pytest.raises(ValueError, match="unknown when condition 'bogus'"):
+        with pytest.raises(ValidationError, match="unknown when condition 'bogus'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - when:
@@ -453,7 +454,7 @@ class TestLoadErrors:
 
     def test_unknown_then_condition(self) -> None:
         """Verify unknown then condition."""
-        with pytest.raises(ValueError, match="unknown then condition 'bogus'"):
+        with pytest.raises(ValidationError, match="unknown then condition 'bogus'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - when:
@@ -469,7 +470,7 @@ class TestLoadErrors:
 
     def test_named_check_in_error_message(self) -> None:
         """Error messages include the check name when present."""
-        with pytest.raises(ValueError, match="Check 'My Check'"):
+        with pytest.raises(ValidationError, match="Check 'My Check'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - name: "My Check"
@@ -480,7 +481,7 @@ class TestLoadErrors:
 
     def test_unnamed_check_in_error_message(self) -> None:
         """Error messages use <unnamed> when no name is present."""
-        with pytest.raises(ValueError, match="Check '<unnamed>'"):
+        with pytest.raises(ValidationError, match="Check '<unnamed>'"):
             load_checks(textwrap.dedent("""\
                 checks:
                   - signal: Speed

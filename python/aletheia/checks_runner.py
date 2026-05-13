@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from .checks import CheckResult
-from .client import AletheiaClient, AletheiaError
+from .client import AletheiaClient, AletheiaError, ValidationError
 from .protocols import (
     DBCDefinition,
     PropertyResultEntry,
@@ -72,7 +72,7 @@ def rational_to_int(r: RationalNumber) -> int:
     """Convert a RationalNumber {numerator, denominator} to int."""
     denom = r["denominator"]
     if denom == 0:
-        raise ValueError(f"Invalid rational: denominator is zero ({r!r})")
+        raise ValidationError(f"Invalid rational: denominator is zero ({r!r})")
     return r["numerator"] // denom
 
 

@@ -69,6 +69,7 @@ from ._check_conditions import (
     dispatch_when,
 )
 from ._dbc_types import empty_dbc_tier2
+from .client import ValidationError
 from .protocols import (
     DBCDefinition,
     DBCMessage,
@@ -101,7 +102,7 @@ def _check_xlsx_uncompressed_bound(path: Path) -> None:
         with zipfile.ZipFile(path) as zf:
             total = sum(info.file_size for info in zf.infolist())
     except zipfile.BadZipFile as exc:
-        raise ValueError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
+        raise ValidationError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
     check_dbc_text_size_bound(total)
 
 
@@ -178,7 +179,7 @@ def _parse_message_id(val: object, ctx: str) -> int:
             return int(stripped)
         except ValueError:
             pass
-    raise ValueError(
+    raise ValidationError(
         f"{ctx}: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)"
     )
 
@@ -213,7 +214,7 @@ def load_checks_from_excel(
             the cap protects against ZIP-bomb / oversized-input DOS per
             AGENTS.md universal rule "Adversarial-input bounds at parser
             surfaces".
-        ValueError: Invalid data in cells
+        ValidationError: Invalid data in cells
     """
     p = Path(path)
     if not p.exists():
@@ -233,7 +234,7 @@ def load_checks_from_excel(
             results.extend(_load_when_then_checks(wb[when_then_sheet]))
 
         if checks_sheet not in sheet_names and when_then_sheet not in sheet_names:
-            raise ValueError(
+            raise ValidationError(
                 f"Workbook has no '{checks_sheet}' or '{when_then_sheet}' sheet"
             )
 
@@ -264,7 +265,7 @@ def load_dbc_from_excel(
             the cap protects against ZIP-bomb / oversized-input DOS per
             AGENTS.md universal rule "Adversarial-input bounds at parser
             surfaces".
-        ValueError: Invalid or missing data
+        ValidationError: Invalid or missing data
     """
     p = Path(path)
     if not p.exists():
@@ -275,12 +276,12 @@ def load_dbc_from_excel(
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:
         if sheet not in wb.sheetnames:
-            raise ValueError(f"Workbook has no '{sheet}' sheet")
+            raise ValidationError(f"Workbook has no '{sheet}' sheet")
 
         ws = wb[sheet]
         rows: list[ExcelRow] = list(ws.iter_rows(values_only=True))
         if len(rows) < 2:
-            raise ValueError("DBC sheet must have a header row and at least one data row")
+            raise ValidationError("DBC sheet must have a header row and at least one data row")
 
         headers = _headers_from_row(rows[0])
         data_rows = [_row_to_dict(headers, r) for r in rows[1:]]
@@ -288,7 +289,7 @@ def load_dbc_from_excel(
         data_rows = [r for r in data_rows if r]
 
         if not data_rows:
-            raise ValueError("DBC sheet has no data rows")
+            raise ValidationError("DBC sheet has no data rows")
 
         return _parse_dbc_rows(data_rows)
     finally:
@@ -396,13 +397,13 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
     condition = get_str(d, "Condition", _row_ctx(row_num))
 
     if condition not in ALL_SIMPLE_CONDITIONS:
-        raise ValueError(f"Row {row_num}: unknown condition '{condition}'")
+        raise ValidationError(f"Row {row_num}: unknown condition '{condition}'")
 
     if condition in SIMPLE_VALUE_CONDITIONS:
         result = dispatch_simple(signal, condition, get_number(d, "Value", _row_ctx(row_num)))
     elif condition in SIMPLE_RANGE_CONDITIONS:
         if "Min" not in d or "Max" not in d:
-            raise ValueError(
+            raise ValidationError(
                 f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
             )
         result = Check.signal(signal).stays_between(
@@ -411,11 +412,11 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
         )
     elif condition in SIMPLE_SETTLES_CONDITIONS:
         if "Min" not in d or "Max" not in d:
-            raise ValueError(
+            raise ValidationError(
                 f"Row {row_num}: condition 'settles_between' requires 'Min' and 'Max'"
             )
         if "Time (ms)" not in d:
-            raise ValueError(
+            raise ValidationError(
                 f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
             )
         result = Check.signal(signal).settles_between(
@@ -426,7 +427,7 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
         value = get_number(d, "Value", _row_ctx(row_num))
         result = Check.signal(signal).equals(value).always()
     else:
-        raise ValueError(f"Row {row_num}: unknown condition '{condition}'")
+        raise ValidationError(f"Row {row_num}: unknown condition '{condition}'")
 
     return _apply_metadata(result, d)
 
@@ -439,7 +440,7 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     when_value = get_number(d, "When Value", _row_ctx(row_num))
 
     if when_cond not in WHEN_CONDITIONS:
-        raise ValueError(f"Row {row_num}: unknown when condition '{when_cond}'")
+        raise ValidationError(f"Row {row_num}: unknown when condition '{when_cond}'")
 
     when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
 
@@ -448,7 +449,7 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     then_cond = get_str(d, "Then Condition", _row_ctx(row_num))
 
     if then_cond not in ALL_THEN_CONDITIONS:
-        raise ValueError(f"Row {row_num}: unknown then condition '{then_cond}'")
+        raise ValidationError(f"Row {row_num}: unknown then condition '{then_cond}'")
 
     then_builder = when_result.then(then_signal)
 
@@ -458,7 +459,7 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
         then_result = then_builder.exceeds(get_number(d, "Then Value", _row_ctx(row_num)))
     else:  # stays_between
         if "Then Min" not in d or "Then Max" not in d:
-            raise ValueError(
+            raise ValidationError(
                 f"Row {row_num}: then condition 'stays_between' requires 'Then Min' and 'Then Max'"
             )
         then_result = then_builder.stays_between(
@@ -478,7 +479,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     """Parse a single DBC signal row into a DBCSignal dict."""
     byte_order = get_str(row, "Byte Order", _row_ctx(row_num))
     if byte_order not in ("little_endian", "big_endian"):
-        raise ValueError(
+        raise ValidationError(
             f"Row {row_num}: 'Byte Order' must be 'little_endian' or 'big_endian'"
         )
 
@@ -490,7 +491,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     has_mux_val = "Multiplex Value" in row
 
     if has_muxor != has_mux_val:
-        raise ValueError(
+        raise ValidationError(
             f"Row {row_num}: 'Multiplexor' and 'Multiplex Value' "
             + "must both be provided or both be empty"
         )

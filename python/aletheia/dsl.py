@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from .client import ValidationError
 from .protocols import (
     PredicateType,
     LTLFormula,
@@ -59,10 +60,10 @@ def require_non_negative_time_ms(time_ms: int) -> None:
     """Reject negative durations in metric temporal operators.
 
     Raises:
-        ValueError: When *time_ms* is negative.
+        ValidationError: When *time_ms* is negative.
     """
     if time_ms < 0:
-        raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        raise ValidationError(f"time_ms must be non-negative, got {time_ms}")
 
 
 def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
@@ -211,7 +212,7 @@ class Signal:
         lo = Fraction(min_val)
         hi = Fraction(max_val)
         if lo > hi:
-            raise ValueError(
+            raise ValidationError(
                 f"min_val ({min_val}) must be <= max_val ({max_val})"
             )
         formula: AtomicFormula = _atomic({
@@ -366,7 +367,7 @@ class Predicate:
             Bounded temporal property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             brake_pressed.implies(speed_decreases.within(100))
@@ -392,7 +393,7 @@ class Predicate:
             Bounded temporal property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
@@ -686,7 +687,7 @@ class Property:
             Metric Until property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             # Speed must stay above 50 until brake within 1000ms
@@ -712,7 +713,7 @@ class Property:
             Metric Release property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             # Brake must be engaged until ignition releases it, within 5000ms

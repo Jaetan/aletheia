@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 
+from aletheia import ValidationError
 from aletheia.dsl import Signal, Predicate, Property
 from aletheia.protocols import (
     AtomicFormula,
@@ -172,7 +173,7 @@ class TestSignalComparison:
 
     def test_between_reversed_bounds_rejected(self) -> None:
         """between() rejects reversed bounds"""
-        with pytest.raises(ValueError, match="must be <="):
+        with pytest.raises(ValidationError, match="must be <="):
             Signal("X").between(10, 5)
 
 

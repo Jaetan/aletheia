@@ -30,6 +30,7 @@ from .client import (
     AletheiaClient,
     AletheiaError,
     SignalExtractionResult,
+    ValidationError,
     bytes_to_dlc,
 )
 from .client._helpers import dump_json
@@ -112,7 +113,7 @@ def parse_can_id(s: str) -> int:
     """Parse a CAN ID from hex (0x100) or decimal (256) string.
 
     Raises:
-        ValueError: If *s* is not a valid integer.
+        ValidationError: If *s* is not a valid integer.
     """
     s = s.strip()
     try:
@@ -120,7 +121,7 @@ def parse_can_id(s: str) -> int:
             return int(s, 16)
         return int(s)
     except ValueError as exc:
-        raise ValueError(f"Invalid CAN ID: {s!r}") from exc
+        raise ValidationError(f"Invalid CAN ID: {s!r}") from exc
 
 
 def parse_hex_data(s: str) -> bytearray:
@@ -132,17 +133,17 @@ def parse_hex_data(s: str) -> bytearray:
         "40:1F:7D:00:00:00:00:00"
 
     Raises:
-        ValueError: If *s* contains non-hex characters or has odd length.
+        ValidationError: If *s* contains non-hex characters or has odd length.
     """
     cleaned = s.replace(" ", "").replace(":", "")
     if cleaned.lower().startswith("0x"):
         cleaned = cleaned[2:]
     if len(cleaned) % 2 != 0:
-        raise ValueError(f"Hex data has odd number of characters: {s!r}")
+        raise ValidationError(f"Hex data has odd number of characters: {s!r}")
     try:
         return bytearray.fromhex(cleaned)
     except ValueError as exc:
-        raise ValueError(f"Invalid hex data: {s!r}") from exc
+        raise ValidationError(f"Invalid hex data: {s!r}") from exc
 
 
 def format_timestamp(us: int) -> str:
@@ -552,7 +553,7 @@ def _resolve_mux_message(args: argparse.Namespace, dbc: DBCDefinition) -> DBCMes
 
     try:
         can_id = parse_can_id(ident)
-    except ValueError:
+    except ValidationError:
         msg = message_by_name(dbc, ident)
         if msg is None:
             _die(f"message not found by id or name: {ident!r}")

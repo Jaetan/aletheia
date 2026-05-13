@@ -80,13 +80,13 @@ class TestSendErrorRemote:
     def test_send_remote_invalid_can_id_rejected(self) -> None:
         """send_remote rejects out-of-range standard CAN IDs."""
         with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="Invalid"):
+            with pytest.raises(ValidationError, match="Invalid"):
                 client.send_remote(timestamp=1000, can_id=0x800)
 
     def test_send_remote_extended_invalid_can_id_rejected(self) -> None:
         """send_remote rejects out-of-range extended CAN IDs."""
         with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="Invalid"):
+            with pytest.raises(ValidationError, match="Invalid"):
                 client.send_remote(timestamp=1000, can_id=0x20000000, extended=True)
 
     def test_send_error_error_response_raises_protocol_error(self) -> None:

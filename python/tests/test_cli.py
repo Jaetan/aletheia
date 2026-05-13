@@ -18,6 +18,7 @@ from pathlib import Path
 import can
 import pytest
 
+from aletheia import ValidationError
 from aletheia.checks_runner import rational_to_int
 from aletheia.cli import (
     format_timestamp,
@@ -55,7 +56,8 @@ _DBC_BRAKE_MSG = (
 # the cli.py extract path that PY-D-19.4 latent-bug-fixed: pre-fix the code
 # called ``dlc_to_bytes(msg["dlc"])`` where ``msg["dlc"]`` is the byte count
 # (cantools convention), so for any CAN-FD message the call raised
-# ``ValueError("Invalid DLC code: 16")``.  This test regresses that fix.
+# ``Invalid DLC code: 16`` (R20 cluster J migrated this to ``ValidationError``).
+# This test regresses that fix.
 _DBC_CANFD_MSG = (
     "BO_ 768 FDPayload: 16 ECU3\n"
     + ' SG_ FrontByte : 0|16@1+ (1,0) [0|65535] "raw" Vector__XXX\n'
@@ -124,12 +126,12 @@ class TestParseHexData:
 
     def test_odd_length_raises(self) -> None:
         """Verify odd length raises."""
-        with pytest.raises(ValueError, match="odd number"):
+        with pytest.raises(ValidationError, match="odd number"):
             parse_hex_data("ABC")
 
     def test_invalid_hex_raises(self) -> None:
         """Verify invalid hex raises."""
-        with pytest.raises(ValueError, match="Invalid hex data"):
+        with pytest.raises(ValidationError, match="Invalid hex data"):
             parse_hex_data("ZZZZ")
 
 
@@ -162,7 +164,7 @@ class TestParseCanId:
 
     def test_invalid_raises(self) -> None:
         """Verify invalid raises."""
-        with pytest.raises(ValueError, match="Invalid CAN ID"):
+        with pytest.raises(ValidationError, match="Invalid CAN ID"):
             parse_can_id("not_a_number")
 
 
@@ -215,7 +217,7 @@ class TestRationalToInt:
 
     def test_zero_denominator_raises(self) -> None:
         """Verify zero denominator raises."""
-        with pytest.raises(ValueError, match="denominator is zero"):
+        with pytest.raises(ValidationError, match="denominator is zero"):
             rational_to_int({"numerator": 42, "denominator": 0})
 
 
@@ -327,7 +329,7 @@ class TestExtractCommand:
         ``msg["dlc"]`` is the payload byte count (cantools convention).
         For CAN-FD messages the byte count exceeds 8 (12/16/20/24/32/48/64),
         none of which are valid DLC codes — the call raised
-        ``ValueError("Invalid DLC code: 16")`` and the command crashed.
+        ``Invalid DLC code: 16`` and the command crashed.
         After the fix, ``msg["dlc"]`` is used directly as the byte count
         and ``bytes_to_dlc`` is applied at the FFI boundary instead.
         """

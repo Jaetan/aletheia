@@ -15,9 +15,8 @@ shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 
 from pathlib import Path
 
-from .client import AletheiaClient
+from .client import AletheiaClient, ValidationError, check_dbc_text_size_bound
 from .client._helpers import dump_json
-from .client import check_dbc_text_size_bound
 from .protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
 
 
@@ -32,7 +31,7 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
 
     Raises:
         OSError: If the file cannot be read.
-        ValueError: If the file is not a valid DBC.
+        ValidationError: If the file is not a valid DBC.
         InputBoundExceededError: If the file is larger than
             :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).
 
@@ -48,7 +47,7 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":
-        raise ValueError(
+        raise ValidationError(
             f"Failed to parse DBC file '{dbc_path}': {response['message']}"
         )
     return response["dbc"]

@@ -606,7 +606,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 293. `[ ]` PY-A-5.1 — `python/aletheia/client/_{client,signal_ops}.py` — `"Client not initialized — use 'with' statement"` literal 11× duplicated; lift to helper.
 294. `[ ]` PY-A-5.2 — `python/aletheia/client/_client.py:231,245,675,820,868` — `"FFI returned null pointer"` literal 5×; lift to helper.
-295. `[ ]` PY-A-5.3 — Multiple `_types.py` / `dsl.py` / `checks.py` / loaders raise `ValueError` instead of typed `ValidationError`; 20+ sites. (Carry-over: PY-B-8.1.)
+295. `[FIX]` PY-A-5.3 — ✅ Cluster J closure.  All production `raise ValueError(...)` sites under `python/aletheia/` migrated to `raise ValidationError(...)` (sweep across `_types.py`, `_enrichment.py`, `_helpers.py`, `dsl.py`, `checks.py`, `_check_conditions.py`, `checks_runner.py`, `_loader_utils.py`, `excel_loader.py`, `yaml_loader.py`, `dbc_converter.py`, `can_log.py`, `cli.py`).  Stdlib catches (`except ValueError:` around `int()` / `Fraction()` / `bytearray.fromhex()` / `json.loads`) preserved.  Test sweep updates `pytest.raises(ValueError, ...)` → `pytest.raises(ValidationError, ...)` for caller-validation paths; `test_batch.py` mock injections stay `ValueError` (BatchError wraps arbitrary exceptions, mock is a placeholder).  `_loader_utils.py` uses direct `from .client._types import ValidationError` path to avoid `client/__init__.py` partial-initialization cycle when loaded transitively from `_helpers.py`.
 296. `[ ]` PY-A-5.4 — Three different "value out of range" error message shapes across `dsl.py` / `_types.py` / `checks.py`.
 297. `[ ]` PY-A-5.5 — `_signal_ops.py:133` — `"Unexpected status: {response.get('status')}"` lacks `!r` and `"(expected …)"` suffix used elsewhere.
 298. `[ ]` PY-A-5.6 — `_response_parsers.py:67-72,73-78` — Mixed multi-string vs single-fstring formats.
@@ -647,10 +647,10 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 #### Findings
 
-314. `[ ]` PY-B-8.1 [FIX] — `python/aletheia/client/_types.py:354,374,404` — `validate_can_id`, `dlc_to_bytes`, `bytes_to_dlc` raise `ValueError`. Should be `ValidationError`. Cross-binding parity: Go `ErrValidation`, C++ `ErrorKind::Validation`.
+314. `[FIX]` PY-B-8.1 — ✅ Cluster J closure (resolves with PY-A-5.3).  `validate_can_id`, `dlc_to_bytes`, `bytes_to_dlc` now raise `ValidationError` matching Go `*ValidationError` / C++ `ErrorKind::Validation`.
 315. `[FIX]` PY-B-8.2 [FIX] — ✅ Cluster C: `<= 0` rejection added at both sites; cross-binding parity with Go `validateRational` / C++ `Rational::make`. Hypothesis test split into accept-positive + reject-non-positive pair.
 316. `[ ]` PY-B-8.3 [FIX] — `python/aletheia/client/_client.py:157-172` — `__enter__` leaks RTS refcount on `aletheia_init() → null`. Wrap post-acquire init in try/except.
-317. `[ ]` PY-B-8.4 — `python/aletheia/client/_types.py:198-211` — `validate_payload_length` docstring lies (raises `ValueError` via `dlc_to_bytes`, not `ValidationError`). Resolves with 8.1.
+317. `[FIX]` PY-B-8.4 — ✅ Cluster J closure (resolves with PY-B-8.1).  `dlc_to_bytes` now raises `ValidationError` so the `validate_payload_length` docstring is honest.
 318. `[ ]` PY-B-7.1 [FIX] — `_signal_ops.py:60,149,186`, `_client.py:252`, `_helpers.py:184`, `asyncio/_client.py:281,294` — Signal-ops typed `Mapping[str, float | Fraction]`; missing `int` from `_RationalInput`. Pyright rejects natural `{"Speed": 50}` callers.
 319. `[ ]` PY-B-7.2 — `python/aletheia/protocols.py:68-80` — `is_str_dict` O(N) key scan; fast-path consideration.
 320. `[ ]` PY-B-25.1 — `python/aletheia/client/_client_bin.py:255-257, 281-283` — `(c_uint32 * n)(*signals.indices)` O(N) splat; benchmark vs `struct.pack` threshold.
@@ -1042,7 +1042,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 648. `[ ]` PY-D-26.4 [LOW] — `pytest-markdown-docs` pinned in `[dev]` but harness lives at repo root.
 649. `[FIX]` PY-D-27.1 [HIGH] — **`conftest.py:46,193,195` imports removed `ProcessError`.** Same as PY-A-1.1. ✅ Closed by cluster A.
 650. `[ ]` PY-D-27.2 [MED] — `aletheia.limits` constants not re-exported from top-level `aletheia` package; downstream callers must dig.
-651. `[ ]` PY-D-27.3 [MED] — `validate_can_id`/`dlc_to_bytes`/`bytes_to_dlc` raise `ValueError` not `ValidationError`. (See PY-B-8.1.)
+651. `[FIX]` PY-D-27.3 [MED] — ✅ Cluster J closure (resolves with PY-B-8.1).
 652. `[FIX]` PY-D-27.4 [MED] — ✅ Cluster C closure.
 653. `[ ]` PY-D-27.5 [LOW] — `CANFrameTuple` BRS/ESI semantics not in docstring (only in `send_frame` docstring).
 654. `[ ]` PY-D-28.1 [LOW] — `is_closed` returns `True` pre-`__enter__` AND post-`__exit__`; ambiguous.
@@ -1097,9 +1097,8 @@ focused commit; gates run fresh at every cluster closure per
 - ✅ `AGDA-D-32.5` — `check-bound-enforcement` Shake phony gates all 7 BoundKind ctors against the `InputBoundExceeded <Ctor>` emit-site requirement
 - ✅ `AGDA-D-30.1` — `ffi-exports.snapshot` extended with `F:` / `C:` / `T:` mode markers + 14 constructor + 11 type tags pinning the load-bearing MAlonzo types the Haskell shim unsafe-coerces through
 
-### Cluster J — Python ValidationError migration
-- `PY-A-5.3` / `PY-B-8.1` / `PY-D-27.3` — ~20 `ValueError` sites should raise `ValidationError` per PY-D-20.1 kind-tagged hierarchy
-- Touches `_helpers.py`, `loaders/`, factory paths; pylint 10/10
+### Cluster J — Python ValidationError migration  ✅ CLOSED
+- ✅ `PY-A-5.3` / `PY-B-8.1` / `PY-B-8.4` / `PY-D-27.3` — all production `raise ValueError(...)` sites under `python/aletheia/` migrated to `raise ValidationError(...)`.  Audited classification: every site is caller-validation; no sites needed `ProtocolError` (kernel-emitted) or `InputBoundExceededError` (typed adversarial bound) reclassification.  Stdlib `except ValueError:` catches around `int()` / `Fraction()` / `bytearray.fromhex()` / `json.loads` preserved as control flow.  Test sweep updates 30+ `pytest.raises(ValueError, ...)` → `pytest.raises(ValidationError, ...)` across 9 test files; `test_batch.py` mock injections stay `ValueError` (BatchError wraps arbitrary exceptions, mock placeholder).  `_loader_utils.py` uses direct `from .client._types import ValidationError` path to avoid `client/__init__.py` partial-initialization cycle when loaded transitively from `_helpers.py`.  `cli.py:556` `except ValueError` (around `parse_can_id`) lifted to `except ValidationError` (mux-query name-fallback path).
 
 ### Cluster K — C++ ErrorKind::Ffi emission
 - `CPP-D-21.4` / `CPP-B-7.3` — `ErrorKind::Ffi` declared but never constructed; mirrors Python `FFIError` and Go `ErrFFI`

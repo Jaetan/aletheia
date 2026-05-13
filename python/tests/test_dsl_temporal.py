@@ -12,6 +12,7 @@ from typing import cast
 
 import pytest
 
+from aletheia import ValidationError
 from aletheia.dsl import (
     Signal, Property,
     infinitely_often, eventually_always, never
@@ -99,26 +100,26 @@ class TestTemporalOperators:
 
     def test_negative_timebound_within(self) -> None:
         """Negative time bound is rejected."""
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(ValidationError, match="non-negative"):
             Signal("S").less_than(100).within(-1)
 
     def test_negative_timebound_for_at_least(self) -> None:
         """Negative time bound is rejected."""
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(ValidationError, match="non-negative"):
             Signal("S").less_than(100).for_at_least(-1)
 
     def test_negative_timebound_metric_until(self) -> None:
         """Negative time bound is rejected."""
         p = Signal("S").less_than(100).always()
         q = Signal("T").equals(1).always()
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(ValidationError, match="non-negative"):
             p.metric_until(-1, q)
 
     def test_negative_timebound_metric_release(self) -> None:
         """Negative time bound is rejected."""
         p = Signal("S").less_than(100).always()
         q = Signal("T").equals(1).always()
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(ValidationError, match="non-negative"):
             p.metric_release(-1, q)
 
 

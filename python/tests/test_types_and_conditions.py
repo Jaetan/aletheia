@@ -37,8 +37,8 @@ class TestBytesToDlc:
 
     @pytest.mark.parametrize("invalid", [9, 10, 11, 13, 15, 33, 65, 100, 256])
     def test_invalid_byte_count_raises(self, invalid: int) -> None:
-        """Invalid byte counts (not in the CAN-FD table) raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid byte count"):
+        """Invalid byte counts (not in the CAN-FD table) raise ValidationError."""
+        with pytest.raises(ValidationError, match="Invalid byte count"):
             bytes_to_dlc(DLCByteCount(invalid))
 
     @pytest.mark.parametrize("dlc_code", range(16))
@@ -307,12 +307,12 @@ class TestValidateCanId:
 
     def test_standard_over_max_raises(self) -> None:
         """Verify standard over max raises."""
-        with pytest.raises(ValueError, match="standard CAN ID"):
+        with pytest.raises(ValidationError, match="standard CAN ID"):
             validate_can_id(0x800, extended=False)
 
     def test_standard_negative_raises(self) -> None:
         """Verify standard negative raises."""
-        with pytest.raises(ValueError, match="standard CAN ID"):
+        with pytest.raises(ValidationError, match="standard CAN ID"):
             validate_can_id(-1, extended=False)
 
     def test_extended_zero(self) -> None:
@@ -325,10 +325,10 @@ class TestValidateCanId:
 
     def test_extended_over_max_raises(self) -> None:
         """Verify extended over max raises."""
-        with pytest.raises(ValueError, match="extended CAN ID"):
+        with pytest.raises(ValidationError, match="extended CAN ID"):
             validate_can_id(0x20000000, extended=True)
 
     def test_extended_negative_raises(self) -> None:
         """Verify extended negative raises."""
-        with pytest.raises(ValueError, match="extended CAN ID"):
+        with pytest.raises(ValidationError, match="extended CAN ID"):
             validate_can_id(-1, extended=True)

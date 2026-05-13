@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from .client import ValidationError
 from .dsl import Signal, Predicate, Property, require_non_negative_time_ms
 from .protocols import LTLFormula
 
@@ -29,10 +30,10 @@ def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:
     """Reject inverted intervals in two-bound check builders.
 
     Raises:
-        ValueError: When *lo* exceeds *hi*.
+        ValidationError: When *lo* exceeds *hi*.
     """
     if lo > hi:
-        raise ValueError(f"{method_name}: lo must be <= hi")
+        raise ValidationError(f"{method_name}: lo must be <= hi")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +115,7 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
         Compiles to ``Signal(s).between(lo, hi).for_at_least(time_ms)``.
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
         """
         require_non_negative_time_ms(time_ms)
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)

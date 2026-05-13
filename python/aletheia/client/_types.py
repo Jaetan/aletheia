@@ -346,12 +346,12 @@ def validate_can_id(can_id: int, *, extended: bool) -> None:
     """Validate that a CAN ID is within the legal range.
 
     Raises:
-        ValueError: If can_id is outside the valid range.
+        ValidationError: If can_id is outside the valid range.
     """
     max_id = _MAX_EXTENDED_ID if extended else _MAX_STANDARD_ID
     kind = "extended" if extended else "standard"
     if can_id < 0 or can_id > max_id:
-        raise ValueError(
+        raise ValidationError(
             f"Invalid {kind} CAN ID: {can_id} (must be 0-{max_id})"
         )
 
@@ -371,7 +371,7 @@ def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
     try:
         return DLCByteCount(_DLC_TO_BYTES[dlc])
     except KeyError:
-        raise ValueError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
+        raise ValidationError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
 
 
 _BYTES_TO_DLC: dict[int, int] = {v: k for k, v in _DLC_TO_BYTES.items()}
@@ -401,7 +401,7 @@ def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
     try:
         return DLCCode(_BYTES_TO_DLC[byte_count])
     except KeyError:
-        raise ValueError(
+        raise ValidationError(
             f"Invalid byte count: {byte_count}"
             + " (must be 0-8, 12, 16, 20, 24, 32, 48, or 64)"
         ) from None

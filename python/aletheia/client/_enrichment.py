@@ -8,7 +8,7 @@ from fractions import Fraction
 from typing import cast
 
 from ..protocols import LTLFormula
-from ._types import PropertyDiagnostic
+from ._types import PropertyDiagnostic, ValidationError
 
 _MAX_FORMULA_DEPTH = 100
 
@@ -27,10 +27,10 @@ def _walk_formula(
 ) -> None:
     """Walk a formula tree, calling on_atomic for each atomic node.
 
-    Raises ValueError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
     """
     if depth > _MAX_FORMULA_DEPTH:
-        raise ValueError(
+        raise ValidationError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
     op = formula.get("operator")
@@ -115,10 +115,10 @@ def format_formula(  # pylint: disable=too-many-return-statements,too-many-branc
 ) -> str:
     """Format an LTL formula dict as a human-readable string.
 
-    Raises ValueError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
     """
     if depth > _MAX_FORMULA_DEPTH:
-        raise ValueError(
+        raise ValidationError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
     inner = _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
@@ -131,7 +131,7 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
 ) -> str:
     """Inner formatter with parenthesization for binary operators."""
     if depth > _MAX_FORMULA_DEPTH:
-        raise ValueError(
+        raise ValidationError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
     recur = _format_formula_inner
@@ -215,7 +215,7 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
 def collect_signals(formula: dict[str, object]) -> list[str]:
     """Collect all signal names from a formula, deduplicated, in order.
 
-    Raises ValueError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
     """
     signals: list[str] = []
     seen: set[str] = set()

@@ -19,6 +19,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
+from .client import ValidationError
+
 # python-can is an optional extra (`pip install aletheia[can]`).  Surface a
 # clear, narrow ImportError naming the optional install rather than letting
 # a bare `ModuleNotFoundError: No module named 'can'` bubble up.  R19
@@ -113,7 +115,7 @@ def _validate_path(path: Path) -> None:
 
     ext = _effective_extension(path)
     if ext not in _SUPPORTED_EXTENSIONS:
-        raise ValueError(
+        raise ValidationError(
             f"Unsupported CAN log format '{ext}'. " +
             f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
         )
