@@ -815,6 +815,22 @@ callers that consumed a bare success acknowledgement need to access
   themselves); action references in `.github/workflows/` are still
   tag-pinned (`@v4`), SHA migration remains the next reviewable cat 1
   change (R20 cluster T — DOC-A-1.14).
+- New module `Aletheia.DBC.BoundWalks` hosts the handler-boundary
+  bound walks (cardinality `vds*` family + string-length
+  `firstOverBound*` family — 18 functions total) previously duplicated
+  between `Aletheia.Protocol.Handlers` and
+  `Aletheia.Protocol.Handlers.ParseDBCText`.  The original duplication
+  was cycle-avoidance (ParseDBCText cannot import from Handlers because
+  Handlers imports ParseDBCText); the new sibling module sits at the
+  leaf level so both consumers can pull from it without closing a
+  cycle.  Per-handler aggregators (`signalsBound` /
+  `firstDBCOverBound` / `firstStringOverBound`) stay local because
+  their return types differ — `Handlers` carries
+  `Maybe (String × ℕ × ℕ)` for field-name-tagged JSON error messages
+  while `ParseDBCText` carries `Maybe (ℕ × ℕ)` without context — so
+  the field-tagging choice stays at the call site rather than baked
+  into the helpers.  Module count **247 → 248** (R20 cluster V —
+  AGDA-A-1.3).  No runtime semantics change.
 - Doc-fence harness defense-in-depth: new autouse `_sandbox_cwd` fixture
   in the repo-root `conftest.py` pins every fence's cwd to a per-test
   `tmp_path` via `monkeypatch.chdir`.  Defense on top of the existing

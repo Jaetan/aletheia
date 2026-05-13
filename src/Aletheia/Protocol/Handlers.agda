@@ -25,9 +25,12 @@ open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (refl)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; Node; DBCComment; RawValueDesc;
-  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
-  AttrDef; AttrDefault; AttrAssign; AttrType; ATEnum; AttrValue; AVString)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; Node; RawValueDesc)
+open import Aletheia.DBC.BoundWalks using
+  ( totalValueDescriptions
+  ; firstOverBoundLC; firstOverBoundInMessages; firstOverBoundInComments
+  ; firstOverBoundInAttrs; firstOverBoundInValueTables; firstOverBoundInUnresolved
+  )
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
@@ -132,28 +135,9 @@ private
   -- VAL_ lines whose `(canId, signalName)` did not resolve to a signal).
   -- Walked at the handler boundary alongside the other cardinality
   -- checks; one cap closes `max-value-descriptions-per-file` previously
-  -- declared in `Aletheia.Limits` but never consulted.
-  vdsInSignals : List DBCSignal → ℕ
-  vdsInSignals [] = 0
-  vdsInSignals (s ∷ rest) = length (DBCSignal.valueDescriptions s) + vdsInSignals rest
-
-  vdsInMessages : List DBCMessage → ℕ
-  vdsInMessages [] = 0
-  vdsInMessages (m ∷ rest) = vdsInSignals (DBCMessage.signals m) + vdsInMessages rest
-
-  vdsInTables : List ValueTable → ℕ
-  vdsInTables [] = 0
-  vdsInTables (t ∷ rest) = length (ValueTable.entries t) + vdsInTables rest
-
-  vdsInUnresolved : List RawValueDesc → ℕ
-  vdsInUnresolved [] = 0
-  vdsInUnresolved (rv ∷ rest) = length (RawValueDesc.entries rv) + vdsInUnresolved rest
-
-  totalValueDescriptions : DBC → ℕ
-  totalValueDescriptions dbc =
-    vdsInMessages (DBC.messages dbc) +
-    vdsInTables (DBC.valueTables dbc) +
-    vdsInUnresolved (DBC.unresolvedValueDescs dbc)
+  -- declared in `Aletheia.Limits` but never consulted.  Walks live in
+  -- `Aletheia.DBC.BoundWalks` (R20 cluster V — AGDA-A-1.3) shared with
+  -- the verified text-parser path in `Handlers.ParseDBCText`.
 
   firstDBCOverBound : DBC → Maybe (String × ℕ × ℕ)
   firstDBCOverBound dbc with length (DBC.messages dbc) <ᵇ suc max-messages-per-file
@@ -189,91 +173,10 @@ private
   -- bounds at this same handler boundary; this mirrors the placement for
   -- string-length bounds (comment text, attribute string values, signal
   -- units, value-description labels, attribute names — none of which go
-  -- through `validIdentifierᵇ`'s length cap).
-  --
-  -- Discovery order is `version` → per-message signals (unit + VD labels) →
-  -- comments → attributes (name + AVString value + ATEnum labels) → value
-  -- tables → unresolved value descs.  Returns nothing if all under bound;
-  -- else (fieldCtx, observed, limit) for the first violation.
-  firstOverBoundLC : List Char → Maybe (ℕ × ℕ)
-  firstOverBoundLC cs with length cs <ᵇ suc max-string-length-bytes
-  ... | true  = nothing
-  ... | false = just (length cs , max-string-length-bytes)
-
-  -- Walk a list of (ℕ , List Char) entries (value-description labels).
-  firstOverBoundEntries : List (ℕ × List Char) → Maybe (ℕ × ℕ)
-  firstOverBoundEntries [] = nothing
-  firstOverBoundEntries ((_ , cs) ∷ rest) with firstOverBoundLC cs
-  ... | just over = just over
-  ... | nothing   = firstOverBoundEntries rest
-
-  -- Walk per-signal: unit + value-description labels.
-  firstOverBoundSignal : DBCSignal → Maybe (ℕ × ℕ)
-  firstOverBoundSignal sig with firstOverBoundLC (DBCSignal.unit sig)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundEntries (DBCSignal.valueDescriptions sig)
-
-  firstOverBoundInSignals : List DBCSignal → Maybe (ℕ × ℕ)
-  firstOverBoundInSignals [] = nothing
-  firstOverBoundInSignals (s ∷ rest) with firstOverBoundSignal s
-  ... | just over = just over
-  ... | nothing   = firstOverBoundInSignals rest
-
-  firstOverBoundInMessages : List DBCMessage → Maybe (ℕ × ℕ)
-  firstOverBoundInMessages [] = nothing
-  firstOverBoundInMessages (m ∷ rest) with firstOverBoundInSignals (DBCMessage.signals m)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundInMessages rest
-
-  firstOverBoundInComments : List DBCComment → Maybe (ℕ × ℕ)
-  firstOverBoundInComments [] = nothing
-  firstOverBoundInComments (c ∷ rest) with firstOverBoundLC (DBCComment.text c)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundInComments rest
-
-  firstOverBoundEnumLabels : List (List Char) → Maybe (ℕ × ℕ)
-  firstOverBoundEnumLabels [] = nothing
-  firstOverBoundEnumLabels (cs ∷ rest) with firstOverBoundLC cs
-  ... | just over = just over
-  ... | nothing   = firstOverBoundEnumLabels rest
-
-  firstOverBoundAttrType : AttrType → Maybe (ℕ × ℕ)
-  firstOverBoundAttrType (ATEnum vs) = firstOverBoundEnumLabels vs
-  firstOverBoundAttrType _           = nothing
-
-  firstOverBoundAttrValue : AttrValue → Maybe (ℕ × ℕ)
-  firstOverBoundAttrValue (AVString cs) = firstOverBoundLC cs
-  firstOverBoundAttrValue _             = nothing
-
-  firstOverBoundAttr : DBCAttribute → Maybe (ℕ × ℕ)
-  firstOverBoundAttr (DBCAttrDef ad) with firstOverBoundLC (AttrDef.name ad)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundAttrType (AttrDef.attrType ad)
-  firstOverBoundAttr (DBCAttrDefault adef) with firstOverBoundLC (AttrDefault.name adef)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundAttrValue (AttrDefault.value adef)
-  firstOverBoundAttr (DBCAttrAssign aa) with firstOverBoundLC (AttrAssign.name aa)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundAttrValue (AttrAssign.value aa)
-
-  firstOverBoundInAttrs : List DBCAttribute → Maybe (ℕ × ℕ)
-  firstOverBoundInAttrs [] = nothing
-  firstOverBoundInAttrs (a ∷ rest) with firstOverBoundAttr a
-  ... | just over = just over
-  ... | nothing   = firstOverBoundInAttrs rest
-
-  firstOverBoundInValueTables : List ValueTable → Maybe (ℕ × ℕ)
-  firstOverBoundInValueTables [] = nothing
-  firstOverBoundInValueTables (vt ∷ rest) with firstOverBoundEntries (ValueTable.entries vt)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundInValueTables rest
-
-  firstOverBoundInUnresolved : List RawValueDesc → Maybe (ℕ × ℕ)
-  firstOverBoundInUnresolved [] = nothing
-  firstOverBoundInUnresolved (rv ∷ rest) with firstOverBoundEntries (RawValueDesc.entries rv)
-  ... | just over = just over
-  ... | nothing   = firstOverBoundInUnresolved rest
-
+  -- through `validIdentifierᵇ`'s length cap).  Underlying walks live in
+  -- `Aletheia.DBC.BoundWalks` (R20 cluster V — AGDA-A-1.3) shared with
+  -- the verified text-parser path; this aggregator tags each branch with
+  -- a field-name `String` for richer JSON error messages.
   firstStringOverBound : DBC → Maybe (String × ℕ × ℕ)
   firstStringOverBound dbc with firstOverBoundLC (DBC.version dbc)
   ... | just (obs , lim) = just ("version string" , obs , lim)
