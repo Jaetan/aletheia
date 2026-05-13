@@ -773,6 +773,12 @@ callers that consumed a bare success acknowledgement need to access
   dispatcher (`processStreamCommand`) was already handling them; the
   facade now matches the actual protocol surface (R20 cluster Q —
   AGDA-A-1.1).
+- Go `Backend` interface docstring at `go/aletheia/backend.go` gains
+  structured grouping (session lifecycle + JSON command bus; binary-FFI
+  send / event / state-transition endpoints; binary-FFI bidirectional
+  endpoints) mirroring C++ `IBackend`'s [MANDATORY] / [OPTIONAL] split
+  at `cpp/include/aletheia/backend.hpp`.  Doc-only; method signatures
+  and behaviour unchanged (R20 cluster R — GO-D-20.1).
 
 ### Removed
 

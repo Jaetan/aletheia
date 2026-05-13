@@ -30,12 +30,39 @@ func WithFFILogger(l *slog.Logger) FFIBackendOption {
 // Backend abstracts the FFI boundary to the Agda core.
 // Production code uses [FFIBackend]; tests use [MockBackend].
 // Sealed: only types in this package may implement Backend.
+//
+// The method set is grouped by data-format and direction to document the
+// JSON-command / binary-FFI mix flagged in R20 GO-D-20.1.  The grouping
+// mirrors the [MANDATORY] / [OPTIONAL] split on C++ `IBackend` at
+// `cpp/include/aletheia/backend.hpp`; Go interfaces have no default-method
+// machinery, so every method is technically mandatory at the type level,
+// but the surface separates cleanly into three layers:
+//
+//  1. Session lifecycle + JSON command bus.  Every backend must minimally
+//     answer here; the JSON command path is the cross-binding semantic
+//     ground truth and remains the fallback for endpoints a backend chooses
+//     not to specialise (the Mock implements per-method canned responses
+//     instead of routing through `Process`).
+//  2. Binary-FFI send / event / state-transition endpoints.  Binary input
+//     bypasses JSON deserialisation on the send side; the response remains
+//     a JSON string.  These are the per-frame hot path.
+//  3. Binary-FFI bidirectional endpoints.  Raw payload bytes on both input
+//     and output sides.  No JSON allocation per call.
 type Backend interface {
 	backend() // sealed — prevents third-party implementations
+
+	// ─── Group 1: Session lifecycle + JSON command bus ────────────────────
+
 	// Init creates a new session and returns an opaque state handle.
 	Init() (unsafe.Pointer, error)
 	// Process sends a JSON command and returns the JSON response.
 	Process(state unsafe.Pointer, input string) (string, error)
+	// Close finalizes and frees the session state.
+	Close(state unsafe.Pointer)
+
+	// ─── Group 2: Binary-FFI send / event / state-transition endpoints ────
+	// Binary input → JSON response.
+
 	// SendFrameBinary sends a CAN frame via the binary FFI, bypassing JSON
 	// serialization on the input side. Returns the JSON response string.
 	// CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
@@ -66,6 +93,10 @@ type Backend interface {
 	FormatDBCBinary(state unsafe.Pointer) (string, error)
 	// ExtractSignalsBinary extracts signals from a binary CAN frame without JSON parsing on input.
 	ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error)
+
+	// ─── Group 3: Binary-FFI bidirectional endpoints ──────────────────────
+	// Raw payload bytes on both input and output — no JSON allocation.
+
 	// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
 	BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
 	// UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
@@ -73,6 +104,4 @@ type Backend interface {
 	// ExtractSignalsBin extracts signals returning packed binary (no JSON on output).
 	// Returns the raw binary buffer that the caller must parse.
 	ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte) ([]byte, error)
-	// Close finalizes and frees the session state.
-	Close(state unsafe.Pointer)
 }
