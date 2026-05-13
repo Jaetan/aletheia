@@ -562,9 +562,9 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 
 ##### Cat 29 — File I/O
 
-269. `[ ]` CPP-B-29.1 — `cpp/src/excel.cpp:444-452, yaml.cpp:243-249` — No `is_symlink` / canonicalisation; symlink-to-/dev/zero opens.
-270. `[ ]` CPP-B-29.2 — `cpp/src/excel.cpp:444-452, yaml.cpp:243-249` — Excel loader no file-size cap; ZIP-bomb resistant 0.
-271. `[ ]` CPP-B-29.3 — `cpp/src/excel.cpp:617-624` — `create_excel_template` no parent-dir / typed error.
+269. `[FIX]` CPP-B-29.1 — ✅ Cluster N: `detail::validate_loader_path` rejects symlinks / non-regular files at every loader entry (`load_checks_from_excel` / `load_dbc_from_excel` / `load_checks_from_yaml`); cross-binding mirror added to Python `excel_loader` / `yaml_loader` via `_loader_utils.reject_symlink_loader_path`.
+270. `[FIX]` CPP-B-29.2 — ✅ Cluster N: `detail::check_file_size_bound` (raw-cap → `InputBoundExceeded` with structured `bound_info`) + `detail::check_xlsx_uncompressed_bound` (defensive ~80-LOC central-directory walker, ZIP-bomb defence; mirrors Python `_check_xlsx_uncompressed_bound` from R19 cluster 12).
+271. `[FIX]` CPP-B-29.3 — ✅ Cluster N: `create_excel_template` runs `detail::validate_output_parent_dir` first; missing parent now emits `ErrorKind::Validation` with explicit message instead of OpenXLSX opaque throw.
 
 ##### Cat 33 — Dynamic correctness
 
@@ -620,7 +620,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 ##### Cat 27 — File I/O
 
 302. `[ ]` PY-A-27.1 — `dbc_converter.py:99` — Single-quoted `'utf-8'` vs double-quoted `"utf-8"` elsewhere.
-303. `[ ]` PY-A-27.2 — `python/aletheia/client/_ffi.py:241-267` — `os.lstat` symlink check only on `ALETHEIA_LIB`; build-dir / dist-newstyle paths bypass. (Reaffirmed PY-B-26.2.)
+303. `[FIX]` PY-A-27.2 — ✅ Cluster N: `_validate_lib_path` extracted from inline ALETHEIA_LIB block and applied to every fallback resolution path (`_install_config.LIBRARY_PATH`, `build/`, `dist-newstyle/**` rglob result). Defense-in-depth: a tampered fallback can no longer bypass the symlink + group/world-writable check.
 
 ##### Cat 28 — Logging discipline
 
@@ -660,7 +660,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 324. `[ ]` PY-B-12.2 — `python/aletheia/asyncio/testing.py:113, 117` — `setattr` monkey-patch defeats type-checking; promote `Hook` interface. (See PY-D-24.2.)
 325. `[ ]` PY-B-25.3 — `_signal_ops.py:135-137` — `is_object_list` tuple rebuilt per call; hoist.
 326. `[ ]` PY-B-14.1 — `python/aletheia/client/_ffi.py:96-101` — `RTSState.release` silent skip; add WARN log on asymmetry.
-327. `[ ]` PY-B-26.2 [FIX] — `python/aletheia/client/_ffi.py:217-296` — `ALETHEIA_LIB` permission check (R19 cluster 12) not applied to fallback paths.
+327. `[FIX]` PY-B-26.2 — ✅ Cluster N: see PY-A-27.2 fix; `_validate_lib_path` helper now covers all 4 resolution paths, not only `ALETHEIA_LIB`.
 328. `[ ]` PY-B-9.1 — `python/aletheia/client/_helpers.py:65-77` — `dump_json` no `sort_keys`; cross-binding wire-bytes parity hazard if test fixtures shuffle.
 329. `[ ]` PY-B-22.1 — `python/aletheia/client/_client.py:594-600` — `_ACK_RESPONSES` parity contract not documented for Go/C++.
 330. `[ ]` PY-B-23.1 — `python/aletheia/client/_client.py:556-561`, `_types.py:297` — `MAX_EXTRACT_CACHE = 256` skip-insert on full, no LRU eviction → perf cliff post-256 unique keys.
@@ -998,7 +998,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 611. `[ ]` CPP-D-20.3 [FIX-style] — `parse_signal_value` + `parse_rational` near-identical; extract `parse_rational_strict_or_float`.
 612. `[ ]` CPP-D-20.4 [FIX-style] — `parse_issue_code` 22-branch if-chain; migrate to constexpr lookup table.
 613. `[ ]` CPP-D-21.1 [FIX] — `unit_tests_cancel.cpp:91,176,181` physical-time sleeps. (See CPP-B-14.4.)
-614. `[ ]` CPP-D-21.2 [FIX] — Loaders no symlink check / ZIP-bomb guard / decompression-ratio cap. (See CPP-B-29.1-2.)
+614. `[FIX]` CPP-D-21.2 — ✅ Cluster N: closed by CPP-B-29.1 + CPP-B-29.2 fixes. Symlink rejection + raw size cap + ZIP central-directory walker on every loader entry; cross-binding mirror to Python.
 615. `[ ]` CPP-D-21.3 [FIX] — Loaders take no `std::stop_token`; slowest path lacks cancellation.
 616. `[ ]` CPP-D-21.4 [FIX] — `ErrorKind::Ffi` declared but never constructed in production. (See CPP-B-7.3.)
 617. `[ ]` CPP-D-21.5 [FIX] — `parse_bounded` SAX callback throws at depth 64+; recursive descent already 9600 bytes deep — SIGSEGV before throw. Lower bound or use non-recursive parse_sax.
@@ -1114,11 +1114,13 @@ focused commit; gates run fresh at every cluster closure per
 - `CPP-A-30.1` — equivalent in C++ Logger callback path
 - Bench after
 
-### Cluster N — Excel / YAML loader I/O hardening
-- `CPP-B-29.x` — symlink-safe + ZIP-bomb bounds in `cpp/src/excel/`
-- `PY-B-26.2` — same in `python/aletheia/loaders/excel.py` / `yaml.py`
-- `CPP-D-21.2` — TOCTOU race on path-resolution
-- New tests for symlink loops + 1 KiB → 1 GiB decompression bombs
+### Cluster N — Excel / YAML loader I/O hardening — ✅ CLOSED
+- `CPP-B-29.1/2/3` ✅ — `cpp/src/detail/loader_utils.{hpp,cpp}` adds `validate_loader_path` (symlink+regular-file gate), `check_file_size_bound` (raw 64 MiB cap → typed `InputBoundExceeded` with structured `bound_info`), `check_xlsx_uncompressed_bound` (defensive ~80-LOC central-directory walker — ZIP-bomb defence), and `validate_output_parent_dir` (`create_excel_template` parent-dir gate).
+- `PY-B-26.2` / `PY-A-27.2` ✅ — `_ffi._validate_lib_path` extracted from inline `ALETHEIA_LIB` block and applied to every fallback resolution path (`_install_config`, `build/`, `dist-newstyle/`).
+- Cross-binding parity ✅ — `python/aletheia/_loader_utils.reject_symlink_loader_path` mirrors the C++ symlink rejection; called from `excel_loader.load_checks_from_excel` / `load_dbc_from_excel` and `yaml_loader._load_yaml(Path)`.
+- `CPP-D-21.2` ✅ — covered by CPP-B-29 fixes; TOCTOU residual gap documented in source.
+- 5 new C++ Catch2 hardening tests (excel symlink + size cap + ZIP-bomb + create_template parent missing; yaml symlink + size cap) + 3 Python pytest tests (excel symlink × 2 — checks + DBC; yaml symlink) + inline-string regression guard for yaml.
+- Cluster K straggler bundled per [[feedback-gate-claim-integrity]]: `cpp/tests/integration_tests.cpp:1505-1506` `make_ffi_backend rejects rts_cores < 1` was still asserting `std::invalid_argument` after cluster K migrated those throw sites to `AletheiaException(ErrorKind::Validation)`; assertion updated.
 
 ### Cluster O — Go cluster-5 rename completion + naming Cat 3
 - `GO-D-15.1` — `NewDbcMessage` / `NewDbcDefinition` / `Backend.FormatDbcBinary` / `WithDbcSheet` / unexported `parseDbc*` / `formatDbcFn`
@@ -1153,6 +1155,7 @@ focused commit; gates run fresh at every cluster closure per
 
 - 2026-05-12 — Clusters A-G shipped (commits 4be9a84, dbd3e60, c2c6bab, 9a73a48, c795141, 036a684, 00dc764).  47 findings marked `[FIX]`.  Cluster split saved (3fa8e65).
 - 2026-05-12 — Cluster H shipped: AGDA bound enforcement gap (firstDBCOverBound + 4 list types + max-value-descriptions-per-file consulted); GO-B-12.1 parseRational range-check + fractional-component rejection; 5 new TestParseRational_Reject* coverage.  Stragglers bundled: cluster-C test rename `test_division_by_zero_string_raises → test_non_positive_denominator_string_raises` (test caught the cluster-C reordering of the `<= 0` check); cluster-D `cpp/src/client.cpp` clang-format reflow.
+- 2026-05-13 — Cluster N shipped: C++ loader hardening (symlink+size+ZIP-bomb at every entry; `cpp/src/detail/loader_utils.{hpp,cpp}` new TU); Python `_ffi.find_ffi_library` extends symlink/permission gate to fallback paths (`_install_config` / `build/` / `dist-newstyle/`); cross-binding mirror of symlink rejection added to Python excel/yaml loaders via `_loader_utils.reject_symlink_loader_path`. 5 new C++ + 3 new Python tests. Cluster K straggler `integration_tests.cpp` `std::invalid_argument` → `AletheiaException` assertion update bundled.
 
 
 ---

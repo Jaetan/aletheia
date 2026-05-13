@@ -274,6 +274,16 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   them per-frame from python-can readers. The Aletheia kernel does
   NOT consume these bits — pass-through metadata only (R19 Phase 2
   cluster 18).
+- Loader path-hardening: `excel_loader.load_checks_from_excel`,
+  `load_dbc_from_excel`, and `yaml_loader.load_checks(Path(...))` now
+  refuse symbolic links outright with `ValidationError`. Mirrors the
+  same C++ rejection so cross-binding semantics stay aligned (R20
+  cluster N — PY-B-26.2 / cross-binding parity).
+- `aletheia.client._ffi.find_ffi_library` extends the R19-cluster-12
+  symlink + group/world-writable check from the `ALETHEIA_LIB` env
+  path to every fallback resolution path (`_install_config`,
+  `build/`, `dist-newstyle/`); a tampered fallback can no longer
+  bypass the gate (R20 cluster N — PY-B-26.2 / PY-A-27.2).
 
 #### Go
 
@@ -338,6 +348,19 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   existing `catch (const std::exception&)` blocks keep working via
   the base, new code can `catch (const AletheiaException&)` to
   recover the kind tag (R20 cluster K).
+- Loader hardening: `load_checks_from_excel`, `load_dbc_from_excel`,
+  `load_checks_from_yaml`, and `create_excel_template` now reject
+  symbolic links, enforce a 64 MiB raw file-size cap, and (for
+  `.xlsx`) walk the ZIP central directory and reject when the sum
+  of uncompressed entry sizes exceeds the cap (ZIP-bomb defence).
+  Symbolic-link / non-regular-file rejection emits
+  `ErrorKind::Validation`; size-cap and uncompressed-bound emit
+  `ErrorKind::InputBoundExceeded` with structured `bound_info`
+  (`{kind="input_length_bytes", observed, limit}`) — same shape as
+  Python `InputBoundExceededError` / Go `*InputBoundExceededError`.
+  `create_excel_template` additionally validates the destination's
+  parent directory exists before letting OpenXLSX raise an opaque
+  exception (R20 cluster N — CPP-B-29.1/2/3 / CPP-D-21.2).
 
 #### Build / release tooling (R18 cluster 3)
 

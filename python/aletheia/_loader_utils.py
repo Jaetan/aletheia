@@ -1,11 +1,15 @@
-"""Shared field accessors for YAML and Excel check loaders.
+"""Shared field accessors and path-hardening helpers for the YAML and
+Excel check loaders.
 
-Both loaders need to extract typed fields from untyped dicts with
-helpful error messages.  This module provides runtime-checked accessors
-that raise :class:`aletheia.ValidationError` with a caller-supplied
-context string.
+Both loaders need to (a) extract typed fields from untyped dicts with
+helpful error messages, and (b) reject adversarial loader inputs
+(symlinks, oversize files) before yaml-cpp / openpyxl gets a chance to
+explode or exhaust memory.  This module provides both surfaces.
 """
 
+import os
+import stat
+from pathlib import Path
 from typing import TypeGuard
 
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
@@ -92,3 +96,33 @@ def get_dict(d: dict[str, object], key: str, ctx: str) -> dict[str, object]:
     if not is_str_dict(val):
         raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected mapping)")
     return val
+
+
+# ===========================================================================
+# Path-hardening helper (R20 cluster N — PY-B-26.2 cross-binding mirror)
+# ===========================================================================
+
+def reject_symlink_loader_path(p: Path, kind: str) -> None:
+    """Reject *p* if it is a symbolic link.
+
+    Mirrors the C++ ``aletheia::detail::validate_loader_path`` symlink
+    rejection.  Cross-binding parity per
+    ``feedback_cross_language_parity.md``: if the C++ binding refuses a
+    symlinked .xlsx / .yaml, the Python binding does too.
+
+    *kind* is interpolated into the error message ("Excel" / "YAML") so
+    operators see which loader rejected the path.
+
+    Canonicalisation would FOLLOW the link, defeating the check, so we
+    use ``os.lstat`` and refuse outright.  Callers passing legitimate
+    symlinks must resolve them first (``Path(link).resolve()``).
+
+    Raises:
+        ValidationError: *p* exists but is a symbolic link.
+    """
+    link_st = os.lstat(p)
+    if stat.S_ISLNK(link_st.st_mode):
+        raise ValidationError(
+            f"{kind} file is a symbolic link; refusing to load: {p}."
+            + "  Resolve the link and pass the real path explicitly."
+        )

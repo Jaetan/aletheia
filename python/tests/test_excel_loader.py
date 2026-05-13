@@ -784,3 +784,43 @@ def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
     wb.save(str(p))
     checks = load_checks_from_excel(p)
     assert len(checks) == 2
+
+
+# ============================================================================
+# R20 cluster N — adversarial-input hardening (PY-B-26 / cross-binding mirror)
+# ============================================================================
+# Symlink rejection mirrors C++ `aletheia::detail::validate_loader_path` —
+# canonicalisation would FOLLOW the link and defeat the check, so callers
+# passing legitimate symlinks must resolve them first.
+
+def test_loader_rejects_symlink(tmp_path: Path) -> None:
+    """A symlinked .xlsx is refused outright per cluster N hardening."""
+    real = _make_checks_workbook(
+        tmp_path,
+        [[None, "Speed", "never_exceeds", 220, None, None, None, None]],
+        filename="real.xlsx",
+    )
+    link = tmp_path / "link.xlsx"
+    try:
+        link.symlink_to(real)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation not permitted on this filesystem")
+    with pytest.raises(ValidationError, match="symbolic link"):
+        load_checks_from_excel(link)
+
+
+def test_loader_rejects_symlinked_dbc(tmp_path: Path) -> None:
+    """The DBC entry point also refuses symlinks."""
+    real = _make_dbc_workbook(
+        tmp_path,
+        [["256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
+          "1", "0", "0", "255", "", "", "", ""]],
+        filename="real_dbc.xlsx",
+    )
+    link = tmp_path / "link_dbc.xlsx"
+    try:
+        link.symlink_to(real)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation not permitted on this filesystem")
+    with pytest.raises(ValidationError, match="symbolic link"):
+        load_dbc_from_excel(link)

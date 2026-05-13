@@ -441,9 +441,15 @@ void write_header_row(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>&
 
 auto load_checks_from_excel(const std::filesystem::path& path, std::string_view checks_sheet,
                             std::string_view when_then_sheet) -> Result<std::vector<CheckResult>> {
-    if (!std::filesystem::exists(path))
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "Excel file not found: " + path.string()});
+    // R20 cluster N — CPP-B-29.1/2 / CPP-D-21.2: reject symlinks, raw-size cap,
+    // ZIP-uncompressed cap before handing the path to OpenXLSX.  See
+    // `cpp/src/detail/loader_utils.hpp` for rationale + TOCTOU note.
+    if (auto v = detail::validate_loader_path(path, "Excel"); !v)
+        return std::unexpected(v.error());
+    if (auto v = detail::check_file_size_bound(path); !v)
+        return std::unexpected(v.error());
+    if (auto v = detail::check_xlsx_uncompressed_bound(path); !v)
+        return std::unexpected(v.error());
 
     try {
         OpenXLSX::XLDocument doc;
@@ -563,9 +569,13 @@ auto build_message_from_group(const MessageKeyExt& key, const std::vector<std::s
 
 auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view sheet)
     -> Result<DbcDefinition> {
-    if (!std::filesystem::exists(path))
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "Excel file not found: " + path.string()});
+    // R20 cluster N — same hardening as load_checks_from_excel.
+    if (auto v = detail::validate_loader_path(path, "Excel"); !v)
+        return std::unexpected(v.error());
+    if (auto v = detail::check_file_size_bound(path); !v)
+        return std::unexpected(v.error());
+    if (auto v = detail::check_xlsx_uncompressed_bound(path); !v)
+        return std::unexpected(v.error());
 
     try {
         OpenXLSX::XLDocument doc;
@@ -615,6 +625,10 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
 // ===========================================================================
 
 auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
+    // R20 cluster N — CPP-B-29.3: validate the destination's parent dir
+    // before letting OpenXLSX raise an opaque exception inside `doc.create`.
+    if (auto v = detail::validate_output_parent_dir(path); !v)
+        return std::unexpected(v.error());
     if (std::filesystem::exists(path))
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "File already exists: " + path.string()});

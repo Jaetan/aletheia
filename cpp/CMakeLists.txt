@@ -188,6 +188,7 @@ add_library(aletheia-cpp
     src/backend.cpp
     src/client.cpp
     src/dbc.cpp
+    src/detail/loader_utils.cpp
     src/enrich.cpp
     src/excel.cpp
     src/ffi_backend.cpp

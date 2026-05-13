@@ -84,6 +84,7 @@ from ._loader_utils import (
     get_number,
     get_int,
     get_bool,
+    reject_symlink_loader_path,
 )
 from .client._helpers import to_signal_fraction
 
@@ -219,6 +220,7 @@ def load_checks_from_excel(
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
+    reject_symlink_loader_path(p, "Excel")
     check_dbc_text_size_bound(p.stat().st_size)
     _check_xlsx_uncompressed_bound(p)
 
@@ -270,6 +272,7 @@ def load_dbc_from_excel(
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
+    reject_symlink_loader_path(p, "Excel")
     check_dbc_text_size_bound(p.stat().st_size)
     _check_xlsx_uncompressed_bound(p)
 

@@ -488,3 +488,42 @@ class TestLoadErrors:
                     condition: bogus
                     value: 100
             """))
+
+
+# ============================================================================
+# R20 cluster N — adversarial-input hardening (cross-binding mirror)
+# ============================================================================
+
+class TestLoaderHardening:
+    """Symlinked YAML refused outright, mirroring
+    ``aletheia::detail::validate_loader_path`` in C++.  Inline YAML
+    strings are unaffected — the symlink check only applies to ``Path``
+    inputs.
+    """
+
+    def test_symlink_path_rejected(self, tmp_path: Path) -> None:
+        """Symlinked .yaml is refused outright per cluster N hardening."""
+        real = tmp_path / "real.yaml"
+        real.write_text(textwrap.dedent("""\
+            checks:
+              - signal: Speed
+                condition: never_exceeds
+                value: 200
+        """))
+        link = tmp_path / "link.yaml"
+        try:
+            link.symlink_to(real)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation not permitted on this filesystem")
+        with pytest.raises(ValidationError, match="symbolic link"):
+            load_checks(link)
+
+    def test_inline_string_unaffected(self) -> None:
+        """Inline YAML strings bypass the symlink check (no path involved)."""
+        result = load_checks(textwrap.dedent("""\
+            checks:
+              - signal: Speed
+                condition: never_exceeds
+                value: 200
+        """))
+        assert len(result) == 1

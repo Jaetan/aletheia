@@ -1502,8 +1502,11 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 
 TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]") {
     auto lib = find_lib();
-    CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/0), std::invalid_argument);
-    CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/-1), std::invalid_argument);
+    // R20 cluster K migrated `rts_cores < 1` from `std::invalid_argument` to
+    // `AletheiaException(ErrorKind::Validation)` so callers can branch on
+    // `kind()` like every other typed FFI error.
+    CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/0), AletheiaException);
+    CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/-1), AletheiaException);
 }
 
 // ---------------------------------------------------------------------------

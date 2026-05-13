@@ -73,7 +73,7 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
-from ._loader_utils import get_str, get_number, get_int, get_dict
+from ._loader_utils import get_str, get_number, get_int, get_dict, reject_symlink_loader_path
 
 
 def _ctx(name: str) -> str:
@@ -153,6 +153,7 @@ def _load_yaml(source: str | Path) -> object:
     work unchanged.  See CHANGELOG.md ``[Unreleased] [Changed]``.
     """
     if isinstance(source, Path):
+        reject_symlink_loader_path(source, "YAML")
         check_dbc_text_size_bound(source.stat().st_size)
         with open(source, encoding="utf-8") as f:
             return yaml.safe_load(f)
