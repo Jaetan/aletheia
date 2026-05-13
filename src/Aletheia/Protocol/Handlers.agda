@@ -25,7 +25,9 @@ open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (refl)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; Node; DBCComment; RawValueDesc)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; Node; DBCComment; RawValueDesc;
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
+  AttrDef; AttrDefault; AttrAssign; AttrType; ATEnum; AttrValue; AVString)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
@@ -52,12 +54,14 @@ open import Aletheia.Error as Err using
   ; WrappedParse
   )
 open import Aletheia.Limits using
-  ( ArrayCardinality; AtomCount
+  ( BoundKind; ArrayCardinality; AtomCount; StringLength
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
   ; max-atom-count-per-property
+  ; max-string-length-bytes
   )
+open import Data.Char using (Char)
 
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
 open import Aletheia.Protocol.StreamState using
@@ -90,10 +94,15 @@ private
   ... | inj₁ err = (state , Response.Error (WithContext ctx (HandlerErr err)))
   ... | inj₂ dbc = f dbc
 
-  -- Parse DBC from JSON, wrapping parse errors with command context
+  -- Parse DBC from JSON, wrapping parse errors with command context.
+  -- parseDBCWithErrors returns `Error ⊎ DBC` (R20 cluster I — AGDA-D-32.1
+  -- lifted the return type so `Error.InputBoundExceeded IdentifierLength
+  -- …` rejections at `validateIdent` surface alongside `ParseErr`
+  -- envelopes); the legacy ParseError envelopes arrive pre-wrapped via
+  -- `ParseErr`.
   withParsedDBC : String → JSON → StreamState → (DBC → StreamState × Response) → StreamState × Response
   withParsedDBC ctx dbcJSON state f with parseDBCWithErrors dbcJSON
-  ... | inj₁ parseErr = (state , Response.Error (WithContext ctx (HandlerErr (WrappedParse parseErr))))
+  ... | inj₁ err = (state , Response.Error (WithContext ctx err))
   ... | inj₂ dbc = f dbc
 
   -- R19 cluster 8 phase e.3: cardinality refinement at the handler boundary.
@@ -163,12 +172,122 @@ private
   ...             | false = just ("value descriptions total" , totalValueDescriptions dbc , max-value-descriptions-per-file)
   ...             | true  = nothing
 
-  -- Build a typed error response for a cardinality violation.
-  cardinalityErrorResponse : String → String → ℕ → ℕ → StreamState → StreamState × Response
-  cardinalityErrorResponse cmdCtx arrayCtx observed limit state =
+  -- Build a typed error response for an adversarial-bound violation.
+  -- BoundKind discriminates ArrayCardinality (cluster H) vs StringLength
+  -- (R20 cluster I — AGDA-D-32.2).  Per AGENTS.md universal rule
+  -- "Adversarial-input bounds at parser surfaces", rejection is a typed
+  -- `Error.InputBoundExceeded kind observed limit` carrying the offending
+  -- kind, observed value, and limit — never an OOM, never a stalled stream.
+  boundErrorResponse : String → BoundKind → String → ℕ → ℕ → StreamState → StreamState × Response
+  boundErrorResponse cmdCtx kind fieldCtx observed limit state =
     (state , Response.Error
       (WithContext cmdCtx
-        (WithContext arrayCtx (InputBoundExceeded ArrayCardinality observed limit))))
+        (WithContext fieldCtx (InputBoundExceeded kind observed limit))))
+
+  -- R20 cluster I — AGDA-D-32.2.  Post-parse walk of every unbounded
+  -- `List Char` field in the parsed DBC.  Cluster H closed cardinality
+  -- bounds at this same handler boundary; this mirrors the placement for
+  -- string-length bounds (comment text, attribute string values, signal
+  -- units, value-description labels, attribute names — none of which go
+  -- through `validIdentifierᵇ`'s length cap).
+  --
+  -- Discovery order is `version` → per-message signals (unit + VD labels) →
+  -- comments → attributes (name + AVString value + ATEnum labels) → value
+  -- tables → unresolved value descs.  Returns nothing if all under bound;
+  -- else (fieldCtx, observed, limit) for the first violation.
+  firstOverBoundLC : List Char → Maybe (ℕ × ℕ)
+  firstOverBoundLC cs with length cs <ᵇ suc max-string-length-bytes
+  ... | true  = nothing
+  ... | false = just (length cs , max-string-length-bytes)
+
+  -- Walk a list of (ℕ , List Char) entries (value-description labels).
+  firstOverBoundEntries : List (ℕ × List Char) → Maybe (ℕ × ℕ)
+  firstOverBoundEntries [] = nothing
+  firstOverBoundEntries ((_ , cs) ∷ rest) with firstOverBoundLC cs
+  ... | just over = just over
+  ... | nothing   = firstOverBoundEntries rest
+
+  -- Walk per-signal: unit + value-description labels.
+  firstOverBoundSignal : DBCSignal → Maybe (ℕ × ℕ)
+  firstOverBoundSignal sig with firstOverBoundLC (DBCSignal.unit sig)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundEntries (DBCSignal.valueDescriptions sig)
+
+  firstOverBoundInSignals : List DBCSignal → Maybe (ℕ × ℕ)
+  firstOverBoundInSignals [] = nothing
+  firstOverBoundInSignals (s ∷ rest) with firstOverBoundSignal s
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInSignals rest
+
+  firstOverBoundInMessages : List DBCMessage → Maybe (ℕ × ℕ)
+  firstOverBoundInMessages [] = nothing
+  firstOverBoundInMessages (m ∷ rest) with firstOverBoundInSignals (DBCMessage.signals m)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInMessages rest
+
+  firstOverBoundInComments : List DBCComment → Maybe (ℕ × ℕ)
+  firstOverBoundInComments [] = nothing
+  firstOverBoundInComments (c ∷ rest) with firstOverBoundLC (DBCComment.text c)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInComments rest
+
+  firstOverBoundEnumLabels : List (List Char) → Maybe (ℕ × ℕ)
+  firstOverBoundEnumLabels [] = nothing
+  firstOverBoundEnumLabels (cs ∷ rest) with firstOverBoundLC cs
+  ... | just over = just over
+  ... | nothing   = firstOverBoundEnumLabels rest
+
+  firstOverBoundAttrType : AttrType → Maybe (ℕ × ℕ)
+  firstOverBoundAttrType (ATEnum vs) = firstOverBoundEnumLabels vs
+  firstOverBoundAttrType _           = nothing
+
+  firstOverBoundAttrValue : AttrValue → Maybe (ℕ × ℕ)
+  firstOverBoundAttrValue (AVString cs) = firstOverBoundLC cs
+  firstOverBoundAttrValue _             = nothing
+
+  firstOverBoundAttr : DBCAttribute → Maybe (ℕ × ℕ)
+  firstOverBoundAttr (DBCAttrDef ad) with firstOverBoundLC (AttrDef.name ad)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundAttrType (AttrDef.attrType ad)
+  firstOverBoundAttr (DBCAttrDefault adef) with firstOverBoundLC (AttrDefault.name adef)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundAttrValue (AttrDefault.value adef)
+  firstOverBoundAttr (DBCAttrAssign aa) with firstOverBoundLC (AttrAssign.name aa)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundAttrValue (AttrAssign.value aa)
+
+  firstOverBoundInAttrs : List DBCAttribute → Maybe (ℕ × ℕ)
+  firstOverBoundInAttrs [] = nothing
+  firstOverBoundInAttrs (a ∷ rest) with firstOverBoundAttr a
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInAttrs rest
+
+  firstOverBoundInValueTables : List ValueTable → Maybe (ℕ × ℕ)
+  firstOverBoundInValueTables [] = nothing
+  firstOverBoundInValueTables (vt ∷ rest) with firstOverBoundEntries (ValueTable.entries vt)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInValueTables rest
+
+  firstOverBoundInUnresolved : List RawValueDesc → Maybe (ℕ × ℕ)
+  firstOverBoundInUnresolved [] = nothing
+  firstOverBoundInUnresolved (rv ∷ rest) with firstOverBoundEntries (RawValueDesc.entries rv)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInUnresolved rest
+
+  firstStringOverBound : DBC → Maybe (String × ℕ × ℕ)
+  firstStringOverBound dbc with firstOverBoundLC (DBC.version dbc)
+  ... | just (obs , lim) = just ("version string" , obs , lim)
+  ... | nothing with firstOverBoundInMessages (DBC.messages dbc)
+  ...   | just (obs , lim) = just ("signal text field" , obs , lim)
+  ...   | nothing with firstOverBoundInComments (DBC.comments dbc)
+  ...     | just (obs , lim) = just ("comment text" , obs , lim)
+  ...     | nothing with firstOverBoundInAttrs (DBC.attributes dbc)
+  ...       | just (obs , lim) = just ("attribute text field" , obs , lim)
+  ...       | nothing with firstOverBoundInValueTables (DBC.valueTables dbc)
+  ...         | just (obs , lim) = just ("value table label" , obs , lim)
+  ...         | nothing with firstOverBoundInUnresolved (DBC.unresolvedValueDescs dbc)
+  ...           | just (obs , lim) = just ("unresolved value description label" , obs , lim)
+  ...           | nothing = nothing
 
 -- ============================================================================
 -- COMMAND HANDLERS
@@ -180,14 +299,24 @@ private
 -- silently dropped.  Same shape as ParseDBCText for binding-side parity.
 handleParseDBC : JSON → StreamState → StreamState × Response
 handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
-  -- R19 cluster 8 phase e.3: post-parse cardinality refinement at the
-  -- handler boundary (see `firstDBCOverBound` above for rationale).
-  case-helper dbc (firstDBCOverBound dbc)
+  -- Post-parse adversarial-bound refinement at the handler boundary.
+  --   * ArrayCardinality (cluster 8 phase e.3 / cluster H): list-cardinality
+  --     caps on messages / signals / attributes / comments / nodes / value
+  --     tables / total value descriptions.
+  --   * StringLength (R20 cluster I / AGDA-D-32.2): char-length caps on
+  --     `List Char` fields not covered by the Identifier grammar (version,
+  --     comments, attribute names + AVString + ATEnum labels, signal units,
+  --     value-description labels).
+  --   Both walks run on the parsed value; `parseDBCWithErrors` is unchanged
+  --   so existing roundtrip proofs preserve their structural shape.
+  case-helper dbc (firstDBCOverBound dbc) (firstStringOverBound dbc)
   where
-    case-helper : DBC → Maybe (String × ℕ × ℕ) → StreamState × Response
-    case-helper dbc (just (ctx , obs , lim)) =
-      cardinalityErrorResponse "ParseDBC" ctx obs lim state
-    case-helper dbc nothing =
+    case-helper : DBC → Maybe (String × ℕ × ℕ) → Maybe (String × ℕ × ℕ) → StreamState × Response
+    case-helper dbc (just (ctx , obs , lim)) _ =
+      boundErrorResponse "ParseDBC" ArrayCardinality ctx obs lim state
+    case-helper dbc nothing (just (ctx , obs , lim)) =
+      boundErrorResponse "ParseDBC" StringLength ctx obs lim state
+    case-helper dbc nothing nothing =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
          then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))

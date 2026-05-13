@@ -56,6 +56,13 @@ runJSON statePtr f = do
 errorJSON :: String -> IO CString
 errorJSON = newCString . mkErrorJson
 
+-- | Return a JSON error response from a typed FFIError.  Dispatches the
+-- legacy free-form `FFIStringError` to `mkErrorJson` and the structured
+-- `FFIBoundExceeded` (R20 cluster I — AGDA-D-32.3) to the bound-payload
+-- envelope produced by `formatFFIError`.
+errorJSONFor :: FFIError -> IO CString
+errorJSONFor = newCString . formatFFIError
+
 -- ============================================================================
 -- INITIALIZATION + JSON ENTRY POINT
 -- ============================================================================
@@ -91,17 +98,19 @@ aletheia_send_frame :: StateHandle -> Word64 -> Word32 -> Word8 -> Word8
                     -> IO CString
 aletheia_send_frame statePtr ts canId ext dlc dataPtr dataLen
                     brsPres brsVal esiPres esiVal =
-    case validateDLCAndLen "aletheia_send_frame" dlc dataLen >> mkAgdaCanId canId ext of
-      Left err -> errorJSON err
-      Right agdaCanId -> do
-        bytes <- peekArray (fromIntegral dataLen) dataPtr
-        let agdaTF = AgdaTrace.C_constructor_32
-                (AgdaTime.C_mkTs_26 (toInteger ts))
-                (toInteger dataLen)
-                (AgdaFrame.C_constructor_36 agdaCanId (mkAgdaDLC (toInteger dlc)) (bytesToAgdaVec bytes))
-                (mkMaybeBool brsPres brsVal)
-                (mkMaybeBool esiPres esiVal)
-        runJSON statePtr (\s -> AgdaBin.d_processFrameDirect_12 s (unsafeCoerce agdaTF))
+    case validateDLCAndLen "aletheia_send_frame" dlc dataLen of
+      Left ffiErr -> errorJSONFor ffiErr
+      Right _ -> case mkAgdaCanId canId ext of
+        Left err -> errorJSON err
+        Right agdaCanId -> do
+          bytes <- peekArray (fromIntegral dataLen) dataPtr
+          let agdaTF = AgdaTrace.C_constructor_32
+                  (AgdaTime.C_mkTs_26 (toInteger ts))
+                  (toInteger dataLen)
+                  (AgdaFrame.C_constructor_36 agdaCanId (mkAgdaDLC (toInteger dlc)) (bytesToAgdaVec bytes))
+                  (mkMaybeBool brsPres brsVal)
+                  (mkMaybeBool esiPres esiVal)
+          runJSON statePtr (\s -> AgdaBin.d_processFrameDirect_12 s (unsafeCoerce agdaTF))
 
 foreign export ccall aletheia_send_error :: StateHandle -> Word64 -> IO CString
 aletheia_send_error :: StateHandle -> Word64 -> IO CString
@@ -124,12 +133,14 @@ foreign export ccall aletheia_extract_signals
 aletheia_extract_signals :: StateHandle -> Word32 -> Word8 -> Word8
                         -> Ptr Word8 -> Word8 -> IO CString
 aletheia_extract_signals statePtr canId ext dlc dataPtr dataLen =
-    case validateDLCAndLen "aletheia_extract_signals" dlc dataLen >> mkAgdaCanId canId ext of
-      Left err -> errorJSON err
-      Right agdaCanId -> do
-        bytes <- peekArray (fromIntegral dataLen) dataPtr
-        runJSON statePtr (\s -> AgdaBin.d_processExtractDirect_38 s agdaCanId
-            (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)))
+    case validateDLCAndLen "aletheia_extract_signals" dlc dataLen of
+      Left ffiErr -> errorJSONFor ffiErr
+      Right _ -> case mkAgdaCanId canId ext of
+        Left err -> errorJSON err
+        Right agdaCanId -> do
+          bytes <- peekArray (fromIntegral dataLen) dataPtr
+          runJSON statePtr (\s -> AgdaBin.d_processExtractDirect_38 s agdaCanId
+              (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)))
 
 foreign export ccall aletheia_start_stream :: StateHandle -> IO CString
 aletheia_start_stream :: StateHandle -> IO CString
@@ -195,15 +206,16 @@ aletheia_update_frame_bin statePtr canId ext dlc dataPtr dataLen
     indices <- peekArray (fromIntegral numSignals) indicesPtr
     nums <- peekArray (fromIntegral numSignals) numsPtr
     dens <- peekArray (fromIntegral numSignals) densPtr
-    case validateDLCAndLen "aletheia_update_frame_bin" dlc dataLen
-         >> ((,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens) of
-      Left err -> errorOut err outErr
-      Right (agdaCanId, pairs) -> do
-        bytes <- peekArray (fromIntegral dataLen) dataPtr
-        runBinDispatch statePtr
-            (\s -> AgdaBin.d_processUpdateFrameBin_86 s agdaCanId
-                       (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)) pairs)
-            outBuf outErr
+    case validateDLCAndLen "aletheia_update_frame_bin" dlc dataLen of
+      Left ffiErr -> errorOut (formatFFIError ffiErr) outErr
+      Right _ -> case (,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens of
+        Left err -> errorOut err outErr
+        Right (agdaCanId, pairs) -> do
+          bytes <- peekArray (fromIntegral dataLen) dataPtr
+          runBinDispatch statePtr
+              (\s -> AgdaBin.d_processUpdateFrameBin_86 s agdaCanId
+                         (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)) pairs)
+              outBuf outErr
 
 -- | Wire format documented in Main.agda processExtractBin (canonical source).
 -- Header(3×u16) + Values(×18B) + Errors(×3B) + Absent(×2B). Native byte order.
@@ -215,24 +227,26 @@ aletheia_extract_signals_bin :: StateHandle -> Word32 -> Word8 -> Word8
                             -> Ptr Word8 -> Word8
                             -> Ptr (Ptr Word8) -> Ptr Word32 -> Ptr CString -> IO Int8
 aletheia_extract_signals_bin statePtr canId ext dlc dataPtr dataLen outBufPtr outSizePtr outErr =
-    case validateDLCAndLen "aletheia_extract_signals_bin" dlc dataLen >> mkAgdaCanId canId ext of
-      Left err -> errorOut err outErr
-      Right agdaCanId -> do
-        bytes <- peekArray (fromIntegral dataLen) dataPtr
-        ref <- deRefStablePtr statePtr
-        state <- readIORef ref
-        let result = AgdaBin.d_processExtractBin_102 state agdaCanId
-                         (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes))
-        writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28)
-        case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of
-            AgdaSum.C_inj'8321'_38 errAny ->
-                errorOut (T.unpack (unsafeCoerce errAny :: T.Text)) outErr
-            AgdaSum.C_inj'8322'_42 ierAny -> do
-                (buf, bufSize) <- packPartitionedResults
-                    (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10)
-                poke outBufPtr buf
-                poke outSizePtr (fromIntegral bufSize)
-                return 0
+    case validateDLCAndLen "aletheia_extract_signals_bin" dlc dataLen of
+      Left ffiErr -> errorOut (formatFFIError ffiErr) outErr
+      Right _ -> case mkAgdaCanId canId ext of
+        Left err -> errorOut err outErr
+        Right agdaCanId -> do
+          bytes <- peekArray (fromIntegral dataLen) dataPtr
+          ref <- deRefStablePtr statePtr
+          state <- readIORef ref
+          let result = AgdaBin.d_processExtractBin_102 state agdaCanId
+                           (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes))
+          writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28)
+          case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of
+              AgdaSum.C_inj'8321'_38 errAny ->
+                  errorOut (T.unpack (unsafeCoerce errAny :: T.Text)) outErr
+              AgdaSum.C_inj'8322'_42 ierAny -> do
+                  (buf, bufSize) <- packPartitionedResults
+                      (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10)
+                  poke outBufPtr buf
+                  poke outSizePtr (fromIntegral bufSize)
+                  return 0
 
 -- ============================================================================
 -- MEMORY MANAGEMENT

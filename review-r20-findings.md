@@ -884,11 +884,11 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 511. `[ ]` AGDA-D-19.2 — `TwoValued→Bounded` is convenience exit ramp; document NOT on streaming path.
 512. `[ ]` AGDA-D-19.3 — `StreamingWarm.agda:91-99` `nothing≢just` re-invents stdlib `Maybe.Properties.just≢nothing`.
 513. `[ ]` AGDA-D-19.4 — `StreamState/Internals.agda:241-245` — `stepProperty` builds with OLD cache; `updateEntries-self-lookup` lemma unwritten. Track as proof gap.
-514. `[ ]` AGDA-D-32.1 — `Limits.agda:56-57,115-116` — `IdentifierLength` BoundKind declared with wire-code `"identifier_length"` but NO code emits it (`validIdentifierᵇ` rejects at construction, surfaces as ParseFailure). **Wire code unreachable.**
-515. `[ ]` AGDA-D-32.2 — `Limits.agda:58-59,119-120` — `StringLength`/`max-string-length-bytes` never emitted by any error site.
-516. `[ ]` AGDA-D-32.3 — `Limits.agda:62-63,127-128` — `FrameByteCount`/`max-frame-byte-count` never emitted as typed `InputBoundExceeded`.
+514. `[FIX]` AGDA-D-32.1 — ✅ Cluster I: split `validateIdent`'s rejection paths so length-overflow surfaces as typed `Error.InputBoundExceeded IdentifierLength observed max-identifier-length` while grammar-invalid retains `ParseErr (InvalidIdentifier name)`.  JSONParser return-type cascade `ParseError ⊎` → `Error ⊎` (27 inj₁ sites wrapped with `ParseErr`); `parseDBCWithErrors` lifts to `Error ⊎ DBC`; callers in `Handlers.withParsedDBC` + `Handlers/FormatDBCText.handleFormatDBCText` updated to unwrap top-level Error directly.
+515. `[FIX]` AGDA-D-32.2 — ✅ Cluster I: post-parse handler walk for every unbounded `List Char` field — `DBC.version`, `DBCSignal.unit`, per-signal value-description labels, comment text, attribute names + `AVString` values + `ATEnum` labels, value-table labels, unresolved-value-desc labels.  Emits `Error.InputBoundExceeded StringLength observed max-string-length-bytes` at the handler boundary alongside cluster-H's ArrayCardinality walk.  Mirrored in `Handlers.agda` and `Handlers/ParseDBCText.agda` per the existing cycle-avoidance duplication pattern.
+516. `[FIX]` AGDA-D-32.3 — ✅ Cluster I: pre-check `parseBytePayload`'s byte-array length against `max-frame-byte-count` BEFORE delegating to `listToVec`; an overshoot emits `Error.InputBoundExceeded FrameByteCount observed limit` rather than the looser `ByteCountMismatch`.  Routing cascade `RouteError ⊎` → `Error ⊎` on `parseBytePayload` / `parseCANIdField` / `parseCanIdDlc` / all 10 try* functions / `dispatchCommand` / `parseCommand`; internal helpers stay RouteError-typed and bridge via `mapₑ RouteErr`.  Binary FFI mirror in `Marshal.validateDLCAndLen` via new `FFIError` discriminant (`FFIStringError` vs `FFIBoundExceeded`), rendered through new `formatFFIError` so the wire envelope matches Agda's `responseToJSON` byte-for-byte across all 4 binary FFI call sites.
 517. `[FIX]` AGDA-D-32.4 — ✅ Cluster H: closed via the same edit as AGDA-D-11.2 (the bound is now consulted at the handler boundary via `totalValueDescriptions`).
-518. `[ ]` AGDA-D-32.5 [FIX] — **3-of-7 enforcement gap on universal rule.** 4 BoundKind ctors enforced as typed `InputBoundExceeded`, 3 not. Add `check-bound-enforcement` Shake gate that greps for emitting sites.
+518. `[FIX]` AGDA-D-32.5 — ✅ Cluster I: new `check-bound-enforcement` Shake phony (`tools/check_bound_enforcement.py`) parses the `data BoundKind` ADT in `Aletheia.Limits` and greps for `InputBoundExceeded <Ctor>` emit sites under `src/`; a ctor with zero sites fails the gate.  All 7 ctors now have ≥ 1 emit site: InputLengthBytes=2, NestingDepth=1, ArrayCardinality=1, IdentifierLength=1, StringLength=1, AtomCount=1, FrameByteCount=1.
 519. `[ ]` AGDA-D-14.1 — `Main.agda:89` — `checkMonotonic` re-exported but no real external consumer.
 520. `[ ]` AGDA-D-14.2 — `Main.agda:99-119` — `Response` re-exports asymmetric (omits 4 ctors).
 521. `[ ]` AGDA-D-14.3 — `Main.agda:101-119` — `StreamCommand` re-exports omit `SendFrame`/`ParseDBCText`/`FormatDBCText`.
@@ -903,7 +903,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 530. `[ ]` AGDA-D-17.4 — `AletheiaFFI.hs:11` lifecycle docstring misleading; bindings rely on GHC RTS init-on-load.
 531. `[ ]` AGDA-D-17.5 — `AletheiaFFI.hs:152-162` `runBinDispatch` — state writes before binary-output dispatch; document.
 532. `[ ]` AGDA-D-17.6 — `Marshal.hs:81-93` + `bytesToAgdaVec` — Cross-layer assumption that `validateDLCAndLen` IS precondition for Agda's `.dlcValid` `refl`; document.
-533. `[ ]` AGDA-D-30.1 [FIX] — `haskell-shim/ffi-exports.snapshot` — Lists 11 `d_*` + 7 helpers. Does NOT list any `C_*`/`T_*` constructor mangled tags. **Snapshot has no constructor-numbering guard.** Extend snapshot format with `F:` / `C:` / `T:` mode markers.
+533. `[FIX]` AGDA-D-30.1 — ✅ Cluster I: extended snapshot format with `F:` / `C:` / `T:` mode markers in `haskell-shim/ffi-exports.snapshot`; `check-ffi-exports` parses the prefix and dispatches per kind (function exports → `name ::` substring match; constructor tags → data-alternative context patterns; type tags → `data` / `newtype` declaration header).  Unprefixed lines are treated as `F:` for back-compat with pre-R20 snapshots.  Snapshot now lists **44 entries** = 19 functions + 14 constructors (every `C_*_NN` the Haskell shim constructs or unsafe-coerces through, including TimedFrame / CANFrame / DLC / CANId / Timestamp / Sum / Vec / Sigma / Rational) + 11 types (the matching `T_*_NN` tags).
 534. `[ ]` AGDA-D-30.2 — `Shakefile.hs:496-562 check-ffi-exports` — Walks modules from `nub (map fst expected)`; doesn't walk `CAN/Constants`, `CAN/Frame`, `Trace/CANTrace` for constructor existence.
 535. `[ ]` AGDA-D-30.3 — `Shakefile.hs:564-606 regen-ffi-exports` — Only handles `d_*` definitions; extend to emit `C_*_NN` lines.
 536. `[ ]` AGDA-D-31.1 — `aletheia.agda-lib` — `standard-library-2.3` exact pin; stdlib 3.0 hazard tracked.
@@ -1090,10 +1090,12 @@ focused commit; gates run fresh at every cluster closure per
 - `AGDA-D-11.2` — `firstDBCOverBound` skips 4 list types
 - `AGDA-D-32.4` — `max-value-descriptions-per-file` declared but never enforced
 
-### Cluster I — AGDA BoundKind enforcement audit
-- `AGDA-D-32.1/32.2/32.3/32.5` — `IdentifierLength` / `StringLength` / `FrameByteCount` declared but never emitted; lift binding-level rejections into kernel
-- `AGDA-D-30.1` — `ffi-exports.snapshot` constructor coverage gap
-- FEATURE_MATRIX row update
+### Cluster I — AGDA BoundKind enforcement audit  *(✅ CLOSED)*
+- ✅ `AGDA-D-32.1` — IdentifierLength: `validateIdent` split (length-bound vs grammar-invalid); JSONParser cascaded `ParseError ⊎` → `Error ⊎`
+- ✅ `AGDA-D-32.2` — StringLength: post-parse handler walk over every unbounded `List Char` field (version/unit/text/AVString/ATEnum labels/VT entries)
+- ✅ `AGDA-D-32.3` — FrameByteCount: Routing.parseBytePayload pre-check + binary FFI `Marshal.validateDLCAndLen` typed `FFIBoundExceeded` mirror
+- ✅ `AGDA-D-32.5` — `check-bound-enforcement` Shake phony gates all 7 BoundKind ctors against the `InputBoundExceeded <Ctor>` emit-site requirement
+- ✅ `AGDA-D-30.1` — `ffi-exports.snapshot` extended with `F:` / `C:` / `T:` mode markers + 14 constructor + 11 type tags pinning the load-bearing MAlonzo types the Haskell shim unsafe-coerces through
 
 ### Cluster J — Python ValidationError migration
 - `PY-A-5.3` / `PY-B-8.1` / `PY-D-27.3` — ~20 `ValueError` sites should raise `ValidationError` per PY-D-20.1 kind-tagged hierarchy

@@ -12,6 +12,7 @@
 -- `processStreamCommand (ParseDBCText _) _` dispatch case.
 module Aletheia.Protocol.Handlers.ParseDBCText where
 
+open import Data.Char using (Char)
 open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -19,7 +20,9 @@ open import Data.Nat using (ℕ; suc; _+_; _≤ᵇ_; _<ᵇ_)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; RawValueDesc)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; RawValueDesc; DBCComment;
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
+  AttrDef; AttrDefault; AttrAssign; AttrType; ATEnum; AttrValue; AVString)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.TextParser using (parseText)
@@ -32,11 +35,12 @@ open import Aletheia.Error using
   ; ValidationFailed
   )
 open import Aletheia.Limits using
-  ( InputLengthBytes; ArrayCardinality
+  ( BoundKind; InputLengthBytes; ArrayCardinality; StringLength
   ; max-dbc-text-bytes
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
+  ; max-string-length-bytes
   )
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
@@ -106,17 +110,113 @@ private
   ...             | false = just (totalValueDescriptions dbc , max-value-descriptions-per-file)
   ...             | true  = nothing
 
+  -- R20 cluster I — AGDA-D-32.2 — mirror of `firstStringOverBound` in
+  -- `Handlers.agda` (see rationale there).  Duplicated here, not imported,
+  -- for the same cycle-avoidance reason as the cardinality block above.
+  firstOverBoundLC : List Char → Maybe (ℕ × ℕ)
+  firstOverBoundLC cs with length cs <ᵇ suc max-string-length-bytes
+  ... | true  = nothing
+  ... | false = just (length cs , max-string-length-bytes)
+
+  firstOverBoundEntries : List (ℕ × List Char) → Maybe (ℕ × ℕ)
+  firstOverBoundEntries [] = nothing
+  firstOverBoundEntries ((_ , cs) ∷ rest) with firstOverBoundLC cs
+  ... | just over = just over
+  ... | nothing   = firstOverBoundEntries rest
+
+  firstOverBoundSignal : DBCSignal → Maybe (ℕ × ℕ)
+  firstOverBoundSignal sig with firstOverBoundLC (DBCSignal.unit sig)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundEntries (DBCSignal.valueDescriptions sig)
+
+  firstOverBoundInSignals : List DBCSignal → Maybe (ℕ × ℕ)
+  firstOverBoundInSignals [] = nothing
+  firstOverBoundInSignals (s ∷ rest) with firstOverBoundSignal s
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInSignals rest
+
+  firstOverBoundInMessages : List DBCMessage → Maybe (ℕ × ℕ)
+  firstOverBoundInMessages [] = nothing
+  firstOverBoundInMessages (m ∷ rest) with firstOverBoundInSignals (DBCMessage.signals m)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInMessages rest
+
+  firstOverBoundInComments : List DBCComment → Maybe (ℕ × ℕ)
+  firstOverBoundInComments [] = nothing
+  firstOverBoundInComments (c ∷ rest) with firstOverBoundLC (DBCComment.text c)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInComments rest
+
+  firstOverBoundEnumLabels : List (List Char) → Maybe (ℕ × ℕ)
+  firstOverBoundEnumLabels [] = nothing
+  firstOverBoundEnumLabels (cs ∷ rest) with firstOverBoundLC cs
+  ... | just over = just over
+  ... | nothing   = firstOverBoundEnumLabels rest
+
+  firstOverBoundAttrType : AttrType → Maybe (ℕ × ℕ)
+  firstOverBoundAttrType (ATEnum vs) = firstOverBoundEnumLabels vs
+  firstOverBoundAttrType _           = nothing
+
+  firstOverBoundAttrValue : AttrValue → Maybe (ℕ × ℕ)
+  firstOverBoundAttrValue (AVString cs) = firstOverBoundLC cs
+  firstOverBoundAttrValue _             = nothing
+
+  firstOverBoundAttr : DBCAttribute → Maybe (ℕ × ℕ)
+  firstOverBoundAttr (DBCAttrDef ad) with firstOverBoundLC (AttrDef.name ad)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundAttrType (AttrDef.attrType ad)
+  firstOverBoundAttr (DBCAttrDefault adef) with firstOverBoundLC (AttrDefault.name adef)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundAttrValue (AttrDefault.value adef)
+  firstOverBoundAttr (DBCAttrAssign aa) with firstOverBoundLC (AttrAssign.name aa)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundAttrValue (AttrAssign.value aa)
+
+  firstOverBoundInAttrs : List DBCAttribute → Maybe (ℕ × ℕ)
+  firstOverBoundInAttrs [] = nothing
+  firstOverBoundInAttrs (a ∷ rest) with firstOverBoundAttr a
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInAttrs rest
+
+  firstOverBoundInValueTables : List ValueTable → Maybe (ℕ × ℕ)
+  firstOverBoundInValueTables [] = nothing
+  firstOverBoundInValueTables (vt ∷ rest) with firstOverBoundEntries (ValueTable.entries vt)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInValueTables rest
+
+  firstOverBoundInUnresolved : List RawValueDesc → Maybe (ℕ × ℕ)
+  firstOverBoundInUnresolved [] = nothing
+  firstOverBoundInUnresolved (rv ∷ rest) with firstOverBoundEntries (RawValueDesc.entries rv)
+  ... | just over = just over
+  ... | nothing   = firstOverBoundInUnresolved rest
+
+  firstStringOverBound : DBC → Maybe (ℕ × ℕ)
+  firstStringOverBound dbc with firstOverBoundLC (DBC.version dbc)
+  ... | just over = just over
+  ... | nothing with firstOverBoundInMessages (DBC.messages dbc)
+  ...   | just over = just over
+  ...   | nothing with firstOverBoundInComments (DBC.comments dbc)
+  ...     | just over = just over
+  ...     | nothing with firstOverBoundInAttrs (DBC.attributes dbc)
+  ...       | just over = just over
+  ...       | nothing with firstOverBoundInValueTables (DBC.valueTables dbc)
+  ...         | just over = just over
+  ...         | nothing = firstOverBoundInUnresolved (DBC.unresolvedValueDescs dbc)
+
 handleParseDBCTextResult : DBCTextParseError ⊎ DBC → StreamState → StreamState × Response
 handleParseDBCTextResult (inj₁ err)  state =
   (state , Response.Error (WithContext "ParseDBCText" (DBCTextParseErr err)))
 handleParseDBCTextResult (inj₂ dbc) state =
-  helper dbc (firstDBCOverBound dbc)
+  helper dbc (firstDBCOverBound dbc) (firstStringOverBound dbc)
   where
-    helper : DBC → Maybe (ℕ × ℕ) → StreamState × Response
-    helper dbc (just (obs , lim)) =
+    helper : DBC → Maybe (ℕ × ℕ) → Maybe (ℕ × ℕ) → StreamState × Response
+    helper dbc (just (obs , lim)) _ =
       (state , Response.Error (WithContext "ParseDBCText"
         (InputBoundExceeded ArrayCardinality obs lim)))
-    helper dbc nothing =
+    helper dbc nothing (just (obs , lim)) =
+      (state , Response.Error (WithContext "ParseDBCText"
+        (InputBoundExceeded StringLength obs lim)))
+    helper dbc nothing nothing =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
          then (state , Response.Error (WithContext "ParseDBCText" (HandlerErr (ValidationFailed (errorIssues issues)))))
