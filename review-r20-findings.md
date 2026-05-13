@@ -729,7 +729,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 372. `[FIX]` DOC-A-1.11 [FIX] — ✅ Cluster E: 5 sites updated 3.12 → 3.13.
 373. `[ ]` DOC-A-1.12 — `docs/architecture/DESIGN.md:65` — "~470 lines across 3 files"; verified correct.
 374. `[ ]` DOC-A-1.13 — `CHANGELOG.md:289-291` — Lists `CodeParseInputBoundExceeded`/etc. as Added; R19 cluster 14 consolidated to `CodeInputBoundExceeded`.
-375. `[ ]` DOC-A-1.14 — `AGENTS.md:751` — Future-tense paragraph "first review round under this section will surface" already closed.
+375. `[FIX]` DOC-A-1.14 — `AGENTS.md:751` — Future-tense paragraph "first review round under this section will surface" already closed.  ✅ DEFER-end-of-round: rewrote as past-tense reflecting current state — scripts + `dependabot.yml` added 2026-05-09; R20 surfaced regex-hardening + edge-case findings against the scripts themselves (`CICD-1.2`, `CICD-1.3`, `CICD-2.3`, `CICD-3.2`, `CICD-5.1`); workflow action references are still tag-pinned (`@v4`), SHA migration remains in the cat 1 queue.
 376. `[FIX]` DOC-A-2.1 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
 377. `[FIX]` DOC-A-2.2 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
 378. `[FIX]` DOC-A-2.3 — ✅ Cluster E: 2026-05-10 → 2026-05-12.
@@ -1177,7 +1177,7 @@ focused commit; gates run fresh at every cluster closure per
 - DEFERRALS.md / re-disposition file updates
 - **GO-A-3.5** (cross-binding "mux field naming" — deferred from cluster O `8bb0055`; needs synchronized rename across Python `multiplex_values` / Go `Multiplexed.MuxValues` / C++ `Multiplexed.mux_values`).
 - **AGDA-A-1.3** (cluster Q deferral) — helper-module extraction (`Aletheia/DBC/CardinalityBounds.agda`?) to dedupe `signalsBound` + `firstDBCOverBound` across `Handlers.agda` and `Handlers/ParseDBCText.agda`.  Cycle-avoidance rationale documented in-source; ~80 LOC dedupe gain but cascades across the two consumers' import graphs.
-- **vehicle_checks.xlsx doc-harness recreation** (cluster Q flagged, deferred from cluster R after evaluation) — `create_template` fences in `docs/guides/COOKBOOK.md:506` and `docs/reference/INTERFACES.md:467` write `vehicle_checks.xlsx` to `cwd` on every doc-fence harness run.  Cluster Q's pre-commit `rm` worked around the symptom but the recurrence is real.  Two candidate fixes: (a) extend conftest.py to redirect the harness `cwd` to a `tmp_path` per-test fixture; (b) rewrite the fences to use `Path(tmp_path) / "vehicle_checks.xlsx"` with `tmp_path` injected into the doc-harness globals.  Defer for follow-up cluster — touches `tools/run_ci.py` harness invocation plus conftest plumbing.
+- **vehicle_checks.xlsx doc-harness recreation** — ✅ DEFER-end-of-round closed: chose option (a) — added autouse `_sandbox_cwd` fixture to repo-root `conftest.py` that pins per-test cwd to `tmp_path` via `monkeypatch.chdir`.  Defense-in-depth on top of the existing `pytest_sessionstart` patches: even if a future regression removes a `create_template` patch or adds a new file-emitting fence, the cwd is sandboxed so the write lands in pytest's auto-cleaned `tmp_path` rather than the repo root.  Doc fences do not depend on cwd (loader fakes ignore path args entirely), confirmed by 106/106 doc-harness pass after the fixture lands.  Does NOT defend against the rootdir-mismatch case (running pytest from a non-repo cwd bypasses the conftest entirely); that operator-error path remains documented in AGENTS.md § Python Cat 32 Verification as requiring `--rootdir=<repo>`.
 
 ---
 

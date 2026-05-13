@@ -748,7 +748,7 @@ tools/check_workflow_permissions.py
 tools/check_reproducible_build.py
 ```
 
-The first review round under this section will surface (a) the absence of `tools/check_action_pins.py`, `tools/check_workflow_permissions.py`, and `tools/check_reproducible_build.py` as findings under cat 1 / cat 5, and (b) every action reference in `.github/workflows/` pinned by tag rather than SHA as a finding under cat 1. The first round's plan should propose a single PR adding the three audit scripts plus a `dependabot.yml` config that bumps action SHAs.
+All three audit scripts and `.github/dependabot.yml` are in place (added 2026-05-09).  Subsequent rounds maintain them: R20 surfaced regex-hardening and edge-case findings against the scripts themselves (`CICD-1.2`, `CICD-1.3`, `CICD-2.3`, `CICD-3.2`, `CICD-5.1`) — open work, tracked in the round's findings doc.  Action references in `.github/workflows/` are still tag-pinned (`@v4`) rather than 40-char SHA; the SHA-migration is the next reviewable change under cat 1 and remains in the queue until Dependabot raises and lands the migration PRs.
 
 ---
 

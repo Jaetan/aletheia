@@ -31,6 +31,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator
 
+import pytest
+
 import aletheia
 import aletheia.can_log
 import aletheia.dbc_converter
@@ -255,3 +257,25 @@ def pytest_sessionstart() -> None:
 def pytest_markdown_docs_globals() -> dict[str, Any]:
     """pytest-markdown-docs hook — globals merged into every fence's namespace."""
     return _make_globals()
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run every doc fence with cwd redirected to a per-test ``tmp_path``.
+
+    Defense-in-depth: even though ``pytest_sessionstart`` patches
+    ``create_template`` (and the other loader entry points) to no-op
+    fakes, the patches only fire when this conftest is loaded.  Running
+    pytest with a non-repo rootdir bypasses the conftest, lets the real
+    ``create_template`` execute, and lands ``vehicle_checks.xlsx`` in the
+    invoking shell's cwd.  Pinning cwd to ``tmp_path`` per test means any
+    file write — patched or not — goes to a sandboxed dir that pytest
+    auto-cleans, so the repo tree stays clean regardless of how the
+    harness was invoked.  Doc fences do not depend on cwd: the loader
+    fakes (``load_checks`` / ``iter_can_log`` / etc.) ignore their path
+    args entirely, so the chdir is invisible to fence behaviour.
+    """
+    monkeypatch.chdir(tmp_path)
