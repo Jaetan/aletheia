@@ -272,3 +272,52 @@ TEST_CASE("Rational::from_double accepts ordinary scaled values", "[types]") {
     CHECK(r2.numerator == 23);
     CHECK(r2.denominator == 2);
 }
+
+// ===========================================================================
+// FFI error emission — R20 cluster K
+// ===========================================================================
+//
+// `ErrorKind::Ffi` is declared in error.hpp ("Library load / RTS initialization
+// failure") and mirrors Python `FFIError` (python/aletheia/client/_types.py:36)
+// and Go `ErrFFI` (go/aletheia/error.go:27).  Before R20 it was never
+// constructed.  These tests assert the kind tag is emitted on the canonical
+// boundary-failure paths so a future regression (silent downgrade to
+// `std::runtime_error` or another kind) trips here.
+
+TEST_CASE("make_ffi_backend with nonexistent library throws Ffi-kinded exception", "[ffi][error]") {
+    // dlopen of a path that does not exist returns null + sets dlerror;
+    // FfiBackend's constructor lifts that to AletheiaException(Ffi).
+    REQUIRE_THROWS_AS(make_ffi_backend("/nonexistent/aletheia/libaletheia-ffi.so", 1),
+                      AletheiaException);
+    try {
+        static_cast<void>(make_ffi_backend("/nonexistent/aletheia/libaletheia-ffi.so", 1));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::Ffi);
+        CHECK_THAT(std::string{e.what()}, ContainsSubstring("dlopen failed"));
+    }
+}
+
+TEST_CASE("make_ffi_backend with rts_cores < 1 throws Validation-kinded exception",
+          "[ffi][validation]") {
+    // The constructor's rts_cores guard is caller-argument validation, not
+    // an FFI failure — mirrors Go/Python kind semantics for argument rejection.
+    try {
+        static_cast<void>(make_ffi_backend("/nonexistent/aletheia/libaletheia-ffi.so", 0));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::Validation);
+        CHECK_THAT(std::string{e.what()}, ContainsSubstring("rts_cores must be >= 1"));
+    }
+}
+
+TEST_CASE("AletheiaException is catchable as std::exception", "[error]") {
+    // Pre-R20 catch (const std::exception&) blocks must keep working after
+    // the AletheiaException migration — they catch the new exception via
+    // its std::runtime_error base.
+    try {
+        throw AletheiaException(AletheiaError{ErrorKind::Ffi, "test message"});
+    } catch (const std::exception& e) {
+        CHECK_THAT(std::string{e.what()}, ContainsSubstring("test message"));
+    }
+}

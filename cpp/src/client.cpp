@@ -20,7 +20,6 @@
 #include <optional>
 #include <set>
 #include <span>
-#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -68,7 +67,8 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     , logger_(std::move(logger))
     , default_checks_(std::move(default_checks)) {
     if (state_ == nullptr)
-        throw std::runtime_error("backend init() returned null state");
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
     if (!logger_)
         return;
     // Parity with Go's `rts.cores_mismatch` (ffi.go:336) and Python's
@@ -490,6 +490,8 @@ auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> c
                 return r;
         }
         return set_properties(stop, formulas);
+    } catch (const AletheiaException& e) {
+        return std::unexpected(e.error());
     } catch (const std::exception& e) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, e.what()});
     }
@@ -856,6 +858,12 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     }
 
     // Fallback: JSON path.
+    //
+    // Matches the binary path's "log + return nullopt for any kind != BinaryUnsupported"
+    // convention at lines 850-855 above.  AletheiaException from the FFI backend is
+    // caught via its std::runtime_error base; the log warning carries the message but no
+    // kind field, to preserve cross-binding parity with Python / Go's
+    // `extraction.process_failed` event signature.
     std::string resp;
     try {
         resp = backend_->extract_signals_binary(state_, id, dlc, data);

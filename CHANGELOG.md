@@ -317,6 +317,19 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   error response when input exceeds `max_json_bytes` before
   calling the dlopen'd `aletheia_process` (R18 cluster 2 / Universal
   Rule UR-2).
+- `error.hpp` — `AletheiaException` class deriving from
+  `std::runtime_error` and carrying an `AletheiaError` value
+  accessible via `kind()` / `code()` / `error()`. Used for FFI
+  boundary failures (`dlopen` / `dlsym` / `aletheia_init() → null`)
+  that emit `ErrorKind::Ffi`, plus `ErrorKind::Protocol` for
+  runtime `aletheia_*() → null` cases and `ErrorKind::Validation`
+  for caller-argument rejections (`rts_cores < 1`, oversize
+  payload). Mirrors Python `FFIError` / `ProtocolError` /
+  `ValidationError` and Go `ErrFFI` / `ErrProtocol` /
+  `ErrValidation`. Pre-R20 these paths threw `std::runtime_error`;
+  existing `catch (const std::exception&)` blocks keep working via
+  the base, new code can `catch (const AletheiaException&)` to
+  recover the kind tag (R20 cluster K).
 
 #### Build / release tooling (R18 cluster 3)
 

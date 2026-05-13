@@ -14,7 +14,6 @@
 #include <mutex>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -127,7 +126,8 @@ class FfiBackend : public IBackend {
     static auto load_sym(void* handle, const char* name) -> Fn {
         auto* sym = dlsym(handle, name);
         if (sym == nullptr)
-            throw std::runtime_error(std::string("dlsym failed for ") + name + ": " + dlerror());
+            throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::string("dlsym failed for ") +
+                                                                      name + ": " + dlerror()});
         // dlsym returns void*; POSIX guarantees round-tripping through void*
         // preserves function pointers on all platforms with dlopen support.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -135,16 +135,22 @@ class FfiBackend : public IBackend {
     }
 
     // Wrap an FFI char* result with the standard null-check + RAII deleter
-    // + std::string conversion pattern.  Throws std::runtime_error with
-    // `error_msg` when result is null; otherwise materializes the C string
-    // into a std::string and frees the FFI buffer via free_str_fn_.
+    // + std::string conversion pattern.  Throws AletheiaException with
+    // ErrorKind::Protocol and `error_msg` when result is null; otherwise
+    // materializes the C string into a std::string and frees the FFI
+    // buffer via free_str_fn_.  Protocol is the correct kind here per the
+    // narrow definition of ErrorKind::Ffi in error.hpp ("Library load /
+    // RTS initialization failure" — boundary itself failed before Agda
+    // ran); a runtime null-return means the kernel was loaded but did
+    // not produce a response, which mirrors Python's ProtocolError at
+    // python/aletheia/client/_client.py:231/245.
     // R19 cluster 14 / CPP-A-1.1 — replaces 8 hand-rolled copies of this
     // pattern across process / send_frame_binary / send_error_binary /
     // send_remote_binary / start_stream_binary / end_stream_binary /
     // format_dbc_binary / extract_signals_binary.
     [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg) -> std::string {
         if (result == nullptr)
-            throw std::runtime_error(std::string{error_msg});
+            throw AletheiaException(AletheiaError{ErrorKind::Protocol, std::string{error_msg}});
         auto deleter = [this](char* p) { free_str_fn_(p); };
         const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
         return std::string{result};
@@ -154,9 +160,11 @@ public:
     explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores)
         : handle_(dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)) {
         if (rts_cores < 1)
-            throw std::invalid_argument("rts_cores must be >= 1, got " + std::to_string(rts_cores));
+            throw AletheiaException(AletheiaError{
+                ErrorKind::Validation, "rts_cores must be >= 1, got " + std::to_string(rts_cores)});
         if (handle_ == nullptr)
-            throw std::runtime_error(std::string("dlopen failed: ") + dlerror());
+            throw AletheiaException(
+                AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
 
         try {
             auto hs_init = load_sym<HsInitFn>(handle_, "hs_init");
@@ -276,9 +284,10 @@ public:
         // malformed caller cannot smuggle 65–255 byte payloads into the
         // Haskell core before it does its own length check.
         if (data.size() > max_can_fd_payload_bytes)
-            throw std::runtime_error("data length exceeds " +
-                                     std::to_string(max_can_fd_payload_bytes) +
-                                     " bytes (CAN-FD max)");
+            throw AletheiaException(
+                AletheiaError{ErrorKind::Validation, "data length exceeds " +
+                                                         std::to_string(max_can_fd_payload_bytes) +
+                                                         " bytes (CAN-FD max)"});
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
@@ -334,9 +343,10 @@ public:
         // malformed caller cannot smuggle 65–255 byte payloads into the
         // Haskell core before it does its own length check.
         if (data.size() > max_can_fd_payload_bytes)
-            throw std::runtime_error("data length exceeds " +
-                                     std::to_string(max_can_fd_payload_bytes) +
-                                     " bytes (CAN-FD max)");
+            throw AletheiaException(
+                AletheiaError{ErrorKind::Validation, "data length exceeds " +
+                                                         std::to_string(max_can_fd_payload_bytes) +
+                                                         " bytes (CAN-FD max)"});
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         return wrap_str_result(
