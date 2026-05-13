@@ -613,50 +613,81 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ show (length [() | ("T", _, _) <- expected]) ++ " types)."
 
     phony "regen-ffi-exports" $ do
-        -- Rewrite `haskell-shim/ffi-exports.snapshot` from the current
-        -- MAlonzo output. Run after an intentional Agda refactor that
-        -- changes the mangled numbers.
+        -- Rewrite the F: function entries in `haskell-shim/ffi-exports.snapshot`
+        -- in-place from the current MAlonzo output.  Run after an intentional
+        -- Agda refactor that changes the mangled numbers.
+        --
+        -- Preservation contract (R20 cluster I follow-up — the original regen
+        -- iterated only `ffiExports` and overwrote the whole file, which would
+        -- have silently dropped every C: constructor / T: type / indirect F:
+        -- helper line on first re-run):
+        --
+        --   * Lines without an `F: ` prefix (header comments, blanks, section
+        --     dividers, `C: …`, `T: …`) are copied through verbatim.
+        --   * `F: <module>:d_<funcName>_NN` lines whose `<module>` and
+        --     `<funcName>` match an entry in `ffiExports` get their NN
+        --     refreshed from MAlonzo.
+        --   * `F: …` lines that do NOT match any `ffiExports` entry (the
+        --     R19 cluster 13 indirect-helper block) are preserved verbatim.
+        --   * If an `ffiExports` entry has no matching `F:` line in the
+        --     snapshot (newly added export), we error out with a placeholder
+        --     suggestion rather than silently dropping it.
         need ["build/MAlonzo/Code/Aletheia/Main.hs"]
         moduleContents <- loadFFIModuleContents
-        let entries =
-              [ ffiModule e ++ ":" ++ n
-              | e <- ffiExports
-              , Just c <- [lookup (ffiModule e) moduleContents]
-              , Just n <- [extractMangledName (ffiFuncName e) c]
-              ]
-        let missing =
-              [ ffiFuncName e ++ " (" ++ ffiModule e ++ ")"
-              | e <- ffiExports
-              , case lookup (ffiModule e) moduleContents of
-                    Just c  -> case extractMangledName (ffiFuncName e) c of
-                                   Just _  -> False
-                                   Nothing -> True
-                    Nothing -> True
-              ]
-        unless (null missing) $
+        let freshFor e = do
+                c <- lookup (ffiModule e) moduleContents
+                extractMangledName (ffiFuncName e) c
+            missingMangle =
+                [ ffiFuncName e ++ " (" ++ ffiModule e ++ ")"
+                | e <- ffiExports
+                , case freshFor e of { Just _ -> False; Nothing -> True }
+                ]
+        unless (null missingMangle) $
             error $ "regen-ffi-exports: could not extract mangled name for: "
-                 ++ unwords missing
-        let header =
-                [ "# Frozen list of MAlonzo-mangled FFI export names."
-                , "#"
-                , "# Purpose: guard against silent drift of the mangled names when Agda"
-                , "# definitions are reordered or new definitions are added above existing"
-                , "# ones. The build system (Shakefile phony `check-ffi-exports`) diffs the"
-                , "# fresh MAlonzo output against this file and fails on mismatch."
-                , "#"
-                , "# Format: one \"<module>:<mangled-name>\" per non-blank, non-# line."
-                , "# Modules are the MAlonzo output files under `build/MAlonzo/Code/`."
-                , "#"
-                , "# Regenerate after an intentional refactor with:"
-                , "#   cabal run shake -- regen-ffi-exports"
-                , "#"
-                , "# This snapshot is paired with `checkFFINames` in Shakefile.hs, which"
-                , "# ensures `haskell-shim/src/AletheiaFFI.hs` calls match these names."
+                 ++ unwords missingMangle
+        let freshEntries :: [(FFIExport, String)]
+            freshEntries =
+                [ (e, n) | e <- ffiExports, Just n <- [freshFor e] ]
+            rewriteLine line =
+                case stripPrefix "F: " line of
+                    Nothing   -> (line, Nothing)
+                    Just body ->
+                        case [ (i, e, n)
+                             | (i, (e, n)) <- zip [0 :: Int ..] freshEntries
+                             , (ffiModule e ++ ":d_" ++ ffiFuncName e ++ "_")
+                                 `isPrefixOf` body
+                             ] of
+                            ((i, e, n):_) ->
+                                ( "F: " ++ ffiModule e ++ ":" ++ n
+                                , Just i
+                                )
+                            [] -> (line, Nothing)  -- indirect helper; preserve
+        existing <- liftIO $ do
+            c <- readFile "haskell-shim/ffi-exports.snapshot"
+            length c `seq` return c  -- force read; we writeFile to same path below
+        let (rewrittenLines, hits) =
+                unzip (map rewriteLine (lines existing))
+            matched = nub [i | Just i <- hits]
+            unmatched =
+                [ e | (i, (e, _)) <- zip [0 :: Int ..] freshEntries
+                    , i `notElem` matched
+                ]
+        unless (null unmatched) $
+            error $ unlines $
+                [ "regen-ffi-exports: these ffiExports entries have no F: line"
+                , "in the snapshot.  Add a placeholder before re-running:"
+                , ""
+                ] ++
+                [ "    F: " ++ ffiModule e ++ ":d_" ++ ffiFuncName e ++ "_0"
+                | e <- unmatched
                 ]
         liftIO $ writeFile "haskell-shim/ffi-exports.snapshot"
-                           (unlines (header ++ entries))
-        putInfo $ "Regenerated snapshot with "
-               ++ show (length entries) ++ " entries."
+                           (unlines rewrittenLines)
+        putInfo $ "Regenerated snapshot: refreshed "
+               ++ show (length matched) ++ " F: function entries; "
+               ++ "preserved "
+               ++ show (length (lines existing) - length matched)
+               ++ " non-function lines (C: / T: / indirect F: helpers / comments)."
 
     phony "check-stdlib-version" $ do
         -- Verify that the globally installed agda-stdlib matches the
