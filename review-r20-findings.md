@@ -280,9 +280,9 @@ Files compared: `Error.agda`, `Protocol/Message.agda`, `Protocol/Routing.agda`, 
 
 ##### Cat 27 — Stdlib coverage
 
-103. `[ ]` AGDA-C-27.1 — `Parser/Combinators.agda:165-169` `sameLengthᵇ` — hand-rolled; could be `length xs ≡ᵇ length ys`.
-104. `[ ]` AGDA-C-27.2 — `Parser/Combinators.agda:128-133` `elem` — hand-rolled; `Data.Bool.ListAction.any` covers it.
-105. `[ ]` AGDA-C-27.3 — `DBC/JSONParser.agda:105-106` `_≟-LC_ = ListProps.≡-dec _≟ᶜ_` — uses hyphen separator instead of subscript convention.
+103. `[DEFER]` AGDA-C-27.1 — `Parser/Combinators.agda:165-169` `sameLengthᵇ` — hand-rolled; could be `length xs ≡ᵇ length ys`.  ✅ DEFER-end-of-round: structural lemmas downstream (`sameLengthᵇ-cons`, `sameLengthᵇ-app-nz`, `sameLengthᵇ-len-≢` in `DBC/TextParser/Properties/Preamble/Newline.agda` + `ManyRoundtrip.agda`) pattern-match on the definition's clause structure; swapping to `length xs ≡ᵇ length ys` would cascade rewrites through ~30+ proof sites that currently rely on the named structural recursor.  High cost, low value; the hand-rolled form is a load-bearing structural lemma surface, not just a Bool predicate.
+104. `[FIX]` AGDA-C-27.2 — `Parser/Combinators.agda:128-133` `elem` — hand-rolled; `Data.Bool.ListAction.any` covers it.  ✅ DEFER-end-of-round: replaced with `elem c = any (c ≈ᵇ_)` using stdlib `Data.Bool.ListAction.any` (≡ `or ∘ map p`).  Definition is now point-free; `elem` is private and used only by `oneOf` / `noneOf` in the same module, no external proof depends on the cons/nil clauses.
+105. `[FIX]` AGDA-C-27.3 — `DBC/JSONParser.agda:105-106` `_≟-LC_ = ListProps.≡-dec _≟ᶜ_` — uses hyphen separator instead of subscript convention.  ✅ DEFER-end-of-round: renamed to `_≟ₗᶜ_` (subscript-ell + superscript-c) per the prior convention referenced in `LTL/SignalPredicate/Cache.agda`; 8 use sites all in JSONParser.agda updated via `Edit replace_all`.
 
 ##### G-A14..A16 — guideline findings
 
@@ -882,7 +882,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 509. `[ ]` AGDA-D-13.7 — `Marshal.hs:81-93` `mkAgdaRational` — document Int64-to-Integer widening explicitly.
 510. `[ ]` AGDA-D-19.1 — Runtime pipeline never discharges `AllObserved`; users can't attribute `Unresolved` results. Add `unobserved_signals` field to `Complete`.
 511. `[ ]` AGDA-D-19.2 — `TwoValued→Bounded` is convenience exit ramp; document NOT on streaming path.
-512. `[ ]` AGDA-D-19.3 — `StreamingWarm.agda:91-99` `nothing≢just` re-invents stdlib `Maybe.Properties.just≢nothing`.
+512. `[FP]` AGDA-D-19.3 — `StreamingWarm.agda:91-99` `nothing≢just` re-invents stdlib `Maybe.Properties.just≢nothing`.  ✅ DEFER-end-of-round: the 3-line local helper (`nothing≢just () = ()`) is shorter and clearer than `nothing≢just = ≢-sym just≢nothing` + the stdlib import.  This is an idiomatic per-module absurdity helper; stdlib symmetrisation would add 1 import + a sym-wrap for negative readability gain.
 513. `[ ]` AGDA-D-19.4 — `StreamState/Internals.agda:241-245` — `stepProperty` builds with OLD cache; `updateEntries-self-lookup` lemma unwritten. Track as proof gap.
 514. `[FIX]` AGDA-D-32.1 — ✅ Cluster I: split `validateIdent`'s rejection paths so length-overflow surfaces as typed `Error.InputBoundExceeded IdentifierLength observed max-identifier-length` while grammar-invalid retains `ParseErr (InvalidIdentifier name)`.  JSONParser return-type cascade `ParseError ⊎` → `Error ⊎` (27 inj₁ sites wrapped with `ParseErr`); `parseDBCWithErrors` lifts to `Error ⊎ DBC`; callers in `Handlers.withParsedDBC` + `Handlers/FormatDBCText.handleFormatDBCText` updated to unwrap top-level Error directly.
 515. `[FIX]` AGDA-D-32.2 — ✅ Cluster I: post-parse handler walk for every unbounded `List Char` field — `DBC.version`, `DBCSignal.unit`, per-signal value-description labels, comment text, attribute names + `AVString` values + `ATEnum` labels, value-table labels, unresolved-value-desc labels.  Emits `Error.InputBoundExceeded StringLength observed max-string-length-bytes` at the handler boundary alongside cluster-H's ArrayCardinality walk.  Mirrored in `Handlers.agda` and `Handlers/ParseDBCText.agda` per the existing cycle-avoidance duplication pattern.
@@ -908,7 +908,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 535. `[ ]` AGDA-D-30.3 — `Shakefile.hs:564-606 regen-ffi-exports` — Only handles `d_*` definitions; extend to emit `C_*_NN` lines.
 536. `[ ]` AGDA-D-31.1 — `aletheia.agda-lib` — `standard-library-2.3` exact pin; stdlib 3.0 hazard tracked.
 537. `[ ]` AGDA-D-31.2 — `haskell-shim/aletheia.cabal` — GHC version constraint discipline; track at Phase 6 native bignum work.
-538. `[ ]` AGDA-D-GA20.1 — `StreamingWarm.agda:96-99` `nothing≢just` re-invents stdlib; use `Data.Maybe.Properties.just≢nothing`. (See AGDA-D-19.3.)
+538. `[FP]` AGDA-D-GA20.1 — `StreamingWarm.agda:96-99` `nothing≢just` re-invents stdlib; use `Data.Maybe.Properties.just≢nothing`. (See AGDA-D-19.3.)  ✅ DEFER-end-of-round: same disposition as AGDA-D-19.3 — local 3-line absurdity helper is idiomatic; stdlib symmetrisation adds 1 import + sym-wrap for negative readability gain.
 539. `[ ]` AGDA-D-GA19.1 — `Main.agda:34-50` Adequacy docstring is excellent G-A19 example; cross-reference from `streaming-adequacy` headline.
 
 ---
@@ -1171,7 +1171,7 @@ focused commit; gates run fresh at every cluster closure per
 
 ### DEFER-end-of-round (final pass)
 - **AGDA-B-9.2-residual** (latent classifyStepResult Satisfied → advance prop gap) — cluster S's partial closure ships the comment correctness + provable structural lemmas (`stepL-always-never-satisfied`, `stepL-eventually-never-violated`); the universal stability theorem is not provable as stated.  Two viable closures need user direction: (a) operational fix — drop the prop from the iteration list on Satisfied (runtime behaviour change; extends `StepOutcome` with a third `complete` constructor; needs full gate suite + benchmark); (b) surface restriction — `parseProperty`-tier rejection of top-level non-Always/non-Eventually formulas (API break).  See `memory/project_classify_satisfied_soundness_gap.md`.
-- Cat 27 stdlib coverage findings
+- ✅ Cat 27 stdlib coverage findings — cluster T closed: AGDA-C-27.2 (`elem` → stdlib `any`) + AGDA-C-27.3 (`_≟-LC_` → `_≟ₗᶜ_` rename); AGDA-C-27.1 (`sameLengthᵇ`) `[DEFER]` due to downstream structural-lemma cascade; AGDA-D-19.3 + AGDA-D-GA20.1 (`nothing≢just`) `[FP]` because the 3-line local absurdity helper is idiomatic.
 - C++ `Strong<Tag, T>` ergonomics + `LtlFormula` `std::variant` portability
 - `AGENTS.md` future-tense paragraph (DOC-A-1.14)
 - DEFERRALS.md / re-disposition file updates

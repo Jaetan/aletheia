@@ -117,16 +117,20 @@ lookupDecRat key obj with lookupRational key obj
 
 -- Decidable List Char equality (lifted via stdlib `≡-dec`).  Used by the
 -- byteOrder / scope / kind parsers below to dispatch on closed-form chars.
-_≟-LC_ : (cs ds : List Char) → _
-_≟-LC_ = ListProps.≡-dec _≟ᶜ_
+-- Subscript-ell + superscript-c convention matches the prior `_≟ₗᶜ_` form
+-- mentioned in `LTL/SignalPredicate/Cache.agda` (replaced there by the
+-- `_≡csᵇ_` Bool fast path).  Cold-path JSON dispatch keeps the proof-aware
+-- `Dec`-valued form because runtime cost is one-time-per-config.
+_≟ₗᶜ_ : (cs ds : List Char) → _
+_≟ₗᶜ_ = ListProps.≡-dec _≟ᶜ_
 
 -- Parse ByteOrder from char list.  Takes `List Char` (not `String`) so the
 -- formatter's `formatByteOrder bo : List Char` round-trips without a
 -- `fromList∘toList` axiom slipping in for abstract `bo`.
 parseByteOrder : List Char → Error ⊎ ByteOrder
 parseByteOrder cs =
-  if ⌊ cs ≟-LC String.toList "little_endian" ⌋ then inj₂ LittleEndian
-  else if ⌊ cs ≟-LC String.toList "big_endian" ⌋ then inj₂ BigEndian
+  if ⌊ cs ≟ₗᶜ String.toList "little_endian" ⌋ then inj₂ LittleEndian
+  else if ⌊ cs ≟ₗᶜ String.toList "big_endian" ⌋ then inj₂ BigEndian
   else inj₁ (ParseErr (InvalidByteOrder (fromList cs)))
 
 -- Parse a JSON array of naturals into a List ℕ (helper for parseNatList⁺)
@@ -522,13 +526,13 @@ parseCommentList = parseObjectList "comment" parseComment 0
 -- step on abstract `AttrDef.scope d`.
 parseAttrScope : List Char → Error ⊎ AttrScope
 parseAttrScope cs =
-  if ⌊ cs ≟-LC String.toList "network" ⌋ then inj₂ ASNetwork
-  else if ⌊ cs ≟-LC String.toList "node"    ⌋ then inj₂ ASNode
-  else if ⌊ cs ≟-LC String.toList "message" ⌋ then inj₂ ASMessage
-  else if ⌊ cs ≟-LC String.toList "signal"  ⌋ then inj₂ ASSignal
-  else if ⌊ cs ≟-LC String.toList "envVar"  ⌋ then inj₂ ASEnvVar
-  else if ⌊ cs ≟-LC String.toList "nodeMsg" ⌋ then inj₂ ASNodeMsg
-  else if ⌊ cs ≟-LC String.toList "nodeSig" ⌋ then inj₂ ASNodeSig
+  if ⌊ cs ≟ₗᶜ String.toList "network" ⌋ then inj₂ ASNetwork
+  else if ⌊ cs ≟ₗᶜ String.toList "node"    ⌋ then inj₂ ASNode
+  else if ⌊ cs ≟ₗᶜ String.toList "message" ⌋ then inj₂ ASMessage
+  else if ⌊ cs ≟ₗᶜ String.toList "signal"  ⌋ then inj₂ ASSignal
+  else if ⌊ cs ≟ₗᶜ String.toList "envVar"  ⌋ then inj₂ ASEnvVar
+  else if ⌊ cs ≟ₗᶜ String.toList "nodeMsg" ⌋ then inj₂ ASNodeMsg
+  else if ⌊ cs ≟ₗᶜ String.toList "nodeSig" ⌋ then inj₂ ASNodeSig
   else inj₁ (ParseErr (InvalidKind "attrScope" (fromList cs)))
 
 -- Attribute type declaration (RHS of BA_DEF_).

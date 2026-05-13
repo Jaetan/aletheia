@@ -16,6 +16,7 @@ open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit; isAlpha; isSpace; isLower)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
+open import Data.Bool.ListAction using (any)
 open import Data.Nat using (ℕ; zero; suc; _∸_)
 open import Data.String as String using (String)
 
@@ -122,15 +123,11 @@ infixl 3 _<|>_
 -- CHARACTER PARSERS
 -- ============================================================================
 
--- Helper: Check if character is in a list (Boolean membership test)
--- Note: Stdlib provides proof-oriented membership (Data.List.Relation.Unary.Any)
--- but we need runtime Bool for parser predicates
+-- Helper: Check if character is in a list (Boolean membership test).
+-- Delegates to stdlib's `Data.Bool.ListAction.any` (≡ `or ∘ map p`).
 private
   elem : Char → List Char → Bool
-  elem c [] = false
-  elem c (x ∷ xs) with c ≈ᵇ x
-  ... | true = true
-  ... | false = elem c xs
+  elem c = any (c ≈ᵇ_)
 
 -- | Parse a single character satisfying predicate
 satisfy : (Char → Bool) → Parser Char

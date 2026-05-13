@@ -798,8 +798,33 @@ callers that consumed a bare success acknowledgement need to access
   shapes documented in-source + carried to DEFER-end-of-round as
   `AGDA-B-9.2-residual` (R20 cluster S — AGDA-B-9.2 partial closure).
   No runtime change.
-
-### Removed
+- `Aletheia.DBC.JSONParser._≟-LC_` (decidable `List Char` equality)
+  renamed to `_≟ₗᶜ_` (subscript-ell + superscript-c) to match the prior
+  convention referenced in `Aletheia.LTL.SignalPredicate.Cache`; 8 use
+  sites in JSONParser.agda updated.  `Aletheia.Parser.Combinators.elem`
+  (private `Char → List Char → Bool` membership test) replaced with a
+  point-free `elem c = any (c ≈ᵇ_)` over stdlib's `Data.Bool.ListAction.any`
+  (≡ `or ∘ map p`); behaviour preserved, definition is no longer
+  hand-rolled (R20 cluster U — AGDA-C-27.2 + AGDA-C-27.3).  No runtime
+  semantics change.
+- `AGENTS.md` § CI/CD final paragraph rewritten from future-tense ("the
+  first review round under this section will surface...") to past-tense
+  reflecting current state: the three audit scripts and `dependabot.yml`
+  are in place (2026-05-09); subsequent rounds maintain them (R20 cat 1
+  surfaced `CICD-1.2 / 1.3 / 2.3 / 3.2 / 5.1` against the scripts
+  themselves); action references in `.github/workflows/` are still
+  tag-pinned (`@v4`), SHA migration remains the next reviewable cat 1
+  change (R20 cluster T — DOC-A-1.14).
+- Doc-fence harness defense-in-depth: new autouse `_sandbox_cwd` fixture
+  in the repo-root `conftest.py` pins every fence's cwd to a per-test
+  `tmp_path` via `monkeypatch.chdir`.  Defense on top of the existing
+  `pytest_sessionstart` loader patches: even if a future regression
+  removes a `create_template` / loader patch or adds a new
+  file-emitting fence, writes land in pytest's auto-cleaned `tmp_path`
+  rather than the repo root.  Doc fences are cwd-independent (loader
+  fakes ignore path args), so the chdir is invisible to fence
+  behaviour (R20 cluster T — vehicle_checks.xlsx doc-harness
+  recreation).
 
 - `cantools` is no longer a Python runtime dependency. The verified
   Agda DBC text parser replaces every code path that previously
