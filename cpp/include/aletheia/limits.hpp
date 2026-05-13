@@ -16,6 +16,14 @@
 // (`aletheia.InputBoundExceededError`) and Go (`*aletheia.InputBoundExceededError`)
 // bindings expose the equivalent type; keep the three surfaces in sync per
 // `feedback_cross_language_parity.md`.
+//
+// Direct production consumers: `max_json_bytes` (ffi_backend.cpp pre-check),
+// `bound_kind_nesting_depth` / `max_nesting_depth` (cross-binding integration
+// test wire-error verification).  The remaining constants are declarations —
+// the Agda kernel produces the wire string and the structured triple; this
+// header lets C++ callers identify and compare against them by name.  The
+// value-equality tests in `cpp/tests/unit_tests_input_bounds.cpp` are the
+// machine-checked parity gate against `Aletheia.Limits`.
 #pragma once
 
 #include <cstdint>

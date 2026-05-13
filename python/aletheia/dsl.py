@@ -85,9 +85,12 @@ class Signal:
     following sites must all change together, and the Agda layer is the
     source of truth:
 
-      1. ``src/Aletheia/Protocol/ResponseFormat.agda`` — add the constructor
-         to the ``SignalPredicate`` ADT and extend ``encodeSignalPredicate``
-         so the JSON wire format recognises the new tag.
+      1. ``src/Aletheia/LTL/SignalPredicate/Types.agda`` — add the
+         constructor to the ``SignalPredicate`` / ``ValuePredicate`` /
+         ``DeltaPredicate`` ADTs.  Then extend
+         ``src/Aletheia/LTL/JSON/Format.agda``'s
+         ``formatSignalPredicateFields`` (and its parser counterpart) so
+         the JSON wire format recognises the new tag.
       2. ``python/aletheia/protocols.py`` — add the matching member to
          ``PredicateType`` (Python mirror of the wire-format tag).
       3. This module — expose it as a method on ``Signal`` (or ``Predicate``)

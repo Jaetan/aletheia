@@ -16,7 +16,7 @@ namespace aletheia {
 // ---------------------------------------------------------------------------
 // Structured logging — opt-in, zero-cost when no callback is configured.
 //
-// Usage:
+// Usage (single sink):
 //   auto logger = aletheia::Logger([](const aletheia::LogRecord& r) {
 //       std::cerr << r.event;
 //       for (auto& [k, v] : r.fields) { /* format k=v */ }
@@ -24,7 +24,11 @@ namespace aletheia {
 //
 //   auto client = aletheia::AletheiaClient(std::move(backend), logger);
 //
-// Default-constructed Logger is a no-op (null callback).
+// Multiple sinks: construct with the primary callback and call
+// `add_sink(cb)` for each additional one.  Every sink sees the same
+// `LogRecord` and they fire in registration order.
+//
+// Default-constructed Logger is a no-op (no sinks).
 // ---------------------------------------------------------------------------
 
 enum class LogLevel : std::uint8_t { Debug, Info, Warn, Error };

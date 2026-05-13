@@ -66,12 +66,15 @@ class Backend(Protocol):
         Returns the raw ``void*`` address as ``int``; the Client passes
         it back unchanged on every subsequent call.
         """
+        raise NotImplementedError
 
     def close(self, state: int) -> None:
         """Free per-session state and release any associated RTS reference."""
+        raise NotImplementedError
 
     def process(self, state: int, input_bytes: bytes) -> bytes:
         """Send a JSON command and return the JSON response bytes."""
+        raise NotImplementedError
 
     def send_frame_binary(  # pylint: disable=too-many-arguments
         self, state: int, *,
@@ -84,30 +87,37 @@ class Backend(Protocol):
         BRS / ESI (CAN-FD ISO 11898-1:2015 §10.4.2 / §10.4.3) are
         pass-through metadata — not consumed by the Agda kernel.
         """
+        raise NotImplementedError
 
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
         """Send a CAN error event (no ID, no payload)."""
+        raise NotImplementedError
 
     def send_remote_binary(
         self, state: int, *,
         timestamp: int, can_id: int, extended: bool,
     ) -> bytes:
         """Send a CAN remote frame event (ID, no payload)."""
+        raise NotImplementedError
 
     def start_stream_binary(self, state: int) -> bytes:
         """Begin streaming mode."""
+        raise NotImplementedError
 
     def end_stream_binary(self, state: int) -> bytes:
         """Finalize streaming and return verdicts."""
+        raise NotImplementedError
 
     def format_dbc_binary(self, state: int) -> bytes:
         """Return the loaded DBC as JSON."""
+        raise NotImplementedError
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
         self, state: int, *,
         can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
     ) -> bytes:
         """Extract signals — JSON response on output (binding-friendly)."""
+        raise NotImplementedError
 
     def build_frame_bin(  # pylint: disable=too-many-arguments
         self, state: int, *,
@@ -116,6 +126,7 @@ class Backend(Protocol):
         denominators: tuple[int, ...], expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame returning raw payload bytes (no JSON)."""
+        raise NotImplementedError
 
     def update_frame_bin(  # pylint: disable=too-many-arguments
         self, state: int, *,
@@ -125,6 +136,7 @@ class Backend(Protocol):
         denominators: tuple[int, ...], expected_bytes: int,
     ) -> bytes:
         """Update specific signals in an existing frame returning raw payload bytes."""
+        raise NotImplementedError
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
         self, state: int, *,
@@ -137,6 +149,7 @@ class Backend(Protocol):
         Client falls back to :meth:`extract_signals_binary` when this
         exception is raised.
         """
+        raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------

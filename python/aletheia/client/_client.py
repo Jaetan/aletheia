@@ -593,13 +593,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             "core_reason": core_reason,
         }
 
-    # Pre-encoded ack-response shapes (binary FFI is compact; JSON FFI has
-    # the post-colon space `json.dumps` emits).  `_ACK_RESPONSES` is the
-    # 2-tuple used by the streaming hot path's membership test — hoisting
-    # it to a class const avoids per-frame tuple allocation.
-    _ACK_BYTES = b'{"status":"ack"}'
-    _ACK_BYTES_SPACED = b'{"status": "ack"}'
-    _ACK_RESPONSES = (_ACK_BYTES, _ACK_BYTES_SPACED)
+    # Pre-encoded ack-response shapes — compact form from the binary FFI
+    # path; post-colon-space form from the JSON FFI path (what `json.dumps`
+    # emits by default).  Hoisted to a class const so the streaming hot
+    # path's membership test doesn't allocate a fresh 2-tuple per frame.
+    _ACK_RESPONSES = (b'{"status":"ack"}', b'{"status": "ack"}')
 
     def send_frame(  # pylint: disable=too-many-arguments
         self,

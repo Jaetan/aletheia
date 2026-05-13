@@ -59,7 +59,6 @@ type Client struct {
 	// observability: lets cancel-while-waiting tests deterministically
 	// detect that a competing goroutine has reached the lock-acquisition
 	// select without falling back to time.Sleep — see cancel_test.go.
-	// Production callers do not read this counter.
 	lockWaiters atomic.Int32
 }
 

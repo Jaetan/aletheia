@@ -918,9 +918,9 @@ func requireString(m map[string]any, key string) (string, error) {
 // threaded through — “*InputBoundExceededError.Error()“ reconstructs an
 // equivalent string from kind/observed/limit, matching cross-binding
 // convention where each language formats the message in its own idiom.
-// AGDA-D-13.4 phase 2a — cross-binding wire-symmetric lifting; previously
-// only the binding-side short-circuit raised this type, so kernel-rejected
-// paths (NestingDepth, AtomCount) returned a generic *Error.
+// Cross-binding wire-symmetric lifting: kernel-rejected paths (NestingDepth,
+// AtomCount, etc.) surface the structured `bound_kind/observed/limit` triple
+// so callers can recover the typed error rather than a generic `*Error`.
 func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
 	if code != CodeInputBoundExceeded {
 		return nil
@@ -1257,7 +1257,9 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 }
 
 // signalNameByIndex resolves a DBC signal index into its name using the
-// caller-supplied lookup table. Returns an empty SignalName on OOB.
+// caller-supplied lookup table.  Returns a synthetic "signal_<idx>" on OOB
+// — diagnostic-grade only; the kernel guarantees indices in range, so OOB
+// reaching this branch indicates a binding-side bookkeeping bug.
 func signalNameByIndex(names []string, idx uint16) SignalName {
 	if int(idx) < len(names) {
 		return SignalName(names[idx])
@@ -2128,15 +2130,13 @@ func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 		return zero, protocolError("signal missing required field: name")
 	}
 
-	// Explicit lookup: "signed" must be present in well-formed DBC JSON
-	// from the Agda parser. Default to false (unsigned, the CAN standard
-	// default) but log a warning via error return if missing.
-	signedVal, signedOk := j["signed"]
+	// "signed" must be present in well-formed DBC JSON from the Agda parser.
+	// Silently default to false (the CAN unsigned default) if missing or not
+	// a bool — drift from the kernel is treated as a parser bug, not a user
+	// input error, so it does not surface as a typed validation failure.
 	isSigned := false
-	if signedOk {
-		if b, ok := signedVal.(bool); ok {
-			isSigned = b
-		}
+	if b, ok := j["signed"].(bool); ok {
+		isSigned = b
 	}
 
 	var receivers []string

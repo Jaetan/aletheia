@@ -1,16 +1,18 @@
 """Command-line interface for Aletheia CAN signal verification
 
 Subcommands:
-    check     — run LTL checks against a CAN log file
-    extract   — decode signals from a single CAN frame
-    signals   — list all signals defined in a DBC file
-    validate  — validate a DBC definition for structural issues
-    mux-query — inspect multiplexor structure of a DBC message
+    check      — run LTL checks against a CAN log file
+    validate   — validate a DBC definition for structural issues
+    extract    — decode signals from a single CAN frame
+    signals    — list all signals defined in a DBC file
+    format-dbc — re-export a DBC as canonical JSON via the Agda core
+    mux-query  — inspect multiplexor structure of a DBC message
 
 Usage:
     python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
     python -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
     python -m aletheia signals --dbc vehicle.dbc
+    python -m aletheia format-dbc --dbc vehicle.dbc
     python -m aletheia mux-query --dbc vehicle.dbc 0x100
     python -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
 """
@@ -98,7 +100,14 @@ _EXIT_ERROR = 2
 # ============================================================================
 
 def _die(msg: str) -> NoReturn:
-    """Print error to stderr and exit with code 2."""
+    """Print error to stderr and exit with code 2.
+
+    CLI-layer only: library callers must catch the underlying exception
+    (`AletheiaError` and its subclasses) and decide their own exit behaviour.
+    Call this strictly from `cli.py` argv-handling code, never from
+    `python/aletheia/` library modules — see the R19 layering inversion
+    (cli on top of library, not the other way round).
+    """
     print(f"Error: {msg}", file=sys.stderr)
     sys.exit(_EXIT_ERROR)
 

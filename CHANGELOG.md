@@ -766,6 +766,13 @@ callers that consumed a bare success acknowledgement need to access
   Agda kernel (Track B.3). User-visible behavior is byte-identical on
   the test corpus; round-trip warnings now surface through
   `ValidationIssue` rather than `cantools` exceptions.
+- Agda kernel facade `Aletheia.Main` re-exports five additional
+  `Aletheia.Protocol.Message` constructors that had drifted out of the
+  `using` list: `SendFrame` / `ParseDBCText` / `FormatDBCText` /
+  `DBCTextResponse` / `ParsedDBCResponse`.  No runtime change — the FFI
+  dispatcher (`processStreamCommand`) was already handling them; the
+  facade now matches the actual protocol surface (R20 cluster Q —
+  AGDA-A-1.1).
 
 ### Removed
 

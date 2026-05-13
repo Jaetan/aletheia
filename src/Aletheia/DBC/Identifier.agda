@@ -3,21 +3,16 @@
 -- DBC Identifier type — validated identifiers per the DBC grammar
 -- (`identifier ::= (letter | "_") (letter | digit | "_")*`).
 --
--- Shape (Track B.3.d Layer 3 commit 3d.4 — de-tainted from String, 2026-04-26):
--- `name : List Char` field plus an irrelevant witness that the char list
--- satisfies the grammar.  Pre-3d.4 used `name : String` with the witness
--- buried under `toList`; that forced `Lexer.parseIdentifier` to go through
--- `Substrate.Unsafe.mkIdentFromCharsUnsafe` (and thus through the
--- `toList∘fromList` axiom) just to build an Identifier from a `List Char`.
--- After 3d.4 the parser builds `mkIdent (h ∷ t) <validity>` directly and the
--- 47 modules under `DBC/TextParser/` regain `--safe`.
+-- Shape: `name : List Char` plus an irrelevant witness that the char list
+-- satisfies the grammar.  Storing as `List Char` (not `String`) lets the
+-- lexer build `mkIdent (h ∷ t) <validity>` axiom-free from the chars it
+-- just consumed.
 --
 -- Axiom budget:
---   * Lexer (`parseIdentifier`): axiom-free.  Builds `mkIdent (h ∷ t) w`
---     directly from the consumed `List Char`.
+--   * Lexer (`parseIdentifier`): axiom-free.  Builds directly from the
+--     consumed `List Char`.
 --   * JSON parser path (`mkIdentFromString`): axiom-free.  Stores `toList s`
---     as the name; the `T (validIdentifierᵇ (toList s))` witness is the
---     `T?` decision result.
+--     as the name; the validity witness is the `T?` decision result.
 --   * The two `String ↔ List Char` axioms in `Substrate.Unsafe` survive only
 --     for the OUTER `parseText (formatText d) ≡ inj₂ d` wrap, not for any
 --     Identifier construction site.

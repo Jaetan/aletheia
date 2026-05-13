@@ -99,6 +99,12 @@ auto rts_state() -> RTSState& {
     return s;
 }
 
+// Backend wrapping libaletheia-ffi.so via dlopen.  Lifecycle invariant:
+// the GHC RTS is process-global, so the destructor must NOT call
+// `hs_exit()` (the RTS does not support reinitialisation) and must NOT
+// `dlclose()` the library (the RTS owns threads that still reference it).
+// The library handle and StablePtr state therefore leak by design at
+// destruction — see `~FfiBackend` for the implementation.
 class FfiBackend : public IBackend {
     void* handle_ = nullptr;
     AletheiaInitFn init_fn_ = nullptr;
@@ -218,8 +224,7 @@ public:
         }
     }
 
-    // Do NOT call hs_exit() — GHC RTS does not support reinitialization.
-    // Do NOT dlclose() — the RTS owns threads that reference the library.
+    // See class-level docstring for the no-hs_exit / no-dlclose rationale.
     ~FfiBackend() override = default;
 
     FfiBackend(const FfiBackend&) = delete;

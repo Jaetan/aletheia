@@ -145,12 +145,15 @@ type yamlClause struct {
 // Parse logic
 // ---------------------------------------------------------------------------
 
-// parseYAMLChecks decodes a YAML document into a list of CheckResults,
-// validating the top-level "checks:" key before unmarshaling into
-// typed structs so malformed documents yield actionable errors.
+// parseYAMLChecks decodes a YAML document into a list of CheckResults.
+// The two-pass decode (untyped map → typed struct) is intentional: yaml.v3's
+// typed-only path conflates "key missing" / "key present but empty list" /
+// "key present with wrong type" into the same shape, which would surface as
+// an opaque "no checks" downstream.  Cost is negligible on the loader path
+// (microseconds per workbook); benefit is actionable diagnostics.
 func parseYAMLChecks(data []byte) ([]CheckResult, error) {
-	// First try to unmarshal into the expected structure.
-	// We need to verify the top-level structure manually to give good errors.
+	// First pass: structural check on the top-level "checks" key so we can
+	// distinguish absent / wrong-type from a typed unmarshal failure.
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, wrapValidationError("invalid YAML", err)
@@ -160,13 +163,11 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	if !ok {
 		return nil, validationError("YAML document must contain a 'checks' list")
 	}
-
-	// Verify it's a list.
 	if _, isList := checksRaw.([]any); !isList {
 		return nil, validationError("YAML 'checks' field must be a list")
 	}
 
-	// Now unmarshal into our typed structs.
+	// Second pass: typed unmarshal.
 	var file yamlFile
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return nil, wrapValidationError("invalid YAML", err)

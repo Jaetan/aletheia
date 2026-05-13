@@ -45,10 +45,6 @@ from ..protocols import (
     ValidationResponse,
 )
 
-# AckResponse/PropertyViolationResponse retained as imports for return-type
-# annotations on send_frame / send_frames; the kernel-rejected path is
-# owned by raise_on_error_response → ProtocolError.
-
 if TYPE_CHECKING:
     from ..checks import CheckResult
 

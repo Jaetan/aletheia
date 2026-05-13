@@ -426,7 +426,9 @@ def main(argv: list[str] | None = None) -> int:
     # Step 15: doc-example fence harness (R18 cluster 5).
     r.step(
         "pytest --markdown-docs",
-        [r.python, "-m", "pytest", "--markdown-docs", "README.md", "docs/"],
+        [r.python, "-m", "pytest", "--markdown-docs",
+         "--rootdir", str(r.repo_root),
+         "README.md", "docs/", "python/README.md", "examples/README.md"],
         cwd=r.repo_root,
     )
     # Step 16: Python -X dev mode (R18 cluster 5 — Cat 34a).

@@ -179,12 +179,12 @@ lookupAtom xs n = listIndex n xs
 -- correct previous value (from cache) and current value (from frame),
 -- without the cache update interfering with the current frame's evaluation.
 --
--- A formal proof of this ordering invariant (R14 finding A9) would require
--- a foundational lemma `updateEntries-self-lookup : lookupEntries name
--- (updateEntries name val ts es) ≡ just (mkCachedSignal val ts)` in
--- Cache/Properties.agda, which does not exist yet.  The proof would then
--- show that for delta predicates, evaluate-before-update preserves distinct
--- old/new values while update-before-evaluate collapses them (2026-04-16).
+-- A formal proof of this ordering invariant (R14 finding A9) is open: it
+-- would require a foundational lemma `updateEntries-self-lookup :
+-- lookupEntries name (updateEntries name val ts es) ≡ just (mkCachedSignal
+-- val ts)` in `Cache/Properties.agda`, then show that for delta predicates
+-- evaluate-before-update preserves distinct old/new values while
+-- update-before-evaluate collapses them.
 -- ====================================================================
 
 mkPredTable : DBC → SignalCache → List SignalPredicate → PredTable

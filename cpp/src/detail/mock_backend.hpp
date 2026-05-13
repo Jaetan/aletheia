@@ -8,9 +8,13 @@
 #include <aletheia/backend.hpp>
 
 #include <cassert>
+#include <cstddef>
+#include <optional>
 #include <queue>
+#include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace aletheia {

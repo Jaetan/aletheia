@@ -79,12 +79,12 @@ extractSignal frame sig byteOrder =
       value = scaleExtracted raw sig
   in if inBounds value (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig))
      then just value
-     -- Value outside [minimum, maximum]: reachable via matchMuxValue (mux
-     -- selector value doesn't match any expected value) and via
-     -- extractSignalDirect (which handles this case separately as
-     -- ValueOutOfBounds). The main batch extraction path
-     -- (extractSignalDirect) never sees this nothing — it calls
-     -- extractSignalCoreFast + scaleExtracted + inBounds directly.
+     -- Value outside [minimum, maximum].  The streaming hot path
+     -- (`extractSignalDirect`) bypasses this helper entirely — it calls
+     -- `extractSignalCoreFast` + `scaleExtracted` + `inBounds` directly
+     -- and routes the out-of-bounds case as `ValueOutOfBounds`.
+     -- This `nothing` is reachable only from `matchMuxValue` (mux selector
+     -- value doesn't match any expected value).
      else nothing
 
 -- Inject a signal value into a CAN frame
@@ -99,7 +99,7 @@ injectSignal value signalDef byteOrder frame =
      then injectHelper value signalDef byteOrder frame
      else nothing
   where
-    -- Deferred Bool fast path (AA-16.5; R19 cluster D PARTIAL 2026-05-09):
+    -- Deferred Bool fast path (AA-16.5; R19 cluster D PARTIAL):
     -- the `_<?_` guard below builds a `Dec (fromSigned … < 2 ^ bitLength)`
     -- per signal per frame-build.  R19 cluster D landed `@0` on
     -- `ℕToBitVec`'s bound slot (in `Aletheia.Data.BitVec.Conversion`), so
@@ -113,12 +113,9 @@ injectSignal value signalDef byteOrder frame =
     -- with-abstraction elaboration mechanism: `with ... in eq` inside
     -- `injectHelper` creates a closed scope that the proof side's outer
     -- `with`-abstraction cannot penetrate (cf. agda.readthedocs.io
-    -- /with-abstraction.html#ill-typed-with-abstractions).  The blocker
-    -- is structural to Agda's `with`, not to the proof effort estimate;
-    -- revisit only viable via an upstream Agda fix or eliminating the
-    -- Dec dispatch entirely.  (Post-Round-8 Batch 1 benchmarks: Frame
-    -- Building +1.5%/+4.3% for C++/CAN-FD; -2.7%/+1.8% for Go; within
-    -- noise of the 5% gate.)
+    -- /with-abstraction.html#ill-typed-with-abstractions).  Revisit only
+    -- viable via an upstream Agda fix or eliminating the Dec dispatch
+    -- entirely (see `memory/feedback_with_in_eq_outer_abstraction_barrier.md`).
     injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
     injectHelper {m} value signalDef byteOrder frame
       with removeScaling value (toℚ factor) (toℚ offset)

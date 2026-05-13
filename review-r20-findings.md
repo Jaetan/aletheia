@@ -91,17 +91,17 @@ From `DEFERRALS.md` (2026-05-10 last updated):
 
 ##### Cat 1 — Dead code
 
-1. `[ ]` AGDA-A-1.1 — `src/Aletheia/Main.agda:101-118` — Public facade `Aletheia.Main` re-exports `Aletheia.Protocol.Message` but omits ctors shipped after this facade was last touched: `SendFrame` (R19 P2 cluster 18, `a8ade07`), `ParseDBCText` (Track B.3.e), `FormatDBCText` (Track E.10), `DBCTextResponse`, `ParsedDBCResponse`. External callers using the facade see a stale subset.
-2. `[ ]` AGDA-A-1.2 — `src/Aletheia/CAN/BatchFrameBuilding.agda:79-100` — `LookupStrategy` record + three generic consumers parameterised over key type `K` but only ever instantiated with `indexStrategy : LookupStrategy ℕ`. YAGNI dead architectural overhead.
-3. `[ ]` AGDA-A-1.3 — `src/Aletheia/Protocol/Handlers.agda:112-125` ↔ `src/Aletheia/Protocol/Handlers/ParseDBCText.agda:58-72` — `signalsBound` + `firstDBCOverBound` cardinality-bound helpers duplicated; comment documents the cycle-avoidance rationale but a sibling helper module would close the drift risk.
-4. `[ ]` AGDA-A-1.4 — `src/Aletheia/Protocol/JSON/Parse.agda:41` — `digitToNat _ = 0` catch-all; only callers come through `parseNatural` filtering via `some (satisfy isDigit)`.
-5. `[ ]` AGDA-A-1.5 — `src/Aletheia/Protocol/JSON/Parse.agda:115-118` — `power10 (suc n) ... | zero` "unreachable" clause.
-6. `[ ]` AGDA-A-1.6 — `src/Aletheia/Protocol/JSON/Parse.agda:135` — `buildNumber n (just fracChars) ... | zero` unreachable.
-7. `[ ]` AGDA-A-1.7 — `src/Aletheia/Protocol/JSON/Parse.agda:145` — `applyExp q (just -[1+ e ]) ... | zero = q` unreachable.
-8. `[ ]` AGDA-A-1.8 — `src/Aletheia/CAN/BatchExtraction.agda:84` — `resultToString _ (Success _) = ""` unreachable.
-9. `[ ]` AGDA-A-1.9 — `src/Aletheia/CAN/BatchExtraction.agda:136` — `resultToCode _ (Success _) = ExtractionFailed` structurally misleading.
-10. `[ ]` AGDA-A-1.10 — `src/Aletheia/Trace/Time.agda:38, 40, 41` — `ns`, `ms`, `s` constructors "Reserved for future use". Borderline; user adjudication needed.
-11. `[ ]` AGDA-A-1.11 — `src/Aletheia/CAN/DLC.agda:32` — `dlcToBytes n = n` total-coverage catch-all returns input value (wrong if reached).
+1. `[FIX]` AGDA-A-1.1 — ✅ Cluster Q: facade extended with `SendFrame` / `ParseDBCText` / `FormatDBCText` / `DBCTextResponse` / `ParsedDBCResponse`.  CHANGELOG Added entry.
+2. `[FIX]` AGDA-A-1.2 — ✅ Cluster Q: rewrote comment — dropped the "future strategies" YAGNI hedge; documented the single-instance `indexStrategy : LookupStrategy ℕ` with rationale for keeping `lookupSignalsG` / `buildFrameG` / `updateFrameG` parametric (single source of truth for resolve + error).  Refactor-to-inline deferred per advisor (5 cascading consumers).
+3. `[DEFER]` AGDA-A-1.3 — DEFER-end-of-round: helper-module extraction (`Aletheia/DBC/CardinalityBounds.agda`?) to dedupe `signalsBound` + `firstDBCOverBound` across `Handlers.agda` and `Handlers/ParseDBCText.agda`.  Cycle-avoidance rationale is documented in-source per [[feedback-handler-vs-parser-bound-placement]]; closing the drift risk would gain ~80 LOC dedupe but cascade across the two consumer modules' import graphs.
+4. `[FIX]` AGDA-A-1.4 — ✅ Cluster Q: added inline comment naming the upstream `some (satisfy isDigit)` filter that excludes the catch-all reach.
+5. `[FP-VERIFIED]` AGDA-A-1.5 — ✅ Cluster Q audit: the existing inline comment already documents structural unreachability (`power10` always returns `suc _`); no edit needed.
+6. `[FP-VERIFIED]` AGDA-A-1.6 — ✅ Cluster Q audit: existing comment "Unreachable but needed for coverage" already documents it.
+7. `[FP-VERIFIED]` AGDA-A-1.7 — ✅ Cluster Q audit: existing comment "Unreachable: power10 always returns suc" already documents it.
+8. `[FIX]` AGDA-A-1.8 — ✅ Cluster Q: expanded comment naming `categorizeWith` short-circuit + tagging empty string as totality-only sentinel.
+9. `[FIX]` AGDA-A-1.9 — ✅ Cluster Q: expanded comment marking `ExtractionFailed` as a structurally-misleading-but-unobserved totality sentinel; cross-references the matching `resultToString` clause.
+10. `[FIX]` AGDA-A-1.10 — ✅ Cluster Q: dropped "Reserved for future use; not currently produced" from `ns` / `ms` / `s` per-ctor comments.  Added a block comment to `data TimeUnit` clarifying they are load-bearing for theorem quantification (otherwise `∀ u → ...` lemmas specialize away).
+11. `[FP-VERIFIED]` AGDA-A-1.11 — ✅ Cluster Q audit: source already carries a 4-line comment documenting "structurally required by Agda's totality checker because ℕ is open... unreachable from validated code paths: DLC.bounded ensures code < 16".
 
 ##### Cat 2 — Magic numbers
 
@@ -112,13 +112,13 @@ From `DEFERRALS.md` (2026-05-10 last updated):
 
 ##### Cat 4 — Comments
 
-16. `[ ]` AGDA-A-4.1 — `src/Aletheia/DBC/Identifier.agda:6-13` — Closed-work historical narrative (Pre-3d.4 / After 3d.4) is stale.
-17. `[ ]` AGDA-A-4.2 — `src/Aletheia/CAN/Encoding.agda:118-121` — In-source post-Round-8 benchmark numbers; stale stamps.
-18. `[ ]` AGDA-A-4.3 — `src/Aletheia/CAN/Encoding.agda:82-88` — `extractSignal`'s `nothing`-branch reachability comment; tighten with named caller.
-19. `[ ]` AGDA-A-4.4 — `src/Aletheia/Protocol/StreamState/Internals.agda:136-188` — 50-line stale-cache narrative with stale date.
-20. `[ ]` AGDA-A-4.5 — `src/Aletheia/CAN/BatchFrameBuilding.agda:34-48` — Header refers to `physicallyDisjoint?` — verify still exists.
-21. `[ ]` AGDA-A-4.6 — `src/Aletheia/Protocol/Handlers.agda:11-12` — Line-range citation (`StreamState.agda:62-72`) may drift.
-22. `[ ]` AGDA-A-4.7 — `src/Aletheia/LTL/JSON/Format.agda:63` — Header-level invariant about formatter never producing 'never'/'implies' belongs in module docstring.
+16. `[FIX]` AGDA-A-4.1 — ✅ Cluster Q: dropped the "Pre-3d.4 / After 3d.4" historical sub-section; retained the current-state shape description + axiom budget table.
+17. `[FIX]` AGDA-A-4.2 — ✅ Cluster Q: removed stale `Post-Round-8 Batch 1 benchmarks` numbers + date stamp from the `injectHelper` deferral comment; kept the technical with-abstraction-blocker rationale and cross-reference to [[feedback-with-in-eq-outer-abstraction-barrier]].
+18. `[FIX]` AGDA-A-4.3 — ✅ Cluster Q: rewrote `extractSignal` nothing-branch comment to name `extractSignalDirect` (hot path bypassing this helper) and `matchMuxValue` (the only caller actually reaching this `nothing`).
+19. `[FIX]` AGDA-A-4.4 — ✅ Cluster Q: trimmed the stale 2026-04-16 date stamp; kept the proof-sketch rationale.
+20. `[FP-VERIFIED]` AGDA-A-4.5 — `src/Aletheia/CAN/BatchFrameBuilding.agda:34-48` — ✅ Cluster Q audit: `physicallyDisjoint?` still exists in `src/Aletheia/DBC/Properties.agda` (re-exported from `DBC/Properties/Disjointness.agda`); comment reference is accurate.
+21. `[FIX]` AGDA-A-4.6 — ✅ Cluster Q: replaced `StreamState.agda:62-72` line-range with the module name `Aletheia.Protocol.StreamState` + symbol name `handleDataFrame`.
+22. `[FIX]` AGDA-A-4.7 — ✅ Cluster Q: relocated the "never produces `never`/`implies`" invariant from the inline `formatLTL` comment to the module-level docstring.
 
 ##### Cat 16 — Performance
 
@@ -311,9 +311,9 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 112. `[FIX]` GO-A-1.1 — `go/aletheia/ffi_nocgo.go:29` — ✅ Cluster B: stub extended to 7-arg + `var _ Backend = (*FFIBackend)(nil)` added to ffi.go + ffi_nocgo.go + mock.go.
 113. `[FIX]` GO-A-1.2 — ✅ Cluster F: TODO replaced with closure comment + brs/esi threading.
-114. `[ ]` GO-A-1.3 — `go/aletheia/enrich.go:204` — `collectSignalsInto`'s `default:` branch unreachable (`Formula` sealed); comment phrasing misleading.
-115. `[ ]` GO-A-1.4 — `go/aletheia/enrich.go:229` — symmetric to 1.3 (`predicateSignal`).
-116. `[ ]` GO-A-1.5 — `go/aletheia/yaml.go:122-144` — `parseYAMLChecks` double-decodes YAML (map+typed); dead work.
+114. `[FIX]` GO-A-1.3 — ✅ Cluster Q: rewrote `collectSignalsInto`'s `default:` comment — drops the "no signals to collect" phrasing (misleading), names the sealedFormula marker as the structural reason it's unreachable.
+115. `[FIX]` GO-A-1.4 — ✅ Cluster Q: added matching `default:` comment on `predicateSignal` referencing the sealedPredicate marker.
+116. `[FIX]` GO-A-1.5 — ✅ Cluster Q: documented the two-pass decode as an intentional design (yaml.v3 typed-only path conflates absent / wrong-type / empty-list cases — the untyped first pass produces actionable diagnostics).  No code change; the rationale is now on-site so a future reviewer doesn't flag it again.
 
 ##### Cat 2 — Magic numbers
 
@@ -337,16 +337,16 @@ Files scanned (source, non-test): `go/aletheia/{backend.go, ffi.go, ffi_nocgo.go
 
 ##### Cat 4 — Comments
 
-131. `[ ]` GO-A-4.1 — `go/aletheia/dbc.go:189-191` — `SignalByName` docstring says "deep copy" but implementation is shallow.
-132. `[ ]` GO-A-4.2 — `go/aletheia/json.go:1214-1217` — `signalNameByIndex` doc says "empty SignalName on OOB"; implementation returns synthetic `"signal_%d"`.
-133. `[ ]` GO-A-4.3 — `go/aletheia/json.go:2086-2088` — Comment claims "log via error return" but code silently defaults `isSigned = false`.
-134. `[ ]` GO-A-4.4 — `go/aletheia/ffi.go:257-274` — Required-symbols comment incomplete (missing `aletheia_init_rts`).
-135. `[ ]` GO-A-4.5 — `go/aletheia/client.go:62` — `lockWaiters` field comment "production callers do not read" is redundant with unexported visibility.
-136. `[ ]` GO-A-4.6 — `go/aletheia/error.go:115-117` — `CodeFrameInjectionFailed` doc too vague.
-137. `[ ]` GO-A-4.7 — `go/aletheia/json.go:879` — `// AGDA-D-13.4 phase 2a` references closed work item by ID.
-138. `[ ]` GO-A-4.8 — `go/aletheia/json.go:45-53` — GO-B-25.2 DEFER comment lacks concrete revisit signal.
-139. `[ ]` GO-A-4.9 — `go/aletheia/dbc.go:212-216` — SIG_GROUP_ comment missing cross-reference to Agda module.
-140. `[ ]` GO-A-4.10 — `go/aletheia/limits.go:7` — "Mirrored here verbatim" claim has no CI check enforcing value parity.
+131. `[FIX]` GO-A-4.1 — ✅ Cluster Q: rewrote `SignalByName` docstring to say "shallow copy"; documented that slice fields (`Receivers`, `ValueDescs`) still alias the parent.
+132. `[FIX]` GO-A-4.2 — ✅ Cluster Q: rewrote `signalNameByIndex` doc — synthetic `"signal_<idx>"` on OOB is diagnostic-grade only; the kernel guarantees indices in range, so a reaching OOB indicates a binding-side bookkeeping bug.
+133. `[FIX]` GO-A-4.3 — ✅ Cluster Q: rewrote `isSigned` lookup comment to match runtime (silent default; drift from kernel treated as parser bug, not user-visible validation failure).  Behavior unchanged.
+134. `[FP-VERIFIED]` GO-A-4.4 — `go/aletheia/ffi.go:257-274` — ✅ Cluster Q audit: no `aletheia_init_rts` symbol exists; Go's RTS init goes via `hs_init` (listed at line 259) wrapped by the C trampoline `call_hs_init_rts` (a static cgo helper, not a runtime `loadSym`).  Required-symbols list is complete; the finding referenced a non-existent symbol.
+135. `[FIX]` GO-A-4.5 — ✅ Cluster Q: dropped the "Production callers do not read this counter" line (redundant with unexported visibility).  Kept the "Test-only observability" rationale (test discipline ≠ visibility scope).
+136. `[FIX]` GO-A-4.6 — ✅ Cluster Q: expanded `CodeFrameInjectionFailed` doc to enumerate common causes (out-of-range value, bit-width overflow, non-integer-with-unsigned-signal after scale/offset reverse).
+137. `[FIX]` GO-A-4.7 — ✅ Cluster Q: dropped the `AGDA-D-13.4 phase 2a` closed-work-item reference from `inputBoundExceededFromResponse`'s preamble; kept the cross-binding-wire-symmetric-lifting rationale.
+138. `[FP-VERIFIED]` GO-A-4.8 — `go/aletheia/json.go:45-53` — ✅ Cluster Q audit: the DEFER comment already has a concrete revisit signal — *"Re-evaluate only if a JSON streaming surface is added that calls this function on a hot path."*  Matches the [[feedback-in-source-deferral-notes]] discipline.
+139. `[FIX]` GO-A-4.9 — ✅ Cluster Q: added `Aletheia.DBC.Types.DBCSignalGroup` Agda module reference to the SIG_GROUP_ comment.
+140. `[DROP]` GO-A-4.10 — `go/aletheia/limits.go:7` — "Mirrored here verbatim" claim has no CI check enforcing value parity.  ✅ Cluster Q DROP per advisor: a Shake gate that parses `Aletheia.Limits` and diffs each constant against the binding mirrors is a CI/tooling task, not Cat 1/4 hygiene.  Queued for a future tooling cluster.  Same shape as the AGENTS.md "Reproducible build verification" gate proposal.
 
 ##### Cat 5 — Error messages
 
@@ -421,10 +421,10 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 
 ##### Cat 1 — Dead code
 
-179. `[ ]` CPP-A-1.1 — `cpp/include/aletheia/limits.hpp:54-72` — Six `inline constexpr` bound constants unused. Either wire to parser/handler boundaries or remove with comment.
-180. `[ ]` CPP-A-1.2 — `cpp/include/aletheia/limits.hpp:32-38` — Six of seven `bound_kind_*` string_view constants unused.
-181. `[ ]` CPP-A-1.3 — `cpp/include/aletheia/types.hpp:5` — `<cassert>` include with zero `assert()` calls.
-182. `[ ]` CPP-A-1.4 — `cpp/src/json_serialize.cpp:28-30` — Stale comment about R19 cluster 14 consolidation.
+179. `[FP-VERIFIED]` CPP-A-1.1 — `cpp/include/aletheia/limits.hpp:54-72` — ✅ Cluster Q audit: the "unused" claim is stale.  `max_json_bytes` is consumed in `cpp/src/ffi_backend.cpp:247`, `max_nesting_depth` / `max_dbc_text_bytes` / `max_identifier_length` are consumed in `cpp/tests/test_cross_binding_integration.cpp` as wire-error verification, and every constant has a value-equality test in `cpp/tests/unit_tests_input_bounds.cpp` — the parity gate against `Aletheia.Limits`.  Cluster Q rewrote the file header to document the cross-binding-mirror role explicitly.
+180. `[FP-VERIFIED]` CPP-A-1.2 — `cpp/include/aletheia/limits.hpp:32-38` — ✅ Cluster Q audit: same disposition as 1.1.  `bound_kind_nesting_depth` is consumed in `test_cross_binding_integration.cpp:285`; all seven have CHECK-equality tests in `unit_tests_input_bounds.cpp`.  Declaration-only role documented in the file header.
+181. `[FIX]` CPP-A-1.3 — ✅ Cluster Q: removed `<cassert>` include — file uses `static_assert` (language built-in, no header dependency), no `assert(` macros.
+182. `[FIX]` CPP-A-1.4 — ✅ Cluster Q: trimmed the multi-line R19 cluster 14 consolidation banner to a single-line cross-reference; git log carries the dated history.
 
 ##### Cat 2 — Magic numbers
 
@@ -446,12 +446,12 @@ All `cpp/include/aletheia/`, `cpp/src/`, `cpp/tests/`, `cpp/benchmarks/`, `cpp/C
 ##### Cat 4 — Comments
 
 194. `[FIX]` CPP-A-4.1 — ✅ Cluster F: TODO replaced; serialize_send_frame extended with optional brs/esi; MockBackend threads through.
-195. `[ ]` CPP-A-4.2 — `cpp/include/aletheia/client.hpp:198-202` — Runtime-cost note on field decl; should live at call site.
-196. `[ ]` CPP-A-4.3 — `cpp/src/ffi_backend.cpp:213-214` — Lifecycle invariant in destructor; promote to class-level docstring.
-197. `[ ]` CPP-A-4.4 — `cpp/include/aletheia/client.hpp:74` — Constructor missing doxygen on `default_checks`.
-198. `[ ]` CPP-A-4.5 — `cpp/src/client.cpp:243-247` — `extraction_error_messages` "must match Agda categorizeIndexed" lacks file/line ref.
-199. `[ ]` CPP-A-4.6 — (See 1.4 stale comment.)
-200. `[ ]` CPP-A-4.7 — `cpp/include/aletheia/log.hpp:18-28` — Usage example doesn't mention `add_sink` API (R19 cluster 9 / CPP-D-17.4).
+195. `[FIX]` CPP-A-4.2 — ✅ Cluster Q: trimmed the runtime-cost note from `last_frames_` field decl; the matching `client.cpp` call site (find+assign vs emplace) already carries the cost commentary in-context.
+196. `[FIX]` CPP-A-4.3 — ✅ Cluster Q: promoted the no-`hs_exit` / no-`dlclose` lifecycle invariant from the destructor body to a class-level docstring on `FfiBackend`; destructor comment shortened to a cross-reference.
+197. `[FIX]` CPP-A-4.4 — ✅ Cluster Q: added doxygen on `AletheiaClient` constructor — params `backend`, `logger`, `default_checks` with the latter's "pre-loaded YAML/Excel check results, useful when ruleset is fixed" rationale.
+198. `[FIX]` CPP-A-4.5 — ✅ Cluster Q: rewrote `extraction_error_messages` "must match Agda" preamble to name `extractionErrorCodeToℕ` + `resultToString` in `src/Aletheia/CAN/BatchExtraction.agda`; the ADT constructor ordering is the wire format.
+199. `[FIX]` CPP-A-4.6 — ✅ Cluster Q: closed alongside CPP-A-1.4.
+200. `[FIX]` CPP-A-4.7 — ✅ Cluster Q: extended the `log.hpp` usage example with the multi-sink path via `add_sink(cb)`.  Default-constructed Logger phrasing now says "no sinks" (was "null callback") — matches the post-R19 cluster 9 implementation.
 
 ##### Cat 5 — Error messages
 
@@ -585,7 +585,7 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 #### Findings
 
 276. `[FIX]` PY-A-1.1 [BLOCKING] — `conftest.py:46,193` — imports `ProcessError` from `aletheia` which was REMOVED in R19 cluster 17 / PY-D-20.1 (`5b8791a`). ✅ Closed by cluster A: removed `ProcessError` from imports + `_make_globals` dict (no doc fence references it). Import-time block lifted; downstream 7-tuple-unpack fence failures from cluster 18 BRS/ESI drift surfaced — tracked under cluster F+L.
-277. `[ ]` PY-A-1.2 — `python/aletheia/asyncio/_client.py:48-50` — Stale "retained as imports" rationale comment; live imports defend against accidental removal but read defensively.
+277. `[FIX]` PY-A-1.2 — ✅ Cluster Q: removed the misleading "retained as imports" comment; the named imports are actually load-bearing for return-type annotations on `send_frame` / `send_frames` / etc., so the "retained" phrasing was just noise.
 278. `[ ]` PY-A-2.1 — `python/aletheia/dsl.py:377, 403, 698, 724` — `time_ms * 1000` 4× literal; add `_MS_TO_US` const.
 279. `[ ]` PY-A-2.2 — `python/aletheia/client/_enrichment.py:97-101` — `1_000_000` / `1_000` literals duplicate `_MS_TO_US`.
 280. `[ ]` PY-A-2.3 — `python/aletheia/can_log.py:167` — `1_000_000` bare literal.
@@ -595,12 +595,12 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 284. `[ ]` PY-A-3.1 — `python/aletheia/checks_runner.py:38` — `Violation` TypedDict naming inconsistent with `CheckRunResult`/`CheckResult`; consider `CheckViolation`.
 285. `[ ]` PY-A-3.2 — `python/aletheia/checks.py:38-75` — `CheckResult._property` field collides with `@property` decorator semantics; rename `_formula`.
 286. `[ ]` PY-A-3.3 — `python/aletheia/checks.py:54` — `check_severity: str` field + `.severity()` setter chained API; asymmetric.
-287. `[ ]` PY-A-4.1 — `python/aletheia/cli.py:1-16` — Module docstring lists 5 subcommands, registers 6 (missing `format-dbc`).
-288. `[ ]` PY-A-4.2 — `python/aletheia/_dbc_types.py:64-67` — Docstring on `DBCSignalMultiplexed` references wrong `presence` Literal narrowing.
-289. `[ ]` PY-A-4.3 — `python/aletheia/client/_types.py:365-374` etc. — Missing `Raises:` sections on functions that raise ValueError.
-290. `[ ]` PY-A-4.4 — `python/aletheia/client/_client.py:594-600` — `_ACK_BYTES`/`_ACK_BYTES_SPACED` dead aliases after R19 cluster 19 hoist to `_ACK_RESPONSES`.
-291. `[ ]` PY-A-4.5 — `python/aletheia/dsl.py:80-99` — `Signal` docstring three-point coupling admonition borderline-stale.
-292. `[ ]` PY-A-4.6 — `python/aletheia/cli.py:24` — Verified `_die` PEP-257-compliant; flagged for completeness.
+287. `[FIX]` PY-A-4.1 — ✅ Cluster Q (closes alongside PY-A-33.1): module docstring now lists all six subcommands including `format-dbc`, in registration order (check → validate → extract → signals → format-dbc → mux-query).
+288. `[FIX]` PY-A-4.2 — ✅ Cluster Q: rewrote `DBCSignalMultiplexed` docstring — corrected the "mirroring DBCSignalAlways's `presence: \"always\"`" claim (DBCSignalAlways keeps the wider `SignalPresence` union, only DBCSignalMultiplexed narrows to `Literal["multiplexed"]`).  Code change to narrow DBCSignalAlways too deferred — would gain discriminator narrowing in the union, but cascades to every TypedDict construction site.
+289. `[FIX]` PY-A-4.3 — ✅ Cluster Q: added `Raises: ValidationError` sections on `dlc_to_bytes` and `bytes_to_dlc` (`validate_can_id` already had one; the docstring discipline now matches the production-raise surface).
+290. `[FIX]` PY-A-4.4 — ✅ Cluster Q: inlined `_ACK_BYTES` + `_ACK_BYTES_SPACED` into the `_ACK_RESPONSES` tuple definition.  No external readers (grep on production tree); `_ACK_RESPONSES` is the only consumed name.
+291. `[FIX]` PY-A-4.5 — ✅ Cluster Q: corrected the three-point-coupling pointer — site (1) was wrong (`Protocol/ResponseFormat.agda` doesn't host the `SignalPredicate` ADT).  Updated to `Aletheia.LTL.SignalPredicate.Types` + the matching `formatSignalPredicateFields` in `Aletheia.LTL.JSON.Format`.
+292. `[NOOP]` PY-A-4.6 — `python/aletheia/cli.py:24` — Verified `_die` PEP-257-compliant; flagged for completeness.  See PY-A-33.4 for the CLI-layer caveat added in cluster Q.
 
 ##### Cat 5 — Error messages
 
@@ -636,10 +636,10 @@ Files scanned: all `python/aletheia/`, `python/aletheia/client/`, `python/alethe
 
 ##### Cat 33 — CLI quality
 
-310. `[ ]` PY-A-33.1 — `python/aletheia/cli.py:1-16` — Module docstring missing `format-dbc`.
+310. `[FIX]` PY-A-33.1 — ✅ Cluster Q: closes alongside PY-A-4.1 — same edit.
 311. `[ ]` PY-A-33.2 — `python/aletheia/cli.py:742-747` — `format-dbc` subparser no `--json` flag; convention divergence.
 312. `[ ]` PY-A-33.3 — `python/aletheia/cli.py:793-805` — Verified `main()` exception coverage; no fix needed.
-313. `[ ]` PY-A-33.4 — `python/aletheia/cli.py:99-102` — `_die` docstring should explicitly state "CLI-layer only" given R19 PY-D-20.3 inversion.
+313. `[FIX]` PY-A-33.4 — ✅ Cluster Q: extended `_die` docstring with explicit "CLI-layer only" caveat + cross-reference to the R19 cli/library layering inversion.
 
 ---
 
@@ -1139,10 +1139,17 @@ focused commit; gates run fresh at every cluster closure per
 - `PY-B-12.2` ✅ — `setattr` monkey-patch retired; new helper uses public Backend Protocol DI.
 - `PY-B-25.2` ✅ — `BinaryFFI` per-call construction obsolete: class removed, methods live on the single `FFIBackend` instance.
 
-### Cluster Q — Multi-binding Cat 1/4 cleanup  *(sweep)*
-- Dead code + stale comments across AGDA-A / GO-A / CPP-A / PY-A (~80 findings)
-- DEFER comments lacking concrete revisit signal (`GO-A-4.8` + siblings)
+### Cluster Q — Multi-binding Cat 1/4 cleanup  *(sweep)* — ✅ CLOSED
+- Dead code + stale comments across AGDA-A / GO-A / CPP-A / PY-A
+- DEFER comments lacking concrete revisit signal (`GO-A-4.8` was FP-VERIFIED — concrete revisit signal already present)
 - Cat 4 wording / godoc rendering
+- Cluster L follow-up: `tools/run_ci.py:429` doc-harness extended to `python/README.md` + `examples/README.md` plus explicit `--rootdir=<repo>` (pytest auto-detection picked up `python/pyproject.toml`'s `[tool.pytest.ini_options]` as the rootdir config when `python/README.md` joined the arg list).
+- `.gitignore`: extended `go/benchmarks/benchmark` to also cover `benchmarks` (the actual binary name).
+- AGDA-A-1.3 deferred to DEFER-end-of-round (helper-module extraction for `signalsBound` + `firstDBCOverBound` would cascade across two consumers).
+- GO-A-4.10 dropped — CI value-parity check is a tooling task, not Cat 1/4 hygiene.
+- **Gate-surfaced regressions fixed during cluster Q verification** (per [[feedback-fix-tool-gate-violations]]):
+  - basedpyright (strict mode) reported 12 errors on `python/aletheia/client/_backend.py` Protocol method stubs — docstring-only bodies returned `None` on `-> bytes` declarations.  Fixed with `raise NotImplementedError` body on each method (both basedpyright happy with the NoReturn semantics and pylint happy with a real body; `...` triggered pylint's `unnecessary-ellipsis`).  Cluster P shipped with this regression masked.
+  - clang-tidy `misc-include-cleaner` reported missing direct includes in `cpp/src/detail/mock_backend.hpp` for `std::span` / `std::byte` / `std::optional` / `std::move` — these were transitively available via `<aletheia/backend.hpp>` but the BRS/ESI signature added in cluster F (`036a684`) uses them at the public surface.  Fixed by adding `<cstddef>` / `<optional>` / `<span>` / `<utility>`.  Outside canonical clang-tidy scope (the gate runs `src/*.cpp`, not headers under `src/detail/`), but a real hygiene fix.
 
 ### Cluster R — Misc HIGH follow-ups
 - `GO-D-19.1` — `Rational.Float64()` in enrichment loses precision; promote `Rational.String()` matching wire form
@@ -1156,6 +1163,7 @@ focused commit; gates run fresh at every cluster closure per
 - `AGENTS.md` future-tense paragraph (DOC-A-1.14)
 - DEFERRALS.md / re-disposition file updates
 - **GO-A-3.5** (cross-binding "mux field naming" — deferred from cluster O `8bb0055`; needs synchronized rename across Python `multiplex_values` / Go `Multiplexed.MuxValues` / C++ `Multiplexed.mux_values`).
+- **AGDA-A-1.3** (cluster Q deferral) — helper-module extraction (`Aletheia/DBC/CardinalityBounds.agda`?) to dedupe `signalsBound` + `firstDBCOverBound` across `Handlers.agda` and `Handlers/ParseDBCText.agda`.  Cycle-avoidance rationale documented in-source; ~80 LOC dedupe gain but cascades across the two consumers' import graphs.
 
 ---
 

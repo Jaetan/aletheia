@@ -239,7 +239,10 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& 
 
 namespace {
 
-// Error code → message mapping for binary extraction (must match Agda categorizeIndexed).
+// Error code → message mapping for binary extraction.  Must match
+// `extractionErrorCodeToℕ` + the `resultToString` cases in
+// `src/Aletheia/CAN/BatchExtraction.agda` (the constructor-to-code ordering
+// in `ExtractionErrorCode` is the wire format).
 constexpr std::array extraction_error_messages = {
     std::string_view{"Signal not found in DBC"}, // 0
     std::string_view{"Value out of bounds"},     // 1

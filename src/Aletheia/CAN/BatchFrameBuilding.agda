@@ -72,10 +72,12 @@ hasOverlaps n sigs = anyPairOverlap (map (signalPhysicalBits n) sigs)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; canIdEquals)
 
 -- Lookup strategy: how to resolve a key to a DBCSignal, and how to produce errors.
--- Currently only instantiated with `indexStrategy` — the by-name JSON path was
--- removed in C3b once all bindings switched to resolving names client-side.
--- The record layer is retained so future strategies (e.g. multi-arena lookup)
--- can be added without touching the generic machinery below.
+-- Single instance: `indexStrategy : LookupStrategy ℕ`.  The by-name JSON path
+-- was removed in C3b once all bindings switched to resolving names client-side.
+-- The abstraction is kept (rather than inlined into `lookupSignalsByIndex` and
+-- the two frame builders) because `lookupSignalsG` / `buildFrameG` /
+-- `updateFrameG` factor the strategy out of the recursion, keeping the
+-- per-key shape (resolve + error) at a single source of truth.
 record LookupStrategy (K : Set) : Set where
   field
     resolve : K → DBCMessage → Maybe DBCSignal

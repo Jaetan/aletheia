@@ -38,6 +38,8 @@ digitToNat '6' = 6
 digitToNat '7' = 7
 digitToNat '8' = 8
 digitToNat '9' = 9
+-- Catch-all reachable only from coverage's POV: every caller filters through
+-- `parseNatural`'s `some (satisfy isDigit)`, so the input is always '0'..'9'.
 digitToNat _   = 0
 
 -- Parse natural number

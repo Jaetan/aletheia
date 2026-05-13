@@ -81,7 +81,10 @@ private
   resultToString _ (ValueOutOfBounds value mn mx) =
     formatFrameError (SignalValueOutOfBounds (formatBounds value mn mx))
   resultToString _ (ExtractionFailed reason) = formatError (ExtractionErr reason)
-  resultToString _ (Success _) = ""  -- unreachable: handled by categorizeWith
+  -- Unreachable: `categorizeWith` short-circuits `Success` to the success
+  -- arm before applying `toErr`, so `resultToString` is never called on a
+  -- `Success` value.  Empty string is a totality-only sentinel.
+  resultToString _ (Success _) = ""
 
 categorizeResult : String → ExtractionResult → ExtractionResults
 categorizeResult = categorizeWith resultToString
@@ -133,7 +136,11 @@ private
   resultToCode _ (SignalNotPresent _)   = ExtractionFailed
   resultToCode _ (ValueOutOfBounds _ _ _) = OutOfBounds
   resultToCode _ (ExtractionFailed _)   = ExtractionFailed
-  resultToCode _ (Success _)            = ExtractionFailed  -- unreachable: handled by categorizeWith
+  -- Unreachable: see the matching `resultToString` clause above.  The
+  -- `ExtractionFailed` sentinel is structurally misleading (Success is not
+  -- a failure), but ExtractionErrorCode totality requires a value — pick
+  -- any constructor.  Callers never observe this value.
+  resultToCode _ (Success _)            = ExtractionFailed
 
 categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
 categorizeIndexed = categorizeWith resultToCode

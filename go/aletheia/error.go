@@ -113,6 +113,9 @@ const (
 	// CodeFrameSignalIndexOOB — frame-level: signal index out of range for the message.
 	CodeFrameSignalIndexOOB = "frame_signal_index_oob"
 	// CodeFrameInjectionFailed — bit-injection of a signal value failed.
+	// Common causes: physical value outside the signal's [min, max] range,
+	// computed raw value not fitting the signal's bit width, or scale/offset
+	// reverse-transform producing a non-integer where the signal is unsigned.
 	CodeFrameInjectionFailed = "frame_injection_failed"
 	// CodeFrameSignalsOverlap — two signals occupy overlapping bit positions.
 	CodeFrameSignalsOverlap = "frame_signals_overlap"

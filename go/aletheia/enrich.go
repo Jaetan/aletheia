@@ -201,9 +201,9 @@ func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bo
 		collectSignalsInto(v.Left, signals, seen)
 		collectSignalsInto(v.Right, signals, seen)
 	default:
-		// Unknown formula types have no signals to collect. The Formula
-		// interface is sealed, so this branch is unreachable for all
-		// in-package types; it exists as a defensive no-op.
+		// Unreachable: the Formula interface is sealed (sealedFormula
+		// marker), so every concrete formula type is matched above. The
+		// branch exists only to satisfy Go's exhaustiveness expectation.
 	}
 }
 
@@ -227,6 +227,8 @@ func predicateSignal(p Predicate) SignalName {
 	case StableWithin:
 		return v.Signal
 	default:
+		// Unreachable: the Predicate interface is sealed (sealedPredicate
+		// marker), so every concrete predicate type is matched above.
 		return ""
 	}
 }

@@ -186,8 +186,10 @@ func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
 	return false
 }
 
-// SignalByName returns a deep copy of the first signal with the given name,
-// or nil if not found.
+// SignalByName returns a copy of the first signal with the given name, or
+// nil if not found.  The copy is shallow: slice fields (`Receivers`,
+// `ValueDescs`) on the returned signal still alias the originals; mutating
+// the returned signal's slices mutates the parent message's signals.
 func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
 	if m.signalIndex != nil {
 		if idx, ok := m.signalIndex[string(name)]; ok {
@@ -210,9 +212,10 @@ func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
 // DBC signal group (SIG_GROUP_ keyword)
 //
 // The DBC spec carries a parent-message id and a repetition count on the
-// wire; the Agda core only models the flattened {name, signals} view
-// because signal-name uniqueness is enforced globally by the validator, so
-// reconstructing message context on format_dbc is unnecessary.
+// wire; the Agda core (`Aletheia.DBC.Types.DBCSignalGroup`) only models the
+// flattened {name, signals} view because signal-name uniqueness is enforced
+// globally by the validator, so reconstructing message context on
+// format_dbc is unnecessary.
 // ---------------------------------------------------------------------------
 
 // DBCSignalGroup is a DBC signal group (SIG_GROUP_ keyword).

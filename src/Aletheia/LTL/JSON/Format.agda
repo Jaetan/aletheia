@@ -5,6 +5,9 @@
 -- Purpose: Convert LTL formulas back to JSON for roundtrip proofs.
 -- Produces canonical JSON that the parser in Aletheia.LTL.JSON can parse back.
 -- Role: Foundation for roundtrip correctness proofs in LTL.JSON.Properties.
+--
+-- Output invariant: the formatter never produces `"never"` or `"implies"`
+-- operators (both are derived forms expressed via `Not`/`Always`/`Or`).
 module Aletheia.LTL.JSON.Format where
 
 open import Data.String using (String; toList)
@@ -60,7 +63,6 @@ formatSignalPredicateFields (DeltaP dp) = formatDeltaPredicateFields dp
 -- ============================================================================
 
 -- Format an LTL formula as a JSON object (canonical field order).
--- The formatter never produces "never" or "implies" operators (those are derived forms).
 formatLTL : LTL SignalPredicate → JSON
 formatLTL (LTL.Atomic p) =
   JObject (("operator" , JString (toList "atomic")) ∷

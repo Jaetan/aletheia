@@ -103,10 +103,13 @@ open import Aletheia.Protocol.Message public
         ; ParseDBC
         ; SetProperties
         ; StartStream
+        ; SendFrame
         ; ExtractAllSignals
         ; EndStream
         ; ValidateDBC
         ; FormatDBC
+        ; ParseDBCText
+        ; FormatDBCText
         ; Response
         ; Success
         ; ExtractionResultsResponse
@@ -115,6 +118,8 @@ open import Aletheia.Protocol.Message public
         ; Complete
         ; ValidationResponse
         ; DBCResponse
+        ; ParsedDBCResponse
+        ; DBCTextResponse
         )
   renaming (Error to ResponseError)
 

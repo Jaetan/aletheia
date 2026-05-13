@@ -367,6 +367,9 @@ def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
 
     CAN 2.0B: DLC 0-8 maps directly.
     CAN-FD: DLC 9-15 maps to 12, 16, 20, 24, 32, 48, 64.
+
+    Raises:
+        ValidationError: If dlc is outside 0-15.
     """
     try:
         return DLCByteCount(_DLC_TO_BYTES[dlc])
@@ -397,6 +400,9 @@ def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
 
     CAN 2.0B: byte counts 0-8 map directly.
     CAN-FD: byte counts 12, 16, 20, 24, 32, 48, 64 map to DLC 9-15.
+
+    Raises:
+        ValidationError: If byte_count is not one of the valid lengths above.
     """
     try:
         return DLCCode(_BYTES_TO_DLC[byte_count])

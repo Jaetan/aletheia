@@ -34,11 +34,16 @@ open import Data.Nat using (ℕ; _≤_)
 -- Supported time units. Only `μs` is currently produced by the binding
 -- layer, but the data type is fully populated so theorems and future
 -- converters can reference the other units by name.
+-- All four constructors are load-bearing: theorems quantifying over
+-- `Timestamp u` need a non-trivial inhabited domain (otherwise lemmas
+-- specialize away).  Bindings only produce `Timestamp μs`; the other three
+-- constructors carry the dimensional vocabulary for converters or alternate
+-- bus encodings to refer to without restating the unit space.
 data TimeUnit : Set where
-  ns : TimeUnit  -- nanoseconds (Reserved for future use; not currently produced)
+  ns : TimeUnit  -- nanoseconds
   μs : TimeUnit  -- microseconds (bindings' canonical unit)
-  ms : TimeUnit  -- milliseconds (Reserved for future use; not currently produced)
-  s  : TimeUnit  -- seconds (Reserved for future use; not currently produced)
+  ms : TimeUnit  -- milliseconds
+  s  : TimeUnit  -- seconds
 
 -- ---------------------------------------------------------------------------
 -- Refined Timestamp type

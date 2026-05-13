@@ -23,13 +23,7 @@ using Json = nlohmann::json;
 
 namespace aletheia::detail {
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// (Both helpers consolidated 2026-05-11 per R19 cluster 14 / CPP-A-6.2 —
-// `can_id_value` / `can_id_is_extended` live in `<aletheia/types.hpp>`
-// and are pulled in via that header.)
+// `can_id_value` / `can_id_is_extended` live in `<aletheia/types.hpp>`.
 
 static auto rational_to_json(const Rational& r) -> Json {
     // Normalize via gcd so the wire shape is byte-identical with Python's
