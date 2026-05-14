@@ -204,7 +204,7 @@ features:
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
-    description: Query a loaded DBC for mux structure — is_multiplexed, always_present_signals, multiplexed_signals, multiplexor_names, mux_values, signals_for_mux_value.
+    description: "Query a loaded DBC for mux structure — is_multiplexed, always_present_signals, multiplexed_signals, multiplexor_names, multiplex_values (Python: mux_values), signals_for_mux_value."
     related: R8, B.2
     bindings:
       python: { status: implemented, entry: aletheia.is_multiplexed }

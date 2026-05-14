@@ -714,8 +714,8 @@ func xlsxDBCSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error
 				"row %d: 'Multiplex Value' must be non-negative, got %d", rowNum, muxVal))
 		}
 		presence = aletheia.Multiplexed{
-			Multiplexor: aletheia.SignalName(muxor),
-			MuxValues:   []aletheia.MultiplexValue{aletheia.MultiplexValue(muxVal)},
+			Multiplexor:     aletheia.SignalName(muxor),
+			MultiplexValues: []aletheia.MultiplexValue{aletheia.MultiplexValue(muxVal)},
 		}
 	} else {
 		presence = aletheia.AlwaysPresent{}

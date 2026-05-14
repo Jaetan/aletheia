@@ -383,8 +383,9 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
             throw std::runtime_error(ctx_str + ": 'Multiplex Value' out of range [0, " +
                                      std::to_string(std::numeric_limits<std::uint32_t>::max()) +
                                      "]: " + std::to_string(mux_val));
-        presence = Multiplexed{.multiplexor = SignalName{get_str(cells, "Multiplexor", ctx_str)},
-                               .mux_values = {MultiplexValue{static_cast<std::uint32_t>(mux_val)}}};
+        presence =
+            Multiplexed{.multiplexor = SignalName{get_str(cells, "Multiplexor", ctx_str)},
+                        .multiplex_values = {MultiplexValue{static_cast<std::uint32_t>(mux_val)}}};
     } else {
         presence = AlwaysPresent{};
     }

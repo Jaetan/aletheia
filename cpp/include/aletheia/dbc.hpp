@@ -59,7 +59,7 @@ struct AlwaysPresent {};
 
 struct Multiplexed {
     SignalName multiplexor;
-    std::vector<MultiplexValue> mux_values;
+    std::vector<MultiplexValue> multiplex_values;
 };
 
 using SignalPresence = std::variant<AlwaysPresent, Multiplexed>;
@@ -117,7 +117,7 @@ struct DbcMessage {
     [[nodiscard]] auto always_present_signals() const -> std::vector<DbcSignal>;
     [[nodiscard]] auto multiplexed_signals() const -> std::vector<DbcSignal>;
     [[nodiscard]] auto multiplexor_names() const -> std::vector<SignalName>;
-    [[nodiscard]] auto mux_values(const SignalName& multiplexor) const
+    [[nodiscard]] auto multiplex_values(const SignalName& multiplexor) const
         -> std::vector<MultiplexValue>;
     [[nodiscard]] auto signals_for_mux_value(const SignalName& multiplexor,
                                              MultiplexValue value) const -> std::vector<DbcSignal>;

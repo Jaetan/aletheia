@@ -72,7 +72,7 @@ static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
                 sig["presence"] = "multiplexed";
                 sig["multiplexor"] = v.multiplexor.get();
                 auto arr = Json::array();
-                for (const auto& mv : v.mux_values)
+                for (const auto& mv : v.multiplex_values)
                     arr.push_back(mv.get());
                 sig["multiplex_values"] = std::move(arr);
             } else {

@@ -368,8 +368,8 @@ TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
     REQUIRE(std::holds_alternative<Multiplexed>(pres));
     auto& mux = std::get<Multiplexed>(pres);
     CHECK(mux.multiplexor.get() == "Selector");
-    REQUIRE(mux.mux_values.size() == 1);
-    CHECK(mux.mux_values[0].get() == 3);
+    REQUIRE(mux.multiplex_values.size() == 1);
+    CHECK(mux.multiplex_values[0].get() == 3);
 }
 
 TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {

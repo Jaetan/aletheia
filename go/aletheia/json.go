@@ -187,8 +187,8 @@ func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 			if mux, ok := sig.Presence.(Multiplexed); ok {
 				s["presence"] = "multiplexed"
 				s["multiplexor"] = string(mux.Multiplexor)
-				vals := make([]uint32, len(mux.MuxValues))
-				for i, v := range mux.MuxValues {
+				vals := make([]uint32, len(mux.MultiplexValues))
+				for i, v := range mux.MultiplexValues {
 					vals[i] = uint32(v)
 				}
 				s["multiplex_values"] = vals
@@ -2211,7 +2211,7 @@ func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 		muxVals = append(muxVals, MultiplexValue(v))
 	}
 	return Multiplexed{
-		Multiplexor: SignalName(muxName),
-		MuxValues:   muxVals,
+		Multiplexor:     SignalName(muxName),
+		MultiplexValues: muxVals,
 	}, nil
 }

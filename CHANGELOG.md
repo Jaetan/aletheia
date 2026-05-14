@@ -565,6 +565,33 @@ step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
 
+#### BREAKING — Go and C++: `mux_values` field + method renamed to `multiplex_values` for cross-binding parity (R20 GO-A-3.5)
+
+The `Multiplexed` struct's value-list field and the `DBCMessage` /
+`DbcMessage` query method were both spelled `MuxValues` (Go) /
+`mux_values` (C++) — the same identifier doing double duty as a struct
+field and as a query method on a different type. The field name now
+matches the canonical wire-JSON form (Python's `multiplex_values` on
+`DBCSignalMultiplexed`, which was already the source of truth):
+
+- **Go** — `aletheia.Multiplexed.MuxValues` → `MultiplexValues`;
+  `(aletheia.DBCMessage).MuxValues(SignalName)` → `MultiplexValues(SignalName)`.
+  Migration: rename field references and method calls; the type
+  signature is unchanged.
+- **C++** — `aletheia::Multiplexed::mux_values` → `multiplex_values`;
+  `aletheia::DbcMessage::mux_values(const SignalName&) const` →
+  `multiplex_values(const SignalName&) const`. Migration: same rename
+  on the field designator and method call.
+
+Python is unaffected: the wire-canonical `multiplex_values` field on
+`DBCSignalMultiplexed` was already correct, and the
+`aletheia.mux_values(msg, multiplexor)` module-level query function
+keeps its short name (function vs. dict-key namespaces don't collide).
+The `signals_for_mux_value` sibling, the `MultiplexValue` type, and the
+Go `ContainsMuxValue` helper all keep their existing names — this
+rename only targets the field/method that previously shared the
+`mux_values` identifier. Closes R20 GO-A-3.5.
+
 #### BREAKING — C++: `StrongString<Tag>` merged into `Strong<Tag, T>` (R20 cluster X — CPP-D-15.3)
 
 The previously-separate `StrongString<Tag>` template is removed. `Strong<Tag, T>`

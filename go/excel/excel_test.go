@@ -572,8 +572,8 @@ func TestLoadExcelDBCMultiplexed(t *testing.T) {
 	if string(mux.Multiplexor) != "Selector" {
 		t.Errorf("Multiplexor: got %q", mux.Multiplexor)
 	}
-	if len(mux.MuxValues) != 1 || mux.MuxValues[0] != 3 {
-		t.Errorf("MuxValues: got %v", mux.MuxValues)
+	if len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != 3 {
+		t.Errorf("MultiplexValues: got %v", mux.MultiplexValues)
 	}
 }
 
@@ -594,10 +594,10 @@ func TestLoadExcelDBCMixedPresence(t *testing.T) {
 	if _, ok := msg.Signals[0].Presence.(aletheia.AlwaysPresent); !ok {
 		t.Errorf("sig[0] expected AlwaysPresent, got %T", msg.Signals[0].Presence)
 	}
-	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MuxValues, 0) {
+	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, 0) {
 		t.Errorf("sig[1] expected Multiplexed(Selector, [0]), got %v", msg.Signals[1].Presence)
 	}
-	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MuxValues, 1) {
+	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, 1) {
 		t.Errorf("sig[2] expected Multiplexed(Selector, [1]), got %v", msg.Signals[2].Presence)
 	}
 }

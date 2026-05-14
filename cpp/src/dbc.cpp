@@ -53,13 +53,14 @@ auto DbcMessage::multiplexor_names() const -> std::vector<SignalName> {
     return out;
 }
 
-auto DbcMessage::mux_values(const SignalName& multiplexor) const -> std::vector<MultiplexValue> {
+auto DbcMessage::multiplex_values(const SignalName& multiplexor) const
+    -> std::vector<MultiplexValue> {
     std::set<MultiplexValue> seen;
     std::vector<MultiplexValue> out;
     for (const auto& s : signals) {
         if (const auto* m = std::get_if<Multiplexed>(&s.presence);
             m != nullptr && m->multiplexor == multiplexor) {
-            for (const auto& v : m->mux_values) {
+            for (const auto& v : m->multiplex_values) {
                 if (seen.insert(v).second) {
                     out.push_back(v);
                 }
@@ -75,8 +76,9 @@ auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexV
     for (const auto& s : signals) {
         const bool is_always = std::holds_alternative<AlwaysPresent>(s.presence);
         const auto* m = std::get_if<Multiplexed>(&s.presence);
-        if (is_always || (m != nullptr && m->multiplexor == multiplexor &&
-                          std::ranges::find(m->mux_values, value) != m->mux_values.end())) {
+        if (is_always ||
+            (m != nullptr && m->multiplexor == multiplexor &&
+             std::ranges::find(m->multiplex_values, value) != m->multiplex_values.end())) {
             out.push_back(s);
         }
     }
