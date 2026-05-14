@@ -153,45 +153,42 @@ runL-stepL-satisfied table proc y rest refl | .Satisfied = refl
 -- the streaming runtime's reuse pattern are below.
 
 -- ============================================================================
--- STEP-LEVEL STABILITY (AGDA-B-9.2)
+-- STEP-LEVEL SHAPE CHARACTERIZATIONS (AGDA-B-9.2)
 -- ============================================================================
-
--- The streaming runtime keeps a property's proc in the iteration list after
--- `stepL` returns `Satisfied` (it has no successor proc to swap in).  Re-
--- evaluating that proc on a subsequent frame is *only* sound if the proc's
--- shape rules out a `Violated` result on any frame — otherwise the runtime
--- could emit a counterexample for a property it already declared satisfied.
 --
--- The two lemmas below cover the two LTLProc shapes most relevant for
--- typical CAN-analysis property surfaces:
+-- The streaming runtime drops a property from the iteration list when
+-- `stepL` returns `Satisfied` (`Protocol.StreamState.Internals.classifyStepResult
+-- Satisfied _ = complete`).  This is the structural soundness fix for the
+-- AGDA-B-9.2 gap: re-evaluating a Satisfied proc on subsequent frames was
+-- unsound for top-level `Until` / `Release` / `MetricUntil` / `MetricRelease`
+-- / raw `Atomic` / `And`/`Or`-of-atomic shapes (concrete `Until` witness in
+-- the comment block above `classifyStepResult Satisfied`).
+--
+-- The two lemmas below characterize the two LTLProc shapes most relevant
+-- for typical CAN-analysis property surfaces — historically they argued
+-- partial soundness of the prior `advance prop` design, and they remain
+-- valuable as user-facing shape contracts:
 --
 --   * `Always φ` proc: stepL never returns Satisfied (its `combineAnd` RHS
 --     is `Continue 0 (Always φ)`, and `combineAnd Satisfied (Continue _ _)
---     = Continue`, `combineAnd (Violated _) _ = Violated`).  This means the
---     `Satisfied` branch of the streaming runtime is UNREACHABLE when the
---     user wraps their property in `Always(...)` (the standard CAN safety
---     pattern; cf. `python/aletheia/dsl.py:.always()`).
+--     = Continue`, `combineAnd (Violated _) _ = Violated`).  Consequently
+--     `Always`-wrapped properties (the canonical CAN safety pattern; cf.
+--     `python/aletheia/dsl.py:.always()`) never trigger the `complete`
+--     branch — they run for the entire stream as users expect.
 --
 --   * `Eventually φ` proc: stepL never returns Violated (its `combineOr`
 --     RHS is `Continue 0 (Eventually φ)`, and `combineOr (Violated _)
---     (Continue _ _) = Continue _ _`).  Re-stepping after `Satisfied` is
---     safe for this shape — the next `stepL` produces either `Satisfied`
---     or `Continue _ _`, never a spurious `Violated`.
+--     (Continue _ _) = Continue _ _`).  Consequently `Eventually`-wrapped
+--     properties (the canonical liveness pattern) never `halt` — they
+--     `complete` cleanly on first witness or stay `Continue` until
+--     EndStream.
 --
--- Latent gap (not closed by these lemmas, surfaced as a known concern):
--- `Until`, `Release`, `MetricUntil`, `MetricRelease`, and raw `Atomic n`
--- proc shapes CAN return `Satisfied` at one frame and `Violated` at the
--- next.  Worked example: `Until (Atomic 0) (Atomic 1)` with `table 1 y₁ =
--- True` returns `Satisfied` at y₁ via `combineOr Satisfied _ = Satisfied`;
--- with `table 0 y₂ = False` and `table 1 y₂ = False` it returns `Violated`
--- at y₂ via `combineOr (Violated _) (Violated _) = Violated`.  The runtime
--- behaviour (advance with the same proc) would emit a false counterexample
--- in that case.  Closing the latent gap requires either dropping the prop
--- from the iteration list on `Satisfied` or restricting the user-facing
--- property surface to Always/Eventually-wrapped formulas.  Both are
--- runtime-behaviour changes and require user direction; the comment in
--- `Protocol.StreamState.Internals.classifyStepResult` documents the
--- restriction.
+-- Soundness for the latent shapes (Until / Release / MetricUntil /
+-- MetricRelease / raw Atomic / And/Or-of-atomic) is now structural: the
+-- `complete` outcome means a Satisfied proc is dropped from the iteration
+-- list on the same frame, so no subsequent frame can re-evaluate it and
+-- produce a false counterexample.  Active-set monotonicity is proven in
+-- `Aletheia.Protocol.Iteration.length-specResult-≤`.
 
 stepL-always-never-satisfied : ∀ (table : PredTable) (φ : LTLProc) (y : TimedFrame)
   → stepL table (Always φ) y ≢ Satisfied

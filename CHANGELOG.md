@@ -841,6 +841,15 @@ callers that consumed a bare success acknowledgement need to access
   fakes ignore path args), so the chdir is invisible to fence
   behaviour (R20 cluster T — vehicle_checks.xlsx doc-harness
   recreation).
+- Streaming runtime now drops a property from the active iteration set
+  when its `stepL` returns `Satisfied`, instead of re-evaluating the same
+  proc on subsequent frames.  `Aletheia.Protocol.Iteration.StepOutcome`
+  gains a parameterless `complete : StepOutcome S E` constructor;
+  `iterateImpl` skips the property on `complete`; `length-specResult-≤`
+  proves active-set monotonicity.  Internal kernel change — no
+  binding-side API surface change.  See the corresponding § Fixed entry
+  for the observable behaviour change (R20 cluster W —
+  AGDA-B-9.2-residual operational fix).
 
 - `cantools` is no longer a Python runtime dependency. The verified
   Agda DBC text parser replaces every code path that previously
@@ -850,6 +859,51 @@ callers that consumed a bare success acknowledgement need to access
 
 ### Fixed
 
+- **Streaming runtime soundness** (R20 cluster W — AGDA-B-9.2-residual).
+  Two related bugs are closed by the same structural fix
+  (`classifyStepResult Satisfied _ = complete` — see corresponding
+  § Changed entry on `StepOutcome.complete`).
+  (1) **Mid-stream false counterexample on raw `Until` / `Release` /
+  `MetricUntil` / `MetricRelease` / raw `Atomic` / `And`/`Or`-of-atomic
+  shapes** (LTL formulas submitted via the JSON wire without the
+  canonical Python DSL `.always()` / `.eventually()` wrapping):
+  `Until (Atomic 0) (Atomic 1)` at frame y₁ where atom 1 holds
+  returns `Satisfied` via `combineOr Satisfied _ = Satisfied`; at frame
+  y₂ where both atoms are False the runtime would re-evaluate the same
+  proc and return `Violated` via `combineOr (Violated _) (Violated _)
+  = Violated`, emitting a PropertyResponse violation for a property
+  that the user had already been told was satisfied.  Post-fix the
+  property is dropped from the active set on `Satisfied`, so
+  subsequent frames cannot re-evaluate the proc.
+  (2) **EndStream false-`Fails` for `Eventually` / `Until` / `MetricUntil`
+  / `MetricEventually` / `Release` / `MetricRelease` properties that
+  satisfied mid-stream**: pre-fix the original-shape proc was kept in
+  the active set on `Satisfied`, and at EndStream `finalizeL` (which
+  inspects formula structure only, not stepL history) returned
+  `Fails EventuallyUnsatisfied` / `Fails UntilUnsatisfied` for properties
+  that had in fact been satisfied during the stream.  Concrete witness
+  observed pre-fix on `Eventually(TestSignal == 42)` with TestSignal=42
+  at y₂: EndStream returns `{'status': 'fails', 'reason': 'Eventually:
+  never satisfied before end of stream'}`.  Post-fix the property
+  drops from the active set on satisfaction, so EndStream's
+  `Complete` response simply omits it (no false negative).
+  `Always`-wrapped formulas are unaffected (per the R20 cluster S
+  `stepL-always-never-satisfied` lemma `Always` proc never returns
+  `Satisfied`, so the `complete` branch is unreachable for the
+  canonical safety surface).  **Observability shift on satisfied
+  `Eventually` / raw temporal formulas at EndStream**: pre-fix the
+  `Complete` response listed every input property's verdict (some
+  incorrect per (2) above); post-fix only the properties that were
+  still in the active set at EndStream appear in `Complete.results`.
+  Properties that satisfied mid-stream are absent rather than
+  misclassified.  Lifting `PropertyResult.Satisfaction` emission into
+  the streaming dispatch (so users get an explicit positive verdict
+  on satisfaction) is a separate enhancement — landing it would
+  require threading per-step completion events through
+  `dispatchIterResult` and surfacing them on the wire alongside
+  `Ack` / `PropertyResponse(Violation)`.  Python regression test
+  `python/tests/test_classify_satisfied_complete.py` exercises the
+  witnesses through the JSON wire end-to-end.
 - **CI orchestrator** (`tools/run_ci.py`): fixed three defects surfaced
   by cluster 6's first end-to-end run per
   `feedback_orchestrator_end_to_end_validation.md`.  (1) `total_steps`

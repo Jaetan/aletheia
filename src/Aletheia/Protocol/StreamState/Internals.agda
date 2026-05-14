@@ -29,7 +29,7 @@ open import Aletheia.Protocol.StreamState.Types using (StreamState; Streaming; P
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Prelude using (listIndex)
 
@@ -222,51 +222,46 @@ classifyStepResult : StepResult LTLProc → PropertyState → StepOutcome Proper
 classifyStepResult (Continue _ newProc) prop =
   advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
 classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
--- Satisfied: property holds at this step. The property stays in the
--- iteration list and its proc continues being stepped on subsequent frames.
--- The LTL type lacks a Top constructor, so there's no trivially-true
--- formula to substitute.  Re-evaluating the same proc on the next frame is
--- wasteful but sound under the user-property surface this runtime is built
--- for: standard CAN-analysis safety properties wrap predicates in
--- `Always(...)` (the canonical pattern, exposed by the Python DSL as
--- `Signal(...).cmp(...).always()`) and liveness properties wrap in
--- `Eventually(...)`.  The two lemmas in `Aletheia.LTL.Coalgebra.Properties`
--- pin down why:
+-- Satisfied: property holds at this step.  The property is dropped from
+-- the iteration list (`complete` outcome) so its proc is NOT re-evaluated
+-- on subsequent frames.
 --
---   * `stepL-always-never-satisfied`: `stepL (Always φ) y ≢ Satisfied`.
---     The `Always` proc steps as `combineAnd (stepL φ y) (Continue 0
---     (Always φ))`; since the RHS is always `Continue`, the output is
---     `Continue` or `Violated`, never `Satisfied`.  This branch is
---     unreachable for `Always`-wrapped properties — the dominant case.
+-- Why drop instead of advance: re-evaluating a Satisfied proc on the
+-- next frame is unsound for top-level `Until`, `Release`, `MetricUntil`,
+-- `MetricRelease`, raw `Atomic`, or `And`/`Or`-of-atomic shapes.  Concrete
+-- witness: `Until (Atomic 0) (Atomic 1)` with `table 1 y₁ = True` returns
+-- `Satisfied` at y₁; with both atoms False at y₂ it returns `Violated`
+-- (via `combineOr (Violated _) (Violated _) = Violated`).  Under a prior
+-- `advance prop` design this would emit a false counterexample on y₂ for
+-- a property already declared satisfied.  The `complete` outcome closes
+-- the gap structurally — once a property is satisfied, no further frame
+-- can flip the verdict because the proc is no longer in the active set.
+--
+-- Active-set monotonicity: `Aletheia.Protocol.Iteration.length-specResult-≤`
+-- proves the post-iteration list is no longer than the input.  The
+-- streaming runtime relies on this to argue that the active set shrinks
+-- monotonically with `Satisfied` transitions; combined with `halt`
+-- (Violated) terminating iteration, the active set never grows without
+-- explicit user input (a fresh `SetProperties` reseeds it).
+--
+-- Shape characterizations in `Aletheia.LTL.Coalgebra.Properties` pin down
+-- which user surfaces never trigger the drop:
+--   * `stepL-always-never-satisfied`: `stepL (Always φ) y ≢ Satisfied`,
+--     so `Always`-wrapped properties (the canonical CAN safety pattern)
+--     never `complete` — they run for the entire stream.
 --   * `stepL-eventually-never-violated`: `stepL (Eventually φ) y ≢
---     Violated ce`.  The `Eventually` proc steps as `combineOr (stepL φ y)
---     (Continue 0 (Eventually φ))`; `combineOr (Violated _) (Continue _ _)
---     = Continue _ _`, so the output is `Satisfied` or `Continue`, never
---     `Violated`.  Re-stepping an `Eventually` proc after `Satisfied` is
---     therefore safe: subsequent frames either confirm `Satisfied` again
---     or produce `Continue`.
+--     Violated ce`, so `Eventually`-wrapped properties (the canonical
+--     liveness pattern) never `halt` — they `complete` cleanly on first
+--     witness or stay `Continue` until EndStream.
 --
--- Latent gap (DEFER, AGDA-B-9.2): top-level `Until`, `Release`,
--- `MetricUntil`, `MetricRelease`, raw `Atomic`, or `And`/`Or`-of-atomic
--- proc shapes CAN return `Satisfied` at y₁ and `Violated` at y₂ on the
--- same proc.  Concrete witness: `Until (Atomic 0) (Atomic 1)` with table 1
--- True at y₁ → `Satisfied`; with table 0 and table 1 both False at y₂ →
--- `Violated` (via the inner `combineAnd (Violated _) _` → `Violated`, then
--- `combineOr (Violated _) (Violated _)` returning the second arg by
--- pattern order).  In that case this branch's `advance prop` would emit a
--- false counterexample on the next frame.  The Python DSL surface (and
--- canonical user docs) wrap predicates in `.always()` / `.eventually()`,
--- so the typical workflow never reaches this configuration; the gap is
--- latent for users who submit a raw `Until`/`Release`/`Atomic` via the
--- JSON wire format (`parseLTL` accepts any LTL constructor at top level
--- without wrapping).  Closing the gap requires either (a) dropping the
--- prop from the iteration list on `Satisfied` (runtime change; the
--- correct fix but needs a separate review), or (b) restricting the
--- user-facing property surface to wrapped formulas (API break).  See the
--- comment block above `stepL-always-never-satisfied` in
--- `Coalgebra/Properties.agda` (the AGDA-B-9.2-residual project memory
--- carries the full witness + closure options for the next review round).
-classifyStepResult Satisfied prop = advance prop
+-- Wire visibility: the drop is silent.  `dispatchIterResult` emits `Ack`
+-- (no halt evidence) when the iteration finishes without a violation,
+-- regardless of whether one or more properties completed during the
+-- step.  `PropertyResult.Satisfaction` is currently emitted only at
+-- EndStream via `finalizeL`; lifting Satisfaction emission into the
+-- streaming dispatch is a separate enhancement (would require threading
+-- per-step completion events through `dispatchIterResult`).
+classifyStepResult Satisfied _ = complete
 
 -- Step one property: build PredTable, call stepL, classify result.
 stepProperty : DBC → SignalCache → TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)

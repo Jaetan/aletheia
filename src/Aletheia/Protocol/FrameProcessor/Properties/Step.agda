@@ -30,7 +30,7 @@ open import Aletheia.Protocol.StreamState.Internals
            mkPredTable; updateCacheFromFrame)
 open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specResult; specHalt)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete; iterate; iterate-correct; specResult; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (stepL)
@@ -90,9 +90,9 @@ classifyStepResult-continue : ∀ n newProc prop
                                 (simplify newProc))
 classifyStepResult-continue n newProc prop = refl
 
--- Satisfied → advance (property state unchanged)
+-- Satisfied → complete (property dropped from active set; AGDA-B-9.2 closure)
 classifyStepResult-satisfied : ∀ prop
-  → classifyStepResult Satisfied prop ≡ advance prop
+  → classifyStepResult Satisfied prop ≡ complete
 classifyStepResult-satisfied prop = refl
 
 -- ============================================================================
