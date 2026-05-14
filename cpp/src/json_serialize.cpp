@@ -472,7 +472,7 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
             else
                 static_assert(sizeof(T) == 0, "Unhandled formula type in formula_to_json");
         },
-        static_cast<const LtlFormula::variant&>(f));
+        f.value);
 }
 
 // ---------------------------------------------------------------------------

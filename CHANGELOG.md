@@ -565,6 +565,57 @@ step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
 
+#### BREAKING — C++: `StrongString<Tag>` merged into `Strong<Tag, T>` (R20 cluster X — CPP-D-15.3)
+
+The previously-separate `StrongString<Tag>` template is removed. `Strong<Tag, T>`
+now exposes a concept-gated `operator std::string_view()` when `T == std::string`,
+so existing `std::string_view{name}` direct-init sites for `SignalName` /
+`MessageName` / `NodeName` / `Unit` continue to work unchanged. The four name
+aliases now read `Strong<..., std::string>` instead of `StrongString<...>`.
+Out-of-tree consumers that referenced the `StrongString` template name must
+substitute `Strong<Tag, std::string>`. Closes CPP-D-15.3.
+
+#### Added — C++: `Strong<Tag, T>::of(...)` perfect-forwarding factory (R20 cluster X — CPP-D-15.2)
+
+New static factory: `PhysicalValue::of(1, 10)` constructs a `PhysicalValue`
+from `Rational{1, 10}` without the explicit inner-type call site. Works for
+every `Strong<Tag, T>` instantiation (numeric, string, bit-position). Chosen
+over per-tag free `make_*` factories so the convenience scales without N new
+symbols. Old `PhysicalValue{Rational{1, 10}}` form continues to compile.
+
+#### Changed — C++: `LtlFormula` switched from `std::variant` inheritance to composition (R20 cluster X — CPP-D-15.4 / 17.3)
+
+`struct LtlFormula : std::variant<...>` was a portability hazard across
+libstdc++ versions (special-member-function constraints, `in_place_index_t`
+deduction edge cases under derived ctors). The variant is now a member:
+
+```cpp
+using LtlFormulaVariant = std::variant<Atomic, Not, And, Or, /* ... 14 total */>;
+struct LtlFormula {
+    LtlFormulaVariant value;
+    template<typename T>
+        requires(!std::same_as<std::decay_t<T>, LtlFormula>) &&
+                std::constructible_from<LtlFormulaVariant, T>
+    LtlFormula(T&& v) : value(std::forward<T>(v)) {}
+    template<typename Visitor> constexpr auto visit(Visitor&&) const& -> decltype(auto);
+    /* + & and && overloads */
+};
+```
+
+Existing builder functions (`ltl::atomic`, `ltl::always`, etc.) work
+unchanged thanks to the constrained converting ctor. Consumers that previously
+called `std::visit(visitor, formula)` should call `formula.visit(visitor)`,
+or use the explicit `formula.value` member. Two `std::get_if<T>(uniq.get())`
+sites in `enrich.cpp` now read `std::get_if<T>(&uniq->value)`. The
+14-alternative list is now centralized in the `LtlFormulaVariant` alias —
+single source of truth.
+
+The reviewer's "Visitor pattern for binary-compat extension" framing
+(virtual-dispatch class hierarchy, finding CPP-D-17.3) is intentionally
+**not pursued**: header-only template consumption + 1:1 Agda kernel ADT
+mapping means virtual dispatch would lose constexpr and break the lambda
+idiom for no architectural gain. Documented in `cpp/include/aletheia/ltl.hpp`.
+
 #### BREAKING — Python: `aletheia.asyncio.testing.gate_send_frame` replaced by `gated_backend` (R20 cluster P — PY-D-24.2)
 
 Test scaffolding for deterministic cancellation rendezvous moves from

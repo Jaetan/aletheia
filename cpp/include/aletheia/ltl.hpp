@@ -6,6 +6,7 @@
 // always need those vocabulary types.
 #include <aletheia/types.hpp> // IWYU pragma: export
 
+#include <concepts>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -55,8 +56,26 @@ using Predicate = std::variant<Equals, LessThan, GreaterThan, LessThanOrEqual, G
                                Between, ChangedBy, StableWithin>;
 
 // ---------------------------------------------------------------------------
-// LTL formula: recursive variant via inheritance
+// LTL formula: recursive variant via composition (R20 CPP-D-15.4 / 17.3)
 // ---------------------------------------------------------------------------
+//
+// Previously inherited from std::variant via `using variant::variant`.
+// Inheriting from std::variant is permitted by the standard but has hit
+// libstdc++ implementation quirks across versions (special-member-function
+// constraints, in_place_index_t deduction in derived ctors) — composition
+// removes the hazard at the cost of one `.value` indirection.
+//
+// The 14-alternative list is owned by `LtlFormulaVariant` (one source of
+// truth); the wrapper provides a constrained converting constructor + a
+// `visit` member so consumers don't reach into the variant by name.
+//
+// Note on CPP-D-17.3: the reviewer's "Visitor pattern for binary-compat
+// extension" framing is intentionally not pursued — LtlFormula is consumed
+// header-only with std::visit lambdas everywhere, and the LTL ADT mirrors
+// the Agda kernel's constructor set 1:1, so adding an alternative requires
+// kernel changes that recompile every consumer regardless of dispatch style.
+// Virtual-dispatch Visitor would lose constexpr and break the lambda
+// idiom for no architectural gain.
 
 struct LtlFormula;
 
@@ -107,10 +126,37 @@ struct MetricRelease {
     std::unique_ptr<LtlFormula> left, right;
 };
 
-struct LtlFormula
-    : std::variant<Atomic, Not, And, Or, Next, WeakNext, Always, Eventually, Until, Release,
-                   MetricAlways, MetricEventually, MetricUntil, MetricRelease> {
-    using variant::variant;
+using LtlFormulaVariant =
+    std::variant<Atomic, Not, And, Or, Next, WeakNext, Always, Eventually, Until, Release,
+                 MetricAlways, MetricEventually, MetricUntil, MetricRelease>;
+
+struct LtlFormula {
+    LtlFormulaVariant value;
+
+    // Default constructor intentionally omitted — none of the alternative
+    // structs is default-constructible (`Strong<Tag, T>` blocks default-init
+    // by design), so the variant has no default state to initialize to.
+    // Match the pre-refactor `using variant::variant` behaviour, which also
+    // exposed no working default constructor.
+
+    template<typename T>
+        requires(!std::same_as<std::decay_t<T>, LtlFormula>) &&
+                std::constructible_from<LtlFormulaVariant, T>
+    LtlFormula(T&& v) // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+        : value(std::forward<T>(v)) {}
+
+    template<typename Visitor>
+    constexpr auto visit(Visitor&& vis) const& -> decltype(auto) {
+        return std::visit(std::forward<Visitor>(vis), value);
+    }
+    template<typename Visitor>
+    constexpr auto visit(Visitor&& vis) & -> decltype(auto) {
+        return std::visit(std::forward<Visitor>(vis), value);
+    }
+    template<typename Visitor>
+    constexpr auto visit(Visitor&& vis) && -> decltype(auto) {
+        return std::visit(std::forward<Visitor>(vis), std::move(value));
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -216,41 +262,39 @@ inline auto clone(const LtlFormula& f) -> LtlFormula {
     auto cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
         return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;
     };
-    return std::visit(
-        [&cp](const auto& v) -> LtlFormula {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Atomic>)
-                return Atomic{v.predicate};
-            else if constexpr (std::is_same_v<T, Not>)
-                return Not{cp(v.formula)};
-            else if constexpr (std::is_same_v<T, And>)
-                return And{cp(v.left), cp(v.right)};
-            else if constexpr (std::is_same_v<T, Or>)
-                return Or{cp(v.left), cp(v.right)};
-            else if constexpr (std::is_same_v<T, Next>)
-                return Next{cp(v.formula)};
-            else if constexpr (std::is_same_v<T, WeakNext>)
-                return WeakNext{cp(v.formula)};
-            else if constexpr (std::is_same_v<T, Always>)
-                return Always{cp(v.formula)};
-            else if constexpr (std::is_same_v<T, Eventually>)
-                return Eventually{cp(v.formula)};
-            else if constexpr (std::is_same_v<T, Until>)
-                return Until{cp(v.left), cp(v.right)};
-            else if constexpr (std::is_same_v<T, Release>)
-                return Release{cp(v.left), cp(v.right)};
-            else if constexpr (std::is_same_v<T, MetricAlways>)
-                return MetricAlways{v.bound, cp(v.formula)};
-            else if constexpr (std::is_same_v<T, MetricEventually>)
-                return MetricEventually{v.bound, cp(v.formula)};
-            else if constexpr (std::is_same_v<T, MetricUntil>)
-                return MetricUntil{v.bound, cp(v.left), cp(v.right)};
-            else if constexpr (std::is_same_v<T, MetricRelease>)
-                return MetricRelease{v.bound, cp(v.left), cp(v.right)};
-            else
-                static_assert(sizeof(T) == 0, "Unhandled formula type in clone");
-        },
-        f);
+    return f.visit([&cp](const auto& v) -> LtlFormula {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Atomic>)
+            return Atomic{v.predicate};
+        else if constexpr (std::is_same_v<T, Not>)
+            return Not{cp(v.formula)};
+        else if constexpr (std::is_same_v<T, And>)
+            return And{cp(v.left), cp(v.right)};
+        else if constexpr (std::is_same_v<T, Or>)
+            return Or{cp(v.left), cp(v.right)};
+        else if constexpr (std::is_same_v<T, Next>)
+            return Next{cp(v.formula)};
+        else if constexpr (std::is_same_v<T, WeakNext>)
+            return WeakNext{cp(v.formula)};
+        else if constexpr (std::is_same_v<T, Always>)
+            return Always{cp(v.formula)};
+        else if constexpr (std::is_same_v<T, Eventually>)
+            return Eventually{cp(v.formula)};
+        else if constexpr (std::is_same_v<T, Until>)
+            return Until{cp(v.left), cp(v.right)};
+        else if constexpr (std::is_same_v<T, Release>)
+            return Release{cp(v.left), cp(v.right)};
+        else if constexpr (std::is_same_v<T, MetricAlways>)
+            return MetricAlways{v.bound, cp(v.formula)};
+        else if constexpr (std::is_same_v<T, MetricEventually>)
+            return MetricEventually{v.bound, cp(v.formula)};
+        else if constexpr (std::is_same_v<T, MetricUntil>)
+            return MetricUntil{v.bound, cp(v.left), cp(v.right)};
+        else if constexpr (std::is_same_v<T, MetricRelease>)
+            return MetricRelease{v.bound, cp(v.left), cp(v.right)};
+        else
+            static_assert(sizeof(T) == 0, "Unhandled formula type in clone");
+    });
 }
 
 } // namespace ltl
