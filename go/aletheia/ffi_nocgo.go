@@ -84,3 +84,11 @@ func (b *FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byt
 
 // Close is a no-op without cgo.
 func (b *FFIBackend) Close(_ unsafe.Pointer) {}
+
+// tryFormatRationalFFI is a no-FFI stub.  Always returns ("", false)
+// so `formatRational` falls back to the local Go algorithm.  In !cgo
+// builds the renderer cannot reach the Agda kernel — there is no .so
+// to dlopen — so we rely on the local algorithm for output parity.
+func tryFormatRationalFFI(_ int64, _ int64) (string, bool) {
+	return "", false
+}

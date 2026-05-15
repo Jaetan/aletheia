@@ -135,22 +135,33 @@ func formatPredicate(p Predicate) string {
 // formatValue formats a float64 without trailing zeros.
 func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
 
-// formatRational renders a Rational as an exact decimal when its reduced
-// denominator divides a power of 10 (terminating in decimal), and as literal
-// "N/D" otherwise.  Cross-binding parity: the same algorithm runs in Python
-// _format_rational and C++ format_value(const Rational&), so the same
-// Rational value renders to byte-identical output in all three bindings.
+// formatRational renders a Rational as a string identical across all
+// bindings.  Production code paths route through the Agda kernel via
+// `aletheia_format_rational` (R20 cluster Y stage 2): the Go binding
+// calls into the same Agda function as Python and C++, so the same
+// Rational value renders to byte-identical output everywhere.
 //
-// GCD-reduces first since Go Rational construction does not enforce
-// lowest-terms; the reduced denom is then split into 2^pow2 * 5^pow5 to
-// determine k = max(pow2, pow5) decimal places, padded into a digit stream,
-// and split at the decimal point.  Trailing zeros on the fractional side
-// are trimmed (50/100 → "0.5", not "0.50").  Pathological case k > 18
-// could overflow the int64 multiplier; rendered as "N/D" (the same shape
-// as the non-terminating branch) so the output remains byte-identical to
-// Python and C++ regardless of language.  Typical DBC predicate values
-// stay well under k=10.
+// When no `FFIBackend` has been instantiated in this process (e.g.
+// from a test that calls `aletheia.FormatFormula(f)` directly), the
+// function falls back to the local Go algorithm in
+// `formatRationalLocal`, which produces the same output by
+// construction.  See `renderer.go::setRendererFns` for the
+// registration mechanism.
 func formatRational(r Rational) string {
+	if s, ok := tryFormatRationalFFI(r.Numerator, r.Denominator); ok {
+		return s
+	}
+	return formatRationalLocal(r)
+}
+
+// formatRationalLocal is the no-FFI fallback used in tests that
+// instantiate no `FFIBackend`.  Mirrors the Agda kernel's algorithm:
+// GCD-reduce, decompose denom into 2^pow2 * 5^pow5, render exact
+// decimal when terminating with `≤ 18` decimal places, render
+// `<num>/<denom>` otherwise.  Cross-binding test outputs (Go +
+// Python + C++) assert against the same expected strings, so any
+// drift from the Agda kernel surfaces as a failing test.
+func formatRationalLocal(r Rational) string {
 	if r.Denominator <= 0 {
 		return formatValue(r.Float64())
 	}

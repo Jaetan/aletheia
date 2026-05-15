@@ -60,6 +60,9 @@ package aletheia
 // static char* call_format_dbc(void *fn, void *state) {
 //     return ((char* (*)(void*))fn)(state);
 // }
+// static char* call_format_rational(void *fn, int64_t num, int64_t denom) {
+//     return ((char* (*)(int64_t, int64_t))fn)(num, denom);
+// }
 // static char* call_extract_signals(void *fn, void *state,
 //     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len) {
 //     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
@@ -194,6 +197,7 @@ type FFIBackend struct {
 	startStreamFn       unsafe.Pointer
 	endStreamFn         unsafe.Pointer
 	formatDBCFn         unsafe.Pointer
+	formatRationalFn    unsafe.Pointer
 	extractSignalsFn    unsafe.Pointer
 	buildFrameBinFn     unsafe.Pointer
 	updateFrameBinFn    unsafe.Pointer
@@ -308,6 +312,10 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
+	formatRationalFn, err := loadSym(handle, "aletheia_format_rational")
+	if err != nil {
+		return nil, err
+	}
 	extractSignalsFn, err := loadSym(handle, "aletheia_extract_signals")
 	if err != nil {
 		return nil, err
@@ -367,6 +375,12 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}
 
 	closeOnErr = false
+	// Register the rendererFn / freeStrFn pair as the package-level
+	// Rational pretty-printer (R20 cluster Y stage 2).  The free
+	// function `formatRational` (display path in `enrich.go`) calls
+	// these when registered; otherwise it falls back to the local
+	// algorithm.  Production paths always go through this registration.
+	setRendererFns(formatRationalFn, freeStrFn)
 	return &FFIBackend{
 		handle:              handle,
 		initFn:              initFn,
@@ -377,6 +391,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		startStreamFn:       startStreamFn,
 		endStreamFn:         endStreamFn,
 		formatDBCFn:         formatDBCFn,
+		formatRationalFn:    formatRationalFn,
 		extractSignalsFn:    extractSignalsFn,
 		buildFrameBinFn:     buildFrameBinFn,
 		updateFrameBinFn:    updateFrameBinFn,
