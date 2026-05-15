@@ -565,6 +565,25 @@ step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
 
+#### Changed — All bindings: predicate pretty-printer now renders non-terminating Rationals as exact `N/D` (R20 cluster Y — GO-D-19.1)
+
+`format_formula` (Python) / `FormatFormula` (Go) / `format_formula` (C++)
+previously rendered every Rational predicate value through `:g` / `%g`
+float formatting, which truncates non-terminating fractions to 6
+significant figures (e.g. `Rational{1, 3}` → `"0.333333"`). The
+renderer now classifies the reduced denominator: when it divides a
+power of 10 (terminating in decimal) the existing `:g` rendering is
+kept; otherwise the value is emitted as literal `N/D` from the reduced
+form. `Rational{23, 2}` still renders as `"11.5"` (terminating) and
+`Rational{1, 3}` now renders as `"1/3"` instead of `"0.333333"`.
+
+The dominant DBC-source case (factor / offset / min / max — all
+human-authored decimals) is unaffected because those values canonicalise
+as `n / (2^a · 5^b)`. Only manually-constructed non-terminating
+predicate values (e.g. `Signal("S").equals(Fraction(1, 3))`) shift
+output. Wire JSON shape (`{"numerator": N, "denominator": D}`) is
+unchanged — this is a display-path-only refinement. Closes R20 GO-D-19.1.
+
 #### BREAKING — Go and C++: `mux_values` field + method renamed to `multiplex_values` for cross-binding parity (R20 GO-A-3.5)
 
 The `Multiplexed` struct's value-list field and the `DBCMessage` /

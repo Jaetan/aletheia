@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -19,8 +21,25 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
+// Smart Rational renderer: terminating decimals via {:g}, otherwise reduced
+// "N/D".  GCD-reduces first because direct Rational{n, d} construction does
+// not enforce lowest-terms.  Preserves exact values for cases like
+// Rational{1, 3} that would otherwise truncate to "0.333333" under {:g}.
 auto format_value(const Rational& r) -> std::string {
-    return std::format("{:g}", r.to_double());
+    if (r.denominator <= 0)
+        return std::format("{:g}", r.to_double());
+    auto abs_num = static_cast<std::int64_t>(std::abs(r.numerator));
+    auto g = std::gcd(abs_num, r.denominator);
+    auto rn = r.numerator / g;
+    auto rd = r.denominator / g;
+    auto test = rd;
+    while (test % 2 == 0)
+        test /= 2;
+    while (test % 5 == 0)
+        test /= 5;
+    if (test == 1)
+        return std::format("{:g}", r.to_double());
+    return std::format("{}/{}", rn, rd);
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;

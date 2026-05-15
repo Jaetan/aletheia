@@ -273,3 +273,41 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     auto result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
 }
+
+// ===========================================================================
+// Smart-fallback Rational renderer in format_formula
+// ===========================================================================
+
+TEST_CASE("format_formula renders non-terminating Rational as N/D", "[enrich][rational]") {
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 3}}));
+    CHECK(format_formula(f) == "S = 1/3");
+}
+
+TEST_CASE("format_formula renders signed non-terminating Rational", "[enrich][rational]") {
+    using namespace ltl;
+    auto f = atomic(greater_than(SignalName{"S"}, PhysicalValue{Rational{-2, 7}}));
+    CHECK(format_formula(f) == "S > -2/7");
+}
+
+TEST_CASE("format_formula reduces unreduced Rational before N/D", "[enrich][rational]") {
+    using namespace ltl;
+    // Direct Rational{2, 6} construction is allowed; renderer must reduce.
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{2, 6}}));
+    CHECK(format_formula(f) == "S = 1/3");
+}
+
+TEST_CASE("format_formula keeps terminating Rational as decimal", "[enrich][rational]") {
+    // No regression for the dominant DBC factor / offset case.
+    auto result = Check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always(Voltage >= 11.5)");
+}
+
+TEST_CASE("format_formula renders between with both bounds non-terminating", "[enrich][rational]") {
+    using namespace ltl;
+    auto f = atomic(
+        between(SignalName{"S"}, PhysicalValue{Rational{1, 3}}, PhysicalValue{Rational{2, 3}}));
+    CHECK(format_formula(f) == "1/3 <= S <= 2/3");
+}

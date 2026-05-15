@@ -131,6 +131,51 @@ func TestFormatFormula_AllPredicates(t *testing.T) {
 	}
 }
 
+func TestFormatFormula_NonTerminatingRational(t *testing.T) {
+	tests := []struct {
+		name     string
+		pred     aletheia.Predicate
+		expected string
+	}{
+		{"equals 1/3", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 3}}, "S = 1/3"},
+		{"less_than 2/7", aletheia.LessThan{Signal: "S", Value: aletheia.Rational{Numerator: 2, Denominator: 7}}, "S < 2/7"},
+		{"greater_than -1/3", aletheia.GreaterThan{Signal: "S", Value: aletheia.Rational{Numerator: -1, Denominator: 3}}, "S > -1/3"},
+		{"between non-terminating", aletheia.Between{Signal: "S", Min: aletheia.Rational{Numerator: 1, Denominator: 3}, Max: aletheia.Rational{Numerator: 2, Denominator: 3}}, "1/3 <= S <= 2/3"},
+		{"reduces 2/6 → 1/3", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 2, Denominator: 6}}, "S = 1/3"},
+		{"changed_by 1/3", aletheia.ChangedBy{Signal: "S", Delta: aletheia.Rational{Numerator: 1, Denominator: 3}}, "ΔS >= 1/3"},
+		{"stable_within 1/7", aletheia.StableWithin{Signal: "S", Tolerance: aletheia.Rational{Numerator: 1, Denominator: 7}}, "|ΔS| <= 1/7"},
+	}
+	for _, tt := range tests {
+		f := aletheia.Atomic{Predicate: tt.pred}
+		got := aletheia.FormatFormula(f)
+		if got != tt.expected {
+			t.Errorf("%s: got %q, want %q", tt.name, got, tt.expected)
+		}
+	}
+}
+
+func TestFormatFormula_TerminatingRationalExact(t *testing.T) {
+	// Direct-construction Rational with terminating reduced denom should still
+	// render via :g (no regression for the dominant DBC factor / offset case).
+	tests := []struct {
+		name     string
+		pred     aletheia.Predicate
+		expected string
+	}{
+		{"23/2 → 11.5", aletheia.LessThan{Signal: "V", Value: aletheia.Rational{Numerator: 23, Denominator: 2}}, "V < 11.5"},
+		{"7/8 → 0.875", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 7, Denominator: 8}}, "S = 0.875"},
+		{"42/1 → 42", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 42, Denominator: 1}}, "S = 42"},
+		{"-23/2 → -11.5", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: -23, Denominator: 2}}, "S = -11.5"},
+	}
+	for _, tt := range tests {
+		f := aletheia.Atomic{Predicate: tt.pred}
+		got := aletheia.FormatFormula(f)
+		if got != tt.expected {
+			t.Errorf("%s: got %q, want %q", tt.name, got, tt.expected)
+		}
+	}
+}
+
 func TestFormatFormula_Release(t *testing.T) {
 	f := aletheia.Release{
 		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.RationalFromFloat(500)}},

@@ -1,5 +1,7 @@
 """Tests for formula enrichment: pretty-printer, signal collector, diagnostics."""
 
+from fractions import Fraction
+
 from aletheia import PropertyDiagnostic
 from aletheia.client._enrichment import (
     build_diagnostic,
@@ -143,6 +145,26 @@ class TestFormatPredicate:
         f = Signal("S").stable_within(2.0).always().to_dict()
         result = format_formula(f)
         assert "|\u0394S| <= 2" in result
+
+    def test_non_terminating_rational_renders_as_fraction(self) -> None:
+        """Non-terminating Rational predicate value renders as N/D, not %g truncation."""
+        f = Signal("S").equals(Fraction(1, 3)).always().to_dict()
+        assert "S = 1/3" in format_formula(f)
+
+    def test_non_terminating_rational_signed(self) -> None:
+        """Negative non-terminating Rational keeps sign in N/D form."""
+        f = Signal("S").greater_than(Fraction(-2, 7)).always().to_dict()
+        assert "S > -2/7" in format_formula(f)
+
+    def test_terminating_rational_uses_decimal(self) -> None:
+        """Terminating Rational still renders compactly (no regression)."""
+        f = Signal("Voltage").greater_than_or_equal(Fraction(23, 2)).always().to_dict()
+        assert "Voltage >= 11.5" in format_formula(f)
+
+    def test_between_non_terminating(self) -> None:
+        """Between renders both bounds with smart fallback."""
+        f = Signal("S").between(Fraction(1, 3), Fraction(2, 3)).always().to_dict()
+        assert "1/3 <= S <= 2/3" in format_formula(f)
 
     def test_metric_until(self) -> None:
         """Verify metric until."""

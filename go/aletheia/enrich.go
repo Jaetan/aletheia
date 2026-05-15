@@ -103,29 +103,30 @@ func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 }
 
 // formatPredicate returns a human-readable representation of a predicate.
-// Display path only — Rational values flow through Float64() for the
-// %g format; precision loss is acceptable in human-readable output.
+// Display path only — Rational values flow through formatRational, which
+// renders terminating decimals via %g and falls back to reduced N/D for
+// non-terminating fractions (e.g. Rational{1, 3} → "1/3", not "0.333333").
 func formatPredicate(p Predicate) string {
 	switch v := p.(type) {
 	case Equals:
-		return fmt.Sprintf("%s = %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s = %s", v.Signal, formatRational(v.Value))
 	case LessThan:
-		return fmt.Sprintf("%s < %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s < %s", v.Signal, formatRational(v.Value))
 	case GreaterThan:
-		return fmt.Sprintf("%s > %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s > %s", v.Signal, formatRational(v.Value))
 	case LessThanOrEqual:
-		return fmt.Sprintf("%s <= %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s <= %s", v.Signal, formatRational(v.Value))
 	case GreaterThanOrEqual:
-		return fmt.Sprintf("%s >= %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s >= %s", v.Signal, formatRational(v.Value))
 	case Between:
-		return fmt.Sprintf("%s <= %s <= %s", formatValue(v.Min.Float64()), v.Signal, formatValue(v.Max.Float64()))
+		return fmt.Sprintf("%s <= %s <= %s", formatRational(v.Min), v.Signal, formatRational(v.Max))
 	case ChangedBy:
 		if v.Delta.Numerator >= 0 {
-			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatValue(v.Delta.Float64()))
+			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatRational(v.Delta))
 		}
-		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatValue(v.Delta.Float64()))
+		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatRational(v.Delta))
 	case StableWithin:
-		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatValue(v.Tolerance.Float64()))
+		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatRational(v.Tolerance))
 	default:
 		return "<unknown predicate>"
 	}
@@ -133,6 +134,46 @@ func formatPredicate(p Predicate) string {
 
 // formatValue formats a float64 without trailing zeros.
 func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
+
+// formatRational renders a Rational as a compact decimal when its reduced
+// denominator divides 10^k (terminating in decimal), and as literal "N/D"
+// otherwise.  GCD-reduces first, since Go Rational construction does not
+// enforce lowest-terms form.  Used by the predicate pretty-printer to
+// preserve exact values for Rationals like 1/3 that would otherwise be
+// truncated by %g formatting.
+func formatRational(r Rational) string {
+	if r.Denominator <= 0 {
+		return formatValue(r.Float64())
+	}
+	g := gcdInt64(absInt64(r.Numerator), r.Denominator)
+	rn := r.Numerator / g
+	rd := r.Denominator / g
+	test := rd
+	for test%2 == 0 {
+		test /= 2
+	}
+	for test%5 == 0 {
+		test /= 5
+	}
+	if test == 1 {
+		return formatValue(r.Float64())
+	}
+	return fmt.Sprintf("%d/%d", rn, rd)
+}
+
+func gcdInt64(a, b int64) int64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+func absInt64(x int64) int64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
 
 const (
 	usPerSecond      = 1_000_000

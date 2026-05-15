@@ -70,25 +70,44 @@ def _coerce_to_float(v: object) -> float:
     return 0.0
 
 
+def _format_rational(v: object) -> str:
+    """Render a predicate value: terminating decimal via :g, else reduced N/D.
+
+    Fraction values whose reduced denominator does not divide a power of 10
+    (e.g. 1/3, 2/7) are rendered as literal "N/D" instead of being truncated
+    by float formatting.  int and float inputs always render via :g.
+    """
+    if not isinstance(v, Fraction):
+        return f"{_coerce_to_float(v):g}"
+    n, d = v.numerator, v.denominator
+    test = d
+    while test % 2 == 0:
+        test //= 2
+    while test % 5 == 0:
+        test //= 5
+    if test == 1:
+        return f"{float(v):g}"
+    return f"{n}/{d}"
+
+
 def _format_predicate(pred: dict[str, object]) -> str:
     """Format a predicate dict as a human-readable string."""
     kind = pred.get("predicate")
     signal = str(pred.get("signal", ""))
     op = _COMPARISON_OPS.get(str(kind))
     if op is not None:
-        return f"{signal} {op} {_coerce_to_float(pred.get('value', 0)):g}"
+        return f"{signal} {op} {_format_rational(pred.get('value', 0))}"
     if kind == "between":
-        lo = _coerce_to_float(pred.get("min", 0))
-        hi = _coerce_to_float(pred.get("max", 0))
-        return f"{lo:g} <= {signal} <= {hi:g}"
+        lo = _format_rational(pred.get("min", 0))
+        hi = _format_rational(pred.get("max", 0))
+        return f"{lo} <= {signal} <= {hi}"
     if kind == "changedBy":
-        d = _coerce_to_float(pred.get("delta", 0))
-        if d >= 0:
-            return f"\u0394{signal} >= {d:g}"
-        return f"\u0394{signal} <= {d:g}"
+        delta = pred.get("delta", 0)
+        if _coerce_to_float(delta) >= 0:
+            return f"\u0394{signal} >= {_format_rational(delta)}"
+        return f"\u0394{signal} <= {_format_rational(delta)}"
     if kind == "stableWithin":
-        t = _coerce_to_float(pred.get("tolerance", 0))
-        return f"|\u0394{signal}| <= {t:g}"
+        return f"|\u0394{signal}| <= {_format_rational(pred.get('tolerance', 0))}"
     return "<unknown predicate>"
 
 
