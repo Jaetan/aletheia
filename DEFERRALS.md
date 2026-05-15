@@ -2,7 +2,7 @@
 
 Items explicitly declined or deferred during AGENTS.md review rounds. Each entry records **what**, **where**, **why deferred**, and **what would change the decision**. Resolved items stay in this file with a `✅ RESOLVED` annotation rather than being deleted — NO-FIX in a pre-user project is worth periodic re-audit (worked example: R6-B9.1 was filed NO-FIX 2026-04-10 with a "non-trivial proof effort" rationale; R20 cluster W shipped an operational fix in `c40e3ba` after cluster S discovered the original stability claim was empirically false on raw `Until`/`Release`/`Atomic` shapes).
 
-**Last updated:** 2026-05-15 (R20 closed — entries below; see `memory/project_review_round{11..20}.md` for per-round closure narratives; this revision adds Phase C1 (R6-B7.2 ✅) and pass-2 audit-trail closures for R5-A11 ✅ / R6-B9.1 ✅ / R6-P1.1 ✅ / R6-B7.3 🟢)
+**Last updated:** 2026-05-15 (R20 closed — entries below; see `memory/project_review_round{11..20}.md` for per-round closure narratives; this revision adds Phase C1 (R6-B7.2 ✅), R20-GO-A-4.10 ✅, and pass-2 audit-trail closures for R5-A11 ✅ / R6-B9.1 ✅ / R6-P1.1 ✅ / R6-B7.3 🟢)
 
 ---
 
@@ -155,9 +155,11 @@ R20 closed clusters A-Y + GO-A-3.5. Entries below are the round's DEFER + FP-VER
 - **Revisit when:** Go stdlib gains a unified primitive covering both shapes, OR a concurrency-model refactor consolidates the Client.
 
 #### R20-GO-A-4.10. `limits.go` "Mirrored here verbatim" claim lacks CI parity check [DROP]
+**✅ RESOLVED 2026-05-15** — flipped from DROP to implemented. `tools/check_limits_parity.py` (Python orchestrator per `feedback_python_over_bash.md`) parses `src/Aletheia/Limits.agda` for the `boundKindCode` mapping + `max-X = N` constants, parses `go/aletheia/limits.go` for `BoundKindX` / `MaxX` mirrors, and diffs both. Wired into `Shakefile.hs` as phony rule `check-limits-parity` AND into `tools/run_ci.py` as offline-enforcer step 12 so the canonical CI sweep runs it. Forward-revert verified: changing `MaxMessagesPerFile = 10000` to `9999` fires the gate; reverted, passes. Current run: 14 numeric constants and 7 BoundKind entries in parity. The original DROP rationale ("not Cat 1/4 hygiene") was correct — but the user's "no NO-FIX in a pre-user project" stance made the cost of building the gate (~250 LOC Python tool) cheaper than the cost of a future silent drift.
+
 - **File:** `go/aletheia/limits.go:7`
 - **Finding:** Comment claims values are mirrored from `Aletheia.Limits` but no CI gate enforces parity.
-- **Why DROP:** A Shake gate that parses `Aletheia.Limits` and diffs each constant against the binding mirrors is a CI/tooling task, not Cat 1/4 hygiene. Same shape as the "Reproducible build verification" gate proposal in AGENTS.md.
+- **Why DROP (2026-05-12, since fixed):** A Shake gate that parses `Aletheia.Limits` and diffs each constant against the binding mirrors is a CI/tooling task, not Cat 1/4 hygiene. Same shape as the "Reproducible build verification" gate proposal in AGENTS.md.
 - **Revisit when:** A tooling cluster is opened for CI-level cross-binding parity gates, OR the mirror drifts and silently triggers a real bug.
 
 ---

@@ -17,7 +17,7 @@ cabal-install's ``dist-newstyle/`` flock when the parent process is itself
 ``cabal run``.  Direct invocation avoids the flock-recursion entirely.  See
 Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
-═══ ALWAYS-ON STEPS (27 total) ═══
+═══ ALWAYS-ON STEPS (28 total) ═══
 
   Agda gates (8):
      1. build           — produces libaletheia-ffi.so
@@ -28,32 +28,34 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
      6. check-fidelity       (~2 min — runs ConstructorTest binary)
      7. check-ffi-exports
      8. count-modules
-  Offline enforcers (5):
+  Offline enforcers (6):
      9. check-changelog
     10. check-gate-claim
     11. check-runbook            (R18 cluster 4)
-    12. check-stability-bench    (R18 cluster 6 static gate)
-    13. check-mutation-setup     (R18 cluster 7 static gate)
+    12. check-limits-parity      (R20-GO-A-4.10 closure — Agda Limits SSOT
+                                  vs go/aletheia/limits.go mirror)
+    13. check-stability-bench    (R18 cluster 6 static gate)
+    14. check-mutation-setup     (R18 cluster 7 static gate)
   Binding tests (6):
-    14. Python pytest (deterministic lane)
-    15. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
+    15. Python pytest (deterministic lane)
+    16. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
         harness; was silently absent from the orchestrator before C5)
-    16. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
+    17. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
         ResourceWarning, debug asyncio, deprecation noise)
-    17. Python pytest --random-order (R18 cluster 5 — Cat 14f
+    18. Python pytest --random-order (R18 cluster 5 — Cat 14f
         test-isolation; AGENTS.md "both lanes must stay green")
-    18. Go test -race
-    19. C++ ctest
+    19. Go test -race
+    20. C++ ctest
   Lints (5):
-    20. basedpyright (Python)
-    21. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
-    22. gofmt -l + go vet (Go)
-    23. clang-format --dry-run --Werror (C++)
-    24. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    21. basedpyright (Python)
+    22. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
+    23. gofmt -l + go vet (Go)
+    24. clang-format --dry-run --Werror (C++)
+    25. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
   GHA meta-checks (3):
-    25. actionlint (workflow YAML lint, skipped if not installed)
-    26. check-action-pins
-    27. check-workflow-permissions
+    26. actionlint (workflow YAML lint, skipped if not installed)
+    27. check-action-pins
+    28. check-workflow-permissions
 
 ═══ OPT-IN LANES (4 total) ═══
 
@@ -417,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
     r.step("check-changelog", [*cabal, "check-changelog"])
     r.step("check-gate-claim", [*cabal, "check-gate-claim"])
     r.step("check-runbook", [*cabal, "check-runbook"])
+    r.step("check-limits-parity", [*cabal, "check-limits-parity"])
     r.step("check-stability-bench", [*cabal, "check-stability-bench"])
     r.step("check-mutation-setup", [*cabal, "check-mutation-setup"])
 

@@ -805,6 +805,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- gate — operators must not be left blind on an event the code emits.
         cmd_ "python3" "tools/check_runbook_coverage.py"
 
+    phony "check-limits-parity" $ do
+        -- Limits SSOT parity gate (post-R20 DEFERRALS sweep).  The Agda
+        -- `Aletheia.Limits` module is the single source of truth for every
+        -- adversarial-input bound (AGENTS.md universal rule).  The Go
+        -- binding mirrors a subset at `go/aletheia/limits.go` for
+        -- cgo-boundary pre-rejection — its header claims "mirrored here
+        -- verbatim", and this script enforces that promise.  Python and
+        -- C++ bindings consume bounds via the typed `InputBoundExceeded`
+        -- error returned from the kernel; they have no local mirror and
+        -- are out of scope for this gate.  Failing on: missing required
+        -- mirror, numeric value mismatch, BoundKind wire-string mismatch,
+        -- or any side having an entry the other side lacks (with explicit
+        -- categorisation in NAME_MAPPING).
+        cmd_ "python3" "tools/check_limits_parity.py"
+
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
         -- 25 / 26 / 27 mandate per-binding long-run leak detection harnesses

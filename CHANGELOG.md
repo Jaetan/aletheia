@@ -563,6 +563,38 @@ hook callers.
 Always-on step count: 26 → 27 (+1 for `check-mutation-setup` at
 step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
+#### `tools/check_limits_parity.py` + Shake `check-limits-parity` gate (R20-GO-A-4.10 closure)
+
+Static parity gate enforcing that
+`go/aletheia/limits.go`'s mirrored constants and BoundKind wire codes
+match the Agda SSOT at `src/Aletheia/Limits.agda`.  The Go mirror's
+header has long claimed "Single source of truth:
+src/Aletheia/Limits.agda; numeric values are mirrored here verbatim";
+this gate enforces that promise.  Diffs every `boundKindCode <Tag>`
+mapping (7 entries) plus every `max-<kebab-name>` numeric constant
+(14 entries) against the Go-side `BoundKind*` / `Max*` mirror via
+the explicit `NAME_MAPPING` / `BOUND_KIND_MAPPING` tables.
+
+Categorisation:
+
+- **REQUIRED** constants (`max-dbc-text-bytes`, `max-json-bytes`,
+  `max-nesting-depth`, `max-identifier-length`, `max-string-length-bytes`,
+  `max-atom-count-per-property`, `max-frame-byte-count`,
+  `max-messages-per-file`, `max-signals-per-message`,
+  `max-attributes-per-file`, `max-value-descriptions-per-file`) —
+  input-length / structural bounds where cgo-boundary rejection is
+  strictly preferable.  Mismatch is a hard error.
+- **OPTIONAL** constants (`max-comments-per-file`, `max-nodes-per-file`,
+  `max-value-tables-per-file`) — kernel-only list-cardinality bounds
+  enforced after JSON parsing; no cgo-boundary advantage.  Omission
+  from Go is acceptable.
+
+Wired into `Shakefile.hs` as `phony "check-limits-parity"` and into
+`tools/run_ci.py` as offline-enforcer step 12.  Python and C++ are
+out of scope (no local mirror — they observe the typed
+`InputBoundExceeded` error returned from the kernel).  Always-on
+step count: 27 → 28.
+
 ### Changed
 
 #### Changed — LTL metric operators: `window` parameter typed as `Timestamp μs` instead of raw `ℕ` (R6-B7.2 closure)
