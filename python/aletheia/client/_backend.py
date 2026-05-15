@@ -240,6 +240,12 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         configure_ffi_signatures(self._lib)
         RTSState.acquire(self._lib, rts_cores)
         self._rts_cores = rts_cores
+        # Register this library as the Rational renderer (R20 cluster Y
+        # stage 2).  The renderer module also lazy-loads on demand for
+        # callers that bypass FFIBackend, so this registration is an
+        # eager optimisation rather than a strict requirement.
+        from ._enrichment import set_renderer_lib  # pylint: disable=import-outside-toplevel
+        set_renderer_lib(self._lib)
 
     @property
     def rts_cores(self) -> int:

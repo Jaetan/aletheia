@@ -1,11 +1,16 @@
 """Formula enrichment helpers — formatting, signal collection, diagnostics.
 
-Module-level functions, testable without an AletheiaClient instance.
+Module-level functions.  Rational rendering is delegated to the Agda
+kernel via the FFI's ``aletheia_format_rational`` (R20 cluster Y stage 2);
+the FFI library is registered eagerly by :class:`FFIBackend` and lazily
+loaded otherwise so direct callers like ``format_formula(my_dict)`` keep
+working without an explicit backend.
 """
 
 from collections.abc import Callable
 from fractions import Fraction
 from typing import cast
+import ctypes
 
 from ..protocols import LTLFormula
 from ._types import PropertyDiagnostic, ValidationError
@@ -70,53 +75,90 @@ def _coerce_to_float(v: object) -> float:
     return 0.0
 
 
+# Module-level FFI library reference for the cross-binding-identical
+# Rational renderer (R20 cluster Y stage 2).  Registered eagerly by
+# :meth:`aletheia.client._backend.FFIBackend.__init__` so production
+# paths use the loaded backend's library.  When unset (e.g. tests
+# calling ``format_formula`` directly without instantiating a client),
+# :func:`_get_or_load_renderer_lib` lazily loads ``libaletheia-ffi.so``
+# and initialises the GHC RTS on first call.
+_renderer_lib: ctypes.CDLL | None = None
+
+
+def set_renderer_lib(lib: ctypes.CDLL) -> None:
+    """Register the FFI library used for Rational rendering.
+
+    Called by :meth:`FFIBackend.__init__` after configuring ctypes
+    signatures.  Subsequent calls overwrite the registration; this is
+    safe because the underlying ``.so`` is loaded once per process and
+    every backend instance holds a reference to the same library.
+    """
+    global _renderer_lib  # pylint: disable=global-statement
+    _renderer_lib = lib
+
+
+def _get_or_load_renderer_lib() -> ctypes.CDLL:
+    """Return the registered FFI library, lazily loading it if needed.
+
+    Production callers go through :class:`FFIBackend`, which registers
+    eagerly via :func:`set_renderer_lib`.  Direct callers of
+    :func:`format_formula` / :func:`build_diagnostic` (typically tests
+    or scripts) trigger the lazy load on first Rational render.
+    """
+    global _renderer_lib  # pylint: disable=global-statement
+    if _renderer_lib is None:
+        # Local import avoids a runtime circular dependency: ``_ffi``
+        # has no upward dependencies, but importing at module load
+        # would chain through ``configure_ffi_signatures`` which
+        # references ctypes types that the renderer doesn't need
+        # unless it actually has to lazy-load.
+        from ._ffi import (  # pylint: disable=import-outside-toplevel
+            configure_ffi_signatures,
+            find_ffi_library,
+        )
+        path = find_ffi_library()
+        lib = ctypes.CDLL(str(path))
+        # ``hs_init`` initialises the GHC RTS; it is idempotent across
+        # multiple ``CDLL`` handles to the same ``.so`` (the runtime
+        # tracks initialisation state internally), so re-calling here
+        # when an FFIBackend later instantiates does no harm.
+        lib.hs_init(None, None)
+        configure_ffi_signatures(lib)
+        _renderer_lib = lib
+    return _renderer_lib
+
+
 def _format_rational(v: object) -> str:
-    """Render a predicate value as exact decimal for terminating Fractions, reduced N/D otherwise.
+    """Render a predicate value via the Agda kernel renderer.
 
-    Cross-binding parity: the same algorithm runs in Go formatRational and C++
-    format_value(const Rational&), so the same Rational value renders to
-    byte-identical output in all three bindings.
+    Delegates to :func:`Aletheia.DBC.RationalRenderer.formatRational`
+    in the Agda kernel (see ``aletheia_format_rational`` FFI export
+    in ``haskell-shim/src/AletheiaFFI.hs``).  Cross-binding parity is
+    an architectural invariant: the same Agda function is called by
+    Python, Go, and C++ enrichment paths, so the same Rational value
+    renders to byte-identical output everywhere.
 
-    Algorithm: split the Fraction's denominator into 2^pow2 * 5^pow5; if any
-    other prime factor remains, the value is non-terminating in decimal and
-    renders as "N/D" (already in lowest terms — Python Fraction normalizes
-    on construction).  Otherwise compute k = max(pow2, pow5) decimal places,
-    scale the numerator into a digit stream of length >= k+1 (left-padded
-    with zeros), split at the decimal point, and trim trailing zeros from
-    the fractional half.
-
-    Pathological case k > 18 also renders as "N/D".  Python ints would
-    happily compute the full decimal expansion, but Go and C++ would
-    overflow their int64 multiplier; for cross-binding byte-identity we
-    follow the same N/D fallback in all three bindings.  Typical DBC
-    predicate values stay well under k=10.
+    Non-:class:`Fraction` inputs (raw int/float — rare since the DSL
+    now flows through ``to_predicate_fraction``) take the legacy
+    ``:g``-formatting path; they're not subject to the cross-binding
+    invariant since they bypass the Rational kernel type.
     """
     if not isinstance(v, Fraction):
         return f"{_coerce_to_float(v):g}"
-    n, d = v.numerator, v.denominator
-    test = d
-    pow_2 = 0
-    while test % 2 == 0:
-        test //= 2
-        pow_2 += 1
-    pow_5 = 0
-    while test % 5 == 0:
-        test //= 5
-        pow_5 += 1
-    if test != 1:
-        return f"{n}/{d}"
-    k = max(pow_2, pow_5)
-    if k == 0:
-        return str(n)
-    if k > 18:
-        return f"{n}/{d}"
-    multiplier = (2 ** (k - pow_2)) * (5 ** (k - pow_5))
-    n_scaled = n * multiplier
-    sign = "-" if n_scaled < 0 else ""
-    digits = str(abs(n_scaled)).rjust(k + 1, "0")
-    integer_part = digits[:-k]
-    fractional_part = digits[-k:].rstrip("0")
-    return f"{sign}{integer_part}.{fractional_part}" if fractional_part else f"{sign}{integer_part}"
+    lib = _get_or_load_renderer_lib()
+    raw = lib.aletheia_format_rational(
+        ctypes.c_int64(v.numerator),
+        ctypes.c_int64(v.denominator),
+    )
+    if not raw:
+        # Defensive: the Agda function always returns a non-null CString
+        # (the ``denom = 0`` branch returns the literal ``"0"``).  Reach
+        # here only on a catastrophic Haskell-side allocation failure.
+        return "0"
+    try:
+        return ctypes.cast(raw, ctypes.c_char_p).value.decode()  # type: ignore[union-attr]
+    finally:
+        lib.aletheia_free_str(raw)
 
 
 def _format_predicate(pred: dict[str, object]) -> str:

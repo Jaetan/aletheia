@@ -213,6 +213,16 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     lib.aletheia_free_buf.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
     lib.aletheia_free_buf.restype = None
 
+    # Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
+    # Returns a CString that the caller must free via ``aletheia_free_str``.
+    # Display path only — bindings call this to render predicate values for
+    # human-readable diagnostics.
+    lib.aletheia_format_rational.argtypes = [
+        ctypes.c_int64,   # numerator
+        ctypes.c_int64,   # denominator (sign normalisation handled in shim)
+    ]
+    lib.aletheia_format_rational.restype = ctypes.c_void_p
+
 
 def _validate_lib_path(p: Path, source: str) -> None:
     """Reject a candidate ``libaletheia-ffi.so`` path that fails security gates.
