@@ -229,6 +229,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/Formatter/Bounded.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
+        -- R20 cluster Y stage 2: cross-binding-identical Rational pretty-
+        -- printer's correctness properties.  `RationalRenderer` itself
+        -- IS reachable from Main.agda (the FFI shim calls it), but
+        -- `RationalRenderer.Properties` is a proof-only module unreached
+        -- by the runtime walk.  Walk-root rationale per
+        -- `feedback_check_properties_aggregator_walks.md`.
+        agdaWithRTS "Aletheia/DBC/RationalRenderer/Properties.agda"
         -- TextParser / TextFormatter aggregator modules.  These are not
         -- proof files themselves, but pulling them into `check-properties`
         -- forces the full TextParser / TextFormatter submodule tree to be
