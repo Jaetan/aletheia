@@ -2,6 +2,8 @@
 // Enrichment logic: formula pretty-printer, signal collector, diagnostics.
 #include <aletheia/enrich.hpp>
 
+#include <aletheia/detail/rational_renderer.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -21,20 +23,11 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
-// Smart Rational renderer: exact decimal for terminating, reduced "N/D" for
-// non-terminating.  Cross-binding parity: the same algorithm runs in Go
-// formatRational and Python _format_rational, so the same Rational value
-// renders to byte-identical output in all three bindings.
-//
-// GCD-reduces first since direct Rational{n, d} construction does not enforce
-// lowest-terms; the reduced denom is split into 2^pow2 * 5^pow5 to determine
-// k = max(pow2, pow5) decimal places, padded into a digit stream, and split
-// at the decimal point.  Trailing zeros on the fractional side are trimmed
-// (50/100 → "0.5", not "0.50").  Pathological case k > 18 could overflow
-// the int64 multiplier; rendered as "N/D" (same shape as the non-terminating
-// branch) so the output remains byte-identical to Python and Go regardless
-// of language.  Typical DBC predicate values stay well under k=10.
-auto format_value(const Rational& r) -> std::string {
+// Local C++ algorithm: no-FFI fallback used in tests that bypass
+// FfiBackend.  Mirrors the Agda kernel's algorithm so cross-binding
+// test corpus assertions hold either way.  See
+// `detail::try_format_rational_ffi` for the production path.
+auto format_value_local(const Rational& r) -> std::string {
     if (r.denominator <= 0)
         return std::format("{:g}", r.to_double());
     auto abs_num = static_cast<std::int64_t>(std::abs(r.numerator));
@@ -81,6 +74,17 @@ auto format_value(const Rational& r) -> std::string {
     if (!fractional_part.empty())
         return std::format("{}{}.{}", sign, integer_part, fractional_part);
     return std::format("{}{}", sign, integer_part);
+}
+
+// Cross-binding-identical Rational pretty-printer.  Production paths
+// route through the Agda kernel via `aletheia_format_rational` (R20
+// cluster Y stage 2).  Tests that bypass FfiBackend fall back to
+// `format_value_local`, which produces the same output by construction.
+auto format_value(const Rational& r) -> std::string {
+    if (auto ffi = detail::try_format_rational_ffi(r.numerator, r.denominator)) {
+        return std::move(*ffi);
+    }
+    return format_value_local(r);
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;

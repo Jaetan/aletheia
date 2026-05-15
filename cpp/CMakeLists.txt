@@ -195,6 +195,7 @@ add_library(aletheia-cpp
     src/mock_backend.cpp
     src/json_serialize.cpp
     src/json_parse.cpp
+    src/rational_renderer.cpp
     src/types.cpp
     src/yaml.cpp)
 
