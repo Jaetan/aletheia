@@ -84,6 +84,12 @@ def _format_rational(v: object) -> str:
     scale the numerator into a digit stream of length >= k+1 (left-padded
     with zeros), split at the decimal point, and trim trailing zeros from
     the fractional half.
+
+    Pathological case k > 18 also renders as "N/D".  Python ints would
+    happily compute the full decimal expansion, but Go and C++ would
+    overflow their int64 multiplier; for cross-binding byte-identity we
+    follow the same N/D fallback in all three bindings.  Typical DBC
+    predicate values stay well under k=10.
     """
     if not isinstance(v, Fraction):
         return f"{_coerce_to_float(v):g}"
@@ -102,6 +108,8 @@ def _format_rational(v: object) -> str:
     k = max(pow_2, pow_5)
     if k == 0:
         return str(n)
+    if k > 18:
+        return f"{n}/{d}"
     multiplier = (2 ** (k - pow_2)) * (5 ** (k - pow_5))
     n_scaled = n * multiplier
     sign = "-" if n_scaled < 0 else ""

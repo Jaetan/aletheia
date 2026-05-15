@@ -342,3 +342,35 @@ TEST_CASE("format_formula renders Rational{50, 100} as 0.5 (reduces and trims)",
     auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{50, 100}}));
     CHECK(format_formula(f) == "S = 0.5");
 }
+
+TEST_CASE("format_formula renders k=18 boundary as exact decimal", "[enrich][rational]") {
+    // 1/2^18 = 1/262144 still fits the int64 multiplier (18 digits expansion).
+    // Boundary check: anything past k=18 falls through to N/D in Go and C++.
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 262144}}));
+    CHECK(format_formula(f) == "S = 0.000003814697265625");
+}
+
+TEST_CASE("format_formula renders k>18 power-of-2 as N/D for cross-binding parity",
+          "[enrich][rational]") {
+    // k > 18 is a conservative guard against int64 multiplier overflow in
+    // worst-case (rn, k) combinations.  Python uses arbitrary-precision ints
+    // and would emit the full decimal; it applies the same N/D fallback
+    // anyway so the three bindings produce byte-identical output.
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 524288}}));
+    CHECK(format_formula(f) == "S = 1/524288");
+}
+
+TEST_CASE("format_formula renders k>18 power-of-5 as N/D for cross-binding parity",
+          "[enrich][rational]") {
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 19073486328125}}));
+    CHECK(format_formula(f) == "S = 1/19073486328125");
+}
+
+TEST_CASE("format_formula renders k>18 negative as -N/D", "[enrich][rational]") {
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{-1, 33554432}}));
+    CHECK(format_formula(f) == "S = -1/33554432");
+}

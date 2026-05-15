@@ -596,9 +596,13 @@ as `n / (2^a · 5^b)` and fit in ≤ 6 significant figures.  The
 divergence only bit on user-constructed values exceeding 6 significant
 figures or values exceeding the language's scientific-notation
 threshold.  Pathological case: terminating Rationals whose denominator
-requires k > 18 decimal places fall back to `:g` / `%g` formatting
-(int64 overflow safety).  Wire JSON shape (`{"numerator": N,
-"denominator": D}`) is unchanged.
+requires k > 18 decimal places render as the GCD-reduced `N/D` form
+(same shape as the non-terminating branch) so that all three bindings
+emit byte-identical strings — Go and C++ would otherwise risk int64
+multiplier overflow, and Python (arbitrary-precision) would otherwise
+emit a long exact decimal that diverged from the other two.  Typical
+DBC predicate values stay well under k=10.  Wire JSON shape
+(`{"numerator": N, "denominator": D}`) is unchanged.
 
 #### Changed — Python: DSL float-input conversion now mirrors Go/C++ `from_double` (R20 cluster Y — GO-D-19.1)
 

@@ -31,8 +31,9 @@ auto format_value(double v) -> std::string {
 // k = max(pow2, pow5) decimal places, padded into a digit stream, and split
 // at the decimal point.  Trailing zeros on the fractional side are trimmed
 // (50/100 → "0.5", not "0.50").  Pathological case k > 18 could overflow
-// int64 multiplier; falls back to {:g} for that edge case (typical DBC
-// predicate values stay well under k=10).
+// the int64 multiplier; rendered as "N/D" (same shape as the non-terminating
+// branch) so the output remains byte-identical to Python and Go regardless
+// of language.  Typical DBC predicate values stay well under k=10.
 auto format_value(const Rational& r) -> std::string {
     if (r.denominator <= 0)
         return std::format("{:g}", r.to_double());
@@ -57,7 +58,7 @@ auto format_value(const Rational& r) -> std::string {
     if (k == 0)
         return std::format("{}", rn);
     if (k > 18)
-        return std::format("{:g}", r.to_double());
+        return std::format("{}/{}", rn, rd);
     std::int64_t multiplier = 1;
     for (int i = 0; i < k - pow_2; ++i)
         multiplier *= 2;

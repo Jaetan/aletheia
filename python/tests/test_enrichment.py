@@ -146,6 +146,31 @@ class TestFormatPredicate:
         result = format_formula(f)
         assert "|\u0394S| <= 2" in result
 
+    def test_metric_until(self) -> None:
+        """Verify metric until."""
+        speed = Signal("Speed").less_than(50).always()
+        brake = Signal("Brake").equals(1).always()
+        f = speed.metric_until(1000, brake).to_dict()
+        result = format_formula(f)
+        assert "until within 1s" in result
+
+    def test_metric_release(self) -> None:
+        """Verify metric release."""
+        a = Signal("A").equals(1).always()
+        b = Signal("B").equals(0).always()
+        f = a.metric_release(500, b).to_dict()
+        result = format_formula(f)
+        assert "release within 500ms" in result
+
+
+class TestFormatRational:
+    """Test the smart-fallback Rational renderer (terminating decimal vs N/D).
+
+    Cross-binding parity: every assertion here matches byte-for-byte with the
+    Go ``TestFormatFormula_*Rational*`` tests and C++ ``[enrich][rational]``
+    Catch2 cases.
+    """
+
     def test_non_terminating_rational_renders_as_fraction(self) -> None:
         """Non-terminating Rational predicate value renders as N/D, not %g truncation."""
         f = Signal("S").equals(Fraction(1, 3)).always().to_dict()
@@ -195,21 +220,35 @@ class TestFormatPredicate:
         f = Signal("S").equals(0.123456789).always().to_dict()
         assert "S = 0.123456789" in format_formula(f)
 
-    def test_metric_until(self) -> None:
-        """Verify metric until."""
-        speed = Signal("Speed").less_than(50).always()
-        brake = Signal("Brake").equals(1).always()
-        f = speed.metric_until(1000, brake).to_dict()
-        result = format_formula(f)
-        assert "until within 1s" in result
+    def test_k18_boundary_renders_as_decimal(self) -> None:
+        """k=18 is the last terminating denom that renders as exact decimal.
 
-    def test_metric_release(self) -> None:
-        """Verify metric release."""
-        a = Signal("A").equals(1).always()
-        b = Signal("B").equals(0).always()
-        f = a.metric_release(500, b).to_dict()
-        result = format_formula(f)
-        assert "release within 500ms" in result
+        The k > 18 cross-binding guard kicks in immediately past this boundary
+        (see ``test_k_over_18_pow_2_renders_as_fraction``).
+        """
+        f = Signal("S").equals(Fraction(1, 262144)).always().to_dict()
+        assert "S = 0.000003814697265625" in format_formula(f)
+
+    def test_k_over_18_pow_2_renders_as_fraction(self) -> None:
+        """k=19 (denom = 2^19 = 524288) renders as N/D for cross-binding parity.
+
+        Python uses arbitrary-precision ints and could emit the full exact
+        decimal, but Go and C++ would risk int64 multiplier overflow at this
+        scale.  The conservative N/D fallback is uniform across all three
+        bindings so the same Rational always renders to byte-identical output.
+        """
+        f = Signal("S").equals(Fraction(1, 524288)).always().to_dict()
+        assert "S = 1/524288" in format_formula(f)
+
+    def test_k_over_18_pow_5_renders_as_fraction(self) -> None:
+        """k=19 (denom = 5^19) renders as N/D for cross-binding parity."""
+        f = Signal("S").equals(Fraction(1, 19073486328125)).always().to_dict()
+        assert "S = 1/19073486328125" in format_formula(f)
+
+    def test_k_over_18_negative_renders_as_signed_fraction(self) -> None:
+        """k > 18 negative numerator keeps sign in the N/D output."""
+        f = Signal("S").equals(Fraction(-1, 33554432)).always().to_dict()
+        assert "S = -1/33554432" in format_formula(f)
 
 
 # ===========================================================================

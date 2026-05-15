@@ -146,8 +146,10 @@ func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
 // determine k = max(pow2, pow5) decimal places, padded into a digit stream,
 // and split at the decimal point.  Trailing zeros on the fractional side
 // are trimmed (50/100 → "0.5", not "0.50").  Pathological case k > 18
-// could overflow int64 multiplier; falls back to %g formatting for that
-// edge case (typical DBC predicate values stay well under k=10).
+// could overflow the int64 multiplier; rendered as "N/D" (the same shape
+// as the non-terminating branch) so the output remains byte-identical to
+// Python and C++ regardless of language.  Typical DBC predicate values
+// stay well under k=10.
 func formatRational(r Rational) string {
 	if r.Denominator <= 0 {
 		return formatValue(r.Float64())
@@ -177,7 +179,7 @@ func formatRational(r Rational) string {
 		return fmt.Sprintf("%d", rn)
 	}
 	if k > 18 {
-		return formatValue(r.Float64())
+		return fmt.Sprintf("%d/%d", rn, rd)
 	}
 	multiplier := int64(1)
 	for i := 0; i < k-pow2; i++ {

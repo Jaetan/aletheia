@@ -144,6 +144,12 @@ func TestFormatFormula_NonTerminatingRational(t *testing.T) {
 		{"reduces 2/6 → 1/3", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 2, Denominator: 6}}, "S = 1/3"},
 		{"changed_by 1/3", aletheia.ChangedBy{Signal: "S", Delta: aletheia.Rational{Numerator: 1, Denominator: 3}}, "ΔS >= 1/3"},
 		{"stable_within 1/7", aletheia.StableWithin{Signal: "S", Tolerance: aletheia.Rational{Numerator: 1, Denominator: 7}}, "|ΔS| <= 1/7"},
+		// k > 18 cases: terminating in decimal but the multiplier would
+		// overflow int64; render as N/D for cross-binding byte-identity
+		// with Python and C++ (which apply the same fallback).
+		{"k=19 power-of-2 → 1/524288", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 524288}}, "S = 1/524288"},
+		{"k=19 power-of-5 → 1/19073486328125", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 19073486328125}}, "S = 1/19073486328125"},
+		{"k=25 → -1/33554432 (negative, large k)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: -1, Denominator: 33554432}}, "S = -1/33554432"},
 	}
 	for _, tt := range tests {
 		f := aletheia.Atomic{Predicate: tt.pred}
@@ -173,6 +179,7 @@ func TestFormatFormula_TerminatingRationalExact(t *testing.T) {
 		{"1/1000000 → 0.000001 (small, no scientific)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 1000000}}, "S = 0.000001"},
 		{"50/100 → 0.5 (reduces, trims trailing zero)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 50, Denominator: 100}}, "S = 0.5"},
 		{"0/5 → 0 (zero)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 0, Denominator: 5}}, "S = 0"},
+		{"1/262144 → 0.000003814697265625 (k=18 boundary, last decimal)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 262144}}, "S = 0.000003814697265625"},
 	}
 	for _, tt := range tests {
 		f := aletheia.Atomic{Predicate: tt.pred}
