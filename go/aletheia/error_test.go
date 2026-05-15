@@ -120,21 +120,26 @@ func TestDoubleClose(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Parse error codes from the PhysicallyValid gate (2026-04-08)
+// Parse error codes from the PhysicallyValid gate (2026-04-08, 2026-05-15)
 // ---------------------------------------------------------------------------
-// DBC/JSONParser.agda's physicalGate enforces three constraints on BigEndian
-// signals at parse time (closes deferred item §12.1):
+// DBC/JSONParser.agda's physicalGate enforces parse-time constraints. Both
+// byte orders require bitLength ≥ 1 (R5-B1 / R6-B7.1 closure 2026-05-15:
+// LE was previously permissive on bl=0, deferring to the validator's
+// BitLengthZero warning — now uniformly rejected at the parse boundary,
+// completing BE-LE parity). BigEndian additionally enforces two
+// roundtrip-shape constraints:
 //
-//   • bitLength ≥ 1                     → SignalBitLengthZero
-//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame
-//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength
+//   • bitLength ≥ 1                     → SignalBitLengthZero (BE + LE)
+//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame (BE only)
+//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength (BE only)
 //
 // Go's surface for this layer is JSON error-code parsing — the actual
-// physicalGate logic lives in Agda and is already verified by the
-// real-FFI C++/Python tests. These tests exercise the Go binding's
-// JSON error-code extraction via MockBackend, ensuring the three new
-// codes (from 2026-04-08) round-trip through parseErrorResponse into
-// aErr.Code with the expected ErrProtocol kind.
+// physicalGate logic lives in Agda and is verified by the real-FFI
+// C++/Python tests (both byte orders covered after the 2026-05-15 LE
+// parity completion). These tests exercise the Go binding's JSON
+// error-code extraction via MockBackend, ensuring the codes round-trip
+// through parseErrorResponse into aErr.Code with the expected
+// ErrProtocol kind.
 
 func TestParseError_SignalBitLengthZero(t *testing.T) {
 	mock := aletheia.NewMockBackend(

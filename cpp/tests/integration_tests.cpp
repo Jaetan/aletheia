@@ -1246,30 +1246,34 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 }
 
 // ---------------------------------------------------------------------------
-// Parse error codes from the PhysicallyValid gate (2026-04-08)
+// Parse error codes from the PhysicallyValid gate (2026-04-08, 2026-05-15)
 // ---------------------------------------------------------------------------
-// The JSON parser now enforces PhysicallyValid at parse time via
-// DBC/JSONParser.agda's physicalGate (closes deferred item §12.1). LE
-// signals pass through unchanged; BigEndian signals must satisfy three
-// constraints, each mapped to a distinct ParseError:
-//   • bitLength ≥ 1                     → SignalBitLengthZero
-//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame
-//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength
+// The JSON parser enforces PhysicallyValid at parse time via
+// DBC/JSONParser.agda's physicalGate. Both byte orders require
+// bitLength ≥ 1 (R5-B1 / R6-B7.1 closure 2026-05-15: LE was previously
+// permissive on bl=0, deferring to the validator's BitLengthZero warning
+// — now uniformly rejected at the parse boundary, completing BE-LE parity).
+// BE additionally enforces two roundtrip-shape constraints:
+//   • bitLength ≥ 1                     → SignalBitLengthZero (BE + LE)
+//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame (BE only)
+//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength (BE only)
 // where csb = convertStartBit(frameBytes, BE, startBit, bitLength).
 // These tests verify the C++ binding surfaces each parse error code via
 // AletheiaError::code() when feeding a malformed DBC through the real FFI.
 
 namespace {
 
-// Minimal DBC helper that wraps a single BE signal inside a one-message DBC.
-// Callers supply the signal's start_bit, bit_length, and the message DLC.
-auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
-                               std::uint8_t dlc_bytes) -> DbcDefinition {
+// Minimal DBC helper that wraps a single signal of the given byte order
+// inside a one-message DBC. Callers supply the signal's start_bit,
+// bit_length, byte order, and the message DLC.
+auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
+                            ByteOrder byte_order, std::uint8_t dlc_bytes)
+    -> DbcDefinition {
     DbcSignal sig{
         .name = SignalName{"Bad"},
         .start_bit = BitPosition{start_bit},
         .bit_length = BitLength{bit_length},
-        .byte_order = ByteOrder::BigEndian,
+        .byte_order = byte_order,
         .is_signed = false,
         .factor = RationalFactor{Rational{1, 1}},
         .offset = RationalOffset{Rational{0, 1}},
@@ -1292,6 +1296,14 @@ auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
     };
 }
 
+// Convenience wrapper preserving the original `make_single_be_signal_dbc`
+// signature (used by the surrounding BE-specific test cases below).
+auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
+                               std::uint8_t dlc_bytes) -> DbcDefinition {
+    return make_single_signal_dbc(start_bit, bit_length, ByteOrder::BigEndian,
+                                  dlc_bytes);
+}
+
 } // namespace
 
 TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length_zero",
@@ -1302,6 +1314,23 @@ TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length
 
     // BE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails → SignalBitLengthZero.
     auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/0, /*dlc_bytes=*/1);
+
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code() == ErrorCode::ParseSignalBitLengthZero);
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_length_zero",
+          "[integration][parse_error]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // LE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails →
+    // SignalBitLengthZero (R5-B1 / R6-B7.1 closure: completes BE-LE parity).
+    auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0,
+                                      ByteOrder::LittleEndian, /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
@@ -1346,16 +1375,15 @@ TEST_CASE(
     CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
-TEST_CASE("validate DBC: LittleEndian signal with length=0 bypasses physicalGate",
+TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
           "[integration][parse_error]") {
-    // LE signals pass through physicalGate unchanged (physicalGate matches
-    // `LittleEndian _ _ sig = inj₂ sig` in DBC/JSONParser.agda). A length=0
-    // LE signal is therefore accepted by the parser — the downstream
-    // validator then catches it with IssueCode::BitLengthZero. Contrast
-    // with BE, which fails at parse time with ParseSignalBitLengthZero.
-    //
-    // Note: parse_dbc also runs validateDBCFull and rejects on any error
-    // issue, so we route via validate_dbc to observe the issue directly.
+    // Prior to R5-B1 / R6-B7.1 closure (2026-05-15), LE signals passed
+    // through physicalGate unchanged and length=0 was caught downstream
+    // by the validator's IssueCode::BitLengthZero warning. The fix makes
+    // physicalGate's `1 ≤ᵇ bl` check fire for BOTH byte orders, so LE
+    // length=0 now surfaces as a parse error from validate_dbc — same
+    // behavior as BE (BE-LE parity completion). The validator check
+    // remains as defense-in-depth but is unreachable from the parse path.
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -1384,16 +1412,15 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 bypasses physicalGate
         }},
     };
 
-    // validate_dbc: the parser accepts the LE signal, validator flags it.
     auto validation = client.validate_dbc(std::stop_token{}, dbc);
-    REQUIRE(validation.has_value());
-    CHECK(validation->has_errors);
-    bool found_zero_length = false;
-    for (const auto& issue : validation->issues) {
-        if (issue.code == IssueCode::BitLengthZero)
-            found_zero_length = true;
-    }
-    CHECK(found_zero_length);
+    REQUIRE_FALSE(validation.has_value());
+    CHECK(validation.error().code() == ErrorCode::ParseSignalBitLengthZero);
+    // Note: validate_dbc routes "status: error" responses through
+    // `parse_validation` (json_parse.cpp:738), which tags them
+    // `ErrorKind::Validation` (vs. `parse_dbc`'s `ErrorKind::Protocol` for
+    // the same wire code). The code itself is the same; the kind reflects
+    // the C++ API path, not the underlying failure.
+    CHECK(validation.error().kind() == ErrorKind::Validation);
 }
 
 // ---------------------------------------------------------------------------

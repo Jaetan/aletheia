@@ -83,11 +83,14 @@ private
     rewrite getNat-ℕtoJSON n | parseNatList-roundtrip ns = refl
 
   -- LE roundtrip: unconvertStartBit _ LE s _ = s, convertStartBit _ LE s _ = s,
-  -- so the startBit roundtrips through % 512 using WF bounds.
+  -- so the startBit roundtrips through % 512 using WF bounds.  Takes the
+  -- `len-pos : 1 ≤ bitLength sd` witness so the formatter side can enable
+  -- physicalGate's new LE `1 ≤ᵇ bl` branch (R5-B1 / R6-B7.1 closure).
   signal-roundtrip-LE : ∀ frameBytes ctx n sd u p rs vds → WellFormedSignalDef sd
+    → 1 ≤ SignalDef.bitLength sd
     → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd LittleEndian u p rs vds))
       ≡ inj₂ (mkSignal n sd LittleEndian u p rs vds)
-  signal-roundtrip-LE frameBytes ctx n sd u Always rs vds dwf
+  signal-roundtrip-LE frameBytes ctx n sd u Always rs vds dwf len-pos
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
@@ -99,12 +102,13 @@ private
           | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
+          | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's LE `1 ≤ᵇ bl` branch
           | valueEntry-list-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
           | mkCanonicalFromList-list rs
     = refl
-  signal-roundtrip-LE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs vds dwf
+  signal-roundtrip-LE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs vds dwf len-pos
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
@@ -118,6 +122,7 @@ private
           | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
+          | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's LE `1 ≤ᵇ bl` branch
           | valueEntry-list-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
@@ -185,11 +190,12 @@ private
     → PhysicallyValid frameBytes (mkSignal n sd bo u p rs vds)
     → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd bo u p rs vds))
       ≡ inj₂ (mkSignal n sd bo u p rs vds)
-  signal-roundtrip-go frameBytes ctx n sd LittleEndian u p rs vds dwf _ _ =
-    signal-roundtrip-LE frameBytes ctx n sd u p rs vds dwf
+  signal-roundtrip-go frameBytes ctx n sd LittleEndian u p rs vds dwf _ (pv-LE _ lp) =
+    signal-roundtrip-LE frameBytes ctx n sd u p rs vds dwf lp
+  signal-roundtrip-go frameBytes ctx n sd LittleEndian u p rs vds dwf _ (pv-BE () _ _ _)
   signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs vds dwf fb≤64 (pv-BE _ lp fits msb) =
     signal-roundtrip-BE frameBytes ctx n sd u p rs vds dwf fb≤64 lp fits msb
-  signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs vds dwf fb≤64 (pv-LE ())
+  signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs vds dwf fb≤64 (pv-LE () _)
 
 signal-roundtrip : ∀ frameBytes ctx sig
   → WellFormedSignal sig → frameBytes ≤ 64

@@ -69,8 +69,9 @@ private
 
   -- Combined helper extracting BOTH WellFormedSignal AND PhysicallyValid in a
   -- single pass after the 11-deep with-chain. Takes byte order as an explicit
-  -- parameter so we can pattern-match: LE makes physicalGate reduce to inj₂ rec
-  -- immediately; BE forces a 3-deep with-chain on the boolean checks.
+  -- parameter so we can pattern-match: LE now also forces a `1 ≤ᵇ bl` gate
+  -- (R5-B1 / R6-B7.1 closure, 2026-05-15) so both branches do at least one
+  -- with-step; BE adds a 3-deep with-chain on top of the LE shape.
   -- Combining eliminates the duplicate postPresence-wf/postPresence-pv pair.
   postPresence-wf×pv :
     ∀ (frameBytes : ℕ) (ctx : String) (name : Identifier) (bo : ByteOrder)
@@ -101,12 +102,15 @@ private
       ≡ inj₂ sig
     → WellFormedSignal sig × PhysicallyValid frameBytes sig
   postPresence-wf×pv frameBytes ctx name LittleEndian sb-mod sb-bound bl-mod bl-bound
-    isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 refl =
+    isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
+    with 1 ≤ᵇ bl-mod in b1 | eq
+  ... | false | ()
+  ... | true | refl =
     record { def-wf = record
       { startBit-bound = sb-bound
       ; bitLength-bound = bl-bound
       } }
-    , pv-LE refl
+    , pv-LE refl (≤ᵇ⇒≤ 1 bl-mod (subst T (sym b1) tt))
   postPresence-wf×pv frameBytes ctx name BigEndian sb-mod sb-bound bl-mod bl-bound
     isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
     with 1 ≤ᵇ bl-mod in b1 | eq

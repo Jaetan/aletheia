@@ -237,16 +237,21 @@ parseValueEntryList : List JSON → Error ⊎ List (ℕ × List Char)
 parseValueEntryList = parseObjectList "valueEntry" parseValueEntry 0
 
 -- Physical-validity gate (BigEndian signals only).
--- LE signals pass through unchanged — PhysicallyValid is trivially `pv-LE refl`
--- because the unconvert→convert roundtrip is the identity for LE.
--- BE signals must satisfy three constraints needed by the BE roundtrip:
---   • bitLength ≥ 1                                  (signal occupies ≥ 1 bit)
+-- Both byte orders require `bitLength ≥ 1` — parse-time rejection of
+-- zero-length signals (R5-B1 / R6-B7.1 closure, 2026-05-15: was previously
+-- LE-permissive with the validator catching the violation post-parse;
+-- the validator path stays as defense-in-depth but is unreachable from
+-- any parse-driven external entry point now).
+-- BE signals additionally satisfy two BE-roundtrip constraints:
 --   • startBit + bitLength − 1 < frameBytes * 8       (signal fits in the frame)
 --   • bitLength − 1 ≤ startBit                        (BE LSB is below the MSB)
 -- Defined as a top-level function (not where-bound) so SignalWF proofs can
 -- case-split on the byte order without crossing a private where-scope.
 physicalGate : ℕ → ByteOrder → ℕ → ℕ → DBCSignal → Error ⊎ DBCSignal
-physicalGate _         LittleEndian _   _  sig = inj₂ sig
+physicalGate _         LittleEndian _   bl sig =
+  ifᵀ 1 ≤ᵇ bl
+    then (λ _ → inj₂ sig)
+    else inj₁ (ParseErr SignalBitLengthZero)
 physicalGate frameBytes BigEndian   csb bl sig =
   ifᵀ 1 ≤ᵇ bl
     then (λ _ →

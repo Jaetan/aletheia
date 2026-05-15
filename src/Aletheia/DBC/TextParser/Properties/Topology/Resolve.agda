@@ -165,7 +165,7 @@ convert-unconvert-id :
         (SignalDef.bitLength (DBCSignal.signalDef sig)))
       (SignalDef.bitLength (DBCSignal.signalDef sig))
     ≡ SignalDef.startBit (DBCSignal.signalDef sig)
-convert-unconvert-id sig fb (pv-LE bo-eq) rewrite bo-eq = refl
+convert-unconvert-id sig fb (pv-LE bo-eq _) rewrite bo-eq = refl
 convert-unconvert-id sig fb (pv-BE bo-eq len-pos fits msb-ge-len)
   rewrite bo-eq =
   unconvertStartBit-roundtrip fb _ _ len-pos fits msb-ge-len

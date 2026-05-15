@@ -345,20 +345,37 @@ class TestSignalOverlap:
 
 
 class TestBitLengthZero:
-    """Check 10: Signal bit length must not be zero."""
+    """Check 10: Signal bit length must not be zero.
 
-    def test_zero_length_detected(self) -> None:
-        """Verify zero length detected."""
+    R5-B1 / R6-B7.1 closure (2026-05-15): both byte orders are now
+    rejected at the JSON parser boundary (`physicalGate`) with
+    `parse_signal_bit_length_zero` — previously, LE bl=0 was deferred to
+    the validator's `bit_length_zero` warning (BE bl=0 already rejected at
+    parse time). The validator check stays as defense-in-depth but is
+    unreachable from any external parse path.
+    """
+
+    def test_zero_length_le_rejected_at_parse(self) -> None:
+        """LE bitLength=0 surfaces parse_signal_bit_length_zero from validate_dbc."""
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
-                _make_signal("ZeroLen", length=0),
+                _make_signal("ZeroLen", length=0, byte_order="little_endian"),
             ]),
         ])
         with AletheiaClient() as client:
-            result = client.validate_dbc(dbc)
+            with pytest.raises(ProtocolError, match="bit length"):
+                client.validate_dbc(dbc)
 
-        codes = [i["code"] for i in result["issues"]]
-        assert "bit_length_zero" in codes
+    def test_zero_length_be_rejected_at_parse(self) -> None:
+        """BE bitLength=0 surfaces parse_signal_bit_length_zero from validate_dbc."""
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("ZeroLen", length=0, byte_order="big_endian"),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            with pytest.raises(ProtocolError, match="bit length"):
+                client.validate_dbc(dbc)
 
     def test_nonzero_length_ok(self) -> None:
         """Verify nonzero length ok."""

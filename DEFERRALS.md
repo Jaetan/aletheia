@@ -2,7 +2,7 @@
 
 Items explicitly declined or deferred during AGENTS.md review rounds. Each entry records **what**, **where**, **why deferred**, and **what would change the decision**. Resolved items stay in this file with a `✅ RESOLVED` annotation rather than being deleted — NO-FIX in a pre-user project is worth periodic re-audit (worked example: R6-B9.1 was filed NO-FIX 2026-04-10 with a "non-trivial proof effort" rationale; R20 cluster W shipped an operational fix in `c40e3ba` after cluster S discovered the original stability claim was empirically false on raw `Until`/`Release`/`Atomic` shapes).
 
-**Last updated:** 2026-05-15 (R20 closed — entries below; see `memory/project_review_round{11..20}.md` for per-round closure narratives; this revision adds Phase C1 (R6-B7.2 ✅), R20-GO-A-4.10 ✅, and pass-2 audit-trail closures for R5-A11 ✅ / R6-B9.1 ✅ / R6-P1.1 ✅ / R6-B7.3 🟢)
+**Last updated:** 2026-05-15 (R20 closed — entries below; see `memory/project_review_round{11..20}.md` for per-round closure narratives; this revision adds Phase C1 (R6-B7.2 ✅), the LE bitLength=0 promotion closing R5-B1 ✅ + R6-B7.1 ✅, R20-GO-A-4.10 ✅, plus pass-2 audit-trail closures for R5-A11 ✅ / R6-B9.1 ✅ / R6-P1.1 ✅ / R6-B7.3 🟢)
 
 ---
 
@@ -23,9 +23,11 @@ Items explicitly declined or deferred during AGENTS.md review rounds. Each entry
 ### Round 5 (2026-04-10)
 
 #### R5-B1. `bitLength` lacks positive type guarantee
+**✅ RESOLVED 2026-05-15** — closed via BE-LE parity completion at the JSON parser surface rather than type-tightening.  `Aletheia.DBC.JSONParser.physicalGate` now rejects `bitLength = 0` for BOTH byte orders with `ParseErr SignalBitLengthZero` (BE was already rejected since 2026-04-08); `Aletheia.DBC.Formatter.WellFormed.PhysicallyValid.pv-LE` gains a `1 ≤ SignalDef.bitLength` argument parallel to `pv-BE`'s existing `len-pos`.  Python test `TestBitLengthZero` adapted: LE and BE both expect `ProtocolError` with `code = parse_signal_bit_length_zero` from `client.validate_dbc(dbc)` (was: `bit_length_zero` validation warning).  C++ added LE parity test mirroring the existing BE `[integration][parse_error]` case.  Go's MockBackend-based parse-error tests are byte-order-agnostic; the comment block was updated to note the parity.  The type-tightening `bitLength : ℕ⁺` cascade was rejected as too expensive and unnecessary — parser-surface rejection achieves the same external behaviour without touching CAN/Signal / CAN/Encoding / CAN/Batch.  The text-parser surface (`Aletheia.DBC.TextParser.Topology.SignalLine.buildSignal`) is unchanged and still relies on the validator's `BitLengthZero` warning post-parse; widening parser-time rejection to the text path is a separate finding.  The validator's `checkBitLengthZero` remains in place as defense-in-depth but is unreachable from any parse-driven external entry point.  Audit-trail preserved below.
+
 - **File:** `src/Aletheia/CAN/Signal.agda:22`
 - **Finding:** `bitLength : ℕ` could be `ℕ⁺` to statically prevent zero-length signals.
-- **Why NO-FIX:** Type-tightening that cascades through CAN/Signal, CAN/Encoding, CAN/Batch, DBC modules. The DBC validator catches `BitLengthZero` at validation time, and `physicalGate` rejects bitLength=0 for BE signals at parse time. LE bitLength=0 produces a degenerate but non-crashing extraction (0 bits = 0 value). Cost far exceeds benefit.
+- **Why NO-FIX (2026-04-10, since invalidated):** Type-tightening that cascades through CAN/Signal, CAN/Encoding, CAN/Batch, DBC modules. The DBC validator catches `BitLengthZero` at validation time, and `physicalGate` rejects bitLength=0 for BE signals at parse time. LE bitLength=0 produces a degenerate but non-crashing extraction (0 bits = 0 value). Cost far exceeds benefit.
 - **Related:** Round 6 B7.1 (same underlying issue, different angle).
 
 #### R5-A11. `M.map` closure on eval hot path
@@ -45,9 +47,11 @@ Items explicitly declined or deferred during AGENTS.md review rounds. Each entry
 ### Round 6 (2026-04-10)
 
 #### R6-B7.1. `bitLength` admits 0
+**✅ RESOLVED 2026-05-15** — see R5-B1 (above) for the closure narrative.  Same fix: `physicalGate`'s `1 ≤ᵇ bl` check now fires for both byte orders.  The "defense in depth at the parse layer" framed as nice-to-have in the original NO-FIX rationale is now the actual behaviour.
+
 - **File:** `src/Aletheia/CAN/Signal.agda:24`
 - **Finding:** `bitLength : ℕ` allows 0, which is physically meaningless for a CAN signal.
-- **Why NO-FIX:** `physicalGate` in `DBC/JSONParser.agda` rejects bitLength=0 for BE signals at parse time. `handleParseDBC` always runs `validateDBCFull` after parsing (line 124), and `checkBitLengthZero` rejects bitLength=0 for ALL byte orders. A DBC with bitLength=0 never enters `ReadyToStream`. Defense in depth at the parse layer would be nice but the validator already gates the data path.
+- **Why NO-FIX (2026-04-10, since invalidated):** `physicalGate` in `DBC/JSONParser.agda` rejects bitLength=0 for BE signals at parse time. `handleParseDBC` always runs `validateDBCFull` after parsing (line 124), and `checkBitLengthZero` rejects bitLength=0 for ALL byte orders. A DBC with bitLength=0 never enters `ReadyToStream`. Defense in depth at the parse layer would be nice but the validator already gates the data path.
 - **Related:** Round 5 B1 (same underlying issue).
 
 #### R6-B7.2. Metric `window`/`startTime` raw ℕ

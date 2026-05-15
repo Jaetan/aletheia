@@ -597,6 +597,36 @@ step count: 27 → 28.
 
 ### Changed
 
+#### Changed — JSON parser: LittleEndian `bitLength = 0` now rejected at parse time (R5-B1 / R6-B7.1 closure)
+
+**BREAKING** — `validate_dbc` (and `parse_dbc`) on a DBC containing a
+LittleEndian signal with `length = 0` now surfaces a
+`parse_signal_bit_length_zero` parse error instead of returning a
+validation result with a `bit_length_zero` issue.  BigEndian was already
+rejected at parse time since 2026-04-08; this change completes BE-LE
+parity.
+
+Caller migration: any code expecting `"bit_length_zero" in
+result["issues"]` (Python) / `IssueCode::BitLengthZero` (C++) /
+`IssueBitLengthZero` (Go) from `validate_dbc` on a LittleEndian
+zero-length signal must now catch the parse error.  Python's
+`ProtocolError` exception with `code = parse_signal_bit_length_zero`,
+C++'s `Result<...>` with `ErrorCode::ParseSignalBitLengthZero`, Go's
+`*aletheia.Error` with `Code = CodeParseSignalBitLengthZero` — same
+wire code across all three bindings.  The validator's
+`checkBitLengthZero` check remains as defense-in-depth but is
+unreachable from any parse-driven external entry point.
+
+This change addresses the in-source caveat at
+`Aletheia.DBC.Formatter.WellFormed.PhysicallyValid` (the previous
+asymmetry where `pv-BE` carried `1 ≤ bitLength` but `pv-LE` did not);
+the constraint is now uniform across byte orders.  The fix lives at
+the JSON parser surface (`Aletheia.DBC.JSONParser.physicalGate`).  The
+text-parser surface (`buildSignal` in
+`Aletheia.DBC.TextParser.Topology.SignalLine`) is unchanged and still
+relies on the validator to catch `bitLength = 0` post-parse; widening
+parser-time rejection to the text path is a separate finding.
+
 #### Changed — LTL metric operators: `window` parameter typed as `Timestamp μs` instead of raw `ℕ` (R6-B7.2 closure)
 
 Internal Agda kernel refinement — `MetricEventually`, `MetricAlways`,
