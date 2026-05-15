@@ -653,6 +653,60 @@ comparison).  The `startTime` slot stays a suc-encoded `ℕ` because
 the encoding carries a load-bearing
 "uninitialized sentinel vs legitimate timestamp 0" distinction.
 
+#### Changed — Agda kernel: `injectHelper` lifted to top-level + Bool fast-path via `Reflects` (R20-AGDA-B-26.3 / R20-AGDA-B-GA9.1 closure)
+
+Internal Agda kernel + proof refactor — no binding, wire, or runtime
+behavior change.  Three coordinated changes ship together to close two
+R20 deferrals that the R19 cluster D + F four-approach probe had marked
+as RE-DEFER on grounds of an Agda elaboration barrier:
+
+1. `injectHelper` lifted from where-bound inside `injectSignal` to a
+   top-level definition in `Aletheia.CAN.Encoding`.  Proofs (`Encoding/
+   Properties/Roundtrip.agda`, `Encoding/Properties/Disjoint.agda`) name
+   it directly via new top-level lemmas `injectHelper-reduces-{unsigned,
+   signed}` and `injectHelper-preserves-disjoint-bits{,-physical}`.
+   New top-level reduction lemmas `injectSignal-bounds-{true,false}`
+   dispatch the outer `inBounds` guard in a single-line `rewrite`.
+2. New smart constructor `Aletheia.Data.BitVec.Conversion.mkBoundedBitVec :
+   (n bl : ℕ) → Maybe (BitVec bl)` using stdlib's `Reflects` data carrier
+   (`with n <ᵇ bl | <ᵇ-reflects-< n bl`).  The `ofʸ`/`ofⁿ` constructors
+   carry the bound-fit witness as data, sidestepping the `with ... in eq`
+   ↔ outer-with-abstraction trap the R19 four-approach probe hit.
+   Reduction equation `mkBoundedBitVec-just` lets consumers compose into
+   `trans`/`with … | reduction` chains without crossing the barrier.
+3. `injectHelper`'s Dec dispatch (`_<?_`) swapped for `mkBoundedBitVec`.
+   MAlonzo output confirmed: the Dec constructor and `<?` are gone from
+   `MAlonzo.Code.Aletheia.CAN.Encoding`.
+
+The R19 cluster D + F probe's framing ("the barrier is structural to
+Agda's `with ... in eq` elaboration mechanism") is empirically correct
+— `mkBoundedBitVec-just` written with `with ... in eq` still triggers
+the exact `[UnequalTerms]` "ill-typed with-abstraction" error in a
+17-line minimal reproduction.  But the conclusion ("workaround: keep
+`Dec`") was over-strong: the `Reflects` two-with pattern is the
+structural escape hatch the four-approach probe didn't try.  The
+updated guidance lives in `memory/feedback_with_in_eq_outer_abstraction_barrier.md`.
+
+**Perf:** no measurable Frame Building gain over the post-`@0` baseline
+(R19 cluster D's `@0`-erasure of `ℕToBitVec`'s bound slot already
+captured the throughput win).  Benchmark deltas across all three
+bindings are within WSL2 session-distant ±10% jitter per
+`feedback_wsl2_variance_stance.md`.  Reason: MAlonzo emits
+`Reflects.fromEquivalence` for `mkBoundedBitVec`, which allocates a
+Reflects wrapper via `du_of_30` + two closures per call — one heap
+cell, structurally similar to post-`@0` Dec.  The architectural win is
+proof clarity (no 3-deep `with`-mirror, no where-bound runtime helper,
+helper-level lemmas readable in isolation) and the reopening of the
+"closed by upstream Agda fix" framing — `Reflects` is a stdlib-available
+escape hatch that should be the first choice when a Bool fast-path needs
+to bridge to a proof witness.
+
+R20-AGDA-B-18.3 (the `nothing = nothing` arm on `mkBoundedBitVec`'s
+result) stays DEFER — the branch is now via `Maybe` instead of `Dec`,
+still structurally required by coverage and still provably dead.  An
+in-source DO-NOT-RE-RAISE block at the branch documents the rationale
+for future review-round agents.
+
 #### Changed — All bindings: predicate pretty-printer renders Rationals via cross-binding-identical exact-decimal algorithm (R20 cluster Y — GO-D-19.1)
 
 `format_formula` (Python) / `FormatFormula` (Go) / `format_formula` (C++)

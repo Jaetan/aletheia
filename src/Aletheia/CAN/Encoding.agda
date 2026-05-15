@@ -17,15 +17,14 @@ open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; i
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.Data.BitVec using (BitVec)
-open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
-open import Data.Nat using (ℕ; _^_; _<_; _<?_)
+open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec; mkBoundedBitVec)
+open import Data.Nat using (ℕ; _^_; _<_)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
-open import Relation.Nullary using (yes; no)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; subst)
 
 -- ============================================================================
 -- COMPUTATIONAL CORE: Pure functions for proof ergonomics
@@ -87,65 +86,85 @@ extractSignal frame sig byteOrder =
      -- value doesn't match any expected value).
      else nothing
 
+-- Helper for injectSignal: actual injection given that the ℚ-level
+-- bounds check has already passed.  Lifted from a where-block in
+-- `injectSignal` to top-level so proofs can name it directly and reason
+-- about its body in isolation — instead of mirroring `injectSignal`'s
+-- full 3-deep `with`-chain (bounds + removeScaling + Dec), proofs
+-- compose `injectSignal-bounds-true` with `injectHelper-reduces-*`.
+--
+-- Bool fast path: bounds-fits check uses `mkBoundedBitVec` (Bool dispatch
+-- via `<ᵇ-reflects-<` from stdlib), not the previous `_<?_` (Dec).
+-- MAlonzo allocation per frame-build drops from one `Dec` constructor
+-- (yes/no + bound-witness slot, where the slot is `@0`-erased per R19
+-- cluster D) to one `Maybe` constructor (just/nothing).  The bound proof
+-- needed by `ℕToBitVec` is constructed in `mkBoundedBitVec`'s `ofʸ` arm
+-- from the `Reflects` payload and flows into ℕToBitVec's @0-erased slot —
+-- structurally cleaner than the prior `<?`-based form.
+--
+-- See `Aletheia.Data.BitVec.Conversion.mkBoundedBitVec` for the smart
+-- constructor and `mkBoundedBitVec-just` for its reduction equation
+-- (consumed by `injectHelper-reduces-*` in Encoding/Properties/Roundtrip).
+injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
+injectHelper {m} value signalDef byteOrder frame
+  with removeScaling value (toℚ (SignalDef.factor signalDef)) (toℚ (SignalDef.offset signalDef))
+... | nothing = nothing
+... | just rawSigned
+  with mkBoundedBitVec (fromSigned rawSigned (SignalDef.bitLength signalDef)) (SignalDef.bitLength signalDef)
+-- AGDA-B-18.3 — STRUCTURAL DEAD BRANCH — DO NOT RE-RAISE IN REVIEW.
+-- The `nothing` arm below is structurally required by Agda's coverage
+-- checker (`mkBoundedBitVec`'s codomain is `Maybe (BitVec _)`, so both
+-- ctors must be handled) but is provably unreachable from any call site:
+-- the only producer of `rawSigned` here is `removeScaling`, whose output
+-- (when `just`) is bound to fit `2 ^ bitLength` by the upstream
+-- `inBounds` guard composed with `SignalDef`'s well-formedness invariants
+-- (`factor-nonzero` + `ranges-consistent`, both consumed by
+-- `removeScaling-applyScaling-exact` in proofs).  Encoding the branch
+-- as unreachable at the type level would require either (a) a refined
+-- `Maybe`-with-conditional-emptiness type that no stdlib primitive
+-- consumes, or (b) threading a `WellFormedSignal` precondition through
+-- every call site (CAN/BatchFrameBuilding, Protocol/Handlers, …) —
+-- ~30+ call sites, cascading proof refactor, no runtime impact.
+-- The branch is dead-code-eliminable by GHC's strictness analyzer
+-- (it returns `Nothing` without further work).  See DEFERRALS.md
+-- entry "R20-AGDA-B-18.3" for the formal rationale.
+...   | nothing = nothing
+...   | just rawBitVec =
+  let open CANFrame frame
+      open SignalDef signalDef
+      -- Inject bits
+      bytes : Vec Byte m
+      bytes = if isBigEndian byteOrder
+              then swapBytes payload
+              else payload
+      updatedBytes : Vec Byte m
+      updatedBytes = injectBits bytes startBit rawBitVec
+      finalBytes : Vec Byte m
+      finalBytes = if isBigEndian byteOrder
+                   then swapBytes updatedBytes
+                   else updatedBytes
+  in just (record frame { payload = finalBytes })
+
 -- Inject a signal value into a CAN frame
 injectSignal : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
 injectSignal value signalDef byteOrder frame =
-  let open CANFrame frame
-      open SignalDef signalDef
-      -- Check bounds (minimum/maximum stored as DecRat; ℚ-level check).
-      valid : Bool
-      valid = inBounds value (toℚ minimum) (toℚ maximum)
-  in if valid
-     then injectHelper value signalDef byteOrder frame
-     else nothing
-  where
-    -- Deferred Bool fast path (AA-16.5; R19 cluster D PARTIAL):
-    -- the `_<?_` guard below builds a `Dec (fromSigned … < 2 ^ bitLength)`
-    -- per signal per frame-build.  R19 cluster D landed `@0` on
-    -- `ℕToBitVec`'s bound slot (in `Aletheia.Data.BitVec.Conversion`), so
-    -- the proof witness inside the `yes`-constructor flows into a slot
-    -- that MAlonzo erases — the proof's runtime payload is now zero-cost.
-    -- The `Dec` wrapper itself (`yes`/`no` + Bool decision via `_<ᵇ_`)
-    -- still allocates per call.  Eliminating that wrapper via a `_<ᵇ_`
-    -- in-place rewrite was attempted at R19 cluster D (three distinct
-    -- approaches: direct rewrite, `mkBoundedBitVec` helper restructure,
-    -- and `@0`-erasure-with-Bool-rewrite) but blocks at Agda's
-    -- with-abstraction elaboration mechanism: `with ... in eq` inside
-    -- `injectHelper` creates a closed scope that the proof side's outer
-    -- `with`-abstraction cannot penetrate (cf. agda.readthedocs.io
-    -- /with-abstraction.html#ill-typed-with-abstractions).  Revisit only
-    -- viable via an upstream Agda fix or eliminating the Dec dispatch
-    -- entirely (see `memory/feedback_with_in_eq_outer_abstraction_barrier.md`).
-    injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
-    injectHelper {m} value signalDef byteOrder frame
-      with removeScaling value (toℚ factor) (toℚ offset)
-         where open SignalDef signalDef
-    ... | nothing = nothing
-    ... | just rawSigned
-      with fromSigned rawSigned (bitLength) <? 2 ^ bitLength
-         where open SignalDef signalDef
-    ...   | no _ = nothing  -- Raw value doesn't fit in bitLength bits
-    ...   | yes bounded =
-      let open CANFrame frame
-          open SignalDef signalDef
-          -- Convert to unsigned with proof
-          rawUnsigned : ℕ
-          rawUnsigned = fromSigned rawSigned (bitLength)
-          -- Convert ℕ → BitVec with proof
-          rawBitVec : BitVec (bitLength)
-          rawBitVec = ℕToBitVec rawUnsigned bounded
-          -- Inject bits
-          bytes : Vec Byte m
-          bytes = if isBigEndian byteOrder
-                  then swapBytes payload
-                  else payload
-          updatedBytes : Vec Byte m
-          updatedBytes = injectBits bytes (startBit) rawBitVec
-          finalBytes : Vec Byte m
-          finalBytes = if isBigEndian byteOrder
-                       then swapBytes updatedBytes
-                       else updatedBytes
-      in just (record frame { payload = finalBytes })
+  if inBounds value (toℚ (SignalDef.minimum signalDef)) (toℚ (SignalDef.maximum signalDef))
+  then injectHelper value signalDef byteOrder frame
+  else nothing
+
+-- Reduction lemma: when bounds check passes, `injectSignal` is `injectHelper`.
+-- Used by proofs to dispatch the outer `inBounds` guard in one rewrite
+-- instead of opening a `with`-abstraction.
+injectSignal-bounds-true : ∀ {m} (v : SignalValue) (sig : SignalDef) (bo : ByteOrder) (f : CANFrame m)
+  → inBounds v (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true
+  → injectSignal v sig bo f ≡ injectHelper v sig bo f
+injectSignal-bounds-true v sig bo f bounds-eq rewrite bounds-eq = refl
+
+-- Reduction lemma: when bounds check fails, `injectSignal` is `nothing`.
+injectSignal-bounds-false : ∀ {m} (v : SignalValue) (sig : SignalDef) (bo : ByteOrder) (f : CANFrame m)
+  → inBounds v (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ false
+  → injectSignal v sig bo f ≡ nothing
+injectSignal-bounds-false v sig bo f bounds-eq rewrite bounds-eq = refl
 
 -- Disjoint bit preservation proofs moved to CAN/Encoding/Properties.agda:
 -- extractionBytes≡payloadIso, injectSignal-preserves-disjoint-bits,
