@@ -103,6 +103,7 @@ ffiExports =
     , FFIExport "AgdaBin"   "processUpdateFrameBin"    "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processExtractBin"        "Aletheia/Main/Binary"
     , FFIExport "AgdaState" "initialState"             "Aletheia/Protocol/StreamState/Types"
+    , FFIExport "AgdaRR"    "formatRational"           "Aletheia/DBC/RationalRenderer"
     ]
 
 -- | Load the MAlonzo module contents needed by `ffiExports`, deduplicating

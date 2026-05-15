@@ -27,6 +27,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
+import qualified MAlonzo.Code.Aletheia.DBC.RationalRenderer as AgdaRR
 import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Aletheia.Main.JSON as AgdaJSON
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
@@ -255,6 +256,34 @@ aletheia_extract_signals_bin statePtr canId ext dlc dataPtr dataLen outBufPtr ou
 foreign export ccall aletheia_free_str :: CString -> IO ()
 aletheia_free_str :: CString -> IO ()
 aletheia_free_str = free
+
+-- ============================================================================
+-- CROSS-BINDING-IDENTICAL RATIONAL PRETTY-PRINTER (R20 cluster Y stage 2)
+-- ============================================================================
+
+-- | Render `(numerator, denominator)` as a string identical across all
+-- bindings.  Returns the GCD-reduced exact decimal expansion when the
+-- value is a terminating decimal with `≤ 18` fractional digits, the
+-- reduced `"<num>/<denom>"` literal otherwise (including the `k > 18`
+-- pathological case), and the constant `"0"` for `denom = 0`.
+--
+-- Replaces three independent per-binding implementations (Python
+-- `_format_rational`, Go `formatRational`, C++ `format_value(const
+-- Rational&)`) with a single Agda kernel function.  Cross-binding
+-- parity is proven in `Aletheia.DBC.RationalRenderer.Properties`.
+--
+-- Sign normalisation: Go and C++ allow `Rational{Numerator:int64,
+-- Denominator:int64}` with negative denom (Python `Fraction` rejects
+-- it on construction).  When the binding hands us `denom < 0`, move
+-- the sign to the numerator before calling Agda — `_/_` requires a
+-- positive ℕ denominator.
+foreign export ccall aletheia_format_rational :: Int64 -> Int64 -> IO CString
+aletheia_format_rational :: Int64 -> Int64 -> IO CString
+aletheia_format_rational num denom =
+    let (n, d) | denom < 0 = (-num, -denom)
+               | otherwise = (num, denom)
+        result = AgdaRR.d_formatRational_166 (toInteger n) (toInteger d)
+    in newCString (T.unpack (unsafeCoerce result :: T.Text))
 
 foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
 aletheia_free_buf :: Ptr Word8 -> IO ()
