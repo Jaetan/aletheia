@@ -12,6 +12,7 @@ Tests cover:
 # because they test the same DSL operators from different perspectives.
 # pylint: disable=duplicate-code
 
+from fractions import Fraction
 from typing import cast
 from aletheia.dsl import Signal, Property
 from aletheia.protocols import (
@@ -250,11 +251,16 @@ class TestEdgeCases:
         assert inner_pred['delta'] == -10
 
     def test_fractional_values(self) -> None:
-        """Fractional values work in comparisons"""
+        """Fractional values work in comparisons.
+
+        The DSL converts floats via 10^9 scaling (matching Go ``floatToRational``
+        and C++ ``Rational::from_double``) so 12.65 becomes exactly Fraction(253, 20)
+        rather than the IEEE 754 binary fraction.  See ``to_predicate_fraction``.
+        """
         pred = Signal("Voltage").equals(12.65)
         formula = cast(AtomicFormula, pred.to_formula())
         inner_pred = cast(EqualsPredicate, formula['predicate'])
-        assert inner_pred['value'] == 12.65
+        assert inner_pred['value'] == Fraction(253, 20)
 
     def test_very_large_time_bound(self) -> None:
         """Very large time bounds work"""

@@ -207,6 +207,36 @@ def to_signal_fraction(value: float | int | Fraction) -> Fraction:
     return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN)
 
 
+def to_predicate_fraction(value: float | int | Fraction) -> Fraction:
+    """Convert a numeric predicate input to a Fraction matching Go/C++ from_double.
+
+    Mirrors Go ``floatToRational`` (``client.go``) and C++ ``Rational::from_double``
+    (``types.cpp``) exactly: float inputs go through ``round(value * 10^9), 10^9``
+    so the user-side construction produces structurally identical Rationals across
+    all three bindings.  Without this, ``Signal.equals(0.1)`` in Python would
+    produce ``Fraction(0.1)`` = the exact IEEE 754 binary fraction
+    (3602879701896397/36028797018963968), which the predicate pretty-printer
+    would then render as a 56-character exact decimal — while Go and C++ render
+    the same call as ``"0.1"``.
+
+    Differs from :func:`to_signal_fraction` (which uses ``limit_denominator``):
+    ``Fraction(0.333333).limit_denominator(10**9)`` finds the closest fraction
+    with denominator <= 10^9 (returns ``Fraction(1, 3)``); ``round-and-scale``
+    produces ``Fraction(333333, 10**6)``.  For predicate inputs Go-parity
+    matters more than continued-fraction simplification.
+
+    Raises:
+        ValidationError: When *value* is NaN, infinite, or overflows int64
+        when scaled (delegated to :func:`float_to_rational`).
+    """
+    if isinstance(value, Fraction):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return Fraction(value)
+    n, d = float_to_rational(value)
+    return Fraction(n, d)
+
+
 def extract_rational_from_dict(
     d: dict[str, object], context: str,
 ) -> tuple[int, int]:

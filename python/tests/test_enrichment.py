@@ -166,6 +166,35 @@ class TestFormatPredicate:
         f = Signal("S").between(Fraction(1, 3), Fraction(2, 3)).always().to_dict()
         assert "1/3 <= S <= 2/3" in format_formula(f)
 
+    def test_dsl_float_0_1_renders_as_decimal(self) -> None:
+        """Signal.equals(0.1) renders as exact "0.1", not the IEEE 754 binary fraction.
+
+        DSL float-input conversion now uses 10^9 scaling (matching Go and C++),
+        so 0.1 becomes Fraction(1, 10) instead of Fraction(0.1) (the giant
+        IEEE 754 binary fraction).  Without A2 the renderer would emit a 56-char
+        exact-decimal string of the IEEE 754 noise.
+        """
+        f = Signal("S").equals(0.1).always().to_dict()
+        assert "S = 0.1" in format_formula(f)
+
+    def test_dsl_large_integer_no_scientific(self) -> None:
+        """Large integer terminating values render exactly, no scientific notation.
+
+        Previously rendered as "1.23457e+06" via Python/C++ :g (lossy 6-sig-fig
+        truncation) or "1.234567e+06" via Go %g (exact scientific).  Now exact
+        decimal in all three bindings.
+        """
+        f = Signal("S").equals(1234567).always().to_dict()
+        assert "S = 1234567" in format_formula(f)
+
+    def test_dsl_high_precision_decimal_exact(self) -> None:
+        """Decimal values up to 9 sig figs render exactly via 10^9 scaling.
+
+        Previously truncated to 6 sig figs via :g ("0.123457").  Now exact.
+        """
+        f = Signal("S").equals(0.123456789).always().to_dict()
+        assert "S = 0.123456789" in format_formula(f)
+
     def test_metric_until(self) -> None:
         """Verify metric until."""
         speed = Signal("Speed").less_than(50).always()

@@ -155,8 +155,10 @@ func TestFormatFormula_NonTerminatingRational(t *testing.T) {
 }
 
 func TestFormatFormula_TerminatingRationalExact(t *testing.T) {
-	// Direct-construction Rational with terminating reduced denom should still
-	// render via :g (no regression for the dominant DBC factor / offset case).
+	// Direct-construction Rational with terminating reduced denom renders as
+	// exact decimal in all three bindings (Go, C++, Python) — no precision
+	// loss to %g / :g defaults.  Includes large integers and high-precision
+	// decimals that previously diverged across bindings under the :g/%g path.
 	tests := []struct {
 		name     string
 		pred     aletheia.Predicate
@@ -166,6 +168,11 @@ func TestFormatFormula_TerminatingRationalExact(t *testing.T) {
 		{"7/8 → 0.875", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 7, Denominator: 8}}, "S = 0.875"},
 		{"42/1 → 42", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 42, Denominator: 1}}, "S = 42"},
 		{"-23/2 → -11.5", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: -23, Denominator: 2}}, "S = -11.5"},
+		{"1234567/1 → 1234567 (no scientific)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1234567, Denominator: 1}}, "S = 1234567"},
+		{"123456789/10^9 → 0.123456789 (9 sig figs exact)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 123456789, Denominator: 1000000000}}, "S = 0.123456789"},
+		{"1/1000000 → 0.000001 (small, no scientific)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 1000000}}, "S = 0.000001"},
+		{"50/100 → 0.5 (reduces, trims trailing zero)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 50, Denominator: 100}}, "S = 0.5"},
+		{"0/5 → 0 (zero)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 0, Denominator: 5}}, "S = 0"},
 	}
 	for _, tt := range tests {
 		f := aletheia.Atomic{Predicate: tt.pred}

@@ -565,24 +565,64 @@ step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
 
-#### Changed — All bindings: predicate pretty-printer now renders non-terminating Rationals as exact `N/D` (R20 cluster Y — GO-D-19.1)
+#### Changed — All bindings: predicate pretty-printer renders Rationals via cross-binding-identical exact-decimal algorithm (R20 cluster Y — GO-D-19.1)
 
 `format_formula` (Python) / `FormatFormula` (Go) / `format_formula` (C++)
-previously rendered every Rational predicate value through `:g` / `%g`
-float formatting, which truncates non-terminating fractions to 6
-significant figures (e.g. `Rational{1, 3}` → `"0.333333"`). The
-renderer now classifies the reduced denominator: when it divides a
-power of 10 (terminating in decimal) the existing `:g` rendering is
-kept; otherwise the value is emitted as literal `N/D` from the reduced
-form. `Rational{23, 2}` still renders as `"11.5"` (terminating) and
-`Rational{1, 3}` now renders as `"1/3"` instead of `"0.333333"`.
+previously delegated Rational rendering to each language's `:g` / `%g`
+float-formatting default, which has different precision rules per
+language (Python and C++ truncate to 6 significant digits; Go uses
+round-trip-shortest precision).  The renderer now uses a single
+exact-decimal algorithm in all three bindings, so the same Rational
+value renders to byte-identical output regardless of language.
+
+The renderer classifies on the GCD-reduced denominator: when the
+denominator divides a power of 10 (terminating in decimal), the value
+is emitted as an exact decimal computed via integer arithmetic on the
+numerator/denominator pair (no floating-point step).  Non-terminating
+Rationals are emitted as literal reduced `N/D`.  Examples:
+
+- `Rational{23, 2}` → `"11.5"` (terminating, integer-exact)
+- `Rational{1, 3}` → `"1/3"` (non-terminating; previously `"0.333333"`)
+- `Rational{1234567, 1}` → `"1234567"` (previously `"1.23457e+06"` in
+  Python/C++ — lossy 6-sig-fig truncation; `"1.234567e+06"` in Go)
+- `Rational{123456789, 10**9}` → `"0.123456789"` (previously
+  `"0.123457"` in Python/C++)
+- `Rational{1, 1000000}` → `"0.000001"` (previously `"1e-06"` in C++)
+- `Rational{50, 100}` → `"0.5"` (reduces, trims trailing zeros)
 
 The dominant DBC-source case (factor / offset / min / max — all
 human-authored decimals) is unaffected because those values canonicalise
-as `n / (2^a · 5^b)`. Only manually-constructed non-terminating
-predicate values (e.g. `Signal("S").equals(Fraction(1, 3))`) shift
-output. Wire JSON shape (`{"numerator": N, "denominator": D}`) is
-unchanged — this is a display-path-only refinement. Closes R20 GO-D-19.1.
+as `n / (2^a · 5^b)` and fit in ≤ 6 significant figures.  The
+divergence only bit on user-constructed values exceeding 6 significant
+figures or values exceeding the language's scientific-notation
+threshold.  Pathological case: terminating Rationals whose denominator
+requires k > 18 decimal places fall back to `:g` / `%g` formatting
+(int64 overflow safety).  Wire JSON shape (`{"numerator": N,
+"denominator": D}`) is unchanged.
+
+#### Changed — Python: DSL float-input conversion now mirrors Go/C++ `from_double` (R20 cluster Y — GO-D-19.1)
+
+`Signal(...).equals(value)` and sibling comparison methods previously
+converted float inputs via `Fraction(value)`, which produces the
+exact IEEE 754 binary fraction (e.g. `Fraction(0.1)` =
+`Fraction(3602879701896397, 36028797018963968)`).  The new
+`to_predicate_fraction` helper uses 10^9 scaling
+(`Fraction(round(value * 10**9), 10**9)`), matching Go's
+`floatToRational` and C++'s `Rational::from_double` exactly.
+
+Without this change, the same user call produced structurally different
+Rationals across bindings (Python: huge IEEE-754 fraction; Go/C++:
+human-friendly fraction like `1/10` for `0.1`), and the new
+exact-decimal renderer would emit a 56-character exact decimal of the
+IEEE-754 noise on the Python side.  After this change,
+`Signal("S").equals(0.1)` produces `Fraction(1, 10)` and renders as
+`"0.1"` in all three bindings.
+
+`int` and `Fraction` inputs flow through unchanged.
+`to_signal_fraction` (used by the Excel / YAML loader for DBC
+factor / offset / min / max parsing) still uses `limit_denominator`
+since those values arrive as parsed text, not as the user's runtime
+floats.
 
 #### BREAKING — Go and C++: `mux_values` field + method renamed to `multiplex_values` for cross-binding parity (R20 GO-A-3.5)
 

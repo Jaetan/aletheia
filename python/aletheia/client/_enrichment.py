@@ -71,23 +71,44 @@ def _coerce_to_float(v: object) -> float:
 
 
 def _format_rational(v: object) -> str:
-    """Render a predicate value: terminating decimal via :g, else reduced N/D.
+    """Render a predicate value as exact decimal for terminating Fractions, reduced N/D otherwise.
 
-    Fraction values whose reduced denominator does not divide a power of 10
-    (e.g. 1/3, 2/7) are rendered as literal "N/D" instead of being truncated
-    by float formatting.  int and float inputs always render via :g.
+    Cross-binding parity: the same algorithm runs in Go formatRational and C++
+    format_value(const Rational&), so the same Rational value renders to
+    byte-identical output in all three bindings.
+
+    Algorithm: split the Fraction's denominator into 2^pow2 * 5^pow5; if any
+    other prime factor remains, the value is non-terminating in decimal and
+    renders as "N/D" (already in lowest terms — Python Fraction normalizes
+    on construction).  Otherwise compute k = max(pow2, pow5) decimal places,
+    scale the numerator into a digit stream of length >= k+1 (left-padded
+    with zeros), split at the decimal point, and trim trailing zeros from
+    the fractional half.
     """
     if not isinstance(v, Fraction):
         return f"{_coerce_to_float(v):g}"
     n, d = v.numerator, v.denominator
     test = d
+    pow_2 = 0
     while test % 2 == 0:
         test //= 2
+        pow_2 += 1
+    pow_5 = 0
     while test % 5 == 0:
         test //= 5
-    if test == 1:
-        return f"{float(v):g}"
-    return f"{n}/{d}"
+        pow_5 += 1
+    if test != 1:
+        return f"{n}/{d}"
+    k = max(pow_2, pow_5)
+    if k == 0:
+        return str(n)
+    multiplier = (2 ** (k - pow_2)) * (5 ** (k - pow_5))
+    n_scaled = n * multiplier
+    sign = "-" if n_scaled < 0 else ""
+    digits = str(abs(n_scaled)).rjust(k + 1, "0")
+    integer_part = digits[:-k]
+    fractional_part = digits[-k:].rstrip("0")
+    return f"{sign}{integer_part}.{fractional_part}" if fractional_part else f"{sign}{integer_part}"
 
 
 def _format_predicate(pred: dict[str, object]) -> str:

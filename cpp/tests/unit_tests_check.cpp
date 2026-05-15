@@ -311,3 +311,34 @@ TEST_CASE("format_formula renders between with both bounds non-terminating", "[e
         between(SignalName{"S"}, PhysicalValue{Rational{1, 3}}, PhysicalValue{Rational{2, 3}}));
     CHECK(format_formula(f) == "1/3 <= S <= 2/3");
 }
+
+TEST_CASE("format_formula renders large integer terminating Rational exactly",
+          "[enrich][rational]") {
+    // Previously rendered as "1.23457e+06" via {:g} (lossy 6-sig-fig truncation).
+    // Now exact decimal — matches Go and Python.
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1234567, 1}}));
+    CHECK(format_formula(f) == "S = 1234567");
+}
+
+TEST_CASE("format_formula renders 9-sig-fig terminating decimal exactly", "[enrich][rational]") {
+    // Previously truncated to 6 sig figs via {:g} ("0.123457").  Now exact.
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{123456789, 1000000000}}));
+    CHECK(format_formula(f) == "S = 0.123456789");
+}
+
+TEST_CASE("format_formula renders small terminating Rational without scientific notation",
+          "[enrich][rational]") {
+    // {:g} would have switched to scientific at 1e-4; exact-decimal stays as "0.000001".
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 1000000}}));
+    CHECK(format_formula(f) == "S = 0.000001");
+}
+
+TEST_CASE("format_formula renders Rational{50, 100} as 0.5 (reduces and trims)",
+          "[enrich][rational]") {
+    using namespace ltl;
+    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{50, 100}}));
+    CHECK(format_formula(f) == "S = 0.5");
+}

@@ -23,6 +23,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 from .client import ValidationError
+from .client._helpers import to_predicate_fraction
 from .protocols import (
     PredicateType,
     LTLFormula,
@@ -125,7 +126,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.EQUALS.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -144,7 +145,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -163,7 +164,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -179,7 +180,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -195,7 +196,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -212,8 +213,8 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
-        lo = Fraction(min_val)
-        hi = Fraction(max_val)
+        lo = to_predicate_fraction(min_val)
+        hi = to_predicate_fraction(max_val)
         if lo > hi:
             raise ValidationError(
                 f"min_val ({min_val}) must be <= max_val ({max_val})"
@@ -244,7 +245,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.CHANGED_BY.value,
             'signal': self.name,
-            'delta': Fraction(delta)
+            'delta': to_predicate_fraction(delta)
         })
         return Predicate(formula)
 
@@ -265,7 +266,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.STABLE_WITHIN.value,
             'signal': self.name,
-            'tolerance': Fraction(tolerance)
+            'tolerance': to_predicate_fraction(tolerance)
         })
         return Predicate(formula)
 

@@ -5,6 +5,7 @@ Tests cover:
 - Predicate logical operators (and_, or_, not_, implies)
 """
 
+from fractions import Fraction
 from typing import cast
 
 import pytest
@@ -150,11 +151,16 @@ class TestSignalComparison:
         assert inner_pred['value'] == -40
 
     def test_comparison_with_float(self) -> None:
-        """Comparison with float values works"""
+        """Comparison with float values works.
+
+        The DSL converts floats via 10^9 scaling (matching Go ``floatToRational``
+        and C++ ``Rational::from_double``) so 12.6 becomes exactly Fraction(63, 5)
+        rather than the IEEE 754 binary fraction.  See ``to_predicate_fraction``.
+        """
         pred = Signal("Voltage").equals(12.6)
         formula = cast(AtomicFormula, pred.to_formula())
         inner_pred = cast(EqualsPredicate, formula['predicate'])
-        assert inner_pred['value'] == 12.6
+        assert inner_pred['value'] == Fraction(63, 5)
 
     def test_comparison_with_large_number(self) -> None:
         """Comparison with large numbers works"""

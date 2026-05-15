@@ -135,12 +135,19 @@ func formatPredicate(p Predicate) string {
 // formatValue formats a float64 without trailing zeros.
 func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
 
-// formatRational renders a Rational as a compact decimal when its reduced
-// denominator divides 10^k (terminating in decimal), and as literal "N/D"
-// otherwise.  GCD-reduces first, since Go Rational construction does not
-// enforce lowest-terms form.  Used by the predicate pretty-printer to
-// preserve exact values for Rationals like 1/3 that would otherwise be
-// truncated by %g formatting.
+// formatRational renders a Rational as an exact decimal when its reduced
+// denominator divides a power of 10 (terminating in decimal), and as literal
+// "N/D" otherwise.  Cross-binding parity: the same algorithm runs in Python
+// _format_rational and C++ format_value(const Rational&), so the same
+// Rational value renders to byte-identical output in all three bindings.
+//
+// GCD-reduces first since Go Rational construction does not enforce
+// lowest-terms; the reduced denom is then split into 2^pow2 * 5^pow5 to
+// determine k = max(pow2, pow5) decimal places, padded into a digit stream,
+// and split at the decimal point.  Trailing zeros on the fractional side
+// are trimmed (50/100 → "0.5", not "0.50").  Pathological case k > 18
+// could overflow int64 multiplier; falls back to %g formatting for that
+// edge case (typical DBC predicate values stay well under k=10).
 func formatRational(r Rational) string {
 	if r.Denominator <= 0 {
 		return formatValue(r.Float64())
@@ -149,16 +156,53 @@ func formatRational(r Rational) string {
 	rn := r.Numerator / g
 	rd := r.Denominator / g
 	test := rd
+	pow2 := 0
 	for test%2 == 0 {
 		test /= 2
+		pow2++
 	}
+	pow5 := 0
 	for test%5 == 0 {
 		test /= 5
+		pow5++
 	}
-	if test == 1 {
+	if test != 1 {
+		return fmt.Sprintf("%d/%d", rn, rd)
+	}
+	k := pow2
+	if pow5 > k {
+		k = pow5
+	}
+	if k == 0 {
+		return fmt.Sprintf("%d", rn)
+	}
+	if k > 18 {
 		return formatValue(r.Float64())
 	}
-	return fmt.Sprintf("%d/%d", rn, rd)
+	multiplier := int64(1)
+	for i := 0; i < k-pow2; i++ {
+		multiplier *= 2
+	}
+	for i := 0; i < k-pow5; i++ {
+		multiplier *= 5
+	}
+	nScaled := rn * multiplier
+	sign := ""
+	absN := nScaled
+	if nScaled < 0 {
+		sign = "-"
+		absN = -nScaled
+	}
+	digits := fmt.Sprintf("%d", absN)
+	if len(digits) < k+1 {
+		digits = strings.Repeat("0", k+1-len(digits)) + digits
+	}
+	integerPart := digits[:len(digits)-k]
+	fractionalPart := strings.TrimRight(digits[len(digits)-k:], "0")
+	if fractionalPart != "" {
+		return fmt.Sprintf("%s%s.%s", sign, integerPart, fractionalPart)
+	}
+	return fmt.Sprintf("%s%s", sign, integerPart)
 }
 
 func gcdInt64(a, b int64) int64 {

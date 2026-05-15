@@ -21,10 +21,18 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
-// Smart Rational renderer: terminating decimals via {:g}, otherwise reduced
-// "N/D".  GCD-reduces first because direct Rational{n, d} construction does
-// not enforce lowest-terms.  Preserves exact values for cases like
-// Rational{1, 3} that would otherwise truncate to "0.333333" under {:g}.
+// Smart Rational renderer: exact decimal for terminating, reduced "N/D" for
+// non-terminating.  Cross-binding parity: the same algorithm runs in Go
+// formatRational and Python _format_rational, so the same Rational value
+// renders to byte-identical output in all three bindings.
+//
+// GCD-reduces first since direct Rational{n, d} construction does not enforce
+// lowest-terms; the reduced denom is split into 2^pow2 * 5^pow5 to determine
+// k = max(pow2, pow5) decimal places, padded into a digit stream, and split
+// at the decimal point.  Trailing zeros on the fractional side are trimmed
+// (50/100 → "0.5", not "0.50").  Pathological case k > 18 could overflow
+// int64 multiplier; falls back to {:g} for that edge case (typical DBC
+// predicate values stay well under k=10).
 auto format_value(const Rational& r) -> std::string {
     if (r.denominator <= 0)
         return std::format("{:g}", r.to_double());
@@ -33,13 +41,45 @@ auto format_value(const Rational& r) -> std::string {
     auto rn = r.numerator / g;
     auto rd = r.denominator / g;
     auto test = rd;
-    while (test % 2 == 0)
+    int pow_2 = 0;
+    while (test % 2 == 0) {
         test /= 2;
-    while (test % 5 == 0)
+        ++pow_2;
+    }
+    int pow_5 = 0;
+    while (test % 5 == 0) {
         test /= 5;
-    if (test == 1)
+        ++pow_5;
+    }
+    if (test != 1)
+        return std::format("{}/{}", rn, rd);
+    const int k = std::max(pow_2, pow_5);
+    if (k == 0)
+        return std::format("{}", rn);
+    if (k > 18)
         return std::format("{:g}", r.to_double());
-    return std::format("{}/{}", rn, rd);
+    std::int64_t multiplier = 1;
+    for (int i = 0; i < k - pow_2; ++i)
+        multiplier *= 2;
+    for (int i = 0; i < k - pow_5; ++i)
+        multiplier *= 5;
+    auto n_scaled = rn * multiplier;
+    std::string sign;
+    std::int64_t abs_n = n_scaled;
+    if (n_scaled < 0) {
+        sign = "-";
+        abs_n = -n_scaled;
+    }
+    auto digits = std::to_string(abs_n);
+    if (static_cast<int>(digits.size()) < k + 1)
+        digits = std::string(static_cast<std::size_t>(k + 1) - digits.size(), '0') + digits;
+    auto integer_part = digits.substr(0, digits.size() - static_cast<std::size_t>(k));
+    auto fractional_part = digits.substr(digits.size() - static_cast<std::size_t>(k));
+    while (!fractional_part.empty() && fractional_part.back() == '0')
+        fractional_part.pop_back();
+    if (!fractional_part.empty())
+        return std::format("{}{}.{}", sign, integer_part, fractional_part);
+    return std::format("{}{}", sign, integer_part);
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;
