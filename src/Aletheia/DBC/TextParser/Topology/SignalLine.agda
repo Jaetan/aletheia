@@ -22,12 +22,12 @@ module Aletheia.DBC.TextParser.Topology.SignalLine where
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
-open import Data.Bool using (Bool)
+open import Data.Bool using (Bool; if_then_else_)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _%_)
+open import Data.Nat using (ℕ; _+_; _%_; _≤ᵇ_)
 open import Data.Product using (proj₁; proj₂)
 open import Aletheia.DBC.DecRat using (DecRat)
 
@@ -128,8 +128,15 @@ resolvePresence nothing  (BothMux _) = nothing
 -- Assemble a `DBCSignal` from a `RawSignal` + resolved presence.  Applies
 -- the same `% max-physical-bits` clamps and `convertStartBit` call as
 -- `JSONParser.parseSignalFields` so both paths produce the same internal
--- representation.  The BE physical gate (`bitLength ≥ 1`, signal-in-frame,
--- MSB-above-LSB) is skipped here; the validator catches gate violations.
+-- representation.
+--
+-- Bitlength=0 rejection (R5-B1 / R6-B7.1 closure, 2026-05-15): both byte
+-- orders require `bitLength ≥ 1` at parse time, matching the JSON path's
+-- `physicalGate` LE branch.  Without this gate, the LE side of the text
+-- parser would still accept zero-length signals and defer to the validator
+-- — leaving the parse boundary asymmetric across byte orders.  Other BE
+-- physical-gate constraints (signal-in-frame, MSB-above-LSB) remain
+-- validator-side for the text path.
 buildSignal : (frameBytes : ℕ) → Maybe Identifier → RawSignal → Maybe DBCSignal
 buildSignal frameBytes master raw
   with resolvePresence master (RawSignal.muxMarker raw)
@@ -139,23 +146,25 @@ buildSignal frameBytes master raw
       sb  = RawSignal.startBit  raw % max-physical-bits
       bl  = RawSignal.bitLength raw % (1 + max-physical-bits)
       csb = convertStartBit frameBytes bo sb bl
-  in just (record
-    { name      = RawSignal.name raw
-    ; signalDef = record
-        { startBit  = csb
-        ; bitLength = bl
-        ; isSigned  = RawSignal.isSigned raw
-        ; factor    = RawSignal.factor raw
-        ; offset    = RawSignal.offset raw
-        ; minimum   = RawSignal.minimum raw
-        ; maximum   = RawSignal.maximum raw
-        }
-    ; byteOrder = bo
-    ; unit      = RawSignal.unit raw
-    ; presence  = presence
-    ; receivers = RawSignal.receivers raw
-    ; valueDescriptions = []  -- VAL_ entries are scattered across the file; the partition+refine pass at the top level (E.5/E.6) fills this from RawValueDesc collection.  Empty default keeps `buildSignal` total when no VAL_ entries reference this signal.
-    })
+  in if 1 ≤ᵇ bl
+       then just (record
+         { name      = RawSignal.name raw
+         ; signalDef = record
+             { startBit  = csb
+             ; bitLength = bl
+             ; isSigned  = RawSignal.isSigned raw
+             ; factor    = RawSignal.factor raw
+             ; offset    = RawSignal.offset raw
+             ; minimum   = RawSignal.minimum raw
+             ; maximum   = RawSignal.maximum raw
+             }
+         ; byteOrder = bo
+         ; unit      = RawSignal.unit raw
+         ; presence  = presence
+         ; receivers = RawSignal.receivers raw
+         ; valueDescriptions = []  -- VAL_ entries are scattered across the file; the partition+refine pass at the top level (E.5/E.6) fills this from RawValueDesc collection.  Empty default keeps `buildSignal` total when no VAL_ entries reference this signal.
+         })
+       else nothing
 
 -- Resolve all signals in a BO_ block.  Fails (`nothing`) if any signal's
 -- mux reference can't be resolved — that is the only failure mode, since

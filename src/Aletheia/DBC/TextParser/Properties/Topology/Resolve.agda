@@ -26,7 +26,7 @@
 -- BO_-header `messageHeaderFmt` to close `parseMessage-roundtrip`.
 module Aletheia.DBC.TextParser.Properties.Topology.Resolve where
 
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (Bool; true; false; T; if_then_else_)
 open import Data.Bool.Properties using (T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
@@ -37,9 +37,10 @@ open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _<_; _≤_; _+_; _∸_; _*_; s≤s; z≤n; _%_)
+open import Data.Nat using (ℕ; zero; suc; _<_; _≤_; _+_; _∸_; _*_; s≤s; z≤n; _%_; _≤ᵇ_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
-open import Data.Nat.Properties using (≤-trans; <⇒≤; +-comm)
+open import Data.Nat.Properties using (≤-trans; <⇒≤; +-comm; ≤⇒≤ᵇ)
+open import Aletheia.Prelude using (T→true)
 open import Data.Product using (_×_; _,_; Σ; Σ-syntax)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -200,49 +201,72 @@ startBit-recovers sig fb fb≤64 wf-sd pv
 -- BUILDSIGNAL OUTPUT RECORD ≡ sig — the unifying field-recovery lemma
 -- ============================================================================
 
+-- Extract the `1 ≤ bitLength` witness from a `PhysicallyValid` certificate.
+-- Both LE and BE constructors carry it (R5-B1 / R6-B7.1 closure 2026-05-15
+-- extended LE pv-LE with the constraint that pv-BE already had; here we
+-- collapse the dispatch back into a single accessor for the buildSignal
+-- gate discharge below).
+physicallyValid-len-pos : ∀ (sig : DBCSignal) (fb : ℕ)
+  → PhysicallyValid fb sig
+  → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef sig)
+physicallyValid-len-pos _ _ (pv-LE _ lp)       = lp
+physicallyValid-len-pos _ _ (pv-BE _ lp _ _)   = lp
+
 -- Given that resolvePresence delivers a presence equal to `sig.presence`,
--- the buildSignal output's record equals `clearVds sig` (E.9a:
--- buildSignal hardcodes `valueDescriptions = []`, so the recovered
--- record matches `sig` modulo the cleared VAL_ field).  The Universal at
--- the top-level layer threads `attachValueDescs ∘ collectFromMessages ≡
--- id` on the cleared form (Refine bridge) post-buildSignal.  Composes
--- startBit-recovers + bitLength-mod-id.
+-- the buildSignal output's `if 1 ≤ᵇ bl then just record else nothing` form
+-- equals `just (clearVds sig)`.  Closes by:
+--   1. `bitLength-mod-id` collapses both the field and the if-condition's
+--      `bl % (1 + max-physical-bits)` to `SignalDef.bitLength sig.sd`.
+--   2. `T→true (≤⇒≤ᵇ len-pos)` rewrites the condition `1 ≤ᵇ bitLength sd`
+--      to `true`, letting if-reduction step into the `then` branch.
+--   3. `startBit-recovers` collapses the convertStartBit ∘ unconvertStartBit
+--      composition (uses startBit-bound + convert-unconvert-id internally).
+--   4. `presence-eq` substitutes presence-result for sig.presence.
+-- E.9a: buildSignal hardcodes `valueDescriptions = []`, so the recovered
+-- record matches `clearVds sig` (sig modulo the cleared VAL_ field).  The
+-- Universal at the top-level layer threads `attachValueDescs ∘
+-- collectFromMessages ≡ id` on the cleared form (Refine bridge)
+-- post-buildSignal.
 buildSignal-fields-recover :
     ∀ (sig : DBCSignal) (fb : ℕ) (presence-result : SignalPresence)
   → fb ≤ 64
   → WellFormedSignal sig
   → PhysicallyValid fb sig
   → presence-result ≡ DBCSignal.presence sig
-  → record
-      { name      = DBCSignal.name sig
-      ; signalDef = record
-          { startBit  = convertStartBit fb (DBCSignal.byteOrder sig)
-                          (unconvertStartBit fb (DBCSignal.byteOrder sig)
-                             (SignalDef.startBit (DBCSignal.signalDef sig))
-                             (SignalDef.bitLength (DBCSignal.signalDef sig))
-                           % max-physical-bits)
-                          (SignalDef.bitLength (DBCSignal.signalDef sig)
-                           % (1 + max-physical-bits))
-          ; bitLength = SignalDef.bitLength (DBCSignal.signalDef sig)
-                        % (1 + max-physical-bits)
-          ; isSigned  = SignalDef.isSigned (DBCSignal.signalDef sig)
-          ; factor    = SignalDef.factor (DBCSignal.signalDef sig)
-          ; offset    = SignalDef.offset (DBCSignal.signalDef sig)
-          ; minimum   = SignalDef.minimum (DBCSignal.signalDef sig)
-          ; maximum   = SignalDef.maximum (DBCSignal.signalDef sig)
-          }
-      ; byteOrder = DBCSignal.byteOrder sig
-      ; unit      = DBCSignal.unit sig
-      ; presence  = presence-result
-      ; receivers = DBCSignal.receivers sig
-      ; valueDescriptions = []
-      }
-    ≡ clearVds sig
+  → (if 1 ≤ᵇ (SignalDef.bitLength (DBCSignal.signalDef sig)
+              % (1 + max-physical-bits))
+       then just (record
+         { name      = DBCSignal.name sig
+         ; signalDef = record
+             { startBit  = convertStartBit fb (DBCSignal.byteOrder sig)
+                             (unconvertStartBit fb (DBCSignal.byteOrder sig)
+                                (SignalDef.startBit (DBCSignal.signalDef sig))
+                                (SignalDef.bitLength (DBCSignal.signalDef sig))
+                              % max-physical-bits)
+                             (SignalDef.bitLength (DBCSignal.signalDef sig)
+                              % (1 + max-physical-bits))
+             ; bitLength = SignalDef.bitLength (DBCSignal.signalDef sig)
+                           % (1 + max-physical-bits)
+             ; isSigned  = SignalDef.isSigned (DBCSignal.signalDef sig)
+             ; factor    = SignalDef.factor (DBCSignal.signalDef sig)
+             ; offset    = SignalDef.offset (DBCSignal.signalDef sig)
+             ; minimum   = SignalDef.minimum (DBCSignal.signalDef sig)
+             ; maximum   = SignalDef.maximum (DBCSignal.signalDef sig)
+             }
+         ; byteOrder = DBCSignal.byteOrder sig
+         ; unit      = DBCSignal.unit sig
+         ; presence  = presence-result
+         ; receivers = DBCSignal.receivers sig
+         ; valueDescriptions = []
+         })
+       else nothing)
+    ≡ just (clearVds sig)
 buildSignal-fields-recover sig fb presence-result fb≤64 wf-sig pv presence-eq
   rewrite startBit-recovers sig fb fb≤64
             (WellFormedSignal.def-wf wf-sig) pv
         | bitLength-mod-id (DBCSignal.signalDef sig)
             (WellFormedSignal.def-wf wf-sig)
+        | T→true (≤⇒≤ᵇ (physicallyValid-len-pos sig fb pv))
         | presence-eq = refl
 
 
@@ -272,16 +296,13 @@ buildSignal-roundtrip-Always :
 buildSignal-roundtrip-Always master fb sig m presence-eq fb≤64 wf-sig pv
   rewrite presence-eq with master
 ... | nothing =
-  cong just (buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv
-                                        (sym presence-eq))
+  buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv (sym presence-eq)
 ... | just mName with ⌊ ListProps.≡-dec _≟ᶜ_
                        (Identifier.name (DBCSignal.name sig)) mName ⌋
 ...   | true =
-  cong just (buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv
-                                        (sym presence-eq))
+  buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv (sym presence-eq)
 ...   | false =
-  cong just (buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv
-                                        (sym presence-eq))
+  buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv (sym presence-eq)
 
 -- When case (singleton via WellFormedTextPresence): buildSignal succeeds
 -- ONLY when `m = just <Identifier with name = sig-master's name>` —
@@ -301,8 +322,8 @@ buildSignal-roundtrip-When :
 buildSignal-roundtrip-When master fb sig m sig-master v presence-eq m-eq
                            fb≤64 wf-sig pv
   rewrite presence-eq | m-eq =
-  cong just (buildSignal-fields-recover sig fb (When sig-master (v ∷ []))
-                                        fb≤64 wf-sig pv (sym presence-eq))
+  buildSignal-fields-recover sig fb (When sig-master (v ∷ []))
+                              fb≤64 wf-sig pv (sym presence-eq)
 
 
 -- ============================================================================
