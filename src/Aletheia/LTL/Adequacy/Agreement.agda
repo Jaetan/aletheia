@@ -66,7 +66,8 @@ open import Aletheia.LTL.Syntax using
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.LTL.Adequacy using (runL;
   runL-and-decomp; runL-or-decomp; runL-not-decomp;
   runL-always-decomp; runL-eventually-decomp; runL-until-decomp; runL-release-decomp)
@@ -85,23 +86,23 @@ TwoValued table = ∀ n f → (table n f ≡ True) ⊎ (table n f ≡ False)
 -- Non-private so that the bounded-agreement variant in
 -- `Aletheia.Protocol.Adequacy.WarmCache` can reuse them without duplication.
 
-met-ev-go-denot : ∀ w (φ : LTL (TimedFrame → TruthVal)) start σ
-  → met-ev-go w φ start σ ≡ ⟦ Syntax.MetricEventually w (suc start) φ ⟧ σ
+met-ev-go-denot : ∀ (w : Timestamp μs) (φ : LTL (TimedFrame → TruthVal)) start σ
+  → met-ev-go (tsValue w) φ start σ ≡ ⟦ Syntax.MetricEventually w (suc start) φ ⟧ σ
 met-ev-go-denot w φ start [] = refl
 met-ev-go-denot w φ start (_ ∷ _) = refl
 
-met-al-go-denot : ∀ w (φ : LTL (TimedFrame → TruthVal)) start σ
-  → met-al-go w φ start σ ≡ ⟦ Syntax.MetricAlways w (suc start) φ ⟧ σ
+met-al-go-denot : ∀ (w : Timestamp μs) (φ : LTL (TimedFrame → TruthVal)) start σ
+  → met-al-go (tsValue w) φ start σ ≡ ⟦ Syntax.MetricAlways w (suc start) φ ⟧ σ
 met-al-go-denot w φ start [] = refl
 met-al-go-denot w φ start (_ ∷ _) = refl
 
-met-un-go-denot : ∀ w (φ ψ : LTL (TimedFrame → TruthVal)) start σ
-  → met-un-go w φ ψ start σ ≡ ⟦ Syntax.MetricUntil w (suc start) φ ψ ⟧ σ
+met-un-go-denot : ∀ (w : Timestamp μs) (φ ψ : LTL (TimedFrame → TruthVal)) start σ
+  → met-un-go (tsValue w) φ ψ start σ ≡ ⟦ Syntax.MetricUntil w (suc start) φ ψ ⟧ σ
 met-un-go-denot w φ ψ start [] = refl
 met-un-go-denot w φ ψ start (_ ∷ _) = refl
 
-met-re-go-denot : ∀ w (φ ψ : LTL (TimedFrame → TruthVal)) start σ
-  → met-re-go w φ ψ start σ ≡ ⟦ Syntax.MetricRelease w (suc start) φ ψ ⟧ σ
+met-re-go-denot : ∀ (w : Timestamp μs) (φ ψ : LTL (TimedFrame → TruthVal)) start σ
+  → met-re-go (tsValue w) φ ψ start σ ≡ ⟦ Syntax.MetricRelease w (suc start) φ ψ ⟧ σ
 met-re-go-denot w φ ψ start [] = refl
 met-re-go-denot w φ ψ start (_ ∷ _) = refl
 
@@ -122,14 +123,14 @@ met-re-go-denot w φ ψ start (_ ∷ _) = refl
 -- so they are generic in the shape of the top-level agreement induction.
 
 -- MetricEventually: ∨-decomposition, False on window expiry.
-agree-met-ev : ∀ (table : PredTable) w s (φ : LTLProc) y rest
+agree-met-ev : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) y rest
   → runL table φ (y ∷ rest) ≡ ⟦ denot table φ ⟧ (y ∷ rest)
   → runL table (MetricEventually w (suc (decodeStart s (timestampℕ y))) φ) rest
-    ≡ met-ev-go w (denot table φ) (decodeStart s (timestampℕ y)) rest
+    ≡ met-ev-go (tsValue w) (denot table φ) (decodeStart s (timestampℕ y)) rest
   → runL table (MetricEventually w s φ) (y ∷ rest)
     ≡ ⟦ denot table (MetricEventually w s φ) ⟧ (y ∷ rest)
 agree-met-ev table w s φ y rest ih-φ ih-rest
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = refl
 ... | true with stepL table φ y
 ...   | Satisfied  rewrite sym ih-φ = refl                           -- True ∨TV _ = True (def'l)
@@ -140,14 +141,14 @@ agree-met-ev table w s φ y rest ih-φ ih-rest
               (cong₂ _∨TV_ ih-φ ih-rest)
 
 -- MetricAlways: ∧-decomposition, True on window expiry.
-agree-met-al : ∀ (table : PredTable) w s (φ : LTLProc) y rest
+agree-met-al : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) y rest
   → runL table φ (y ∷ rest) ≡ ⟦ denot table φ ⟧ (y ∷ rest)
   → runL table (MetricAlways w (suc (decodeStart s (timestampℕ y))) φ) rest
-    ≡ met-al-go w (denot table φ) (decodeStart s (timestampℕ y)) rest
+    ≡ met-al-go (tsValue w) (denot table φ) (decodeStart s (timestampℕ y)) rest
   → runL table (MetricAlways w s φ) (y ∷ rest)
     ≡ ⟦ denot table (MetricAlways w s φ) ⟧ (y ∷ rest)
 agree-met-al table w s φ y rest ih-φ ih-rest
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = refl
 ... | true with stepL table φ y
 ...   | Satisfied  rewrite sym ih-φ =                                -- True ∧TV m via ∧TV-true-l
@@ -158,15 +159,15 @@ agree-met-al table w s φ y rest ih-φ ih-rest
               (cong₂ _∧TV_ ih-φ ih-rest)
 
 -- MetricUntil: ψ ∨ (φ ∧ MUP), False on window expiry.
-agree-met-un : ∀ (table : PredTable) w s (φ ψ : LTLProc) y rest
+agree-met-un : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) y rest
   → runL table φ (y ∷ rest) ≡ ⟦ denot table φ ⟧ (y ∷ rest)
   → runL table ψ (y ∷ rest) ≡ ⟦ denot table ψ ⟧ (y ∷ rest)
   → runL table (MetricUntil w (suc (decodeStart s (timestampℕ y))) φ ψ) rest
-    ≡ met-un-go w (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest
+    ≡ met-un-go (tsValue w) (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest
   → runL table (MetricUntil w s φ ψ) (y ∷ rest)
     ≡ ⟦ denot table (MetricUntil w s φ ψ) ⟧ (y ∷ rest)
 agree-met-un table w s φ ψ y rest ih-φ ih-ψ ih-rest
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = refl
 ... | true with stepL table ψ y | stepL table φ y
 ...   | Satisfied    | _                                             -- True ∨TV _ = True (def'l)
@@ -196,15 +197,15 @@ agree-met-un table w s φ ψ y rest ih-φ ih-ψ ih-rest
                                            (cong₂ _∧TV_ ih-φ ih-rest)))
 
 -- MetricRelease: ψ ∧ (φ ∨ MRP), True on window expiry.
-agree-met-re : ∀ (table : PredTable) w s (φ ψ : LTLProc) y rest
+agree-met-re : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) y rest
   → runL table φ (y ∷ rest) ≡ ⟦ denot table φ ⟧ (y ∷ rest)
   → runL table ψ (y ∷ rest) ≡ ⟦ denot table ψ ⟧ (y ∷ rest)
   → runL table (MetricRelease w (suc (decodeStart s (timestampℕ y))) φ ψ) rest
-    ≡ met-re-go w (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest
+    ≡ met-re-go (tsValue w) (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest
   → runL table (MetricRelease w s φ ψ) (y ∷ rest)
     ≡ ⟦ denot table (MetricRelease w s φ ψ) ⟧ (y ∷ rest)
 agree-met-re table w s φ ψ y rest ih-φ ih-ψ ih-rest
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = refl
 ... | true with stepL table ψ y | stepL table φ y
 ...   | Violated _   | _                                             -- False ∧TV _ = False (def'l)

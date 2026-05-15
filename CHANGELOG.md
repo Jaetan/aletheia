@@ -565,6 +565,24 @@ step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
 
+#### Changed — LTL metric operators: `window` parameter typed as `Timestamp μs` instead of raw `ℕ` (R6-B7.2 closure)
+
+Internal Agda kernel refinement — `MetricEventually`, `MetricAlways`,
+`MetricUntil`, and `MetricRelease` now take their window parameter as
+`Timestamp μs` (a wrapped `ℕ` with microsecond dimension tag) rather
+than a bare `ℕ`.  The JSON wire shape is unchanged — the LTL JSON
+parser wraps incoming `ℕ` via `mkTs` at the boundary, and the
+formatter unwraps via `tsValue`.  No binding-facing or wire change.
+
+This closes a pre-user audit finding (the previous "NO-FIX" rationale
+that the window was a frame count rather than microseconds was
+factually incorrect — the values flow into
+`metricElapsed s curr ≤ᵇ tsValue w` window-check arithmetic in
+`Aletheia.LTL.Coalgebra.stepL`, which is microsecond-vs-microsecond
+comparison).  The `startTime` slot stays a suc-encoded `ℕ` because
+the encoding carries a load-bearing
+"uninitialized sentinel vs legitimate timestamp 0" distinction.
+
 #### Changed — All bindings: predicate pretty-printer renders Rationals via cross-binding-identical exact-decimal algorithm (R20 cluster Y — GO-D-19.1)
 
 `format_formula` (Python) / `FormatFormula` (Go) / `format_formula` (C++)

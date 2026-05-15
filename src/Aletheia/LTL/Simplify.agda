@@ -14,6 +14,7 @@
 module Aletheia.LTL.Simplify where
 
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL)
+open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
@@ -71,13 +72,13 @@ Eventually φ          ≡ᵇ-proc Eventually ψ          = φ ≡ᵇ-proc ψ
 Until φ₁ ψ₁           ≡ᵇ-proc Until φ₂ ψ₂           = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
 Release φ₁ ψ₁         ≡ᵇ-proc Release φ₂ ψ₂         = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
 MetricEventually w₁ s₁ φ₁ ≡ᵇ-proc MetricEventually w₂ s₂ φ₂ =
-  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂)
+  (tsValue w₁ ≡ᵇ tsValue w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂)
 MetricAlways w₁ s₁ φ₁ ≡ᵇ-proc MetricAlways w₂ s₂ φ₂ =
-  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂)
+  (tsValue w₁ ≡ᵇ tsValue w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂)
 MetricUntil w₁ s₁ φ₁ ψ₁ ≡ᵇ-proc MetricUntil w₂ s₂ φ₂ ψ₂ =
-  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+  (tsValue w₁ ≡ᵇ tsValue w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
 MetricRelease w₁ s₁ φ₁ ψ₁ ≡ᵇ-proc MetricRelease w₂ s₂ φ₂ ψ₂ =
-  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+  (tsValue w₁ ≡ᵇ tsValue w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
 {-# CATCHALL #-}
 _ ≡ᵇ-proc _ = false
 

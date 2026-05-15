@@ -15,6 +15,7 @@ open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.JSON using (JSON; JNumber; JString; JObject)
 open import Aletheia.Prelude using (ℕtoℚ)
+open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 
@@ -96,18 +97,18 @@ formatLTL (LTL.Release f g) =
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.MetricEventually n _ f) =
   JObject (("operator" , JString (toList "metricEventually")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.MetricAlways n _ f) =
   JObject (("operator" , JString (toList "metricAlways")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.MetricUntil n _ f g) =
   JObject (("operator" , JString (toList "metricUntil")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.MetricRelease n _ f g) =
   JObject (("operator" , JString (toList "metricRelease")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 

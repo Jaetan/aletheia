@@ -36,7 +36,7 @@ open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Sati
 open import Aletheia.LTL.SignalPredicate
     using (SignalPredicate; evalPredicateTV;
            True; False; Unknown; Pending)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Maybe using (just)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
@@ -562,7 +562,7 @@ stepL-bound (Release φ ψ) table frame (pφ , pψ) =
        (stepL-bound φ table frame pφ)
        (pφ , pψ))
 stepL-bound (MetricEventually w s φ) table frame p
-  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ w
+  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ tsValue w
 ... | false = tt
 ... | true  =
   combineOr-bound (stepL table φ frame)
@@ -570,7 +570,7 @@ stepL-bound (MetricEventually w s φ) table frame p
     (stepL-bound φ table frame p)
     p
 stepL-bound (MetricAlways w s φ) table frame p
-  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ w
+  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ tsValue w
 ... | false = tt
 ... | true  =
   combineAnd-bound (stepL table φ frame)
@@ -578,7 +578,7 @@ stepL-bound (MetricAlways w s φ) table frame p
     (stepL-bound φ table frame p)
     p
 stepL-bound (MetricUntil w s φ ψ) table frame (pφ , pψ)
-  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ w
+  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ tsValue w
 ... | false = tt
 ... | true  =
   combineOr-bound (stepL table ψ frame)
@@ -590,7 +590,7 @@ stepL-bound (MetricUntil w s φ ψ) table frame (pφ , pψ)
        (stepL-bound φ table frame pφ)
        (pφ , pψ))
 stepL-bound (MetricRelease w s φ ψ) table frame (pφ , pψ)
-  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ w
+  with (timestampℕ frame ∸ decodeStart s (timestampℕ frame)) ≤ᵇ tsValue w
 ... | false = tt
 ... | true  =
   combineAnd-bound (stepL table ψ frame)

@@ -30,7 +30,7 @@ open import Data.Nat using (_≤ᵇ_)
 
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
 
 open TruthVal
 
@@ -114,19 +114,19 @@ met-re-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthV
 
 -- Metric Eventually (F[0,w] φ): φ must hold at some point within window
 ⟦ MetricEventually w s φ ⟧ [] = False
-⟦ MetricEventually w s φ ⟧ σ@(y ∷ _) = met-ev-go w φ (decodeStart s (timestampℕ y)) σ
+⟦ MetricEventually w s φ ⟧ σ@(y ∷ _) = met-ev-go (tsValue w) φ (decodeStart s (timestampℕ y)) σ
 
 -- Metric Always (G[0,w] φ): φ must hold at every point within window
 ⟦ MetricAlways w s φ ⟧ [] = True
-⟦ MetricAlways w s φ ⟧ σ@(y ∷ _) = met-al-go w φ (decodeStart s (timestampℕ y)) σ
+⟦ MetricAlways w s φ ⟧ σ@(y ∷ _) = met-al-go (tsValue w) φ (decodeStart s (timestampℕ y)) σ
 
 -- Metric Until (φ U[0,w] ψ): ψ must hold within window, with φ holding until then
 ⟦ MetricUntil w s φ ψ ⟧ [] = False
-⟦ MetricUntil w s φ ψ ⟧ σ@(y ∷ _) = met-un-go w φ ψ (decodeStart s (timestampℕ y)) σ
+⟦ MetricUntil w s φ ψ ⟧ σ@(y ∷ _) = met-un-go (tsValue w) φ ψ (decodeStart s (timestampℕ y)) σ
 
 -- Metric Release (φ R[0,w] ψ): dual of Metric Until
 ⟦ MetricRelease w s φ ψ ⟧ [] = True
-⟦ MetricRelease w s φ ψ ⟧ σ@(y ∷ _) = met-re-go w φ ψ (decodeStart s (timestampℕ y)) σ
+⟦ MetricRelease w s φ ψ ⟧ σ@(y ∷ _) = met-re-go (tsValue w) φ ψ (decodeStart s (timestampℕ y)) σ
 
 -- ============================================================================
 -- METRIC GO HELPERS (top-level for adequacy proof access)

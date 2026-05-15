@@ -36,7 +36,8 @@ open import Aletheia.LTL.Incremental using (Counterexample; Continue; Violated; 
   mkCounterexample; Holds; Fails; Unsure;
   MetricEventuallyExpired; MetricUntilExpired)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; notTV)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; Monotonic)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue; Monotonic)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.LTL.Adequacy using (runL; adequacy; Sound; verdictToSV;
   sound-transport-monitor; sound-transport-denot; sound-transport)
 open import Aletheia.LTL.Semantics using (⟦_⟧)
@@ -66,34 +67,34 @@ initProc-correct table φ = refl
 -- Liveness operators (MetricEventually, MetricUntil): Violated
 -- Safety operators (MetricAlways, MetricRelease): Satisfied
 
-stepL-met-ev-expired : ∀ (table : PredTable) w s (φ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-ev-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricEventually w s φ) curr
     ≡ Violated (mkCounterexample curr MetricEventuallyExpired)
 stepL-met-ev-expired table w s φ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-ev-expired table w s φ curr refl | false = refl
 
-stepL-met-al-expired : ∀ (table : PredTable) w s (φ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-al-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricAlways w s φ) curr ≡ Satisfied
 stepL-met-al-expired table w s φ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-al-expired table w s φ curr refl | false = refl
 
-stepL-met-un-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-un-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricUntil w s φ ψ) curr
     ≡ Violated (mkCounterexample curr MetricUntilExpired)
 stepL-met-un-expired table w s φ ψ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-un-expired table w s φ ψ curr refl | false = refl
 
-stepL-met-re-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-re-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricRelease w s φ ψ) curr ≡ Satisfied
 stepL-met-re-expired table w s φ ψ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-re-expired table w s φ ψ curr refl | false = refl
 
 -- ============================================================================
@@ -218,36 +219,36 @@ stepL-eventually-never-violated table φ y ce eq with stepL table φ y
 -- blocks reduction until the boolean is known. So each corollary drives the
 -- same `with`-abstraction directly.
 
-runL-met-ev-expired : ∀ (table : PredTable) w s (φ : LTLProc)
+runL-met-ev-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricEventually w s φ) (y ∷ rest) ≡ False
 runL-met-ev-expired table w s φ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-ev-expired table w s φ y rest refl | false = refl
 
-runL-met-al-expired : ∀ (table : PredTable) w s (φ : LTLProc)
+runL-met-al-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricAlways w s φ) (y ∷ rest) ≡ True
 runL-met-al-expired table w s φ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-al-expired table w s φ y rest refl | false = refl
 
-runL-met-un-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc)
+runL-met-un-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricUntil w s φ ψ) (y ∷ rest) ≡ False
 runL-met-un-expired table w s φ ψ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-un-expired table w s φ ψ y rest refl | false = refl
 
-runL-met-re-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc)
+runL-met-re-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricRelease w s φ ψ) (y ∷ rest) ≡ True
 runL-met-re-expired table w s φ ψ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-re-expired table w s φ ψ y rest refl | false = refl
 
 -- ============================================================================

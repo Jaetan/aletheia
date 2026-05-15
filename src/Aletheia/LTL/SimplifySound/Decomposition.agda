@@ -31,6 +31,7 @@ open import Data.Nat using (_⊔_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
 
+open import Aletheia.Trace.Time using (Timestamp; mkTs; tsValue; μs)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
@@ -56,6 +57,12 @@ private
            a₁ ≡ a₂ → b₁ ≡ b₂ → c₁ ≡ c₂ → d₁ ≡ d₂ →
            f a₁ b₁ c₁ d₁ ≡ f a₂ b₂ c₂ d₂
   cong₄ f refl refl refl refl = refl
+
+  -- Lift `≡ᵇ⇒≡` on the raw ℕ window to Timestamp equality via record η:
+  -- `tsValue w₁ ≡ tsValue w₂  ⇒  w₁ ≡ w₂` (single-field record, η-rule).
+  ≡ᵇ⇒≡-ts : ∀ {@0 u} (w₁ w₂ : Timestamp u)
+          → T (tsValue w₁ ≡ᵇ tsValue w₂) → w₁ ≡ w₂
+  ≡ᵇ⇒≡-ts w₁ w₂ p = cong mkTs (≡ᵇ⇒≡ (tsValue w₁) (tsValue w₂) p)
 
 ≡ᵇ-proc-correct : ∀ φ ψ → T (φ ≡ᵇ-proc ψ) → φ ≡ ψ
 ≡ᵇ-proc-correct (Atomic n) (Atomic m) p =
@@ -85,22 +92,22 @@ private
 ≡ᵇ-proc-correct (MetricEventually w₁ s₁ φ₁) (MetricEventually w₂ s₂ φ₂) p =
   let (pw , ps∧pφ) = Equivalence.to T-∧ p
       (ps , pφ)    = Equivalence.to T-∧ ps∧pφ
-  in cong₃ MetricEventually (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
+  in cong₃ MetricEventually (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
 ≡ᵇ-proc-correct (MetricAlways w₁ s₁ φ₁) (MetricAlways w₂ s₂ φ₂) p =
   let (pw , ps∧pφ) = Equivalence.to T-∧ p
       (ps , pφ)    = Equivalence.to T-∧ ps∧pφ
-  in cong₃ MetricAlways (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
+  in cong₃ MetricAlways (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
 ≡ᵇ-proc-correct (MetricUntil w₁ s₁ φ₁ ψ₁) (MetricUntil w₂ s₂ φ₂ ψ₂) p =
   let (pw , ps∧rest)  = Equivalence.to T-∧ p
       (ps , pφ∧pψ)   = Equivalence.to T-∧ ps∧rest
       (pφ , pψ)      = Equivalence.to T-∧ pφ∧pψ
-  in cong₄ MetricUntil (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
+  in cong₄ MetricUntil (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
            (≡ᵇ-proc-correct φ₁ φ₂ pφ) (≡ᵇ-proc-correct ψ₁ ψ₂ pψ)
 ≡ᵇ-proc-correct (MetricRelease w₁ s₁ φ₁ ψ₁) (MetricRelease w₂ s₂ φ₂ ψ₂) p =
   let (pw , ps∧rest)  = Equivalence.to T-∧ p
       (ps , pφ∧pψ)   = Equivalence.to T-∧ ps∧rest
       (pφ , pψ)      = Equivalence.to T-∧ pφ∧pψ
-  in cong₄ MetricRelease (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
+  in cong₄ MetricRelease (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
            (≡ᵇ-proc-correct φ₁ φ₂ pφ) (≡ᵇ-proc-correct ψ₁ ψ₂ pψ)
 
 -- ============================================================================

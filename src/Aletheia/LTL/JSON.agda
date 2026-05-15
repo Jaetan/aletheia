@@ -25,6 +25,7 @@ open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.JSON using (JSON; JObject; lookupString; lookupChars; lookupRational; lookupObject; lookupNat)
 open import Aletheia.LTL.Syntax using (LTL)
+open import Aletheia.Trace.Time using (mkTs)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP)
 import Aletheia.LTL.SignalPredicate as SP
 
@@ -146,10 +147,12 @@ mutual
     else if ⌊ op ≟ "release" ⌋ then parseBinaryOp LTL.Release obj
     -- Metric operators: startTime initialized to 0 (= uninitialized, suc-encoded).
     -- timebound=0 is accepted: means "must hold immediately" (see Syntax.agda).
-    else if ⌊ op ≟ "metricEventually" ⌋ then parseBoundedOp (λ n → LTL.MetricEventually n 0) obj
-    else if ⌊ op ≟ "metricAlways" ⌋ then parseBoundedOp (λ n → LTL.MetricAlways n 0) obj
-    else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinaryOp (λ n → LTL.MetricUntil n 0) obj
-    else if ⌊ op ≟ "metricRelease" ⌋ then parseBoundedBinaryOp (λ n → LTL.MetricRelease n 0) obj
+    -- R6-B7.2 closure: lift JSON ℕ → `Timestamp μs` via `mkTs` at the parse
+    -- boundary so the dimensional invariant holds inside the kernel.
+    else if ⌊ op ≟ "metricEventually" ⌋ then parseBoundedOp (λ n → LTL.MetricEventually (mkTs n) 0) obj
+    else if ⌊ op ≟ "metricAlways" ⌋ then parseBoundedOp (λ n → LTL.MetricAlways (mkTs n) 0) obj
+    else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinaryOp (λ n → LTL.MetricUntil (mkTs n) 0) obj
+    else if ⌊ op ≟ "metricRelease" ⌋ then parseBoundedBinaryOp (λ n → LTL.MetricRelease (mkTs n) 0) obj
     else if ⌊ op ≟ "never" ⌋ then parseNeverOp obj
     else if ⌊ op ≟ "implies" ⌋ then parseImpliesOp obj
     else nothing

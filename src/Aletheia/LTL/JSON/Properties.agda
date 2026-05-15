@@ -20,6 +20,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat)
 open import Aletheia.Prelude using (ℕtoℚ)
+open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
@@ -107,24 +108,29 @@ roundtrip (LTL.Until f g)
 roundtrip (LTL.Release f g)
   rewrite roundtrip f | roundtrip g = refl
 
--- Metric unary operators: getNat abstraction needed for ℕtoℚ roundtrip
+-- Metric unary operators: getNat abstraction needed for ℕtoℚ roundtrip.
+-- Window is unwrapped via tsValue at the formatter; parser re-wraps via mkTs,
+-- and `mkTs (tsValue n) ≡ n` by Timestamp record η-conversion.
+-- INVARIANT: do not change `Timestamp` to a `data` declaration or break record
+-- η (e.g. via private constructor / erasure boundary) — this roundtrip would
+-- silently stop reducing.  See Aletheia.Trace.Time.
 roundtrip (LTL.MetricEventually n _ f)
-  with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl rewrite roundtrip f = refl
+  with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
+... | .(just (tsValue n)) | refl rewrite roundtrip f = refl
 
 roundtrip (LTL.MetricAlways n _ f)
-  with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl rewrite roundtrip f = refl
+  with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
+... | .(just (tsValue n)) | refl rewrite roundtrip f = refl
 
 -- Metric binary operators
 roundtrip (LTL.MetricUntil n _ f g)
-  with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl
+  with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
+... | .(just (tsValue n)) | refl
   rewrite roundtrip f | roundtrip g = refl
 
 roundtrip (LTL.MetricRelease n _ f g)
-  with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl
+  with getNat (JNumber (ℕtoℚ (tsValue n))) | getNat-ℕtoℚ (tsValue n)
+... | .(just (tsValue n)) | refl
   rewrite roundtrip f | roundtrip g = refl
 
 -- ============================================================================
