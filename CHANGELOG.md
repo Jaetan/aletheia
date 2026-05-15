@@ -604,6 +604,19 @@ emit a long exact decimal that diverged from the other two.  Typical
 DBC predicate values stay well under k=10.  Wire JSON shape
 (`{"numerator": N, "denominator": D}`) is unchanged.
 
+Implementation: the renderer lives in the Agda kernel
+(`Aletheia.DBC.RationalRenderer.formatRational`); each binding calls it
+via FFI rather than maintaining a parallel implementation.  All three
+bindings dlopen `libaletheia-ffi.so` lazily on first use of the
+display path (Python `_get_or_load_renderer_lib`, Go `sync.Once` in
+`renderer.go`, C++ `std::call_once` in `rational_renderer.cpp`),
+independent of whether a backend (`AletheiaClient`, `FFIBackend`,
+`FfiBackend`) has been instantiated.  Cross-binding output equality is
+therefore an architectural invariant of the kernel-via-FFI design
+rather than a test-corpus convention.  A missing `libaletheia-ffi.so`
+surfaces as a typed error / panic from the display path rather than
+silently selecting a parallel algorithm.
+
 #### Changed — Python: DSL float-input conversion now mirrors Go/C++ `from_double` (R20 cluster Y — GO-D-19.1)
 
 `Signal(...).equals(value)` and sibling comparison methods previously

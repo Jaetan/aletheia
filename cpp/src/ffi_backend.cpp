@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // FFI backend — loads libaletheia-ffi.so via dlopen.
+//
+// `aletheia_format_rational` is intentionally NOT loaded here: the
+// cross-binding Rational pretty-printer (R20 cluster Y stage 2) reaches
+// the Agda kernel via the lazy-load in `rational_renderer.cpp`,
+// independent of FfiBackend, so unit tests that never instantiate a
+// backend still route through the same kernel function.
 #include <aletheia/backend.hpp>
-#include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/limits.hpp>
 
 #include <dlfcn.h>
@@ -49,9 +54,6 @@ using AletheiaSendRemoteFn = char* (*)(void*, std::uint64_t, std::uint32_t, std:
 using AletheiaNoArgFn = char* (*)(void*);
 using AletheiaExtractFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
                                     const std::uint8_t*, std::uint8_t);
-
-// Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
-using AletheiaFormatRationalFn = char* (*)(std::int64_t, std::int64_t);
 
 // Binary output endpoints (return status code, write bytes to caller buffer).
 using AletheiaBuildFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
@@ -126,7 +128,6 @@ class FfiBackend : public IBackend {
     AletheiaUpdateFrameBinFn update_frame_bin_fn_ = nullptr;
     AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
     AletheiaFreeBufFn free_buf_fn_ = nullptr;
-    AletheiaFormatRationalFn format_rational_fn_ = nullptr;
     // Populated when the backend detects that the GHC RTS was already
     // initialised with a different -N value than the caller requested.
     // Emitted by Client as the `rts.cores_mismatch` structured log event
@@ -197,8 +198,6 @@ public:
             extract_signals_bin_fn_ =
                 load_sym<AletheiaExtractBinFn>(handle_, "aletheia_extract_signals_bin");
             free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
-            format_rational_fn_ =
-                load_sym<AletheiaFormatRationalFn>(handle_, "aletheia_format_rational");
 
             // Initialize GHC RTS (once per process, never finalized).
             auto& rts = rts_state();
@@ -224,17 +223,6 @@ public:
             } else if (rts_cores != rts.cores) {
                 rts_mismatch_ = std::make_pair(rts.cores, rts_cores);
             }
-
-            // Register the format/free fn pair as the namespace-level
-            // Rational pretty-printer (R20 cluster Y stage 2).  The free
-            // function `format_value(const Rational&)` (display path in
-            // `enrich.cpp`) consults these on every call: when registered,
-            // the FFI is used; otherwise it falls back to the local C++
-            // algorithm.  Production paths always register here.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-            detail::set_renderer_fns(reinterpret_cast<void*>(format_rational_fn_),
-                                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                                     reinterpret_cast<void*>(free_str_fn_));
         } catch (...) {
             // RTS was never started — safe to release the library handle.
             dlclose(handle_);

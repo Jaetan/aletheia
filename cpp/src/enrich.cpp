@@ -6,9 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <format>
-#include <numeric>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -23,68 +21,16 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
-// Local C++ algorithm: no-FFI fallback used in tests that bypass
-// FfiBackend.  Mirrors the Agda kernel's algorithm so cross-binding
-// test corpus assertions hold either way.  See
-// `detail::try_format_rational_ffi` for the production path.
-auto format_value_local(const Rational& r) -> std::string {
-    if (r.denominator <= 0)
-        return std::format("{:g}", r.to_double());
-    auto abs_num = static_cast<std::int64_t>(std::abs(r.numerator));
-    auto g = std::gcd(abs_num, r.denominator);
-    auto rn = r.numerator / g;
-    auto rd = r.denominator / g;
-    auto test = rd;
-    int pow_2 = 0;
-    while (test % 2 == 0) {
-        test /= 2;
-        ++pow_2;
-    }
-    int pow_5 = 0;
-    while (test % 5 == 0) {
-        test /= 5;
-        ++pow_5;
-    }
-    if (test != 1)
-        return std::format("{}/{}", rn, rd);
-    const int k = std::max(pow_2, pow_5);
-    if (k == 0)
-        return std::format("{}", rn);
-    if (k > 18)
-        return std::format("{}/{}", rn, rd);
-    std::int64_t multiplier = 1;
-    for (int i = 0; i < k - pow_2; ++i)
-        multiplier *= 2;
-    for (int i = 0; i < k - pow_5; ++i)
-        multiplier *= 5;
-    auto n_scaled = rn * multiplier;
-    std::string sign;
-    std::int64_t abs_n = n_scaled;
-    if (n_scaled < 0) {
-        sign = "-";
-        abs_n = -n_scaled;
-    }
-    auto digits = std::to_string(abs_n);
-    if (static_cast<int>(digits.size()) < k + 1)
-        digits = std::string(static_cast<std::size_t>(k + 1) - digits.size(), '0') + digits;
-    auto integer_part = digits.substr(0, digits.size() - static_cast<std::size_t>(k));
-    auto fractional_part = digits.substr(digits.size() - static_cast<std::size_t>(k));
-    while (!fractional_part.empty() && fractional_part.back() == '0')
-        fractional_part.pop_back();
-    if (!fractional_part.empty())
-        return std::format("{}{}.{}", sign, integer_part, fractional_part);
-    return std::format("{}{}", sign, integer_part);
-}
-
-// Cross-binding-identical Rational pretty-printer.  Production paths
-// route through the Agda kernel via `aletheia_format_rational` (R20
-// cluster Y stage 2).  Tests that bypass FfiBackend fall back to
-// `format_value_local`, which produces the same output by construction.
+// Cross-binding-identical Rational pretty-printer.  Every render flows
+// through the Agda kernel via `aletheia_format_rational` (R20 cluster
+// Y stage 2): the C++ binding calls the same function as Python and
+// Go, so the same Rational value renders to byte-identical output
+// everywhere.  The library is dlopened on first use via the lazy-load
+// in `rational_renderer.cpp`; no local C++ fallback exists.  A missing
+// `libaletheia-ffi.so` throws `AletheiaException(Ffi)` rather than
+// silently diverging.
 auto format_value(const Rational& r) -> std::string {
-    if (auto ffi = detail::try_format_rational_ffi(r.numerator, r.denominator)) {
-        return std::move(*ffi);
-    }
-    return format_value_local(r);
+    return detail::format_rational_ffi(r.numerator, r.denominator);
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;

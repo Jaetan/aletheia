@@ -5,6 +5,19 @@ import (
 	"strings"
 )
 
+// formatRational renders a Rational as a string identical across all
+// bindings.  Every render flows through the Agda kernel via
+// `aletheia_format_rational` (R20 cluster Y stage 2): the Go binding
+// calls the same function as Python and C++, so the same Rational
+// value renders to byte-identical output everywhere.
+//
+// The library is dlopened on first use via the lazy-load in
+// `renderer.go`; no local Go fallback exists.  A missing
+// `libaletheia-ffi.so` panics rather than silently diverging.
+func formatRational(r Rational) string {
+	return formatRationalFFI(r.Numerator, r.Denominator)
+}
+
 // PropertyDiagnostic holds metadata auto-derived from a formula for violation enrichment.
 type PropertyDiagnostic struct {
 	Signals     []SignalName // all signals referenced in the formula
@@ -134,103 +147,6 @@ func formatPredicate(p Predicate) string {
 
 // formatValue formats a float64 without trailing zeros.
 func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
-
-// formatRational renders a Rational as a string identical across all
-// bindings.  Production code paths route through the Agda kernel via
-// `aletheia_format_rational` (R20 cluster Y stage 2): the Go binding
-// calls into the same Agda function as Python and C++, so the same
-// Rational value renders to byte-identical output everywhere.
-//
-// When no `FFIBackend` has been instantiated in this process (e.g.
-// from a test that calls `aletheia.FormatFormula(f)` directly), the
-// function falls back to the local Go algorithm in
-// `formatRationalLocal`, which produces the same output by
-// construction.  See `renderer.go::setRendererFns` for the
-// registration mechanism.
-func formatRational(r Rational) string {
-	if s, ok := tryFormatRationalFFI(r.Numerator, r.Denominator); ok {
-		return s
-	}
-	return formatRationalLocal(r)
-}
-
-// formatRationalLocal is the no-FFI fallback used in tests that
-// instantiate no `FFIBackend`.  Mirrors the Agda kernel's algorithm:
-// GCD-reduce, decompose denom into 2^pow2 * 5^pow5, render exact
-// decimal when terminating with `≤ 18` decimal places, render
-// `<num>/<denom>` otherwise.  Cross-binding test outputs (Go +
-// Python + C++) assert against the same expected strings, so any
-// drift from the Agda kernel surfaces as a failing test.
-func formatRationalLocal(r Rational) string {
-	if r.Denominator <= 0 {
-		return formatValue(r.Float64())
-	}
-	g := gcdInt64(absInt64(r.Numerator), r.Denominator)
-	rn := r.Numerator / g
-	rd := r.Denominator / g
-	test := rd
-	pow2 := 0
-	for test%2 == 0 {
-		test /= 2
-		pow2++
-	}
-	pow5 := 0
-	for test%5 == 0 {
-		test /= 5
-		pow5++
-	}
-	if test != 1 {
-		return fmt.Sprintf("%d/%d", rn, rd)
-	}
-	k := pow2
-	if pow5 > k {
-		k = pow5
-	}
-	if k == 0 {
-		return fmt.Sprintf("%d", rn)
-	}
-	if k > 18 {
-		return fmt.Sprintf("%d/%d", rn, rd)
-	}
-	multiplier := int64(1)
-	for i := 0; i < k-pow2; i++ {
-		multiplier *= 2
-	}
-	for i := 0; i < k-pow5; i++ {
-		multiplier *= 5
-	}
-	nScaled := rn * multiplier
-	sign := ""
-	absN := nScaled
-	if nScaled < 0 {
-		sign = "-"
-		absN = -nScaled
-	}
-	digits := fmt.Sprintf("%d", absN)
-	if len(digits) < k+1 {
-		digits = strings.Repeat("0", k+1-len(digits)) + digits
-	}
-	integerPart := digits[:len(digits)-k]
-	fractionalPart := strings.TrimRight(digits[len(digits)-k:], "0")
-	if fractionalPart != "" {
-		return fmt.Sprintf("%s%s.%s", sign, integerPart, fractionalPart)
-	}
-	return fmt.Sprintf("%s%s", sign, integerPart)
-}
-
-func gcdInt64(a, b int64) int64 {
-	for b != 0 {
-		a, b = b, a%b
-	}
-	return a
-}
-
-func absInt64(x int64) int64 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
 
 const (
 	usPerSecond      = 1_000_000
