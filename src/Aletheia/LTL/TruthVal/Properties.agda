@@ -12,7 +12,7 @@ module Aletheia.LTL.TruthVal.Properties where
 
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; sym; cong)
 
 -- a ∧TV False ≡ False (right absorber for ∧)
 ∧TV-false-r : ∀ a → (a ∧TV False) ≡ False
@@ -111,3 +111,15 @@ deMorgan-∨ Pending True    = refl
 deMorgan-∨ Pending False   = refl
 deMorgan-∨ Pending Unknown = refl
 deMorgan-∨ Pending Pending = refl
+
+-- a ∨TV b ≡ notTV (notTV a ∧TV notTV b). Used by SoundOps to derive sound-or
+-- from sound-and via De Morgan, sidestepping a 6×6 truth-table enumeration.
+-- Note: the dual ∧TV-via-De-Morgan would let sound-and be derived from sound-or
+-- symmetrically, but Agda's termination checker rejects the resulting mutual
+-- block (each call to sound-not preserves Sound-proof depth, so neither side
+-- structurally decreases). One direction MUST be primitive; sound-and stays
+-- primitive because its False-absorber short-circuit handles 6 of 36 outer
+-- cases at the top.
+∨TV-via-De-Morgan : ∀ a b → a ∨TV b ≡ notTV (notTV a ∧TV notTV b)
+∨TV-via-De-Morgan a b = trans (sym (notTV-involutive (a ∨TV b)))
+                              (cong notTV (deMorgan-∨ a b))
