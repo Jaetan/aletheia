@@ -1266,9 +1266,8 @@ namespace {
 // Minimal DBC helper that wraps a single signal of the given byte order
 // inside a one-message DBC. Callers supply the signal's start_bit,
 // bit_length, byte order, and the message DLC.
-auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
-                            ByteOrder byte_order, std::uint8_t dlc_bytes)
-    -> DbcDefinition {
+auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length, ByteOrder byte_order,
+                            std::uint8_t dlc_bytes) -> DbcDefinition {
     DbcSignal sig{
         .name = SignalName{"Bad"},
         .start_bit = BitPosition{start_bit},
@@ -1300,8 +1299,7 @@ auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
 // signature (used by the surrounding BE-specific test cases below).
 auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
                                std::uint8_t dlc_bytes) -> DbcDefinition {
-    return make_single_signal_dbc(start_bit, bit_length, ByteOrder::BigEndian,
-                                  dlc_bytes);
+    return make_single_signal_dbc(start_bit, bit_length, ByteOrder::BigEndian, dlc_bytes);
 }
 
 } // namespace
@@ -1329,8 +1327,8 @@ TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_len
 
     // LE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails →
     // SignalBitLengthZero (R5-B1 / R6-B7.1 closure: completes BE-LE parity).
-    auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0,
-                                      ByteOrder::LittleEndian, /*dlc_bytes=*/1);
+    auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0, ByteOrder::LittleEndian,
+                                      /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());

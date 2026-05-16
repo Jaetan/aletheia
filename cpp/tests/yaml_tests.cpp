@@ -516,7 +516,7 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     auto tmp = std::filesystem::temp_directory_path() / "yaml_oversize.yaml";
     {
         std::ofstream ofs(tmp, std::ios::binary);
-        std::vector<char> chunk(1024 * 1024, 'a');
+        std::vector<char> chunk(1024UL * 1024, 'a');
         for (int i = 0; i < 65; ++i) // 65 MiB
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     }
@@ -524,9 +524,10 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     std::filesystem::remove(tmp);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
-    REQUIRE(result.error().bound_info().has_value());
-    CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
-    CHECK(result.error().bound_info()->limit == 64ULL * 1024 * 1024);
+    const auto& bound_info = result.error().bound_info();
+    REQUIRE(bound_info.has_value());
+    CHECK(bound_info->bound_kind == "input_length_bytes");
+    CHECK(bound_info->limit == 64ULL * 1024 * 1024);
 }
 
 TEST_CASE("yaml: then stays_between missing min/max", "[yaml][error]") {
