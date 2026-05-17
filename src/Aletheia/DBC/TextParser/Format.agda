@@ -1,25 +1,35 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 — 3d.5.a — Format DSL framework core (minimum viable kit).
+-- B.3.d Layer 3 — 3d.5.a — Format DSL framework core.
 --
 -- An inductive `Format A` describes a bidirectional `emit`/`parse` pair.
 -- The universal `roundtrip` theorem (proven once, below) replaces the
 -- 3a–3d.3 pattern of a hand-written ~500–2000 LOC roundtrip per construct.
--- Gate target for 3d.5.b: re-prove parseValueTable (currently 790 LOC) in
--- this DSL with the proof shrinking to <100 LOC.
+-- Gate target for 3d.5.b was met (`Format/ValueTable.agda` is now 312 LOC,
+-- well under the original 790 LOC target).
 --
--- Method (per advisor, examples-first): three constructors — `literal`,
--- `ident`, `pair` — derived from four hand-written concrete proofs (L1–L4).
--- The SuffixStops-isIdentCont hypothesis recurred in L3 and L4, satisfying
--- the ≥2× rule for generalisation, after which the universal `roundtrip`
--- captures every pattern.  L1–L4 remain at the bottom as one-liner
--- regression tests delegating to `roundtrip` — they're load-bearing tests:
--- if `roundtrip`'s shape ever drifts, they'll flag it.
+-- Method (per advisor, examples-first): the initial three constructors —
+-- `literal`, `ident`, `pair` — were derived from four hand-written concrete
+-- proofs (L1–L4).  The SuffixStops-isIdentCont hypothesis recurred in L3
+-- and L4, satisfying the ≥2× rule for generalisation, after which the
+-- universal `roundtrip` captures every pattern.  L1–L4 remain at the
+-- bottom as one-liner regression tests delegating to `roundtrip` —
+-- they're load-bearing tests: if `roundtrip`'s shape ever drifts, they'll
+-- flag it.
 --
--- Constructors deferred to 3d.5.b/c per parseValueTable's gate sketch:
--- `iso` (record assembly), `many` / `sepBy` (variable-length sequences),
--- `nat`, `stringLit`, whitespace combinators.  Add only what the sketch
--- demands; resist speculative growth.
+-- Format DSL constructor inventory (live count: 18 constructors).
+-- Authoritative cross-reference for the constructor catalogue is the
+-- "Format DSL toolkit" section of `CLAUDE.md`; the literal grouping is:
+--   * core: `literal` / `ident` / `nat` / `stringLit` / `pair` / `iso` /
+--     `many` / `refined` / `altSum` / `withPrefix`
+--   * whitespace family: `ws` / `wsOpt` / `wsCanonOne` / `wsCanonTab` /
+--     `withWS` / `withWSOpt` / `withWSCanonOne` / `withWSCanonTab` /
+--     `withWSAfter`
+--   * refinement carriers: `decRat` / `intDecRat` / `natDecRat`
+--   * sugar: `discardFmt` / `nonNewlineRun` / `newlineFmt`
+-- AGDA-A-4.1 closure: previous header listed three constructors and
+-- "resist speculative growth"; both statements were accurate at 3d.5.a
+-- but drifted as 3d.5.b–3d.5.d landed.  Updated to the current shape.
 module Aletheia.DBC.TextParser.Format where
 
 open import Data.Bool using (Bool; true; false; T)
