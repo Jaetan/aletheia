@@ -23,6 +23,19 @@
 -- The trailing `many parseNewline` consumption stays in the production
 -- wrapper, NOT in this Format — same η-style wrap pattern as
 -- `Format/EnvVar.agda` / `Format/AttrDef.agda`.
+--
+-- DEFERRED — TRACKED (R21-AGDA-D-15.1 — DEFER): file is 1251 LOC, over
+-- the 800-LOC `feedback_properties_facade_split.md` trigger.  Suggested
+-- split topology along the 5-way <|> dispatch:
+--   * `Format/AttrLine/Default.agda` (BA_DEF_DEF_)
+--   * `Format/AttrLine/Assign.agda` (BA_)
+--   * `Format/AttrLine/Rel.agda` (BA_REL_)
+--   * `Format/AttrLine/Definition.agda` (BA_DEF_ + BA_DEF_REL_)
+--   * `Format/AttrLine.agda` (this file → composer + 5-way `<|>` only)
+-- See `DecRatParse/Properties.agda` for the same DEFER pattern.  All 7
+-- modules over the trigger share the same blocker (proof-side coupling
+-- across the split boundary).  DO NOT RE-RAISE IN REVIEW without paired
+-- user approval for the dedicated proof-restructure cluster.
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
