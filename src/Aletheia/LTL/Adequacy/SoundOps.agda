@@ -59,24 +59,38 @@ data Sound : TruthVal → TruthVal → Set where
 
 -- These let us compose Sound proofs through propositional connectives.
 --
+-- R6-B8.2 (sound-and half) — DO NOT RE-RAISE IN REVIEW.
+--
 -- Architecture: sound-and is defined directly (clean sound-ff short-circuit
 -- on the False absorber); sound-or is derived from sound-and via De Morgan
 -- (a ∨TV b ≡ notTV (notTV a ∧TV notTV b), bridged by sound-not + subst₂).
--- See R6-B8.2 in DEFERRALS.md for the closure narrative.
+-- See R6-B8.2 in DEFERRALS.md for the closure narrative (the sound-or
+-- half was closed 2026-05-16 by commit `970f704`; this note documents why
+-- the sound-and HALF stays primitive and is not itself reducible).
 --
--- Why one direction is primitive: deriving both via De Morgan would create
--- a definitional cycle (each calls the other on same-size arguments after
--- sound-not — empirically rejected by Agda's termination checker as a
--- mutual block). sound-and is the natural primitive because its False
--- absorber short-circuits 6 of the 36 outer cases at the top.
+-- A reviewer may notice the ~250-line sound-and clause table and suggest
+-- deriving sound-and from sound-or via the dual De Morgan identity.  DO
+-- NOT do this.  Deriving BOTH halves via De Morgan creates a definitional
+-- cycle: each would call the other on same-size arguments after sound-not,
+-- which Agda's termination checker empirically rejects as a non-decreasing
+-- mutual block.  Exactly one direction must stay primitive.  sound-and is
+-- the natural primitive because its False absorber (`sound-and sound-ff _
+-- = sound-ff` at line 96) short-circuits 6 of the 36 outer cases at the
+-- top — the equivalent absorber would not fire as cleanly on sound-or
+-- because True is the absorber for ∨ but ∨TV's clause structure orders
+-- (True ∨ _) and (_ ∨ True) differently from the (∧) case, breaking the
+-- short-circuit symmetry.
 --
--- Why a generic `sound-binop` parameterized by op/absorber/identity-laws
--- was rejected (original A24 framing): ∧TV/∨TV have overlapping clause
--- patterns (False ∧TV _ AND _ ∧TV False both reduce to False), so Agda
--- cannot reduce `C ∧TV a` when C is Unknown/Pending and a is abstract.
--- A generic combinator would still need the same 4×4 case analysis per
--- (monitor-uncertain, denotation-uncertain) pair, with the parameters
--- making each case MORE complex.
+-- A reviewer may also suggest a generic `sound-binop` parameterized by
+-- op/absorber/identity-laws (original A24 framing).  DO NOT do this
+-- either.  ∧TV/∨TV have overlapping clause patterns (False ∧TV _ AND _
+-- ∧TV False both reduce to False), so Agda cannot reduce `C ∧TV a` when
+-- C is Unknown/Pending and a is abstract.  A generic combinator would
+-- still need the same 4×4 case analysis per (monitor-uncertain,
+-- denotation-uncertain) pair, with the parameters making each case MORE
+-- complex.  Revisit ONLY if Agda gains a tactics framework that can
+-- mechanically generate the truth-table cases (current `unquoteDecl` /
+-- `macro` reflection is banned by Cat 29).
 
 sound-not : ∀ {m d} → Sound m d → Sound (notTV m) (notTV d)
 sound-not sound-tt    = sound-ff
