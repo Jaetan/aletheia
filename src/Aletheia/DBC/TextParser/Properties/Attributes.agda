@@ -111,8 +111,15 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Line public
         ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt
         ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString
         ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac
-        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt
-        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt)
+
+-- alt5 dispatchers — extracted in R22 (R21 cluster 9 AGDA-D-15.1)
+-- into `Properties.Attributes.Line.Alt5` to bring `Line.agda` under
+-- the 800-LOC trigger.  Re-exported here so the public API surface is
+-- unchanged for downstream consumers (Frac / BareInt / String / Default
+-- / Def dispatchers).
+open import Aletheia.DBC.TextParser.Properties.Attributes.Line.Alt5 public
+  using ( parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString
         ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac
         ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt
         ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavString

@@ -59,14 +59,18 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Foundations using
   (IdentNameStop-of)
 
+-- alt5 dispatchers moved to Line/Alt5 in R22 (R21 cluster 9 AGDA-D-15.1);
+-- alt4 variants (NodeMsg/NodeSig) remain in Line.agda.
 open import Aletheia.DBC.TextParser.Properties.Attributes.Line using
+  ( parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString
+  ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString
+  )
+open import Aletheia.DBC.TextParser.Properties.Attributes.Line.Alt5 using
   ( parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString
   ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavString
   ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavString
   ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavString
   ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavString
-  ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString
-  ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString
   )
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network using
