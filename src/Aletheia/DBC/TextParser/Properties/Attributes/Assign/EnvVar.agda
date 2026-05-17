@@ -16,13 +16,12 @@
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.EnvVar where
 
-open import Data.Bool using (T)
 open import Data.Char using (Char)
-open import Data.Integer using (ℤ; +_; -[1+_])
+open import Data.Integer using (ℤ; +_)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
-open import Data.Product using (_,_; _×_; proj₁; proj₂)
+open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality

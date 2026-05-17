@@ -17,18 +17,17 @@
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network where
 
-open import Data.Bool using (false; T)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.Char.Base using (_≈ᵇ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (just; nothing)
+open import Data.Maybe using (just)
 open import Data.Nat using (zero; suc)
-open import Data.Product using (∃₂; _,_; Σ; _×_; proj₁; proj₂)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.String using (toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
 
@@ -36,14 +35,13 @@ open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
          _>>=_; pure; _<|>_; _*>_; _<*_; string;
          char; many; satisfy; fail)
-open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; IsCanonical; fromℤ)
+open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
    intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using
   ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig)
-open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrAssign;
