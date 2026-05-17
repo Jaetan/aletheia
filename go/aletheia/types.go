@@ -181,6 +181,20 @@ const MaxStandardID = 1<<11 - 1
 const MaxExtendedID = 1<<29 - 1
 
 // StandardID is an 11-bit CAN identifier (0-2047).
+//
+// DO NOT RE-RAISE IN REVIEW (R20-GO-A-3.6 — DROP).  Future style sweeps may
+// flag the asymmetry between StandardID/ExtendedID exposing values via a
+// Value() uint32 method while primitive typedefs (BitPosition uint16,
+// BitLength uint8, etc.) use direct conversion (uint16(bp), uint8(bl)).
+// Closed DROP after re-audit: the asymmetry is structural, not naming.
+// StandardID/ExtendedID wrap an unexported field (enforces NewStandardID
+// validation; raw construction is unrepresentable), so Value() is the only
+// accessor.  Primitive typedefs carry no validation invariant and don't hide
+// state — direct conversion is idiomatic Go (cf. time.Duration → int64).
+// Promoting typedefs to wrapper structs would force users to write
+// .Value() on every arithmetic site; demoting wrappers to typedefs would
+// lose the construction-validation safety.  Revisit only if Go conventions
+// shift to require accessor parity across typedef-vs-struct.
 type StandardID struct{ value uint16 }
 
 func (id StandardID) canID()           {}

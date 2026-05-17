@@ -41,6 +41,22 @@ func WithDefaultChecks(checks ...CheckResult) ClientOption {
 // docs/architecture/CANCELLATION.md for the cancellation contract.
 //
 // Create with [NewClient] and close with [Client.Close] (implements [io.Closer]).
+// DO NOT RE-RAISE IN REVIEW (R20-GO-A-3.7 — DROP).  Future style sweeps
+// may flag the lockCh + closeOnce pair as inconsistent sync primitives.
+// Closed DROP after re-audit: they're solving different problems.
+//   - lockCh is a 1-deep channel semaphore.  Its purpose is context-aware
+//     mutual exclusion — every Client method's lock() helper does
+//     `select { case lockCh <- struct{}{}: ... case <-ctx.Done(): ... }`
+//     so callers can cancel a blocked acquisition.  sync.Mutex.Lock has no
+//     context-cancellable variant; TryLock returns immediately and doesn't
+//     wait.  This is a hard requirement per docs/architecture/CANCELLATION.md.
+//   - closeOnce is sync.Once for one-shot Close().  Double-close safety is
+//     a library guarantee; sync.Once is the idiomatic primitive (clearer
+//     than a CAS on `closed`).
+//
+// Consolidating to either primitive alone would lose a capability.
+// Revisit only if Go stdlib gains a unified context-aware-mutex-with-
+// idempotent-close primitive.
 type Client struct {
 	backend       Backend
 	state         unsafe.Pointer

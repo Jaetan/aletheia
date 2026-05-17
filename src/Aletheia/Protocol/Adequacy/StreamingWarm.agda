@@ -94,6 +94,18 @@ open import Aletheia.Protocol.Adequacy.WarmCache using (AllCached; warm-cache-ag
 
 -- `nothing ≡ just v` is uninhabited. Local helper to avoid littering the
 -- proof with inline `λ ()` at each impossible branch.
+--
+-- DO NOT RE-RAISE IN REVIEW (R20-AGDA-D-19.3 / R20-AGDA-D-GA20.1 — FP-VERIFIED).
+--   Future Cat 27 "stdlib coverage" sweeps may flag this as re-inventing
+--   `Data.Maybe.Properties.just≢nothing`.  Closed FP after re-audit: the
+--   stdlib equivalent gives the OPPOSITE direction (`just v ≡ nothing → ⊥`),
+--   so adoption requires `≢-sym` wrapping + an import.  Local 2-line
+--   absurdity helper is shorter than the stdlib path AND reads more
+--   directly at the call sites (`⊥-elim (nothing≢just eq)` matches the
+--   shape of `eq : nothing ≡ just v` produced by the `with`-discrimination
+--   on line 213/215).  Revisit only if stdlib gains a directly-signatured
+--   `nothing≢just`, OR a project-wide audit standardises on stdlib
+--   absurdity imports.
 private
   nothing≢just : ∀ {A : Set} {v : A} → _≡_ {A = Maybe A} nothing (just v) → ⊥
   nothing≢just ()
