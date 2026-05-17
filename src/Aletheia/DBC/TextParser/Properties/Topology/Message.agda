@@ -21,18 +21,18 @@
 -- DBCMessages via `manyHelper`-induction.
 module Aletheia.DBC.TextParser.Properties.Topology.Message where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr; length; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.String using (toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
@@ -42,8 +42,7 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; clearVds; clearVdsMsg)
-open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.CAN.DLC using (DLC; bytesToValidDLC; dlcBytes)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
 
 open import Aletheia.DBC.TextFormatter.Emitter using (showNat-chars)

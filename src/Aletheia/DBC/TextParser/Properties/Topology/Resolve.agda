@@ -26,31 +26,28 @@
 -- BO_-header `messageHeaderFmt` to close `parseMessage-roundtrip`.
 module Aletheia.DBC.TextParser.Properties.Topology.Resolve where
 
-open import Data.Bool using (Bool; true; false; T; if_then_else_)
+open import Data.Bool using (true; false; T; if_then_else_)
 open import Data.Bool.Properties using (T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
-open import Data.List using (List; []; _∷_; map; length)
+open import Data.List using (List; []; _∷_; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _<_; _≤_; _+_; _∸_; _*_; s≤s; z≤n; _%_; _≤ᵇ_)
+open import Data.Nat using (ℕ; _<_; _≤_; _+_; _%_; _≤ᵇ_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
-open import Data.Nat.Properties using (≤-trans; <⇒≤; +-comm; ≤⇒≤ᵇ)
+open import Data.Nat.Properties using (≤⇒≤ᵇ)
 open import Aletheia.Prelude using (T→true)
 open import Data.Product using (_×_; _,_; Σ; Σ-syntax)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst)
 open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
-open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent)
 open import Aletheia.DBC.Types using
   (DBCSignal; SignalPresence; Always; When; clearVds)
 

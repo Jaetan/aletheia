@@ -35,17 +35,15 @@ module Aletheia.DBC.TextParser.Properties.Topology.SignalList where
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
-open import Data.List using (List; []; _∷_; foldr; map; concatMap; length)
+open import Data.List using (List; []; _∷_; foldr; map; length)
   renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using (length-++)
+open import Data.List.Properties
   renaming (++-assoc to ++ₗ-assoc)
-open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
+open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _<_; s≤s; z≤n)
-open import Data.Product using (_×_; _,_; Σ; Σ-syntax)
-open import Data.String using (toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
+open import Data.Product using (Σ-syntax)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst)
@@ -53,7 +51,6 @@ open import Relation.Binary.PropositionalEquality
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
   (DBCSignal; SignalPresence; Always; When)
 
@@ -69,7 +66,6 @@ open import Aletheia.DBC.Formatter.WellFormedText using
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (RawSignal; mkRawSignal;
    MuxMarker; NotMux; IsMux; SelBy)
-open import Aletheia.DBC.TextParser.Topology using (parseSignalLine)
 
 open import Aletheia.DBC.TextParser.Format using
   (Format; emit; parse; EmitsOK; EmitsOKMany; []-fails; ∷-cons;
