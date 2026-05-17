@@ -46,7 +46,12 @@ open import Relation.Binary.PropositionalEquality
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.DBC.Types using (DBC)
 
-open import Aletheia.LTL.SignalPredicate.Types
+open import Aletheia.LTL.SignalPredicate.Types public  -- re-exports `signalOf`
+                                                       -- (now defined there;
+                                                       -- historic consumers
+                                                       -- of `…Properties.signalOf`
+                                                       -- continue to type-check
+                                                       -- via this re-export)
 open import Aletheia.LTL.SignalPredicate.Cache
 open import Aletheia.LTL.SignalPredicate.Evaluation
 

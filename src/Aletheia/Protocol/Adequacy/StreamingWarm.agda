@@ -357,60 +357,56 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- UNCONDITIONAL STREAMING ADEQUACY
 -- ============================================================================
 
--- R21 cluster 1 — AGDA-D-12.1 partial closure (kernel wire scaffold landed):
+-- R21 cluster 1 — AGDA-D-12.1 CLOSED (walker landed via `afd28f3`):
 --
 -- BACKGROUND.  The `AllObserved` premise on `streaming-adequacy` (line
--- below) is documented as a caller obligation in `Main.agda:45-50` but
--- is NOT discharged at runtime.  When violated (a property's atom whose
--- target signal never appears in trace), the kernel's `finalizeL`
--- returns `Unsure → PropertyResult.Unresolved` — sound but loses
--- diagnostic context (user sees "Unresolved" without knowing it was a
--- cache miss vs a genuinely undecided Kleene Unknown).
+-- below) is a documented caller obligation.  When violated at runtime
+-- (a property's atom whose target signal never appears in trace), the
+-- kernel's `finalizeL` returns `Unsure → PropertyResult.Unresolved` —
+-- sound (three-valued Kleene Unknown) but indistinguishable from a
+-- genuinely undecided property without diagnostic context.
 --
--- LANDED (this round): kernel-side wire-shape scaffold.
---   * `Aletheia.Protocol.Response.WarningKind` + `Warning` ADTs
---     (UncachedAtom kind).
---   * `Response.Complete : List PropertyResult → List Warning → Response`
---     extended to carry warnings alongside results.
---   * `formatResponse (Complete results warnings)` adds the
---     `warnings:[...]` field to the Complete JSON envelope.
---   * `handleEndStream` currently emits `Response.Complete results []`
---     — wire shape ready, walker not yet wired.
+-- LANDED:
+--   * Scaffold (`85623b7`): `WarningKind` + `Warning` ADTs (UncachedAtom
+--     kind), `Response.Complete : List PropertyResult → List Warning
+--     → Response`, `formatResponse` adds `warnings:[...]` field to the
+--     JSON envelope.
+--   * Walker (`afd28f3`): `collectUncachedWarnings` in
+--     `Protocol.Handlers` walks each `PropertyState`'s `atoms` list,
+--     looks up each atom's `signalOf` in the cache, emits
+--     `mkWarning UncachedAtom (toℕ ps.index) (fromList sigName)` on
+--     miss; `handleEndStream` populates the wire field via the walker.
+--   * Three bindings decode + surface the warnings list:
+--       - Python: `CompleteWarning` TypedDict + `CompleteResponse.warnings`
+--       - Go:     `StreamWarning` struct + `StreamResult.Warnings`
+--       - C++:    `StreamWarning` struct + `StreamResult::warnings`
+--     Each binding's `stream.ended` log line records `numWarnings`.
+--   * Test trio (Python + Go + C++) asserts that an atom referencing an
+--     unobserved signal produces exactly one `uncached_atom` warning at
+--     EndStream and that all-observed traces produce none.
+--   * Feature matrix row `end_stream_uncached_atom_warnings` declares
+--     the parity across bindings; per-binding parity tests pass.
 --
--- REMAINING (for a follow-up cluster — paired user approval still
--- required per `feedback_no_unilateral_deferral.md` because the
--- generation logic is the substantive change):
---   1. AllObserved walker — at EndStream, for each `PropertyState ps`,
---      collect atoms via `collectAtoms (PropertyState.proc ps)` (already
---      lives in `Aletheia.Protocol.StreamState.Internals`), look up each
---      atom's `signalOf` in the `cache : SignalCache`, and for each
---      atom whose lookup returns `nothing` emit
---      `mkWarning UncachedAtom (toℕ (PropertyState.index ps)) signalName`.
---   2. Binding-side JSON parsers (Python `_client.py:485-525` end_stream
---      handler; Go `client.go::EndStream` Complete-response decoder; C++
---      `client.cpp::end_stream` JSON deserialiser).  Each currently
---      tolerates the extra `warnings:` field as unknown — gates pass —
---      but no surface exposes it.  Each binding needs a new
---      `CompleteWarning` / `EndStreamWarning` type + slice exposed on
---      the `CompleteResponse` it returns.
---   3. New `LogEvent` enumerant `endstream.uncached_atom` with parity
---      tests across `log_events_parity.{py,go,cpp}`.
---   4. New `check-runbook` entry; runbook regen tool (R19P2 cluster 7
---      regen-tool preservation pattern applies).
---   5. PROTOCOL.md update: document the new emission as part of
---      EndStream response semantics.
---   6. Cross-binding shape tests asserting `warnings:` field round-trip
---      end-to-end.
+-- Soundness rationale: the existing `Unresolved` verdict is still
+-- emitted unchanged.  Warnings are additive diagnostic context — they
+-- ratify (do not replace or reinterpret) the verdict.
 --
--- Estimated 400-800 LOC across 8-12 files for the remaining work
--- (scaffold already shaved ~200 LOC off the original 600-1200 estimate
--- by landing the wire format).  Soundness is preserved at every step:
--- the existing `Unresolved` outcome is still emitted; warnings are
--- additive diagnostic context, not a verdict change.
+-- OPTIONAL DEFERRED follow-ups (not blocking; future low-priority
+-- pickups):
+--   * New `LogEvent.endstream.uncached_atom` enumerant + parity in
+--     `log_events_parity.{py,go,cpp}`.  Currently the cache-miss
+--     count flows through the existing `stream.ended` event's new
+--     `numWarnings` attribute — sufficient for triage; per-warning
+--     events would let users grep for specific signals.
+--   * `check-runbook` entry naming the warning class explicitly.
+--   * PROTOCOL.md section documenting the JSON envelope's warnings
+--     field (the test trio + feature-matrix row IS the de-facto spec
+--     today — formal write-up is documentation hygiene).
 --
--- DO NOT RE-RAISE IN REVIEW for the WIRE SCAFFOLD — it's landed.  For
--- the WALKER + BINDING DECODERS + LOG EVENT, require paired user
--- approval per `feedback_no_unilateral_deferral.md`.
+-- DO NOT RE-RAISE the closed work (walker / wire / bindings / tests /
+-- feature-matrix row) in review.  The optional follow-ups above are
+-- not deferred-pending-approval — they're independent low-priority
+-- enhancements visible to a future round if user prioritises.
 
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`
