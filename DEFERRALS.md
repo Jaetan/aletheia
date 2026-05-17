@@ -2,7 +2,7 @@
 
 Items explicitly declined or deferred during AGENTS.md review rounds. Each entry records **what**, **where**, **why deferred**, and **what would change the decision**. Resolved items stay in this file with a `✅ RESOLVED` annotation rather than being deleted — NO-FIX in a pre-user project is worth periodic re-audit (worked example: R6-B9.1 was filed NO-FIX 2026-04-10 with a "non-trivial proof effort" rationale; R20 cluster W shipped an operational fix in `c40e3ba` after cluster S discovered the original stability claim was empirically false on raw `Until`/`Release`/`Atomic` shapes).
 
-**Last updated:** 2026-05-17 (R20 closed — entries below; see `memory/project_review_round{11..20}.md` for per-round closure narratives; the 2026-05-15 revision added Phase C1 (R6-B7.2 ✅), the LE bitLength=0 promotion closing R5-B1 ✅ + R6-B7.1 ✅, R20-GO-A-4.10 ✅, plus pass-2 audit-trail closures for R5-A11 ✅ / R6-B9.1 ✅ / R6-P1.1 ✅ / R6-B7.3 🟢.  The 2026-05-16 revisions close R20-AGDA-B-26.3 ✅ + R20-AGDA-B-GA9.1 ✅ via the `Reflects`-based Bool fast-path + `injectHelper` lift (strengthens R20-AGDA-B-18.3 with a prominent in-source DO-NOT-RE-RAISE comment) AND R6-B8.2's `sound-or` half ✅ via De Morgan derivation from `sound-and`.  The 2026-05-17 revision re-audits R20-AGDA-C-27.1 — initially DEFER, briefly re-flipped to FIX after overstated-cascade audit, then reverted + reclassified DROP after empirical 5.69× slowdown measurement on the `parseDBCText` runtime path; in-source DO-NOT-RE-RAISE block added to `Combinators.agda`.  The same 2026-05-17 sweep also adds in-source DO-NOT-RE-RAISE blocks for the three prior-round stable NO-FIX items the user explicitly flagged (R5-C2 above `formatIssueCode`; R6-B8.1 strengthening the A25 design note in `Decomposition.agda`; R6-B8.2 strengthening the A24 architecture note for the `sound-and` primitive choice in `SoundOps.agda`) so future review rounds see the rationale in source rather than only in this file.  R6-B7.3 flipped from 🟢 HELD to ✅ RESOLVED in the same sweep — the hot-path concern was empirically wrong (zero runtime READ sites for `CachedSignal.lastObserved`); `lastObserved` lifted to `Timestamp μs` across 7 files; `check-properties` 12m13s clean.  R6-B7.4 flipped from DEFER to ✅ RESOLVED — `PropertyState` parameterised by `(n : ℕ)` with `index : Fin n`; 8 Agda + 3 haskell-shim files cascade.  Final pre-merge pass adds durable in-source DO-NOT-RE-RAISE blocks for the three remaining items whose rationale lived only in this file (R20-AGDA-D-19.3 / D-GA20.1 above `nothing≢just` in `StreamingWarm.agda`; R20-GO-A-3.6 above `StandardID` in `go/aletheia/types.go`; R20-GO-A-3.7 above `Client` in `go/aletheia/client.go`) — every open item now has its justification visible in source where a future reviewer will read it.)
+**Last updated:** 2026-05-17 (R20 closed + R19 Phase 2 carry-overs formalised — see `memory/project_review_round{11..20}.md` for per-round closure narratives.  Recent revisions: 2026-05-15 — Phase C1 (R6-B7.2 ✅), LE bitLength=0 promotion (R5-B1 ✅ + R6-B7.1 ✅), R20-GO-A-4.10 ✅, plus pass-2 audit-trail closures (R5-A11 ✅ / R6-B9.1 ✅ / R6-P1.1 ✅ / R6-B7.3 🟢).  2026-05-16 — R20-AGDA-B-26.3 ✅ + R20-AGDA-B-GA9.1 ✅ via `Reflects` Bool fast-path + `injectHelper` lift (strengthens R20-AGDA-B-18.3 with in-source DO-NOT-RE-RAISE comment); R6-B8.2 `sound-or` half ✅ via De Morgan from `sound-and`.  2026-05-17 — R20-AGDA-C-27.1 re-audited DEFER → FIX-re-flip → DROP after empirical 5.69× slowdown on `parseDBCText`; in-source DO-NOT-RE-RAISE blocks added for R5-C2 / R6-B8.1 / R6-B8.2-sound-and / R20-AGDA-B-18.3.  R6-B7.3 🟢 → ✅ RESOLVED (`lastObserved` lifted to `Timestamp μs`, 7 files).  R6-B7.4 DEFER → ✅ RESOLVED (`PropertyState` parameterised by `(n : ℕ)` with `index : Fin n`, 8 Agda + 3 haskell-shim files).  Final pre-merge pass adds durable in-source DO-NOT-RE-RAISE blocks for R20-AGDA-D-19.3 / D-GA20.1 (above `nothing≢just` in `StreamingWarm.agda`), R20-GO-A-3.6 (above `StandardID` in `go/aletheia/types.go`), R20-GO-A-3.7 (above `Client` in `go/aletheia/client.go`) — every NO-FIX item now has its justification visible in source.  **R19 Phase 2 carry-over section added** below (Cluster 10 + 16 scope deferrals) — these are planned future work, not NO-FIX; verified status per item.  Per advisor: scope deferrals get DEFERRALS.md tracking but NOT in-source DO-NOT-RE-RAISE blocks (those are for rejected choices).)
 
 ---
 
@@ -194,6 +194,86 @@ The original R19 cluster D + F probe's framing ("the barrier is structural to Ag
 - **Finding:** Comment claims values are mirrored from `Aletheia.Limits` but no CI gate enforces parity.
 - **Why DROP (2026-05-12, since fixed):** A Shake gate that parses `Aletheia.Limits` and diffs each constant against the binding mirrors is a CI/tooling task, not Cat 1/4 hygiene. Same shape as the "Reproducible build verification" gate proposal in AGENTS.md.
 - **Revisit when:** A tooling cluster is opened for CI-level cross-binding parity gates, OR the mirror drifts and silently triggers a real bug.
+
+---
+
+## R19 Phase 2 Carry-Overs (formalised 2026-05-17)
+
+Phase 2 closed 19 of 19 clusters but two cluster-internal deferral lists (cluster 10 — 6 breaking changes; cluster 16 — 6 medium follow-ups) were tracked only in `memory/project_review_round19.md`.  Formalising them here ensures pre-merge audits surface them in the canonical durable index.
+
+**Scope-deferral classification per advisor (2026-05-17):** these items are *planned future work*, not rejected NO-FIX choices.  They get DEFERRALS.md tracking AND a one-line `// R19P2-CL10-N` or `# R19P2-CL16-N` referent in `PARITY_PLAN.md` (Track item) BUT NOT in-source DO-NOT-RE-RAISE blocks (those are reserved for rejected choices per the pattern established by R20-AGDA-B-18.3 / R20-GO-A-3.6 / R20-GO-A-3.7).
+
+### Cluster 10 — 6 breaking changes (cross-binding ergonomics)
+
+#### R19P2-CL10-1. Go `Client.Close()` `io.Closer` parity [✅ RESOLVED]
+- **File:** `go/aletheia/client.go:111`
+- **Resolution:** `func (c *Client) Close() error` matches `io.Closer`; compile-time assertion `var _ io.Closer = (*Client)(nil)` at `client.go:17` enforces the contract.  Resolved in Phase 2 cluster 10 ship `0425550`.
+
+#### R19P2-CL10-2. Go `BuildFrame`/`UpdateFrame` arg-order asymmetry [DEFER]
+- **Files:** `go/aletheia/client.go:488` (`BuildFrame(ctx, id, signals, dlc)`) vs `go/aletheia/client.go:512` (`UpdateFrame(ctx, id, dlc, data, signals)`)
+- **Finding:** `dlc` is positionally inconsistent; `signals` slot differs.
+- **Why DEFER:** Stylistic cross-binding parity work; affects every call site in tests + binding-internal callers; needs paired cross-binding rename to Python's `build_frame(can_id=, dlc=, signals=)` / C++'s `build_frame(can_id, dlc, signals)` keyword-vs-positional shapes.  Project-wide migration scope per `feedback_no_backward_compat.md` is justifiable but not Phase 5.1-scope.
+- **Revisit when:** A "Go API ergonomics cluster" is opened, OR a user reports the asymmetry causes confusion.
+
+#### R19P2-CL10-3. `FormatDBC` return-type rework [DEFER]
+- **Files:** `go/aletheia/dbc.go` `FormatDBC` / `FormatDBCText`; mirrored in Python `format_dbc`; C++ `format_dbc`
+- **Finding:** Return-type rework (originally a String → structured-result migration) was deferred from cluster 10.
+- **Why DEFER:** Structured-result wrapping changes the wire contract across all 3 bindings; benefits proper typing but unclear payoff vs migration cost.
+- **Revisit when:** A consumer needs richer return metadata (e.g. structured rendering options) — at which point the migration becomes load-bearing.
+
+#### R19P2-CL10-4. C++ `Rational` `struct` → `class` [DEFER]
+- **File:** `cpp/include/aletheia/types.hpp:77`
+- **Finding:** Currently `struct Rational { ... }` exposing public `num` / `den` fields; C++ idiom prefers `class` with private fields + accessors when validation invariant exists (cluster 12 added `den > 0` guard).
+- **Why DEFER:** Cluster 12's `den > 0` `throw std::invalid_argument` runs at all callers via `Rational::make`, so the `struct` public-field exposure is already gated by the factory path; the cosmetic class promotion gains constructor-discipline but mass-migrates ~28 YAML/Excel/JSON callsites.  Holding pending a C++ ergonomics cluster.
+- **Revisit when:** A C++ ergonomics cluster is opened, OR a callsite bypasses the factory and constructs a malformed `Rational` directly.
+
+#### R19P2-CL10-5. C++ Check namespace-vs-static [DEFER]
+- **File:** `cpp/include/aletheia/check.hpp:259` (`class Check` inside `namespace aletheia`)
+- **Finding:** `class Check` with static-method factory pattern (e.g. `Check::Range(...)`) versus a `namespace aletheia::check` with free functions (`aletheia::check::range(...)`).
+- **Why DEFER:** Namespace pattern is more idiomatic C++ for stateless factories; current `class Check` pattern came from a Python-mirror design ("Check.range(...)"). The migration touches every Check callsite in `cpp/tests/` and `cpp/examples/`.  Stylistic.
+- **Revisit when:** A C++ idiom-conformance cluster is opened.
+
+#### R19P2-CL10-6. Python `__init__` kwargs-only [DEFER]
+- **Files:** `python/aletheia/dsl.py:106` (`Signal.__init__`); `:292` (`Property.__init__`); `:565` (`Predicate.__init__`)
+- **Finding:** Public `__init__` methods allow positional args (`Signal("Speed")`); kwargs-only (`Signal(name="Speed")`) would prevent positional-confusion bugs as the API grows.
+- **Why DEFER:** Migration breaks every doc-fence and test (`Signal("X")` → `Signal(name="X")`); cross-binding parity already strong-typed via Go/C++ struct construction.
+- **Revisit when:** A signature gains an optional positional that could collide with the existing arg (e.g. `Signal(name: str, unit: str = "")` — `Signal("Speed", "km/h")` would silently mis-interpret).
+
+### Cluster 16 — 6 medium follow-ups (Python boundary cleanup)
+
+#### R19P2-CL16-1. `client/_types.py` split into `types.py` + `client/_internals.py` [DEFER]
+- **File:** `python/aletheia/client/_types.py` (432 LOC, shrunk organically from earlier ~600 LOC)
+- **Finding:** Single `_types.py` mixes public-ish types (e.g. exception hierarchy) with client-internal scaffolding.
+- **Why DEFER:** Organic shrinkage during cluster 17 reduced urgency (was ~600 LOC pre-cluster-17, now 432).  Split would route public types via `aletheia.types` re-export which then needs `aletheia.AletheiaError` import-graph review (see CL16-2).
+- **Revisit when:** `_types.py` re-grows past ~600 LOC, OR CL16-2 is taken on (it forces a co-decision on AletheiaError canonical path).
+
+#### R19P2-CL16-2. `AletheiaError` duplicate import paths [DEFER]
+- **Files:** Canonical at `python/aletheia/client/_types.py:18`; re-exported from `aletheia.AletheiaError` (`__init__.py:68,164`) AND `aletheia.client.AletheiaError` (`client/__init__.py:47,68`).
+- **Finding:** Two public paths for the same class; documentation references `from aletheia import AletheiaError`.
+- **Why DEFER:** Deprecating `aletheia.client.AletheiaError` is mechanically safe (re-export forwarder) but requires a deprecation warning + downstream user code review.  Project has no current external users so the warning-period is unnecessary, but the canonical-path decision is mostly cosmetic.
+- **Revisit when:** First external user lands, OR a documentation sweep clarifies the canonical import paths.
+
+#### R19P2-CL16-3. `is_str_dict` / `is_object_list` underscore-rename [DEFER]
+- **Files:** `python/aletheia/_dbc_types.py:19` (`is_str_dict` public re-export); `python/aletheia/_loader_utils.py` (`is_object_list` definition)
+- **Finding:** Internal TypeGuard helpers exposed publicly via no-underscore naming; project-internal usage only.
+- **Why DEFER:** Mechanical rename + import-site update across ~10 call sites; gain is small (linter/dev-tooling clarity).
+- **Revisit when:** First external user lands, OR a `python -m aletheia._loader_utils` discovery surfaces the helpers as confusing public API.
+
+#### R19P2-CL16-4. `normalize_signal` → `_normalize_signal` [DEFER]
+- **File:** `python/aletheia/client/_helpers.py:346` (`normalize_signal` public function)
+- **Finding:** Internal DBC normaliser exposed publicly; only called by `_helpers.py` itself + tests.
+- **Why DEFER:** Mechanical underscore-prefix + import update; same shape as CL16-3.
+- **Revisit when:** Co-decided with CL16-3 (boundary-naming sweep).
+
+#### R19P2-CL16-5. optional-extras upper-bound pins [✅ RESOLVED]
+- **File:** `python/pyproject.toml`
+- **Resolution:** `[project.optional-dependencies]` has explicit upper bounds with documented gate-mapping (`pylint<5` / `basedpyright<2` / `pytest<9` / `pytest-cov<7` / `pytest-markdown-docs<1`) inline as `dev = [...]`'s comment block.
+
+#### R19P2-CL16-6. `client/_helpers.py` 732-LOC split [DEFER — REGRESSED]
+- **File:** `python/aletheia/client/_helpers.py` (currently **798 LOC**, was 732 at finding time)
+- **Finding:** Original 732-LOC overshoot of the ~700-line guideline; has since grown by 66 LOC.
+- **Why DEFER:** Splitting requires identifying coherent sub-modules (currently: DBC normalisation + signal-value coercion + frame-builder helpers + presence-discriminator helpers).  Cluster 17 added cross-cutting helpers (e.g. `_normalize_signal_for_wire`), which increased rather than decreased the file's role count.
+- **Revisit when:** `_helpers.py` exceeds 1000 LOC (pylint C0302 default threshold), OR a coherent sub-module emerges from another refactor.
 
 ---
 
