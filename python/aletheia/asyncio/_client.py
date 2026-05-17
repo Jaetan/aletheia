@@ -25,6 +25,7 @@ from collections.abc import AsyncGenerator, Iterable, Mapping
 from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override
 
+from ..client._backend import Backend
 from ..client._client import AletheiaClient as _SyncClient
 from ..client._types import (
     CANFrameTuple,
@@ -66,6 +67,8 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         default_checks: list[CheckResult] | None = None,
         rts_cores: int = 1,
         sync_client: _SyncClient | None = None,
+        *,
+        backend: Backend | None = None,
     ) -> None:
         """See :class:`aletheia.AletheiaClient.__init__`.
 
@@ -77,15 +80,27 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         instead of constructing one internally.  Callers passing
         ``sync_client=...`` are responsible for ``default_checks`` /
         ``rts_cores`` configuration on the injected instance; the
-        kwargs of the same names are ignored when ``sync_client`` is
-        non-None.  See ``aletheia.asyncio.testing.gated_backend``
+        kwargs of the same names (and ``backend=``) are ignored when
+        ``sync_client`` is non-None.  See ``aletheia.asyncio.testing.gated_backend``
         for the canonical use case (deterministic cancellation tests
         via the public Backend DI seam — R20 cluster P).
+
+        ``backend`` (PY-S-16.1 closure — R21) mirrors the sync
+        constructor's keyword-only ``backend=`` kwarg, restoring
+        symmetry promised in this module's docstring header ("user
+        code can switch sync↔async by changing the import without
+        touching call sites").  Forwarded into the internal sync
+        construction; mutually exclusive with ``sync_client`` (use
+        one or the other).
         """
         if sync_client is not None:
             self._sync = sync_client
         else:
-            self._sync = _SyncClient(default_checks=default_checks, rts_cores=rts_cores)
+            self._sync = _SyncClient(
+                default_checks=default_checks,
+                rts_cores=rts_cores,
+                backend=backend,
+            )
 
     async def __aenter__(self) -> Self:
         """Load the FFI library + initialize RTS on a background thread.
