@@ -56,6 +56,22 @@
 -- paired user approval for the `private` audit + per-module sibling
 -- module structure.
 --
+-- R22 UPDATE (2026-05-17, post-`5b48948`): the user accepted "fix all
+-- 5 items" and the cluster scope expanded; 6 of the 7 remaining 1-of-8
+-- modules have since been closed (Primitives `543acee`, Format
+-- `000761b`, Format/AttrDef `9421604`, Aggregator/Dispatcher/
+-- Attribute/Assign `9c7740d`, Aggregator/Refine/ValueDescriptions
+-- `627ad25`, Properties/Attributes/Line `5b48948`).  Four split
+-- patterns demonstrated and verified clean by `check-properties` on
+-- every commit.  Only AttrLine.agda remains because (1) the prior
+-- empirical attempt at `Format/AttrLine/Builders.agda` was
+-- abandoned, (2) the file has 6 interleaved `private` blocks (lines
+-- 170/216/315/448/490/589/764) rather than the single block the other
+-- 6 had, and (3) the proven path-(a) "drop `private` + lift to public"
+-- mechanic — which worked on Line.agda's `P1-P5` block in `5b48948` —
+-- needs to be applied to multiple blocks here, each with its own
+-- per-private-helper audit risk.
+--
 -- DO NOT RE-RAISE IN REVIEW without paired user approval for the
 -- dedicated proof-restructure cluster (mirrors
 -- `feedback_step_back_when_proofs_balloon.md` "past ~500-1000 LOC per
