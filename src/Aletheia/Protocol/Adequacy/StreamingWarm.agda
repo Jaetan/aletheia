@@ -357,38 +357,60 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- UNCONDITIONAL STREAMING ADEQUACY
 -- ============================================================================
 
--- DEFERRED — TRACKED (R21-AGDA-D-12.1 — DEFER): The `AllObserved` premise
--- on `streaming-adequacy` (line 372) is documented as a caller obligation
--- in `Main.agda:45-50` but is NOT discharged at runtime.  When violated
--- (a property's atom whose target signal never appears in trace), the
--- kernel's `finalizeL` returns `Unsure → PropertyResult.Unresolved` — sound
--- but loses diagnostic context (user sees "Unresolved" without knowing it
--- was a cache miss vs a genuinely undecided Kleene Unknown).
+-- R21 cluster 1 — AGDA-D-12.1 partial closure (kernel wire scaffold landed):
 --
--- R21 Step 2 Agda D proposed fix (a): at EndStream walk every property's
--- atoms and emit one `AllObserved`-fail warning per uncached atom,
--- ratifying the existing `Unresolved` outcome with diagnostic context.
--- Scope of that fix is genuinely cross-binding wire-protocol extension:
---   1. New `Response` ADT variant (or extension of `Complete`) carrying a
---      list of `(propertyIndex, atomName)` warnings — new wire shape.
---   2. JSON serialiser + 3 binding-side parsers (Python / Go / C++).
+-- BACKGROUND.  The `AllObserved` premise on `streaming-adequacy` (line
+-- below) is documented as a caller obligation in `Main.agda:45-50` but
+-- is NOT discharged at runtime.  When violated (a property's atom whose
+-- target signal never appears in trace), the kernel's `finalizeL`
+-- returns `Unsure → PropertyResult.Unresolved` — sound but loses
+-- diagnostic context (user sees "Unresolved" without knowing it was a
+-- cache miss vs a genuinely undecided Kleene Unknown).
+--
+-- LANDED (this round): kernel-side wire-shape scaffold.
+--   * `Aletheia.Protocol.Response.WarningKind` + `Warning` ADTs
+--     (UncachedAtom kind).
+--   * `Response.Complete : List PropertyResult → List Warning → Response`
+--     extended to carry warnings alongside results.
+--   * `formatResponse (Complete results warnings)` adds the
+--     `warnings:[...]` field to the Complete JSON envelope.
+--   * `handleEndStream` currently emits `Response.Complete results []`
+--     — wire shape ready, walker not yet wired.
+--
+-- REMAINING (for a follow-up cluster — paired user approval still
+-- required per `feedback_no_unilateral_deferral.md` because the
+-- generation logic is the substantive change):
+--   1. AllObserved walker — at EndStream, for each `PropertyState ps`,
+--      collect atoms via `collectAtoms (PropertyState.proc ps)` (already
+--      lives in `Aletheia.Protocol.StreamState.Internals`), look up each
+--      atom's `signalOf` in the `cache : SignalCache`, and for each
+--      atom whose lookup returns `nothing` emit
+--      `mkWarning UncachedAtom (toℕ (PropertyState.index ps)) signalName`.
+--   2. Binding-side JSON parsers (Python `_client.py:485-525` end_stream
+--      handler; Go `client.go::EndStream` Complete-response decoder; C++
+--      `client.cpp::end_stream` JSON deserialiser).  Each currently
+--      tolerates the extra `warnings:` field as unknown — gates pass —
+--      but no surface exposes it.  Each binding needs a new
+--      `CompleteWarning` / `EndStreamWarning` type + slice exposed on
+--      the `CompleteResponse` it returns.
 --   3. New `LogEvent` enumerant `endstream.uncached_atom` with parity
 --      tests across `log_events_parity.{py,go,cpp}`.
 --   4. New `check-runbook` entry; runbook regen tool (R19P2 cluster 7
 --      regen-tool preservation pattern applies).
---   5. PROTOCOL.md update: document the new emission as part of EndStream
---      response semantics.
---   6. Cross-binding tests asserting warning emission shape.
--- Estimated 600-1200 LOC across 8-12 files; not a R21 in-cluster scope.
+--   5. PROTOCOL.md update: document the new emission as part of
+--      EndStream response semantics.
+--   6. Cross-binding shape tests asserting `warnings:` field round-trip
+--      end-to-end.
 --
--- Correctness rationale for the defer: the existing `Unresolved` outcome
--- IS sound (caller cannot mistake an undecided property for a satisfied
--- one).  The fix is purely UX — surfaces WHY the outcome is `Unresolved`.
--- Soundness is not at risk; only ergonomics.
+-- Estimated 400-800 LOC across 8-12 files for the remaining work
+-- (scaffold already shaved ~200 LOC off the original 600-1200 estimate
+-- by landing the wire format).  Soundness is preserved at every step:
+-- the existing `Unresolved` outcome is still emitted; warnings are
+-- additive diagnostic context, not a verdict change.
 --
--- DO NOT RE-RAISE IN REVIEW unless paired with explicit user approval for
--- the wire-protocol extension (mirrors the `feedback_no_unilateral_deferral.md`
--- + `feedback_step_back_when_proofs_balloon.md` cost-benefit gate).
+-- DO NOT RE-RAISE IN REVIEW for the WIRE SCAFFOLD — it's landed.  For
+-- the WALKER + BINDING DECODERS + LOG EVENT, require paired user
+-- approval per `feedback_no_unilateral_deferral.md`.
 
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`

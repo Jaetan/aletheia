@@ -320,11 +320,18 @@ finalizeProperties : ∀ {n} → List (PropertyState n) → List PR.PropertyResu
 finalizeProperties = map λ ps →
   verdictToResult (PropertyState.index ps) (finalizeL (PropertyState.proc ps))
 
--- End stream command: finalize all properties and transition back to ready state
+-- End stream command: finalize all properties and transition back to ready state.
+-- R21 cluster 1 — AGDA-D-12.1 scaffolding: the warnings list is currently
+-- empty; the per-atom cache-miss walk (which would populate it) is the
+-- still-deferred follow-up — see `StreamingWarm.agda::streaming-adequacy`
+-- DEFER block for the implementation plan.  Wire shape carries the empty
+-- list so binding-side parsers can adopt the `warnings:` field now; once
+-- the walker lands, every Complete response will carry concrete entries
+-- without further wire changes.
 handleEndStream : StreamState → StreamState × Response
 handleEndStream (Streaming n dbc props _ cache) =
   let results = finalizeProperties props
-  in (ReadyToStream n dbc props cache , Response.Complete results)
+  in (ReadyToStream n dbc props cache , Response.Complete results [])
 handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 
