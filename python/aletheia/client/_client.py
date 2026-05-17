@@ -53,6 +53,7 @@ from ._signal_ops import SignalOpsMixin
 from ._types import (
     AletheiaError,
     CANFrameTuple,
+    FFIError,
     FrameResult,
     InputBoundExceededError,
     PropertyDiagnostic,
@@ -466,7 +467,23 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             properties: List of LTL formulas (from DSL .to_dict())
 
         Returns:
-            SuccessResponse or ErrorResponse
+            SuccessResponse or ErrorResponse from the FFI ``setProperties``
+            command.  The return value reflects only the kernel-side outcome;
+            binding-internal failures while constructing per-property
+            diagnostics surface via the ``Raises`` channel below — mirrors
+            the C++ binding's ``Result<void>`` lowering at
+            ``cpp/src/client.cpp::set_properties``.
+
+        Raises:
+            FFIError: The rational renderer cannot load
+                ``libaletheia-ffi.so`` when ``build_diagnostic`` reaches
+                ``_format_rational``.  Kernel-side properties have already
+                been committed at this point; ``self._diags`` is cleared so
+                subsequent stream iterations do not observe partial state.
+            ValidationError: A formula contains a predicate value the
+                kernel accepted but the Python rational renderer rejects
+                (e.g. malformed ``{"numerator", "denominator"}`` dict).
+                Same state-cleanup contract as ``FFIError``.
         """
         cmd: SetPropertiesCommand = {
             "type": "command",
@@ -477,8 +494,15 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
         if response["status"] == "success":
             self._diags.clear()
             self._caches.clear()
-            for i, formula in enumerate(properties):
-                self._diags[i] = build_diagnostic(formula)
+            try:
+                for i, formula in enumerate(properties):
+                    self._diags[i] = build_diagnostic(formula)
+            except (FFIError, ValidationError):
+                # build_diagnostic failed after the kernel accepted the
+                # properties → drop partial diagnostics so subsequent
+                # stream iterations don't observe an inconsistent view.
+                self._diags.clear()
+                raise
             log_event(
                 _logger, logging.INFO, LogEvent.PROPERTIES_SET,
                 count=len(properties),
