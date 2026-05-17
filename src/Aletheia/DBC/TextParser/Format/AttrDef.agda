@@ -71,6 +71,13 @@ open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; stringLit; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; decRat; intDecRat; natDecRat;
          withPrefix; emit; parse; EmitsOK; ParseFailsAt; roundtrip)
+-- R22 continuation of R21 AGDA-D-15.1: the HEAD-NON-HSPACE HELPERS
+-- section (10 helpers) moved to a sibling submodule.
+open import Aletheia.DBC.TextParser.Format.AttrDef.HeadHelpers
+  using (digit-not-isHSpace; showNat-chars-head-stop;
+         showInt-chars-head-stop; showDecRat-chars-head-stop;
+         quoted-head-stop; not-dot-after-space;
+         assoc-bridgeᴴ; assoc-bridgeᴰ)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators (mirrors Format/EnvVar / Format/Comments)
@@ -368,107 +375,17 @@ liftRelAttrDef (s , n , t , _) =
   mkAttrDef n (liftRelScope s) (liftAttrType t)
 
 -- ============================================================================
--- HEAD-NON-HSPACE HELPERS
+-- HEAD-NON-HSPACE HELPERS — see `Format/AttrDef/HeadHelpers.agda`
 -- ============================================================================
-
--- The bridges from emit shape to `SuffixStops isHSpace …` preconditions
--- typically need the head of `emit X v ++ rest` to be a non-hspace char.
--- For closed prefixes (`literal "BU_"` etc.) the head is the first
--- closed-Char letter.  These helpers cover the data-dependent leaves
--- (showInt/showNat/showDecRat heads + stringLit's leading `'"'`).
-
-private
-  -- 10 digit chars are non-hspace.  `digitChar d` for any closed `d` is
-  -- in {'0' … '9'}; closed-char `≈ᵇ` comparison reduces to `false` for
-  -- both space (' ') and tab ('\t').
-  digit-not-isHSpace : ∀ d → isHSpace (digitChar d) ≡ false
-  digit-not-isHSpace 0 = refl
-  digit-not-isHSpace 1 = refl
-  digit-not-isHSpace 2 = refl
-  digit-not-isHSpace 3 = refl
-  digit-not-isHSpace 4 = refl
-  digit-not-isHSpace 5 = refl
-  digit-not-isHSpace 6 = refl
-  digit-not-isHSpace 7 = refl
-  digit-not-isHSpace 8 = refl
-  digit-not-isHSpace 9 = refl
-  digit-not-isHSpace
-    (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
-
-  -- Head of `(showNat-chars n ++ inner-rest) ++ outer-suffix` is non-hspace.
-  -- Mirrors `Format/Comments.agda`'s `showNat-chars-head-non-hspace`.
-  showNat-chars-head-stop : ∀ (n : ℕ) (rest : List Char)
-    → SuffixStops isHSpace (showNat-chars n ++ₗ rest)
-  showNat-chars-head-stop n rest with showNat-chars-head n
-  ... | d , tail , _ , eq =
-        subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
-              (sym eq)
-              (∷-stop (digit-not-isHSpace d))
-
-  -- Head of `(showInt-chars z ++ inner-rest) ++ outer-suffix` is non-hspace.
-  -- Three-case dispatch: `(+ zero)` / `(+ suc n)` / `-[1+ _ ]` (the
-  -- `-` head is non-hspace by `refl`).
-  showInt-chars-head-stop : ∀ (z : ℤ) (rest : List Char)
-    → SuffixStops isHSpace (showInt-chars z ++ₗ rest)
-  showInt-chars-head-stop (+ n) rest = showNat-chars-head-stop n rest
-  showInt-chars-head-stop (-[1+ _ ]) _ = ∷-stop refl
-
-  -- Head of `(showDecRat-dec-chars d ++ inner-rest) ++ outer-suffix` is
-  -- non-hspace.  Three-case dispatch on the DecRat numerator's sign.
-  showDecRat-chars-head-stop : ∀ (d : DecRat) (rest : List Char)
-    → SuffixStops isHSpace (showDecRat-dec-chars d ++ₗ rest)
-  showDecRat-chars-head-stop (mkDecRat (+ zero) a b cx) rest
-    with showDecRat-chars-head-digit zero a b cx
-  ... | k , tail , _ , eq =
-        subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
-              (sym eq)
-              (∷-stop (digit-not-isHSpace k))
-  showDecRat-chars-head-stop (mkDecRat (+ suc n) a b cx) rest
-    with showDecRat-chars-head-digit (suc n) a b cx
-  ... | k , tail , _ , eq =
-        subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
-              (sym eq)
-              (∷-stop (digit-not-isHSpace k))
-  showDecRat-chars-head-stop (mkDecRat (-[1+ n ]) a b cx) rest
-    with showDecRat-chars-head-dash n a b cx
-  ... | tail , eq =
-        subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
-              (sym eq)
-              (∷-stop refl)
-
-  -- Head of `(quoteStringLit-chars cs ++ inner-rest) ++ outer-suffix` is
-  -- `'"'` (non-hspace).  `quoteStringLit-chars` always starts with `'"'`
-  -- by definitional reduction.
-  quoted-head-stop : ∀ (cs rest : List Char)
-    → SuffixStops isHSpace (quoteStringLit-chars cs ++ₗ rest)
-  quoted-head-stop _ _ = ∷-stop refl
-
-  -- `'.' ≢ headOr (' ' ∷ rest) '_'` discharges by `λ ()` — `headOr`
-  -- returns the first elem when non-empty, so `headOr (' ' ∷ rest) _ = ' '`
-  -- and `'.' ≡ ' '` is absurd.
-  not-dot-after-space : ∀ (rest : List Char)
-    → '.' ≢ headOr (' ' ∷ rest) '_'
-  not-dot-after-space _ = λ ()
-
-  -- ++ₗ-assoc bridge: convert a right-associated `xs ++ (as ++ bs)`
-  -- SuffixStops witness to the left-associated `(xs ++ as) ++ bs`
-  -- shape required by EmitsOK reductions of `withWS (pair intDecRat
-  -- (withWS intDecRat))` etc.  `withWS f`'s emit is `' ' ∷ emit f a`,
-  -- and `pair g h`'s emit is `emit g a ++ emit h b`, so the suffix at
-  -- the leading-ws slot is `(emit g a ++ emit h b) ++ outer-suffix` —
-  -- left-associated.  Our `showXxx-chars-head-stop` helpers produce a
-  -- right-associated witness; this bridges them.
-  assoc-bridgeᴴ : ∀ (xs as bs : List Char)
-    → SuffixStops isHSpace (xs ++ₗ (as ++ₗ bs))
-    → SuffixStops isHSpace ((xs ++ₗ as) ++ₗ bs)
-  assoc-bridgeᴴ xs as bs ss =
-    subst (SuffixStops isHSpace) (sym (++ₗ-assoc xs as bs)) ss
-
-  assoc-bridgeᴰ : ∀ (xs as bs : List Char)
-    → SuffixStops isDigit (xs ++ₗ (as ++ₗ bs))
-    → SuffixStops isDigit ((xs ++ₗ as) ++ₗ bs)
-  assoc-bridgeᴰ xs as bs ss =
-    subst (SuffixStops isDigit) (sym (++ₗ-assoc xs as bs)) ss
+--
+-- The 10 head-non-hspace helpers (`digit-not-isHSpace`,
+-- `showNat-chars-head-stop`, `showInt-chars-head-stop`,
+-- `showDecRat-chars-head-stop`, `quoted-head-stop`,
+-- `not-dot-after-space`, `assoc-bridgeᴴ`, `assoc-bridgeᴰ`) moved to
+-- the sibling submodule `Format.AttrDef.HeadHelpers` (R22 continuation
+-- of R21 AGDA-D-15.1).  No dependency on AttrDef's own definitions —
+-- they bridge `SuffixStops … preconditions` for the EMITS-OK builders
+-- below.  Imported back at the top of this module.
 
 -- ============================================================================
 -- EMITS-OK BUILDERS — concrete-shape preconditions baked into signatures
