@@ -58,6 +58,8 @@ When the user's message is just `UPD` (case-insensitive, no other content), inte
 - `CLAUDE.md` (Current Session Progress, module-flag breakdown, anything that drifted)
 - `AGENTS.md` (only if a new rule / cross-ref was earned this session)
 
+**Size budget**: after the sweep, check `wc -c CLAUDE.md`. If it exceeds **40.0 kB**, compress in the same UPD commit — push per-cluster narrative detail into the appropriate `memory/project_*.md` file (e.g. `project_review_round20.md`) and replace with a one-line index pointer, mirroring how prior rounds compressed (e.g. R6-B8.2's `970f704` compression of Current Session Progress). The compression IS doc-state sync; do not split into a separate commit.
+
 **UPD is a doc-state sync only.** The resulting commit must contain ONLY doc-sweep edits. Pre-existing uncommitted work (refactors, structural cleanups, prior tasks) goes in its own commit at task completion, never bundled into UPD. See `memory/feedback_upd_scope.md`. Apply the 2-question pre-commit gate (`feedback_pre_commit_scope_check.md`) before committing the doc sweep.
 
 When the user's message is just `READ` (case-insensitive, no other content), interpret it as **"Read the session state, memory/feedback, plan/project status, CLAUDE.md/AGENTS.md."** Sweep (read-only — no edits):
