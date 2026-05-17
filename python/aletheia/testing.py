@@ -11,12 +11,14 @@ Per ``feedback_test_interface_via_di.md``: when a harness needs to call a
 ``_`` -prefixed helper, the answer is interface-promotion through a stable
 alias module, never ``# pylint: disable=protected-access``.
 
-Note: ``docs/FEATURE_MATRIX.yaml`` row ``mock_backend_for_testing`` mentions
-``aletheia.testing`` as the hypothetical home for a Python ``MockBackend``
-class.  This module shares that namespace but does not host the mock backend
-— that promotion remains the "separate design decision" the matrix row
-references.  Adding a ``MockBackend`` here later is allowed; the current
-contents (engine-layer re-exports) are independent of that decision.
+Note: ``MockBackend`` was promoted to a public class in R20 cluster P
+(commit ``4dd3c05``) and now lives at :class:`aletheia.client.MockBackend`
+with re-export at :class:`aletheia.MockBackend`; see
+``docs/FEATURE_MATRIX.yaml`` row ``mock_backend`` (entry
+``aletheia.MockBackend``).  This ``aletheia.testing`` module is the
+benchmark / engine re-export surface and does NOT re-host
+``MockBackend`` — users import the mock directly from ``aletheia`` (or
+``aletheia.client``).  PY-S-17.2 closure (R21).
 """
 from __future__ import annotations
 
