@@ -544,6 +544,21 @@ def main(argv: list[str] | None = None) -> int:
     # Builds the full ctest battery against -DALETHEIA_SANITIZER=undefined and
     # asserts every test passes.  Vendored zippy.hpp UB filtered via
     # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
+    #
+    # DEFERRED — TRACKED (R21-CPP-SYS-32.2 — DEFER): Step 2 C++ System
+    # finding (CPP-SYS-32.2 HIGH) proposed promoting UBSan + clang-tidy
+    # from opt-in to always-on within `tools/run_ci.py` because CPP-B-8.1's
+    # UB in `Rational::from_double` shipped undetected exactly because
+    # the lane was opt-in.  Promotion is a real correctness win but the
+    # decision is operational (CI billing impact + local-dev wall-clock
+    # cost — UBSan rebuild + per-test instrumentation adds ~3-5 minutes
+    # per run on this hardware) and the project convention is that
+    # always-on CI changes need explicit user approval.  Mirrors R21
+    # clusters 7 / 9 / 10's DEFER discipline: do not silently promote
+    # billing-affecting infra.  Re-raise only with paired user approval
+    # for either: (a) flipping --san to always-on; (b) ALETHEIA_SAN_CHECK=1
+    # adopted as the default in `.bashrc` / CI driver; (c) a separate
+    # nightly lane.  See `feedback_no_unilateral_deferral.md`.
     if opts.san:
         r.step(
             "ubsan ctest",
