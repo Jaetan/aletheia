@@ -16,7 +16,7 @@
 module Aletheia.Protocol.Handlers where
 
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; map; reverse; length)
+open import Data.List using (List; []; _∷_; map; reverse; length) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
@@ -351,9 +351,7 @@ collectUncachedWarnings-one cache ps =
 collectUncachedWarnings : ∀ {n} → SignalCache → List (PropertyState n) → List Warning
 collectUncachedWarnings _ [] = []
 collectUncachedWarnings cache (ps ∷ rest) =
-  collectUncachedWarnings-one cache ps ++ collectUncachedWarnings cache rest
-  where
-    open import Data.List using () renaming (_++_ to _++_)
+  collectUncachedWarnings-one cache ps ++ₗ collectUncachedWarnings cache rest
 
 -- End stream command: finalize all properties + emit cache-miss warnings,
 -- then transition back to ready state.  R21 cluster 1 — AGDA-D-12.1
