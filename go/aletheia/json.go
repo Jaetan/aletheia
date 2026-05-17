@@ -1361,7 +1361,24 @@ func parseStreamResponse(raw string) (*StreamResult, error) {
 		}
 		results = append(results, pr)
 	}
-	return &StreamResult{Results: results}, nil
+
+	var warnings []StreamWarning
+	for _, item := range getArray(m, "warnings") {
+		w, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError("expected object in warnings array")
+		}
+		idx, err := parseNumberAsInt64(w["property_index"])
+		if err != nil {
+			return nil, wrapProtocolError("warning property_index", err)
+		}
+		warnings = append(warnings, StreamWarning{
+			Kind:          getString(w, "kind"),
+			PropertyIndex: int(idx),
+			Detail:        getString(w, "detail"),
+		})
+	}
+	return &StreamResult{Results: results, Warnings: warnings}, nil
 }
 
 // parsePropertyResult decodes a single endStream verdict object into

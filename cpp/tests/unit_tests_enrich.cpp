@@ -251,6 +251,49 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
                ContainsSubstring("[core: Never satisfied]"));
 }
 
+TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
+    // R21 cluster 1 — AGDA-D-12.1: kernel emits one `uncached_atom`
+    // warning per atom whose target signal never appeared in trace.
+    // Verifies the C++ binding decodes these into StreamResult::warnings.
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "unresolved", "property_index": 0,
+             "reason": "Atomic: predicate never resolved at end of stream"}
+        ],
+        "warnings": [
+            {"kind": "uncached_atom", "property_index": 0, "detail": "UnobservedSignal"}
+        ]
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"UnobservedSignal"}, PhysicalValue{Rational{100, 1}})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
+
+    auto end_result = client.end_stream(std::stop_token{});
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->warnings.size() == 1);
+    CHECK(end_result->warnings[0].kind == "uncached_atom");
+    CHECK(end_result->warnings[0].property_index.get() == 0);
+    CHECK(end_result->warnings[0].detail == "UnobservedSignal");
+}
+
 TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();

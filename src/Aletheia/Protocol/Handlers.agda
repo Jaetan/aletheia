@@ -15,7 +15,7 @@
 -- This module also provides processStreamCommand (command dispatch).
 module Aletheia.Protocol.Handlers where
 
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_; map; reverse; length)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
@@ -35,14 +35,15 @@ open import Aletheia.DBC.BoundWalks using
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)
 open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.LTL.Syntax using (atomCount)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; SendFrame; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
-open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
+open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult;
+  Warning; mkWarning; WarningKind; UncachedAtom)
 open import Aletheia.Trace.Time using (Timestamp; μs; mkTs)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
@@ -320,18 +321,52 @@ finalizeProperties : ∀ {n} → List (PropertyState n) → List PR.PropertyResu
 finalizeProperties = map λ ps →
   verdictToResult (PropertyState.index ps) (finalizeL (PropertyState.proc ps))
 
--- End stream command: finalize all properties and transition back to ready state.
--- R21 cluster 1 — AGDA-D-12.1 scaffolding: the warnings list is currently
--- empty; the per-atom cache-miss walk (which would populate it) is the
--- still-deferred follow-up — see `StreamingWarm.agda::streaming-adequacy`
--- DEFER block for the implementation plan.  Wire shape carries the empty
--- list so binding-side parsers can adopt the `warnings:` field now; once
--- the walker lands, every Complete response will carry concrete entries
--- without further wire changes.
+-- R21 cluster 1 — AGDA-D-12.1 closure (walker landed):
+--
+-- For one PropertyState, walk its atoms and emit a `UncachedAtom` warning
+-- for each atom whose target signal never appears in the cache at
+-- EndStream.  Each warning records the property index (so the binding
+-- can correlate with the corresponding PropertyResult) and the
+-- offending signal name (as a string, lifted from `List Char` via
+-- `fromList`).  Multiple atoms in the same property whose signals are
+-- ALL missing produce one warning each — callers can deduplicate by
+-- (propertyIndex, detail) tuple if desired; the kernel does not, since
+-- the diagnostic value is "this many atoms had this many distinct
+-- missed signals," not just "one or more missed."
+collectUncachedWarnings-one : ∀ {n} → SignalCache → PropertyState n → List Warning
+collectUncachedWarnings-one cache ps =
+  walkAtoms (PropertyState.atoms ps)
+  where
+    propIdx : ℕ
+    propIdx = toℕ (PropertyState.index ps)
+
+    walkAtoms : List SignalPredicate → List Warning
+    walkAtoms [] = []
+    walkAtoms (sp ∷ rest) with lookupCache (signalOf sp) cache
+    ... | just _  = walkAtoms rest
+    ... | nothing = mkWarning UncachedAtom propIdx (fromList (signalOf sp))
+                  ∷ walkAtoms rest
+
+-- Walker entrypoint: collect cache-miss warnings across every property.
+collectUncachedWarnings : ∀ {n} → SignalCache → List (PropertyState n) → List Warning
+collectUncachedWarnings _ [] = []
+collectUncachedWarnings cache (ps ∷ rest) =
+  collectUncachedWarnings-one cache ps ++ collectUncachedWarnings cache rest
+  where
+    open import Data.List using () renaming (_++_ to _++_)
+
+-- End stream command: finalize all properties + emit cache-miss warnings,
+-- then transition back to ready state.  R21 cluster 1 — AGDA-D-12.1
+-- closure: the walker populates the warnings list via
+-- `collectUncachedWarnings` (atom-level lookup against the EndStream
+-- signal cache).  Wire shape is unchanged from the scaffold landing in
+-- `85623b7`; binding-side parsers see the field they were already
+-- decoding, just with concrete entries now.
 handleEndStream : StreamState → StreamState × Response
 handleEndStream (Streaming n dbc props _ cache) =
-  let results = finalizeProperties props
-  in (ReadyToStream n dbc props cache , Response.Complete results [])
+  let results  = finalizeProperties props
+      warnings = collectUncachedWarnings cache props
+  in (ReadyToStream n dbc props cache , Response.Complete results warnings)
 handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 

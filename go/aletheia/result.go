@@ -90,9 +90,29 @@ type PropertyResult struct {
 	Enrichment    *ViolationEnrichment // nil when verdict is Holds or no diagnostic
 }
 
-// StreamResult contains the end-of-stream verdicts for all properties.
+// StreamWarning is one diagnostic surfaced by the kernel at EndStream.
+//
+// R21 cluster 1 — AGDA-D-12.1: Kind == "uncached_atom" is emitted when a
+// property's atom references a signal that never appeared in trace.  The
+// Unresolved verdict on that property is sound (three-valued Kleene
+// Unknown) but indistinguishable from a genuine Kleene-undecidable
+// Unresolved without this warning.
+//
+// New kinds are additive on the wire (the kernel adds new WarningKind
+// constructors; bindings should accept unknown Kind values rather than
+// rejecting them).
+type StreamWarning struct {
+	Kind          string
+	PropertyIndex int
+	Detail        string
+}
+
+// StreamResult contains the end-of-stream verdicts for all properties
+// plus any cache-miss diagnostic warnings (empty when every atom's
+// signal was observed at least once).
 type StreamResult struct {
-	Results []PropertyResult
+	Results  []PropertyResult
+	Warnings []StreamWarning
 }
 
 // IssueSeverity classifies a validation issue.

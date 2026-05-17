@@ -24,6 +24,7 @@ from ..protocols import (
     PropertyViolationResponse,
     PropertyResultEntry,
     CompleteResponse,
+    CompleteWarning,
     ErrorResponse,
     ValidationResponse,
     ParsedDBCResponse,
@@ -881,6 +882,15 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             results = parse_finalization_results(
                 response, self._enrich_finalization_result,
             )
+            raw_warnings = cast(list[dict[str, object]], response.get("warnings", []))
+            warnings: list[CompleteWarning] = [
+                {
+                    "kind": cast(str, w.get("kind", "")),
+                    "property_index": cast(int, w.get("property_index", 0)),
+                    "detail": cast(str, w.get("detail", "")),
+                }
+                for w in raw_warnings
+            ]
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()
@@ -888,8 +898,9 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
                 _logger, logging.INFO, LogEvent.STREAM_ENDED,
                 numResults=len(results), numFails=num_fails,
                 numUnresolved=num_unresolved,
+                numWarnings=len(warnings),
             )
-            return {"status": "complete", "results": results}
+            return {"status": "complete", "results": results, "warnings": warnings}
 
         if status == "error":
             return build_error_response(response)

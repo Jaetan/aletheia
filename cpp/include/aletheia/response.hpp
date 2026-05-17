@@ -92,8 +92,25 @@ struct PropertyResult {
     std::optional<ViolationEnrichment> enrichment;
 };
 
+/// One EndStream diagnostic surfaced by the kernel.
+///
+/// R21 cluster 1 — AGDA-D-12.1: kind == "uncached_atom" is emitted when
+/// a property's atom references a signal that never appeared in trace.
+/// The Unresolved verdict on that property is sound (three-valued Kleene
+/// Unknown) but indistinguishable from a genuine Kleene-undecidable
+/// Unresolved without this warning.
+///
+/// New kinds are additive on the wire (kernel adds new WarningKind
+/// constructors; bindings should accept unknown kinds rather than reject).
+struct StreamWarning {
+    std::string kind;
+    PropertyIndex property_index{0};
+    std::string detail;
+};
+
 struct StreamResult {
     std::vector<PropertyResult> results;
+    std::vector<StreamWarning> warnings;
 };
 
 // ---------------------------------------------------------------------------

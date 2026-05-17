@@ -884,7 +884,8 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 		c.logger.LogAttrs(ctx, slog.LevelInfo, "stream.ended",
 			slog.Int("numResults", len(sr.Results)),
 			slog.Int("numFails", numFails),
-			slog.Int("numUnresolved", numUnresolved))
+			slog.Int("numUnresolved", numUnresolved),
+			slog.Int("numWarnings", len(sr.Warnings)))
 	}
 	return sr, nil
 }

@@ -672,7 +672,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             logger_.info("stream.ended",
                          {{"numResults", static_cast<std::uint64_t>(result->results.size())},
                           {"numFails", num_fails},
-                          {"numUnresolved", num_unresolved}});
+                          {"numUnresolved", num_unresolved},
+                          {"numWarnings", static_cast<std::uint64_t>(result->warnings.size())}});
         }
         last_frames_.clear();
     }

@@ -861,6 +861,60 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 	}
 }
 
+func TestEndStream_UncachedAtomWarning(t *testing.T) {
+	// R21 cluster 1 — AGDA-D-12.1: kernel emits one `uncached_atom`
+	// warning per atom whose target signal never appeared in trace.
+	// Verifies the Go binding surfaces these on StreamResult.Warnings.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}],
+			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties(ctx, []aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "UnobservedSignal", Value: aletheia.RationalFromFloat(100),
+		}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sid, _ := aletheia.NewStandardID(0x123)
+	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	result, err := c.EndStream(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(result.Warnings))
+	}
+	w := result.Warnings[0]
+	if w.Kind != "uncached_atom" {
+		t.Errorf("expected kind=uncached_atom, got %q", w.Kind)
+	}
+	if w.PropertyIndex != 0 {
+		t.Errorf("expected property_index=0, got %d", w.PropertyIndex)
+	}
+	if w.Detail != "UnobservedSignal" {
+		t.Errorf("expected detail=UnobservedSignal, got %q", w.Detail)
+	}
+}
+
 func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`), // SetProperties (1 property)

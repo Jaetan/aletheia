@@ -55,9 +55,10 @@ open import Aletheia.LTL.SignalPredicate.Evaluation
 -- ============================================================================
 
 -- Associate a SignalPredicate with its target signal name.
-signalOf : SignalPredicate → List Char
-signalOf (ValueP vp) = valuePredicateSignal vp
-signalOf (DeltaP dp) = deltaPredicateSignal dp
+-- Definition lifted to `SignalPredicate.Types` (so the EndStream warning
+-- walker in `Protocol.Handlers` — R21 AGDA-D-12.1 — can call it from
+-- runtime code).  Already in scope via `open import SignalPredicate.Types`
+-- at line 49; this comment marks the historic location for grep.
 
 -- `fromBool b` is definite for any `b`: it's either True or False.
 fromBool-definite : ∀ b → (fromBool b ≡ True) ⊎ (fromBool b ≡ False)
