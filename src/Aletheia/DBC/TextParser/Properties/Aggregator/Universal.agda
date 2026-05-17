@@ -18,18 +18,15 @@
 --      `refineAttributes` inverse (task D) + buildDBC reconstruction.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Universal where
 
-open import Data.Char  using (Char)
 open import Data.List  using (List; []; _∷_; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc; ++-identityʳ to ++ₗ-identityʳ)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.List.Relation.Unary.AllPairs using (AllPairs)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Product using (_×_; _,_)
-open import Data.String using (String)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Unit using (⊤; tt)
+open import Data.Maybe using (just; nothing)
+open import Data.Product using (_,_)
+open import Data.Sum using (_⊎_; inj₂)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
@@ -54,7 +51,6 @@ open import Aletheia.DBC.TextParser using
   ( parseText; parseTextChars; finalizeParse; buildDBC
   ; DBCTextParseError)
 
-open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 
 open import Aletheia.DBC.TextParser.TopLevel using

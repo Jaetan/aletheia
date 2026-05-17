@@ -37,16 +37,15 @@
 --                     `¬ T (isHSpace '-')` directly.
 module Aletheia.DBC.TextParser.Properties.CharClassDisjoint where
 
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (true; false; T)
 open import Data.Char using (Char; _≈ᵇ_; toℕ) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Properties using (≈⇒≡)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; zero; suc; _≡ᵇ_)
+open import Data.Nat using (_≡ᵇ_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Data.Product using (_,_)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)

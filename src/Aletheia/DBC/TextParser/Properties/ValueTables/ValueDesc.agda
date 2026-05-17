@@ -26,13 +26,13 @@
 module Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; foldr; length)
+open import Data.List using (List; []; _∷_; length)
   renaming (_++_ to _++ₗ_)
-open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
+open import Data.List.Properties
+open import Data.Maybe using (just)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
@@ -40,7 +40,6 @@ open import Aletheia.Parser.Combinators using
   (Parser; Position; ParseResult; mkResult; advancePositions;
    pure; _>>=_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.ValueTables using
   (RawValueDesc; mkRawValueDesc; parseValueDescription; buildResultP)
