@@ -24,18 +24,42 @@
 -- wrapper, NOT in this Format — same η-style wrap pattern as
 -- `Format/EnvVar.agda` / `Format/AttrDef.agda`.
 --
--- DEFERRED — TRACKED (R21-AGDA-D-15.1 — DEFER): file is 1251 LOC, over
--- the 800-LOC `feedback_properties_facade_split.md` trigger.  Suggested
--- split topology along the 5-way <|> dispatch:
---   * `Format/AttrLine/Default.agda` (BA_DEF_DEF_)
---   * `Format/AttrLine/Assign.agda` (BA_)
---   * `Format/AttrLine/Rel.agda` (BA_REL_)
---   * `Format/AttrLine/Definition.agda` (BA_DEF_ + BA_DEF_REL_)
---   * `Format/AttrLine.agda` (this file → composer + 5-way `<|>` only)
--- See `DecRatParse/Properties.agda` for the same DEFER pattern.  All 7
--- modules over the trigger share the same blocker (proof-side coupling
--- across the split boundary).  DO NOT RE-RAISE IN REVIEW without paired
--- user approval for the dedicated proof-restructure cluster.
+-- DEFERRED — TRACKED (R21-AGDA-D-15.1 — DEFER): file is 1264 LOC, over
+-- the 800-LOC `feedback_properties_facade_split.md` trigger.
+--
+-- R21 cluster 9 EMPIRICAL FINDING (2026-05-17): the natural cut at line
+-- 773 (L5 DISJOINTNESS HELPERS → end-of-file, ~492 LOC) was attempted
+-- as `Format/AttrLine/Builders.agda` mirroring the
+-- `DecRatParse/Properties` 5-phase facade success.  Blocker: the L5 +
+-- KEYWORD-TARGET sections depend on `parseStdTgtL1-fails-on-non-keyword-head`
+-- plus ~10 sibling helpers defined inside the upstream `private` block
+-- at lines 291-419, which sibling modules cannot reach via
+-- `open import ... public`.  Fix paths each carry real cost:
+--   (a) Drop `private` on the 128-line block 291-419 + dedent every
+--       definition → expands public API by ~10 names + per-line edit.
+--   (b) Move the 128-line block into a leaf helper module
+--       `Format/AttrLine/Helpers.agda` that both AttrLine.agda and
+--       Builders.agda import → 3-way restructure + the helper module
+--       needs the entire upstream import block re-imported.
+--   (c) Inline the helpers' implementations into Builders.agda's L5
+--       call sites → loses the named-helper abstraction.
+--
+-- Each requires a per-private-helper audit (5 such blocks in this file
+-- total at lines 146 / 192 / 291 / 424 / 466).  Multi-day effort,
+-- distinct from the DecRatParse case where the phase boundaries
+-- cleanly fell between conceptual layers without `private` crossings.
+--
+-- The 6 other AGDA-D-15.1 modules likely share AttrLine's blocker
+-- pattern (each has multiple sections with potentially interleaved
+-- `private` blocks).  R21 closed 1 of 8 modules (DecRatParse) and
+-- defers the remaining 7 to a dedicated proof-restructure cluster with
+-- paired user approval for the `private` audit + per-module sibling
+-- module structure.
+--
+-- DO NOT RE-RAISE IN REVIEW without paired user approval for the
+-- dedicated proof-restructure cluster (mirrors
+-- `feedback_step_back_when_proofs_balloon.md` "past ~500-1000 LOC per
+-- construct: surface architectural alternatives").
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
