@@ -26,7 +26,7 @@ doc-example tests in `go/aletheia/doc_examples_test.go` for tested, runnable
 examples.
 
 ```go
-import "github.com/anthropics/aletheia/go/aletheia"
+import "github.com/aletheia-automotive/aletheia-go/aletheia"
 
 backend, err := aletheia.NewFFIBackend(aletheia.WithRTSCores(1))
 if err != nil { ... }

@@ -110,7 +110,7 @@ aletheia/
 ├── LICENSE.md                         # Legal
 ├── AGENTS.md                          # Per-language coding standards / review categories
 ├── DEPENDENCIES.md                    # Third-party dependencies & licenses
-├── review-r20-findings.md             # Round-scope working file (per-round, latest round in repo root)
+├── review-rN-findings.md              # Round-scope working file (per-round, latest round in repo root; deleted pre-merge)
 ├── .session-state.md                  # Session recovery + resume instructions (AI-assisted dev)
 │
 ├── docs/

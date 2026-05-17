@@ -98,7 +98,7 @@ Please follow the existing style and structure of the codebase:
 - Write clear commit messages explaining intent
 - Add tests where appropriate
 - See [AGENTS.md](AGENTS.md) for per-language coding standards and review categories
-- See [CLAUDE.md](CLAUDE.md#contributing) for the pre-commit checklist (type-check, build, tests)
+- See [CLAUDE.md § Notes for newcomers](CLAUDE.md#notes-for-newcomers) for the pre-commit checklist (type-check, build, tests)
 
 Consistency matters more than personal preference.
 

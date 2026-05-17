@@ -5,6 +5,7 @@ This directory contains example DBC files and verification scripts demonstrating
 ## Files
 
 - `example.dbc` - Sample DBC file with engine and brake signals (standard Vector DBC format)
+- `example_canfd.dbc` - CAN-FD variant of `example.dbc` covering 12/16/20/24/32/48/64-byte payloads (CAN-FD specific DLC table per ISO 11898-1:2015 §10.4.2)
 - `simple_verification.py` - Complete verification example using AletheiaClient API
 - `demo/` - Demo scripts for presentations and walkthroughs
 

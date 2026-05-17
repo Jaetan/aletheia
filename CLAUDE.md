@@ -86,12 +86,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-248 total modules (`cabal run shake -- count-modules`):
-- **243**: `--safe --without-K`
+250 total modules (`cabal run shake -- count-modules`):
+- **245**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) AND the B.3.d outer-wrap `parseText-on-formatText` consumer — co-located here to keep the trusted-axiom-consuming surface at one allowlisted module (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-247 of 248 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, R18 cluster 14 extraction, R18 cluster 2 `Aletheia.Limits` extraction, R19 Phase 2 cluster 8 `Aletheia.DBC.Formatter.Bounded` extraction, R20 cluster V `Aletheia.DBC.BoundWalks` extraction, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md` / `memory/project_review_round18.md`.
+249 of 250 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, R18 cluster 14 extraction, R18 cluster 2 `Aletheia.Limits` extraction, R19 Phase 2 cluster 8 `Aletheia.DBC.Formatter.Bounded` extraction, R20 cluster V `Aletheia.DBC.BoundWalks` extraction, R20 cluster Y stage 2 `Aletheia.DBC.RationalRenderer` (+`.Properties`) lift, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md` / `memory/project_review_round18.md` / `memory/project_smart_rational_renderer.md`.
 
 ## Common Commands
 
@@ -251,7 +251,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 For full history (R6–R19, Path G, Phase 5.1, Tracks A–E, B.3.d Layers 1–4) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Per-commit narratives + sub-phase tactical detail live in PROJECT_STATUS.md and the `memory/project_*.md` files indexed in `MEMORY.md`. Resume notes / next-session entry point: [.session-state.md](.session-state.md).
 
-**Active branch (2026-05-17): `review-r20` — READY TO MERGE**. Forked from `main` at `2e79ed8` 2026-05-12 (post-R19 merge `41f6ba6` + tidy `2e79ed8`; pushed). Module count **250**. Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`. Per-cluster commit hashes, scope, dispositions, lessons distilled: `memory/project_review_round20.md`.
+**Active branch: `review-r21` — IN PROGRESS** (R20 merged via `2477d5c` post-`e3107f6` tidy 2026-05-17, see `memory/project_review_round20.md`).  Forked from `main` post-R20 merge; cluster-by-cluster pace per user mandate.  Module count **250**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.  Per-cluster commit hashes + dispositions: `memory/project_review_round21.md`.  Round's working file (deleted pre-merge per `feedback_review_branch_workflow.md`): `review-r21-findings.md`.
 
 **R20 round** (2026-05-12 → 2026-05-17, end-of-round DEFER queue further reduced — R6-B7.3 + R6-B7.4 closed via lift + parameterisation) — 17 agents → 671 raw findings (`3571702`); split (`3fa8e65`) into Clusters A-V + DEFER-end-of-round; W/X/Y/GO-A-3.5 closed pass-2; nine user-redirected closures post-Y. Cluster commit index:
 

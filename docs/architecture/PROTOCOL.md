@@ -1083,6 +1083,9 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | Signals per single message | 1,024 | `array_cardinality` |
 | Attribute defs / assignments per file | 10,000 | `array_cardinality` |
 | Value descriptions per file (`VAL_` + `VAL_TABLE_`) | 1,000,000 | `array_cardinality` |
+| Comments per DBC file (`CM_`) | 10,000 | `array_cardinality` |
+| Nodes per DBC file (`BU_`) | 10,000 | `array_cardinality` |
+| Value tables per DBC file (`VAL_TABLE_` definitions) | 10,000 | `array_cardinality` |
 | LTL atoms per property | 1,024 | `atom_count` |
 | DBC identifier length | 128 chars | `identifier_length` |
 | Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |
