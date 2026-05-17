@@ -17,6 +17,7 @@
 // check.hpp wraps LtlFormula construction and uses SignalName/PhysicalValue
 // throughout its builder API, so callers that include check.hpp always need
 // the ltl and types vocabulary.
+#include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/ltl.hpp>   // IWYU pragma: export
 #include <aletheia/types.hpp> // IWYU pragma: export
 
@@ -28,6 +29,22 @@
 #include <utility>
 
 namespace aletheia {
+
+namespace check_detail {
+
+// Render a PhysicalValue via the Agda kernel renderer (cross-binding-identical
+// output).  CheckResult::condition_desc() strings flow through here so the
+// human-readable check description matches the predicate-side `format_value`
+// (`enrich.cpp:format_value(const Rational&)`) byte-for-byte — and matches
+// Python's `_format_rational` + Go's `formatRationalFFI` by construction.
+// No local fallback: a missing `libaletheia-ffi.so` throws
+// `AletheiaException(Ffi)` per the rational_renderer.hpp contract.
+inline auto fmt_pv(PhysicalValue v) -> std::string {
+    const auto& r = v.get();
+    return ::aletheia::detail::format_rational_ffi(r.numerator, r.denominator);
+}
+
+} // namespace check_detail
 
 // ---------------------------------------------------------------------------
 // CheckResult: terminal object wrapping a formula with optional metadata
@@ -108,8 +125,8 @@ public:
         auto f =
             ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
         return {std::move(f), signal_name_,
-                std::format("between {:g} and {:g} within {}ms", lo_.get().to_double(),
-                            hi_.get().to_double(), ms.count())};
+                std::format("between {} and {} within {}ms", check_detail::fmt_pv(lo_),
+                            check_detail::fmt_pv(hi_), ms.count())};
     }
 
 private:
@@ -124,12 +141,12 @@ public:
 
     [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{name_}, value)));
-        return {std::move(f), name_, std::format("< {:g}", value.get().to_double())};
+        return {std::move(f), name_, "< " + check_detail::fmt_pv(value)};
     }
 
     [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::at_least(SignalName{name_}, value)));
-        return {std::move(f), name_, std::format(">= {:g}", value.get().to_double())};
+        return {std::move(f), name_, ">= " + check_detail::fmt_pv(value)};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
@@ -137,17 +154,18 @@ public:
             throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
         return {std::move(f), name_,
-                std::format("between {:g} and {:g}", lo.get().to_double(), hi.get().to_double())};
+                std::format("between {} and {}", check_detail::fmt_pv(lo),
+                            check_detail::fmt_pv(hi))};
     }
 
     [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {
         auto f = ltl::never(ltl::equals(SignalName{name_}, value));
-        return {std::move(f), name_, std::format("!= {:g}", value.get().to_double())};
+        return {std::move(f), name_, "!= " + check_detail::fmt_pv(value)};
     }
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> CheckSignalPredicate {
         auto f = ltl::always(ltl::atomic(ltl::equals(SignalName{name_}, value)));
-        return {std::move(f), name_, std::format("= {:g}", value.get().to_double())};
+        return {std::move(f), name_, "= " + check_detail::fmt_pv(value)};
     }
 
     [[nodiscard]] auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
@@ -200,19 +218,20 @@ public:
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::equals(SignalName{then_name_}, value), then_name_,
-                std::format("= {:g}", value.get().to_double())};
+                "= " + check_detail::fmt_pv(value)};
     }
 
     [[nodiscard]] auto exceeds(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::greater_than(SignalName{then_name_}, value), then_name_,
-                std::format("> {:g}", value.get().to_double())};
+                "> " + check_detail::fmt_pv(value)};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
-                std::format("between {:g} and {:g}", lo.get().to_double(), hi.get().to_double())};
+                std::format("between {} and {}", check_detail::fmt_pv(lo),
+                            check_detail::fmt_pv(hi))};
     }
 
 private:

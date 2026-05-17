@@ -357,7 +357,6 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 -- lookup, macro-generated cases, and higher-order combinators all
 -- regenerate the same case split with added indirection.
 -- The helpers are private to this module and not part of any public API.
--- See `DEFERRALS.md` entry "R6-B8.1" for the audit trail.
 private
   runL-and-right-True-[] :
     ∀ a b (fa fb : FinalVerdict) →

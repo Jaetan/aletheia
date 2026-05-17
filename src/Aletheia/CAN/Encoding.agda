@@ -126,8 +126,7 @@ injectHelper {m} value signalDef byteOrder frame
 -- every call site (CAN/BatchFrameBuilding, Protocol/Handlers, …) —
 -- ~30+ call sites, cascading proof refactor, no runtime impact.
 -- The branch is dead-code-eliminable by GHC's strictness analyzer
--- (it returns `Nothing` without further work).  See DEFERRALS.md
--- entry "R20-AGDA-B-18.3" for the formal rationale.
+-- (it returns `Nothing` without further work).
 ...   | nothing = nothing
 ...   | just rawBitVec =
   let open CANFrame frame

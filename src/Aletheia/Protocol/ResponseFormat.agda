@@ -80,7 +80,6 @@ formatIssueSeverity IsWarning = "warning"
 -- prefix would touch 21 codes here + 21 mirrors in each of the three
 -- bindings (Python `IssueCode` enum, Go `IssueCode` constants, C++
 -- `IssueCode` enum) for zero disambiguation benefit at the JSON wire.
--- See `DEFERRALS.md` entry "R5-C2" for the full audit trail.
 formatIssueCode : IssueCode → String
 formatIssueCode DuplicateMessageId          = "duplicate_message_id"
 formatIssueCode DuplicateSignalName         = "duplicate_signal_name"

@@ -138,17 +138,50 @@ def _format_rational(v: object) -> str:
     Python, Go, and C++ enrichment paths, so the same Rational value
     renders to byte-identical output everywhere.
 
-    Non-:class:`Fraction` inputs (raw int/float — rare since the DSL
-    now flows through ``to_predicate_fraction``) take the legacy
-    ``:g``-formatting path; they're not subject to the cross-binding
-    invariant since they bypass the Rational kernel type.
+    Accepted input shapes (every shape coerces to ``Fraction`` then
+    flows through the FFI — no local ``:g``-style fallback):
+
+    * ``Fraction`` — passed straight through (DSL path via
+      ``to_predicate_fraction``).
+    * ``int`` / ``float`` — raw-JSON-dict callers (e.g. test fixtures
+      constructing ``{"value": 0}`` directly without the DSL); coerced
+      via ``Fraction(v)`` (exact for ``int``; IEEE-754-exact for
+      ``float``).
+    * ``dict`` with ``{"numerator", "denominator"}`` — wire-rational
+      shape; coerced via ``Fraction(num, den)``.
+
+    Any other shape is a contract violation and raises ``ValidationError``.
     """
-    if not isinstance(v, Fraction):
-        return f"{_coerce_to_float(v):g}"
+    if isinstance(v, Fraction):
+        frac = v
+    elif isinstance(v, int) and not isinstance(v, bool):
+        frac = Fraction(v, 1)
+    elif isinstance(v, float):
+        frac = Fraction(v)
+    elif isinstance(v, dict):
+        d = cast("dict[str, object]", v)
+        num = d.get("numerator")
+        den = d.get("denominator")
+        if not (isinstance(num, int) and isinstance(den, int)
+                and not isinstance(num, bool) and not isinstance(den, bool)):
+            msg = (
+                f"_format_rational rational dict requires int numerator/denominator; "
+                f"got numerator={type(num).__name__} denominator={type(den).__name__}"
+            )
+            raise ValidationError(msg)
+        if den == 0:
+            raise ValidationError("_format_rational rational dict denominator must be non-zero")
+        frac = Fraction(num, den)
+    else:
+        msg = (
+            f"_format_rational expected Fraction / int / float / rational dict; "
+            f"got {type(v).__name__}"
+        )
+        raise ValidationError(msg)
     lib = _get_or_load_renderer_lib()
     raw = lib.aletheia_format_rational(
-        ctypes.c_int64(v.numerator),
-        ctypes.c_int64(v.denominator),
+        ctypes.c_int64(frac.numerator),
+        ctypes.c_int64(frac.denominator),
     )
     if not raw:
         # Defensive: the Agda function always returns a non-null CString

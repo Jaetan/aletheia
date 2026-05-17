@@ -32,7 +32,7 @@ open import Aletheia.DBC.Identifier using (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-
 -- (verified by grep; only proof-side use in `Cache/Properties.AllTimestamps≤`).
 -- `Timestamp μs` here lets the sole runtime caller (`StreamState.handleDataFrame`)
 -- pass `timestamp tf` directly instead of `timestampℕ tf`, eliminating the
--- per-frame unwrap entirely.  See DEFERRALS.md R6-B7.3 for the audit trail.
+-- per-frame unwrap entirely.
 record CachedSignal : Set where
   constructor mkCachedSignal
   field

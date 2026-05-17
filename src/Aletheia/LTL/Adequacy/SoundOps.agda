@@ -64,9 +64,9 @@ data Sound : TruthVal → TruthVal → Set where
 -- Architecture: sound-and is defined directly (clean sound-ff short-circuit
 -- on the False absorber); sound-or is derived from sound-and via De Morgan
 -- (a ∨TV b ≡ notTV (notTV a ∧TV notTV b), bridged by sound-not + subst₂).
--- See R6-B8.2 in DEFERRALS.md for the closure narrative (the sound-or
--- half was closed 2026-05-16 by commit `970f704`; this note documents why
--- the sound-and HALF stays primitive and is not itself reducible).
+-- The sound-or half was closed 2026-05-16 by commit `970f704`; this note
+-- documents why the sound-and HALF stays primitive and is not itself
+-- reducible.
 --
 -- A reviewer may notice the ~250-line sound-and clause table and suggest
 -- deriving sound-and from sound-or via the dual De Morgan identity.  DO
