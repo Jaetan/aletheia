@@ -23,28 +23,31 @@
 
 #include <chrono>
 #include <format>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
-namespace aletheia {
-
-namespace check_detail {
+namespace aletheia::detail {
 
 // Render a PhysicalValue via the Agda kernel renderer (cross-binding-identical
-// output).  CheckResult::condition_desc() strings flow through here so the
-// human-readable check description matches the predicate-side `format_value`
-// (`enrich.cpp:format_value(const Rational&)`) byte-for-byte — and matches
+// output).  Invoked lazily from `CheckResult::condition_desc()` accessor
+// (R21 cluster CPP-SYS-15.3) so the .so need NOT be loadable at Check builder
+// time — only at the first `condition_desc()` read.  The human-readable check
+// description matches the predicate-side `format_value`
+// (`enrich.cpp:format_value(const Rational&)`) byte-for-byte AND matches
 // Python's `_format_rational` + Go's `formatRationalFFI` by construction.
 // No local fallback: a missing `libaletheia-ffi.so` throws
 // `AletheiaException(Ffi)` per the rational_renderer.hpp contract.
 inline auto fmt_pv(PhysicalValue v) -> std::string {
     const auto& r = v.get();
-    return ::aletheia::detail::format_rational_ffi(r.numerator, r.denominator);
+    return format_rational_ffi(r.numerator, r.denominator);
 }
 
-} // namespace check_detail
+} // namespace aletheia::detail
+
+namespace aletheia {
 
 // ---------------------------------------------------------------------------
 // CheckResult: terminal object wrapping a formula with optional metadata
@@ -58,6 +61,15 @@ public:
         : formula_(std::move(f))
         , signal_name_(std::move(sig))
         , condition_desc_(std::move(desc)) {}
+
+    // Lazy-builder form (R21 cluster CPP-SYS-15.3).  Defers the
+    // `detail::format_rational_ffi` call to the first `condition_desc()`
+    // accessor read, so Check builders work without the .so being loadable
+    // at construction time.  Result is cached after first invocation.
+    CheckResult(LtlFormula f, std::string sig, std::function<std::string()> desc_builder)
+        : formula_(std::move(f))
+        , signal_name_(std::move(sig))
+        , condition_desc_builder_(std::move(desc_builder)) {}
 
     auto named(std::string name) -> CheckResult& {
         name_ = std::move(name);
@@ -80,14 +92,21 @@ public:
     [[nodiscard]] auto name() const -> const std::string& { return name_; }
     [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }
     [[nodiscard]] auto signal_name() const -> const std::string& { return signal_name_; }
-    [[nodiscard]] auto condition_desc() const -> const std::string& { return condition_desc_; }
+    [[nodiscard]] auto condition_desc() const -> const std::string& {
+        if (condition_desc_builder_) {
+            condition_desc_ = condition_desc_builder_();
+            condition_desc_builder_ = nullptr;
+        }
+        return condition_desc_;
+    }
 
 private:
     std::optional<LtlFormula> formula_;
     std::string name_;
     std::string check_severity_;
     std::string signal_name_;
-    std::string condition_desc_;
+    mutable std::string condition_desc_;
+    mutable std::function<std::string()> condition_desc_builder_;
 };
 
 // ---------------------------------------------------------------------------
@@ -96,19 +115,19 @@ private:
 
 class CheckSignalPredicate {
 public:
-    CheckSignalPredicate(LtlFormula f, std::string sig, std::string desc)
+    CheckSignalPredicate(LtlFormula f, std::string sig, std::function<std::string()> desc_builder)
         : formula_(std::move(f))
         , signal_name_(std::move(sig))
-        , condition_desc_(std::move(desc)) {}
+        , condition_desc_builder_(std::move(desc_builder)) {}
 
     auto always() && -> CheckResult {
-        return {std::move(formula_), std::move(signal_name_), std::move(condition_desc_)};
+        return {std::move(formula_), std::move(signal_name_), std::move(condition_desc_builder_)};
     }
 
 private:
     LtlFormula formula_;
     std::string signal_name_;
-    std::string condition_desc_;
+    std::function<std::string()> condition_desc_builder_;
 };
 
 class SettlesBuilder {
@@ -125,8 +144,10 @@ public:
         auto f =
             ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
         return {std::move(f), signal_name_,
-                std::format("between {} and {} within {}ms", check_detail::fmt_pv(lo_),
-                            check_detail::fmt_pv(hi_), ms.count())};
+                std::function<std::string()>{[lo = lo_, hi = hi_, ms]() {
+                    return std::format("between {} and {} within {}ms", detail::fmt_pv(lo),
+                                       detail::fmt_pv(hi), ms.count());
+                }}};
     }
 
 private:
@@ -141,31 +162,35 @@ public:
 
     [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{name_}, value)));
-        return {std::move(f), name_, "< " + check_detail::fmt_pv(value)};
+        return {std::move(f), name_,
+                std::function<std::string()>{[value]() { return "< " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::at_least(SignalName{name_}, value)));
-        return {std::move(f), name_, ">= " + check_detail::fmt_pv(value)};
+        return {std::move(f), name_,
+                std::function<std::string()>{[value]() { return ">= " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
-        return {std::move(f), name_,
-                std::format("between {} and {}", check_detail::fmt_pv(lo),
-                            check_detail::fmt_pv(hi))};
+        return {std::move(f), name_, std::function<std::string()>{[lo, hi]() {
+                    return std::format("between {} and {}", detail::fmt_pv(lo), detail::fmt_pv(hi));
+                }}};
     }
 
     [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {
         auto f = ltl::never(ltl::equals(SignalName{name_}, value));
-        return {std::move(f), name_, "!= " + check_detail::fmt_pv(value)};
+        return {std::move(f), name_,
+                std::function<std::string()>{[value]() { return "!= " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> CheckSignalPredicate {
         auto f = ltl::always(ltl::atomic(ltl::equals(SignalName{name_}, value)));
-        return {std::move(f), name_, "= " + check_detail::fmt_pv(value)};
+        return {std::move(f), name_,
+                std::function<std::string()>{[value]() { return "= " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
@@ -185,11 +210,11 @@ private:
 class ThenCondition {
 public:
     ThenCondition(Predicate trigger, Predicate then_pred, std::string then_signal,
-                  std::string then_desc)
+                  std::function<std::string()> then_desc_builder)
         : trigger_(std::move(trigger))
         , then_pred_(std::move(then_pred))
         , then_signal_(std::move(then_signal))
-        , then_desc_(std::move(then_desc)) {}
+        , then_desc_builder_(std::move(then_desc_builder)) {}
 
     [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
         if (ms.count() < 0)
@@ -197,17 +222,22 @@ public:
         auto us = std::chrono::duration_cast<Timestamp>(ms);
         auto f = ltl::always(ltl::either(ltl::negate(ltl::atomic(trigger_)),
                                          ltl::within(us, ltl::atomic(then_pred_))));
-        std::string desc;
-        if (!then_desc_.empty())
-            desc = then_desc_ + std::format(" within {}ms", ms.count());
-        return {std::move(f), then_signal_, std::move(desc)};
+        return {std::move(f), then_signal_,
+                std::function<std::string()>{[builder = then_desc_builder_, ms]() {
+                    if (!builder)
+                        return std::string{};
+                    auto inner = builder();
+                    if (inner.empty())
+                        return std::string{};
+                    return inner + std::format(" within {}ms", ms.count());
+                }}};
     }
 
 private:
     Predicate trigger_;
     Predicate then_pred_;
     std::string then_signal_;
-    std::string then_desc_;
+    std::function<std::string()> then_desc_builder_;
 };
 
 class ThenSignal {
@@ -218,20 +248,21 @@ public:
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::equals(SignalName{then_name_}, value), then_name_,
-                "= " + check_detail::fmt_pv(value)};
+                std::function<std::string()>{[value]() { return "= " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto exceeds(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::greater_than(SignalName{then_name_}, value), then_name_,
-                "> " + check_detail::fmt_pv(value)};
+                std::function<std::string()>{[value]() { return "> " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
-                std::format("between {} and {}", check_detail::fmt_pv(lo),
-                            check_detail::fmt_pv(hi))};
+                std::function<std::string()>{[lo, hi]() {
+                    return std::format("between {} and {}", detail::fmt_pv(lo), detail::fmt_pv(hi));
+                }}};
     }
 
 private:
