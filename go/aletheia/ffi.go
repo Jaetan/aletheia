@@ -238,6 +238,12 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if strings.ContainsRune(libPath, 0) {
 		return nil, validationError("libPath contains NUL byte")
 	}
+	// R21 cluster 2: register the user's libPath so the lazy-loaded
+	// Rational renderer (renderer.go) prefers the same .so instead of
+	// falling back to its relative-path heuristic.  Closes GO-S-17.2 —
+	// production users who pass an explicit libPath to NewFFIBackend
+	// now have their choice honored by the renderer.
+	RegisterDefaultLibPath(libPath)
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 

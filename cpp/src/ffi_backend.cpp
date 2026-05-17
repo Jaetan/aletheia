@@ -7,6 +7,7 @@
 // independent of FfiBackend, so unit tests that never instantiate a
 // backend still route through the same kernel function.
 #include <aletheia/backend.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/limits.hpp>
 
 #include <dlfcn.h>
@@ -454,6 +455,12 @@ public:
 
 auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
     -> std::unique_ptr<IBackend> {
+    // R21 cluster 2: register the user's lib_path so the lazy-loaded
+    // Rational renderer (`rational_renderer.cpp`) prefers the same .so
+    // instead of falling back to its relative-path heuristic.  Closes
+    // CPP-SYS-17.1 — production users who pass an explicit lib_path
+    // to make_ffi_backend now have their choice honored by the renderer.
+    detail::register_default_lib_path(lib_path);
     return std::make_unique<FfiBackend>(lib_path, rts_cores);
 }
 

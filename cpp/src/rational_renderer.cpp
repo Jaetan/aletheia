@@ -50,11 +50,30 @@ auto state() -> RendererState& {
     return s;
 }
 
-// Locate libaletheia-ffi.so for the lazy-load.  Mirrors the search
-// strategy in `python/aletheia/client/_ffi.py::find_ffi_library` and
-// `go/aletheia/renderer.go::findFFILibrary`.  Returns the empty path
-// when no candidate exists; the caller surfaces that as an
-// `AletheiaException(Ffi)` so the operator knows to set
+// Package-static preferred library path, registered by
+// `make_ffi_backend(lib_path, ...)` before any Check builder triggers
+// `format_rational_ffi`.  Function-static + mutex so writes from
+// `register_default_lib_path()` are serialized; the read in
+// `find_library_path()` happens inside `std::call_once(init)` so
+// reader sees a stable value.  Stored as `std::string` (not `path`)
+// to avoid the path's variant-of-string allocation on the read path.
+struct DefaultPathState {
+    std::mutex mu;
+    std::string path;
+};
+
+auto default_path_state() -> DefaultPathState& {
+    static DefaultPathState s;
+    return s;
+}
+
+// Locate libaletheia-ffi.so for the lazy-load.  Search order:
+//   (1) ALETHEIA_LIB env var (operator override)
+//   (2) Path registered via `register_default_lib_path` (the .so the
+//       user passed to `make_ffi_backend(lib_path, ...)`)
+//   (3) Relative-path heuristic (ctest from `cpp/build`)
+// Returns the empty path when no candidate exists; the caller surfaces
+// that as an `AletheiaException(Ffi)` so the operator knows to set
 // `ALETHEIA_LIB` or run `cabal run shake -- build`.
 auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
@@ -66,10 +85,18 @@ auto find_library_path() -> std::filesystem::path {
                 return p;
         }
     }
+    // R21 cluster 2: registered path from FfiBackend ctor.
+    {
+        auto& d = default_path_state();
+        const std::lock_guard lk{d.mu};
+        if (!d.path.empty()) {
+            const fs::path p{d.path};
+            if (fs::exists(p))
+                return p;
+        }
+    }
     // Heuristic: ctest runs from `cpp/build`; integration / parity
     // tests already navigate to `<repo>/build/libaletheia-ffi.so`.
-    // Production users typically set `ALETHEIA_LIB` (the dlopen path
-    // they already pass to `make_ffi_backend` is the same .so).
     for (const auto* candidate : {
              "../../build/libaletheia-ffi.so",
              "../build/libaletheia-ffi.so",
@@ -155,6 +182,13 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
     auto deleter = [&s](char* p) { s.free_fn(p); };
     const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
     return std::string{raw};
+}
+
+void register_default_lib_path(const std::filesystem::path& lib_path) {
+    auto& d = default_path_state();
+    const std::lock_guard lk{d.mu};
+    if (d.path.empty())  // first-write-wins
+        d.path = lib_path.string();
 }
 
 } // namespace aletheia::detail
