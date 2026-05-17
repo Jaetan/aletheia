@@ -66,3 +66,4 @@ open Timestamp public
 infix 4 _≤ᵗ_
 _≤ᵗ_ : ∀ {@0 u} → Timestamp u → Timestamp u → Set
 t₁ ≤ᵗ t₂ = tsValue t₁ ≤ tsValue t₂
+
