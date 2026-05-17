@@ -24,12 +24,14 @@ gate; the GHA workflows are intentionally narrow.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). 27 always-on
-sequential steps, ~17-22 minutes warm.  Plus 4 opt-in lanes (sanitizer,
-reproducible build, stability bench, mutation testing) that can be enabled
-individually via CLI flags or env vars, or all at once via `--full`.  Logs
-to `tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
-gate-claim-integrity evidence.
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). 29 always-on
+sequential steps, ~22-27 minutes warm (UBSan ctest promoted from opt-in
+to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
+`Rational::from_double` because the lane was opt-in).  Plus 3 opt-in
+lanes (reproducible build, stability bench, mutation testing) that can
+be enabled individually via CLI flags or env vars, or all at once via
+`--full`.  Logs to `tools/ci-output/ci-<branch>-<timestamp>.log` for use
+as falsifiable gate-claim-integrity evidence.
 
 Install the pre-push hook:
 
@@ -48,7 +50,6 @@ Each opt-in lane has a CLI flag, an env-var fallback, and a paired
 
 | Flag | Env var | Cost | Coverage |
 |---|---|---|---|
-| `--san` | `ALETHEIA_SAN_CHECK=1` | ~5 min | UBSan ctest battery (R18 cluster 5; clang required for `-fsanitize-ignorelist=`) |
 | `--repro` | `ALETHEIA_REPRO_CHECK=1` | ~10 min | Two-clean-build sha256 verification (R18 cluster 3 / UR-3) |
 | `--stability` | `ALETHEIA_STABILITY_CHECK=1` | ~5 min | Long-run leak detection across 3 bindings + GHC RTS heap profile (R18 cluster 6) |
 | `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / go-mutesting / Mull (R18 cluster 7) |
@@ -58,13 +59,13 @@ opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
 everything except mutation testing).
 
 ```bash
-# Always-on steps only (default; ~17-22 min)
+# Always-on steps only (default; ~22-27 min, incl. UBSan ctest ~5 min)
 tools/run_ci.py
 
 # Two specific opt-in lanes
-tools/run_ci.py --san --stability
+tools/run_ci.py --stability --repro
 
-# All opt-in lanes (~60-120 min on warm host)
+# All opt-in lanes (~55-115 min on warm host)
 tools/run_ci.py --full
 
 # All opt-ins except mutation (skip the 30-minute lane during iteration)
@@ -75,18 +76,21 @@ ALETHEIA_REPRO_CHECK=1 tools/run_ci.py
 ```
 
 The mutation lane is most expensive and is per-PR not per-commit; the
-other three are per-push-friendly when developers want extra coverage.
+other two are per-push-friendly when developers want extra coverage.
 
 ### Installing dev tools
 
 The always-on sweep needs no extra tooling beyond what `cabal run shake --
 build` already requires.  The opt-in lanes need additional installs.
 
-**Sanitizer lane (`--san`)** — needs `clang` for the
+**UBSan ctest (always-on, no flag)** — needs `clang` for the
 `-fsanitize-ignorelist=` flag (which g++ doesn't support).  Most distros'
 default `clang` package is sufficient; verify with `clang --version`.  No
 extra install if you already use `tools/run_ci.py` for the mutation lane
-(clang-19 / clang-21 are both fine for sanitizers).
+(clang-19 / clang-21 are both fine for sanitizers).  Promoted from opt-in
+to always-on R21 CPP-SYS-32.2; if clang is absent the step fails loudly
+rather than silently skipping — install clang or run the sweep on a host
+that has it.
 
 **Reproducible build lane (`--repro`)** — no extra tools (the gate runs
 two clean Shake builds and `sha256sum`s the result).
