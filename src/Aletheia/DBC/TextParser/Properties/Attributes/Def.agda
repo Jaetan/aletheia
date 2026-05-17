@@ -16,24 +16,18 @@
 -- pure-lift composition.
 module Aletheia.DBC.TextParser.Properties.Attributes.Def where
 
-open import Data.Bool using (Bool; true; false; T)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (_,_; _×_)
+open import Data.Maybe using (just)
+open import Data.Product using (_,_)
 open import Data.String using (String; toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; advancePositions;
          _>>=_; pure; many)
-open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.DecRat using (DecRat)
-open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
 open import Aletheia.DBC.Types using
   ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar

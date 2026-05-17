@@ -21,7 +21,7 @@
 --      file additions).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions where
 
-open import Data.Bool using (Bool; true; false; if_then_else_; _∨_; _∧_)
+open import Data.Bool using (true; false; _∨_; _∧_)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using (List; []; _∷_; map)
@@ -35,7 +35,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong)
-open import Relation.Nullary using (Dec; yes; no)
+open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.CAN.Frame using (CANId)

@@ -27,18 +27,15 @@
 -- Layer 4.
 module Aletheia.DBC.TextParser.Properties.Attributes.Common where
 
-open import Data.Bool using (Bool; true; false; T)
-open import Data.Char using (Char)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _<_)
-open import Data.String using (String; toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Integer using (+_; -[1+_])
+open import Data.List using ([])
+open import Data.Maybe using (just)
+open import Data.Nat using (zero; suc)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
-open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ; 0ᵈ)
+open import Aletheia.DBC.DecRat using (mkDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; mkIntDecRat; mkIntDecRatFromℤ
   ; intDecRatToℤ; intDecRatToℤ-mkIntDecRatFromℤ
