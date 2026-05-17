@@ -108,8 +108,9 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine using
   (refineAttributes-on-rawOf)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions using
   (map-attachToMessage-on-clearVdsMsgs-collected;
-   collectFromMessages-stops;
-   unresolvedRVDs-on-clearVdsMsgs-collectFromMessages)
+   collectFromMessages-stops)
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions.UnresolvedRVDs using
+  (unresolvedRVDs-on-clearVdsMsgs-collectFromMessages)
 open import Aletheia.DBC.TextParser.ValueDescriptions using
   (collectFromMessages)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.BodyBridge using
