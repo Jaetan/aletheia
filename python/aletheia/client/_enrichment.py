@@ -12,10 +12,16 @@ from fractions import Fraction
 from typing import cast
 import ctypes
 
+from ..limits import MAX_NESTING_DEPTH
 from ..protocols import LTLFormula
 from ._types import PropertyDiagnostic, ValidationError
 
-_MAX_FORMULA_DEPTH = 100
+# Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
+# exposed as `aletheia.limits.MAX_NESTING_DEPTH`): a deeper formula would
+# pass this local check, serialize to JSON, then get rejected on the wire
+# as `bound_kind_nesting_depth`.  Mirroring the kernel cap surfaces the
+# rejection immediately as `ValidationError` instead of as a wire round-trip
+# error.  R21 PY-A-2.3 / AGDA-D-17.1 cross-binding SSOT fix.
 
 _UNARY_OPS = frozenset({
     "not", "next", "always", "eventually", "metricAlways", "metricEventually",
@@ -32,11 +38,11 @@ def _walk_formula(
 ) -> None:
     """Walk a formula tree, calling on_atomic for each atomic node.
 
-    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
-    if depth > _MAX_FORMULA_DEPTH:
+    if depth > MAX_NESTING_DEPTH:
         raise ValidationError(
-            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         )
     op = formula.get("operator")
     if op == "atomic":
@@ -238,11 +244,11 @@ def format_formula(  # pylint: disable=too-many-return-statements,too-many-branc
 ) -> str:
     """Format an LTL formula dict as a human-readable string.
 
-    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
-    if depth > _MAX_FORMULA_DEPTH:
+    if depth > MAX_NESTING_DEPTH:
         raise ValidationError(
-            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         )
     inner = _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
     return inner
@@ -253,9 +259,9 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
     *, parenthesize_binary: bool,
 ) -> str:
     """Inner formatter with parenthesization for binary operators."""
-    if depth > _MAX_FORMULA_DEPTH:
+    if depth > MAX_NESTING_DEPTH:
         raise ValidationError(
-            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         )
     recur = _format_formula_inner
     op = formula.get("operator")
@@ -338,7 +344,7 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
 def collect_signals(formula: dict[str, object]) -> list[str]:
     """Collect all signal names from a formula, deduplicated, in order.
 
-    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
     signals: list[str] = []
     seen: set[str] = set()

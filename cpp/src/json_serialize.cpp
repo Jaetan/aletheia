@@ -2,6 +2,8 @@
 // JSON serialization: C++ types → JSON command strings for the Agda core.
 #include "detail/json.hpp"
 
+#include <aletheia/limits.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
@@ -411,12 +413,17 @@ static auto predicate_to_json(const Predicate& p) -> Json {
 }
 
 // Recursively serialize an LTL formula tree to JSON for the Agda core.
-static constexpr int max_formula_depth = 100;
-
+// Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
+// exposed as `aletheia::max_nesting_depth` in `<aletheia/limits.hpp>`):
+// a deeper formula would pass this local check, serialize to JSON, then
+// get rejected on the wire as `bound_kind_nesting_depth`.  Mirroring the
+// kernel cap surfaces the rejection immediately as `std::runtime_error`
+// instead of as a wire round-trip error.  R21 CPP-B-9.1 / CPP-A-2.1 /
+// AGDA-D-17.1 cross-binding SSOT fix.
 static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
-    if (depth > max_formula_depth)
+    if (static_cast<std::uint64_t>(depth) > max_nesting_depth)
         throw std::runtime_error("Formula nesting depth exceeds " +
-                                 std::to_string(max_formula_depth));
+                                 std::to_string(max_nesting_depth));
     return std::visit(
         [depth](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
