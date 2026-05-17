@@ -16,6 +16,7 @@ open import Aletheia.DBC.Identifier using (Identifier)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
+open import Data.Fin using (Fin; toℕ)
 open import Data.Product using (_×_; _,_)
 open import Function using (case_of_)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
@@ -219,7 +220,7 @@ updateCacheFromFrame dbc cache ts frame =
 -- ============================================================================
 
 -- Classify a single stepL result into a StepOutcome.
-classifyStepResult : StepResult LTLProc → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+classifyStepResult : ∀ {n} → StepResult LTLProc → PropertyState n → StepOutcome (PropertyState n) (Fin n × Counterexample)
 classifyStepResult (Continue _ newProc) prop =
   advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
 classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
@@ -265,18 +266,21 @@ classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
 classifyStepResult Satisfied _ = complete
 
 -- Step one property: build PredTable, call stepL, classify result.
-stepProperty : DBC → SignalCache → TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+stepProperty : ∀ {n} → DBC → SignalCache → TimedFrame → PropertyState n → StepOutcome (PropertyState n) (Fin n × Counterexample)
 stepProperty dbc cache tf prop =
   let table = mkPredTable dbc cache (PropertyState.atoms prop)
       result = stepL table (PropertyState.proc prop) tf
   in classifyStepResult result prop
 
 -- Dispatch iteration result to StreamState × Response.
-dispatchIterResult : DBC → List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
-dispatchIterResult dbc (updatedProps , nothing) tf cache =
-  (Streaming dbc updatedProps (just tf) cache , Response.Ack)
-dispatchIterResult dbc (allProps , just (idx , ce)) tf cache =
+-- `Fin n → ℕ` conversion via `toℕ` only at the wire boundary
+-- (`PropertyResult.Violation` takes `ℕ`); the internal pipeline keeps the
+-- Fin all the way through.
+dispatchIterResult : ∀ {n} → DBC → List (PropertyState n) × Maybe (Fin n × Counterexample) → TimedFrame → SignalCache → StreamState × Response
+dispatchIterResult {n} dbc (updatedProps , nothing) tf cache =
+  (Streaming n dbc updatedProps (just tf) cache , Response.Ack)
+dispatchIterResult {n} dbc (allProps , just (idx , ce)) tf cache =
   let open Counterexample ce
       ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
-      violation = PR.PropertyResult.Violation idx ceData
-  in (Streaming dbc allProps (just tf) cache , Response.PropertyResponse violation)
+      violation = PR.PropertyResult.Violation (toℕ idx) ceData
+  in (Streaming n dbc allProps (just tf) cache , Response.PropertyResponse violation)

@@ -17,7 +17,7 @@
 -- `FrameProcessor.Properties.Step`.
 module Aletheia.Protocol.FrameProcessor.Properties.Handlers where
 
-open import Aletheia.Protocol.StreamState using (StreamState; getDBC)
+open import Aletheia.Protocol.StreamState using (StreamState; getDBC; PropertyState)
 open import Aletheia.Protocol.StreamState.Internals using (stepProperty)
 open import Aletheia.Protocol.Message using (Response; Ack)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
@@ -34,6 +34,7 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Step
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.DLC using (DLC)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
+open import Data.List using (List)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.Maybe using (just; nothing)
@@ -63,13 +64,13 @@ processFrameDirect-response state tf with handleDataFrame state tf
 
 -- If the frame is monotonic and formatResponse maps the handler response to
 -- the Ack JSON tree, no property was violated.
-processFrameDirect-ack-sound-json : ∀ dbc props prev cache tf
+processFrameDirect-ack-sound-json : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
-  → formatResponse (proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)) ≡ formatResponse Ack
+  → formatResponse (proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)) ≡ formatResponse Ack
   → proj₂ (iterate (stepProperty dbc cache tf) props) ≡ nothing
 processFrameDirect-ack-sound-json dbc props prev cache tf mono fmt-eq =
   handleDataFrame-ack-sound dbc props prev cache tf mono
-    (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)) fmt-eq)
+    (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming _ dbc props prev cache) tf)) fmt-eq)
 
 -- ============================================================================
 -- PROPERTIES 19, 22: Read-only handler state preservation

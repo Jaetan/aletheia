@@ -40,17 +40,17 @@ import AletheiaFFI.Marshal
 import AletheiaFFI.BinaryOutput
 
 -- | Opaque state handle exported to C.
-type StateHandle = StablePtr (IORef AgdaState.T_StreamState_28)
+type StateHandle = StablePtr (IORef AgdaState.T_StreamState_32)
 
 -- | Run an Agda function (state → Σ (state, JSON)) and write back to the
 -- IORef. Centralizes the StablePtr/IORef/unsafeCoerce dance — every JSON
 -- entry point uses this helper.
-runJSON :: StateHandle -> (AgdaState.T_StreamState_28 -> AgdaSigma.T_Σ_14) -> IO CString
+runJSON :: StateHandle -> (AgdaState.T_StreamState_32 -> AgdaSigma.T_Σ_14) -> IO CString
 runJSON statePtr f = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
     let result = f state
-    writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28)
+    writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
     newCString (T.unpack (unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text))
 
 -- | Return a JSON error response without calling Agda.
@@ -70,7 +70,7 @@ errorJSONFor = newCString . formatFFIError
 
 foreign export ccall aletheia_init :: IO StateHandle
 aletheia_init :: IO StateHandle
-aletheia_init = newIORef AgdaState.d_initialState_42 >>= newStablePtr
+aletheia_init = newIORef AgdaState.d_initialState_50 >>= newStablePtr
 
 foreign export ccall aletheia_process :: StateHandle -> CString -> IO CString
 aletheia_process :: StateHandle -> CString -> IO CString
@@ -162,13 +162,13 @@ aletheia_format_dbc statePtr = runJSON statePtr AgdaBin.d_processFormatDBCDirect
 -- | Run a binary-output Agda function: writes packed bytes to out_buf on
 -- success, or sets out_err to a CString on failure. Returns 0/1.
 runBinDispatch :: StateHandle
-               -> (AgdaState.T_StreamState_28 -> AgdaSigma.T_Σ_14)
+               -> (AgdaState.T_StreamState_32 -> AgdaSigma.T_Σ_14)
                -> Ptr Word8 -> Ptr CString -> IO Int8
 runBinDispatch statePtr f outBuf outErr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
     let result = f state
-    writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28)
+    writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     dispatchSumResult sumResult outBuf outErr
 
@@ -238,7 +238,7 @@ aletheia_extract_signals_bin statePtr canId ext dlc dataPtr dataLen outBufPtr ou
           state <- readIORef ref
           let result = AgdaBin.d_processExtractBin_102 state agdaCanId
                            (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes))
-          writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28)
+          writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
           case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of
               AgdaSum.C_inj'8321'_38 errAny ->
                   errorOut (T.unpack (unsafeCoerce errAny :: T.Text)) outErr

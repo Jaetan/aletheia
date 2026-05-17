@@ -127,7 +127,7 @@ handleParseDBCTextResult (inj₂ dbc) state =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
          then (state , Response.Error (WithContext "ParseDBCText" (HandlerErr (ValidationFailed (errorIssues issues)))))
-         else (ReadyToStream dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
+         else (ReadyToStream 0 dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
 
 -- Adversarial-input bound: rejects inputs longer than `max-dbc-text-bytes`
 -- (`Aletheia.Limits`) with a typed `DBCTextParseError.InputBoundExceeded`

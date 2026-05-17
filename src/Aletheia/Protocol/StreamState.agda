@@ -62,9 +62,9 @@ checkMonotonic (just p) tf with timestampℕ tf <ᵇ timestampℕ p
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
 handleDataFrame WaitingForDBC _ =
   (WaitingForDBC , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
-handleDataFrame state@(ReadyToStream _ _ _) _ =
+handleDataFrame state@(ReadyToStream _ _ _ _) _ =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr StreamNotStarted)))
-handleDataFrame state@(Streaming dbc props prev cache) tf with checkMonotonic prev tf
+handleDataFrame state@(Streaming _ dbc props prev cache) tf with checkMonotonic prev tf
 ... | just err =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr err)))
 ... | nothing =

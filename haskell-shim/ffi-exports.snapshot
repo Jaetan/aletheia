@@ -33,7 +33,7 @@ F: Aletheia/Main/Binary:d_processExtractDirect_38
 F: Aletheia/Main/Binary:d_processBuildFrameBin_72
 F: Aletheia/Main/Binary:d_processUpdateFrameBin_86
 F: Aletheia/Main/Binary:d_processExtractBin_102
-F: Aletheia/Protocol/StreamState/Types:d_initialState_42
+F: Aletheia/Protocol/StreamState/Types:d_initialState_50
 
 # Indirect helper accessors used by haskell-shim FFI marshalling
 # (R19 cluster 13 — AGDA-D-30.2 / AGDA-D-17.2):
@@ -79,7 +79,7 @@ C: Data/Sum/Base:C_inj'8322'_42
 # ============================================================================
 # Every T_*_NN tag the Haskell shim names directly (in type annotations,
 # `unsafeCoerce` casts, or qualified imports of MAlonzo-generated types).
-T: Aletheia/Protocol/StreamState/Types:T_StreamState_28
+T: Aletheia/Protocol/StreamState/Types:T_StreamState_32
 T: Aletheia/CAN/Frame:T_CANId_8
 T: Aletheia/CAN/Frame:T_CANFrame_20
 T: Aletheia/CAN/DLC:T_DLC_18

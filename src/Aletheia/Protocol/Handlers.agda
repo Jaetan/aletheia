@@ -20,6 +20,7 @@ open import Data.List using (List; []; _∷_; map; reverse; length)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
+open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
@@ -223,7 +224,7 @@ handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
       let issues = validateDBCFull dbc
       in if hasAnyError issues
          then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))
-         else (ReadyToStream dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
+         else (ReadyToStream 0 dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
 
 -- ParseDBCText handler isolated in its own submodule to keep parseText's
 -- transitive import closure (~30 modules: TopLevel → Attributes → …) out
@@ -234,6 +235,18 @@ open import Aletheia.Protocol.Handlers.ParseDBCText using (handleParseDBCText)
 -- FormatDBCText handler isolated for the same reason (TextFormatter
 -- transitive closure ~30 modules).  See Handlers/FormatDBCText.agda.
 open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
+
+-- Tabulate a list with each element's positional `Fin (length xs)` index.
+-- Used by `handleSetProperties` to pair each input JSON with the `Fin n`
+-- it will inhabit in the resulting `List (PropertyState n)`, where
+-- `n = length propJSONs`.  Keeping the input-position pairing here means
+-- `parseAllProperties` never has to thread a counter alongside an
+-- arithmetic invariant — every recursive call gets its `Fin n` from the
+-- pre-tabulated head, with `length` definitional equality discharging
+-- the type.
+withIndices : ∀ {A : Set} (xs : List A) → List (Fin (length xs) × A)
+withIndices []       = []
+withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj₁ p) , Data.Product.proj₂ p) (withIndices xs)
 
 -- Parse property list (extracted from where-block for proof access).
 --
@@ -247,11 +260,16 @@ open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
 --     observed / limit`).  AGDA-D-13.4 phase 2b — closes R19 cluster 8
 --     phase e.2 typed-error half.  Mirrors the handler-boundary
 --     placement pattern from cluster 8 e.3 / phase 2a NestingDepth.
-parseAllProperties : StreamState → DBC → List JSON → ℕ → List PropertyState → StreamState × Response
-parseAllProperties _ dbc [] _ acc =
-  (ReadyToStream dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
-parseAllProperties state dbc (json ∷ rest) idx acc with parseProperty json
-... | nothing = (state , Response.Error (WithContext "SetProperties" (HandlerErr (PropertyParseFailed idx))))
+--
+-- The `Fin n` index threaded through the JSON list is the static
+-- property identifier; `toℕ` lifts it to `ℕ` only for the wire-side
+-- `PropertyParseFailed` envelope (which still carries `ℕ` because the
+-- error message reaches the user regardless of `n`).
+parseAllProperties : (n : ℕ) → StreamState → DBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
+parseAllProperties n _ dbc [] acc =
+  (ReadyToStream n dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
+parseAllProperties n state dbc ((idx , json) ∷ rest) acc with parseProperty json
+... | nothing = (state , Response.Error (WithContext "SetProperties" (HandlerErr (PropertyParseFailed (toℕ idx)))))
 ... | just prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
 ...   | false | observed = (state , Response.Error
                               (WithContext "SetProperties"
@@ -259,24 +277,24 @@ parseAllProperties state dbc (json ∷ rest) idx acc with parseProperty json
 ...   | true  | _        = let atoms = collectAtoms prop
                                proc = initProc (indexFormula prop)
                                propState = mkPropertyState idx prop atoms proc
-                           in parseAllProperties state dbc rest (idx + 1) (propState ∷ acc)
+                           in parseAllProperties n state dbc rest (propState ∷ acc)
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
-handleSetProperties propJSONs state@(ReadyToStream dbc _ _) =
-  parseAllProperties state dbc propJSONs 0 []
-handleSetProperties propJSONs state@(Streaming _ _ _ _) =
+handleSetProperties propJSONs state@(ReadyToStream _ dbc _ _) =
+  parseAllProperties (length propJSONs) state dbc (withIndices propJSONs) []
+handleSetProperties propJSONs state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))
 
 -- Start stream command: transition to streaming mode
 handleStartStream : StreamState → StreamState × Response
-handleStartStream (ReadyToStream dbc props cache) =
-  (Streaming dbc props nothing cache , Response.Success "Streaming started successfully")
+handleStartStream (ReadyToStream n dbc props cache) =
+  (Streaming n dbc props nothing cache , Response.Success "Streaming started successfully")
 handleStartStream WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "StartStream" (HandlerErr NoDBC)))
-handleStartStream state@(Streaming _ _ _ _) =
+handleStartStream state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "StartStream" (HandlerErr AlreadyStreaming)))
 
 -- Convert final verdict to property result (extracted for proof access).
@@ -285,24 +303,28 @@ handleStartStream state@(Streaming _ _ _ _) =
 --   Fails   → Violation  (with reason in synthetic counterexample)
 --   Unsure  → Unresolved (three-valued Kleene Unknown, e.g. Always(p)
 --             where p's signal was never observed)
-verdictToResult : ℕ → FinalVerdict → PR.PropertyResult
-verdictToResult idx Holds            = PR.PropertyResult.Satisfaction idx
+--
+-- The `Fin n` index is `toℕ`'d only here at the wire boundary — the
+-- internal pipeline (`PropertyState n` → `Fin n × Counterexample` →
+-- this function) keeps the static `Fin n` throughout.
+verdictToResult : ∀ {n} → Fin n → FinalVerdict → PR.PropertyResult
+verdictToResult idx Holds            = PR.PropertyResult.Satisfaction (toℕ idx)
 -- EOS Fails uses synthetic timestamp 0: the violation is the absence of
 -- satisfaction over the entire trace (e.g. Eventually(p) never saw p),
 -- so no single violating frame exists to timestamp.
-verdictToResult idx (Fails reason)   = PR.PropertyResult.Violation idx (mkCounterexampleData (mkTs {u = μs} 0) reason)
-verdictToResult idx (Unsure reason)  = PR.PropertyResult.Unresolved idx reason
+verdictToResult idx (Fails reason)   = PR.PropertyResult.Violation (toℕ idx) (mkCounterexampleData (mkTs {u = μs} 0) reason)
+verdictToResult idx (Unsure reason)  = PR.PropertyResult.Unresolved (toℕ idx) reason
 
 -- Finalize all properties with verdicts (extracted for proof access)
-finalizeProperties : List PropertyState → List PR.PropertyResult
+finalizeProperties : ∀ {n} → List (PropertyState n) → List PR.PropertyResult
 finalizeProperties = map λ ps →
   verdictToResult (PropertyState.index ps) (finalizeL (PropertyState.proc ps))
 
 -- End stream command: finalize all properties and transition back to ready state
 handleEndStream : StreamState → StreamState × Response
-handleEndStream (Streaming dbc props _ cache) =
+handleEndStream (Streaming n dbc props _ cache) =
   let results = finalizeProperties props
-  in (ReadyToStream dbc props cache , Response.Complete results)
+  in (ReadyToStream n dbc props cache , Response.Complete results)
 handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 
