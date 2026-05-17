@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -33,7 +34,7 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
-		return "", wrapProtocol("failed to serialize command", err)
+		return "", wrapProtocolError("failed to serialize command", err)
 	}
 	return string(b), nil
 }
@@ -51,7 +52,15 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 // the existing single-allocation cost is already negligible, in exchange
 // for zero real-world benefit.  Re-evaluate only if a JSON streaming
 // surface is added that calls this function on a hot path.
-func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload) string {
+//
+// R20 cluster F (GO-B-14.1 / GO-D-16.2): BRS/ESI trailing args are
+// emitted as optional `"brs"`/`"esi"` fields when non-nil so
+// mock-driven tests can assert on the wire shape end-to-end.  Pass
+// `nil, nil` for CAN 2.0B frames where these bits don't exist (ISO
+// 11898-1:2015 §10.4.2/3 — CAN-FD only).  The Agda data-event parser
+// ignores unknown fields, so this is purely an additive wire-shape
+// observability for cross-binding-test parity.
+func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload, brs, esi *bool) string {
 	// Avoids map allocation, reflection-based marshaling, and []int conversion.
 	var buf strings.Builder
 	buf.Grow(128 + len(data)*4) // pre-size for typical frame
@@ -74,7 +83,24 @@ func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload) stri
 		}
 		buf.WriteString(strconv.FormatUint(uint64(b), 10))
 	}
-	buf.WriteString("]}")
+	buf.WriteByte(']')
+	if brs != nil {
+		buf.WriteString(`,"brs":`)
+		if *brs {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+	}
+	if esi != nil {
+		buf.WriteString(`,"esi":`)
+		if *esi {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+	}
+	buf.WriteByte('}')
 	return buf.String()
 }
 
@@ -161,8 +187,8 @@ func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 			if mux, ok := sig.Presence.(Multiplexed); ok {
 				s["presence"] = "multiplexed"
 				s["multiplexor"] = string(mux.Multiplexor)
-				vals := make([]uint32, len(mux.MuxValues))
-				for i, v := range mux.MuxValues {
+				vals := make([]uint32, len(mux.MultiplexValues))
+				for i, v := range mux.MultiplexValues {
 					vals[i] = uint32(v)
 				}
 				s["multiplex_values"] = vals
@@ -262,7 +288,7 @@ func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 			"signalName": rvd.SignalName,
 			"entries":    entries,
 		}
-		attachCANID(obj, rvd.CANID.Value(), rvd.CANID.IsExtended())
+		attachCANID(obj, rvd.ID.Value(), rvd.ID.IsExtended())
 		unresolvedValueDescs = append(unresolvedValueDescs, obj)
 	}
 
@@ -280,7 +306,7 @@ func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 	// Defense-in-depth bound check (see function-level comment).
 	probe, err := json.Marshal(out)
 	if err != nil {
-		return nil, wrapProtocol("failed to size-check DBC", err)
+		return nil, wrapProtocolError("failed to size-check DBC", err)
 	}
 	if size := uint64(len(probe)); size > MaxDBCTextBytes {
 		return nil, &InputBoundExceededError{
@@ -477,8 +503,14 @@ func validateRational(name string, r Rational) error {
 
 // rationalLess reports r1 < r2 by comparing cross-products with the
 // (positive) denominators (validateRational is the precondition).
+//
+// Cross-product overflow is avoided by widening to math/big.Int — naive
+// int64 multiplication wraps silently (e.g. {MaxInt64, 2} vs {1, 2}
+// would falsely report r1 < r2 with int64 wraparound).
 func rationalLess(r1, r2 Rational) bool {
-	return r1.Numerator*r2.Denominator < r2.Numerator*r1.Denominator
+	a := new(big.Int).Mul(big.NewInt(r1.Numerator), big.NewInt(r2.Denominator))
+	b := new(big.Int).Mul(big.NewInt(r2.Numerator), big.NewInt(r1.Denominator))
+	return a.Cmp(b) < 0
 }
 
 // serializePredicate encodes a Predicate into the JSON tag/field shape
@@ -700,12 +732,25 @@ func parseRational(v any) (Rational, error) {
 		if math.Trunc(n) != n {
 			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional float64: %v", n))
 		}
+		if n > math.MaxInt64 || n < math.MinInt64 {
+			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", n))
+		}
 		return Rational{Numerator: int64(n), Denominator: 1}, nil
 	case map[string]any:
 		num, ok1 := n["numerator"].(float64)
 		den, ok2 := n["denominator"].(float64)
 		if !ok1 || !ok2 {
 			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
+		}
+		// Reject non-integer components before any int64 cast: `int64(0.5)`
+		// silently truncates to 0, which would mis-classify a fractional
+		// denominator as "zero denominator" and a fractional numerator as
+		// a silent precision loss.  R20 cluster H — GO-B-12.1.
+		if num != math.Trunc(num) || den != math.Trunc(den) {
+			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", num, den))
+		}
+		if num > math.MaxInt64 || num < math.MinInt64 || den > math.MaxInt64 || den < math.MinInt64 {
+			return Rational{}, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", num, den))
 		}
 		if den == 0 {
 			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
@@ -840,7 +885,7 @@ func getObject(m map[string]any, key string) map[string]any {
 func parseResponse(raw string) (map[string]any, error) {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		return nil, wrapProtocol("invalid JSON response", err)
+		return nil, wrapProtocolError("invalid JSON response", err)
 	}
 	return m, nil
 }
@@ -873,9 +918,9 @@ func requireString(m map[string]any, key string) (string, error) {
 // threaded through — “*InputBoundExceededError.Error()“ reconstructs an
 // equivalent string from kind/observed/limit, matching cross-binding
 // convention where each language formats the message in its own idiom.
-// AGDA-D-13.4 phase 2a — cross-binding wire-symmetric lifting; previously
-// only the binding-side short-circuit raised this type, so kernel-rejected
-// paths (NestingDepth, AtomCount) returned a generic *Error.
+// Cross-binding wire-symmetric lifting: kernel-rejected paths (NestingDepth,
+// AtomCount, etc.) surface the structured `bound_kind/observed/limit` triple
+// so callers can recover the typed error rather than a generic `*Error`.
 func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
 	if code != CodeInputBoundExceeded {
 		return nil
@@ -1064,7 +1109,7 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 		}
 		val, err := parseNumber(v["value"])
 		if err != nil {
-			return nil, wrapProtocol("invalid signal value", err)
+			return nil, wrapProtocolError("invalid signal value", err)
 		}
 		name := getString(v, "name")
 		if name == "" {
@@ -1123,7 +1168,7 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 	for i, item := range data {
 		f, err := parseNumberAsInt64(item)
 		if err != nil {
-			return nil, wrapProtocol(fmt.Sprintf("invalid byte %d in frame data", i), err)
+			return nil, wrapProtocolError(fmt.Sprintf("invalid byte %d in frame data", i), err)
 		}
 		if f < 0 || f > 255 {
 			return nil, protocolError(fmt.Sprintf("byte %d out of range: %d", i, f))
@@ -1212,7 +1257,9 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 }
 
 // signalNameByIndex resolves a DBC signal index into its name using the
-// caller-supplied lookup table. Returns an empty SignalName on OOB.
+// caller-supplied lookup table.  Returns a synthetic "signal_<idx>" on OOB
+// — diagnostic-grade only; the kernel guarantees indices in range, so OOB
+// reaching this branch indicates a binding-side bookkeeping bug.
 func signalNameByIndex(names []string, idx uint16) SignalName {
 	if int(idx) < len(names) {
 		return SignalName(names[idx])
@@ -1256,14 +1303,14 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 		}
 		idx, err := parseNumberAsInt64(m["property_index"])
 		if err != nil {
-			return nil, wrapProtocol("invalid property_index", err)
+			return nil, wrapProtocolError("invalid property_index", err)
 		}
 		if idx < 0 {
 			return nil, protocolError(fmt.Sprintf("negative property_index: %d", idx))
 		}
 		ts, err := parseNumberAsInt64(m["timestamp"])
 		if err != nil {
-			return nil, wrapProtocol("invalid timestamp", err)
+			return nil, wrapProtocolError("invalid timestamp", err)
 		}
 		if ts < 0 {
 			return nil, protocolError(fmt.Sprintf("negative timestamp: %d", ts))
@@ -1336,7 +1383,7 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 
 	idx, err := parseNumberAsInt64(r["property_index"])
 	if err != nil {
-		return zero, wrapProtocol("invalid property_index", err)
+		return zero, wrapProtocolError("invalid property_index", err)
 	}
 	if idx < 0 {
 		return zero, protocolError(fmt.Sprintf("negative property_index: %d", idx))
@@ -1351,7 +1398,7 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 	if tsRaw, ok := r["timestamp"]; ok && tsRaw != nil {
 		ts, err := parseNumberAsInt64(tsRaw)
 		if err != nil {
-			return zero, wrapProtocol("invalid timestamp in result", err)
+			return zero, wrapProtocolError("invalid timestamp in result", err)
 		}
 		if ts < 0 {
 			return zero, protocolError(fmt.Sprintf("negative timestamp in result: %d", ts))
@@ -1363,8 +1410,8 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 	return pr, nil
 }
 
-// parseDbcResponse decodes a formatDBC response into a DBCDefinition.
-func parseDbcResponse(raw string) (*DBCDefinition, error) {
+// parseDBCResponse decodes a formatDBC response into a DBCDefinition.
+func parseDBCResponse(raw string) (*DBCDefinition, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
 		return nil, err
@@ -1381,13 +1428,13 @@ func parseDbcResponse(raw string) (*DBCDefinition, error) {
 	if dbcRaw == nil {
 		return nil, protocolError("missing 'dbc' field in response")
 	}
-	return parseDbcDefinition(dbcRaw)
+	return parseDBCDefinition(dbcRaw)
 }
 
-// parseDbcTextResponse decodes a formatDBCText response into the .dbc text
+// parseDBCTextResponse decodes a formatDBCText response into the .dbc text
 // image.  Errors (Agda-side JSON parse failure on the input or unexpected
 // status) short-circuit to the (string, error) tuple's error half.
-func parseDbcTextResponse(raw string) (string, error) {
+func parseDBCTextResponse(raw string) (string, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
 		return "", err
@@ -1427,7 +1474,7 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 	if dbcRaw == nil {
 		return nil, protocolError("missing 'dbc' field in parseDBC response")
 	}
-	dbc, err := parseDbcDefinition(dbcRaw)
+	dbc, err := parseDBCDefinition(dbcRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -1464,18 +1511,18 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 	return &ParsedDBC{DBC: *dbc, Warnings: warnings}, nil
 }
 
-// parseDbcDefinition decodes the "dbc" sub-object of a formatDBC
+// parseDBCDefinition decodes the "dbc" sub-object of a formatDBC
 // response into its typed DBCDefinition form. Tier 1 metadata arrays
 // (signalGroups / environmentVars / valueTables) are optional on the
 // wire — absent or null keys become empty slices.
-func parseDbcDefinition(j map[string]any) (*DBCDefinition, error) {
+func parseDBCDefinition(j map[string]any) (*DBCDefinition, error) {
 	var messages []DBCMessage
 	for _, item := range getArray(j, "messages") {
 		mRaw, ok := item.(map[string]any)
 		if !ok {
 			return nil, protocolError("expected object in messages array")
 		}
-		msg, err := parseDbcMessage(mRaw)
+		msg, err := parseDBCMessage(mRaw)
 		if err != nil {
 			return nil, err
 		}
@@ -1564,7 +1611,7 @@ func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {
 		idVal, ext, err := parseCanIDFields(rvdRaw)
 		if err != nil {
-			return DBCRawValueDesc{}, wrapProtocol("invalid unresolvedValueDesc id", err)
+			return DBCRawValueDesc{}, wrapProtocolError("invalid unresolvedValueDesc id", err)
 		}
 		var canID CANID
 		if ext {
@@ -1583,7 +1630,7 @@ func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 		entries, err := parseObjects(rvdRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
 			if err != nil {
-				return DBCValueEntry{}, wrapProtocol("invalid unresolvedValueDescs entry value", err)
+				return DBCValueEntry{}, wrapProtocolError("invalid unresolvedValueDescs entry value", err)
 			}
 			return DBCValueEntry{
 				Value:       v,
@@ -1594,7 +1641,7 @@ func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 			return DBCRawValueDesc{}, err
 		}
 		return DBCRawValueDesc{
-			CANID:      canID,
+			ID:         canID,
 			SignalName: getString(rvdRaw, "signalName"),
 			Entries:    entries,
 		}, nil
@@ -1625,22 +1672,22 @@ func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
 	return parseObjects(j, "environmentVars", func(evRaw map[string]any) (DBCEnvironmentVar, error) {
 		tagVal, err := parseNumberAsInt64(evRaw["varType"])
 		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocol("invalid varType", err)
+			return DBCEnvironmentVar{}, wrapProtocolError("invalid varType", err)
 		}
 		if tagVal < 0 || tagVal > 2 {
 			return DBCEnvironmentVar{}, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
 		}
 		initial, err := parseRational(evRaw["initial"])
 		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar initial", err)
+			return DBCEnvironmentVar{}, wrapProtocolError("invalid environmentVar initial", err)
 		}
 		minimum, err := parseRational(evRaw["minimum"])
 		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar minimum", err)
+			return DBCEnvironmentVar{}, wrapProtocolError("invalid environmentVar minimum", err)
 		}
 		maximum, err := parseRational(evRaw["maximum"])
 		if err != nil {
-			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar maximum", err)
+			return DBCEnvironmentVar{}, wrapProtocolError("invalid environmentVar maximum", err)
 		}
 		return DBCEnvironmentVar{
 			Name:    getString(evRaw, "name"),
@@ -1660,7 +1707,7 @@ func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
 		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
 			if err != nil {
-				return DBCValueEntry{}, wrapProtocol("invalid valueTable entry value", err)
+				return DBCValueEntry{}, wrapProtocolError("invalid valueTable entry value", err)
 			}
 			return DBCValueEntry{
 				Value:       v,
@@ -1692,7 +1739,7 @@ func parseNodes(j map[string]any) ([]DBCNode, error) {
 func parseCanIDFields(m map[string]any) (uint32, bool, error) {
 	idVal, err := parseNumberAsInt64(m["id"])
 	if err != nil {
-		return 0, false, wrapProtocol("invalid id", err)
+		return 0, false, wrapProtocolError("invalid id", err)
 	}
 	if idVal < 0 || idVal > math.MaxUint32 {
 		return 0, false, protocolError(fmt.Sprintf("id out of uint32 range: %d", idVal))
@@ -1771,21 +1818,21 @@ func parseAttrType(m map[string]any) (DBCAttrType, error) {
 	case "int":
 		minV, err := parseNumberAsInt64(m["min"])
 		if err != nil {
-			return nil, wrapProtocol("invalid int attr min", err)
+			return nil, wrapProtocolError("invalid int attr min", err)
 		}
 		maxV, err := parseNumberAsInt64(m["max"])
 		if err != nil {
-			return nil, wrapProtocol("invalid int attr max", err)
+			return nil, wrapProtocolError("invalid int attr max", err)
 		}
 		return DBCAttrTypeInt{Min: minV, Max: maxV}, nil
 	case "float":
 		minV, err := parseRational(m["min"])
 		if err != nil {
-			return nil, wrapProtocol("invalid float attr min", err)
+			return nil, wrapProtocolError("invalid float attr min", err)
 		}
 		maxV, err := parseRational(m["max"])
 		if err != nil {
-			return nil, wrapProtocol("invalid float attr max", err)
+			return nil, wrapProtocolError("invalid float attr max", err)
 		}
 		return DBCAttrTypeFloat{Min: minV, Max: maxV}, nil
 	case "string":
@@ -1804,11 +1851,11 @@ func parseAttrType(m map[string]any) (DBCAttrType, error) {
 	case "hex":
 		minV, err := parseNumberAsInt64(m["min"])
 		if err != nil {
-			return nil, wrapProtocol("invalid hex attr min", err)
+			return nil, wrapProtocolError("invalid hex attr min", err)
 		}
 		maxV, err := parseNumberAsInt64(m["max"])
 		if err != nil {
-			return nil, wrapProtocol("invalid hex attr max", err)
+			return nil, wrapProtocolError("invalid hex attr max", err)
 		}
 		return DBCAttrTypeHex{Min: minV, Max: maxV}, nil
 	default:
@@ -1822,13 +1869,13 @@ func parseAttrValue(m map[string]any) (DBCAttrValue, error) {
 	case "int":
 		v, err := parseNumberAsInt64(m["value"])
 		if err != nil {
-			return nil, wrapProtocol("invalid int attr value", err)
+			return nil, wrapProtocolError("invalid int attr value", err)
 		}
 		return DBCAttrValueInt{Value: v}, nil
 	case "float":
 		v, err := parseRational(m["value"])
 		if err != nil {
-			return nil, wrapProtocol("invalid float attr value", err)
+			return nil, wrapProtocolError("invalid float attr value", err)
 		}
 		return DBCAttrValueFloat{Value: v}, nil
 	case "string":
@@ -1836,13 +1883,13 @@ func parseAttrValue(m map[string]any) (DBCAttrValue, error) {
 	case "enum":
 		v, err := parseNumberAsInt64(m["value"])
 		if err != nil {
-			return nil, wrapProtocol("invalid enum attr value", err)
+			return nil, wrapProtocolError("invalid enum attr value", err)
 		}
 		return DBCAttrValueEnum{Value: v}, nil
 	case "hex":
 		v, err := parseNumberAsInt64(m["value"])
 		if err != nil {
-			return nil, wrapProtocol("invalid hex attr value", err)
+			return nil, wrapProtocolError("invalid hex attr value", err)
 		}
 		return DBCAttrValueHex{Value: v}, nil
 	default:
@@ -1948,12 +1995,12 @@ func parseAttributes(j map[string]any) ([]DBCAttribute, error) {
 	return parseObjects(j, "attributes", parseAttribute)
 }
 
-// parseDbcMessage decodes a single message from a DBCDefinition JSON
+// parseDBCMessage decodes a single message from a DBCDefinition JSON
 // object, including its signals and multiplexing metadata.
-func parseDbcMessage(j map[string]any) (*DBCMessage, error) {
+func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
 	idVal, err := parseNumberAsInt64(j["id"])
 	if err != nil {
-		return nil, wrapProtocol("invalid message id", err)
+		return nil, wrapProtocolError("invalid message id", err)
 	}
 	if idVal < 0 {
 		return nil, protocolError(fmt.Sprintf("negative message id: %d", idVal))
@@ -1980,7 +2027,7 @@ func parseDbcMessage(j map[string]any) (*DBCMessage, error) {
 
 	dlcVal, err := parseNumberAsInt64(j["dlc"])
 	if err != nil {
-		return nil, wrapProtocol("invalid DLC", err)
+		return nil, wrapProtocolError("invalid DLC", err)
 	}
 	dlc, err := BytesToDLC(int(dlcVal))
 	if err != nil {
@@ -1993,7 +2040,7 @@ func parseDbcMessage(j map[string]any) (*DBCMessage, error) {
 		if !ok {
 			return nil, protocolError("expected object in signals array")
 		}
-		sig, err := parseDbcSignal(sRaw)
+		sig, err := parseDBCSignal(sRaw)
 		if err != nil {
 			return nil, err
 		}
@@ -2029,8 +2076,8 @@ func parseDbcMessage(j map[string]any) (*DBCMessage, error) {
 	return msg, nil
 }
 
-// parseDbcSignal decodes one signal definition from a DBC JSON object.
-func parseDbcSignal(j map[string]any) (DBCSignal, error) {
+// parseDBCSignal decodes one signal definition from a DBC JSON object.
+func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 	var zero DBCSignal
 	var bo ByteOrder
 	switch getString(j, "byteOrder") {
@@ -2044,30 +2091,30 @@ func parseDbcSignal(j map[string]any) (DBCSignal, error) {
 
 	factor, err := parseRational(j["factor"])
 	if err != nil {
-		return zero, wrapProtocol("invalid factor", err)
+		return zero, wrapProtocolError("invalid factor", err)
 	}
 	offset, err := parseRational(j["offset"])
 	if err != nil {
-		return zero, wrapProtocol("invalid offset", err)
+		return zero, wrapProtocolError("invalid offset", err)
 	}
 	minimum, err := parseRational(j["minimum"])
 	if err != nil {
-		return zero, wrapProtocol("invalid minimum", err)
+		return zero, wrapProtocolError("invalid minimum", err)
 	}
 	maximum, err := parseRational(j["maximum"])
 	if err != nil {
-		return zero, wrapProtocol("invalid maximum", err)
+		return zero, wrapProtocolError("invalid maximum", err)
 	}
 	startBit, err := parseNumberAsInt64(j["startBit"])
 	if err != nil {
-		return zero, wrapProtocol("invalid startBit", err)
+		return zero, wrapProtocolError("invalid startBit", err)
 	}
 	if startBit < 0 || startBit > 511 {
 		return zero, protocolError(fmt.Sprintf("startBit %d out of range (0-511)", startBit))
 	}
 	length, err := parseNumberAsInt64(j["length"])
 	if err != nil {
-		return zero, wrapProtocol("invalid length", err)
+		return zero, wrapProtocolError("invalid length", err)
 	}
 	if length < 1 || length > 64 {
 		return zero, protocolError(fmt.Sprintf("bit length %d out of range (1-64)", length))
@@ -2083,15 +2130,13 @@ func parseDbcSignal(j map[string]any) (DBCSignal, error) {
 		return zero, protocolError("signal missing required field: name")
 	}
 
-	// Explicit lookup: "signed" must be present in well-formed DBC JSON
-	// from the Agda parser. Default to false (unsigned, the CAN standard
-	// default) but log a warning via error return if missing.
-	signedVal, signedOk := j["signed"]
+	// "signed" must be present in well-formed DBC JSON from the Agda parser.
+	// Silently default to false (the CAN unsigned default) if missing or not
+	// a bool — drift from the kernel is treated as a parser bug, not a user
+	// input error, so it does not surface as a typed validation failure.
 	isSigned := false
-	if signedOk {
-		if b, ok := signedVal.(bool); ok {
-			isSigned = b
-		}
+	if b, ok := j["signed"].(bool); ok {
+		isSigned = b
 	}
 
 	var receivers []string
@@ -2116,7 +2161,7 @@ func parseDbcSignal(j map[string]any) (DBCSignal, error) {
 			}
 			v, err := parseNumberAsInt64(eMap["value"])
 			if err != nil {
-				return zero, wrapProtocol("invalid valueDescriptions entry value", err)
+				return zero, wrapProtocolError("invalid valueDescriptions entry value", err)
 			}
 			valueDescriptions = append(valueDescriptions, DBCValueEntry{
 				Value:       v,
@@ -2158,7 +2203,7 @@ func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 	for i, rv := range rawVals {
 		v, err := parseNumberAsInt64(rv)
 		if err != nil {
-			return nil, wrapProtocol(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
+			return nil, wrapProtocolError(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
 		}
 		if v < 0 || v > math.MaxUint32 {
 			return nil, protocolError(fmt.Sprintf("multiplex_values[%d] %d out of range (0-%d)", i, v, uint32(math.MaxUint32)))
@@ -2166,7 +2211,7 @@ func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 		muxVals = append(muxVals, MultiplexValue(v))
 	}
 	return Multiplexed{
-		Multiplexor: SignalName(muxName),
-		MuxValues:   muxVals,
+		Multiplexor:     SignalName(muxName),
+		MultiplexValues: muxVals,
 	}, nil
 }

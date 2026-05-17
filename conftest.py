@@ -31,6 +31,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator
 
+import pytest
+
 import aletheia
 import aletheia.can_log
 import aletheia.dbc_converter
@@ -43,9 +45,9 @@ from aletheia import (
     CANFrameTuple,
     Check,
     FrameResponse,
-    ProcessError,
     ProtocolError,
     Signal,
+    ValidationError,
     eventually_always,
     infinitely_often,
     never,
@@ -133,19 +135,21 @@ def _harness_convert_dbc_file(*_args: Any, **_kwargs: Any) -> str:
 
 
 def _harness_iter_can_log(*_args: Any, **_kwargs: Any) -> Iterator[Any]:
-    """Return a single illustrative 5-tuple frame.
+    """Return a single illustrative 7-tuple frame.
 
     Empty iterators silently pass any unpack — including a 4-tuple unpack
-    against a 5-tuple yield, the exact drift that R18 cluster 11 surfaced
-    across 7+ doc sites. Yielding at least one real ``CANFrameTuple`` ensures
-    every fence body that iterates is actually exercised, so unpack-arity
-    drift fails fast at fence-execution time. The synthetic frame
-    ``(0, 0x100, 8, bytes(8), extended=False)`` resolves cleanly against the
-    harness DBC's message id ``0x100`` with ``dlc=8``; downstream signal
-    values decode to 0, comfortably below the ``Speed < 250`` property the
-    docs commonly reference.
+    against a 7-tuple yield, the exact drift that R18 cluster 11 (5-tuple
+    era) and R20 cluster L (5 → 7 transition after R19 cluster 18 added
+    BRS/ESI) surfaced across the doc sites. Yielding at least one real
+    ``CANFrameTuple`` ensures every fence body that iterates is actually
+    exercised, so unpack-arity drift fails fast at fence-execution time.
+    The synthetic frame ``(0, 0x100, 8, bytes(8), False, None, None)``
+    resolves cleanly against the harness DBC's message id ``0x100`` with
+    ``dlc=8``; downstream signal values decode to 0, comfortably below
+    the ``Speed < 250`` property the docs commonly reference. ``brs`` and
+    ``esi`` are ``None`` (CAN 2.0B; the BRS/ESI bits do not exist).
     """
-    return iter([CANFrameTuple(0, 0x100, 8, bytes(8), False)])
+    return iter([CANFrameTuple(0, 0x100, 8, bytes(8), False, None, None)])
 
 
 def _harness_load_can_log(*_args: Any, **_kwargs: Any) -> list[Any]:
@@ -190,7 +194,7 @@ def _make_globals() -> dict[str, Any]:
         "Check": Check,
         "AletheiaError": AletheiaError,
         "ProtocolError": ProtocolError,
-        "ProcessError": ProcessError,
+        "ValidationError": ValidationError,
         "BatchError": BatchError,
         "FrameResponse": FrameResponse,
         "infinitely_often": infinitely_often,
@@ -253,3 +257,25 @@ def pytest_sessionstart() -> None:
 def pytest_markdown_docs_globals() -> dict[str, Any]:
     """pytest-markdown-docs hook — globals merged into every fence's namespace."""
     return _make_globals()
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run every doc fence with cwd redirected to a per-test ``tmp_path``.
+
+    Defense-in-depth: even though ``pytest_sessionstart`` patches
+    ``create_template`` (and the other loader entry points) to no-op
+    fakes, the patches only fire when this conftest is loaded.  Running
+    pytest with a non-repo rootdir bypasses the conftest, lets the real
+    ``create_template`` execute, and lands ``vehicle_checks.xlsx`` in the
+    invoking shell's cwd.  Pinning cwd to ``tmp_path`` per test means any
+    file write — patched or not — goes to a sandboxed dir that pytest
+    auto-cleans, so the repo tree stays clean regardless of how the
+    harness was invoked.  Doc fences do not depend on cwd: the loader
+    fakes (``load_checks`` / ``iter_can_log`` / etc.) ignore their path
+    args entirely, so the chdir is invisible to fence behaviour.
+    """
+    monkeypatch.chdir(tmp_path)

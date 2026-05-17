@@ -1,7 +1,7 @@
 # Aletheia: Project Pitch
 
 **Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
-**Last Updated**: 2026-05-10
+**Last Updated**: 2026-05-12
 
 LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
 
@@ -188,7 +188,7 @@ with AletheiaClient() as client:
     client.add_checks(checks)
     client.start_stream()
 
-    for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+    for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
         if response.get("status") == "fails":
             print(f"Violation at {response['timestamp']['numerator']}us")
@@ -234,7 +234,7 @@ See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current throughput benchmarks.
 
 **Q: Dependencies?**
-A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libaletheia-ffi.so` and Python 3.12+. See [Building Guide § Prerequisites](../development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
+A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libaletheia-ffi.so` and Python 3.13+. See [Building Guide § Prerequisites](../development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
 
 ---
 

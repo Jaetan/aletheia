@@ -44,8 +44,8 @@ func WithWhenThenSheet(name string) Option {
 	return func(c *config) { c.whenThenSheet = name }
 }
 
-// WithDbcSheet sets the name of the DBC definition sheet.
-func WithDbcSheet(name string) Option {
+// WithDBCSheet sets the name of the DBC definition sheet.
+func WithDBCSheet(name string) Option {
 	return func(c *config) { c.dbcSheet = name }
 }
 
@@ -83,8 +83,15 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 		o(&cfg)
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, aletheia.NewValidationError(fmt.Sprintf("excel file not found: %s", path))
+	// R20 cluster N — symlink + size + ZIP-bomb gates before excelize open.
+	if err := validateLoaderPath(path, "excel"); err != nil {
+		return nil, err
+	}
+	if err := checkFileSizeBound(path); err != nil {
+		return nil, err
+	}
+	if err := checkXlsxUncompressedBound(path); err != nil {
+		return nil, err
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -130,8 +137,15 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 		o(&cfg)
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, aletheia.NewValidationError(fmt.Sprintf("excel file not found: %s", path))
+	// R20 cluster N — same hardening as LoadChecks.
+	if err := validateLoaderPath(path, "excel"); err != nil {
+		return nil, err
+	}
+	if err := checkFileSizeBound(path); err != nil {
+		return nil, err
+	}
+	if err := checkXlsxUncompressedBound(path); err != nil {
+		return nil, err
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -168,12 +182,16 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 		return nil, aletheia.NewValidationError("dbc sheet has no data rows")
 	}
 
-	return parseDbcRows(dataRows)
+	return parseDBCRows(dataRows)
 }
 
 // CreateTemplate creates a blank Excel template with headers and formatting.
 // Does not overwrite existing files.
 func CreateTemplate(path string) error {
+	// R20 cluster N — parent-dir gate before excelize.NewFile/SaveAs.
+	if err := validateOutputParentDir(path); err != nil {
+		return err
+	}
 	if _, err := os.Stat(path); err == nil {
 		return aletheia.NewValidationError(fmt.Sprintf("file already exists: %s", path))
 	}
@@ -508,7 +526,7 @@ type messageKey struct {
 	dlc      int64
 }
 
-func parseDbcRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
+func parseDBCRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 	type groupEntry struct {
 		key     messageKey
 		indices []int
@@ -555,7 +573,7 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 		g := groups[key]
 		signals := make([]aletheia.DBCSignal, 0, len(g.indices))
 		for _, i := range g.indices {
-			sig, err := xlsxDbcSignal(rows[i], i+2)
+			sig, err := xlsxDBCSignal(rows[i], i+2)
 			if err != nil {
 				return nil, err
 			}
@@ -592,7 +610,7 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 			return nil, err
 		}
 
-		messages = append(messages, aletheia.NewDbcMessage(
+		messages = append(messages, aletheia.NewDBCMessage(
 			canID,
 			aletheia.MessageName(key.name),
 			dlcVal,
@@ -602,10 +620,10 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 		))
 	}
 
-	return aletheia.NewDbcDefinition("", messages), nil
+	return aletheia.NewDBCDefinition("", messages), nil
 }
 
-func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error) {
+func xlsxDBCSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error) {
 	name, err := xlsxStr(row, "Signal", rowNum)
 	if err != nil {
 		return aletheia.DBCSignal{}, err
@@ -696,8 +714,8 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error
 				"row %d: 'Multiplex Value' must be non-negative, got %d", rowNum, muxVal))
 		}
 		presence = aletheia.Multiplexed{
-			Multiplexor: aletheia.SignalName(muxor),
-			MuxValues:   []aletheia.MultiplexValue{aletheia.MultiplexValue(muxVal)},
+			Multiplexor:     aletheia.SignalName(muxor),
+			MultiplexValues: []aletheia.MultiplexValue{aletheia.MultiplexValue(muxVal)},
 		}
 	} else {
 		presence = aletheia.AlwaysPresent{}

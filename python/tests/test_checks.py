@@ -10,6 +10,7 @@ Tests cover:
 
 import pytest
 
+from aletheia import ValidationError
 from aletheia.checks import Check, CheckResult
 from aletheia.dsl import Signal, Property
 
@@ -114,7 +115,7 @@ class TestCheckSignal:
 
     def test_settles_negative_time_rejected(self) -> None:
         """settles_between().within(-1) is rejected."""
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(ValidationError, match="non-negative"):
             Check.signal("Temp").settles_between(60, 80).within(-1)
 
 
@@ -174,7 +175,7 @@ class TestCheckWhenThen:
 
     def test_when_then_negative_time_rejected(self) -> None:
         """when/then .within(-1) is rejected."""
-        with pytest.raises(ValueError, match="non-negative"):
+        with pytest.raises(ValidationError, match="non-negative"):
             Check.when("Brake").exceeds(50).then("Light").equals(1).within(-1)
 
 

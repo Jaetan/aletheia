@@ -26,9 +26,16 @@ func (b *FFIBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
 }
 
 // SendFrameBinary is unavailable without cgo.
-func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte) (string, error) {
+func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
+
+// Compile-time assertion that *FFIBackend satisfies the Backend interface
+// under the !cgo || !linux build tag, mirroring the cgo branch in ffi.go.
+// This catches Backend-interface signature drift at `go build` time rather
+// than at the first downstream caller — the gap that let R19P2 cluster 18
+// phase A (brs/esi *bool args) miss this stub for the !cgo build.
+var _ Backend = (*FFIBackend)(nil)
 
 // SendErrorBinary is unavailable without cgo.
 func (b *FFIBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
@@ -50,8 +57,8 @@ func (b *FFIBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
 
-// FormatDbcBinary is unavailable without cgo.
-func (b *FFIBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
+// FormatDBCBinary is unavailable without cgo.
+func (b *FFIBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
 
@@ -77,3 +84,12 @@ func (b *FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byt
 
 // Close is a no-op without cgo.
 func (b *FFIBackend) Close(_ unsafe.Pointer) {}
+
+// formatRationalFFI is a no-FFI stub.  Panics on call: the cross-binding
+// Rational pretty-printer requires the Agda kernel, which is unreachable
+// without cgo.  Mirrors the panic stance of the other FFI methods on
+// this stub.  Use MockBackend for non-cgo unit tests; calls to
+// `formatRational` (display path) are not supported in !cgo builds.
+func formatRationalFFI(_ int64, _ int64) string {
+	panic("aletheia: formatRational requires cgo on linux; build with CGO_ENABLED=1")
+}

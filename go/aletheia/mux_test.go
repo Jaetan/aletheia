@@ -26,19 +26,19 @@ func muxDBC() aletheia.DBCDefinition {
 						Name: "Temperature", StartBit: 8, BitLength: 16,
 						ByteOrder: aletheia.LittleEndian, IsSigned: true,
 						Factor: aletheia.Rational{Numerator: 1, Denominator: 10}, Offset: aletheia.Rational{Numerator: -40, Denominator: 1}, Minimum: aletheia.Rational{Numerator: -40, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 215, Denominator: 1},
-						Unit: "degC", Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValues: []aletheia.MultiplexValue{0}},
+						Unit: "degC", Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MultiplexValues: []aletheia.MultiplexValue{0}},
 					},
 					{
 						Name: "Pressure", StartBit: 8, BitLength: 16,
 						ByteOrder: aletheia.LittleEndian, IsSigned: false,
 						Factor: aletheia.Rational{Numerator: 1, Denominator: 100}, Offset: aletheia.Rational{Numerator: 0, Denominator: 1}, Minimum: aletheia.Rational{Numerator: 0, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 655, Denominator: 1},
-						Unit: "bar", Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValues: []aletheia.MultiplexValue{1}},
+						Unit: "bar", Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MultiplexValues: []aletheia.MultiplexValue{1}},
 					},
 					{
 						Name: "RPM", StartBit: 24, BitLength: 16,
 						ByteOrder: aletheia.LittleEndian, IsSigned: false,
 						Factor: aletheia.Rational{Numerator: 1, Denominator: 1}, Offset: aletheia.Rational{Numerator: 0, Denominator: 1}, Minimum: aletheia.Rational{Numerator: 0, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 10000, Denominator: 1},
-						Unit: "rpm", Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValues: []aletheia.MultiplexValue{0}},
+						Unit: "rpm", Presence: aletheia.Multiplexed{Multiplexor: "MuxSelector", MultiplexValues: []aletheia.MultiplexValue{0}},
 					},
 					{
 						Name: "Voltage", StartBit: 40, BitLength: 16,
@@ -95,9 +95,9 @@ func TestMultiplexorNames(t *testing.T) {
 	}
 }
 
-func TestMuxValues(t *testing.T) {
+func TestMultiplexValues(t *testing.T) {
 	msg := muxDBC().Messages[0]
-	got := msg.MuxValues("MuxSelector")
+	got := msg.MultiplexValues("MuxSelector")
 	if len(got) != 2 {
 		t.Fatalf("expected 2 mux values, got %d", len(got))
 	}
@@ -109,9 +109,9 @@ func TestMuxValues(t *testing.T) {
 	}
 }
 
-func TestMuxValues_UnknownMultiplexor(t *testing.T) {
+func TestMultiplexValues_UnknownMultiplexor(t *testing.T) {
 	msg := muxDBC().Messages[0]
-	got := msg.MuxValues("NonExistent")
+	got := msg.MultiplexValues("NonExistent")
 	if got != nil {
 		t.Errorf("expected nil for unknown multiplexor, got %v", got)
 	}
@@ -352,10 +352,10 @@ func TestMultiplexorNames_MultipleMuxors(t *testing.T) {
 		ID: mustStdID(0x400), Name: "DualMux", DLC: mustDLC(8), Sender: "ECU",
 		Signals: []aletheia.DBCSignal{
 			{Name: "MuxA", Presence: aletheia.AlwaysPresent{}},
-			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MuxValues: []aletheia.MultiplexValue{0}}},
+			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{0}}},
 			{Name: "MuxB", Presence: aletheia.AlwaysPresent{}},
-			{Name: "SigB1", Presence: aletheia.Multiplexed{Multiplexor: "MuxB", MuxValues: []aletheia.MultiplexValue{0}}},
-			{Name: "SigA2", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MuxValues: []aletheia.MultiplexValue{1}}},
+			{Name: "SigB1", Presence: aletheia.Multiplexed{Multiplexor: "MuxB", MultiplexValues: []aletheia.MultiplexValue{0}}},
+			{Name: "SigA2", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MultiplexValues: []aletheia.MultiplexValue{1}}},
 		},
 	}
 	names := msg.MultiplexorNames()
@@ -365,8 +365,8 @@ func TestMultiplexorNames_MultipleMuxors(t *testing.T) {
 	if names[0] != "MuxA" || names[1] != "MuxB" {
 		t.Errorf("expected [MuxA, MuxB], got %v", names)
 	}
-	// MuxValues for MuxA should be [0, 1]
-	mv := msg.MuxValues("MuxA")
+	// MultiplexValues for MuxA should be [0, 1]
+	mv := msg.MultiplexValues("MuxA")
 	if len(mv) != 2 || mv[0] != 0 || mv[1] != 1 {
 		t.Errorf("expected MuxA values [0,1], got %v", mv)
 	}

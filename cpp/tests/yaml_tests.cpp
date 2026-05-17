@@ -3,11 +3,16 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <aletheia/error.hpp>
 #include <aletheia/yaml.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <string>
+#include <system_error>
+#include <vector>
 
 using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
@@ -476,6 +481,53 @@ checks:
 )");
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("requires 'value'"));
+}
+
+// ===========================================================================
+// R20 cluster N — adversarial-input hardening (CPP-B-29.1/2 + CPP-D-21.2)
+// ===========================================================================
+
+TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {
+    auto real_ = std::filesystem::temp_directory_path() / "yaml_real_target.yaml";
+    {
+        std::ofstream ofs(real_);
+        ofs << "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n";
+    }
+    auto link = std::filesystem::temp_directory_path() / "yaml_symlink.yaml";
+    if (std::filesystem::exists(link))
+        std::filesystem::remove(link);
+    std::error_code ec;
+    std::filesystem::create_symlink(real_, link, ec);
+    if (ec) {
+        std::filesystem::remove(real_);
+        SUCCEED("Skipping symlink test — symlink creation not permitted on this filesystem");
+        return;
+    }
+
+    auto result = load_checks_from_yaml(link);
+    std::filesystem::remove(link);
+    std::filesystem::remove(real_);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("symbolic link"));
+}
+
+TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
+    auto tmp = std::filesystem::temp_directory_path() / "yaml_oversize.yaml";
+    {
+        std::ofstream ofs(tmp, std::ios::binary);
+        std::vector<char> chunk(1024UL * 1024, 'a');
+        for (int i = 0; i < 65; ++i) // 65 MiB
+            ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+    }
+    auto result = load_checks_from_yaml(tmp);
+    std::filesystem::remove(tmp);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
+    const auto& bound_info = result.error().bound_info();
+    REQUIRE(bound_info.has_value());
+    CHECK(bound_info->bound_kind == "input_length_bytes");
+    CHECK(bound_info->limit == 64ULL * 1024 * 1024);
 }
 
 TEST_CASE("yaml: then stays_between missing min/max", "[yaml][error]") {

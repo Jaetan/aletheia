@@ -13,6 +13,7 @@
 module Aletheia.LTL.Syntax where
 
 open import Data.Nat using (ℕ; zero; suc; _+_)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 
 data LTL (Atom : Set) : Set where
   -- Propositional operators
@@ -27,15 +28,24 @@ data LTL (Atom : Set) : Set where
   Until : LTL Atom → LTL Atom → LTL Atom
   Release : LTL Atom → LTL Atom → LTL Atom  -- Dual of Until: ψ holds until φ releases it
 
-  -- Bounded temporal operators (MTL) — window (microseconds) + startTime
+  -- Bounded temporal operators (MTL) — window (Timestamp μs) + startTime (ℕ, suc-encoded)
   --
   -- Parameters: window startTime subformula(s)
-  --   window    : deadline in microseconds (from first observation)
-  --   startTime : suc-encoded timestamp of first frame that evaluated this operator
-  --               0 = uninitialized, suc t = initialized with start time t
+  --   window    : deadline expressed as a Timestamp μs (interpreted as a
+  --               duration from first observation; same underlying ℕ but
+  --               wrapped to make the dimensional invariant explicit).
+  --   startTime : suc-encoded ℕ timestamp of first frame to evaluate this op.
+  --               0 = uninitialized, suc t = initialized with start time t.
   --
-  -- Suc encoding rationale: A plain ℕ sentinel (e.g., 0 = uninitialized) would
-  -- collide with a legitimate start time of 0 (first frame at timestamp 0).
+  -- Window refinement to `Timestamp μs` closes R6-B7.2 (the original NO-FIX
+  -- claim that this is a "frame count" was factually wrong — it is microseconds
+  -- per the Coalgebra step rules and JSON wire shape).  startTime retains its
+  -- suc-encoded ℕ form because the encoding is the load-bearing
+  -- "uninitialized sentinel vs legitimate timestamp 0" distinction; refining
+  -- it to `Maybe (Timestamp μs)` is a follow-up.
+  --
+  -- Suc encoding rationale (startTime): A plain ℕ sentinel (e.g., 0 = uninitialized)
+  -- would collide with a legitimate start time of 0 (first frame at timestamp 0).
   -- The suc encoding avoids this: 0 is always "uninitialized", suc 0 means
   -- "initialized at time 0", suc 42 means "initialized at time 42".
   --
@@ -43,10 +53,10 @@ data LTL (Atom : Set) : Set where
   -- MetricEventually with window=0 is immediately violated if the subformula
   -- doesn't hold on the first frame. This is mathematically correct (the deadline
   -- expires before any time passes) and not rejected by the parser.
-  MetricEventually : ℕ → ℕ → LTL Atom → LTL Atom
-  MetricAlways : ℕ → ℕ → LTL Atom → LTL Atom
-  MetricUntil : ℕ → ℕ → LTL Atom → LTL Atom → LTL Atom
-  MetricRelease : ℕ → ℕ → LTL Atom → LTL Atom → LTL Atom
+  MetricEventually : Timestamp μs → ℕ → LTL Atom → LTL Atom
+  MetricAlways : Timestamp μs → ℕ → LTL Atom → LTL Atom
+  MetricUntil : Timestamp μs → ℕ → LTL Atom → LTL Atom → LTL Atom
+  MetricRelease : Timestamp μs → ℕ → LTL Atom → LTL Atom → LTL Atom
 
 -- Functor map: transform atomic predicates while preserving formula structure.
 mapLTL : ∀ {A B : Set} → (A → B) → LTL A → LTL B

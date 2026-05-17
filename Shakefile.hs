@@ -103,6 +103,7 @@ ffiExports =
     , FFIExport "AgdaBin"   "processUpdateFrameBin"    "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processExtractBin"        "Aletheia/Main/Binary"
     , FFIExport "AgdaState" "initialState"             "Aletheia/Protocol/StreamState/Types"
+    , FFIExport "AgdaRR"    "formatRational"           "Aletheia/DBC/RationalRenderer"
     ]
 
 -- | Load the MAlonzo module contents needed by `ffiExports`, deduplicating
@@ -113,6 +114,15 @@ loadFFIModuleContents = do
     liftIO $ forM modules $ \m -> do
         c <- readFile ("build/MAlonzo/Code" </> m <.> "hs")
         return (m, c)
+
+-- | Human-readable label for FFI snapshot entry kinds (`F`/`C`/`T`).
+-- Used in `check-ffi-exports` diagnostics — keeps the error message
+-- self-explanatory ("function snapshot drift" vs "constructor …").
+kindLabel :: String -> String
+kindLabel "F" = "function"
+kindLabel "C" = "constructor"
+kindLabel "T" = "type"
+kindLabel k   = "entry (" ++ k ++ ")"
 
 -- | Reverse of MAlonzo's name mangling for entries in the FFI snapshot:
 -- strips the "d_" prefix and trailing "_<digits>" suffix. Assumes
@@ -220,6 +230,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/Formatter/Bounded.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
+        -- R20 cluster Y stage 2: cross-binding-identical Rational pretty-
+        -- printer's correctness properties.  `RationalRenderer` itself
+        -- IS reachable from Main.agda (the FFI shim calls it), but
+        -- `RationalRenderer.Properties` is a proof-only module unreached
+        -- by the runtime walk.  Walk-root rationale per
+        -- `feedback_check_properties_aggregator_walks.md`.
+        agdaWithRTS "Aletheia/DBC/RationalRenderer/Properties.agda"
         -- TextParser / TextFormatter aggregator modules.  These are not
         -- proof files themselves, but pulling them into `check-properties`
         -- forces the full TextParser / TextFormatter submodule tree to be
@@ -500,6 +517,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- above existing exports. Complements `checkFFINames` (run inline
         -- during the Main.hs build rule), which keeps AletheiaFFI.hs in
         -- sync with the mangled names.
+        --
+        -- R20 cluster I — AGDA-D-30.1.  Each non-blank, non-`#` snapshot
+        -- line carries one of three kind prefixes:
+        --   * `F: <module>:<name>` — function export (`d_*`).  Validated
+        --     by `(name ++ " ::") isInfixOf module-source`.
+        --   * `C: <module>:<name>` — data constructor tag (`C_*`).
+        --     Validated against the data declaration's alternatives.
+        --   * `T: <module>:<name>` — type tag (`T_*`).  Validated against
+        --     the `data` / `newtype` declaration header.
+        -- Lines with no prefix are treated as `F:` for back-compat with
+        -- the pre-R20 snapshot format.
         need ["build/MAlonzo/Code/Aletheia/Main.hs"]
         let snapshotFile = "haskell-shim/ffi-exports.snapshot"
         snapshotContent <- liftIO $ readFile snapshotFile
@@ -507,9 +535,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 let s = strip l
                 in if null s || "#" `isPrefixOf` s
                    then Nothing
-                   else case break (== ':') s of
-                            (m, ':':n) -> Just (m, n)
-                            _          -> Nothing
+                   else
+                     let (kind, body) = case stripPrefix "F: " s of
+                                          Just rest -> ("F", rest)
+                                          Nothing -> case stripPrefix "C: " s of
+                                            Just rest -> ("C", rest)
+                                            Nothing -> case stripPrefix "T: " s of
+                                              Just rest -> ("T", rest)
+                                              Nothing -> ("F", s)  -- back-compat
+                     in case break (== ':') body of
+                          (m, ':':n) -> Just (kind, m, n)
+                          _          -> Nothing
         let expected =
                 [ p
                 | Just p <- map parseSnapshotLine (lines snapshotContent)
@@ -517,37 +553,57 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Load every module mentioned in the snapshot, not just those in
         -- `ffiExports`.  R19 cluster 13 — AGDA-D-30.2 extended the snapshot
         -- to cover indirect helper accessors (Sigma fst/snd, DLC, Rational
-        -- numerator/denominator, BatchExtraction values/errors/absent),
-        -- which are NOT in `ffiExports` because the FFI shim accesses
-        -- them via qualified imports rather than as `foreign export`.
-        let snapshotModules = nub (map fst expected)
+        -- numerator/denominator, BatchExtraction values/errors/absent);
+        -- R20 cluster I — AGDA-D-30.1 added constructor / type tags for
+        -- the load-bearing MAlonzo types that AletheiaFFI.hs constructs
+        -- or unsafe-coerces through (StreamState, CANId, DLC, Sum, etc.)
+        -- — these are NOT in `ffiExports` because they are not `foreign
+        -- export` targets, only their constructor numbering is.
+        let snapshotModules = nub [m | (_, m, _) <- expected]
         moduleContents <- liftIO $ forM snapshotModules $ \m -> do
             let path = "build/MAlonzo/Code" </> m <.> "hs"
             existsHere <- SysDir.doesFileExist path
             if existsHere
               then do c <- readFile path; return (m, Just c)
               else return (m, Nothing)
+        -- A constructor / type tag is "present" if the mangled name
+        -- appears in the expected position in the MAlonzo output.  We
+        -- check a small family of contexts to tolerate MAlonzo's
+        -- per-version formatting variation.
+        let funcPresent name c = (name ++ " ::") `isInfixOf` c
+            ctorPresent name c =
+                (" " ++ name ++ " ")  `isInfixOf` c
+             || (" " ++ name ++ "\n") `isInfixOf` c
+             || ("\n" ++ name ++ " ") `isInfixOf` c  -- continuation after `|\n   `
+             || ("(" ++ name ++ " ") `isInfixOf` c
+             || ("(" ++ name ++ ")") `isInfixOf` c
+            typePresent name c =
+                ("data "    ++ name ++ " ")  `isInfixOf` c
+             || ("data "    ++ name ++ "\n") `isInfixOf` c
+             || ("newtype " ++ name ++ " ")  `isInfixOf` c
+             || ("newtype " ++ name ++ "\n") `isInfixOf` c
+            entryPresent kind name c = case kind of
+                "F" -> funcPresent name c
+                "C" -> ctorPresent name c
+                "T" -> typePresent name c
+                _   -> False
         let failures =
-              [ (modName, mangled,
-                 case mc of
-                   Just c  -> extractMangledName (inferFuncName mangled) c
-                   Nothing -> Nothing)
-              | (modName, mangled) <- expected
+              [ (kind, modName, mangled)
+              | (kind, modName, mangled) <- expected
               , Just mc <- [lookup modName moduleContents]
               , case mc of
-                  Just c  -> not ((mangled ++ " ::") `isInfixOf` c)
+                  Just c  -> not (entryPresent kind mangled c)
                   Nothing -> True
               ]
         unless (null failures) $ do
-            forM_ failures $ \(m, expected', actual) ->
+            forM_ failures $ \(kind, m, expected') ->
                 putError $ unlines
                     [ ""
                     , "════════════════════════════════════════════════════════════════"
-                    , "ERROR: FFI export snapshot drift in " ++ m
+                    , "ERROR: FFI " ++ kindLabel kind ++ " snapshot drift in " ++ m
                     , "════════════════════════════════════════════════════════════════"
                     , ""
-                    , "  Expected (snapshot): " ++ expected'
-                    , "  Actual (MAlonzo):    " ++ maybe "<not found>" id actual
+                    , "  Expected (snapshot): " ++ kind ++ ": " ++ m ++ ":" ++ expected'
                     , ""
                     , "  Snapshot file: " ++ snapshotFile
                     , ""
@@ -559,53 +615,87 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                     ]
             error "check-ffi-exports failed: snapshot mismatch"
         putInfo $ "FFI exports match snapshot: "
-               ++ show (length expected) ++ " entries."
+               ++ show (length expected) ++ " entries ("
+               ++ show (length [() | ("F", _, _) <- expected]) ++ " functions, "
+               ++ show (length [() | ("C", _, _) <- expected]) ++ " constructors, "
+               ++ show (length [() | ("T", _, _) <- expected]) ++ " types)."
 
     phony "regen-ffi-exports" $ do
-        -- Rewrite `haskell-shim/ffi-exports.snapshot` from the current
-        -- MAlonzo output. Run after an intentional Agda refactor that
-        -- changes the mangled numbers.
+        -- Rewrite the F: function entries in `haskell-shim/ffi-exports.snapshot`
+        -- in-place from the current MAlonzo output.  Run after an intentional
+        -- Agda refactor that changes the mangled numbers.
+        --
+        -- Preservation contract (R20 cluster I follow-up — the original regen
+        -- iterated only `ffiExports` and overwrote the whole file, which would
+        -- have silently dropped every C: constructor / T: type / indirect F:
+        -- helper line on first re-run):
+        --
+        --   * Lines without an `F: ` prefix (header comments, blanks, section
+        --     dividers, `C: …`, `T: …`) are copied through verbatim.
+        --   * `F: <module>:d_<funcName>_NN` lines whose `<module>` and
+        --     `<funcName>` match an entry in `ffiExports` get their NN
+        --     refreshed from MAlonzo.
+        --   * `F: …` lines that do NOT match any `ffiExports` entry (the
+        --     R19 cluster 13 indirect-helper block) are preserved verbatim.
+        --   * If an `ffiExports` entry has no matching `F:` line in the
+        --     snapshot (newly added export), we error out with a placeholder
+        --     suggestion rather than silently dropping it.
         need ["build/MAlonzo/Code/Aletheia/Main.hs"]
         moduleContents <- loadFFIModuleContents
-        let entries =
-              [ ffiModule e ++ ":" ++ n
-              | e <- ffiExports
-              , Just c <- [lookup (ffiModule e) moduleContents]
-              , Just n <- [extractMangledName (ffiFuncName e) c]
-              ]
-        let missing =
-              [ ffiFuncName e ++ " (" ++ ffiModule e ++ ")"
-              | e <- ffiExports
-              , case lookup (ffiModule e) moduleContents of
-                    Just c  -> case extractMangledName (ffiFuncName e) c of
-                                   Just _  -> False
-                                   Nothing -> True
-                    Nothing -> True
-              ]
-        unless (null missing) $
+        let freshFor e = do
+                c <- lookup (ffiModule e) moduleContents
+                extractMangledName (ffiFuncName e) c
+            missingMangle =
+                [ ffiFuncName e ++ " (" ++ ffiModule e ++ ")"
+                | e <- ffiExports
+                , case freshFor e of { Just _ -> False; Nothing -> True }
+                ]
+        unless (null missingMangle) $
             error $ "regen-ffi-exports: could not extract mangled name for: "
-                 ++ unwords missing
-        let header =
-                [ "# Frozen list of MAlonzo-mangled FFI export names."
-                , "#"
-                , "# Purpose: guard against silent drift of the mangled names when Agda"
-                , "# definitions are reordered or new definitions are added above existing"
-                , "# ones. The build system (Shakefile phony `check-ffi-exports`) diffs the"
-                , "# fresh MAlonzo output against this file and fails on mismatch."
-                , "#"
-                , "# Format: one \"<module>:<mangled-name>\" per non-blank, non-# line."
-                , "# Modules are the MAlonzo output files under `build/MAlonzo/Code/`."
-                , "#"
-                , "# Regenerate after an intentional refactor with:"
-                , "#   cabal run shake -- regen-ffi-exports"
-                , "#"
-                , "# This snapshot is paired with `checkFFINames` in Shakefile.hs, which"
-                , "# ensures `haskell-shim/src/AletheiaFFI.hs` calls match these names."
+                 ++ unwords missingMangle
+        let freshEntries :: [(FFIExport, String)]
+            freshEntries =
+                [ (e, n) | e <- ffiExports, Just n <- [freshFor e] ]
+            rewriteLine line =
+                case stripPrefix "F: " line of
+                    Nothing   -> (line, Nothing)
+                    Just body ->
+                        case [ (i, e, n)
+                             | (i, (e, n)) <- zip [0 :: Int ..] freshEntries
+                             , (ffiModule e ++ ":d_" ++ ffiFuncName e ++ "_")
+                                 `isPrefixOf` body
+                             ] of
+                            ((i, e, n):_) ->
+                                ( "F: " ++ ffiModule e ++ ":" ++ n
+                                , Just i
+                                )
+                            [] -> (line, Nothing)  -- indirect helper; preserve
+        existing <- liftIO $ do
+            c <- readFile "haskell-shim/ffi-exports.snapshot"
+            length c `seq` return c  -- force read; we writeFile to same path below
+        let (rewrittenLines, hits) =
+                unzip (map rewriteLine (lines existing))
+            matched = nub [i | Just i <- hits]
+            unmatched =
+                [ e | (i, (e, _)) <- zip [0 :: Int ..] freshEntries
+                    , i `notElem` matched
+                ]
+        unless (null unmatched) $
+            error $ unlines $
+                [ "regen-ffi-exports: these ffiExports entries have no F: line"
+                , "in the snapshot.  Add a placeholder before re-running:"
+                , ""
+                ] ++
+                [ "    F: " ++ ffiModule e ++ ":d_" ++ ffiFuncName e ++ "_0"
+                | e <- unmatched
                 ]
         liftIO $ writeFile "haskell-shim/ffi-exports.snapshot"
-                           (unlines (header ++ entries))
-        putInfo $ "Regenerated snapshot with "
-               ++ show (length entries) ++ " entries."
+                           (unlines rewrittenLines)
+        putInfo $ "Regenerated snapshot: refreshed "
+               ++ show (length matched) ++ " F: function entries; "
+               ++ "preserved "
+               ++ show (length (lines existing) - length matched)
+               ++ " non-function lines (C: / T: / indirect F: helpers / comments)."
 
     phony "check-stdlib-version" $ do
         -- Verify that the globally installed agda-stdlib matches the
@@ -715,6 +805,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- gate — operators must not be left blind on an event the code emits.
         cmd_ "python3" "tools/check_runbook_coverage.py"
 
+    phony "check-limits-parity" $ do
+        -- Limits SSOT parity gate (post-R20 DEFERRALS sweep).  The Agda
+        -- `Aletheia.Limits` module is the single source of truth for every
+        -- adversarial-input bound (AGENTS.md universal rule).  The Go
+        -- binding mirrors a subset at `go/aletheia/limits.go` for
+        -- cgo-boundary pre-rejection — its header claims "mirrored here
+        -- verbatim", and this script enforces that promise.  Python and
+        -- C++ bindings consume bounds via the typed `InputBoundExceeded`
+        -- error returned from the kernel; they have no local mirror and
+        -- are out of scope for this gate.  Failing on: missing required
+        -- mirror, numeric value mismatch, BoundKind wire-string mismatch,
+        -- or any side having an entry the other side lacks (with explicit
+        -- categorisation in NAME_MAPPING).
+        cmd_ "python3" "tools/check_limits_parity.py"
+
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
         -- 25 / 26 / 27 mandate per-binding long-run leak detection harnesses
@@ -739,6 +844,18 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Mull is `tools/mutation_run.py`, gated behind
         -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.
         cmd_ "python3" "tools/check_mutation_setup.py"
+
+    phony "check-bound-enforcement" $ do
+        -- Adversarial-input bound enforcement gate (R20 cluster I /
+        -- AGDA-D-32.5).  AGENTS.md universal rule "Adversarial-input bounds
+        -- at parser surfaces" requires every `BoundKind` ctor in
+        -- `Aletheia.Limits` to surface as a typed
+        -- `Error.InputBoundExceeded <Ctor> observed limit` at some parser
+        -- or handler boundary.  This script parses the `data BoundKind`
+        -- ADT and greps for `InputBoundExceeded <Ctor>` emit sites under
+        -- `src/`; a ctor with zero sites is dead metadata (the wire code
+        -- is unreachable) and fails the gate.
+        cmd_ "python3" "tools/check_bound_enforcement.py"
 
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.

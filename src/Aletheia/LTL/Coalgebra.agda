@@ -34,7 +34,7 @@ open import Aletheia.LTL.Incremental using
   ; AtomicUnresolved
   )
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
 open import Data.Nat using (_≤ᵇ_; _⊔_)
 
 -- ============================================================================
@@ -177,38 +177,41 @@ stepL table (Release φ ψ) curr =
 --
 -- MetricEventually: Rosu prog(F[w]φ, e) = prog(φ,e) ∨ F[w]φ (within window)
 -- Past window: always Violated (φ-satisfaction outside window doesn't count).
+-- R6-B7.2 closure: window is `Timestamp μs` (the original NO-FIX claim that
+-- it was a "frame count" was factually wrong); `timestampℕ` extracts the
+-- underlying ℕ for arithmetic comparison.
 stepL table (MetricEventually windowMicros startTime φ) curr
-  with metricElapsed startTime curr ≤ᵇ windowMicros
+  with metricElapsed startTime curr ≤ᵇ tsValue windowMicros
 ... | false = Violated (mkCounterexample curr MetricEventuallyExpired)
 ... | true  = combineOr (stepL table φ curr)
-                (Continue (windowMicros ∸ metricElapsed startTime curr)
+                (Continue (tsValue windowMicros ∸ metricElapsed startTime curr)
                           (MetricEventually windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ))
 
 -- MetricAlways: Rosu prog(G[w]φ, e) = prog(φ,e) ∧ G[w]φ (within window)
 stepL table (MetricAlways windowMicros startTime φ) curr
-  with metricElapsed startTime curr ≤ᵇ windowMicros
+  with metricElapsed startTime curr ≤ᵇ tsValue windowMicros
 ... | false = Satisfied  -- Window complete, always held
 ... | true  = combineAnd (stepL table φ curr)
-                (Continue (windowMicros ∸ metricElapsed startTime curr)
+                (Continue (tsValue windowMicros ∸ metricElapsed startTime curr)
                           (MetricAlways windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ))
 
 -- MetricUntil: Rosu prog(U[w](φ,ψ), e) = prog(ψ,e) ∨ (prog(φ,e) ∧ U[w](φ,ψ)) (within window)
 -- Past window: always Violated (ψ not satisfied within window).
 stepL table (MetricUntil windowMicros startTime φ ψ) curr
-  with metricElapsed startTime curr ≤ᵇ windowMicros
+  with metricElapsed startTime curr ≤ᵇ tsValue windowMicros
 ... | false = Violated (mkCounterexample curr MetricUntilExpired)
 ... | true  = combineOr (stepL table ψ curr)
                 (combineAnd (stepL table φ curr)
-                  (Continue (windowMicros ∸ metricElapsed startTime curr)
+                  (Continue (tsValue windowMicros ∸ metricElapsed startTime curr)
                             (MetricUntil windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ ψ)))
 
 -- MetricRelease: Rosu prog(R[w](φ,ψ), e) = prog(ψ,e) ∧ (prog(φ,e) ∨ R[w](φ,ψ)) (within window)
 stepL table (MetricRelease windowMicros startTime φ ψ) curr
-  with metricElapsed startTime curr ≤ᵇ windowMicros
+  with metricElapsed startTime curr ≤ᵇ tsValue windowMicros
 ... | false = Satisfied  -- Window complete, ψ held throughout
 ... | true  = combineAnd (stepL table ψ curr)
                 (combineOr (stepL table φ curr)
-                  (Continue (windowMicros ∸ metricElapsed startTime curr)
+                  (Continue (tsValue windowMicros ∸ metricElapsed startTime curr)
                             (MetricRelease windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ ψ)))
 
 -- ============================================================================

@@ -41,6 +41,22 @@ func WithDefaultChecks(checks ...CheckResult) ClientOption {
 // docs/architecture/CANCELLATION.md for the cancellation contract.
 //
 // Create with [NewClient] and close with [Client.Close] (implements [io.Closer]).
+// DO NOT RE-RAISE IN REVIEW (R20-GO-A-3.7 — DROP).  Future style sweeps
+// may flag the lockCh + closeOnce pair as inconsistent sync primitives.
+// Closed DROP after re-audit: they're solving different problems.
+//   - lockCh is a 1-deep channel semaphore.  Its purpose is context-aware
+//     mutual exclusion — every Client method's lock() helper does
+//     `select { case lockCh <- struct{}{}: ... case <-ctx.Done(): ... }`
+//     so callers can cancel a blocked acquisition.  sync.Mutex.Lock has no
+//     context-cancellable variant; TryLock returns immediately and doesn't
+//     wait.  This is a hard requirement per docs/architecture/CANCELLATION.md.
+//   - closeOnce is sync.Once for one-shot Close().  Double-close safety is
+//     a library guarantee; sync.Once is the idiomatic primitive (clearer
+//     than a CAS on `closed`).
+//
+// Consolidating to either primitive alone would lose a capability.
+// Revisit only if Go stdlib gains a unified context-aware-mutex-with-
+// idempotent-close primitive.
 type Client struct {
 	backend       Backend
 	state         unsafe.Pointer
@@ -59,7 +75,6 @@ type Client struct {
 	// observability: lets cancel-while-waiting tests deterministically
 	// detect that a competing goroutine has reached the lock-acquisition
 	// select without falling back to time.Sleep — see cancel_test.go.
-	// Production callers do not read this counter.
 	lockWaiters atomic.Int32
 }
 
@@ -375,6 +390,20 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 	return parseValidationResponse(resp)
 }
 
+// DEFERRED — TRACKED (R19P2-CL10-3 — DEFER).
+// Finding: FormatDBC / FormatDBCText return-type rework (originally a String →
+//
+//	structured-result migration carrying e.g. rendering options) was deferred
+//	from cluster 10.
+//
+// Why DEFER: Structured-result wrapping changes the wire contract across all 3
+//
+//	bindings; benefits proper typing but unclear payoff vs migration cost.
+//
+// Revisit when: A consumer needs richer return metadata (e.g. structured
+//
+//	rendering options) — the migration becomes load-bearing then.
+//
 // FormatDBC returns the currently loaded DBC definition as parsed by the Agda core.
 // Call ParseDBC first.
 //
@@ -388,11 +417,11 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
-	resp, err := c.backend.FormatDbcBinary(c.state)
+	resp, err := c.backend.FormatDBCBinary(c.state)
 	if err != nil {
 		return nil, err
 	}
-	return parseDbcResponse(resp)
+	return parseDBCResponse(resp)
 }
 
 // FormatDBCText renders a DBCDefinition as .dbc file text via the verified
@@ -422,7 +451,7 @@ func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (string, 
 	if err != nil {
 		return "", err
 	}
-	return parseDbcTextResponse(resp)
+	return parseDBCTextResponse(resp)
 }
 
 // --- Signal operations ---
@@ -466,6 +495,22 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 	return parseExtractionResponse(resp)
 }
 
+// DEFERRED — TRACKED (R19P2-CL10-2 — DEFER).
+// Finding: BuildFrame(ctx, id, signals, dlc) and UpdateFrame(ctx, id, dlc, data, signals)
+//
+//	are positionally inconsistent — `dlc` slot differs; `signals` slot differs.
+//
+// Why DEFER: Stylistic cross-binding parity work; affects every Go call site (tests,
+//
+//	benchmarks, doc fences) and needs paired cross-binding rename to Python's
+//	build_frame(can_id=, dlc=, signals=) / C++'s build_frame(can_id, dlc, signals)
+//	shapes.  Project-wide migration scope per feedback_no_backward_compat.md is
+//	justifiable but not Phase 5.1-scope.
+//
+// Revisit when: A "Go API ergonomics" cluster is opened, OR a user reports the
+//
+//	asymmetry causes confusion.
+//
 // BuildFrame encodes signal values into a CAN frame payload.
 // Requires a prior ParseDBC call to populate the signal index.
 //
@@ -707,7 +752,7 @@ func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
 	if err := parseEventAck(resp); err != nil {
 		return err
 	}
-	if c.logger != nil {
+	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "error_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.String("response", "ack"))
 	}
@@ -738,7 +783,7 @@ func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CANID) error {
 	if err := parseEventAck(resp); err != nil {
 		return err
 	}
-	if c.logger != nil {
+	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "remote_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
@@ -780,14 +825,14 @@ func (c *Client) sendFrameLocked(
 	}
 	if v, ok := fr.(Violation); ok && c.diags != nil {
 		c.enrichViolation(ctx, &v, id, dlc, data)
-		if c.logger != nil {
+		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 				slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 				slog.Bool("extended", id.IsExtended()), slog.String("response", "violation"))
 		}
 		return v, nil
 	}
-	if c.logger != nil {
+	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
@@ -949,12 +994,12 @@ func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnosti
 	key := frameKey{idValue: id.Value(), isExtended: id.IsExtended(), dlc: dlc.Value(), data: string(data)}
 	result, ok := c.cache.get(key)
 	if ok {
-		if c.logger != nil {
+		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.hit",
 				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
 	} else {
-		if c.logger != nil {
+		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.miss",
 				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}

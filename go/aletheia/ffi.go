@@ -193,7 +193,7 @@ type FFIBackend struct {
 	sendRemoteFn        unsafe.Pointer
 	startStreamFn       unsafe.Pointer
 	endStreamFn         unsafe.Pointer
-	formatDbcFn         unsafe.Pointer
+	formatDBCFn         unsafe.Pointer
 	extractSignalsFn    unsafe.Pointer
 	buildFrameBinFn     unsafe.Pointer
 	updateFrameBinFn    unsafe.Pointer
@@ -255,7 +255,12 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}()
 
 	// Required symbols from libaletheia-ffi.so (keep in sync with the
-	// loadSym calls below — a drifted comment is a finding):
+	// loadSym calls below — a drifted comment is a finding).
+	// `aletheia_format_rational` is not loaded here: the cross-binding
+	// Rational pretty-printer is reached via the lazy-load in
+	// `renderer.go`, independent of FFIBackend, so tests that never
+	// instantiate a backend still route through the same Agda kernel
+	// function.
 	//   hs_init                       — GHC RTS initialization (called once per process)
 	//   aletheia_init                 — create a new session (returns StablePtr)
 	//   aletheia_process              — send JSON command, receive JSON response
@@ -304,7 +309,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
-	formatDbcFn, err := loadSym(handle, "aletheia_format_dbc")
+	formatDBCFn, err := loadSym(handle, "aletheia_format_dbc")
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +381,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		sendRemoteFn:        sendRemoteFn,
 		startStreamFn:       startStreamFn,
 		endStreamFn:         endStreamFn,
-		formatDbcFn:         formatDbcFn,
+		formatDBCFn:         formatDBCFn,
 		extractSignalsFn:    extractSignalsFn,
 		buildFrameBinFn:     buildFrameBinFn,
 		updateFrameBinFn:    updateFrameBinFn,
@@ -575,12 +580,12 @@ func (b *FFIBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
 	return C.GoString(result), nil
 }
 
-// FormatDbcBinary returns the loaded DBC as JSON via the binary FFI entry point.
-func (b *FFIBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
+// FormatDBCBinary returns the loaded DBC as JSON via the binary FFI entry point.
+func (b *FFIBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	result := C.call_format_dbc(b.formatDbcFn, state)
+	result := C.call_format_dbc(b.formatDBCFn, state)
 	if result == nil {
 		return "", ffiError("aletheia_format_dbc returned null")
 	}
@@ -828,3 +833,8 @@ func (b *FFIBackend) Close(state unsafe.Pointer) {
 	C.call_close(b.closeFn, state)
 	stablePtrCount.Add(-1)
 }
+
+// Compile-time assertion that *FFIBackend satisfies the Backend interface.
+// Mirrors the !cgo branch in ffi_nocgo.go so interface signature drift fails
+// at `go build` rather than at the first downstream caller.
+var _ Backend = (*FFIBackend)(nil)

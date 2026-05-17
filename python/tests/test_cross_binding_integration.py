@@ -32,7 +32,7 @@ import pytest
 
 from _canonical_dbc import CANONICAL_DBC as _CANONICAL_DBC
 
-from aletheia import AletheiaClient, Signal
+from aletheia import AletheiaClient, Signal, ValidationError
 from aletheia.protocols import DLCCode
 
 
@@ -145,7 +145,7 @@ class TestCrossBindingIntegration:
             client.parse_dbc(_CANONICAL_DBC)
             client.start_stream()
             # CAN ID 0x800 (2048) is out of standard 11-bit range; FFI rejects.
-            with pytest.raises((ValueError, RuntimeError, OSError)):
+            with pytest.raises((ValidationError, ValueError, RuntimeError, OSError)):
                 client.send_frame(
                     timestamp=1000, can_id=0x800, dlc=DLCCode(8),
                     data=bytearray([0, 0, 0, 0, 0, 0, 0, 0]),

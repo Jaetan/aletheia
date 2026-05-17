@@ -40,7 +40,9 @@ if err := client.SetProperties(ctx, properties); err != nil { ... }
 if err := client.StartStream(ctx); err != nil { ... }
 
 for _, f := range frames {
-    resp, err := client.SendFrame(ctx, f.Timestamp, f.ID, f.DLC, f.Data)
+    // BRS/ESI are CAN-FD pass-through metadata (ISO 11898-1:2015 §10.4.2/3);
+    // pass nil for both on CAN 2.0B frames.
+    resp, err := client.SendFrame(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
     if err != nil { ... }
     if v, ok := resp.(aletheia.Violation); ok {
         // ...

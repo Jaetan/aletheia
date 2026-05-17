@@ -3,13 +3,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <aletheia/error.hpp>
 #include <aletheia/excel.hpp>
 
 #include <OpenXLSX.hpp>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <ios>
 #include <string>
+#include <system_error>
 #include <variant>
 #include <vector>
 
@@ -363,8 +368,8 @@ TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
     REQUIRE(std::holds_alternative<Multiplexed>(pres));
     auto& mux = std::get<Multiplexed>(pres);
     CHECK(mux.multiplexor.get() == "Selector");
-    REQUIRE(mux.mux_values.size() == 1);
-    CHECK(mux.mux_values[0].get() == 3);
+    REQUIRE(mux.multiplex_values.size() == 1);
+    CHECK(mux.multiplex_values[0].get() == 3);
 }
 
 TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
@@ -704,4 +709,104 @@ TEST_CASE("excel: template roundtrip — load checks from empty template", "[exc
     auto dbc = load_dbc_from_excel(tf.path);
     REQUIRE(!dbc.has_value());
     CHECK_THAT(std::string(dbc.error().message()), ContainsSubstring("no data rows"));
+}
+
+// ===========================================================================
+// R20 cluster N — adversarial-input hardening (CPP-B-29.1/2/3 + CPP-D-21.2)
+// ===========================================================================
+
+TEST_CASE("excel: symlink rejected", "[excel][hardening]") {
+    TempFile real_("excel_real_target.xlsx");
+    make_checks_workbook(real_.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
+    auto link = std::filesystem::temp_directory_path() / "excel_symlink.xlsx";
+    if (std::filesystem::exists(link))
+        std::filesystem::remove(link);
+    std::error_code ec;
+    std::filesystem::create_symlink(real_.path, link, ec);
+    if (ec) {
+        SUCCEED("Skipping symlink test — symlink creation not permitted on this filesystem");
+        return;
+    }
+
+    auto result = load_checks_from_excel(link);
+    std::filesystem::remove(link);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("symbolic link"));
+}
+
+TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
+    // Build a non-archive plain file > 64 MiB.  load_checks_from_excel
+    // rejects it on size BEFORE attempting OpenXLSX open.
+    TempFile tf("excel_oversize.xlsx");
+    {
+        std::ofstream ofs(tf.path, std::ios::binary);
+        std::vector<char> chunk(1024 * 1024, '\xAA');
+        for (int i = 0; i < 65; ++i) // 65 MiB
+            ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+    }
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
+    CHECK(result.error().bound_info()->limit == 64ULL * 1024 * 1024);
+}
+
+TEST_CASE("excel: ZIP central-directory bomb rejected", "[excel][hardening]") {
+    // Forge a tiny "ZIP" with a single CD entry whose uncompressed_size
+    // claims to be 1 GiB.  The walker should reject without unpacking.
+    TempFile tf("excel_zip_bomb.xlsx");
+    {
+        std::ofstream ofs(tf.path, std::ios::binary);
+        // -- One CD entry header, signature 0x02014b50, uncompressed_size = 1 GiB --
+        std::array<unsigned char, 46> cd{
+            0x50, 0x4b, 0x01, 0x02, // signature
+            0x00, 0x00,             // version made by
+            0x00, 0x00,             // version needed
+            0x00, 0x00,             // flags
+            0x00, 0x00,             // method (stored)
+            0x00, 0x00, 0x00, 0x00, // mod time / date
+            0x00, 0x00, 0x00, 0x00, // CRC-32
+            0x00, 0x00, 0x00, 0x00, // compressed size
+            0x00, 0x00, 0x00, 0x40, // uncompressed size = 0x40000000 = 1 GiB
+            0x00, 0x00,             // file name length
+            0x00, 0x00,             // extra field length
+            0x00, 0x00,             // file comment length
+            0x00, 0x00,             // disk number start
+            0x00, 0x00,             // internal attrs
+            0x00, 0x00, 0x00, 0x00, // external attrs
+            0x00, 0x00, 0x00, 0x00, // relative offset
+        };
+        ofs.write(reinterpret_cast<const char*>(cd.data()),
+                  static_cast<std::streamsize>(cd.size()));
+        // -- EOCD record at file tail --
+        std::array<unsigned char, 22> eocd{
+            0x50, 0x4b, 0x05, 0x06, // signature
+            0x00, 0x00, 0x00, 0x00, // disk numbers
+            0x01, 0x00, 0x01, 0x00, // entries
+            0x2e, 0x00, 0x00, 0x00, // CD size = 46
+            0x00, 0x00, 0x00, 0x00, // CD offset = 0
+            0x00, 0x00,             // comment length
+        };
+        ofs.write(reinterpret_cast<const char*>(eocd.data()),
+                  static_cast<std::streamsize>(eocd.size()));
+    }
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
+    CHECK(result.error().bound_info()->observed == 0x40000000ULL);
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("ZIP-bomb defence"));
+}
+
+TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardening]") {
+    auto bad =
+        std::filesystem::temp_directory_path() / "aletheia_does_not_exist_12345" / "template.xlsx";
+    auto result = create_excel_template(bad);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("Parent directory does not exist"));
 }

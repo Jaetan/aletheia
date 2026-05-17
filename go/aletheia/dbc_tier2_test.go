@@ -22,7 +22,7 @@ func buildTier2Fixture(t *testing.T) aletheia.DBCDefinition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil, nil)
+	msg := aletheia.NewDBCMessage(id, "EngineData", dlc, "ECU", nil, nil)
 
 	return aletheia.DBCDefinition{
 		Version:  "1.0",
@@ -326,7 +326,7 @@ func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
 	}
 }
 
-func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
+func TestDBCSignalReceivers_RoundtripThroughMock(t *testing.T) {
 	// Build a single-signal DBC with explicit Receivers, serialize it
 	// through parseDBC, rebuild the response envelope, parse it back
 	// through formatDBC, and confirm Receivers survived unchanged.
@@ -351,7 +351,7 @@ func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
 		Presence:  aletheia.AlwaysPresent{},
 		Receivers: []string{"ECU_A", "ECU_B"},
 	}
-	msg := aletheia.NewDbcMessage(id, "VehicleSpeed", dlc, "ECU", nil, []aletheia.DBCSignal{sig})
+	msg := aletheia.NewDBCMessage(id, "VehicleSpeed", dlc, "ECU", nil, []aletheia.DBCSignal{sig})
 	fixture := aletheia.DBCDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DBCMessage{msg},
@@ -419,7 +419,7 @@ func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
 	}
 }
 
-func TestDbcSignalReceivers_EmptyWhenAbsent(t *testing.T) {
+func TestDBCSignalReceivers_EmptyWhenAbsent(t *testing.T) {
 	// A parseDBC response that omits "receivers" entirely must parse
 	// cleanly with Receivers == nil (not an error).
 	mock := aletheia.NewMockBackend(aletheia.Respond(`{
@@ -457,9 +457,9 @@ func TestDbcSignalReceivers_EmptyWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
+func TestDBCMessageSenders_RoundtripThroughMock(t *testing.T) {
 	// BO_TX_BU_ additional senders: primary in Sender, extras in Senders.
-	// Mirrors TestDbcSignalReceivers_RoundtripThroughMock for the new
+	// Mirrors TestDBCSignalReceivers_RoundtripThroughMock for the new
 	// message-level wire key.
 	id, err := aletheia.NewStandardID(256)
 	if err != nil {
@@ -469,7 +469,7 @@ func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := aletheia.NewDbcMessage(id, "VehicleSpeed", dlc, "ECU_A",
+	msg := aletheia.NewDBCMessage(id, "VehicleSpeed", dlc, "ECU_A",
 		[]string{"ECU_B", "ECU_C"}, nil)
 	fixture := aletheia.DBCDefinition{
 		Version:  "1.0",
@@ -532,7 +532,7 @@ func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
 	}
 }
 
-func TestDbcMessageSenders_EmptyWhenAbsent(t *testing.T) {
+func TestDBCMessageSenders_EmptyWhenAbsent(t *testing.T) {
 	// Pre-B.1.x DBC responses may omit "senders"; parser defaults to nil.
 	mock := aletheia.NewMockBackend(aletheia.Respond(`{
 		"status":"success",
@@ -564,7 +564,7 @@ func TestDbcMessageSenders_EmptyWhenAbsent(t *testing.T) {
 func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
+	msg := aletheia.NewDBCMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
 	dbc := aletheia.DBCDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DBCMessage{msg},
@@ -583,7 +583,7 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 	}
 
 	inputs := mock.Inputs()
-	dbcObj := extractDbcObject(t, inputs[0])
+	dbcObj := extractDBCObject(t, inputs[0])
 
 	for _, key := range []string{"nodes", "comments", "attributes"} {
 		arr, ok := dbcObj[key].([]any)

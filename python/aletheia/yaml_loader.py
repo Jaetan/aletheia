@@ -60,7 +60,7 @@ from pathlib import Path
 import yaml
 
 from .checks import Check, CheckResult
-from .client import check_dbc_text_size_bound
+from .client import ValidationError, check_dbc_text_size_bound
 from .protocols import is_object_list, is_str_dict
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
@@ -73,7 +73,7 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
-from ._loader_utils import get_str, get_number, get_int, get_dict
+from ._loader_utils import get_str, get_number, get_int, get_dict, reject_symlink_loader_path
 
 
 def _ctx(name: str) -> str:
@@ -103,22 +103,22 @@ def load_checks(source: str | Path) -> list[CheckResult]:
         List of CheckResult objects ready for use with AletheiaClient
 
     Raises:
-        ValueError: Invalid check definition (missing fields, unknown condition)
+        ValidationError: Invalid check definition (missing fields, unknown condition)
         FileNotFoundError: File path doesn't exist
     """
     raw = _load_yaml(source)
 
     if not is_str_dict(raw) or "checks" not in raw:
-        raise ValueError("YAML must contain a 'checks' list")
+        raise ValidationError("YAML must contain a 'checks' list")
 
     checks_raw = raw["checks"]
     if not is_object_list(checks_raw):
-        raise ValueError("YAML must contain a 'checks' list")
+        raise ValidationError("YAML must contain a 'checks' list")
 
     results: list[CheckResult] = []
     for entry in checks_raw:
         if not is_str_dict(entry):
-            raise ValueError("Each check must be a YAML mapping")
+            raise ValidationError("Each check must be a YAML mapping")
         results.append(_parse_check(entry))
     return results
 
@@ -153,6 +153,7 @@ def _load_yaml(source: str | Path) -> object:
     work unchanged.  See CHANGELOG.md ``[Unreleased] [Changed]``.
     """
     if isinstance(source, Path):
+        reject_symlink_loader_path(source, "YAML")
         check_dbc_text_size_bound(source.stat().st_size)
         with open(source, encoding="utf-8") as f:
             return yaml.safe_load(f)
@@ -172,7 +173,7 @@ def _parse_check(entry: dict[str, object]) -> CheckResult:
         result = _parse_simple_check(entry)
     else:
         name = _check_name(entry)
-        raise ValueError(
+        raise ValidationError(
             f"Check '{name}': must have 'signal' or 'when'/'then'"
         )
 
@@ -192,22 +193,22 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
     name = _check_name(entry)
     condition = entry.get("condition", "")
     if not isinstance(condition, str):
-        raise ValueError(f"Check '{name}': 'condition' must be a string")
+        raise ValidationError(f"Check '{name}': 'condition' must be a string")
     signal = get_str(entry, "signal", _ctx(name))
 
     if condition not in ALL_SIMPLE_CONDITIONS:
-        raise ValueError(f"Check '{name}': unknown condition '{condition}'")
+        raise ValidationError(f"Check '{name}': unknown condition '{condition}'")
 
     if condition in SIMPLE_VALUE_CONDITIONS:
         if "value" not in entry:
-            raise ValueError(
+            raise ValidationError(
                 f"Check '{name}': condition '{condition}' requires 'value'"
             )
         return dispatch_simple(signal, condition, get_number(entry, "value", _ctx(name)))
 
     if condition in SIMPLE_RANGE_CONDITIONS:
         if "min" not in entry or "max" not in entry:
-            raise ValueError(
+            raise ValidationError(
                 f"Check '{name}': condition '{condition}' requires 'min' and 'max'"
             )
         return Check.signal(signal).stays_between(
@@ -217,11 +218,11 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
 
     if condition in SIMPLE_SETTLES_CONDITIONS:
         if "min" not in entry or "max" not in entry:
-            raise ValueError(
+            raise ValidationError(
                 f"Check '{name}': condition 'settles_between' requires 'min' and 'max'"
             )
         if "within_ms" not in entry:
-            raise ValueError(
+            raise ValidationError(
                 f"Check '{name}': condition 'settles_between' requires 'within_ms'"
             )
         return Check.signal(signal).settles_between(
@@ -231,12 +232,12 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
 
     if condition in SIMPLE_EQUALS_CONDITIONS:
         if "value" not in entry:
-            raise ValueError(
+            raise ValidationError(
                 f"Check '{name}': condition 'equals' requires 'value'"
             )
         return Check.signal(signal).equals(get_number(entry, "value", _ctx(name))).always()
 
-    raise ValueError(f"Check '{name}': unknown condition '{condition}'")
+    raise ValidationError(f"Check '{name}': unknown condition '{condition}'")
 
 
 def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
@@ -244,11 +245,11 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
     name = _check_name(entry)
 
     if "then" not in entry:
-        raise ValueError(
+        raise ValidationError(
             f"Check '{name}': must have 'signal' or 'when'/'then'"
         )
     if "within_ms" not in entry:
-        raise ValueError(
+        raise ValidationError(
             f"Check '{name}': when/then checks require 'within_ms'"
         )
 
@@ -259,7 +260,7 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
     # Validate when clause
     when_cond = get_str(when, "condition", _ctx(name))
     if when_cond not in WHEN_CONDITIONS:
-        raise ValueError(f"Check '{name}': unknown when condition '{when_cond}'")
+        raise ValidationError(f"Check '{name}': unknown when condition '{when_cond}'")
 
     when_signal = get_str(when, "signal", _ctx(name))
     when_value = get_number(when, "value", _ctx(name))
@@ -269,7 +270,7 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
     # Validate then clause
     then_cond = get_str(then, "condition", _ctx(name))
     if then_cond not in ALL_THEN_CONDITIONS:
-        raise ValueError(f"Check '{name}': unknown then condition '{then_cond}'")
+        raise ValidationError(f"Check '{name}': unknown then condition '{then_cond}'")
 
     then_signal = get_str(then, "signal", _ctx(name))
     then_builder = when_result.then(then_signal)
@@ -280,7 +281,7 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
         then_result = then_builder.exceeds(get_number(then, "value", _ctx(name)))
     else:  # stays_between
         if "min" not in then or "max" not in then:
-            raise ValueError(
+            raise ValidationError(
                 f"Check '{name}': then condition 'stays_between' requires 'min' and 'max'"
             )
         then_result = then_builder.stays_between(

@@ -181,8 +181,10 @@ static_assert(static_cast<int>(ErrorKind::Ffi) == 3);
 // LtlFormula variant — correct number of alternatives
 // ===========================================================================
 
-// LtlFormula inherits from variant — check the base
-static_assert(std::variant_size_v<LtlFormula::variant> == 14);
+// LtlFormula wraps the LtlFormulaVariant alias by composition (R20
+// CPP-D-15.4 / 17.3); the count must match the Agda kernel's LTL ADT.
+static_assert(std::variant_size_v<LtlFormulaVariant> == 14);
+static_assert(std::variant_size_v<decltype(std::declval<LtlFormula>().value)> == 14);
 static_assert(std::variant_size_v<Predicate> == 8);
 
 // ===========================================================================
@@ -228,12 +230,13 @@ static_assert(std::is_abstract_v<IBackend>);
 static_assert(std::has_virtual_destructor_v<IBackend>);
 
 // ===========================================================================
-// StrongString explicit conversion to string_view (via direct-init)
+// Strong<Tag, std::string> explicit conversion to string_view (via direct-init)
 // ===========================================================================
 
-// string_view must be constructible from StrongString (direct-init form:
-// std::string_view{name}), but the conversion is explicit so implicit
-// conversion is disallowed.
+// string_view must be constructible from a string-valued Strong (direct-init
+// form: std::string_view{name}), but the conversion is explicit so implicit
+// conversion is disallowed. Concept-gated to T == std::string per R20
+// CPP-D-15.3 (the previously-separate StrongString template was merged in).
 static_assert(std::is_constructible_v<std::string_view, SignalName>);
 static_assert(std::is_constructible_v<std::string_view, MessageName>);
 static_assert(std::is_constructible_v<std::string_view, NodeName>);

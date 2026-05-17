@@ -118,5 +118,5 @@ deriveNodesIfEmpty d with DBC.nodes d
 -- `WellFormedTextDBCAgg d` (post-Phase-E.9a, modulo other WF fields only).
 handleFormatDBCText : JSON → StreamState → StreamState × Response
 handleFormatDBCText dbcJSON state with parseDBCWithErrors dbcJSON
-... | inj₁ parseErr = (state , Response.Error (WithContext "FormatDBCText" (HandlerErr (WrappedParse parseErr))))
-... | inj₂ dbc      = (state , Response.DBCTextResponse (formatText (deriveNodesIfEmpty dbc)))
+... | inj₁ err = (state , Response.Error (WithContext "FormatDBCText" err))
+... | inj₂ dbc = (state , Response.DBCTextResponse (formatText (deriveNodesIfEmpty dbc)))

@@ -16,6 +16,7 @@ open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit; isAlpha; isSpace; isLower)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
+open import Data.Bool.ListAction using (any)
 open import Data.Nat using (ℕ; zero; suc; _∸_)
 open import Data.String as String using (String)
 
@@ -122,15 +123,11 @@ infixl 3 _<|>_
 -- CHARACTER PARSERS
 -- ============================================================================
 
--- Helper: Check if character is in a list (Boolean membership test)
--- Note: Stdlib provides proof-oriented membership (Data.List.Relation.Unary.Any)
--- but we need runtime Bool for parser predicates
+-- Helper: Check if character is in a list (Boolean membership test).
+-- Delegates to stdlib's `Data.Bool.ListAction.any` (≡ `or ∘ map p`).
 private
   elem : Char → List Char → Bool
-  elem c [] = false
-  elem c (x ∷ xs) with c ≈ᵇ x
-  ... | true = true
-  ... | false = elem c xs
+  elem c = any (c ≈ᵇ_)
 
 -- | Parse a single character satisfying predicate
 satisfy : (Char → Bool) → Parser Char
@@ -161,7 +158,28 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 
 -- Structural recursion on input length: if a parser doesn't consume input, we stop
 
--- Helper: Check if two lists have the same length
+-- R20-AGDA-C-27.1 — DO NOT RE-RAISE IN REVIEW.
+--
+-- A reviewer may suggest replacing this with `length xs ≡ᵇ length ys` to
+-- "use stdlib `_≡ᵇ_`".  That swap is NOT a stdlib equivalence — stdlib
+-- has no list-length-equality primitive; `_≡ᵇ_` is on `ℕ`, and routing
+-- through `length` changes the runtime profile from O(min(|xs|, |ys|))
+-- parallel walk (short-circuits on the first constructor mismatch) to
+-- O(|xs| + |ys|) two-pass walk with two intermediate ℕ values built in
+-- MAlonzo.  This function is `manyHelper`'s per-iteration termination
+-- check on the `parseDBCText` runtime path (FFI-exposed via
+-- `client.parse_dbc_text`, already O(N²) per
+-- `feedback_parsedbc_quadratic_scaling.md`).  Empirical measurement
+-- 2026-05-17 on a 200-msg × 4-sig synthetic DBC (44 KB), 5 runs:
+--   Structural form (this code): median 10.21s, stddev 0.11s
+--   Wrapper form    (rejected) : median 58.07s, stddev 0.31s
+--   → 5.69× slowdown for a one-line cosmetic change.
+-- The 5 derived lemmas in `DBC/TextParser/Properties/*` (sameLengthᵇ-cons,
+-- -cons-cons, -lt, -len-≢, -app-nz) re-type-check unchanged under either
+-- definition (the wrapper is definitionally equivalent on list-ctor
+-- matches), so the cleanup yields no proof-side simplification either.
+-- See `DEFERRALS.md` entry "R20-AGDA-C-27.1" for the full audit trail
+-- (initial DEFER → re-flip to FIX → revert + DROP after measurement).
 sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool
 sameLengthᵇ [] [] = true
 sameLengthᵇ (_ ∷ _) [] = false

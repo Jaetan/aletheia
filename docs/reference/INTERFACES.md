@@ -244,7 +244,7 @@ with AletheiaClient() as client:
     client.add_checks(checks)
     client.start_stream()
 
-    for timestamp, can_id, dlc, data in can_trace:
+    for timestamp, can_id, dlc, data, _extended, _brs, _esi in can_trace:
         response = client.send_frame(timestamp, can_id, dlc, data)
         if response.get("status") == "fails":
             enrichment = response.get("enrichment", {})
@@ -511,7 +511,7 @@ with AletheiaClient() as client:
     client.add_checks(checks)
     client.start_stream()
 
-    for timestamp, can_id, dlc, data in can_trace:
+    for timestamp, can_id, dlc, data, _extended, _brs, _esi in can_trace:
         response = client.send_frame(timestamp, can_id, dlc, data)
         if response.get("status") == "fails":
             enrichment = response.get("enrichment", {})

@@ -69,7 +69,7 @@ open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
   parseCANId; parseMessageId;
   parseRawValueDesc; parseRawValueDescList;
   validateIdent; validateIdentList)
-open import Aletheia.Error using (ParseError)
+open import Aletheia.Error using (Error)
 open import Aletheia.JSON using (JSON; JObject; JString; JStringS; JNumber; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
@@ -99,7 +99,7 @@ private
 -- `λ _ → refl`.
 parseObjectList-roundtrip : {A : Set}
   (typeName : String)
-  (parser : List (String × JSON) → ParseError ⊎ A)
+  (parser : List (String × JSON) → Error ⊎ A)
   (formatter : A → JSON)
   (fields : A → List (String × JSON))
   (formatter-eq : ∀ a → formatter a ≡ JObject (fields a))

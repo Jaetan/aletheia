@@ -53,16 +53,24 @@ record WellFormedMessage (m : DBCMessage) : Set where
     signals-wf : All WellFormedSignal (DBCMessage.signals m)
 
 -- Additional constraints on a signal within a frame, needed for the BigEndian
--- unconvert→convert roundtrip. LE signals impose NO extra constraints — the
--- roundtrip closes from WellFormedSignalDef alone, and `msb-ge-len` would in
--- fact reject most real LE signals (a typical 8-bit LE signal at startBit 0
--- has `msb = 7 > 0 = startBit`). BE signals carry the three constraints:
+-- unconvert→convert roundtrip AND for parse-time bit-length-positivity
+-- (R5-B1 / R6-B7.1 closure, 2026-05-15: LE bl=0 now rejected at the JSON
+-- parse boundary, completing BE-LE parity).
+--
+-- BE signals carry three constraints:
 --   • len-pos       — bitLength ≥ 1 (signals must occupy at least one bit).
 --   • fits-in-frame — startBit + bitLength − 1 < frameBytes * 8.
 --   • msb-ge-len    — bitLength − 1 ≤ startBit (the BE LSB is below the MSB).
+--
+-- LE signals carry the len-pos constraint only.  `msb-ge-len` and
+-- `fits-in-frame` would reject most real LE signals (a typical 8-bit LE
+-- signal at startBit 0 has `msb = 7 > 0 = startBit`); the unconvert→convert
+-- roundtrip is the identity for LE so neither is needed.
 data PhysicallyValid (frameBytes : ℕ) (s : DBCSignal) : Set where
-  -- LE signals: trivially valid (the roundtrip needs no extra constraints).
-  pv-LE : DBCSignal.byteOrder s ≡ LittleEndian → PhysicallyValid frameBytes s
+  -- LE signals: still require bitLength ≥ 1 (parse-time gate matches BE).
+  pv-LE : DBCSignal.byteOrder s ≡ LittleEndian
+        → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef s)
+        → PhysicallyValid frameBytes s
   -- BE signals: three constraints needed for unconvert→convert roundtrip.
   pv-BE : DBCSignal.byteOrder s ≡ BigEndian
         → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef s)

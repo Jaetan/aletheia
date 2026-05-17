@@ -1,14 +1,19 @@
 """Formula enrichment helpers — formatting, signal collection, diagnostics.
 
-Module-level functions, testable without an AletheiaClient instance.
+Module-level functions.  Rational rendering is delegated to the Agda
+kernel via the FFI's ``aletheia_format_rational`` (R20 cluster Y stage 2);
+the FFI library is registered eagerly by :class:`FFIBackend` and lazily
+loaded otherwise so direct callers like ``format_formula(my_dict)`` keep
+working without an explicit backend.
 """
 
 from collections.abc import Callable
 from fractions import Fraction
 from typing import cast
+import ctypes
 
 from ..protocols import LTLFormula
-from ._types import PropertyDiagnostic
+from ._types import PropertyDiagnostic, ValidationError
 
 _MAX_FORMULA_DEPTH = 100
 
@@ -27,10 +32,10 @@ def _walk_formula(
 ) -> None:
     """Walk a formula tree, calling on_atomic for each atomic node.
 
-    Raises ValueError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
     """
     if depth > _MAX_FORMULA_DEPTH:
-        raise ValueError(
+        raise ValidationError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
     op = formula.get("operator")
@@ -70,25 +75,110 @@ def _coerce_to_float(v: object) -> float:
     return 0.0
 
 
+# Module-level FFI library reference for the cross-binding-identical
+# Rational renderer (R20 cluster Y stage 2).  Registered eagerly by
+# :meth:`aletheia.client._backend.FFIBackend.__init__` so production
+# paths use the loaded backend's library.  When unset (e.g. tests
+# calling ``format_formula`` directly without instantiating a client),
+# :func:`_get_or_load_renderer_lib` lazily loads ``libaletheia-ffi.so``
+# and initialises the GHC RTS on first call.
+_renderer_lib: ctypes.CDLL | None = None
+
+
+def set_renderer_lib(lib: ctypes.CDLL) -> None:
+    """Register the FFI library used for Rational rendering.
+
+    Called by :meth:`FFIBackend.__init__` after configuring ctypes
+    signatures.  Subsequent calls overwrite the registration; this is
+    safe because the underlying ``.so`` is loaded once per process and
+    every backend instance holds a reference to the same library.
+    """
+    global _renderer_lib  # pylint: disable=global-statement
+    _renderer_lib = lib
+
+
+def _get_or_load_renderer_lib() -> ctypes.CDLL:
+    """Return the registered FFI library, lazily loading it if needed.
+
+    Production callers go through :class:`FFIBackend`, which registers
+    eagerly via :func:`set_renderer_lib`.  Direct callers of
+    :func:`format_formula` / :func:`build_diagnostic` (typically tests
+    or scripts) trigger the lazy load on first Rational render.
+    """
+    global _renderer_lib  # pylint: disable=global-statement
+    if _renderer_lib is None:
+        # Local import avoids a runtime circular dependency: ``_ffi``
+        # has no upward dependencies, but importing at module load
+        # would chain through ``configure_ffi_signatures`` which
+        # references ctypes types that the renderer doesn't need
+        # unless it actually has to lazy-load.
+        from ._ffi import (  # pylint: disable=import-outside-toplevel
+            configure_ffi_signatures,
+            find_ffi_library,
+        )
+        path = find_ffi_library()
+        lib = ctypes.CDLL(str(path))
+        # ``hs_init`` initialises the GHC RTS; it is idempotent across
+        # multiple ``CDLL`` handles to the same ``.so`` (the runtime
+        # tracks initialisation state internally), so re-calling here
+        # when an FFIBackend later instantiates does no harm.
+        lib.hs_init(None, None)
+        configure_ffi_signatures(lib)
+        _renderer_lib = lib
+    return _renderer_lib
+
+
+def _format_rational(v: object) -> str:
+    """Render a predicate value via the Agda kernel renderer.
+
+    Delegates to :func:`Aletheia.DBC.RationalRenderer.formatRational`
+    in the Agda kernel (see ``aletheia_format_rational`` FFI export
+    in ``haskell-shim/src/AletheiaFFI.hs``).  Cross-binding parity is
+    an architectural invariant: the same Agda function is called by
+    Python, Go, and C++ enrichment paths, so the same Rational value
+    renders to byte-identical output everywhere.
+
+    Non-:class:`Fraction` inputs (raw int/float — rare since the DSL
+    now flows through ``to_predicate_fraction``) take the legacy
+    ``:g``-formatting path; they're not subject to the cross-binding
+    invariant since they bypass the Rational kernel type.
+    """
+    if not isinstance(v, Fraction):
+        return f"{_coerce_to_float(v):g}"
+    lib = _get_or_load_renderer_lib()
+    raw = lib.aletheia_format_rational(
+        ctypes.c_int64(v.numerator),
+        ctypes.c_int64(v.denominator),
+    )
+    if not raw:
+        # Defensive: the Agda function always returns a non-null CString
+        # (the ``denom = 0`` branch returns the literal ``"0"``).  Reach
+        # here only on a catastrophic Haskell-side allocation failure.
+        return "0"
+    try:
+        return ctypes.cast(raw, ctypes.c_char_p).value.decode()  # type: ignore[union-attr]
+    finally:
+        lib.aletheia_free_str(raw)
+
+
 def _format_predicate(pred: dict[str, object]) -> str:
     """Format a predicate dict as a human-readable string."""
     kind = pred.get("predicate")
     signal = str(pred.get("signal", ""))
     op = _COMPARISON_OPS.get(str(kind))
     if op is not None:
-        return f"{signal} {op} {_coerce_to_float(pred.get('value', 0)):g}"
+        return f"{signal} {op} {_format_rational(pred.get('value', 0))}"
     if kind == "between":
-        lo = _coerce_to_float(pred.get("min", 0))
-        hi = _coerce_to_float(pred.get("max", 0))
-        return f"{lo:g} <= {signal} <= {hi:g}"
+        lo = _format_rational(pred.get("min", 0))
+        hi = _format_rational(pred.get("max", 0))
+        return f"{lo} <= {signal} <= {hi}"
     if kind == "changedBy":
-        d = _coerce_to_float(pred.get("delta", 0))
-        if d >= 0:
-            return f"\u0394{signal} >= {d:g}"
-        return f"\u0394{signal} <= {d:g}"
+        delta = pred.get("delta", 0)
+        if _coerce_to_float(delta) >= 0:
+            return f"\u0394{signal} >= {_format_rational(delta)}"
+        return f"\u0394{signal} <= {_format_rational(delta)}"
     if kind == "stableWithin":
-        t = _coerce_to_float(pred.get("tolerance", 0))
-        return f"|\u0394{signal}| <= {t:g}"
+        return f"|\u0394{signal}| <= {_format_rational(pred.get('tolerance', 0))}"
     return "<unknown predicate>"
 
 
@@ -115,10 +205,10 @@ def format_formula(  # pylint: disable=too-many-return-statements,too-many-branc
 ) -> str:
     """Format an LTL formula dict as a human-readable string.
 
-    Raises ValueError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
     """
     if depth > _MAX_FORMULA_DEPTH:
-        raise ValueError(
+        raise ValidationError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
     inner = _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
@@ -131,7 +221,7 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
 ) -> str:
     """Inner formatter with parenthesization for binary operators."""
     if depth > _MAX_FORMULA_DEPTH:
-        raise ValueError(
+        raise ValidationError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
     recur = _format_formula_inner
@@ -215,7 +305,7 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
 def collect_signals(formula: dict[str, object]) -> list[str]:
     """Collect all signal names from a formula, deduplicated, in order.
 
-    Raises ValueError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
     """
     signals: list[str] = []
     seen: set[str] = set()

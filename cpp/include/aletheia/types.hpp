@@ -2,9 +2,9 @@
 #pragma once
 
 #include <array>
-#include <cassert>
 #include <chrono>
 #include <compare>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -19,48 +19,70 @@
 namespace aletheia {
 
 // ---------------------------------------------------------------------------
-// Strong typedef templates
+// Strong typedef template
 // ---------------------------------------------------------------------------
 
 // Prevents implicit mixing of semantically distinct types that share a
 // representation. A RationalFactor is not a PhysicalValue, even though
 // both carry numeric values.
+//
+// `of(...)` is a perfect-forwarding factory: `PhysicalValue::of(1, 10)`
+// instead of `PhysicalValue{Rational{1, 10}}`. R20 CPP-D-15.2 chose this
+// over per-tag free `make_*` factories so the convenience scales to every
+// Strong instantiation without N new symbols.
+//
+// String specialization: when `T == std::string`, also exposes an
+// explicit `operator std::string_view()` so log/format sites can write
+// `std::string_view{name}` without copying. Concept-gated so non-string
+// strongs can't accidentally convert. R20 CPP-D-15.3 merged the
+// previously-separate `StrongString<Tag>` into this single template.
 template<typename Tag, typename T>
 class Strong {
     T value_;
 
 public:
     constexpr explicit Strong(T v) : value_(std::move(v)) {}
+
+    template<typename... Args>
+        requires std::constructible_from<T, Args...>
+    static constexpr auto of(Args&&... args) -> Strong {
+        return Strong(T(std::forward<Args>(args)...));
+    }
+
     [[nodiscard]] constexpr auto get() const -> const T& { return value_; }
+
+    [[nodiscard]] explicit operator std::string_view() const noexcept
+        requires std::same_as<T, std::string>
+    {
+        return value_;
+    }
+
     auto operator<=>(const Strong&) const = default;
-};
-
-// String strong types expose an explicit string_view conversion for use in
-// logging and formatting via direct-init (`std::string_view{name}`), while
-// still preventing implicit mixing with bare strings.
-template<typename Tag>
-class StrongString {
-    std::string value_;
-
-public:
-    explicit StrongString(std::string v) : value_(std::move(v)) {}
-    [[nodiscard]] auto get() const -> const std::string& { return value_; }
-    [[nodiscard]] explicit operator std::string_view() const noexcept { return value_; }
-    auto operator<=>(const StrongString&) const = default;
 };
 
 // ---------------------------------------------------------------------------
 // Name types (all std::string underneath, all distinct)
 // ---------------------------------------------------------------------------
 
-using SignalName = StrongString<struct SignalNameTag>;
-using MessageName = StrongString<struct MessageNameTag>;
-using NodeName = StrongString<struct NodeNameTag>;
-using Unit = StrongString<struct UnitTag>;
+using SignalName = Strong<struct SignalNameTag, std::string>;
+using MessageName = Strong<struct MessageNameTag, std::string>;
+using NodeName = Strong<struct NodeNameTag, std::string>;
+using Unit = Strong<struct UnitTag, std::string>;
 
 // ---------------------------------------------------------------------------
 // Rational: exact numerator/denominator
 // ---------------------------------------------------------------------------
+
+// DEFERRED — TRACKED (R19P2-CL10-4 — DEFER).
+// Finding: `struct Rational` with public `num`/`den` fields; C++ idiom prefers
+//   `class` with private fields + accessors once an invariant exists
+//   (cluster 12 added `den > 0` guard in the constructor).
+// Why DEFER: Cluster 12's `den > 0` `throw std::invalid_argument` runs at
+//   every callsite via the constructor / `Rational::make`, so the `struct`
+//   public-field exposure is already gated.  The cosmetic class promotion
+//   gains constructor-discipline but mass-migrates ~28 YAML/Excel/JSON sites.
+// Revisit when: A C++ ergonomics cluster is opened, OR a callsite bypasses
+//   the factory and constructs a malformed `Rational` directly.
 
 // Invariant: denominator must be > 0; enforced by the constructor.
 struct Rational {

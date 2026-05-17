@@ -1,20 +1,25 @@
-"""Binary FFI helpers for signal extraction, frame update, and frame build.
+"""Binary-FFI response parsing helpers for signal extraction.
 
-Wraps the three C entry points (``aletheia_extract_signals_bin``,
-``aletheia_update_frame_bin``, ``aletheia_build_frame_bin``) behind a
-small class that owns references to the loaded library and the opaque
-state pointer.  Separating these out of ``_client.py`` keeps the main
-client module focused on high-level protocol flow and lets the
-binary-path helpers stay under pylint's complexity thresholds.
+Hosts the packed-binary parser for ``aletheia_extract_signals_bin``'s
+response buffer (3 segments × ``<HHH`` count header), the
+:class:`ExtractionErrorCode` enum mirroring the Agda core's wire-format
+constants, and the small dataclasses (:class:`FrameIdentity` /
+:class:`SignalValues`) callers thread through the Backend's binary-FFI
+methods.
+
+Pre-R20 cluster P this module also hosted the ``BinaryFFI`` class that
+owned the ``ctypes`` plumbing for the three binary entry points; that
+responsibility moved to :class:`aletheia.client.FFIBackend` in
+``_backend.py`` so the Backend Protocol owns the FFI boundary uniformly.
+What remains here is wire-format parsing — independent of how the bytes
+were obtained.
 """
 
-import ctypes
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from fractions import Fraction
-from typing import NoReturn
 
 from ..protocols import DLCCode
 from ._types import ProtocolError, SignalExtractionResult
@@ -76,26 +81,6 @@ class SignalValues:
     indices: tuple[int, ...]
     numerators: tuple[int, ...]
     denominators: tuple[int, ...]
-
-
-def _decode_and_raise(
-    lib: ctypes.CDLL,
-    out_err: ctypes.c_char_p,
-    prefix: str,
-) -> NoReturn:
-    """Decode a C error string out-parameter, free it, and raise ProtocolError.
-
-    Raises ``ProtocolError`` with the decoded UTF-8 message prefixed by
-    *prefix*, or ``"Unknown error"`` if the pointer is null.
-    """
-    # ctypes.cast narrows to bytes|None correctly for pylint (direct
-    # out_err.value flags .decode as no-member).
-    raw_err = ctypes.cast(out_err, ctypes.c_char_p).value
-    if raw_err is None:
-        raise ProtocolError(f"{prefix}: Unknown error")
-    err_msg = raw_err.decode("utf-8")
-    lib.aletheia_free_str(out_err)
-    raise ProtocolError(f"{prefix}: {err_msg}")
 
 
 def _parse_values_segment(
@@ -185,105 +170,11 @@ def parse_extraction_buffer(
     return SignalExtractionResult(values=values, errors=errors, absent=tuple(absent))
 
 
-class BinaryFFI:
-    """Wraps the three binary-path C entry points.
-
-    Holds references to the loaded shared library and the opaque state
-    pointer.  Instances are cheap to create (no cached state) so the
-    client constructs a fresh wrapper per binary-path call rather than
-    holding one as an instance attribute.
-    """
-
-    def __init__(
-        self, lib: ctypes.CDLL, state: ctypes.c_void_p,
-    ) -> None:
-        self._lib = lib
-        self._state = state
-
-    def extract_signals(
-        self,
-        frame_id: FrameIdentity,
-        data: ctypes.Array[ctypes.c_uint8],
-        names: Sequence[str],
-    ) -> SignalExtractionResult:
-        """Extract signals via the binary path (no JSON on in/out)."""
-        out_buf = ctypes.POINTER(ctypes.c_uint8)()
-        out_size = ctypes.c_uint32()
-        out_err = ctypes.c_char_p()
-        status = self._lib.aletheia_extract_signals_bin(
-            self._state,
-            ctypes.c_uint32(frame_id.can_id),
-            ctypes.c_uint8(1 if frame_id.extended else 0),
-            ctypes.c_uint8(frame_id.dlc),
-            data,
-            ctypes.c_uint8(len(data)),
-            ctypes.byref(out_buf),
-            ctypes.byref(out_size),
-            ctypes.byref(out_err),
-        )
-        if status != 0:
-            _decode_and_raise(self._lib, out_err, "extract_signals failed")
-        try:
-            buf = bytes(
-                ctypes.cast(
-                    out_buf, ctypes.POINTER(ctypes.c_uint8 * out_size.value),
-                ).contents
-            )
-        finally:
-            self._lib.aletheia_free_buf(out_buf)
-        return parse_extraction_buffer(buf, names)
-
-    def update_frame(
-        self,
-        frame_id: FrameIdentity,
-        frame_data: ctypes.Array[ctypes.c_uint8],
-        signals: SignalValues,
-        expected_bytes: int,
-    ) -> bytearray:
-        """Update specific signals in an existing frame via the binary path."""
-        out_buf = (ctypes.c_uint8 * expected_bytes)()
-        out_err = ctypes.c_char_p()
-        n = len(signals.indices)
-        status = self._lib.aletheia_update_frame_bin(
-            self._state,
-            ctypes.c_uint32(frame_id.can_id),
-            ctypes.c_uint8(1 if frame_id.extended else 0),
-            ctypes.c_uint8(frame_id.dlc),
-            frame_data,
-            ctypes.c_uint8(len(frame_data)),
-            ctypes.c_uint32(n),
-            (ctypes.c_uint32 * n)(*signals.indices),
-            (ctypes.c_int64 * n)(*signals.numerators),
-            (ctypes.c_int64 * n)(*signals.denominators),
-            out_buf,
-            ctypes.byref(out_err),
-        )
-        if status != 0:
-            _decode_and_raise(self._lib, out_err, "update_frame failed")
-        return bytearray(out_buf)
-
-    def build_frame(
-        self,
-        frame_id: FrameIdentity,
-        signals: SignalValues,
-        expected_bytes: int,
-    ) -> bytearray:
-        """Build a frame from signal values via the binary path."""
-        out_buf = (ctypes.c_uint8 * expected_bytes)()
-        out_err = ctypes.c_char_p()
-        n = len(signals.indices)
-        status = self._lib.aletheia_build_frame_bin(
-            self._state,
-            ctypes.c_uint32(frame_id.can_id),
-            ctypes.c_uint8(1 if frame_id.extended else 0),
-            ctypes.c_uint8(frame_id.dlc),
-            ctypes.c_uint32(n),
-            (ctypes.c_uint32 * n)(*signals.indices),
-            (ctypes.c_int64 * n)(*signals.numerators),
-            (ctypes.c_int64 * n)(*signals.denominators),
-            out_buf,
-            ctypes.byref(out_err),
-        )
-        if status != 0:
-            _decode_and_raise(self._lib, out_err, "build_frame failed")
-        return bytearray(out_buf)
+__all__ = [
+    "EXTRACTION_ERROR_MESSAGES",
+    "EXTRACTION_ERROR_MESSAGES_BY_CODE",
+    "ExtractionErrorCode",
+    "FrameIdentity",
+    "SignalValues",
+    "parse_extraction_buffer",
+]

@@ -40,6 +40,7 @@ Example:
         client.end_stream()
 """
 
+from ._backend import Backend, BinaryPathUnsupportedError, FFIBackend, MockBackend
 from ._client import AletheiaClient
 from ._ffi import RTSState
 from ._types import (
@@ -64,9 +65,11 @@ from ._types import (
 # level. User-facing API is ``AletheiaClient``, the exception hierarchy, the
 # response TypedDicts, and the byte/DLC converters.
 __all__ = [
-    "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
+    "AletheiaClient", "AletheiaError", "Backend", "BatchError",
+    "BinaryPathUnsupportedError", "bytes_to_dlc",
     "CANFrameTuple", "check_dbc_text_size_bound", "dlc_to_bytes",
-    "FFIError", "FrameResponse", "FrameResult", "InputBoundExceededError",
+    "FFIBackend", "FFIError", "FrameResponse", "FrameResult",
+    "InputBoundExceededError", "MockBackend",
     "PropertyDiagnostic", "ProtocolError",
     "RTSState", "SignalExtractionResult", "StateError", "ValidationError",
 ]

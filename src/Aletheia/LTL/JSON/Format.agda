@@ -5,6 +5,9 @@
 -- Purpose: Convert LTL formulas back to JSON for roundtrip proofs.
 -- Produces canonical JSON that the parser in Aletheia.LTL.JSON can parse back.
 -- Role: Foundation for roundtrip correctness proofs in LTL.JSON.Properties.
+--
+-- Output invariant: the formatter never produces `"never"` or `"implies"`
+-- operators (both are derived forms expressed via `Not`/`Always`/`Or`).
 module Aletheia.LTL.JSON.Format where
 
 open import Data.String using (String; toList)
@@ -12,6 +15,7 @@ open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.JSON using (JSON; JNumber; JString; JObject)
 open import Aletheia.Prelude using (ℕtoℚ)
+open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 
@@ -60,7 +64,6 @@ formatSignalPredicateFields (DeltaP dp) = formatDeltaPredicateFields dp
 -- ============================================================================
 
 -- Format an LTL formula as a JSON object (canonical field order).
--- The formatter never produces "never" or "implies" operators (those are derived forms).
 formatLTL : LTL SignalPredicate → JSON
 formatLTL (LTL.Atomic p) =
   JObject (("operator" , JString (toList "atomic")) ∷
@@ -94,18 +97,18 @@ formatLTL (LTL.Release f g) =
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.MetricEventually n _ f) =
   JObject (("operator" , JString (toList "metricEventually")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.MetricAlways n _ f) =
   JObject (("operator" , JString (toList "metricAlways")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.MetricUntil n _ f g) =
   JObject (("operator" , JString (toList "metricUntil")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.MetricRelease n _ f g) =
   JObject (("operator" , JString (toList "metricRelease")) ∷
-           ("timebound" , JNumber (ℕtoℚ n)) ∷
+           ("timebound" , JNumber (ℕtoℚ (tsValue n))) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 

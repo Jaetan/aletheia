@@ -37,8 +37,8 @@ class TestBytesToDlc:
 
     @pytest.mark.parametrize("invalid", [9, 10, 11, 13, 15, 33, 65, 100, 256])
     def test_invalid_byte_count_raises(self, invalid: int) -> None:
-        """Invalid byte counts (not in the CAN-FD table) raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid byte count"):
+        """Invalid byte counts (not in the CAN-FD table) raise ValidationError."""
+        with pytest.raises(ValidationError, match="Invalid byte count"):
             bytes_to_dlc(DLCByteCount(invalid))
 
     @pytest.mark.parametrize("dlc_code", range(16))
@@ -110,10 +110,12 @@ class TestParseRational:
             {"numerator": 1, "denominator": 3}
         ) == pytest.approx(1 / 3)
 
-    def test_division_by_zero_string_raises(self) -> None:
-        """Verify division by zero string raises."""
-        with pytest.raises(ProtocolError, match="Division by zero"):
+    def test_non_positive_denominator_string_raises(self) -> None:
+        """Zero and negative denominators raise (positive-denom canonical form)."""
+        with pytest.raises(ProtocolError, match="positive denominator"):
             parse_rational("1/0")
+        with pytest.raises(ProtocolError, match="positive denominator"):
+            parse_rational("1/-2")
 
     def test_invalid_type_raises(self) -> None:
         """Verify invalid type raises."""
@@ -305,12 +307,12 @@ class TestValidateCanId:
 
     def test_standard_over_max_raises(self) -> None:
         """Verify standard over max raises."""
-        with pytest.raises(ValueError, match="standard CAN ID"):
+        with pytest.raises(ValidationError, match="standard CAN ID"):
             validate_can_id(0x800, extended=False)
 
     def test_standard_negative_raises(self) -> None:
         """Verify standard negative raises."""
-        with pytest.raises(ValueError, match="standard CAN ID"):
+        with pytest.raises(ValidationError, match="standard CAN ID"):
             validate_can_id(-1, extended=False)
 
     def test_extended_zero(self) -> None:
@@ -323,10 +325,10 @@ class TestValidateCanId:
 
     def test_extended_over_max_raises(self) -> None:
         """Verify extended over max raises."""
-        with pytest.raises(ValueError, match="extended CAN ID"):
+        with pytest.raises(ValidationError, match="extended CAN ID"):
             validate_can_id(0x20000000, extended=True)
 
     def test_extended_negative_raises(self) -> None:
         """Verify extended negative raises."""
-        with pytest.raises(ValueError, match="extended CAN ID"):
+        with pytest.raises(ValidationError, match="extended CAN ID"):
             validate_can_id(-1, extended=True)

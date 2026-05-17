@@ -17,10 +17,11 @@
 module Aletheia.LTL.Adequacy.SoundOps where
 
 open import Aletheia.Prelude
+open import Relation.Binary.PropositionalEquality using (subst₂)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
 open import Aletheia.LTL.TruthVal.Properties using
-  (∧TV-false-r; ∨TV-true-r; ∨TV-false-r; ∧TV-true-l; ∧TV-true-r; ∨TV-false-l)
+  (∧TV-false-r; ∨TV-via-De-Morgan)
 
 -- ============================================================================
 -- MONITORING SOUNDNESS (Sound)
@@ -58,28 +59,38 @@ data Sound : TruthVal → TruthVal → Set where
 
 -- These let us compose Sound proofs through propositional connectives.
 --
--- Design note (finding A24): sound-and and sound-or share a superficially
--- similar 6x6 case structure, each containing 8 local helpers with 4x4
--- truth tables. Extracting a generic `sound-binop` parameterized by the
--- binary TV operation (∧TV/∨TV), absorber (False/True), and identity laws
--- was investigated but rejected because:
+-- R6-B8.2 (sound-and half) — DO NOT RE-RAISE IN REVIEW.
 --
---   1. ∧TV/∨TV have overlapping clause patterns (e.g., False ∧TV _ = False
---      AND _ ∧TV False = False). Agda cannot reduce `C ∧TV a` when C is
---      Unknown or Pending and a is abstract — reduction is blocked on a.
---      This is the fundamental reason the 4x4 truth-table helpers exist.
+-- Architecture: sound-and is defined directly (clean sound-ff short-circuit
+-- on the False absorber); sound-or is derived from sound-and via De Morgan
+-- (a ∨TV b ≡ notTV (notTV a ∧TV notTV b), bridged by sound-not + subst₂).
+-- See R6-B8.2 in DEFERRALS.md for the closure narrative (the sound-or
+-- half was closed 2026-05-16 by commit `970f704`; this note documents why
+-- the sound-and HALF stays primitive and is not itself reducible).
 --
---   2. A generic combinator would still need the same 4x4 case analysis
---      per (monitor-uncertain, denotation-uncertain) pair. The parameters
---      (op, absorber) would make each case MORE complex to state and verify
---      without reducing the total number of cases.
+-- A reviewer may notice the ~250-line sound-and clause table and suggest
+-- deriving sound-and from sound-or via the dual De Morgan identity.  DO
+-- NOT do this.  Deriving BOTH halves via De Morgan creates a definitional
+-- cycle: each would call the other on same-size arguments after sound-not,
+-- which Agda's termination checker empirically rejects as a non-decreasing
+-- mutual block.  Exactly one direction must stay primitive.  sound-and is
+-- the natural primitive because its False absorber (`sound-and sound-ff _
+-- = sound-ff` at line 96) short-circuits 6 of the 36 outer cases at the
+-- top — the equivalent absorber would not fire as cleanly on sound-or
+-- because True is the absorber for ∨ but ∨TV's clause structure orders
+-- (True ∨ _) and (_ ∨ True) differently from the (∧) case, breaking the
+-- short-circuit symmetry.
 --
---   3. The two functions differ in their absorber patterns: sound-and
---      short-circuits on sound-ff (any second arg), sound-or on sound-tt.
---      This asymmetry means the top-level dispatch differs structurally.
---
--- The current structure (two parallel 6x6 functions) is the simplest that
--- Agda can type-check without stuck reductions in downstream consumers.
+-- A reviewer may also suggest a generic `sound-binop` parameterized by
+-- op/absorber/identity-laws (original A24 framing).  DO NOT do this
+-- either.  ∧TV/∨TV have overlapping clause patterns (False ∧TV _ AND _
+-- ∧TV False both reduce to False), so Agda cannot reduce `C ∧TV a` when
+-- C is Unknown/Pending and a is abstract.  A generic combinator would
+-- still need the same 4×4 case analysis per (monitor-uncertain,
+-- denotation-uncertain) pair, with the parameters making each case MORE
+-- complex.  Revisit ONLY if Agda gains a tactics framework that can
+-- mechanically generate the truth-table cases (current `unquoteDecl` /
+-- `macro` reflection is banned by Cat 29).
 
 sound-not : ∀ {m d} → Sound m d → Sound (notTV m) (notTV d)
 sound-not sound-tt    = sound-ff
@@ -266,182 +277,13 @@ sound-and {_} {d₁} {m₂} {_} sound-m-pen sound-pen = mpen-and-pen m₂ d₁
 sound-and sound-m-pen sound-m-unk = sound-m-pen
 sound-and sound-m-pen sound-m-pen = sound-m-pen
 
+-- De Morgan derivation: a ∨TV b ≡ notTV (notTV a ∧TV notTV b),
+-- so Sound (m₁ ∨TV m₂) (d₁ ∨TV d₂) follows from sound-not + sound-and + sound-not + sound-not.
 sound-or : ∀ {m₁ d₁ m₂ d₂} → Sound m₁ d₁ → Sound m₂ d₂ → Sound (m₁ ∨TV m₂) (d₁ ∨TV d₂)
-sound-or sound-tt _ = sound-tt
-sound-or sound-ff sound-tt = sound-tt
-sound-or sound-ff sound-ff = sound-ff
-sound-or sound-ff sound-unk = sound-unk
-sound-or sound-ff sound-pen = sound-pen
-sound-or sound-ff sound-m-unk = sound-m-unk
-sound-or sound-ff sound-m-pen = sound-m-pen
-sound-or {m₁} sound-unk sound-tt rewrite ∨TV-true-r m₁ = sound-tt
-sound-or sound-unk sound-ff = sound-unk
-sound-or sound-unk sound-unk = sound-unk
-sound-or sound-unk sound-pen = sound-pen
-sound-or {m₁} {_} {_} {d₂} sound-unk sound-m-unk = unk-or-unk m₁ d₂
-  where
-    unk-or-unk : ∀ a b → Sound (a ∨TV Unknown) (Unknown ∨TV b)
-    unk-or-unk True    True    = sound-tt
-    unk-or-unk True    False   = sound-unk
-    unk-or-unk True    Unknown = sound-unk
-    unk-or-unk True    Pending = sound-pen
-    unk-or-unk False   True    = sound-m-unk
-    unk-or-unk False   False   = sound-unk
-    unk-or-unk False   Unknown = sound-unk
-    unk-or-unk False   Pending = sound-pen
-    unk-or-unk Unknown True    = sound-m-unk
-    unk-or-unk Unknown False   = sound-unk
-    unk-or-unk Unknown Unknown = sound-unk
-    unk-or-unk Unknown Pending = sound-pen
-    unk-or-unk Pending True    = sound-m-pen
-    unk-or-unk Pending False   = sound-unk
-    unk-or-unk Pending Unknown = sound-unk
-    unk-or-unk Pending Pending = sound-pen
-sound-or {m₁} {_} {_} {d₂} sound-unk sound-m-pen = unk-or-pen m₁ d₂
-  where
-    unk-or-pen : ∀ a b → Sound (a ∨TV Pending) (Unknown ∨TV b)
-    unk-or-pen True    True    = sound-tt
-    unk-or-pen True    False   = sound-unk
-    unk-or-pen True    Unknown = sound-unk
-    unk-or-pen True    Pending = sound-pen
-    unk-or-pen False   True    = sound-m-pen
-    unk-or-pen False   False   = sound-unk
-    unk-or-pen False   Unknown = sound-unk
-    unk-or-pen False   Pending = sound-pen
-    unk-or-pen Unknown True    = sound-m-pen
-    unk-or-pen Unknown False   = sound-unk
-    unk-or-pen Unknown Unknown = sound-unk
-    unk-or-pen Unknown Pending = sound-pen
-    unk-or-pen Pending True    = sound-m-pen
-    unk-or-pen Pending False   = sound-unk
-    unk-or-pen Pending Unknown = sound-unk
-    unk-or-pen Pending Pending = sound-pen
-sound-or {m₁} sound-pen sound-tt rewrite ∨TV-true-r m₁ = sound-tt
-sound-or {m₁} sound-pen sound-ff rewrite ∨TV-false-r m₁ = sound-pen
-sound-or sound-pen sound-unk = sound-pen
-sound-or sound-pen sound-pen = sound-pen
-sound-or {m₁} {_} {_} {d₂} sound-pen sound-m-unk = pen-or-unk m₁ d₂
-  where
-    pen-or-unk : ∀ a b → Sound (a ∨TV Unknown) (Pending ∨TV b)
-    pen-or-unk True    True    = sound-tt
-    pen-or-unk True    False   = sound-pen
-    pen-or-unk True    Unknown = sound-pen
-    pen-or-unk True    Pending = sound-pen
-    pen-or-unk False   True    = sound-m-unk
-    pen-or-unk False   False   = sound-pen
-    pen-or-unk False   Unknown = sound-pen
-    pen-or-unk False   Pending = sound-pen
-    pen-or-unk Unknown True    = sound-m-unk
-    pen-or-unk Unknown False   = sound-pen
-    pen-or-unk Unknown Unknown = sound-pen
-    pen-or-unk Unknown Pending = sound-pen
-    pen-or-unk Pending True    = sound-m-pen
-    pen-or-unk Pending False   = sound-pen
-    pen-or-unk Pending Unknown = sound-pen
-    pen-or-unk Pending Pending = sound-pen
-sound-or {m₁} {_} {_} {d₂} sound-pen sound-m-pen = pen-or-pen m₁ d₂
-  where
-    pen-or-pen : ∀ a b → Sound (a ∨TV Pending) (Pending ∨TV b)
-    pen-or-pen True    True    = sound-tt
-    pen-or-pen True    False   = sound-pen
-    pen-or-pen True    Unknown = sound-pen
-    pen-or-pen True    Pending = sound-pen
-    pen-or-pen False   True    = sound-m-pen
-    pen-or-pen False   False   = sound-pen
-    pen-or-pen False   Unknown = sound-pen
-    pen-or-pen False   Pending = sound-pen
-    pen-or-pen Unknown True    = sound-m-pen
-    pen-or-pen Unknown False   = sound-pen
-    pen-or-pen Unknown Unknown = sound-pen
-    pen-or-pen Unknown Pending = sound-pen
-    pen-or-pen Pending True    = sound-m-pen
-    pen-or-pen Pending False   = sound-pen
-    pen-or-pen Pending Unknown = sound-pen
-    pen-or-pen Pending Pending = sound-pen
-sound-or {_} {d₁} sound-m-unk sound-tt rewrite ∨TV-true-r d₁ = sound-tt
-sound-or sound-m-unk sound-ff = sound-m-unk
-sound-or {_} {d₁} {m₂} {_} sound-m-unk sound-unk = munk-or-unk m₂ d₁
-  where
-    munk-or-unk : ∀ a b → Sound (Unknown ∨TV a) (b ∨TV Unknown)
-    munk-or-unk True    True    = sound-tt
-    munk-or-unk True    False   = sound-unk
-    munk-or-unk True    Unknown = sound-unk
-    munk-or-unk True    Pending = sound-pen
-    munk-or-unk False   True    = sound-m-unk
-    munk-or-unk False   False   = sound-unk
-    munk-or-unk False   Unknown = sound-unk
-    munk-or-unk False   Pending = sound-pen
-    munk-or-unk Unknown True    = sound-m-unk
-    munk-or-unk Unknown False   = sound-unk
-    munk-or-unk Unknown Unknown = sound-unk
-    munk-or-unk Unknown Pending = sound-pen
-    munk-or-unk Pending True    = sound-m-pen
-    munk-or-unk Pending False   = sound-unk
-    munk-or-unk Pending Unknown = sound-unk
-    munk-or-unk Pending Pending = sound-pen
-sound-or {_} {d₁} {m₂} {_} sound-m-unk sound-pen = munk-or-pen m₂ d₁
-  where
-    munk-or-pen : ∀ a b → Sound (Unknown ∨TV a) (b ∨TV Pending)
-    munk-or-pen True    True    = sound-tt
-    munk-or-pen True    False   = sound-pen
-    munk-or-pen True    Unknown = sound-pen
-    munk-or-pen True    Pending = sound-pen
-    munk-or-pen False   True    = sound-m-unk
-    munk-or-pen False   False   = sound-pen
-    munk-or-pen False   Unknown = sound-pen
-    munk-or-pen False   Pending = sound-pen
-    munk-or-pen Unknown True    = sound-m-unk
-    munk-or-pen Unknown False   = sound-pen
-    munk-or-pen Unknown Unknown = sound-pen
-    munk-or-pen Unknown Pending = sound-pen
-    munk-or-pen Pending True    = sound-m-pen
-    munk-or-pen Pending False   = sound-pen
-    munk-or-pen Pending Unknown = sound-pen
-    munk-or-pen Pending Pending = sound-pen
-sound-or sound-m-unk sound-m-unk = sound-m-unk
-sound-or sound-m-unk sound-m-pen = sound-m-pen
-sound-or {_} {d₁} sound-m-pen sound-tt rewrite ∨TV-true-r d₁ = sound-tt
-sound-or {_} {d₁} sound-m-pen sound-ff rewrite ∨TV-false-r d₁ = sound-m-pen
-sound-or {_} {d₁} {m₂} {_} sound-m-pen sound-unk = mpen-or-unk m₂ d₁
-  where
-    mpen-or-unk : ∀ a b → Sound (Pending ∨TV a) (b ∨TV Unknown)
-    mpen-or-unk True    True    = sound-tt
-    mpen-or-unk True    False   = sound-unk
-    mpen-or-unk True    Unknown = sound-unk
-    mpen-or-unk True    Pending = sound-pen
-    mpen-or-unk False   True    = sound-m-pen
-    mpen-or-unk False   False   = sound-unk
-    mpen-or-unk False   Unknown = sound-unk
-    mpen-or-unk False   Pending = sound-pen
-    mpen-or-unk Unknown True    = sound-m-pen
-    mpen-or-unk Unknown False   = sound-unk
-    mpen-or-unk Unknown Unknown = sound-unk
-    mpen-or-unk Unknown Pending = sound-pen
-    mpen-or-unk Pending True    = sound-m-pen
-    mpen-or-unk Pending False   = sound-unk
-    mpen-or-unk Pending Unknown = sound-unk
-    mpen-or-unk Pending Pending = sound-pen
-sound-or {_} {d₁} {m₂} {_} sound-m-pen sound-pen = mpen-or-pen m₂ d₁
-  where
-    mpen-or-pen : ∀ a b → Sound (Pending ∨TV a) (b ∨TV Pending)
-    mpen-or-pen True    True    = sound-tt
-    mpen-or-pen True    False   = sound-pen
-    mpen-or-pen True    Unknown = sound-pen
-    mpen-or-pen True    Pending = sound-pen
-    mpen-or-pen False   True    = sound-m-pen
-    mpen-or-pen False   False   = sound-pen
-    mpen-or-pen False   Unknown = sound-pen
-    mpen-or-pen False   Pending = sound-pen
-    mpen-or-pen Unknown True    = sound-m-pen
-    mpen-or-pen Unknown False   = sound-pen
-    mpen-or-pen Unknown Unknown = sound-pen
-    mpen-or-pen Unknown Pending = sound-pen
-    mpen-or-pen Pending True    = sound-m-pen
-    mpen-or-pen Pending False   = sound-pen
-    mpen-or-pen Pending Unknown = sound-pen
-    mpen-or-pen Pending Pending = sound-pen
-sound-or sound-m-pen sound-m-unk = sound-m-pen
-sound-or sound-m-pen sound-m-pen = sound-m-pen
+sound-or {m₁} {d₁} {m₂} {d₂} sm₁ sm₂ =
+  subst₂ Sound (sym (∨TV-via-De-Morgan m₁ m₂))
+              (sym (∨TV-via-De-Morgan d₁ d₂))
+              (sound-not (sound-and (sound-not sm₁) (sound-not sm₂)))
 
 -- Derived combinators: sound-or/sound-and with one absorbing argument.
 -- These avoid stuck ∨TV/∧TV reductions (False ∨TV abstract, True ∧TV abstract)

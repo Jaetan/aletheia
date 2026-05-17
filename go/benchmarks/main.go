@@ -77,26 +77,26 @@ func rat(num, den int64) aletheia.Rational {
 }
 
 func can20DBC() aletheia.DBCDefinition {
-	// Use NewDbcMessage / NewDbcDefinition so the generated indices exercise
+	// Use NewDBCMessage / NewDBCDefinition so the generated indices exercise
 	// the map-backed lookup path real users get. Directly populating the
 	// structs leaves the signalIndex / nameIndex / idIndex fields nil and
 	// drops SignalByName, MessageByID, and MessageByName onto their linear-
 	// scan fallback — a benchmark-correctness defect.
 	msgs := []aletheia.DBCMessage{
-		aletheia.NewDbcMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DBCSignal{
+		aletheia.NewDBCMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DBCSignal{
 			{Name: "EngineSpeed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 4), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(8000, 1), Unit: "rpm", Presence: aletheia.AlwaysPresent{}},
 			{Name: "EngineTemp", StartBit: 16, BitLength: 8, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 1), Offset: rat(-40, 1), Minimum: rat(-40, 1), Maximum: rat(215, 1), Unit: "celsius", Presence: aletheia.AlwaysPresent{}},
 		}),
-		aletheia.NewDbcMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DBCSignal{
+		aletheia.NewDBCMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DBCSignal{
 			{Name: "BrakePressure", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(65535, 10), Unit: "bar", Presence: aletheia.AlwaysPresent{}},
 			{Name: "BrakePressed", StartBit: 16, BitLength: 1, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(1, 1), Unit: "", Presence: aletheia.AlwaysPresent{}},
 		}),
 	}
-	return *aletheia.NewDbcDefinition("", msgs)
+	return *aletheia.NewDBCDefinition("", msgs)
 }
 
 func canfdDBC() aletheia.DBCDefinition {
@@ -105,7 +105,7 @@ func canfdDBC() aletheia.DBCDefinition {
 	// See comment on can20DBC — constructors populate the map-backed indices
 	// so the benchmark measures the lookup path real users exercise.
 	msgs := []aletheia.DBCMessage{
-		aletheia.NewDbcMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
+		aletheia.NewDBCMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
 			nil,
 			[]aletheia.DBCSignal{
 				{Name: "GPSLatitude", StartBit: 0, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-90, 1), Maximum: rat(90, 1), Unit: "deg", Presence: ap},
@@ -135,7 +135,7 @@ func canfdDBC() aletheia.DBCDefinition {
 				{Name: "TimestampMs", StartBit: 348, BitLength: 32, ByteOrder: le, IsSigned: false, Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(4294967295, 1), Unit: "ms", Presence: ap},
 			}),
 	}
-	return *aletheia.NewDbcDefinition("", msgs)
+	return *aletheia.NewDBCDefinition("", msgs)
 }
 
 // ---------------------------------------------------------------------------
@@ -171,14 +171,14 @@ var canfdFrame = func() aletheia.FramePayload {
 // ---------------------------------------------------------------------------
 
 var can20Properties = []aletheia.Formula{
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: 0, Max: 8000}}},
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: -40, Max: 215}}},
+	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(8000)}}},
+	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-40), Max: aletheia.IntRational(215)}}},
 }
 
 var canfdProperties = []aletheia.Formula{
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "GPSSpeed", Min: 0, Max: 655}}},
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "YawRate", Min: -327, Max: 327}}},
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "WheelSpeedFL", Min: 0, Max: 655}}},
+	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "GPSSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(655)}}},
+	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "YawRate", Min: aletheia.IntRational(-327), Max: aletheia.IntRational(327)}}},
+	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "WheelSpeedFL", Min: aletheia.IntRational(0), Max: aletheia.IntRational(655)}}},
 }
 
 // CAN 2.0B signal values for frame building.
@@ -310,7 +310,7 @@ func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition
 
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame, nil, nil); err != nil {
 			return 0, err
 		}
 	}
@@ -498,7 +498,7 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefini
 
 	// Warmup.
 	for i := 0; i < warmup; i++ {
-		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame, nil, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -507,7 +507,7 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefini
 	latencies := make([]float64, 0, numOps)
 	for i := 0; i < numOps; i++ {
 		start := time.Now()
-		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(warmup + i)}, id, dlc, frame); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(warmup + i)}, id, dlc, frame, nil, nil); err != nil {
 			return nil, err
 		}
 		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0) // microseconds
@@ -681,16 +681,16 @@ type scalingResult struct {
 
 func makeProperties(count int) []aletheia.Formula {
 	templates := []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: 0, Max: 8000}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: -40, Max: 215}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: 6553.5}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: 7000}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineTemp", Value: 200}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: 5000}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: 500, Max: 7500}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: -20, Max: 180}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "BrakePressure", Min: 0, Max: 4000}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: 6000}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(8000)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-40), Max: aletheia.IntRational(215)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.RationalFromFloat(6553.5)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(7000)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineTemp", Value: aletheia.IntRational(200)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.IntRational(5000)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(500), Max: aletheia.IntRational(7500)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-20), Max: aletheia.IntRational(180)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "BrakePressure", Min: aletheia.IntRational(0), Max: aletheia.IntRational(4000)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(6000)}}},
 	}
 	props := make([]aletheia.Formula, count)
 	for i := 0; i < count; i++ {

@@ -188,12 +188,14 @@ add_library(aletheia-cpp
     src/backend.cpp
     src/client.cpp
     src/dbc.cpp
+    src/detail/loader_utils.cpp
     src/enrich.cpp
     src/excel.cpp
     src/ffi_backend.cpp
     src/mock_backend.cpp
     src/json_serialize.cpp
     src/json_parse.cpp
+    src/rational_renderer.cpp
     src/types.cpp
     src/yaml.cpp)
 

@@ -12,8 +12,8 @@ func (AlwaysPresent) signalPresence() {}
 
 // Multiplexed means the signal is present only when a multiplexor has one of the specified values.
 type Multiplexed struct {
-	Multiplexor SignalName
-	MuxValues   []MultiplexValue
+	Multiplexor     SignalName
+	MultiplexValues []MultiplexValue
 }
 
 func (Multiplexed) signalPresence() {}
@@ -57,14 +57,14 @@ type DBCMessage struct {
 	signalIndex map[string]int // maps signal name -> index into Signals
 }
 
-// NewDbcMessage creates a [DBCMessage] with its signal-name lookup index
+// NewDBCMessage creates a [DBCMessage] with its signal-name lookup index
 // populated. External loaders must use this constructor — directly populating
 // the struct leaves signalIndex nil and forces [DBCMessage.SignalByName] onto
 // its linear fallback path.
 //
 // senders carries the BO_TX_BU_ additional-transmitter list; pass nil or an
 // empty slice when the DBC source has no BO_TX_BU_ line for this message.
-func NewDbcMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DBCSignal) DBCMessage {
+func NewDBCMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DBCSignal) DBCMessage {
 	m := DBCMessage{
 		ID:      id,
 		Name:    name,
@@ -138,15 +138,15 @@ func (m DBCMessage) MultiplexorNames() []SignalName {
 	return out
 }
 
-// MuxValues returns all multiplex values associated with the given multiplexor
+// MultiplexValues returns all multiplex values associated with the given multiplexor
 // signal, sorted by order of first occurrence. Returns nil if no multiplexed
 // signals reference the given multiplexor.
-func (m DBCMessage) MuxValues(multiplexor SignalName) []MultiplexValue {
+func (m DBCMessage) MultiplexValues(multiplexor SignalName) []MultiplexValue {
 	seen := make(map[MultiplexValue]bool)
 	var out []MultiplexValue
 	for _, s := range m.Signals {
 		if mux, ok := s.Presence.(Multiplexed); ok && mux.Multiplexor == multiplexor {
-			for _, v := range mux.MuxValues {
+			for _, v := range mux.MultiplexValues {
 				if !seen[v] {
 					seen[v] = true
 					out = append(out, v)
@@ -167,7 +167,7 @@ func (m DBCMessage) SignalsForMuxValue(multiplexor SignalName, value MultiplexVa
 		case AlwaysPresent:
 			out = append(out, s)
 		case Multiplexed:
-			if p.Multiplexor == multiplexor && ContainsMuxValue(p.MuxValues, value) {
+			if p.Multiplexor == multiplexor && ContainsMuxValue(p.MultiplexValues, value) {
 				out = append(out, s)
 			}
 		}
@@ -186,8 +186,10 @@ func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
 	return false
 }
 
-// SignalByName returns a deep copy of the first signal with the given name,
-// or nil if not found.
+// SignalByName returns a copy of the first signal with the given name, or
+// nil if not found.  The copy is shallow: slice fields (`Receivers`,
+// `ValueDescs`) on the returned signal still alias the originals; mutating
+// the returned signal's slices mutates the parent message's signals.
 func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
 	if m.signalIndex != nil {
 		if idx, ok := m.signalIndex[string(name)]; ok {
@@ -210,9 +212,10 @@ func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
 // DBC signal group (SIG_GROUP_ keyword)
 //
 // The DBC spec carries a parent-message id and a repetition count on the
-// wire; the Agda core only models the flattened {name, signals} view
-// because signal-name uniqueness is enforced globally by the validator, so
-// reconstructing message context on format_dbc is unnecessary.
+// wire; the Agda core (`Aletheia.DBC.Types.DBCSignalGroup`) only models the
+// flattened {name, signals} view because signal-name uniqueness is enforced
+// globally by the validator, so reconstructing message context on
+// format_dbc is unnecessary.
 // ---------------------------------------------------------------------------
 
 // DBCSignalGroup is a DBC signal group (SIG_GROUP_ keyword).
@@ -229,7 +232,7 @@ type DBCSignalGroup struct {
 // ---------------------------------------------------------------------------
 
 // DBCVarType is the integer tag of a DBC environment variable's declared
-// type. Values other than the three listed are rejected by parseDbcDefinition
+// type. Values other than the three listed are rejected by parseDBCDefinition
 // as a protocol error.
 type DBCVarType int
 
@@ -280,7 +283,7 @@ type DBCValueTable struct {
 // the validator's CHECK 23 UnknownValueDescriptionTarget can warn at
 // validation time.
 type DBCRawValueDesc struct {
-	CANID      CANID
+	ID         CANID
 	SignalName string
 	Entries    []DBCValueEntry
 }
@@ -591,12 +594,12 @@ type DBCDefinition struct {
 	idIndex                     map[uint64]int // maps composite CAN ID key -> index
 }
 
-// NewDbcDefinition creates a [DBCDefinition] with its message-name and
+// NewDBCDefinition creates a [DBCDefinition] with its message-name and
 // CAN-ID lookup indexes populated. External loaders must use this
 // constructor — directly populating the struct leaves the indexes nil and
 // forces [DBCDefinition.MessageByID] and [DBCDefinition.MessageByName] onto
 // their linear fallback paths.
-func NewDbcDefinition(version string, messages []DBCMessage) *DBCDefinition {
+func NewDBCDefinition(version string, messages []DBCMessage) *DBCDefinition {
 	d := &DBCDefinition{Version: version, Messages: messages}
 	d.buildIndexes()
 	return d

@@ -7,6 +7,16 @@
 -- checkAll* variants lift per-element checks to full message lists via concatMap.
 -- Role: Used by Validity proofs (ErrorChecks, WarningChecks) and composed
 --   into validateDBCFull in the parent Validator module.
+--
+-- Cat 26 cold-path acceptance: this module runs per-DBC-ingest (called from
+-- handleParseDBC / handleParseDBCText / handleValidateDBC — never per-frame),
+-- so `Dec` allocations from `_≟ₛ_`, `_≟_`, `_≤?_`, etc. are acceptable here.
+-- The per-call witness allocation is dominated by the surrounding validation
+-- machinery (JSON parsing, full-message traversal). Revisit only if the
+-- validator is promoted to a hot-path consumer (e.g. per-frame re-validation),
+-- at which point the same Bool fast-path treatment applied to
+-- `LTL/SignalPredicate/Cache` would be needed here. Mirrors the in-source
+-- revisit signal pattern from `Aletheia.Prelude.lookupByKey` (R20 cluster S).
 module Aletheia.DBC.Validator.Checks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)

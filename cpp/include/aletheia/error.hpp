@@ -5,6 +5,7 @@
 
 #include <expected>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -145,5 +146,29 @@ public:
 
 template<typename T>
 using Result = std::expected<T, AletheiaError>;
+
+/// Throwing wrapper around `AletheiaError`.
+///
+/// The C++ binding's primary error-reporting channel is `Result<T> =
+/// std::expected<T, AletheiaError>`.  Constructors (which cannot return
+/// `Result`) and a small number of binary-FFI methods returning raw
+/// `std::string` use exceptions instead; `AletheiaException` carries the
+/// same `AletheiaError` value so callers can branch on `kind()` /
+/// `code()` after a `catch`.  Derives from `std::runtime_error` so
+/// pre-R20 `catch (const std::exception&)` blocks keep catching it via
+/// the base; new code can `catch (const AletheiaException&)` to recover
+/// the kind-tagged error.
+class AletheiaException : public std::runtime_error {
+    AletheiaError error_;
+
+public:
+    explicit AletheiaException(AletheiaError error)
+        : std::runtime_error(std::string{error.message()})
+        , error_(std::move(error)) {}
+
+    [[nodiscard]] auto error() const -> const AletheiaError& { return error_; }
+    [[nodiscard]] auto kind() const -> ErrorKind { return error_.kind(); }
+    [[nodiscard]] auto code() const -> ErrorCode { return error_.code(); }
+};
 
 } // namespace aletheia

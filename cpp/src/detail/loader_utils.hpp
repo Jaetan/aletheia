@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Shared condition dispatch logic for YAML and Excel check loaders.
+// Shared condition dispatch logic for YAML and Excel check loaders, plus
+// path / size hardening helpers used at every loader entry point per
+// AGENTS.md universal rule "Adversarial-input bounds at parser surfaces".
 //
 // Both loaders accept the same set of condition keywords and dispatch them
 // through the same Check API builders.  This header defines the keyword
@@ -9,11 +11,80 @@
 #pragma once
 
 #include <aletheia/check.hpp>
+#include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
+#include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace aletheia::detail {
+
+// ---------------------------------------------------------------------------
+// Loader-entry hardening helpers (R20 cluster N — CPP-B-29.1/2/3 / CPP-D-21.2)
+// ---------------------------------------------------------------------------
+
+/// Validate a loader input path: must exist, be a regular file, and NOT
+/// be a symbolic link.  The symlink rejection is deliberately strict —
+/// canonicalisation would FOLLOW the link, defeating the check.  A
+/// caller passing a legitimate symlink must resolve it before invoking
+/// the loader.  Mirrors the Python `_ffi.py` lstat-then-reject pattern
+/// from R19 cluster 12 / PY-B-26.11 (extended cross-binding here).
+///
+/// `kind` ("Excel" / "YAML") is interpolated into the error message so
+/// the existing test fixtures' `ContainsSubstring("not found")` /
+/// per-loader assertions keep matching after the rewrite.
+///
+/// TOCTOU note: there is a small window between `is_symlink` here and
+/// the eventual file-open in OpenXLSX / yaml-cpp.  Strict closure
+/// requires fd-based plumbing (`open(O_NOFOLLOW)` + `fstat`) into the
+/// vendored libraries' APIs which they don't expose.  The residual
+/// risk requires attacker write access on the parent directory.
+///
+/// Returns `Result<void>`:
+///   - Path doesn't exist           → `ErrorKind::Validation`
+///   - Path is a symbolic link      → `ErrorKind::Validation`
+///   - Path is not a regular file   → `ErrorKind::Validation`
+auto validate_loader_path(const std::filesystem::path& path, std::string_view kind) -> Result<void>;
+
+/// Reject if the file's raw byte count exceeds `max_dbc_text_bytes`.
+/// Defense-in-depth size cap mirroring Python's
+/// `check_dbc_text_size_bound`.  Returns `ErrorKind::InputBoundExceeded`
+/// with structured `bound_info = {kind="input_length_bytes",
+/// observed=file_size, limit=max_dbc_text_bytes}` so the cross-binding
+/// `InputBoundExceededError` shape (Python / Go / C++) stays identical.
+auto check_file_size_bound(const std::filesystem::path& path) -> Result<void>;
+
+/// Walk the ZIP archive's central directory and reject when the sum of
+/// uncompressed entry sizes exceeds `max_dbc_text_bytes` — defense
+/// against ZIP bombs where a small archive (e.g. ~50 KiB) decompresses
+/// to multiple GiB of XML, exhausting heap inside OpenXLSX.  Mirrors
+/// Python `_check_xlsx_uncompressed_bound` from R19 cluster 12 /
+/// PY-B-23.4.
+///
+/// The implementation is a minimal, defensive central-directory parser
+/// (~80 LOC) — no third-party ZIP library is pulled in.  Rationale: we
+/// already require the file to fit in `max_dbc_text_bytes` (so ZIP64 is
+/// unnecessary), reject every multi-disk / unknown structure outright,
+/// and depend only on `<fstream>`.  If a future cluster needs richer
+/// ZIP semantics, the natural swap is `miniz` (single-header,
+/// permissive) added via `FetchContent`.
+///
+/// Errors:
+///   - File too small to be a ZIP / EOCD missing → `ErrorKind::Validation`
+///   - Multi-disk / spanning archive             → `ErrorKind::Validation`
+///   - Sum of uncompressed sizes overflows / exceeds bound
+///                                                → `ErrorKind::InputBoundExceeded`
+auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<void>;
+
+// ---------------------------------------------------------------------------
+// Output-path hardening (CPP-B-29.3 — `create_excel_template`)
+// ---------------------------------------------------------------------------
+
+/// Validate that the parent directory of `path` exists and is itself a
+/// directory (not a file, not missing).  Empty parent (i.e. cwd-relative)
+/// is allowed.  `ErrorKind::Validation` on failure.
+auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<void>;
 
 // ---------------------------------------------------------------------------
 // Condition dispatch helpers

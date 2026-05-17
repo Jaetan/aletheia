@@ -9,7 +9,7 @@
 -- crashes here on first call (or on a forced traversal of the result).
 --
 -- Coverage matches the 11 entries in haskell-shim/ffi-exports.snapshot:
---   1. d_initialState_42         — exercised in setup
+--   1. d_initialState_50         — exercised in setup
 --   2. d_processJSONLine_70      — exercised in setup (DBC load + setProps)
 --   3. d_processStartStreamDirect_24  — exercised in setup
 --   4. d_processFrameDirect_12   — tests 1-4
@@ -55,18 +55,18 @@ import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 
 -- | Extract (state, response text) from a JSON-out Σ pair.
 -- Mirrors runJSON in AletheiaFFI.hs (lines 53-54).
-extractResult :: AgdaSigma.T_Σ_14 -> (AgdaState.T_StreamState_28, T.Text)
+extractResult :: AgdaSigma.T_Σ_14 -> (AgdaState.T_StreamState_32, T.Text)
 extractResult result =
-    let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28
+    let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32
         tx = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     in (st, tx)
 
 -- | Extract (state, Either Text Vec) from a binary-out Σ pair.
 -- Mirrors runBinDispatch + dispatchSumResult (BinaryOutput.hs lines 41-50).
 extractSumVec :: AgdaSigma.T_Σ_14
-              -> (AgdaState.T_StreamState_28, Either T.Text AgdaVec.T_Vec_28)
+              -> (AgdaState.T_StreamState_32, Either T.Text AgdaVec.T_Vec_28)
 extractSumVec result =
-    let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28
+    let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32
         sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     in case sumResult of
          AgdaSum.C_inj'8321'_38 errAny -> (st, Left  (unsafeCoerce errAny :: T.Text))
@@ -75,17 +75,17 @@ extractSumVec result =
 -- | Extract (state, Either Text PartitionedResults). Highest-risk path:
 -- mirrors aletheia_extract_signals_bin (AletheiaFFI.hs lines 218-224).
 extractSumIER :: AgdaSigma.T_Σ_14
-              -> (AgdaState.T_StreamState_28, Either T.Text AgdaBatch.T_PartitionedResults_10)
+              -> (AgdaState.T_StreamState_32, Either T.Text AgdaBatch.T_PartitionedResults_10)
 extractSumIER result =
-    let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28
+    let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32
         sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     in case sumResult of
          AgdaSum.C_inj'8321'_38 errAny -> (st, Left  (unsafeCoerce errAny :: T.Text))
          AgdaSum.C_inj'8322'_42 ierAny -> (st, Right (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10))
 
 -- | Process a JSON command (used in setup).
-processJSON :: AgdaState.T_StreamState_28 -> String
-            -> (AgdaState.T_StreamState_28, T.Text)
+processJSON :: AgdaState.T_StreamState_32 -> String
+            -> (AgdaState.T_StreamState_32, T.Text)
 processJSON state input = extractResult (AgdaJSON.d_processJSONLine_70 state (T.pack input))
 
 -- | Convert [Word8] to MAlonzo Vec Byte n (linked-list shape).
@@ -162,29 +162,29 @@ mkTimedFrame timestamp canIdVal isExtended _dlc bytes brs esi =
     in AgdaTrace.C_constructor_32 agdaTs dataLen agdaFrame brs esi
 
 -- | Process a frame via the binary path (processFrameDirect).
-sendFrame :: AgdaState.T_StreamState_28 -> AgdaTrace.T_TimedFrame_6
-          -> (AgdaState.T_StreamState_28, T.Text)
+sendFrame :: AgdaState.T_StreamState_32 -> AgdaTrace.T_TimedFrame_6
+          -> (AgdaState.T_StreamState_32, T.Text)
 sendFrame state tf =
     extractResult (AgdaBin.d_processFrameDirect_12 state (unsafeCoerce tf))
 
 -- | Send Error event via processEventDirect.
-sendErrorEvent :: AgdaState.T_StreamState_28 -> Integer
-               -> (AgdaState.T_StreamState_28, T.Text)
+sendErrorEvent :: AgdaState.T_StreamState_32 -> Integer
+               -> (AgdaState.T_StreamState_32, T.Text)
 sendErrorEvent state ts =
     extractResult (AgdaBin.d_processEventDirect_18 state
         (unsafeCoerce (AgdaTrace.C_Error_38 (AgdaTime.C_mkTs_26 ts))))
 
 -- | Send Remote event via processEventDirect.
-sendRemoteEvent :: AgdaState.T_StreamState_28 -> Integer -> Integer -> Bool
-                -> (AgdaState.T_StreamState_28, T.Text)
+sendRemoteEvent :: AgdaState.T_StreamState_32 -> Integer -> Integer -> Bool
+                -> (AgdaState.T_StreamState_32, T.Text)
 sendRemoteEvent state ts canIdVal isExtended =
     extractResult (AgdaBin.d_processEventDirect_18 state
         (unsafeCoerce (AgdaTrace.C_Remote_40 (AgdaTime.C_mkTs_26 ts)
                                               (mkAgdaCanId canIdVal isExtended))))
 
 -- | Process extract (JSON-out) via processExtractDirect.
-extractDirect :: AgdaState.T_StreamState_28 -> Integer -> Bool -> Integer -> [Word8]
-              -> (AgdaState.T_StreamState_28, T.Text)
+extractDirect :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8]
+              -> (AgdaState.T_StreamState_32, T.Text)
 extractDirect state canIdVal isExt dlc bytes =
     extractResult (AgdaBin.d_processExtractDirect_38 state
         (mkAgdaCanId canIdVal isExt)
@@ -193,15 +193,15 @@ extractDirect state canIdVal isExt dlc bytes =
 
 -- | Zero-arg JSON-out paths.
 startStream, endStream, formatDBC
-    :: AgdaState.T_StreamState_28 -> (AgdaState.T_StreamState_28, T.Text)
+    :: AgdaState.T_StreamState_32 -> (AgdaState.T_StreamState_32, T.Text)
 startStream st = extractResult (AgdaBin.d_processStartStreamDirect_24 st)
 endStream   st = extractResult (AgdaBin.d_processEndStreamDirect_28   st)
 formatDBC   st = extractResult (AgdaBin.d_processFormatDBCDirect_32   st)
 
 -- | Build frame (binary out) via processBuildFrameBin.
-buildFrameBin :: AgdaState.T_StreamState_28 -> Integer -> Bool -> Integer
+buildFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer
               -> [AgdaSigma.T_Σ_14]
-              -> (AgdaState.T_StreamState_28, Either T.Text AgdaVec.T_Vec_28)
+              -> (AgdaState.T_StreamState_32, Either T.Text AgdaVec.T_Vec_28)
 buildFrameBin state canIdVal isExt dlc pairs =
     extractSumVec (AgdaBin.d_processBuildFrameBin_72 state
         (mkAgdaCanId canIdVal isExt)
@@ -209,9 +209,9 @@ buildFrameBin state canIdVal isExt dlc pairs =
         pairs)
 
 -- | Update frame (binary out) via processUpdateFrameBin.
-updateFrameBin :: AgdaState.T_StreamState_28 -> Integer -> Bool -> Integer
+updateFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer
                -> [Word8] -> [AgdaSigma.T_Σ_14]
-               -> (AgdaState.T_StreamState_28, Either T.Text AgdaVec.T_Vec_28)
+               -> (AgdaState.T_StreamState_32, Either T.Text AgdaVec.T_Vec_28)
 updateFrameBin state canIdVal isExt dlc bytes pairs =
     extractSumVec (AgdaBin.d_processUpdateFrameBin_86 state
         (mkAgdaCanId canIdVal isExt)
@@ -220,8 +220,8 @@ updateFrameBin state canIdVal isExt dlc bytes pairs =
         pairs)
 
 -- | Extract signals (binary out) via processExtractBin.
-extractBin :: AgdaState.T_StreamState_28 -> Integer -> Bool -> Integer -> [Word8]
-           -> (AgdaState.T_StreamState_28, Either T.Text AgdaBatch.T_PartitionedResults_10)
+extractBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8]
+           -> (AgdaState.T_StreamState_32, Either T.Text AgdaBatch.T_PartitionedResults_10)
 extractBin state canIdVal isExt dlc bytes =
     extractSumIER (AgdaBin.d_processExtractBin_102 state
         (mkAgdaCanId canIdVal isExt)
@@ -266,10 +266,10 @@ main = do
 
     -- ------------------------------------------------------------------------
     -- Setup: load DBC + properties + start stream.
-    --   exercises: d_initialState_42, d_processJSONLine_70,
+    --   exercises: d_initialState_50, d_processJSONLine_70,
     --              d_processStartStreamDirect_24
     -- ------------------------------------------------------------------------
-    let state0 = AgdaState.d_initialState_42
+    let state0 = AgdaState.d_initialState_50
 
     let dbcJSON = concat
             [ "{\"type\":\"command\",\"command\":\"parseDBC\",\"dbc\":"

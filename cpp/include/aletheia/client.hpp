@@ -72,6 +72,13 @@ namespace aletheia {
 // vs. Completeness for the full contract.
 class AletheiaClient {
 public:
+    /// \param backend  FFI / mock backend providing the kernel protocol.
+    /// \param logger   Optional structured logger; default-constructed is a
+    ///                 no-op sink-less logger.
+    /// \param default_checks  Pre-loaded YAML/Excel check results.  Same
+    ///                 shape as the per-call argument to `apply_checks`;
+    ///                 useful when the client is constructed with a fixed
+    ///                 ruleset and `apply_checks` is called repeatedly.
     explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
                             std::vector<CheckResult> default_checks = {});
     ~AletheiaClient();
@@ -197,9 +204,6 @@ private:
     // Last frame seen per CAN ID, for end-of-stream enrichment.
     // Populated by send_frame() (guarded by !diags_.empty()); cleared by start_stream().
     // Storage: one entry per unique (CAN ID, extended) pair.
-    // Cost: one FramePayload copy per frame.  First frame for a key
-    // allocates via `emplace`; subsequent frames reuse the existing
-    // vector capacity via `assign` — see R19 cluster 19 / CPP-B-25.1.
     struct LastFrame {
         CanId id;
         Dlc dlc;

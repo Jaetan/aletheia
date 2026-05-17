@@ -1,5 +1,16 @@
 """Pure helper functions for response parsing and type conversion."""
 
+# DEFERRED — TRACKED (R19P2-CL16-6 — DEFER, REGRESSED).
+# Finding: This file is 798 LOC (was 732 at the R19 Phase 2 finding time;
+#   has since grown by 66 LOC adding cross-cutting helpers).  Original ~700-line
+#   guideline overshoot now ~98 LOC over.
+# Why DEFER: Splitting requires identifying coherent sub-modules (currently:
+#   DBC normalisation + signal-value coercion + frame-builder helpers +
+#   presence-discriminator helpers).  Cluster 17 added cross-cutting helpers
+#   that increased rather than decreased the file's role count.
+# Revisit when: This file exceeds 1000 LOC (pylint C0302 default threshold),
+#   OR a coherent sub-module emerges from another refactor.
+
 import json
 import math
 from collections.abc import Callable, Sequence
@@ -31,7 +42,7 @@ from ..protocols import (
     is_str_dict,
     is_object_list,
 )
-from ._types import ProtocolError
+from ._types import ProtocolError, ValidationError
 from .._loader_utils import is_pure_int
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
@@ -147,17 +158,17 @@ def float_to_rational(value: float) -> tuple[int, int]:
     The Haskell side normalizes to coprime form via GCD.
 
     Raises:
-        ValueError: If *value* is NaN, infinite, or too large for int64.
+        ValidationError: If *value* is NaN, infinite, or too large for int64.
     """
     if math.isnan(value) or math.isinf(value):
-        raise ValueError(f"Cannot convert {value!r} to rational")
+        raise ValidationError(f"Cannot convert {value!r} to rational")
     numerator = round(value * _DECIMAL_PRECISION_DEN)
     # Guard against values that would overflow int64 in the binary FFI.
     # Use the full int64 range, not the 53-bit float mantissa bound — the
     # denominator is a compile-time constant ≤ int64 so any numerator that
     # fits int64 is safe to pack as ``<q`` little-endian.
     if not _INT64_MIN <= numerator <= _INT64_MAX:
-        raise ValueError(
+        raise ValidationError(
             f"signal value {value!r} too large for rational representation"
         )
     return (numerator, _DECIMAL_PRECISION_DEN)
@@ -171,11 +182,11 @@ def fraction_to_rational(value: Fraction) -> tuple[int, int]:
     so Fractions flow through without the 10^9 quantization step.
 
     Raises:
-        ValueError: If either component overflows int64.
+        ValidationError: If either component overflows int64.
     """
     n, d = value.numerator, value.denominator
     if not _INT64_MIN <= n <= _INT64_MAX or not _INT64_MIN <= d <= _INT64_MAX:
-        raise ValueError(
+        raise ValidationError(
             f"Fraction {value!r} components exceed int64 range"
         )
     return (n, d)
@@ -207,12 +218,46 @@ def to_signal_fraction(value: float | int | Fraction) -> Fraction:
     return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN)
 
 
+def to_predicate_fraction(value: float | int | Fraction) -> Fraction:
+    """Convert a numeric predicate input to a Fraction matching Go/C++ from_double.
+
+    Mirrors Go ``floatToRational`` (``client.go``) and C++ ``Rational::from_double``
+    (``types.cpp``) exactly: float inputs go through ``round(value * 10^9), 10^9``
+    so the user-side construction produces structurally identical Rationals across
+    all three bindings.  Without this, ``Signal.equals(0.1)`` in Python would
+    produce ``Fraction(0.1)`` = the exact IEEE 754 binary fraction
+    (3602879701896397/36028797018963968), which the predicate pretty-printer
+    would then render as a 56-character exact decimal — while Go and C++ render
+    the same call as ``"0.1"``.
+
+    Differs from :func:`to_signal_fraction` (which uses ``limit_denominator``):
+    ``Fraction(0.333333).limit_denominator(10**9)`` finds the closest fraction
+    with denominator <= 10^9 (returns ``Fraction(1, 3)``); ``round-and-scale``
+    produces ``Fraction(333333, 10**6)``.  For predicate inputs Go-parity
+    matters more than continued-fraction simplification.
+
+    Raises:
+        ValidationError: When *value* is NaN, infinite, or overflows int64
+        when scaled (delegated to :func:`float_to_rational`).
+    """
+    if isinstance(value, Fraction):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return Fraction(value)
+    n, d = float_to_rational(value)
+    return Fraction(n, d)
+
+
 def extract_rational_from_dict(
     d: dict[str, object], context: str,
 ) -> tuple[int, int]:
     """Extract (numerator, denominator) from a rational dict.
 
-    Raises ProtocolError if the dict is malformed or denominator is zero.
+    Raises ProtocolError if the dict is malformed or denominator is non-positive.
+    Mirrors Go ``validateRational`` (rejects ``<= 0``) and the Agda kernel
+    invariant that the denominator is a ``ℕ⁺``.  A negative denominator on
+    the wire would otherwise be silently sign-flipped by ``Fraction(n, d)``,
+    hiding the wire-format violation.
     """
     numerator = d.get("numerator")
     denominator = d.get("denominator")
@@ -220,8 +265,10 @@ def extract_rational_from_dict(
         raise ProtocolError(f"Expected {context}.numerator to be int")
     if not isinstance(denominator, int):
         raise ProtocolError(f"Expected {context}.denominator to be int")
-    if denominator == 0:
-        raise ProtocolError(f"Expected {context}.denominator to be nonzero")
+    if denominator <= 0:
+        raise ProtocolError(
+            f"Expected {context}.denominator to be positive, got {denominator}"
+        )
     return numerator, denominator
 
 
@@ -292,9 +339,9 @@ def parse_rational(value_raw: object) -> Fraction:
                 except ValueError:
                     pass
                 else:
-                    if denominator_s == 0:
+                    if denominator_s <= 0:
                         raise ProtocolError(
-                            f"Division by zero in rational string: {value_raw!r}"
+                            f"Expected positive denominator in rational string, got {value_raw!r}"
                         )
                     return Fraction(numerator_s, denominator_s)
         try:
@@ -307,6 +354,12 @@ def parse_rational(value_raw: object) -> Fraction:
     )
 
 
+# DEFERRED — TRACKED (R19P2-CL16-4 — DEFER).
+# Finding: `normalize_signal` is exposed publicly (no underscore prefix) but
+#   only called by this module's internal helpers + tests.
+# Why DEFER: Mechanical underscore-prefix + import update; same shape as
+#   R19P2-CL16-3 (the wider boundary-naming sweep).
+# Revisit when: Co-decided with R19P2-CL16-3.
 def normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
     """Normalize a single Agda signal dict into a DBCSignal."""
     sig: dict[str, object] = dict(raw_sig)

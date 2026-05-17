@@ -1,5 +1,7 @@
 """Tests for formula enrichment: pretty-printer, signal collector, diagnostics."""
 
+from fractions import Fraction
+
 from aletheia import PropertyDiagnostic
 from aletheia.client._enrichment import (
     build_diagnostic,
@@ -159,6 +161,94 @@ class TestFormatPredicate:
         f = a.metric_release(500, b).to_dict()
         result = format_formula(f)
         assert "release within 500ms" in result
+
+
+class TestFormatRational:
+    """Test the smart-fallback Rational renderer (terminating decimal vs N/D).
+
+    Cross-binding parity: every assertion here matches byte-for-byte with the
+    Go ``TestFormatFormula_*Rational*`` tests and C++ ``[enrich][rational]``
+    Catch2 cases.
+    """
+
+    def test_non_terminating_rational_renders_as_fraction(self) -> None:
+        """Non-terminating Rational predicate value renders as N/D, not %g truncation."""
+        f = Signal("S").equals(Fraction(1, 3)).always().to_dict()
+        assert "S = 1/3" in format_formula(f)
+
+    def test_non_terminating_rational_signed(self) -> None:
+        """Negative non-terminating Rational keeps sign in N/D form."""
+        f = Signal("S").greater_than(Fraction(-2, 7)).always().to_dict()
+        assert "S > -2/7" in format_formula(f)
+
+    def test_terminating_rational_uses_decimal(self) -> None:
+        """Terminating Rational still renders compactly (no regression)."""
+        f = Signal("Voltage").greater_than_or_equal(Fraction(23, 2)).always().to_dict()
+        assert "Voltage >= 11.5" in format_formula(f)
+
+    def test_between_non_terminating(self) -> None:
+        """Between renders both bounds with smart fallback."""
+        f = Signal("S").between(Fraction(1, 3), Fraction(2, 3)).always().to_dict()
+        assert "1/3 <= S <= 2/3" in format_formula(f)
+
+    def test_dsl_float_0_1_renders_as_decimal(self) -> None:
+        """Signal.equals(0.1) renders as exact "0.1", not the IEEE 754 binary fraction.
+
+        DSL float-input conversion now uses 10^9 scaling (matching Go and C++),
+        so 0.1 becomes Fraction(1, 10) instead of Fraction(0.1) (the giant
+        IEEE 754 binary fraction).  Without A2 the renderer would emit a 56-char
+        exact-decimal string of the IEEE 754 noise.
+        """
+        f = Signal("S").equals(0.1).always().to_dict()
+        assert "S = 0.1" in format_formula(f)
+
+    def test_dsl_large_integer_no_scientific(self) -> None:
+        """Large integer terminating values render exactly, no scientific notation.
+
+        Previously rendered as "1.23457e+06" via Python/C++ :g (lossy 6-sig-fig
+        truncation) or "1.234567e+06" via Go %g (exact scientific).  Now exact
+        decimal in all three bindings.
+        """
+        f = Signal("S").equals(1234567).always().to_dict()
+        assert "S = 1234567" in format_formula(f)
+
+    def test_dsl_high_precision_decimal_exact(self) -> None:
+        """Decimal values up to 9 sig figs render exactly via 10^9 scaling.
+
+        Previously truncated to 6 sig figs via :g ("0.123457").  Now exact.
+        """
+        f = Signal("S").equals(0.123456789).always().to_dict()
+        assert "S = 0.123456789" in format_formula(f)
+
+    def test_k18_boundary_renders_as_decimal(self) -> None:
+        """k=18 is the last terminating denom that renders as exact decimal.
+
+        The k > 18 cross-binding guard kicks in immediately past this boundary
+        (see ``test_k_over_18_pow_2_renders_as_fraction``).
+        """
+        f = Signal("S").equals(Fraction(1, 262144)).always().to_dict()
+        assert "S = 0.000003814697265625" in format_formula(f)
+
+    def test_k_over_18_pow_2_renders_as_fraction(self) -> None:
+        """k=19 (denom = 2^19 = 524288) renders as N/D for cross-binding parity.
+
+        Python uses arbitrary-precision ints and could emit the full exact
+        decimal, but Go and C++ would risk int64 multiplier overflow at this
+        scale.  The conservative N/D fallback is uniform across all three
+        bindings so the same Rational always renders to byte-identical output.
+        """
+        f = Signal("S").equals(Fraction(1, 524288)).always().to_dict()
+        assert "S = 1/524288" in format_formula(f)
+
+    def test_k_over_18_pow_5_renders_as_fraction(self) -> None:
+        """k=19 (denom = 5^19) renders as N/D for cross-binding parity."""
+        f = Signal("S").equals(Fraction(1, 19073486328125)).always().to_dict()
+        assert "S = 1/19073486328125" in format_formula(f)
+
+    def test_k_over_18_negative_renders_as_signed_fraction(self) -> None:
+        """k > 18 negative numerator keeps sign in the N/D output."""
+        f = Signal("S").equals(Fraction(-1, 33554432)).always().to_dict()
+        assert "S = -1/33554432" in format_formula(f)
 
 
 # ===========================================================================

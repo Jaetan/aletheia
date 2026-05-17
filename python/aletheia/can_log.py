@@ -11,13 +11,15 @@ Example:
     responses = client.send_frames(frames)
 
     # Lazy: iterate one frame at a time
-    for ts, can_id, dlc, data, ext in iter_can_log("highway.asc"):
-        response = client.send_frame(ts, can_id, dlc, data, extended=ext)
+    for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("highway.asc"):
+        response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
 """
 
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
+
+from .client import ValidationError
 
 # python-can is an optional extra (`pip install aletheia[can]`).  Surface a
 # clear, narrow ImportError naming the optional install rather than letting
@@ -113,7 +115,7 @@ def _validate_path(path: Path) -> None:
 
     ext = _effective_extension(path)
     if ext not in _SUPPORTED_EXTENSIONS:
-        raise ValueError(
+        raise ValidationError(
             f"Unsupported CAN log format '{ext}'. " +
             f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
         )

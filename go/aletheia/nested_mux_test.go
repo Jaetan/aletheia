@@ -40,8 +40,8 @@ func nestedMuxDBC() aletheia.DBCDefinition {
 						Maximum: aletheia.Rational{Numerator: 255, Denominator: 1},
 						Unit:    "",
 						Presence: aletheia.Multiplexed{
-							Multiplexor: "Mode",
-							MuxValues:   []aletheia.MultiplexValue{3},
+							Multiplexor:     "Mode",
+							MultiplexValues: []aletheia.MultiplexValue{3},
 						},
 					},
 					{
@@ -53,8 +53,8 @@ func nestedMuxDBC() aletheia.DBCDefinition {
 						Maximum: aletheia.Rational{Numerator: 65535, Denominator: 1},
 						Unit:    "",
 						Presence: aletheia.Multiplexed{
-							Multiplexor: "SubMode",
-							MuxValues:   []aletheia.MultiplexValue{7},
+							Multiplexor:     "SubMode",
+							MultiplexValues: []aletheia.MultiplexValue{7},
 						},
 					},
 				},
@@ -260,7 +260,7 @@ func TestNestedMux_CycleRejected(t *testing.T) {
 					Minimum: aletheia.Rational{Numerator: 0, Denominator: 1},
 					Maximum: aletheia.Rational{Numerator: 255, Denominator: 1},
 					Presence: aletheia.Multiplexed{
-						Multiplexor: "B", MuxValues: []aletheia.MultiplexValue{1},
+						Multiplexor: "B", MultiplexValues: []aletheia.MultiplexValue{1},
 					},
 				},
 				{
@@ -271,7 +271,7 @@ func TestNestedMux_CycleRejected(t *testing.T) {
 					Minimum: aletheia.Rational{Numerator: 0, Denominator: 1},
 					Maximum: aletheia.Rational{Numerator: 255, Denominator: 1},
 					Presence: aletheia.Multiplexed{
-						Multiplexor: "A", MuxValues: []aletheia.MultiplexValue{1},
+						Multiplexor: "A", MultiplexValues: []aletheia.MultiplexValue{1},
 					},
 				},
 			},

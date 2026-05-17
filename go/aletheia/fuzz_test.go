@@ -133,7 +133,7 @@ func FuzzParseDBCJSON(f *testing.F) {
 		if err := json.Unmarshal([]byte(raw), &j); err != nil {
 			return // not valid JSON — out of parser's responsibility
 		}
-		_, _ = parseDbcDefinition(j)
+		_, _ = parseDBCDefinition(j)
 		// No panic = success.
 	})
 }

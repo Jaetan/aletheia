@@ -103,10 +103,13 @@ open import Aletheia.Protocol.Message public
         ; ParseDBC
         ; SetProperties
         ; StartStream
+        ; SendFrame
         ; ExtractAllSignals
         ; EndStream
         ; ValidateDBC
         ; FormatDBC
+        ; ParseDBCText
+        ; FormatDBCText
         ; Response
         ; Success
         ; ExtractionResultsResponse
@@ -115,6 +118,8 @@ open import Aletheia.Protocol.Message public
         ; Complete
         ; ValidationResponse
         ; DBCResponse
+        ; ParsedDBCResponse
+        ; DBCTextResponse
         )
   renaming (Error to ResponseError)
 
@@ -211,3 +216,10 @@ open import Aletheia.Protocol.JSON public
 
 open import Aletheia.Protocol.ResponseFormat public
   using (formatResponse)
+
+-- Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
+-- Exposed so the FFI shim can call `formatRational` on raw (numerator,
+-- denominator) pairs and return the result via CString.  Replaces three
+-- per-binding implementations with a single Agda kernel function.
+open import Aletheia.DBC.RationalRenderer public
+  using (formatRational; formatℚ)

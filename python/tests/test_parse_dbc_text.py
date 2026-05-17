@@ -79,3 +79,39 @@ class TestParseDBCTextFailure:
         with AletheiaClient() as client:
             resp = client.parse_dbc_text("")
         assert resp["status"] == "error"
+
+    def test_zero_length_le_signal_rejected_at_parse(self) -> None:
+        """LE bitLength=0 surfaces as a parse error (R5-B1 / R6-B7.1
+        closure 2026-05-15 — BE-LE parity completion, text-parser leg).
+
+        The text parser's `buildSignal` rejects `1 ≤ᵇ bl ≡ false`; the
+        `nothing` propagates through buildAllRaw → resolveSignalList →
+        buildMessage (parser `fail`) and surfaces at the top level as
+        a DBCTextParseError.  The wire code is `dbc_text_*` (the
+        text-parser error vocabulary is intentionally coarser than the
+        JSON parser's typed `parse_signal_bit_length_zero`).
+
+        Tests both `length=1` (success) and `length=0` (error) on the
+        same DBC template so bl=0 is the only differentiator — without
+        the success case, any incidental parse failure (empty NS_/BS_,
+        receiver-list shape, etc.) would silently satisfy the error
+        assertion without exercising the new gate."""
+        def _text(length: int) -> str:
+            return (
+                'VERSION ""\n'
+                "\n"
+                "NS_ :\n"
+                "\n"
+                "BS_:\n"
+                "\n"
+                "BU_: Engine\n"
+                "\n"
+                "BO_ 100 Msg: 1 Engine\n"
+                f' SG_ SigLE : 0|{length}@1+ (1,0) [0|0] "" Engine\n'
+            )
+        with AletheiaClient() as client:
+            ok = client.parse_dbc_text(_text(1))
+            assert ok["status"] == "success", ok
+            bad = client.parse_dbc_text(_text(0))
+            assert bad["status"] == "error"
+            assert bad["code"].startswith("dbc_text_")

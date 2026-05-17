@@ -194,9 +194,9 @@ class TestCANFDFrames:
 
     def test_canfd_invalid_dlc_rejected(self):
         """DLC > 15 is rejected by the Python layer."""
-        with pytest.raises(ValueError, match="Invalid DLC code"):
+        with pytest.raises(ValidationError, match="Invalid DLC code"):
             dlc_to_bytes(DLCCode(16))
-        with pytest.raises(ValueError, match="Invalid DLC code"):
+        with pytest.raises(ValidationError, match="Invalid DLC code"):
             dlc_to_bytes(DLCCode(255))
 
     def test_canfd_byte_count_mismatch(self):

@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-2-Clause
+#pragma once
+
+// Internal interface for the cross-binding-identical Rational
+// pretty-printer (R20 cluster Y stage 2).
+//
+// `format_value(const Rational&)` (in `enrich.cpp`) calls
+// `format_rational_ffi` on every render.  The implementation
+// dlopens `libaletheia-ffi.so` lazily on first use via `std::call_once`
+// — no local C++ fallback exists, so output is byte-identical to
+// Python's and Go's by construction rather than via a test corpus.
+//
+// Throws `AletheiaException` (kind `Ffi`) when the library cannot be
+// located or symbols cannot be resolved.  Callers may rely on
+// `format_value(const Rational&)` propagating that exception; setting
+// the `ALETHEIA_LIB` environment variable is the standard remedy when
+// the search heuristic does not find the .so (e.g. out-of-tree builds).
+
+#include <cstdint>
+#include <string>
+
+namespace aletheia::detail {
+
+// Render `(num, denom)` via the Agda kernel.  Lazy-initialises the FFI
+// on first call.  Throws `AletheiaException(Ffi)` if the library is
+// not loadable.
+auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+
+} // namespace aletheia::detail

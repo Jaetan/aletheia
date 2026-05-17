@@ -118,23 +118,45 @@ def test_load_json_total_on_printable_ascii(payload: str) -> None:
 
 
 @given(numerator=st.integers(min_value=-(10**18), max_value=10**18),
-       denominator=st.integers(min_value=-(10**18), max_value=10**18).filter(lambda d: d != 0))
-def test_parse_rational_normalises_to_positive_denominator(
+       denominator=st.integers(min_value=1, max_value=10**18))
+def test_parse_rational_accepts_positive_denominator(
     numerator: int, denominator: int,
 ) -> None:
-    """`parse_rational` canonicalises a rational dict to positive-denominator form.
+    """`parse_rational` accepts positive-denominator rationals exactly.
 
-    The Agda kernel's DecRat stores denominators as ℕ (always positive) and
-    normalises sign-flip into the numerator (``Fraction(1, -2)`` →
-    ``-1/2``).  Python's ``parse_rational`` delegates to ``fractions.
-    Fraction``, which applies the same normalisation.  This test verifies
-    cross-binding parity over arbitrary signed-denominator inputs that the
-    wire format does not strictly forbid (R19 cluster 17 — PY-D-19.3).
+    The Agda kernel's DecRat stores denominators as ``ℕ⁺`` (strictly positive).
+    Python's ``parse_rational`` mirrors that contract by rejecting
+    non-positive denominators on the wire (cross-binding parity with Go's
+    ``validateRational`` and C++'s ``Rational::make``) — silent
+    Fraction-sign-flipping a negative denominator would hide a wire-format
+    violation.  R20 cluster C tightened the Python side to match.
     """
     rational_dict = {"numerator": numerator, "denominator": denominator}
     parsed = parse_rational(rational_dict)
     assert parsed.denominator > 0
     assert parsed == Fraction(numerator, denominator)
+
+
+@given(numerator=st.integers(min_value=-(10**18), max_value=10**18),
+       denominator=st.integers(min_value=-(10**18), max_value=0))
+def test_parse_rational_rejects_non_positive_denominator(
+    numerator: int, denominator: int,
+) -> None:
+    """`parse_rational` rejects non-positive denominator with ProtocolError.
+
+    Cross-binding parity (R20 cluster C): Go ``validateRational`` rejects
+    ``<= 0`` since R19 cluster 17; C++ ``Rational::make`` rejects the same;
+    Python now rejects too instead of silently sign-flipping via Fraction.
+    """
+    from aletheia import ProtocolError as _ProtocolError  # noqa: PLC0415
+    rational_dict = {"numerator": numerator, "denominator": denominator}
+    try:
+        parse_rational(rational_dict)
+    except _ProtocolError:
+        pass
+    else:
+        msg = f"expected ProtocolError for denominator={denominator}"
+        raise AssertionError(msg)
 
 
 @given(numerator=st.integers(min_value=-(10**18), max_value=10**18),

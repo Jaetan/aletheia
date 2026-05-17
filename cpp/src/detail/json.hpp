@@ -37,8 +37,9 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
     -> std::string;
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string;
 auto serialize_start_stream() -> std::string;
-auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
-    -> std::string;
+auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data,
+                          std::optional<bool> brs = std::nullopt,
+                          std::optional<bool> esi = std::nullopt) -> std::string;
 auto serialize_send_error(Timestamp ts) -> std::string;
 auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string;
 auto serialize_end_stream() -> std::string;

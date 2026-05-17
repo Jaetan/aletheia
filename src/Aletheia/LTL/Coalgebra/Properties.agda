@@ -26,7 +26,7 @@ open import Data.Nat.Properties using (∸-monoˡ-≤; ∸-monoʳ-≤)
 open import Data.Bool using (true; false)
 open import Data.List using (List; []; _∷_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; cong)
 
 open import Aletheia.LTL.Syntax using (LTL; mapLTL; decodeStart;
   Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
@@ -36,7 +36,8 @@ open import Aletheia.LTL.Incremental using (Counterexample; Continue; Violated; 
   mkCounterexample; Holds; Fails; Unsure;
   MetricEventuallyExpired; MetricUntilExpired)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; notTV)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; Monotonic)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue; Monotonic)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.LTL.Adequacy using (runL; adequacy; Sound; verdictToSV;
   sound-transport-monitor; sound-transport-denot; sound-transport)
 open import Aletheia.LTL.Semantics using (⟦_⟧)
@@ -66,34 +67,34 @@ initProc-correct table φ = refl
 -- Liveness operators (MetricEventually, MetricUntil): Violated
 -- Safety operators (MetricAlways, MetricRelease): Satisfied
 
-stepL-met-ev-expired : ∀ (table : PredTable) w s (φ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-ev-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricEventually w s φ) curr
     ≡ Violated (mkCounterexample curr MetricEventuallyExpired)
 stepL-met-ev-expired table w s φ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-ev-expired table w s φ curr refl | false = refl
 
-stepL-met-al-expired : ∀ (table : PredTable) w s (φ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-al-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricAlways w s φ) curr ≡ Satisfied
 stepL-met-al-expired table w s φ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-al-expired table w s φ curr refl | false = refl
 
-stepL-met-un-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-un-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricUntil w s φ ψ) curr
     ≡ Violated (mkCounterexample curr MetricUntilExpired)
 stepL-met-un-expired table w s φ ψ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-un-expired table w s φ ψ curr refl | false = refl
 
-stepL-met-re-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc) (curr : TimedFrame)
-  → (metricElapsed s curr ≤ᵇ w) ≡ false
+stepL-met-re-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (curr : TimedFrame)
+  → (metricElapsed s curr ≤ᵇ tsValue w) ≡ false
   → stepL table (MetricRelease w s φ ψ) curr ≡ Satisfied
 stepL-met-re-expired table w s φ ψ curr eq
-  with metricElapsed s curr ≤ᵇ w
+  with metricElapsed s curr ≤ᵇ tsValue w
 stepL-met-re-expired table w s φ ψ curr refl | false = refl
 
 -- ============================================================================
@@ -142,9 +143,67 @@ runL-stepL-satisfied table proc y rest refl | .Satisfied = refl
 --   runL-stepL-satisfied  :  stepL proc y ≡ Satisfied → runL proc (y ∷ rest) ≡ True
 --   runL-stepL-violated   :  stepL proc y ≡ Violated ce → runL proc (y ∷ rest) ≡ False
 --
--- These are the two halves of verdict stability. The type system enforces
--- that Satisfied/Violated carry no successor LTLProc, so there is literally
--- no state to feed additional frames to — stability is structural.
+-- These are the two halves of verdict stability *for `runL`* — they say what
+-- happens to the trace-level result, NOT what `stepL` does on a subsequent
+-- frame with the same proc.  The streaming runtime
+-- (`Protocol.StreamState.Internals.classifyStepResult Satisfied prop = advance
+-- prop`) reuses the OLD proc on the next frame; `runL-stepL-satisfied` does
+-- NOT guarantee anything about that subsequent `stepL` call's output, because
+-- `runL` short-circuits at the first terminal verdict and never reaches a
+-- "second `stepL` on the same proc" configuration.  Step-level invariants for
+-- the streaming runtime's reuse pattern are below.
+
+-- ============================================================================
+-- STEP-LEVEL SHAPE CHARACTERIZATIONS (AGDA-B-9.2)
+-- ============================================================================
+--
+-- The streaming runtime drops a property from the iteration list when
+-- `stepL` returns `Satisfied` (`Protocol.StreamState.Internals.classifyStepResult
+-- Satisfied _ = complete`).  This is the structural soundness fix for the
+-- AGDA-B-9.2 gap: re-evaluating a Satisfied proc on subsequent frames was
+-- unsound for top-level `Until` / `Release` / `MetricUntil` / `MetricRelease`
+-- / raw `Atomic` / `And`/`Or`-of-atomic shapes (concrete `Until` witness in
+-- the comment block above `classifyStepResult Satisfied`).
+--
+-- The two lemmas below characterize the two LTLProc shapes most relevant
+-- for typical CAN-analysis property surfaces — historically they argued
+-- partial soundness of the prior `advance prop` design, and they remain
+-- valuable as user-facing shape contracts:
+--
+--   * `Always φ` proc: stepL never returns Satisfied (its `combineAnd` RHS
+--     is `Continue 0 (Always φ)`, and `combineAnd Satisfied (Continue _ _)
+--     = Continue`, `combineAnd (Violated _) _ = Violated`).  Consequently
+--     `Always`-wrapped properties (the canonical CAN safety pattern; cf.
+--     `python/aletheia/dsl.py:.always()`) never trigger the `complete`
+--     branch — they run for the entire stream as users expect.
+--
+--   * `Eventually φ` proc: stepL never returns Violated (its `combineOr`
+--     RHS is `Continue 0 (Eventually φ)`, and `combineOr (Violated _)
+--     (Continue _ _) = Continue _ _`).  Consequently `Eventually`-wrapped
+--     properties (the canonical liveness pattern) never `halt` — they
+--     `complete` cleanly on first witness or stay `Continue` until
+--     EndStream.
+--
+-- Soundness for the latent shapes (Until / Release / MetricUntil /
+-- MetricRelease / raw Atomic / And/Or-of-atomic) is now structural: the
+-- `complete` outcome means a Satisfied proc is dropped from the iteration
+-- list on the same frame, so no subsequent frame can re-evaluate it and
+-- produce a false counterexample.  Active-set monotonicity is proven in
+-- `Aletheia.Protocol.Iteration.length-specResult-≤`.
+
+stepL-always-never-satisfied : ∀ (table : PredTable) (φ : LTLProc) (y : TimedFrame)
+  → stepL table (Always φ) y ≢ Satisfied
+stepL-always-never-satisfied table φ y eq with stepL table φ y
+... | Satisfied    with () ← eq
+... | Violated _   with () ← eq
+... | Continue _ _ with () ← eq
+
+stepL-eventually-never-violated : ∀ (table : PredTable) (φ : LTLProc) (y : TimedFrame) (ce : Counterexample)
+  → stepL table (Eventually φ) y ≢ Violated ce
+stepL-eventually-never-violated table φ y ce eq with stepL table φ y
+... | Satisfied    with () ← eq
+... | Violated _   with () ← eq
+... | Continue _ _ with () ← eq
 
 -- ============================================================================
 -- METRIC OPERATOR WINDOW EXPIRY (runL)
@@ -160,36 +219,36 @@ runL-stepL-satisfied table proc y rest refl | .Satisfied = refl
 -- blocks reduction until the boolean is known. So each corollary drives the
 -- same `with`-abstraction directly.
 
-runL-met-ev-expired : ∀ (table : PredTable) w s (φ : LTLProc)
+runL-met-ev-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricEventually w s φ) (y ∷ rest) ≡ False
 runL-met-ev-expired table w s φ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-ev-expired table w s φ y rest refl | false = refl
 
-runL-met-al-expired : ∀ (table : PredTable) w s (φ : LTLProc)
+runL-met-al-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricAlways w s φ) (y ∷ rest) ≡ True
 runL-met-al-expired table w s φ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-al-expired table w s φ y rest refl | false = refl
 
-runL-met-un-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc)
+runL-met-un-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricUntil w s φ ψ) (y ∷ rest) ≡ False
 runL-met-un-expired table w s φ ψ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-un-expired table w s φ ψ y rest refl | false = refl
 
-runL-met-re-expired : ∀ (table : PredTable) w s (φ ψ : LTLProc)
+runL-met-re-expired : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc)
   (y : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s y ≤ᵇ w) ≡ false
+  → (metricElapsed s y ≤ᵇ tsValue w) ≡ false
   → runL table (MetricRelease w s φ ψ) (y ∷ rest) ≡ True
 runL-met-re-expired table w s φ ψ y rest eq
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 runL-met-re-expired table w s φ ψ y rest refl | false = refl
 
 -- ============================================================================

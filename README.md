@@ -41,17 +41,19 @@ speed_limit = Signal("Speed").less_than(220).always()
 brake_check = Signal("BrakePressed").equals(1).eventually()
 
 # Stream CAN frames from a .blf / .asc / .log / .mf4 trace and check properties.
-# iter_can_log() yields CANFrameTuple(timestamp_us, can_id, dlc, data, extended)
-# — five fields. timestamp_us is microseconds (int), can_id is the raw 11- or
-# 29-bit arbitration ID, dlc is the DLC code (0–8 for CAN 2.0B, 0–15 for CAN-FD),
-# data is bytes/bytearray of length dlc_to_bytes(dlc), extended is True for
-# 29-bit IDs. The unpack below ignores the extended flag for brevity.
+# iter_can_log() yields CANFrameTuple(timestamp_us, can_id, dlc, data, extended,
+# brs, esi) — seven fields. timestamp_us is microseconds (int), can_id is the
+# raw 11- or 29-bit arbitration ID, dlc is the DLC code (0–8 for CAN 2.0B, 0–15
+# for CAN-FD), data is bytes/bytearray of length dlc_to_bytes(dlc), extended is
+# True for 29-bit IDs, brs/esi are CAN-FD Bit Rate Switch / Error State
+# Indicator (None on CAN 2.0B frames). The unpack below ignores the trailing
+# three fields for brevity.
 with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
     client.start_stream()
 
-    for timestamp_us, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+    for timestamp_us, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(timestamp_us, can_id, dlc, data)
         if response.get("status") == "fails":
             ts = response['timestamp']['numerator']

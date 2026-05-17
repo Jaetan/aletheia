@@ -1,7 +1,9 @@
 package excel
 
 import (
+	"archive/zip"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -87,7 +89,7 @@ func makeWhenThenWorkbook(t *testing.T, rows [][]any) string {
 	return path
 }
 
-func makeDbcWorkbook(t *testing.T, rows [][]any) string {
+func makeDBCWorkbook(t *testing.T, rows [][]any) string {
 	t.Helper()
 	f := excelize.NewFile()
 	defer f.Close()
@@ -383,9 +385,9 @@ func TestLoadExcelWhenThenMetadata(t *testing.T) {
 // DBC parsing
 // ===========================================================================
 
-func TestLoadExcelDbcSingleSignal(t *testing.T) {
+func TestLoadExcelDBCSingleSignal(t *testing.T) {
 	// id, name, extended, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
-	path := makeDbcWorkbook(t, [][]any{
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
 	dbc, err := LoadDbc(path)
@@ -438,8 +440,8 @@ func TestLoadExcelDbcSingleSignal(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcMessageGrouping(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCMessageGrouping(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 		{256, "EngineData", "FALSE", 8, "Temp", 16, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C"},
 		{512, "BrakeData", "FALSE", 4, "BrakePressure", 0, 16, "big_endian", "FALSE", 0.1, 0, 0, 6553.5, "bar"},
@@ -471,8 +473,8 @@ func TestLoadExcelDbcMessageGrouping(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcHexID(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCHexID(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{"0x100", "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
 	dbc, err := LoadDbc(path)
@@ -484,8 +486,8 @@ func TestLoadExcelDbcHexID(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcSignedTrue(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCSignedTrue(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
 	})
 	dbc, err := LoadDbc(path)
@@ -497,8 +499,8 @@ func TestLoadExcelDbcSignedTrue(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCSignedIntegerOne(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbc(path)
@@ -510,8 +512,8 @@ func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCSignedIntegerZero(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbc(path)
@@ -523,8 +525,8 @@ func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcMissingUnit(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCMissingUnit(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
 	})
 	dbc, err := LoadDbc(path)
@@ -540,8 +542,8 @@ func TestLoadExcelDbcMissingUnit(t *testing.T) {
 // Multiplexed signals
 // ===========================================================================
 
-func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCAlwaysPresent(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
 	})
 	dbc, err := LoadDbc(path)
@@ -554,8 +556,8 @@ func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcMultiplexed(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCMultiplexed(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "MuxSignal", 8, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", "Selector", 3},
 	})
 	dbc, err := LoadDbc(path)
@@ -570,13 +572,13 @@ func TestLoadExcelDbcMultiplexed(t *testing.T) {
 	if string(mux.Multiplexor) != "Selector" {
 		t.Errorf("Multiplexor: got %q", mux.Multiplexor)
 	}
-	if len(mux.MuxValues) != 1 || mux.MuxValues[0] != 3 {
-		t.Errorf("MuxValues: got %v", mux.MuxValues)
+	if len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != 3 {
+		t.Errorf("MultiplexValues: got %v", mux.MultiplexValues)
 	}
 }
 
-func TestLoadExcelDbcMixedPresence(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCMixedPresence(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Selector", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", nil, nil},
 		{256, "Msg", "FALSE", 8, "TempA", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 0},
 		{256, "Msg", "FALSE", 8, "TempB", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 1},
@@ -592,24 +594,24 @@ func TestLoadExcelDbcMixedPresence(t *testing.T) {
 	if _, ok := msg.Signals[0].Presence.(aletheia.AlwaysPresent); !ok {
 		t.Errorf("sig[0] expected AlwaysPresent, got %T", msg.Signals[0].Presence)
 	}
-	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MuxValues, 0) {
+	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, 0) {
 		t.Errorf("sig[1] expected Multiplexed(Selector, [0]), got %v", msg.Signals[1].Presence)
 	}
-	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MuxValues, 1) {
+	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MultiplexValues, 1) {
 		t.Errorf("sig[2] expected Multiplexed(Selector, [1]), got %v", msg.Signals[2].Presence)
 	}
 }
 
-func TestLoadExcelDbcPartialMuxError(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCPartialMuxError(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
 	})
 	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "must both be provided or both be empty")
 }
 
-func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+func TestLoadExcelDBCPartialMuxValueOnlyError(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
 	})
 	_, err := LoadDbc(path)
@@ -651,7 +653,7 @@ func TestCreateExcelTemplateSheetNames(t *testing.T) {
 	}
 }
 
-func TestCreateExcelTemplateDbcHeaders(t *testing.T) {
+func TestCreateExcelTemplateDBCHeaders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
 	if err := CreateTemplate(path); err != nil {
@@ -778,7 +780,7 @@ func TestLoadExcelFileNotFound(t *testing.T) {
 	requireErrorContains(t, err, "excel file not found")
 }
 
-func TestLoadExcelDbcFileNotFound(t *testing.T) {
+func TestLoadExcelDBCFileNotFound(t *testing.T) {
 	_, err := LoadDbc("/nonexistent/path/dbc.xlsx")
 	requireErrorContains(t, err, "excel file not found")
 }
@@ -795,7 +797,7 @@ func TestLoadExcelNoChecksOrWhenThenSheet(t *testing.T) {
 	requireErrorContains(t, err, "no 'Checks' or 'When-Then' sheet")
 }
 
-func TestLoadExcelNoDbcSheet(t *testing.T) {
+func TestLoadExcelNoDBCSheet(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()
 	_ = f.SetSheetName("Sheet1", "Other")
@@ -856,7 +858,7 @@ func TestLoadExcelUnknownThenCondition(t *testing.T) {
 }
 
 func TestLoadExcelInvalidByteOrder(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbc(path)
@@ -864,14 +866,14 @@ func TestLoadExcelInvalidByteOrder(t *testing.T) {
 }
 
 func TestLoadExcelInvalidMessageID(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]any{
+	path := makeDBCWorkbook(t, [][]any{
 		{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "invalid 'Message ID'")
 }
 
-func TestLoadExcelDbcEmptyData(t *testing.T) {
+func TestLoadExcelDBCEmptyData(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()
 	_ = f.SetSheetName("Sheet1", "DBC")
@@ -1072,9 +1074,9 @@ func TestLoadExcelCustomSheetNames(t *testing.T) {
 // Extended CAN ID
 // ===========================================================================
 
-func TestLoadExcelDbcExtendedID(t *testing.T) {
+func TestLoadExcelDBCExtendedID(t *testing.T) {
 	// Extended ID > 2047: must be marked Extended=TRUE.
-	path := makeDbcWorkbook(t, [][]any{
+	path := makeDBCWorkbook(t, [][]any{
 		{0x18FEF100, "J1939Msg", "TRUE", 8, "EngineSpeed", 0, 16, "little_endian", "FALSE", 0.125, 0, 0, 8031.875, "rpm"},
 	})
 	dbc, err := LoadDbc(path)
@@ -1096,9 +1098,9 @@ func TestLoadExcelDbcExtendedID(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcStandardAndExtendedMixed(t *testing.T) {
+func TestLoadExcelDBCStandardAndExtendedMixed(t *testing.T) {
 	// Mix of standard (Extended=FALSE) and extended (Extended=TRUE) messages.
-	path := makeDbcWorkbook(t, [][]any{
+	path := makeDBCWorkbook(t, [][]any{
 		{256, "StdMsg", "FALSE", 4, "Sig1", 0, 16, "little_endian", "FALSE", 1, 0, 0, 65535, ""},
 		{0x18FF0100, "ExtMsg", "TRUE", 8, "Sig2", 0, 16, "big_endian", "FALSE", 1, 0, 0, 65535, ""},
 	})
@@ -1120,9 +1122,9 @@ func TestLoadExcelDbcStandardAndExtendedMixed(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDbcLowIDExtended(t *testing.T) {
+func TestLoadExcelDBCLowIDExtended(t *testing.T) {
 	// A low ID (< 2048) can still be extended if the column says so.
-	path := makeDbcWorkbook(t, [][]any{
+	path := makeDBCWorkbook(t, [][]any{
 		{100, "LowExtMsg", "TRUE", 8, "Sig", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbc(path)
@@ -1135,4 +1137,118 @@ func TestLoadExcelDbcLowIDExtended(t *testing.T) {
 	if dbc.Messages[0].ID.Value() != 100 {
 		t.Errorf("ID: got %d, want 100", dbc.Messages[0].ID.Value())
 	}
+}
+
+// ---------------------------------------------------------------------------
+// R20 cluster N — adversarial-input hardening (cross-binding mirror)
+// ---------------------------------------------------------------------------
+
+func TestLoadChecks_RejectsSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	real_ := filepath.Join(tmp, "real.xlsx")
+	// Build a minimal valid .xlsx so the symlink target itself is loadable.
+	f := excelize.NewFile()
+	if err := f.SetSheetName("Sheet1", "Checks"); err != nil {
+		t.Fatalf("SetSheetName: %v", err)
+	}
+	for i, h := range checksHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue("Checks", cell, h)
+	}
+	_ = f.SetCellValue("Checks", "B2", "Speed")
+	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
+	_ = f.SetCellValue("Checks", "D2", 220)
+	if err := f.SaveAs(real_); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+	_ = f.Close()
+
+	link := filepath.Join(tmp, "link.xlsx")
+	if err := os.Symlink(real_, link); err != nil {
+		t.Skip("symlink creation not permitted on this filesystem")
+	}
+
+	_, err := LoadChecks(link)
+	requireErrorContains(t, err, "symbolic link")
+}
+
+func TestLoadChecks_RejectsOversize(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "oversize.xlsx")
+	// 65 MiB plain bytes — fails the raw-size cap before any ZIP parsing.
+	chunk := make([]byte, 1024*1024)
+	for i := range chunk {
+		chunk[i] = 0xAA
+	}
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for i := 0; i < 65; i++ {
+		if _, err := out.Write(chunk); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	_ = out.Close()
+
+	_, err = LoadChecks(path)
+	var bound *aletheia.InputBoundExceededError
+	if !errors.As(err, &bound) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
+		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
+	}
+	if bound.Limit != aletheia.MaxDBCTextBytes {
+		t.Errorf("Limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
+	}
+}
+
+func TestLoadChecks_RejectsZipBomb(t *testing.T) {
+	// Build a real ZIP with five entries totalling > MaxDBCTextBytes
+	// uncompressed.  Each entry is highly compressible (all zeros) so the
+	// archive on disk stays well under the raw cap; the central-directory
+	// walker is what flags it.
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "bomb.xlsx")
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	zw := zip.NewWriter(out)
+	zeros := make([]byte, 14*1024*1024) // 14 MiB
+	for i := 0; i < 5; i++ {            // 5 × 14 MiB = 70 MiB > 64 MiB cap
+		w, err := zw.CreateHeader(&zip.FileHeader{
+			Name:   fmt.Sprintf("part-%d", i),
+			Method: zip.Deflate,
+		})
+		if err != nil {
+			t.Fatalf("CreateHeader: %v", err)
+		}
+		if _, err := w.Write(zeros); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zw.Close: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("out.Close: %v", err)
+	}
+
+	_, err = LoadChecks(path)
+	var bound *aletheia.InputBoundExceededError
+	if !errors.As(err, &bound) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
+		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
+	}
+}
+
+func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
+	tmp := t.TempDir()
+	bad := filepath.Join(tmp, "does_not_exist", "template.xlsx")
+	err := CreateTemplate(bad)
+	requireErrorContains(t, err, "parent directory does not exist")
 }

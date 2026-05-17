@@ -33,7 +33,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong;
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually;
   Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; Monotonic)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue; Monotonic)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
 open import Aletheia.Prelude using (T→true)
 
@@ -80,13 +80,13 @@ met-re-ref : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → Truth
 
 -- Metric operators — delegate to NON-short-circuiting go helpers
 ⟦ MetricEventually w s φ ⟧ₘ [] = False
-⟦ MetricEventually w s φ ⟧ₘ σ@(y ∷ _) = met-ev-ref w φ (decodeStart s (timestampℕ y)) σ
+⟦ MetricEventually w s φ ⟧ₘ σ@(y ∷ _) = met-ev-ref (tsValue w) φ (decodeStart s (timestampℕ y)) σ
 ⟦ MetricAlways w s φ ⟧ₘ [] = True
-⟦ MetricAlways w s φ ⟧ₘ σ@(y ∷ _) = met-al-ref w φ (decodeStart s (timestampℕ y)) σ
+⟦ MetricAlways w s φ ⟧ₘ σ@(y ∷ _) = met-al-ref (tsValue w) φ (decodeStart s (timestampℕ y)) σ
 ⟦ MetricUntil w s φ ψ ⟧ₘ [] = False
-⟦ MetricUntil w s φ ψ ⟧ₘ σ@(y ∷ _) = met-un-ref w φ ψ (decodeStart s (timestampℕ y)) σ
+⟦ MetricUntil w s φ ψ ⟧ₘ σ@(y ∷ _) = met-un-ref (tsValue w) φ ψ (decodeStart s (timestampℕ y)) σ
 ⟦ MetricRelease w s φ ψ ⟧ₘ [] = True
-⟦ MetricRelease w s φ ψ ⟧ₘ σ@(y ∷ _) = met-re-ref w φ ψ (decodeStart s (timestampℕ y)) σ
+⟦ MetricRelease w s φ ψ ⟧ₘ σ@(y ∷ _) = met-re-ref (tsValue w) φ ψ (decodeStart s (timestampℕ y)) σ
 
 -- Reference MetricEventually: no short-circuit, identity element False for ∨
 met-ev-ref w φ start [] = False
@@ -334,13 +334,13 @@ mtl-equiv (Release φ ψ) (x ∷ x₂ ∷ rs) mono =
 -- Metric operators: delegate to go-helper equivalences, passing formula IH
 mtl-equiv (MetricEventually w s φ) [] _ = refl
 mtl-equiv (MetricEventually w s φ) (y ∷ rest) mono =
-  met-ev-equiv w φ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ)
+  met-ev-equiv (tsValue w) φ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ)
 mtl-equiv (MetricAlways w s φ) [] _ = refl
 mtl-equiv (MetricAlways w s φ) (y ∷ rest) mono =
-  met-al-equiv w φ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ)
+  met-al-equiv (tsValue w) φ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ)
 mtl-equiv (MetricUntil w s φ ψ) [] _ = refl
 mtl-equiv (MetricUntil w s φ ψ) (y ∷ rest) mono =
-  met-un-equiv w φ ψ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)
+  met-un-equiv (tsValue w) φ ψ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)
 mtl-equiv (MetricRelease w s φ ψ) [] _ = refl
 mtl-equiv (MetricRelease w s φ ψ) (y ∷ rest) mono =
-  met-re-equiv w φ ψ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)
+  met-re-equiv (tsValue w) φ ψ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)

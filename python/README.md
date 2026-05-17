@@ -33,8 +33,8 @@ with AletheiaClient() as client:
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, dlc, data, extended in iter_can_log("drive.blf"):
-        response = client.send_frame(timestamp, can_id, dlc, data, extended=extended)
+    for timestamp, can_id, dlc, data, extended, brs, esi in iter_can_log("drive.blf"):
+        response = client.send_frame(timestamp, can_id, dlc, data, extended=extended, brs=brs, esi=esi)
         if response.get("status") == "fails":
             print(f"Violation: {response['reason']}")
 

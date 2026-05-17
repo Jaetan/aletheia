@@ -594,3 +594,52 @@ checks:
 `)
 	requireErrorContains(t, err, "require 'within_ms'")
 }
+
+// ===========================================================================
+// R20 cluster N — adversarial-input hardening (cross-binding mirror)
+// ===========================================================================
+
+func TestLoadChecksFromYAMLFile_RejectsSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	real_ := filepath.Join(tmp, "real.yaml")
+	if err := os.WriteFile(real_, []byte("checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	link := filepath.Join(tmp, "link.yaml")
+	if err := os.Symlink(real_, link); err != nil {
+		t.Skip("symlink creation not permitted on this filesystem")
+	}
+	_, err := LoadChecksFromYAMLFile(link)
+	requireErrorContains(t, err, "symbolic link")
+}
+
+func TestLoadChecksFromYAML_AutoDetectRejectsSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	real_ := filepath.Join(tmp, "real_auto.yaml")
+	if err := os.WriteFile(real_, []byte("checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	link := filepath.Join(tmp, "link_auto.yaml")
+	if err := os.Symlink(real_, link); err != nil {
+		t.Skip("symlink creation not permitted on this filesystem")
+	}
+	// LoadChecksFromYAML auto-detects: when source resolves to an existing
+	// path, it goes through the file branch (which now rejects symlinks).
+	_, err := LoadChecksFromYAML(link)
+	requireErrorContains(t, err, "symbolic link")
+}
+
+func TestLoadChecksFromYAML_InlineStringUnaffected(t *testing.T) {
+	checks, err := LoadChecksFromYAML(`
+checks:
+  - signal: Speed
+    condition: never_exceeds
+    value: 200
+`)
+	if err != nil {
+		t.Fatalf("inline YAML rejected: %v", err)
+	}
+	if len(checks) != 1 {
+		t.Errorf("checks: got %d, want 1", len(checks))
+	}
+}

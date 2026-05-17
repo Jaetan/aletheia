@@ -2,7 +2,7 @@
 // Unit tests: DBC multiplexing query helpers + message/signal lookup.
 //
 // Covers DbcMessage::is_multiplexed, always_present_signals, multiplexed_signals,
-// multiplexor_names, mux_values, signals_for_mux_value, signal_by_name, and the
+// multiplexor_names, multiplex_values, signals_for_mux_value, signal_by_name, and the
 // DbcDefinition::message_by_id / message_by_name paths (including the lazy
 // index cache used by the latter two).
 #include "test_helpers.hpp"
@@ -51,7 +51,7 @@ auto make_mux_dbc() -> DbcDefinition {
                              .maximum = RationalBound{Rational{215, 1}},
                              .unit = Unit{"degC"},
                              .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
-                                                     .mux_values = {MultiplexValue{0}}}});
+                                                     .multiplex_values = {MultiplexValue{0}}}});
     sigs.push_back(DbcSignal{.name = SignalName{"Pressure"},
                              .start_bit = BitPosition{8},
                              .bit_length = BitLength{16},
@@ -63,7 +63,7 @@ auto make_mux_dbc() -> DbcDefinition {
                              .maximum = RationalBound{Rational{655, 1}},
                              .unit = Unit{"bar"},
                              .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
-                                                     .mux_values = {MultiplexValue{1}}}});
+                                                     .multiplex_values = {MultiplexValue{1}}}});
     sigs.push_back(DbcSignal{.name = SignalName{"Voltage"},
                              .start_bit = BitPosition{40},
                              .bit_length = BitLength{16},
@@ -117,14 +117,14 @@ TEST_CASE("DbcMessage::multiplexor_names", "[dbc][mux]") {
     CHECK(mn[0] == SignalName{"MuxSelector"});
 }
 
-TEST_CASE("DbcMessage::mux_values", "[dbc][mux]") {
+TEST_CASE("DbcMessage::multiplex_values", "[dbc][mux]") {
     auto dbc = make_mux_dbc();
-    auto mv = dbc.messages[0].mux_values(SignalName{"MuxSelector"});
+    auto mv = dbc.messages[0].multiplex_values(SignalName{"MuxSelector"});
     REQUIRE(mv.size() == 2);
     CHECK(mv[0] == MultiplexValue{0});
     CHECK(mv[1] == MultiplexValue{1});
 
-    auto empty = dbc.messages[0].mux_values(SignalName{"NonExistent"});
+    auto empty = dbc.messages[0].multiplex_values(SignalName{"NonExistent"});
     CHECK(empty.empty());
 }
 
@@ -176,9 +176,9 @@ TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
     CHECK(dbc.messages[0].signal_by_name(SignalName{"NoSuch"}) == nullptr);
 }
 
-TEST_CASE("DbcMessage::mux_values non-mux message", "[dbc][mux]") {
+TEST_CASE("DbcMessage::multiplex_values non-mux message", "[dbc][mux]") {
     auto plain = make_test_dbc();
-    CHECK(plain.messages[0].mux_values(SignalName{"Anything"}).empty());
+    CHECK(plain.messages[0].multiplex_values(SignalName{"Anything"}).empty());
 }
 
 TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {

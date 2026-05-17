@@ -6,6 +6,7 @@ and dispatch helpers so that the two loaders stay in sync.
 """
 
 from .checks import Check, CheckResult, WhenCondition, WhenSignal
+from .client import ValidationError
 
 
 # ============================================================================
@@ -51,7 +52,7 @@ def dispatch_when(
         return builder.equals(value)
     if condition == "drops_below":
         return builder.drops_below(value)
-    raise ValueError(f"Unknown when condition: {condition!r}")
+    raise ValidationError(f"Unknown when condition: {condition!r}")
 
 
 def dispatch_simple(
@@ -64,4 +65,4 @@ def dispatch_simple(
         return Check.signal(signal).never_below(value)
     if condition == "never_equals":
         return Check.signal(signal).never_equals(value)
-    raise ValueError(f"Unknown simple condition: {condition!r}")
+    raise ValidationError(f"Unknown simple condition: {condition!r}")

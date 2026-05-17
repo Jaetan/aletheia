@@ -20,6 +20,7 @@ import atheris  # type: ignore[import-not-found]
 from _atheris_runner import run
 
 with atheris.instrument_imports():
+    from aletheia import ValidationError
     from aletheia.can_log import iter_can_log
 
 
@@ -35,7 +36,7 @@ def fuzz_one_input(data: bytes) -> None:
         # parser's invariant must hold over every frame yielded.
         for _frame in iter_can_log(tmp_path, on_error="skip"):
             pass
-    except (ValueError, RuntimeError, OSError):
+    except (ValidationError, ValueError, RuntimeError, OSError):
         # Documented error paths; not a fuzz finding.
         pass
     finally:

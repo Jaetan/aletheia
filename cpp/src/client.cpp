@@ -20,7 +20,6 @@
 #include <optional>
 #include <set>
 #include <span>
-#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -68,7 +67,8 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     , logger_(std::move(logger))
     , default_checks_(std::move(default_checks)) {
     if (state_ == nullptr)
-        throw std::runtime_error("backend init() returned null state");
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
     if (!logger_)
         return;
     // Parity with Go's `rts.cores_mismatch` (ffi.go:336) and Python's
@@ -239,7 +239,10 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& 
 
 namespace {
 
-// Error code → message mapping for binary extraction (must match Agda categorizeIndexed).
+// Error code → message mapping for binary extraction.  Must match
+// `extractionErrorCodeToℕ` + the `resultToString` cases in
+// `src/Aletheia/CAN/BatchExtraction.agda` (the constructor-to-code ordering
+// in `ExtractionErrorCode` is the wire format).
 constexpr std::array extraction_error_messages = {
     std::string_view{"Signal not found in DBC"}, // 0
     std::string_view{"Value out of bounds"},     // 1
@@ -490,6 +493,8 @@ auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> c
                 return r;
         }
         return set_properties(stop, formulas);
+    } catch (const AletheiaException& e) {
+        return std::unexpected(e.error());
     } catch (const std::exception& e) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, e.what()});
     }
@@ -546,12 +551,12 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         }
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty()) {
             enrich_violation(*v, id, dlc, data, id_value, is_extended);
-            if (logger_)
+            if (logger_.enabled(LogLevel::Debug))
                 logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
                                                   {"canId", static_cast<std::uint64_t>(id_value)},
                                                   {"extended", is_extended},
                                                   {"response", std::string_view{"violation"}}});
-        } else if (logger_) {
+        } else if (logger_.enabled(LogLevel::Debug)) {
             logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
                                               {"canId", static_cast<std::uint64_t>(id_value)},
                                               {"extended", is_extended},
@@ -581,8 +586,15 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             if (e.kind() == ErrorKind::Cancellation) {
                 batch.error = e;
             } else {
-                batch.error =
-                    AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
+                // R20 cluster D — CPP-D-22.1: forward `bound_info_` so a
+                // mid-batch `InputBoundExceededError` payload survives the
+                // per-frame context wrap.  Without this the 3-arg ctor
+                // defaulted `bound_info` to `std::nullopt`, dropping the
+                // structured `bound_kind/observed/limit` triple that the
+                // Python `InputBoundExceededError` and Go `*InputBoundExceededError`
+                // preserve across error paths.
+                batch.error = AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()),
+                                            e.code(), e.bound_info()};
             }
             return batch;
         }
@@ -599,7 +611,7 @@ auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<vo
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     auto resp = backend_->send_error_binary(state_, ts);
     auto r = detail::parse_event_ack(resp);
-    if (r.has_value() && logger_) {
+    if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                            {"response", std::string_view{"ack"}}});
     }
@@ -614,7 +626,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     auto resp = backend_->send_remote_binary(state_, ts, id);
     auto r = detail::parse_event_ack(resp);
-    if (r.has_value() && logger_) {
+    if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
         logger_.debug(
             "remote_event.sent",
             {{"ts", static_cast<std::int64_t>(ts.count())},
@@ -762,7 +774,7 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
 
     auto cache_it = cache_.find(lookup);
     if (cache_it == cache_.end()) {
-        if (logger_)
+        if (logger_.enabled(LogLevel::Debug))
             logger_.debug("cache.miss", {{"canId", static_cast<std::uint64_t>(id_value)},
                                          {"dlc", static_cast<std::uint64_t>(dlc.value())}});
         auto extraction = extract_signals_internal(id, dlc, data, id_value, is_extended);
@@ -781,7 +793,7 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
             // Over capacity — use result directly without caching
             return collect_matching_signals(diag, *extraction);
         }
-    } else if (logger_) {
+    } else if (logger_.enabled(LogLevel::Debug)) {
         logger_.debug("cache.hit", {{"canId", static_cast<std::uint64_t>(id_value)},
                                     {"dlc", static_cast<std::uint64_t>(dlc.value())}});
     }
@@ -849,6 +861,12 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     }
 
     // Fallback: JSON path.
+    //
+    // Matches the binary path's "log + return nullopt for any kind != BinaryUnsupported"
+    // convention at lines 850-855 above.  AletheiaException from the FFI backend is
+    // caught via its std::runtime_error base; the log warning carries the message but no
+    // kind field, to preserve cross-binding parity with Python / Go's
+    // `extraction.process_failed` event signature.
     std::string resp;
     try {
         resp = backend_->extract_signals_binary(state_, id, dlc, data);

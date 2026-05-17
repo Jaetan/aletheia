@@ -16,6 +16,7 @@ from typing import Any
 import can
 import pytest
 
+from aletheia import ValidationError
 from aletheia.can_log import (
     _convert_message,
     _effective_extension,
@@ -230,14 +231,14 @@ class TestFileValidation:
         """Verify unsupported extension."""
         bad_file = tmp_path / "data.xyz"
         bad_file.touch()
-        with pytest.raises(ValueError, match="Unsupported"):
+        with pytest.raises(ValidationError, match="Unsupported"):
             load_can_log(bad_file)
 
     def test_string_path_accepted(self, tmp_path: Path) -> None:
         """Verify string path accepted."""
         bad_file = tmp_path / "data.xyz"
         bad_file.touch()
-        with pytest.raises(ValueError, match="Unsupported"):
+        with pytest.raises(ValidationError, match="Unsupported"):
             load_can_log(str(bad_file))
 
 

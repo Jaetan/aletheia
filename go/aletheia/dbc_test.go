@@ -443,7 +443,7 @@ func TestMultiplexedSignal(t *testing.T) {
 				{
 					Name: "TempA", StartBit: 8, BitLength: 16,
 					ByteOrder: aletheia.LittleEndian,
-					Presence:  aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValues: []aletheia.MultiplexValue{0}},
+					Presence:  aletheia.Multiplexed{Multiplexor: "MuxSelector", MultiplexValues: []aletheia.MultiplexValue{0}},
 					Factor:    aletheia.Rational{Numerator: 1, Denominator: 10}, Offset: aletheia.Rational{Numerator: -40, Denominator: 1}, Minimum: aletheia.Rational{Numerator: -40, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 215, Denominator: 1}, Unit: "degC",
 				},
 			},
@@ -542,8 +542,8 @@ func TestFormatDBC_Multiplexed(t *testing.T) {
 	if mux.Multiplexor != "MuxSel" {
 		t.Errorf("expected multiplexor MuxSel, got %s", mux.Multiplexor)
 	}
-	if len(mux.MuxValues) != 1 || mux.MuxValues[0] != 0 {
-		t.Errorf("expected mux values [0], got %v", mux.MuxValues)
+	if len(mux.MultiplexValues) != 1 || mux.MultiplexValues[0] != 0 {
+		t.Errorf("expected mux values [0], got %v", mux.MultiplexValues)
 	}
 }
 

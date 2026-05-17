@@ -2,6 +2,8 @@
 // Enrichment logic: formula pretty-printer, signal collector, diagnostics.
 #include <aletheia/enrich.hpp>
 
+#include <aletheia/detail/rational_renderer.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <format>
@@ -19,8 +21,16 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
+// Cross-binding-identical Rational pretty-printer.  Every render flows
+// through the Agda kernel via `aletheia_format_rational` (R20 cluster
+// Y stage 2): the C++ binding calls the same function as Python and
+// Go, so the same Rational value renders to byte-identical output
+// everywhere.  The library is dlopened on first use via the lazy-load
+// in `rational_renderer.cpp`; no local C++ fallback exists.  A missing
+// `libaletheia-ffi.so` throws `AletheiaException(Ffi)` rather than
+// silently diverging.
 auto format_value(const Rational& r) -> std::string {
-    return std::format("{:g}", r.to_double());
+    return detail::format_rational_ffi(r.numerator, r.denominator);
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;
@@ -80,29 +90,26 @@ auto predicate_signal(const Predicate& p) -> SignalName {
 }
 
 void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
-    std::visit(
-        [&signals](const auto& v) {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Atomic>) {
-                auto name = predicate_signal(v.predicate);
-                if (std::ranges::find(signals, name) == signals.end())
-                    signals.push_back(name);
-            } else if constexpr (std::is_same_v<T, Not> || std::is_same_v<T, Next> ||
-                                 std::is_same_v<T, WeakNext> || std::is_same_v<T, Always> ||
-                                 std::is_same_v<T, Eventually> || std::is_same_v<T, MetricAlways> ||
-                                 std::is_same_v<T, MetricEventually>) {
-                collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
-                                 std::is_same_v<T, Until> || std::is_same_v<T, Release> ||
-                                 std::is_same_v<T, MetricUntil> ||
-                                 std::is_same_v<T, MetricRelease>) {
-                collect_signals_into(*v.left, signals);
-                collect_signals_into(*v.right, signals);
-            } else {
-                static_assert(sizeof(T) == 0, "Unhandled formula type in collect_signals_into");
-            }
-        },
-        f);
+    f.visit([&signals](const auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Atomic>) {
+            auto name = predicate_signal(v.predicate);
+            if (std::ranges::find(signals, name) == signals.end())
+                signals.push_back(name);
+        } else if constexpr (std::is_same_v<T, Not> || std::is_same_v<T, Next> ||
+                             std::is_same_v<T, WeakNext> || std::is_same_v<T, Always> ||
+                             std::is_same_v<T, Eventually> || std::is_same_v<T, MetricAlways> ||
+                             std::is_same_v<T, MetricEventually>) {
+            collect_signals_into(*v.formula, signals);
+        } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
+                             std::is_same_v<T, Until> || std::is_same_v<T, Release> ||
+                             std::is_same_v<T, MetricUntil> || std::is_same_v<T, MetricRelease>) {
+            collect_signals_into(*v.left, signals);
+            collect_signals_into(*v.right, signals);
+        } else {
+            static_assert(sizeof(T) == 0, "Unhandled formula type in collect_signals_into");
+        }
+    });
 }
 
 auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string;
@@ -127,8 +134,8 @@ auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize)
 
 // Detect Never pattern: Always{Not{Atomic{p}}} — returns empty string if not.
 auto try_format_never(const Always& v) -> std::string {
-    if (auto* n = std::get_if<Not>(v.formula.get()))
-        if (auto* a = std::get_if<Atomic>(n->formula.get()))
+    if (auto* n = std::get_if<Not>(&v.formula->value))
+        if (auto* a = std::get_if<Atomic>(&n->formula->value))
             return "never " + format_predicate(a->predicate);
     return {};
 }
@@ -136,45 +143,43 @@ auto try_format_never(const Always& v) -> std::string {
 // Inner formatter: parenthesize_binary wraps binary operators in parens when
 // they appear as children of other binary operators, matching Go's behavior.
 auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
-    return std::visit(
-        [parenthesize_binary](const auto& v) -> std::string {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Atomic>)
-                return format_predicate(v.predicate);
-            else if constexpr (std::is_same_v<T, Not>)
-                return "not(" + format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, And>)
-                return format_binary(v, "and", parenthesize_binary);
-            else if constexpr (std::is_same_v<T, Or>)
-                return format_binary(v, "or", parenthesize_binary);
-            else if constexpr (std::is_same_v<T, Next>)
-                return "next(" + format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, WeakNext>)
-                return "weak_next(" + format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, Always>) {
-                auto never = try_format_never(v);
-                return never.empty() ? "always(" + format_formula_inner(*v.formula, false) + ")"
-                                     : never;
-            } else if constexpr (std::is_same_v<T, Eventually>)
-                return "eventually(" + format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, Until>)
-                return format_binary(v, "until", parenthesize_binary);
-            else if constexpr (std::is_same_v<T, Release>)
-                return format_binary(v, "release", parenthesize_binary);
-            else if constexpr (std::is_same_v<T, MetricAlways>)
-                return "always within " + format_timebound(v.bound) + "(" +
-                       format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, MetricEventually>)
-                return "eventually within " + format_timebound(v.bound) + "(" +
-                       format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, MetricUntil>)
-                return format_metric_binary(v, "until", parenthesize_binary);
-            else if constexpr (std::is_same_v<T, MetricRelease>)
-                return format_metric_binary(v, "release", parenthesize_binary);
-            else
-                static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
-        },
-        f);
+    return f.visit([parenthesize_binary](const auto& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Atomic>)
+            return format_predicate(v.predicate);
+        else if constexpr (std::is_same_v<T, Not>)
+            return "not(" + format_formula_inner(*v.formula, false) + ")";
+        else if constexpr (std::is_same_v<T, And>)
+            return format_binary(v, "and", parenthesize_binary);
+        else if constexpr (std::is_same_v<T, Or>)
+            return format_binary(v, "or", parenthesize_binary);
+        else if constexpr (std::is_same_v<T, Next>)
+            return "next(" + format_formula_inner(*v.formula, false) + ")";
+        else if constexpr (std::is_same_v<T, WeakNext>)
+            return "weak_next(" + format_formula_inner(*v.formula, false) + ")";
+        else if constexpr (std::is_same_v<T, Always>) {
+            auto never = try_format_never(v);
+            return never.empty() ? "always(" + format_formula_inner(*v.formula, false) + ")"
+                                 : never;
+        } else if constexpr (std::is_same_v<T, Eventually>)
+            return "eventually(" + format_formula_inner(*v.formula, false) + ")";
+        else if constexpr (std::is_same_v<T, Until>)
+            return format_binary(v, "until", parenthesize_binary);
+        else if constexpr (std::is_same_v<T, Release>)
+            return format_binary(v, "release", parenthesize_binary);
+        else if constexpr (std::is_same_v<T, MetricAlways>)
+            return "always within " + format_timebound(v.bound) + "(" +
+                   format_formula_inner(*v.formula, false) + ")";
+        else if constexpr (std::is_same_v<T, MetricEventually>)
+            return "eventually within " + format_timebound(v.bound) + "(" +
+                   format_formula_inner(*v.formula, false) + ")";
+        else if constexpr (std::is_same_v<T, MetricUntil>)
+            return format_metric_binary(v, "until", parenthesize_binary);
+        else if constexpr (std::is_same_v<T, MetricRelease>)
+            return format_metric_binary(v, "release", parenthesize_binary);
+        else
+            static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
+    });
 }
 
 } // namespace

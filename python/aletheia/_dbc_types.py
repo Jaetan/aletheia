@@ -60,11 +60,10 @@ class DBCSignalMultiplexed(TypedDict):
     ``valueDescriptions`` carries the inline ``VAL_`` entries attached to
     this signal (empty list when no ``VAL_`` line names it).
 
-    R19 cluster 17 / PY-D-19.2 (2026-05-12): carries an explicit
-    ``presence: Literal["multiplexed"]`` discriminator mirroring
-    :class:`DBCSignalAlways`'s ``presence: "always"`` — cross-binding
-    parity with Agda Formatter, Go ``serializeDBC``, and C++
-    ``presence_to_json``.
+    The ``presence`` field is narrowed to ``Literal["multiplexed"]`` so
+    consumers can use it as the discriminator when pattern-matching against
+    the ``DBCSignal`` union.  :class:`DBCSignalAlways` keeps the wider
+    :data:`SignalPresence` type and so does not narrow on construction.
     """
     name: str
     startBit: int

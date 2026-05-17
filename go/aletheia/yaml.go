@@ -26,14 +26,28 @@ func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 // names from a parsed DBC, so the same input-length cap applies; cf.
 // Python aletheia.yaml_loader._check_input_bound and AGENTS.md
 // universal rule "Adversarial-input bounds at parser surfaces".
+//
+// R20 cluster N — also rejects symbolic links outright (cross-binding
+// parity with C++ aletheia::detail::validate_loader_path and Python
+// aletheia._loader_utils.reject_symlink_loader_path).  Callers passing
+// legitimate symlinks must resolve them first.
 func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 	path = filepath.Clean(path)
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, validationError(fmt.Sprintf("YAML file not found: %s", path))
 		}
-		return nil, wrapValidation("stat YAML file", err)
+		return nil, wrapValidationError("stat YAML file", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, validationError(fmt.Sprintf(
+			"YAML file is a symbolic link; refusing to load: %s.  Resolve the link and pass the real path.",
+			path,
+		))
+	}
+	if !info.Mode().IsRegular() {
+		return nil, validationError(fmt.Sprintf("YAML path is not a regular file: %s", path))
 	}
 	if size := uint64(info.Size()); size > MaxDBCTextBytes {
 		return nil, &InputBoundExceededError{
@@ -44,7 +58,7 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, wrapValidation("reading YAML file", err)
+		return nil, wrapValidationError("reading YAML file", err)
 	}
 	return parseYAMLChecks(data)
 }
@@ -56,9 +70,14 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 // Returns *InputBoundExceededError if either form exceeds MaxDBCTextBytes
 // (64 MiB).  Mirrors Python aletheia.yaml_loader._check_input_bound per
 // AGENTS.md universal rule "Adversarial-input bounds at parser surfaces".
+//
+// R20 cluster N — when the file branch is taken, also reject symbolic
+// links (cross-binding parity with C++/Python).  Inline-content
+// branch is unaffected.
 func loadYAMLData(source string) ([]byte, error) {
 	source = filepath.Clean(source)
-	if info, err := os.Stat(source); err == nil {
+	info, statErr := os.Lstat(source)
+	if statErr == nil && info.Mode().IsRegular() {
 		if size := uint64(info.Size()); size > MaxDBCTextBytes {
 			return nil, &InputBoundExceededError{
 				BoundKind: BoundKindInputLengthBytes,
@@ -68,10 +87,20 @@ func loadYAMLData(source string) ([]byte, error) {
 		}
 		data, err := os.ReadFile(source)
 		if err != nil {
-			return nil, wrapValidation("reading YAML file", err)
+			return nil, wrapValidationError("reading YAML file", err)
 		}
 		return data, nil
 	}
+	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		// Stat-succeeds + symlink — refuse rather than silently follow.
+		// Cross-binding parity with C++ aletheia::detail::validate_loader_path
+		// and Python aletheia._loader_utils.reject_symlink_loader_path.
+		return nil, validationError(fmt.Sprintf(
+			"YAML file is a symbolic link; refusing to load: %s.  Resolve the link and pass the real path.",
+			source,
+		))
+	}
+	// Stat-fails or non-regular non-symlink — treat as inline YAML.
 	// Not a file -- treat as inline YAML.
 	if size := uint64(len(source)); size > MaxDBCTextBytes {
 		return nil, &InputBoundExceededError{
@@ -116,31 +145,32 @@ type yamlClause struct {
 // Parse logic
 // ---------------------------------------------------------------------------
 
-// parseYAMLChecks decodes a YAML document into a list of CheckResults,
-// validating the top-level "checks:" key before unmarshaling into
-// typed structs so malformed documents yield actionable errors.
+// parseYAMLChecks decodes a YAML document into a list of CheckResults.
+// The two-pass decode (untyped map → typed struct) is intentional: yaml.v3's
+// typed-only path conflates "key missing" / "key present but empty list" /
+// "key present with wrong type" into the same shape, which would surface as
+// an opaque "no checks" downstream.  Cost is negligible on the loader path
+// (microseconds per workbook); benefit is actionable diagnostics.
 func parseYAMLChecks(data []byte) ([]CheckResult, error) {
-	// First try to unmarshal into the expected structure.
-	// We need to verify the top-level structure manually to give good errors.
+	// First pass: structural check on the top-level "checks" key so we can
+	// distinguish absent / wrong-type from a typed unmarshal failure.
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, wrapValidation("invalid YAML", err)
+		return nil, wrapValidationError("invalid YAML", err)
 	}
 
 	checksRaw, ok := raw["checks"]
 	if !ok {
 		return nil, validationError("YAML document must contain a 'checks' list")
 	}
-
-	// Verify it's a list.
 	if _, isList := checksRaw.([]any); !isList {
 		return nil, validationError("YAML 'checks' field must be a list")
 	}
 
-	// Now unmarshal into our typed structs.
+	// Second pass: typed unmarshal.
 	var file yamlFile
 	if err := yaml.Unmarshal(data, &file); err != nil {
-		return nil, wrapValidation("invalid YAML", err)
+		return nil, wrapValidationError("invalid YAML", err)
 	}
 
 	results := make([]CheckResult, 0, len(file.Checks))

@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from .client import ValidationError
+from .client._helpers import to_predicate_fraction
 from .protocols import (
     PredicateType,
     LTLFormula,
@@ -59,10 +61,10 @@ def require_non_negative_time_ms(time_ms: int) -> None:
     """Reject negative durations in metric temporal operators.
 
     Raises:
-        ValueError: When *time_ms* is negative.
+        ValidationError: When *time_ms* is negative.
     """
     if time_ms < 0:
-        raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        raise ValidationError(f"time_ms must be non-negative, got {time_ms}")
 
 
 def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
@@ -84,9 +86,12 @@ class Signal:
     following sites must all change together, and the Agda layer is the
     source of truth:
 
-      1. ``src/Aletheia/Protocol/ResponseFormat.agda`` — add the constructor
-         to the ``SignalPredicate`` ADT and extend ``encodeSignalPredicate``
-         so the JSON wire format recognises the new tag.
+      1. ``src/Aletheia/LTL/SignalPredicate/Types.agda`` — add the
+         constructor to the ``SignalPredicate`` / ``ValuePredicate`` /
+         ``DeltaPredicate`` ADTs.  Then extend
+         ``src/Aletheia/LTL/JSON/Format.agda``'s
+         ``formatSignalPredicateFields`` (and its parser counterpart) so
+         the JSON wire format recognises the new tag.
       2. ``python/aletheia/protocols.py`` — add the matching member to
          ``PredicateType`` (Python mirror of the wire-format tag).
       3. This module — expose it as a method on ``Signal`` (or ``Predicate``)
@@ -98,6 +103,16 @@ class Signal:
     registry without first changing the Agda surface.
     """
 
+    # DEFERRED — TRACKED (R19P2-CL10-6 — DEFER).
+    # Finding: Public __init__ methods on Signal/Property/Predicate allow
+    #   positional args (`Signal("Speed")`); kwargs-only (`Signal(name="Speed")`)
+    #   would prevent positional-confusion bugs as the API grows.
+    # Why DEFER: Migration breaks every doc-fence and test (`Signal("X")` →
+    #   `Signal(name="X")`); cross-binding parity already strong-typed via
+    #   Go/C++ struct construction.
+    # Revisit when: A signature gains an optional positional that could collide
+    #   with the existing arg (e.g. `Signal(name: str, unit: str = "")` —
+    #   `Signal("Speed", "km/h")` would silently mis-interpret).
     def __init__(self, name: str) -> None:
         """Create a signal reference
 
@@ -121,7 +136,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.EQUALS.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -140,7 +155,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -159,7 +174,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -175,7 +190,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.LESS_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -191,7 +206,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.GREATER_THAN_OR_EQUAL.value,
             'signal': self.name,
-            'value': Fraction(value)
+            'value': to_predicate_fraction(value)
         })
         return Predicate(formula)
 
@@ -208,10 +223,10 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
-        lo = Fraction(min_val)
-        hi = Fraction(max_val)
+        lo = to_predicate_fraction(min_val)
+        hi = to_predicate_fraction(max_val)
         if lo > hi:
-            raise ValueError(
+            raise ValidationError(
                 f"min_val ({min_val}) must be <= max_val ({max_val})"
             )
         formula: AtomicFormula = _atomic({
@@ -240,7 +255,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.CHANGED_BY.value,
             'signal': self.name,
-            'delta': Fraction(delta)
+            'delta': to_predicate_fraction(delta)
         })
         return Predicate(formula)
 
@@ -261,7 +276,7 @@ class Signal:
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.STABLE_WITHIN.value,
             'signal': self.name,
-            'tolerance': Fraction(tolerance)
+            'tolerance': to_predicate_fraction(tolerance)
         })
         return Predicate(formula)
 
@@ -366,7 +381,7 @@ class Predicate:
             Bounded temporal property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             brake_pressed.implies(speed_decreases.within(100))
@@ -392,7 +407,7 @@ class Predicate:
             Bounded temporal property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
@@ -686,7 +701,7 @@ class Property:
             Metric Until property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             # Speed must stay above 50 until brake within 1000ms
@@ -712,7 +727,7 @@ class Property:
             Metric Release property
 
         Raises:
-            ValueError: ``time_ms`` is negative.
+            ValidationError: ``time_ms`` is negative.
 
         Example:
             # Brake must be engaged until ignition releases it, within 5000ms

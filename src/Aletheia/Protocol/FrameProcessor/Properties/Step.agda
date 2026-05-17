@@ -30,16 +30,18 @@ open import Aletheia.Protocol.StreamState.Internals
            mkPredTable; updateCacheFromFrame)
 open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specResult; specHalt)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete; iterate; iterate-correct; specResult; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (stepL)
 open import Aletheia.LTL.Simplify using (simplify)
+open import Data.List using (List)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _<_; _%_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
+open import Data.Fin using (Fin; toℕ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
 
 -- ============================================================================
@@ -53,9 +55,9 @@ handleDataFrame-guard-waitingForDBC : ∀ (tf : TimedFrame)
     → proj₁ (handleDataFrame WaitingForDBC tf) ≡ WaitingForDBC
 handleDataFrame-guard-waitingForDBC tf = refl
 
-handleDataFrame-guard-readyToStream : ∀ dbc props cache (tf : TimedFrame)
-    → proj₁ (handleDataFrame (ReadyToStream dbc props cache) tf) ≡ ReadyToStream dbc props cache
-handleDataFrame-guard-readyToStream dbc props cache tf = refl
+handleDataFrame-guard-readyToStream : ∀ n dbc props cache (tf : TimedFrame)
+    → proj₁ (handleDataFrame (ReadyToStream n dbc props cache) tf) ≡ ReadyToStream n dbc props cache
+handleDataFrame-guard-readyToStream n dbc props cache tf = refl
 
 -- ============================================================================
 -- PROPERTY 2: Byte modulus identity (boundary justification)
@@ -77,22 +79,22 @@ mod-identity-byte _ = m<n⇒m%n≡m
 -- ============================================================================
 
 -- Violated → halt (property index + counterexample)
-classifyStepResult-violated : ∀ ce prop
+classifyStepResult-violated : ∀ {n} ce (prop : PropertyState n)
   → classifyStepResult (Violated ce) prop ≡ halt (PropertyState.index prop , ce)
 classifyStepResult-violated ce prop = refl
 
 -- Continue → advance (simplified successor state)
-classifyStepResult-continue : ∀ n newProc prop
-  → classifyStepResult (Continue n newProc) prop
+classifyStepResult-continue : ∀ {n} k newProc (prop : PropertyState n)
+  → classifyStepResult (Continue k newProc) prop
     ≡ advance (mkPropertyState (PropertyState.index prop)
                                 (PropertyState.formula prop)
                                 (PropertyState.atoms prop)
                                 (simplify newProc))
-classifyStepResult-continue n newProc prop = refl
+classifyStepResult-continue k newProc prop = refl
 
--- Satisfied → advance (property state unchanged)
-classifyStepResult-satisfied : ∀ prop
-  → classifyStepResult Satisfied prop ≡ advance prop
+-- Satisfied → complete (property dropped from active set; AGDA-B-9.2 closure)
+classifyStepResult-satisfied : ∀ {n} (prop : PropertyState n)
+  → classifyStepResult Satisfied prop ≡ complete
 classifyStepResult-satisfied prop = refl
 
 -- ============================================================================
@@ -100,14 +102,14 @@ classifyStepResult-satisfied prop = refl
 -- ============================================================================
 
 -- Forward: If stepL returns Violated, stepProperty halts with matching evidence.
-stepProperty-violated : ∀ dbc cache tf prop ce
+stepProperty-violated : ∀ {n} dbc cache tf (prop : PropertyState n) ce
   → stepL (mkPredTable dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf ≡ Violated ce
   → stepProperty dbc cache tf prop ≡ halt (PropertyState.index prop , ce)
 stepProperty-violated dbc cache tf prop ce steq rewrite steq = refl
 
 -- Backward: If stepProperty halts, stepL returned Violated.
 -- Returns: proof that idx matches the property index, and the stepL equality.
-stepProperty-halt-implies-violated : ∀ dbc cache tf prop idx ce
+stepProperty-halt-implies-violated : ∀ {n} dbc cache tf (prop : PropertyState n) (idx : Fin n) ce
   → stepProperty dbc cache tf prop ≡ halt (idx , ce)
   → idx ≡ PropertyState.index prop
     × stepL (mkPredTable dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf ≡ Violated ce
@@ -122,15 +124,18 @@ stepProperty-halt-implies-violated dbc cache tf prop idx ce eq
 -- ============================================================================
 
 -- When iterate finds no violation (nothing), response is Ack.
-dispatchIterResult-ack : ∀ dbc ps tf cache
+dispatchIterResult-ack : ∀ {n} dbc (ps : List (PropertyState n)) tf cache
   → proj₂ (dispatchIterResult dbc (ps , nothing) tf cache) ≡ Response.Ack
 dispatchIterResult-ack dbc ps tf cache = refl
 
 -- When iterate finds a violation (just), response is PropertyResponse.
-dispatchIterResult-violation : ∀ dbc ps idx ce tf cache
+-- `toℕ idx` reflects the `Fin n → ℕ` wire-boundary conversion done by
+-- `dispatchIterResult` (R20 cluster R6-B7.4); the internal pipeline
+-- carries `Fin n` until this emission point.
+dispatchIterResult-violation : ∀ {n} dbc (ps : List (PropertyState n)) (idx : Fin n) ce tf cache
   → proj₂ (dispatchIterResult dbc (ps , just (idx , ce)) tf cache)
     ≡ Response.PropertyResponse
-        (PR.PropertyResult.Violation idx
+        (PR.PropertyResult.Violation (toℕ idx)
           (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
                                 (Counterexample.reason ce)))
 dispatchIterResult-violation dbc ps idx ce tf cache = refl
@@ -143,11 +148,11 @@ dispatchIterResult-violation dbc ps idx ce tf cache = refl
 --   dispatchIterResult ∘ iterate ∘ stepProperty
 -- The precondition `checkMonotonic prev tf ≡ nothing` rules out the rejection
 -- branch added when monotonicity enforcement was lifted into Agda.
-handleDataFrame-streaming : ∀ dbc props prev cache tf
+handleDataFrame-streaming : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
-  → handleDataFrame (Streaming dbc props prev cache) tf
+  → handleDataFrame (Streaming n dbc props prev cache) tf
     ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestampℕ tf) (TimedFrame.frame tf)
+                           (timestamp tf) (TimedFrame.frame tf)
       in dispatchIterResult dbc
            (iterate (stepProperty dbc cache tf) props)
            tf updatedCache
@@ -161,9 +166,9 @@ handleDataFrame-streaming dbc props prev cache tf mono
 -- If handleDataFrame returns Ack, then the frame was monotonic and iterate
 -- found no halt evidence. The monotonicity precondition rules out the
 -- NonMonotonicTimestamp branch (which never returns Ack).
-handleDataFrame-ack-sound : ∀ dbc props prev cache tf
+handleDataFrame-ack-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
-  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.Ack
+  → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.Ack
   → proj₂ (iterate (stepProperty dbc cache tf) props) ≡ nothing
 handleDataFrame-ack-sound dbc props prev cache tf mono resp-eq
   rewrite mono
@@ -178,9 +183,9 @@ handleDataFrame-ack-sound dbc props prev cache tf mono resp-eq
 -- If handleDataFrame returns PropertyResponse, then the frame was monotonic
 -- and iterate found halt evidence. The monotonicity precondition rules out the
 -- NonMonotonicTimestamp branch (which returns Error, not PropertyResponse).
-handleDataFrame-violation-sound : ∀ dbc props prev cache tf pr
+handleDataFrame-violation-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf pr
   → checkMonotonic prev tf ≡ nothing
-  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.PropertyResponse pr
+  → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.PropertyResponse pr
   → ∃[ e ] proj₂ (iterate (stepProperty dbc cache tf) props) ≡ just e
 handleDataFrame-violation-sound dbc props prev cache tf pr mono resp-eq
   rewrite mono
@@ -195,16 +200,16 @@ handleDataFrame-violation-sound dbc props prev cache tf pr mono resp-eq
 -- If the frame is monotonic and no property's stepProperty halts, handleDataFrame
 -- returns Ack. Without the monotonicity precondition the result would be a
 -- NonMonotonicTimestamp Error instead.
-handleDataFrame-ack-complete : ∀ dbc props prev cache tf
+handleDataFrame-ack-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → specHalt (stepProperty dbc cache tf) props ≡ nothing
-  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.Ack
+  → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.Ack
 handleDataFrame-ack-complete dbc props prev cache tf mono spec-eq
   rewrite mono =
     cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
   where
     step = stepProperty dbc cache tf
-    updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
     iter-eq : iterate step props ≡ (specResult step props , nothing)
     iter-eq = trans (iterate-correct step props)
                     (cong (specResult step props ,_) spec-eq)
@@ -215,12 +220,12 @@ handleDataFrame-ack-complete dbc props prev cache tf mono spec-eq
 
 -- If the frame is monotonic and some property's stepProperty halts,
 -- handleDataFrame returns PropertyResponse.
-handleDataFrame-violation-complete : ∀ dbc props prev cache tf idx ce
+handleDataFrame-violation-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf (idx : Fin n) ce
   → checkMonotonic prev tf ≡ nothing
   → specHalt (stepProperty dbc cache tf) props ≡ just (idx , ce)
-  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)
+  → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)
     ≡ Response.PropertyResponse
-        (PR.PropertyResult.Violation idx
+        (PR.PropertyResult.Violation (toℕ idx)
           (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
                                 (Counterexample.reason ce)))
 handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq
@@ -228,7 +233,7 @@ handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq
     cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
   where
     step = stepProperty dbc cache tf
-    updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
     iter-eq : iterate step props ≡ (specResult step props , just (idx , ce))
     iter-eq = trans (iterate-correct step props)
                     (cong (specResult step props ,_) spec-eq)

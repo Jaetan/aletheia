@@ -31,6 +31,7 @@ open import Data.Nat using (_⊔_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
 
+open import Aletheia.Trace.Time using (Timestamp; mkTs; tsValue; μs)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
@@ -56,6 +57,12 @@ private
            a₁ ≡ a₂ → b₁ ≡ b₂ → c₁ ≡ c₂ → d₁ ≡ d₂ →
            f a₁ b₁ c₁ d₁ ≡ f a₂ b₂ c₂ d₂
   cong₄ f refl refl refl refl = refl
+
+  -- Lift `≡ᵇ⇒≡` on the raw ℕ window to Timestamp equality via record η:
+  -- `tsValue w₁ ≡ tsValue w₂  ⇒  w₁ ≡ w₂` (single-field record, η-rule).
+  ≡ᵇ⇒≡-ts : ∀ {@0 u} (w₁ w₂ : Timestamp u)
+          → T (tsValue w₁ ≡ᵇ tsValue w₂) → w₁ ≡ w₂
+  ≡ᵇ⇒≡-ts w₁ w₂ p = cong mkTs (≡ᵇ⇒≡ (tsValue w₁) (tsValue w₂) p)
 
 ≡ᵇ-proc-correct : ∀ φ ψ → T (φ ≡ᵇ-proc ψ) → φ ≡ ψ
 ≡ᵇ-proc-correct (Atomic n) (Atomic m) p =
@@ -85,22 +92,22 @@ private
 ≡ᵇ-proc-correct (MetricEventually w₁ s₁ φ₁) (MetricEventually w₂ s₂ φ₂) p =
   let (pw , ps∧pφ) = Equivalence.to T-∧ p
       (ps , pφ)    = Equivalence.to T-∧ ps∧pφ
-  in cong₃ MetricEventually (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
+  in cong₃ MetricEventually (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
 ≡ᵇ-proc-correct (MetricAlways w₁ s₁ φ₁) (MetricAlways w₂ s₂ φ₂) p =
   let (pw , ps∧pφ) = Equivalence.to T-∧ p
       (ps , pφ)    = Equivalence.to T-∧ ps∧pφ
-  in cong₃ MetricAlways (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
+  in cong₃ MetricAlways (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
 ≡ᵇ-proc-correct (MetricUntil w₁ s₁ φ₁ ψ₁) (MetricUntil w₂ s₂ φ₂ ψ₂) p =
   let (pw , ps∧rest)  = Equivalence.to T-∧ p
       (ps , pφ∧pψ)   = Equivalence.to T-∧ ps∧rest
       (pφ , pψ)      = Equivalence.to T-∧ pφ∧pψ
-  in cong₄ MetricUntil (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
+  in cong₄ MetricUntil (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
            (≡ᵇ-proc-correct φ₁ φ₂ pφ) (≡ᵇ-proc-correct ψ₁ ψ₂ pψ)
 ≡ᵇ-proc-correct (MetricRelease w₁ s₁ φ₁ ψ₁) (MetricRelease w₂ s₂ φ₂ ψ₂) p =
   let (pw , ps∧rest)  = Equivalence.to T-∧ p
       (ps , pφ∧pψ)   = Equivalence.to T-∧ ps∧rest
       (pφ , pψ)      = Equivalence.to T-∧ pφ∧pψ
-  in cong₄ MetricRelease (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
+  in cong₄ MetricRelease (≡ᵇ⇒≡-ts w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
            (≡ᵇ-proc-correct φ₁ φ₂ pφ) (≡ᵇ-proc-correct ψ₁ ψ₂ pψ)
 
 -- ============================================================================
@@ -327,10 +334,11 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 -- cleanly. This pattern applies to all four -right-True/-False and two -cong-r
 -- wrappers so that each fully-reduces its empty-trace case.
 --
--- Design note (finding A25): the six empty-trace helpers below (3 for And,
--- 3 for Or) were considered for extraction into a generic dispatcher
--- parameterized by (And/Or, decomposition lemmas, target property). This
--- was rejected because:
+-- R6-B8.1 (finding A25) — DO NOT RE-RAISE IN REVIEW.
+--
+-- The six empty-trace helpers below (3 for And, 3 for Or) were considered
+-- for extraction into a generic dispatcher parameterized by (And/Or,
+-- decomposition lemmas, target property). This was rejected because:
 --   (a) Each helper calls DIFFERENT decomposition lemmas (finalizeL-And-*
 --       vs finalizeL-Or-*) with different arity/signatures.
 --   (b) The right-True, right-False, and cong-r variants have different
@@ -339,7 +347,17 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 --   (c) The purpose of these helpers is to force Agda's reduction through
 --       the FinalVerdict case split — a generic dispatcher would still
 --       need the same case analysis, just with more parameters.
+-- Re-audited 2026-05-17 (per `feedback_nofix_rationale_incomplete_axis.md`,
+-- asking "what's a different axis?"): the R6-B8.2 De Morgan trick that
+-- collapsed sound-or via sound-and does NOT translate here because And and
+-- Or have asymmetric absorbers in FinalVerdict's three-valued logic
+-- (`Holds` is transparent on And but absorbing on Or; `Fails` is the
+-- mirror); there is no involutive operation on FinalVerdict that lets us
+-- derive Or helpers from And helpers via substitution.  Truth-table
+-- lookup, macro-generated cases, and higher-order combinators all
+-- regenerate the same case split with added indirection.
 -- The helpers are private to this module and not part of any public API.
+-- See `DEFERRALS.md` entry "R6-B8.1" for the audit trail.
 private
   runL-and-right-True-[] :
     ∀ a b (fa fb : FinalVerdict) →

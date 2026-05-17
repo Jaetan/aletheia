@@ -63,15 +63,30 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 # ``_install_config`` import anything from ``aletheia`` or its submodules.
 # Either change breaks the deferred-import contract and will turn this benign
 # technical cycle into an ``ImportError`` at install-detection time.
+# DEFERRED — TRACKED (R19P2-CL16-2 — DEFER).
+# Finding: AletheiaError (canonical at aletheia/client/_types.py:18) is exposed
+#   via two public paths: `from aletheia import AletheiaError` (re-exported
+#   here) AND `from aletheia.client import AletheiaError` (re-exported by
+#   client/__init__.py).  Documentation references the top-level form.
+# Why DEFER: Deprecating `aletheia.client.AletheiaError` is mechanically safe
+#   (re-export forwarder) but requires a deprecation warning + downstream user
+#   code review.  Project has no current external users so the warning-period
+#   is unnecessary, but the canonical-path decision is mostly cosmetic.
+# Revisit when: First external user lands, OR a documentation sweep clarifies
+#   the canonical import paths.
 from .client import (
     AletheiaClient,
     AletheiaError,
+    Backend,
     BatchError,
+    BinaryPathUnsupportedError,
     CANFrameTuple,
+    FFIBackend,
     FFIError,
     FrameResponse,
     FrameResult,
     InputBoundExceededError,
+    MockBackend,
     PropertyDiagnostic,
     ProtocolError,
     RTSState,
@@ -150,6 +165,12 @@ __all__ = [
     "SignalExtractionResult",
     "bytes_to_dlc",
     "dlc_to_bytes",
+    # Backend DI seam (R20 cluster P — PY-D-24.1; cross-binding parity
+    # with Go ``Backend`` interface and C++ ``IBackend`` virtual surface).
+    "Backend",
+    "FFIBackend",
+    "MockBackend",
+    "BinaryPathUnsupportedError",
     # Exceptions & response types
     "AletheiaError",
     "BatchError",

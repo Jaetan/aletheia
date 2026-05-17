@@ -42,7 +42,8 @@ open import Aletheia.LTL.Syntax using
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 
 -- ============================================================================
 -- FINAL VERDICT → SIGNAL VALUE CONVERSION
@@ -218,23 +219,23 @@ runL-release-decomp table φ ψ x rest with stepL table ψ x | stepL table φ x
 -- but holds by case split on σ (both clauses are refl).
 
 private
-  met-ev-go-denot : ∀ (w : ℕ) (φ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
-    → met-ev-go w φ start σ ≡ ⟦ Syntax.MetricEventually w (suc start) φ ⟧ σ
+  met-ev-go-denot : ∀ (w : Timestamp μs) (φ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
+    → met-ev-go (tsValue w) φ start σ ≡ ⟦ Syntax.MetricEventually w (suc start) φ ⟧ σ
   met-ev-go-denot w φ start [] = refl
   met-ev-go-denot w φ start (_ ∷ _) = refl
 
-  met-al-go-denot : ∀ (w : ℕ) (φ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
-    → met-al-go w φ start σ ≡ ⟦ Syntax.MetricAlways w (suc start) φ ⟧ σ
+  met-al-go-denot : ∀ (w : Timestamp μs) (φ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
+    → met-al-go (tsValue w) φ start σ ≡ ⟦ Syntax.MetricAlways w (suc start) φ ⟧ σ
   met-al-go-denot w φ start [] = refl
   met-al-go-denot w φ start (_ ∷ _) = refl
 
-  met-un-go-denot : ∀ (w : ℕ) (φ ψ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
-    → met-un-go w φ ψ start σ ≡ ⟦ Syntax.MetricUntil w (suc start) φ ψ ⟧ σ
+  met-un-go-denot : ∀ (w : Timestamp μs) (φ ψ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
+    → met-un-go (tsValue w) φ ψ start σ ≡ ⟦ Syntax.MetricUntil w (suc start) φ ψ ⟧ σ
   met-un-go-denot w φ ψ start [] = refl
   met-un-go-denot w φ ψ start (_ ∷ _) = refl
 
-  met-re-go-denot : ∀ (w : ℕ) (φ ψ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
-    → met-re-go w φ ψ start σ ≡ ⟦ Syntax.MetricRelease w (suc start) φ ψ ⟧ σ
+  met-re-go-denot : ∀ (w : Timestamp μs) (φ ψ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
+    → met-re-go (tsValue w) φ ψ start σ ≡ ⟦ Syntax.MetricRelease w (suc start) φ ψ ⟧ σ
   met-re-go-denot w φ ψ start [] = refl
   met-re-go-denot w φ ψ start (_ ∷ _) = refl
 
@@ -262,27 +263,27 @@ sound-transport meq deq = sound-transport-denot deq ∘ sound-transport-monitor 
 -- to met-*-go. These avoid `rewrite met-*-go-denot` which generates
 -- with-auxiliaries that hide recursive calls from the termination checker.
 
-met-ev-go-sound : ∀ {m} w φ start rest →
+met-ev-go-sound : ∀ {m} (w : Timestamp μs) φ start rest →
   Sound m (⟦ Syntax.MetricEventually w (suc start) φ ⟧ rest) →
-  Sound m (met-ev-go w φ start rest)
+  Sound m (met-ev-go (tsValue w) φ start rest)
 met-ev-go-sound w φ start rest =
   sound-transport-denot (sym (met-ev-go-denot w φ start rest))
 
-met-al-go-sound : ∀ {m} w φ start rest →
+met-al-go-sound : ∀ {m} (w : Timestamp μs) φ start rest →
   Sound m (⟦ Syntax.MetricAlways w (suc start) φ ⟧ rest) →
-  Sound m (met-al-go w φ start rest)
+  Sound m (met-al-go (tsValue w) φ start rest)
 met-al-go-sound w φ start rest =
   sound-transport-denot (sym (met-al-go-denot w φ start rest))
 
-met-un-go-sound : ∀ {m} w φ ψ start rest →
+met-un-go-sound : ∀ {m} (w : Timestamp μs) φ ψ start rest →
   Sound m (⟦ Syntax.MetricUntil w (suc start) φ ψ ⟧ rest) →
-  Sound m (met-un-go w φ ψ start rest)
+  Sound m (met-un-go (tsValue w) φ ψ start rest)
 met-un-go-sound w φ ψ start rest =
   sound-transport-denot (sym (met-un-go-denot w φ ψ start rest))
 
-met-re-go-sound : ∀ {m} w φ ψ start rest →
+met-re-go-sound : ∀ {m} (w : Timestamp μs) φ ψ start rest →
   Sound m (⟦ Syntax.MetricRelease w (suc start) φ ψ ⟧ rest) →
-  Sound m (met-re-go w φ ψ start rest)
+  Sound m (met-re-go (tsValue w) φ ψ start rest)
 met-re-go-sound w φ ψ start rest =
   sound-transport-denot (sym (met-re-go-denot w φ ψ start rest))
 
@@ -310,12 +311,12 @@ runL-and-sound table φ ψ σ =
 -- The false case is absurd (discharged via () on the equality proof).
 
 -- MetricEventually: mirrors runL-eventually-decomp
-runL-metric-eventually-decomp : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s x ≤ᵇ w) ≡ true
+runL-metric-eventually-decomp : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
+  → (metricElapsed s x ≤ᵇ tsValue w) ≡ true
   → runL table (MetricEventually w s φ) (x ∷ rest)
     ≡ (runL table φ (x ∷ rest)) ∨TV (runL table (MetricEventually w (suc (decodeStart s (timestampℕ x))) φ) rest)
 runL-metric-eventually-decomp table w s φ x rest eq
-  with metricElapsed s x ≤ᵇ w
+  with metricElapsed s x ≤ᵇ tsValue w
 runL-metric-eventually-decomp table w s φ x rest () | false
 runL-metric-eventually-decomp table w s φ x rest eq | true with stepL table φ x
 ... | Satisfied     = refl
@@ -323,12 +324,12 @@ runL-metric-eventually-decomp table w s φ x rest eq | true with stepL table φ 
 ... | Continue _ φ' = runL-or-decomp table φ' (MetricEventually w (suc (decodeStart s (timestampℕ x))) φ) rest
 
 -- MetricAlways: mirrors runL-always-decomp
-runL-metric-always-decomp : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s x ≤ᵇ w) ≡ true
+runL-metric-always-decomp : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
+  → (metricElapsed s x ≤ᵇ tsValue w) ≡ true
   → runL table (MetricAlways w s φ) (x ∷ rest)
     ≡ (runL table φ (x ∷ rest)) ∧TV (runL table (MetricAlways w (suc (decodeStart s (timestampℕ x))) φ) rest)
 runL-metric-always-decomp table w s φ x rest eq
-  with metricElapsed s x ≤ᵇ w
+  with metricElapsed s x ≤ᵇ tsValue w
 runL-metric-always-decomp table w s φ x rest () | false
 runL-metric-always-decomp table w s φ x rest eq | true with stepL table φ x
 ... | Satisfied     rewrite ∧TV-true-l (runL table (MetricAlways w (suc (decodeStart s (timestampℕ x))) φ) rest) = refl
@@ -336,12 +337,12 @@ runL-metric-always-decomp table w s φ x rest eq | true with stepL table φ x
 ... | Continue _ φ' = runL-and-decomp table φ' (MetricAlways w (suc (decodeStart s (timestampℕ x))) φ) rest
 
 -- MetricUntil: mirrors runL-until-decomp
-runL-metric-until-decomp : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s x ≤ᵇ w) ≡ true
+runL-metric-until-decomp : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
+  → (metricElapsed s x ≤ᵇ tsValue w) ≡ true
   → runL table (MetricUntil w s φ ψ) (x ∷ rest)
     ≡ (runL table ψ (x ∷ rest)) ∨TV ((runL table φ (x ∷ rest)) ∧TV (runL table (MetricUntil w (suc (decodeStart s (timestampℕ x))) φ ψ) rest))
 runL-metric-until-decomp table w s φ ψ x rest eq
-  with metricElapsed s x ≤ᵇ w
+  with metricElapsed s x ≤ᵇ tsValue w
 runL-metric-until-decomp table w s φ ψ x rest () | false
 runL-metric-until-decomp table w s φ ψ x rest eq | true with stepL table ψ x | stepL table φ x
 ... | Satisfied     | _             = refl
@@ -362,12 +363,12 @@ runL-metric-until-decomp table w s φ ψ x rest eq | true with stepL table ψ x 
     = runL-or-decomp table ψ' (And φ' (MetricUntil w (suc (decodeStart s (timestampℕ x))) φ ψ)) rest
 
 -- MetricRelease: mirrors runL-release-decomp
-runL-metric-release-decomp : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
-  → (metricElapsed s x ≤ᵇ w) ≡ true
+runL-metric-release-decomp : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
+  → (metricElapsed s x ≤ᵇ tsValue w) ≡ true
   → runL table (MetricRelease w s φ ψ) (x ∷ rest)
     ≡ (runL table ψ (x ∷ rest)) ∧TV ((runL table φ (x ∷ rest)) ∨TV (runL table (MetricRelease w (suc (decodeStart s (timestampℕ x))) φ ψ) rest))
 runL-metric-release-decomp table w s φ ψ x rest eq
-  with metricElapsed s x ≤ᵇ w
+  with metricElapsed s x ≤ᵇ tsValue w
 runL-metric-release-decomp table w s φ ψ x rest () | false
 runL-metric-release-decomp table w s φ ψ x rest eq | true with stepL table ψ x | stepL table φ x
 ... | Violated _    | _             = refl
@@ -396,14 +397,14 @@ runL-metric-release-decomp table w s φ ψ x rest eq | true with stepL table ψ 
 -- The termination checker can then see the direct recursive calls.
 
 -- MetricEventually: boolean guard + stepL case split. Non-recursive.
-adequacy-met-ev : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
+adequacy-met-ev : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
   → Sound (runL table (MetricEventually w (suc (decodeStart s (timestampℕ y))) φ) rest)
-          (met-ev-go w (denot table φ) (decodeStart s (timestampℕ y)) rest)
+          (met-ev-go (tsValue w) (denot table φ) (decodeStart s (timestampℕ y)) rest)
   → Sound (runL table (MetricEventually w s φ) (y ∷ rest))
           (⟦ denot table (MetricEventually w s φ) ⟧ (y ∷ rest))
 adequacy-met-ev table w s φ y rest ih-φ ih-MEP
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = sound-ff
 ... | true with stepL table φ y
 ...   | Satisfied   = sound-or ih-φ ih-MEP
@@ -412,14 +413,14 @@ adequacy-met-ev table w s φ y rest ih-φ ih-MEP
                           (sound-or ih-φ ih-MEP)
 
 -- MetricAlways: dual of MetricEventually (∧ instead of ∨, sound-tt on window expiry).
-adequacy-met-al : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
+adequacy-met-al : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
   → Sound (runL table (MetricAlways w (suc (decodeStart s (timestampℕ y))) φ) rest)
-          (met-al-go w (denot table φ) (decodeStart s (timestampℕ y)) rest)
+          (met-al-go (tsValue w) (denot table φ) (decodeStart s (timestampℕ y)) rest)
   → Sound (runL table (MetricAlways w s φ) (y ∷ rest))
           (⟦ denot table (MetricAlways w s φ) ⟧ (y ∷ rest))
 adequacy-met-al table w s φ y rest ih-φ ih-MAP
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = sound-tt
 ... | true with stepL table φ y
 ...   | Satisfied   = sound-and-true-l ih-φ ih-MAP
@@ -428,15 +429,15 @@ adequacy-met-al table w s φ y rest ih-φ ih-MAP
                           (sound-and ih-φ ih-MAP)
 
 -- MetricUntil: simultaneous (stepL ψ × stepL φ) after boolean guard. Non-recursive.
-adequacy-met-un : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
+adequacy-met-un : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
   → Sound (runL table ψ (y ∷ rest)) (⟦ denot table ψ ⟧ (y ∷ rest))
   → Sound (runL table (MetricUntil w (suc (decodeStart s (timestampℕ y))) φ ψ) rest)
-          (met-un-go w (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest)
+          (met-un-go (tsValue w) (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest)
   → Sound (runL table (MetricUntil w s φ ψ) (y ∷ rest))
           (⟦ denot table (MetricUntil w s φ ψ) ⟧ (y ∷ rest))
 adequacy-met-un table w s φ ψ y rest ih-φ ih-ψ ih-MUP
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = sound-ff
 ... | true with stepL table ψ y | stepL table φ y
 ...   | Satisfied     | _             = sound-or ih-ψ (sound-and ih-φ ih-MUP)
@@ -455,15 +456,15 @@ adequacy-met-un table w s φ ψ y rest ih-φ ih-ψ ih-MUP
 
 -- MetricRelease: dual of MetricUntil (∧/∨ swapped). Non-recursive.
 -- Decomposition: ψ ∧ (φ ∨ MRP). Simultaneous with on stepL ψ and stepL φ.
-adequacy-met-re : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
+adequacy-met-re : ∀ (table : PredTable) (w : Timestamp μs) (s : ℕ) (φ ψ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
   → Sound (runL table ψ (y ∷ rest)) (⟦ denot table ψ ⟧ (y ∷ rest))
   → Sound (runL table (MetricRelease w (suc (decodeStart s (timestampℕ y))) φ ψ) rest)
-          (met-re-go w (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest)
+          (met-re-go (tsValue w) (denot table φ) (denot table ψ) (decodeStart s (timestampℕ y)) rest)
   → Sound (runL table (MetricRelease w s φ ψ) (y ∷ rest))
           (⟦ denot table (MetricRelease w s φ ψ) ⟧ (y ∷ rest))
 adequacy-met-re table w s φ ψ y rest ih-φ ih-ψ ih-MRP
-  with metricElapsed s y ≤ᵇ w
+  with metricElapsed s y ≤ᵇ tsValue w
 ... | false = sound-tt
 ... | true with stepL table ψ y | stepL table φ y
 ...   | Violated _    | _             = sound-and ih-ψ (sound-or ih-φ ih-MRP)

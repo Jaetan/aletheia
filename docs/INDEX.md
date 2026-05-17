@@ -92,7 +92,7 @@ Learn by example:
 - **[LICENSE](../LICENSE.md)** - BSD 2-Clause License
 - **[Python Package README](../python/README.md)** - Installation via pip
 - **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Third-party runtime dependencies and their licenses
-- **[DEFERRALS.md](../DEFERRALS.md)** - Items deliberately deferred out of scope with rationale
+- **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED` or `DO NOT RE-RAISE IN REVIEW`).  Round-scope working file: `review-rN-findings.md` (latest round in the repo root).
 - **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review)
 - **[Presentation](presentation/index.html)** - Slide deck for talks and demos (open in browser)
 
@@ -110,7 +110,7 @@ aletheia/
 ├── LICENSE.md                         # Legal
 ├── AGENTS.md                          # Per-language coding standards / review categories
 ├── DEPENDENCIES.md                    # Third-party dependencies & licenses
-├── DEFERRALS.md                       # Deliberately deferred items
+├── review-r20-findings.md             # Round-scope working file (per-round, latest round in repo root)
 ├── .session-state.md                  # Session recovery + resume instructions (AI-assisted dev)
 │
 ├── docs/

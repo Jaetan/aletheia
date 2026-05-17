@@ -16,6 +16,7 @@ open import Aletheia.DBC.Identifier using (Identifier)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
+open import Data.Fin using (Fin; toℕ)
 open import Data.Product using (_×_; _,_)
 open import Function using (case_of_)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
@@ -27,9 +28,10 @@ open import Aletheia.LTL.Simplify using (simplify)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState.Types using (StreamState; Streaming; PropertyState; mkPropertyState)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Prelude using (listIndex)
 
@@ -179,12 +181,12 @@ lookupAtom xs n = listIndex n xs
 -- correct previous value (from cache) and current value (from frame),
 -- without the cache update interfering with the current frame's evaluation.
 --
--- A formal proof of this ordering invariant (R14 finding A9) would require
--- a foundational lemma `updateEntries-self-lookup : lookupEntries name
--- (updateEntries name val ts es) ≡ just (mkCachedSignal val ts)` in
--- Cache/Properties.agda, which does not exist yet.  The proof would then
--- show that for delta predicates, evaluate-before-update preserves distinct
--- old/new values while update-before-evaluate collapses them (2026-04-16).
+-- A formal proof of this ordering invariant (R14 finding A9) is open: it
+-- would require a foundational lemma `updateEntries-self-lookup :
+-- lookupEntries name (updateEntries name val ts es) ≡ just (mkCachedSignal
+-- val ts)` in `Cache/Properties.agda`, then show that for delta predicates
+-- evaluate-before-update preserves distinct old/new values while
+-- update-before-evaluate collapses them.
 -- ====================================================================
 
 mkPredTable : DBC → SignalCache → List SignalPredicate → PredTable
@@ -198,7 +200,7 @@ mkPredTable dbc cache atoms n frame =
 -- ============================================================================
 
 -- Update cache with all signals from a signal list.
-updateSignals : ∀ {n} → DBC → CANFrame n → ℕ → List DBCSignal → SignalCache → SignalCache
+updateSignals : ∀ {n} → DBC → CANFrame n → Timestamp μs → List DBCSignal → SignalCache → SignalCache
 updateSignals dbc frame ts [] c = c
 updateSignals dbc frame ts (sig ∷ sigs) c =
   let sigName = Identifier.name (DBCSignal.name sig)
@@ -207,7 +209,7 @@ updateSignals dbc frame ts (sig ∷ sigs) c =
     (just v) → updateSignals dbc frame ts sigs (updateCache sigName v ts c)
 
 -- Update cache with all signals extractable from a frame
-updateCacheFromFrame : ∀ {n} → DBC → SignalCache → ℕ → CANFrame n → SignalCache
+updateCacheFromFrame : ∀ {n} → DBC → SignalCache → Timestamp μs → CANFrame n → SignalCache
 updateCacheFromFrame dbc cache ts frame =
   case findMessageById (CANFrame.id frame) dbc of λ where
     nothing    → cache
@@ -218,38 +220,67 @@ updateCacheFromFrame dbc cache ts frame =
 -- ============================================================================
 
 -- Classify a single stepL result into a StepOutcome.
-classifyStepResult : StepResult LTLProc → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+classifyStepResult : ∀ {n} → StepResult LTLProc → PropertyState n → StepOutcome (PropertyState n) (Fin n × Counterexample)
 classifyStepResult (Continue _ newProc) prop =
   advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
 classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
--- Satisfied: property holds at this step. The property stays in the iteration
--- list and its proc continues being stepped on subsequent frames. This is
--- correct (re-evaluating a satisfied formula is harmless) but wasteful.
--- The LTL type lacks a Top constructor, so there's no trivially-true formula
--- to substitute that wouldn't risk false violations via stepL evaluation.
+-- Satisfied: property holds at this step.  The property is dropped from
+-- the iteration list (`complete` outcome) so its proc is NOT re-evaluated
+-- on subsequent frames.
 --
--- Stability argument: once stepL returns Satisfied for a formula, re-stepping
--- the same proc with any subsequent frame also returns Satisfied or Continue.
--- This follows from stepL's structural decomposition: Satisfied is a terminal
--- state for Always/Release (the only safety operators that yield Satisfied),
--- and combining Satisfied with any other StepResult via combineAnd/combineOr
--- preserves or downgrades — it cannot produce Violated. The runL-stepL-satisfied
--- lemma in Coalgebra/Properties.agda formalises the trace-level consequence.
-classifyStepResult Satisfied prop = advance prop
+-- Why drop instead of advance: re-evaluating a Satisfied proc on the
+-- next frame is unsound for top-level `Until`, `Release`, `MetricUntil`,
+-- `MetricRelease`, raw `Atomic`, or `And`/`Or`-of-atomic shapes.  Concrete
+-- witness: `Until (Atomic 0) (Atomic 1)` with `table 1 y₁ = True` returns
+-- `Satisfied` at y₁; with both atoms False at y₂ it returns `Violated`
+-- (via `combineOr (Violated _) (Violated _) = Violated`).  Under a prior
+-- `advance prop` design this would emit a false counterexample on y₂ for
+-- a property already declared satisfied.  The `complete` outcome closes
+-- the gap structurally — once a property is satisfied, no further frame
+-- can flip the verdict because the proc is no longer in the active set.
+--
+-- Active-set monotonicity: `Aletheia.Protocol.Iteration.length-specResult-≤`
+-- proves the post-iteration list is no longer than the input.  The
+-- streaming runtime relies on this to argue that the active set shrinks
+-- monotonically with `Satisfied` transitions; combined with `halt`
+-- (Violated) terminating iteration, the active set never grows without
+-- explicit user input (a fresh `SetProperties` reseeds it).
+--
+-- Shape characterizations in `Aletheia.LTL.Coalgebra.Properties` pin down
+-- which user surfaces never trigger the drop:
+--   * `stepL-always-never-satisfied`: `stepL (Always φ) y ≢ Satisfied`,
+--     so `Always`-wrapped properties (the canonical CAN safety pattern)
+--     never `complete` — they run for the entire stream.
+--   * `stepL-eventually-never-violated`: `stepL (Eventually φ) y ≢
+--     Violated ce`, so `Eventually`-wrapped properties (the canonical
+--     liveness pattern) never `halt` — they `complete` cleanly on first
+--     witness or stay `Continue` until EndStream.
+--
+-- Wire visibility: the drop is silent.  `dispatchIterResult` emits `Ack`
+-- (no halt evidence) when the iteration finishes without a violation,
+-- regardless of whether one or more properties completed during the
+-- step.  `PropertyResult.Satisfaction` is currently emitted only at
+-- EndStream via `finalizeL`; lifting Satisfaction emission into the
+-- streaming dispatch is a separate enhancement (would require threading
+-- per-step completion events through `dispatchIterResult`).
+classifyStepResult Satisfied _ = complete
 
 -- Step one property: build PredTable, call stepL, classify result.
-stepProperty : DBC → SignalCache → TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+stepProperty : ∀ {n} → DBC → SignalCache → TimedFrame → PropertyState n → StepOutcome (PropertyState n) (Fin n × Counterexample)
 stepProperty dbc cache tf prop =
   let table = mkPredTable dbc cache (PropertyState.atoms prop)
       result = stepL table (PropertyState.proc prop) tf
   in classifyStepResult result prop
 
 -- Dispatch iteration result to StreamState × Response.
-dispatchIterResult : DBC → List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
-dispatchIterResult dbc (updatedProps , nothing) tf cache =
-  (Streaming dbc updatedProps (just tf) cache , Response.Ack)
-dispatchIterResult dbc (allProps , just (idx , ce)) tf cache =
+-- `Fin n → ℕ` conversion via `toℕ` only at the wire boundary
+-- (`PropertyResult.Violation` takes `ℕ`); the internal pipeline keeps the
+-- Fin all the way through.
+dispatchIterResult : ∀ {n} → DBC → List (PropertyState n) × Maybe (Fin n × Counterexample) → TimedFrame → SignalCache → StreamState × Response
+dispatchIterResult {n} dbc (updatedProps , nothing) tf cache =
+  (Streaming n dbc updatedProps (just tf) cache , Response.Ack)
+dispatchIterResult {n} dbc (allProps , just (idx , ce)) tf cache =
   let open Counterexample ce
       ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
-      violation = PR.PropertyResult.Violation idx ceData
-  in (Streaming dbc allProps (just tf) cache , Response.PropertyResponse violation)
+      violation = PR.PropertyResult.Violation (toℕ idx) ceData
+  in (Streaming n dbc allProps (just tf) cache , Response.PropertyResponse violation)

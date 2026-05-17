@@ -26,11 +26,12 @@ from aletheia import (
     AletheiaClient as SyncClient,
     BatchError,
     CANFrameTuple,
+    FFIBackend,
     FrameResult,
     Signal,
 )
 from aletheia.asyncio import AletheiaClient as AsyncClient
-from aletheia.asyncio.testing import gate_send_frame
+from aletheia.asyncio.testing import gated_backend
 from aletheia.protocols import (
     AckResponse, DBCDefinition, DLCCode, PropertyViolationResponse,
 )
@@ -253,20 +254,21 @@ class TestAsyncBatchCancellation:
     def test_timeout_mid_batch_raises_cancelled(self, simple_dbc: DBCDefinition) -> None:
         """Cancellation between committed frame and next ``await`` raises TimeoutError.
 
-        Deterministic via the public ``gate_send_frame`` testing helper:
-        the worker thread blocks inside frame 1's ``send_frame`` after
-        committing it; the test fires ``asyncio.timeout(0)`` (semantically
-        "fire on next loop tick" — no wall-clock dependency since the
-        gate guarantees a yield point); the next ``await`` returns
-        ``CancelledError`` which ``asyncio.timeout`` wraps as
-        ``TimeoutError``.  No ``Event.wait(timeout=…)`` anywhere; pytest's
-        session timeout is the only safety net for genuine hangs.
+        Deterministic via the public ``gated_backend`` testing helper:
+        the worker thread blocks inside frame 1's ``send_frame_binary``
+        after committing it; the test fires ``asyncio.timeout(0)``
+        (semantically "fire on next loop tick" — no wall-clock dependency
+        since the gate guarantees a yield point); the next ``await``
+        returns ``CancelledError`` which ``asyncio.timeout`` wraps as
+        ``TimeoutError``.  No ``Event.wait(timeout=…)`` anywhere;
+        pytest's session timeout is the only safety net for genuine
+        hangs.
         """
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> None:
-            sync = SyncClient()
-            with gate_send_frame(sync, after_n=1) as (started, proceed):
+            with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
+                sync = SyncClient(backend=backend)
                 async with AsyncClient(sync_client=sync) as client:
                     await client.parse_dbc(simple_dbc)
                     await client.set_properties([prop.to_dict()])
@@ -296,15 +298,15 @@ class TestAsyncBatchCancellation:
     def test_explicit_task_cancel(self, simple_dbc: DBCDefinition) -> None:
         """Cancelling the task between frames raises CancelledError on the awaiter.
 
-        Deterministic via ``gate_send_frame``: frame 1 is committed in the
+        Deterministic via ``gated_backend``: frame 1 is committed in the
         worker, the test cancels + releases, frame 1's result returns,
         and the next ``await`` raises ``CancelledError`` immediately.
         """
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> None:
-            sync = SyncClient()
-            with gate_send_frame(sync, after_n=1) as (started, proceed):
+            with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
+                sync = SyncClient(backend=backend)
                 async with AsyncClient(sync_client=sync) as client:
                     await client.parse_dbc(simple_dbc)
                     await client.set_properties([prop.to_dict()])
@@ -341,36 +343,38 @@ class TestAsyncBatchCancellation:
         in the background and ``is_closed`` flips to True.
 
         Pattern adapted from python/tests/test_cancellation.py's existing
-        ``gate_send_frame`` deterministic-yield-point pattern (no
+        ``gated_backend`` deterministic-yield-point pattern (no
         ``Event.wait(timeout=…)`` or wall-clock sleeps; pytest session
         timeout is the only safety net).
         """
 
         async def _run() -> None:
             sync = SyncClient()
-            client = AsyncClient(sync_client=sync)
-            await client.__aenter__()
-            assert not sync.is_closed
-            close_task = asyncio.create_task(client.close())
-            # Yield enough times for the shielded inner task to start.
-            # asyncio.shield wraps the inner future; cancelling the outer
-            # coroutine after the inner has been scheduled lets the inner
-            # complete in the background.
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            close_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await close_task
-            # The shielded close runs in the asyncio default executor; wait
-            # for it to land via a deterministic poll on the observable
-            # ``is_closed`` flag.  Per feedback_no_physical_time_in_tests, we
-            # use ``asyncio.sleep(0)`` (single-tick yield) rather than a
-            # wall-clock wait; pytest's session timeout catches genuine hangs.
-            for _ in range(10_000):  # bounded so a real bug surfaces
-                if sync.is_closed:
-                    break
+            # AsyncClient is double-close-safe, so the implicit __aexit__ at
+            # the end of the block is a no-op after the explicit close_task
+            # has driven is_closed to True via the shielded inner close.
+            async with AsyncClient(sync_client=sync) as client:
+                assert not sync.is_closed
+                close_task = asyncio.create_task(client.close())
+                # Yield enough times for the shielded inner task to start.
+                # asyncio.shield wraps the inner future; cancelling the outer
+                # coroutine after the inner has been scheduled lets the inner
+                # complete in the background.
                 await asyncio.sleep(0)
-            assert sync.is_closed, "FFI session must be released even when close was cancelled"
+                await asyncio.sleep(0)
+                close_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await close_task
+                # The shielded close runs in the asyncio default executor; wait
+                # for it to land via a deterministic poll on the observable
+                # ``is_closed`` flag.  Per feedback_no_physical_time_in_tests, we
+                # use ``asyncio.sleep(0)`` (single-tick yield) rather than a
+                # wall-clock wait; pytest's session timeout catches genuine hangs.
+                for _ in range(10_000):  # bounded so a real bug surfaces
+                    if sync.is_closed:
+                        break
+                    await asyncio.sleep(0)
+                assert sync.is_closed, "FFI session must be released even when close was cancelled"
 
         asyncio.run(_run())
 
@@ -387,17 +391,18 @@ class TestAsyncIterCancellation:
         """Timeout during ``async for`` — committed prefix durable, async-iter
         wraps cancellation in TimeoutError per asyncio.timeout semantics.
 
-        Deterministic via ``gate_send_frame``: the worker blocks inside
-        frame 1's ``send_frame`` after committing it; the test fires
-        ``asyncio.timeout(0)`` (next-loop-tick semantics, not wall-clock);
-        the async-iter's next ``await`` raises ``CancelledError`` which
-        ``asyncio.timeout`` wraps as ``TimeoutError``.
+        Deterministic via ``gated_backend``: the worker blocks inside
+        frame 1's ``send_frame_binary`` after committing it; the test
+        fires ``asyncio.timeout(0)`` (next-loop-tick semantics, not
+        wall-clock); the async-iter's next ``await`` raises
+        ``CancelledError`` which ``asyncio.timeout`` wraps as
+        ``TimeoutError``.
         """
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> None:
-            sync = SyncClient()
-            with gate_send_frame(sync, after_n=1) as (started, proceed):
+            with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
+                sync = SyncClient(backend=backend)
                 async with AsyncClient(sync_client=sync) as client:
                     await client.parse_dbc(simple_dbc)
                     await client.set_properties([prop.to_dict()])

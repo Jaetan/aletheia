@@ -77,7 +77,7 @@ func (b *gateBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
 func (b *gateBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
+func (b *gateBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *gateBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
@@ -265,7 +265,7 @@ func (b *cancelTriggerBackend) StartStreamBinary(_ unsafe.Pointer) (string, erro
 func (b *cancelTriggerBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
+func (b *cancelTriggerBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *cancelTriggerBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {

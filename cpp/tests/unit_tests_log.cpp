@@ -146,3 +146,56 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
     CHECK(std::get<std::int64_t>(events[0].fields[0].value) == 1);
     CHECK(std::get<std::int64_t>(events[0].fields[1].value) == 4);
 }
+
+// R20 cluster M — CPP-A-30.1: fast-path `enabled(LogLevel)` predicate lets
+// hot-path callers short-circuit before constructing `initializer_list<LogField>`.
+// Three cases guard against `>` vs `>=` direction regressions and silent
+// "debug-never-fires" / "debug-always-fires" failures.
+TEST_CASE("Logger::enabled() reflects sink + min-level state", "[log][enabled]") {
+    SECTION("no sinks → false at every level") {
+        Logger logger;
+        CHECK_FALSE(logger.enabled(LogLevel::Debug));
+        CHECK_FALSE(logger.enabled(LogLevel::Info));
+        CHECK_FALSE(logger.enabled(LogLevel::Warn));
+        CHECK_FALSE(logger.enabled(LogLevel::Error));
+    }
+    SECTION("sink registered, level below min → false") {
+        Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        CHECK_FALSE(logger.enabled(LogLevel::Debug));
+        CHECK_FALSE(logger.enabled(LogLevel::Info));
+    }
+    SECTION("sink registered, level == min → true (boundary)") {
+        Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        CHECK(logger.enabled(LogLevel::Warn));
+    }
+    SECTION("sink registered, level above min → true") {
+        Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        CHECK(logger.enabled(LogLevel::Error));
+    }
+    SECTION("default min_level (Debug) accepts all levels with sink") {
+        Logger logger([](const LogRecord&) {});
+        CHECK(logger.enabled(LogLevel::Debug));
+        CHECK(logger.enabled(LogLevel::Info));
+        CHECK(logger.enabled(LogLevel::Warn));
+        CHECK(logger.enabled(LogLevel::Error));
+    }
+}
+
+TEST_CASE("Logger::enabled() mirrors log()'s short-circuit exactly", "[log][enabled]") {
+    // If enabled() drifts from log()'s internal check, the outer guard silently
+    // becomes wrong (either logs fire when they shouldn't, or vice versa).
+    // Cross-check at every level / min_level combination.
+    int callback_count = 0;
+    auto bump = [&](const LogRecord&) { ++callback_count; };
+
+    for (auto min_level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
+        for (auto call_level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
+            Logger logger(bump, min_level);
+            callback_count = 0;
+            const bool en = logger.enabled(call_level);
+            logger.log(call_level, "test", {});
+            const bool fired = (callback_count > 0);
+            CHECK(en == fired);
+        }
+    }
+}

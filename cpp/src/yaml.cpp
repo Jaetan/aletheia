@@ -241,9 +241,13 @@ auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult
 // ---------------------------------------------------------------------------
 
 auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vector<CheckResult>> {
-    if (!std::filesystem::exists(path))
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "YAML file not found: " + path.string()});
+    // R20 cluster N — CPP-B-29.1/2 / CPP-D-21.2: reject symlinks + raw-size
+    // cap before handing the path to yaml-cpp.  YAML has no compressed
+    // container so the .xlsx ZIP-uncompressed walk doesn't apply.
+    if (auto v = detail::validate_loader_path(path, "YAML"); !v)
+        return std::unexpected(v.error());
+    if (auto v = detail::check_file_size_bound(path); !v)
+        return std::unexpected(v.error());
 
     try {
         auto root = YAML::LoadFile(path.string());

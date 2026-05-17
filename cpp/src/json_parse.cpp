@@ -318,7 +318,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         for (const auto& elem : arr)
             vals.emplace_back(elem.get<std::uint32_t>());
         presence = Multiplexed{.multiplexor = SignalName{j.at("multiplexor").get<std::string>()},
-                               .mux_values = std::move(vals)};
+                               .multiplex_values = std::move(vals)};
     }
 
     std::vector<std::string> receivers;

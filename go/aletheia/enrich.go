@@ -5,6 +5,19 @@ import (
 	"strings"
 )
 
+// formatRational renders a Rational as a string identical across all
+// bindings.  Every render flows through the Agda kernel via
+// `aletheia_format_rational` (R20 cluster Y stage 2): the Go binding
+// calls the same function as Python and C++, so the same Rational
+// value renders to byte-identical output everywhere.
+//
+// The library is dlopened on first use via the lazy-load in
+// `renderer.go`; no local Go fallback exists.  A missing
+// `libaletheia-ffi.so` panics rather than silently diverging.
+func formatRational(r Rational) string {
+	return formatRationalFFI(r.Numerator, r.Denominator)
+}
+
 // PropertyDiagnostic holds metadata auto-derived from a formula for violation enrichment.
 type PropertyDiagnostic struct {
 	Signals     []SignalName // all signals referenced in the formula
@@ -103,29 +116,30 @@ func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 }
 
 // formatPredicate returns a human-readable representation of a predicate.
-// Display path only — Rational values flow through Float64() for the
-// %g format; precision loss is acceptable in human-readable output.
+// Display path only — Rational values flow through formatRational, which
+// renders terminating decimals via %g and falls back to reduced N/D for
+// non-terminating fractions (e.g. Rational{1, 3} → "1/3", not "0.333333").
 func formatPredicate(p Predicate) string {
 	switch v := p.(type) {
 	case Equals:
-		return fmt.Sprintf("%s = %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s = %s", v.Signal, formatRational(v.Value))
 	case LessThan:
-		return fmt.Sprintf("%s < %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s < %s", v.Signal, formatRational(v.Value))
 	case GreaterThan:
-		return fmt.Sprintf("%s > %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s > %s", v.Signal, formatRational(v.Value))
 	case LessThanOrEqual:
-		return fmt.Sprintf("%s <= %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s <= %s", v.Signal, formatRational(v.Value))
 	case GreaterThanOrEqual:
-		return fmt.Sprintf("%s >= %s", v.Signal, formatValue(v.Value.Float64()))
+		return fmt.Sprintf("%s >= %s", v.Signal, formatRational(v.Value))
 	case Between:
-		return fmt.Sprintf("%s <= %s <= %s", formatValue(v.Min.Float64()), v.Signal, formatValue(v.Max.Float64()))
+		return fmt.Sprintf("%s <= %s <= %s", formatRational(v.Min), v.Signal, formatRational(v.Max))
 	case ChangedBy:
 		if v.Delta.Numerator >= 0 {
-			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatValue(v.Delta.Float64()))
+			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatRational(v.Delta))
 		}
-		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatValue(v.Delta.Float64()))
+		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatRational(v.Delta))
 	case StableWithin:
-		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatValue(v.Tolerance.Float64()))
+		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatRational(v.Tolerance))
 	default:
 		return "<unknown predicate>"
 	}
@@ -201,9 +215,9 @@ func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bo
 		collectSignalsInto(v.Left, signals, seen)
 		collectSignalsInto(v.Right, signals, seen)
 	default:
-		// Unknown formula types have no signals to collect. The Formula
-		// interface is sealed, so this branch is unreachable for all
-		// in-package types; it exists as a defensive no-op.
+		// Unreachable: the Formula interface is sealed (sealedFormula
+		// marker), so every concrete formula type is matched above. The
+		// branch exists only to satisfy Go's exhaustiveness expectation.
 	}
 }
 
@@ -227,6 +241,8 @@ func predicateSignal(p Predicate) SignalName {
 	case StableWithin:
 		return v.Signal
 	default:
+		// Unreachable: the Predicate interface is sealed (sealedPredicate
+		// marker), so every concrete predicate type is matched above.
 		return ""
 	}
 }
