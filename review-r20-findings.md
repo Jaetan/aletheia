@@ -6,14 +6,14 @@
 
 ## Round metadata
 
-- **Step 0 carry-over** read from `DEFERRALS.md` + in-source `DEFER` comments + memory files `project_review_round{18,19}.md`. Permanently-deferred / NO-FIX items below not to be re-raised without new evidence.
+- **Step 0 carry-over** read from in-source `DEFER` / `DO NOT RE-RAISE IN REVIEW` comments + memory files `project_review_round{18,19}.md`. Permanently-deferred / NO-FIX items below not to be re-raised without new evidence.  (DEFERRALS.md was retired post-R20; rationale lives at the call site.)
 - **Step 1 agents** (12 in parallel): Agda A/B/C, Go A/B, C++ A/B, Python A/B, CI/CD A, Docs A/B.
 - **Step 2 agents** (4 in parallel): Agda D, Go System, C++ System, Python System.
 - **Single tracking document** per `feedback_review_round_dispositions.md` rule 3.
 
 ## Carry-over (NOT to be re-raised without new evidence)
 
-From `DEFERRALS.md` (2026-05-10 last updated):
+Canonical source: in-source `DEFER` / `DO NOT RE-RAISE IN REVIEW` comments at each call site.  Summary index below for round-scope orientation.
 
 ### Permanently deferred
 - **D1** — `mkPredTable` atom index `ℕ → Fin` (`StreamState/Internals.agda:91`) — MAlonzo Peano `Fin` compilation cost dominates Stream-LTL hot path; ~40-line in-source caution block documents the trade-off.
@@ -38,8 +38,26 @@ From `DEFERRALS.md` (2026-05-10 last updated):
 - `src/Aletheia/CAN/Encoding/Properties/Arithmetic/Rational.agda:29-36` — DEFER-stdlib-mandate Cat 29.
 - `src/Aletheia/Data/BitVec/Conversion.agda:12-19` — DEFER-stdlib-mandate Cat 29.
 - `src/Aletheia/Protocol/StreamState/Internals.agda:91-97` — D1 in-source caution block.
-- `src/Aletheia/CAN/Encoding.agda:102-121` — Bool fast-path `with...in eq` barrier (R19-CARRY-1).
+- `src/Aletheia/CAN/Encoding.agda:102-121` — Bool fast-path `with...in eq` barrier (closed R20-AGDA-B-26.3 via `Reflects`).
 - `go/aletheia/json.go:45-53` — GO-B-25.2 `serializeDataFrame` sync.Pool deferral (mock-only path).
+
+### R19 Phase 2 carry-overs (formalised in-source 2026-05-17)
+
+Cluster 10 (breaking changes — cross-binding ergonomics):
+- `R19P2-CL10-1` ✅ RESOLVED — Go `Close() error` + `io.Closer` assert (`client.go:17,111`).
+- `R19P2-CL10-2` DEFER — `BuildFrame`/`UpdateFrame` arg-order asymmetry (`client.go:488,512`).
+- `R19P2-CL10-3` DEFER — `FormatDBC` return-type rework (`client.go:397`).
+- `R19P2-CL10-4` DEFER — C++ `Rational` `struct` → `class` (`cpp/include/aletheia/types.hpp:77`).
+- `R19P2-CL10-5` DEFER — C++ `Check` class → `namespace check` (`cpp/include/aletheia/check.hpp:259`).
+- `R19P2-CL10-6` DEFER — Python kwargs-only `__init__` (`python/aletheia/dsl.py:106`).
+
+Cluster 16 (Python boundary cleanup):
+- `R19P2-CL16-1` DEFER — `client/_types.py` split (432 LOC, shrunk organically).
+- `R19P2-CL16-2` DEFER — `AletheiaError` dup paths (canonical `client/_types.py:18`).
+- `R19P2-CL16-3` DEFER — `is_str_dict`/`is_object_list` underscore-rename.
+- `R19P2-CL16-4` DEFER — `normalize_signal` → `_normalize_signal` (`client/_helpers.py:346`).
+- `R19P2-CL16-5` ✅ RESOLVED — optional-extras upper-bound pins (`python/pyproject.toml`).
+- `R19P2-CL16-6` DEFER — `client/_helpers.py` 732-LOC split (regressed to 798 LOC).
 
 ---
 
@@ -1210,7 +1228,7 @@ focused commit; gates run fresh at every cluster closure per
 - ✅ Cat 27 stdlib coverage findings — cluster T closed: AGDA-C-27.2 (`elem` → stdlib `any`) + AGDA-C-27.3 (`_≟-LC_` → `_≟ₗᶜ_` rename); AGDA-C-27.1 (`sameLengthᵇ`) `[DEFER]` due to downstream structural-lemma cascade; AGDA-D-19.3 + AGDA-D-GA20.1 (`nothing≢just`) `[FP]` because the 3-line local absurdity helper is idiomatic.
 - ✅ **C++ `Strong<Tag, T>` ergonomics + `LtlFormula` `std::variant` portability** — cluster X closed.  CPP-D-15.2 / 15.3 closed by merging `StrongString<Tag>` into `Strong<Tag, T>` with a concept-gated `operator std::string_view()` (only when `T == std::string`) and adding `Strong::of(...)` as a single universal perfect-forwarding factory (chosen over per-tag `make_*` factories so the convenience scales without N new symbols; naming `of` not `make` so it doesn't collide with `Rational::make`'s validated-factory semantics).  CPP-D-15.4 / 17.3 closed by replacing `struct LtlFormula : std::variant<...>` inheritance with composition (`LtlFormulaVariant value` member + constrained converting ctor + `visit(...)` member); the 14-alternative list now lives in one place (the `LtlFormulaVariant` alias).  17.3's "Visitor pattern for binary-compat extension" framing intentionally not pursued — header-only template consumption + 1:1 Agda kernel ADT mapping means virtual dispatch would lose constexpr and break the existing `std::visit`-lambda idiom for no architectural gain; documented in the `ltl.hpp` comment block.  Consumer updates: `enrich.cpp` (2 `std::get_if` sites + 2 `std::visit` → `f.visit` migrations), `json_serialize.cpp` (1 static_cast → field access), `ltl::clone` (1 `std::visit` → `f.visit`), `static_tests.cpp` (`std::variant_size_v<LtlFormula::variant>` → `<LtlFormulaVariant>` plus a `decltype(declval<LtlFormula>().value)` companion).  Gates: full ctest 10/10; clang-format + clang-tidy clean (concept headers added to types.hpp and ltl.hpp to satisfy `misc-include-cleaner` for `std::same_as` / `std::constructible_from`).
 - `AGENTS.md` future-tense paragraph (DOC-A-1.14)
-- DEFERRALS.md / re-disposition file updates
+- In-source DEFER/NO-FIX marker updates (DEFERRALS.md retired 2026-05-17; all rationale lives at the call site)
 - ✅ **GO-A-3.5** — DEFER-end-of-round closed (this commit): synchronized cross-binding rename — Go `MuxValues` (field + method) → `MultiplexValues`; C++ `mux_values` (field + method) → `multiplex_values`.  Python unchanged (canonical wire-JSON `multiplex_values` field already correct; `mux_values` query function kept its short name).  See line 128 disposition for full per-file scope and gate posture.
 - ✅ **GO-D-19.1 smart-fallback Rational renderer** — cluster Y closed (this commit): scope-promoted from cluster R's Phase-6 framing into R20 by user direction 2026-05-15.  See cluster Y closure block below for full per-binding scope and gate posture.
 - ✅ **AGDA-A-1.3** — cluster V closed: extracted to new `Aletheia.DBC.BoundWalks` module (cardinality `vds*` family + string-length `firstOverBound*` family — 18 functions total).  Module count 247 → 248.  Per-handler aggregators stay local due to return-type asymmetry (named vs unnamed variant).

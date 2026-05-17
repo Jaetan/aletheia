@@ -1,5 +1,16 @@
 """Pure helper functions for response parsing and type conversion."""
 
+# DEFERRED — TRACKED (R19P2-CL16-6 — DEFER, REGRESSED).
+# Finding: This file is 798 LOC (was 732 at the R19 Phase 2 finding time;
+#   has since grown by 66 LOC adding cross-cutting helpers).  Original ~700-line
+#   guideline overshoot now ~98 LOC over.
+# Why DEFER: Splitting requires identifying coherent sub-modules (currently:
+#   DBC normalisation + signal-value coercion + frame-builder helpers +
+#   presence-discriminator helpers).  Cluster 17 added cross-cutting helpers
+#   that increased rather than decreased the file's role count.
+# Revisit when: This file exceeds 1000 LOC (pylint C0302 default threshold),
+#   OR a coherent sub-module emerges from another refactor.
+
 import json
 import math
 from collections.abc import Callable, Sequence
@@ -343,6 +354,12 @@ def parse_rational(value_raw: object) -> Fraction:
     )
 
 
+# DEFERRED — TRACKED (R19P2-CL16-4 — DEFER).
+# Finding: `normalize_signal` is exposed publicly (no underscore prefix) but
+#   only called by this module's internal helpers + tests.
+# Why DEFER: Mechanical underscore-prefix + import update; same shape as
+#   R19P2-CL16-3 (the wider boundary-naming sweep).
+# Revisit when: Co-decided with R19P2-CL16-3.
 def normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
     """Normalize a single Agda signal dict into a DBCSignal."""
     sig: dict[str, object] = dict(raw_sig)

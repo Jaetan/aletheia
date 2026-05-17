@@ -63,6 +63,17 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 # ``_install_config`` import anything from ``aletheia`` or its submodules.
 # Either change breaks the deferred-import contract and will turn this benign
 # technical cycle into an ``ImportError`` at install-detection time.
+# DEFERRED — TRACKED (R19P2-CL16-2 — DEFER).
+# Finding: AletheiaError (canonical at aletheia/client/_types.py:18) is exposed
+#   via two public paths: `from aletheia import AletheiaError` (re-exported
+#   here) AND `from aletheia.client import AletheiaError` (re-exported by
+#   client/__init__.py).  Documentation references the top-level form.
+# Why DEFER: Deprecating `aletheia.client.AletheiaError` is mechanically safe
+#   (re-export forwarder) but requires a deprecation warning + downstream user
+#   code review.  Project has no current external users so the warning-period
+#   is unnecessary, but the canonical-path decision is mostly cosmetic.
+# Revisit when: First external user lands, OR a documentation sweep clarifies
+#   the canonical import paths.
 from .client import (
     AletheiaClient,
     AletheiaError,

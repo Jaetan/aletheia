@@ -12,6 +12,15 @@ import stat
 from pathlib import Path
 from typing import TypeGuard
 
+# DEFERRED — TRACKED (R19P2-CL16-3 — DEFER).
+# Finding: `is_str_dict` (in protocols/_dbc_types.py) and `is_object_list`
+#   (in this module, definition below) are internal TypeGuard helpers exposed
+#   publicly via no-underscore naming.  Project-internal usage only.
+# Why DEFER: Mechanical rename + import-site update across ~10 call sites;
+#   gain is small (linter/dev-tooling clarity).
+# Revisit when: First external user lands, OR a `python -m aletheia._loader_utils`
+#   discovery surfaces the helpers as confusing public API.
+
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).

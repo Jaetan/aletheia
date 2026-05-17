@@ -256,6 +256,15 @@ private:
 // Entry point
 // ---------------------------------------------------------------------------
 
+// DEFERRED — TRACKED (R19P2-CL10-5 — DEFER).
+// Finding: `class Check` with static-method factory pattern (Check::signal(...),
+//   Check::when(...)) versus a `namespace aletheia::check` with free functions.
+// Why DEFER: Namespace pattern is more idiomatic C++ for stateless factories;
+//   current class-with-statics came from a Python-mirror design ("Check.range(...)").
+//   Migration touches every Check callsite in cpp/tests/ and cpp/examples/.
+//   Stylistic.
+// Revisit when: A C++ idiom-conformance cluster is opened.
+
 class Check {
 public:
     static auto signal(std::string name) -> CheckSignal { return CheckSignal{std::move(name)}; }

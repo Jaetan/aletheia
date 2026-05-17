@@ -390,6 +390,20 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 	return parseValidationResponse(resp)
 }
 
+// DEFERRED — TRACKED (R19P2-CL10-3 — DEFER).
+// Finding: FormatDBC / FormatDBCText return-type rework (originally a String →
+//
+//	structured-result migration carrying e.g. rendering options) was deferred
+//	from cluster 10.
+//
+// Why DEFER: Structured-result wrapping changes the wire contract across all 3
+//
+//	bindings; benefits proper typing but unclear payoff vs migration cost.
+//
+// Revisit when: A consumer needs richer return metadata (e.g. structured
+//
+//	rendering options) — the migration becomes load-bearing then.
+//
 // FormatDBC returns the currently loaded DBC definition as parsed by the Agda core.
 // Call ParseDBC first.
 //
@@ -481,6 +495,22 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 	return parseExtractionResponse(resp)
 }
 
+// DEFERRED — TRACKED (R19P2-CL10-2 — DEFER).
+// Finding: BuildFrame(ctx, id, signals, dlc) and UpdateFrame(ctx, id, dlc, data, signals)
+//
+//	are positionally inconsistent — `dlc` slot differs; `signals` slot differs.
+//
+// Why DEFER: Stylistic cross-binding parity work; affects every Go call site (tests,
+//
+//	benchmarks, doc fences) and needs paired cross-binding rename to Python's
+//	build_frame(can_id=, dlc=, signals=) / C++'s build_frame(can_id, dlc, signals)
+//	shapes.  Project-wide migration scope per feedback_no_backward_compat.md is
+//	justifiable but not Phase 5.1-scope.
+//
+// Revisit when: A "Go API ergonomics" cluster is opened, OR a user reports the
+//
+//	asymmetry causes confusion.
+//
 // BuildFrame encodes signal values into a CAN frame payload.
 // Requires a prior ParseDBC call to populate the signal index.
 //

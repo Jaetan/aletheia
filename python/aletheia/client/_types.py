@@ -1,5 +1,16 @@
 """Client types, exceptions, and result containers."""
 
+# DEFERRED — TRACKED (R19P2-CL16-1 — DEFER).
+# Finding: This file (432 LOC, shrunk organically from ~600 pre-cluster-17)
+#   mixes public-ish types (exception hierarchy) with client-internal scaffolding.
+#   Splitting into `python/aletheia/types.py` (public) + `python/aletheia/client/_internals.py`
+#   (internal) was deferred from R19 Phase 2 cluster 16.
+# Why DEFER: Organic shrinkage during cluster 17 reduced urgency.  Split would
+#   route public types via `aletheia.types` re-export which then needs the
+#   AletheiaError canonical-path decision (R19P2-CL16-2) co-decided.
+# Revisit when: This file re-grows past ~600 LOC, OR R19P2-CL16-2 is taken on
+#   (forces the co-decision on AletheiaError canonical path).
+
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass

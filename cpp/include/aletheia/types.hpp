@@ -73,6 +73,17 @@ using Unit = Strong<struct UnitTag, std::string>;
 // Rational: exact numerator/denominator
 // ---------------------------------------------------------------------------
 
+// DEFERRED — TRACKED (R19P2-CL10-4 — DEFER).
+// Finding: `struct Rational` with public `num`/`den` fields; C++ idiom prefers
+//   `class` with private fields + accessors once an invariant exists
+//   (cluster 12 added `den > 0` guard in the constructor).
+// Why DEFER: Cluster 12's `den > 0` `throw std::invalid_argument` runs at
+//   every callsite via the constructor / `Rational::make`, so the `struct`
+//   public-field exposure is already gated.  The cosmetic class promotion
+//   gains constructor-discipline but mass-migrates ~28 YAML/Excel/JSON sites.
+// Revisit when: A C++ ergonomics cluster is opened, OR a callsite bypasses
+//   the factory and constructs a malformed `Rational` directly.
+
 // Invariant: denominator must be > 0; enforced by the constructor.
 struct Rational {
     std::int64_t numerator = 0;

@@ -103,6 +103,16 @@ class Signal:
     registry without first changing the Agda surface.
     """
 
+    # DEFERRED — TRACKED (R19P2-CL10-6 — DEFER).
+    # Finding: Public __init__ methods on Signal/Property/Predicate allow
+    #   positional args (`Signal("Speed")`); kwargs-only (`Signal(name="Speed")`)
+    #   would prevent positional-confusion bugs as the API grows.
+    # Why DEFER: Migration breaks every doc-fence and test (`Signal("X")` →
+    #   `Signal(name="X")`); cross-binding parity already strong-typed via
+    #   Go/C++ struct construction.
+    # Revisit when: A signature gains an optional positional that could collide
+    #   with the existing arg (e.g. `Signal(name: str, unit: str = "")` —
+    #   `Signal("Speed", "km/h")` would silently mis-interpret).
     def __init__(self, name: str) -> None:
         """Create a signal reference
 
