@@ -68,7 +68,7 @@ open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName; findSignalInList)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; getValue)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 
 open import Aletheia.LTL.SignalPredicate using
   (SignalPredicate; SignalCache; CachedSignal; mkCachedSignal;
@@ -265,7 +265,7 @@ cacheAfter : DBC → List TimedFrame → SignalCache → SignalCache
 cacheAfter dbc []       cache = cache
 cacheAfter dbc (tf ∷ σ) cache =
   cacheAfter dbc σ
-    (updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf))
+    (updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf))
 
 -- `name` is extracted from some frame in σ. Structural on σ to match the
 -- recursion pattern of `cacheAfter`; existential over the extracted value
@@ -290,7 +290,7 @@ cacheAfter-monotone : ∀ dbc σ cache name cached →
   ∃[ cached' ] lookupCache name (cacheAfter dbc σ cache) ≡ just cached'
 cacheAfter-monotone dbc []       cache name cached eq = cached , eq
 cacheAfter-monotone dbc (tf ∷ σ) cache name cached eq =
-  let ts     = timestampℕ tf
+  let ts     = timestamp tf
       frame  = TimedFrame.frame tf
       step   = updateCacheFromFrame-monotone dbc cache ts frame name cached eq
       c₁     = proj₁ step
@@ -305,7 +305,7 @@ cacheAfter-warms : ∀ dbc σ cache name →
   ObservedIn dbc name σ →
   ∃[ cs ] lookupCache name (cacheAfter dbc σ cache) ≡ just cs
 cacheAfter-warms dbc (tf ∷ σ) cache name (here {v = v} ext) =
-  let ts    = timestampℕ tf
+  let ts    = timestamp tf
       frame = TimedFrame.frame tf
       l2    = updateCacheFromFrame-warms dbc cache ts frame name v ext
       c₁    = proj₁ l2
@@ -313,7 +313,7 @@ cacheAfter-warms dbc (tf ∷ σ) cache name (here {v = v} ext) =
   in cacheAfter-monotone dbc σ
        (updateCacheFromFrame dbc cache ts frame) name c₁ eq₁
 cacheAfter-warms dbc (tf ∷ σ) cache name (there rest) =
-  let ts    = timestampℕ tf
+  let ts    = timestamp tf
       frame = TimedFrame.frame tf
   in cacheAfter-warms dbc σ
        (updateCacheFromFrame dbc cache ts frame) name rest

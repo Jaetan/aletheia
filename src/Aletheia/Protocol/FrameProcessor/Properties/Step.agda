@@ -147,7 +147,7 @@ handleDataFrame-streaming : ∀ dbc props prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → handleDataFrame (Streaming dbc props prev cache) tf
     ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestampℕ tf) (TimedFrame.frame tf)
+                           (timestamp tf) (TimedFrame.frame tf)
       in dispatchIterResult dbc
            (iterate (stepProperty dbc cache tf) props)
            tf updatedCache
@@ -204,7 +204,7 @@ handleDataFrame-ack-complete dbc props prev cache tf mono spec-eq
     cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
   where
     step = stepProperty dbc cache tf
-    updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
     iter-eq : iterate step props ≡ (specResult step props , nothing)
     iter-eq = trans (iterate-correct step props)
                     (cong (specResult step props ,_) spec-eq)
@@ -228,7 +228,7 @@ handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq
     cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
   where
     step = stepProperty dbc cache tf
-    updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
     iter-eq : iterate step props ≡ (specResult step props , just (idx , ce))
     iter-eq = trans (iterate-correct step props)
                     (cong (specResult step props ,_) spec-eq)

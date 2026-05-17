@@ -102,7 +102,7 @@ handleDataFrame-accepts-monotonic : ∀ dbc props p cache tf
   → timestampℕ p ≤ timestampℕ tf
   → handleDataFrame (Streaming dbc props (just p) cache) tf
     ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestampℕ tf) (TimedFrame.frame tf)
+                           (timestamp tf) (TimedFrame.frame tf)
       in dispatchIterResult dbc
            (iterate (stepProperty dbc cache tf) props)
            tf updatedCache
@@ -114,7 +114,7 @@ handleDataFrame-accepts-monotonic dbc props p cache tf p≤tf =
 handleDataFrame-first-frame : ∀ dbc props cache tf
   → handleDataFrame (Streaming dbc props nothing cache) tf
     ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestampℕ tf) (TimedFrame.frame tf)
+                           (timestamp tf) (TimedFrame.frame tf)
       in dispatchIterResult dbc
            (iterate (stepProperty dbc cache tf) props)
            tf updatedCache

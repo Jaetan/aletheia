@@ -27,6 +27,7 @@ open import Aletheia.LTL.Simplify using (simplify)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState.Types using (StreamState; Streaming; PropertyState; mkPropertyState)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete)
@@ -198,7 +199,7 @@ mkPredTable dbc cache atoms n frame =
 -- ============================================================================
 
 -- Update cache with all signals from a signal list.
-updateSignals : ∀ {n} → DBC → CANFrame n → ℕ → List DBCSignal → SignalCache → SignalCache
+updateSignals : ∀ {n} → DBC → CANFrame n → Timestamp μs → List DBCSignal → SignalCache → SignalCache
 updateSignals dbc frame ts [] c = c
 updateSignals dbc frame ts (sig ∷ sigs) c =
   let sigName = Identifier.name (DBCSignal.name sig)
@@ -207,7 +208,7 @@ updateSignals dbc frame ts (sig ∷ sigs) c =
     (just v) → updateSignals dbc frame ts sigs (updateCache sigName v ts c)
 
 -- Update cache with all signals extractable from a frame
-updateCacheFromFrame : ∀ {n} → DBC → SignalCache → ℕ → CANFrame n → SignalCache
+updateCacheFromFrame : ∀ {n} → DBC → SignalCache → Timestamp μs → CANFrame n → SignalCache
 updateCacheFromFrame dbc cache ts frame =
   case findMessageById (CANFrame.id frame) dbc of λ where
     nothing    → cache

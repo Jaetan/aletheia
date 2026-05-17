@@ -17,6 +17,7 @@ open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs as AP using (AllPairs; []; _∷_)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≢_; subst)
+open import Aletheia.Trace.Time using (Timestamp; μs)
 
 -- Bool-valued List Char equality (Path-A.5 hot-path Dec-allocation escape).
 -- Soundness/completeness via `Identifier.≡csᵇ-sound` / `≡csᵇ-complete` /
@@ -24,17 +25,19 @@ open import Relation.Binary.PropositionalEquality using (_≢_; subst)
 open import Aletheia.DBC.Identifier using (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-false→≢)
 
 -- Cached signal value with observation timestamp.
+--
+-- R6-B7.3 — 2026-05-17: `lastObserved` lifted from `ℕ` to `Timestamp μs`.
+-- The prior `ℕ` rationale ("avoids an unwrap at every cache lookup / update")
+-- was a phantom hazard — `lastObserved` has zero runtime READ sites
+-- (verified by grep; only proof-side use in `Cache/Properties.AllTimestamps≤`).
+-- `Timestamp μs` here lets the sole runtime caller (`StreamState.handleDataFrame`)
+-- pass `timestamp tf` directly instead of `timestampℕ tf`, eliminating the
+-- per-frame unwrap entirely.  See DEFERRALS.md R6-B7.3 for the audit trail.
 record CachedSignal : Set where
   constructor mkCachedSignal
   field
     value        : ℚ
-    -- Kept as ℕ: CachedSignal is internal bookkeeping, not part of the
-    -- public TimedFrame/TraceEvent API that the `Timestamp μs` phantom
-    -- was introduced to protect. Raw ℕ avoids an unwrap at every cache
-    -- lookup / update while losing no type-level safety (no consumer
-    -- passes a non-μs value into the cache). Refactor to `Timestamp μs`
-    -- only if Cache gains a public API.
-    lastObserved : ℕ
+    lastObserved : Timestamp μs
 
 -- Bare list of cache entries (exported for proof use).
 CacheEntries : Set
@@ -72,7 +75,7 @@ lookupEntries name ((n , cached) ∷ rest) =
   if name ≡csᵇ n then just cached else lookupEntries name rest
 
 -- Update or insert a signal value in a cache entry list.
-updateEntries : List Char → ℚ → ℕ → CacheEntries → CacheEntries
+updateEntries : List Char → ℚ → Timestamp μs → CacheEntries → CacheEntries
 updateEntries name val ts [] = (name , mkCachedSignal val ts) ∷ []
 updateEntries name val ts ((n , cached) ∷ rest) =
   if name ≡csᵇ n
@@ -90,7 +93,7 @@ updateEntries name val ts ((n , cached) ∷ rest) =
 -- Proof reasons about the Bool fast path via `with name ≡csᵇ n in eq`,
 -- then bridges to propositional `name ≡ n` via `≡csᵇ-sound` (in the `true`
 -- branch) or to `name ≢ n` via `≡csᵇ-false→≢` (in the `false` branch).
-@0 updateEntries-All-neq : ∀ key name val ts es →
+@0 updateEntries-All-neq : ∀ key name val (ts : Timestamp μs) es →
   All (λ p → key ≢ proj₁ p) es →
   key ≢ name →
   All (λ p → key ≢ proj₁ p) (updateEntries name val ts es)
@@ -101,7 +104,7 @@ updateEntries-All-neq key name val ts ((n , v) ∷ rest) (key≢n ∷ allRest) k
 ... | false = key≢n ∷ updateEntries-All-neq key name val ts rest allRest key≢name
 
 -- Main preservation: updateEntries preserves key uniqueness.
-@0 updateEntries-unique : ∀ name val ts es →
+@0 updateEntries-unique : ∀ name val (ts : Timestamp μs) es →
   UniqueKeys es → UniqueKeys (updateEntries name val ts es)
 updateEntries-unique name val ts [] _ = [] ∷ []
 updateEntries-unique name val ts ((n , v) ∷ rest) (allN ∷ uniqueRest)
@@ -124,6 +127,6 @@ lookupCache : List Char → SignalCache → Maybe CachedSignal
 lookupCache name cache = lookupEntries name (SignalCache.entries cache)
 
 -- Update or insert a signal value, preserving key uniqueness.
-updateCache : List Char → ℚ → ℕ → SignalCache → SignalCache
+updateCache : List Char → ℚ → Timestamp μs → SignalCache → SignalCache
 updateCache name val ts (mkSignalCache es u) =
   mkSignalCache (updateEntries name val ts es) (updateEntries-unique name val ts es u)

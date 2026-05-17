@@ -68,7 +68,7 @@ handleDataFrame state@(Streaming dbc props prev cache) tf with checkMonotonic pr
 ... | just err =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr err)))
 ... | nothing =
-  let updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+  let updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
   in dispatchIterResult dbc (iterate (stepProperty dbc cache tf) props) tf updatedCache
 
 -- Dispatch a trace event: data frames go through handleDataFrame,

@@ -32,6 +32,7 @@ open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Nat using (ℕ; zero; suc; _≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≤-refl)
+open import Aletheia.Trace.Time using (Timestamp; μs; _≤ᵗ_)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (tt)
@@ -43,8 +44,13 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst
 
 -- All cache entries have observation timestamps ≤ a given bound.
 -- Under monotonic frame streams, this bound is the current frame timestamp.
-AllTimestamps≤ : ℕ → CacheEntries → Set
-AllTimestamps≤ ts = All (λ e → CachedSignal.lastObserved (proj₂ e) ≤ ts)
+--
+-- R6-B7.3 (2026-05-17): bound type lifted from `ℕ` to `Timestamp μs`
+-- alongside `CachedSignal.lastObserved`.  Comparison via `_≤ᵗ_` (Trace.Time)
+-- which unfolds to `tsValue _ ≤ tsValue _`, so existing `≤-refl` proofs
+-- continue to work via Agda's automatic unfolding of the type alias.
+AllTimestamps≤ : Timestamp μs → CacheEntries → Set
+AllTimestamps≤ ts = All (λ e → CachedSignal.lastObserved (proj₂ e) ≤ᵗ ts)
 
 -- ============================================================================
 -- LIST-LEVEL PROPERTIES
@@ -78,7 +84,7 @@ updateEntries-monotone name val ts ((n , v) ∷ rest) name' cached eq
 
 -- Timestamp bound: updating with timestamp ts preserves AllTimestamps≤ ts.
 -- The new/overwritten entry gets exactly ts (≤-refl), others are unchanged.
-updateEntries-timestamps≤ : ∀ name val ts es →
+updateEntries-timestamps≤ : ∀ name val (ts : Timestamp μs) es →
   AllTimestamps≤ ts es →
   AllTimestamps≤ ts (updateEntries name val ts es)
 updateEntries-timestamps≤ name val ts [] _ = ≤-refl ∷ []
@@ -101,7 +107,7 @@ updateEntries-length≤ name val ts ((n , v) ∷ rest)
 -- ============================================================================
 
 -- Empty cache trivially satisfies any timestamp bound.
-emptyCache-timestamps≤ : ∀ ts → AllTimestamps≤ ts (SignalCache.entries emptyCache)
+emptyCache-timestamps≤ : ∀ (ts : Timestamp μs) → AllTimestamps≤ ts (SignalCache.entries emptyCache)
 emptyCache-timestamps≤ _ = []
 
 -- Record-level monotonicity: delegates to list-level proof.
@@ -112,7 +118,7 @@ updateCache-monotone name val ts (mkSignalCache es _) =
   updateEntries-monotone name val ts es
 
 -- Record-level timestamp bound: delegates to list-level proof.
-updateCache-timestamps≤ : ∀ name val ts cache →
+updateCache-timestamps≤ : ∀ name val (ts : Timestamp μs) cache →
   AllTimestamps≤ ts (SignalCache.entries cache) →
   AllTimestamps≤ ts (SignalCache.entries (updateCache name val ts cache))
 updateCache-timestamps≤ name val ts (mkSignalCache es _) =
