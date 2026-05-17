@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast
 
 from . import __version__
+from ._time_units import MICROSECONDS_PER_MILLISECOND
 from .checks import CheckResult
 from .checks_runner import CheckRunResult, Violation, run_checks
 from .client import (
@@ -160,7 +161,7 @@ def format_timestamp(us: int) -> str:
 
     Returns "1234.500ms" for 1234500 us.
     """
-    ms = us / 1000.0
+    ms = us / MICROSECONDS_PER_MILLISECOND
     return f"{ms:.3f}ms"
 
 

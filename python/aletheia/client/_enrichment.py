@@ -12,6 +12,7 @@ from fractions import Fraction
 from typing import cast
 import ctypes
 
+from .._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
 from ..limits import MAX_NESTING_DEPTH
 from ..protocols import LTLFormula
 from ._types import PropertyDiagnostic, ValidationError
@@ -223,10 +224,10 @@ def _format_predicate(pred: dict[str, object]) -> str:
 
 def _format_timebound(us: int) -> str:
     """Format microseconds as a human-readable time bound."""
-    if us % 1_000_000 == 0:
-        return f"{us // 1_000_000}s "
-    if us % 1_000 == 0:
-        return f"{us // 1_000}ms "
+    if us % MICROSECONDS_PER_SECOND == 0:
+        return f"{us // MICROSECONDS_PER_SECOND}s "
+    if us % MICROSECONDS_PER_MILLISECOND == 0:
+        return f"{us // MICROSECONDS_PER_MILLISECOND}ms "
     return f"{us}\u03bcs "
 
 

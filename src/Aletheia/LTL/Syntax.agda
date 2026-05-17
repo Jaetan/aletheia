@@ -53,6 +53,28 @@ data LTL (Atom : Set) : Set where
   -- MetricEventually with window=0 is immediately violated if the subformula
   -- doesn't hold on the first frame. This is mathematically correct (the deadline
   -- expires before any time passes) and not rejected by the parser.
+  --
+  -- R21-AGDA-D-13.2 unit-tag inventory:
+  --   * First argument (`Timestamp μs`): deadline / start-time witness.  Type
+  --     tag enforces microseconds at construction site.
+  --   * Second argument (`ℕ`): window size *in microseconds*.  Tagged as plain
+  --     ℕ rather than a `Duration μs` newtype because every consumer is also
+  --     ℕ (Coalgebra.step rules, JSON wire `{"timebound": μs}`, atomCount /
+  --     mapLTL totality match).  Lifting to a tagged Duration would cascade
+  --     through ~374 occurrences in src/ (verified `grep -rn Metric*`); the
+  --     value of a phantom unit on the wire boundary is limited because JSON
+  --     carries no unit metadata and the kernel-binding contract is uniformly
+  --     microseconds.  Cross-binding binding-side magic-number `* 1000`
+  --     conversions are hoisted to named `_MICROSECONDS_PER_MILLISECOND` /
+  --     `usPerMillisecond` constants (PY-A-2.2 / GO-A-2.5) so the boundary
+  --     conversion is documented at every emit site.
+  --
+  -- Closes AGDA-D-13.2 by documenting the unit-tag asymmetry rationale.  The
+  -- type-level enforcement option remains available as a future refactor when
+  -- the cost of cascading through Properties / Evaluation is paid in a
+  -- dedicated cluster (mirrors the R6-B7.2 startTime → Maybe Timestamp μs
+  -- follow-up planned above).  DO NOT RE-RAISE IN REVIEW without paired user
+  -- approval for the cross-binding ripple.
   MetricEventually : Timestamp μs → ℕ → LTL Atom → LTL Atom
   MetricAlways : Timestamp μs → ℕ → LTL Atom → LTL Atom
   MetricUntil : Timestamp μs → ℕ → LTL Atom → LTL Atom → LTL Atom

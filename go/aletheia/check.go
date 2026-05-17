@@ -152,11 +152,11 @@ func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
 	if timeMs < 0 {
 		return CheckResult{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
 	}
-	if timeMs > math.MaxInt64/1000 {
+	if timeMs > math.MaxInt64/usPerMillisecond {
 		return CheckResult{}, validationError(fmt.Sprintf("time %d ms overflows microsecond conversion", timeMs))
 	}
 	f := AlwaysWithin(
-		TimeBound{Microseconds: timeMs * 1000},
+		TimeBound{Microseconds: timeMs * usPerMillisecond},
 		Atomic{Predicate: Between{
 			Signal: SignalName(b.signalName),
 			Min:    physicalAsRational(b.lo),
@@ -269,10 +269,10 @@ func (c ThenCondition) Within(timeMs int64) (CheckResult, error) {
 	if timeMs < 0 {
 		return CheckResult{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
 	}
-	if timeMs > math.MaxInt64/1000 {
+	if timeMs > math.MaxInt64/usPerMillisecond {
 		return CheckResult{}, validationError(fmt.Sprintf("time %d ms overflows microsecond conversion", timeMs))
 	}
-	us := TimeBound{Microseconds: timeMs * 1000}
+	us := TimeBound{Microseconds: timeMs * usPerMillisecond}
 	f := Always{Inner: Implies(
 		Atomic{Predicate: c.trigger},
 		EventuallyWithin(us, Atomic{Predicate: c.thenPred}),
