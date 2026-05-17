@@ -71,12 +71,25 @@ open import Aletheia.DBC.TextParser.Properties.Primitives public
          decompose-valid;
          satisfy-success-T;
          buildIdent-eq;
-         -- Tier A primitives
-         parseByteOrderDigit-roundtrip;
-         parseSignFlag-roundtrip;
-         -- Tier B primitives
-         parseStringLit-roundtrip;
-         parseMuxMarker-IsMux-roundtrip;
+         -- Tier B — string literal (mux marker / bools sections below)
+         parseStringLit-roundtrip)
+
+-- Tier A primitives — extracted into `Properties.Primitives.Bools`
+-- (R22 continuation of R21 AGDA-D-15.1 closure).  Both functions are
+-- value-only single-char dispatchers; clean self-contained extraction.
+open import Aletheia.DBC.TextParser.Properties.Primitives.Bools public
+  using (parseByteOrderDigit-roundtrip;
+         parseSignFlag-roundtrip)
+
+-- Tier B mux marker — extracted into `Properties.Primitives.MuxMarker`
+-- (R22 continuation of R21 AGDA-D-15.1 closure).  Imported here as a
+-- sibling re-export to keep the public API surface stable for
+-- downstream modules (Format/*, Properties/Aggregator/*,
+-- Properties/Attributes/*, etc.) that read these names from
+-- `Properties.agda` via the existing `open import Properties public`
+-- chain.
+open import Aletheia.DBC.TextParser.Properties.Primitives.MuxMarker public
+  using (parseMuxMarker-IsMux-roundtrip;
          parseMuxMarker-left-branch;
          parseMuxMarker-NotMux-roundtrip;
          parseMuxMarker-SelBy-roundtrip)
