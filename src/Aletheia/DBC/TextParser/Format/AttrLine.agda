@@ -72,10 +72,14 @@
 -- needs to be applied to multiple blocks here, each with its own
 -- per-private-helper audit risk.
 --
--- DO NOT RE-RAISE IN REVIEW without paired user approval for the
--- dedicated proof-restructure cluster (mirrors
--- `feedback_step_back_when_proofs_balloon.md` "past ~500-1000 LOC per
--- construct: surface architectural alternatives").
+-- USER-DIRECTED FIX (2026-05-17, post-`85cc9e3`): user has explicitly
+-- approved the proof-restructure cluster for this file ("We will want
+-- to fix AttrLine.agda as well").  The "DO NOT RE-RAISE" gate from the
+-- prior DEFER block is lifted.  Path-(a) "drop `private` + lift to
+-- public" is the proven mechanic; execute it across the 6 private
+-- blocks (lines 170/216/315/448/490/589/764), then extract the L5 +
+-- KEYWORD-TARGET sections to a sibling `Format/AttrLine/Builders.agda`
+-- (or per-section siblings).  Next iteration to pick up.
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
