@@ -19,7 +19,7 @@ open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
-open import Data.Rational.Show using () renaming (show to showℚ)
+open import Aletheia.DBC.RationalRenderer using (formatℚ)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -73,7 +73,7 @@ ExtractionResults = PartitionedResults String String
 
 private
   formatBounds : ℚ → ℚ → ℚ → String
-  formatBounds v mn mx = showℚ v ++ₛ " not in [" ++ₛ showℚ mn ++ₛ ", " ++ₛ showℚ mx ++ₛ "]"
+  formatBounds v mn mx = formatℚ v ++ₛ " not in [" ++ₛ formatℚ mn ++ₛ ", " ++ₛ formatℚ mx ++ₛ "]"
 
   resultToString : String → ExtractionResult → String
   resultToString name SignalNotInDBC = formatFrameError (SignalNotFound name)
