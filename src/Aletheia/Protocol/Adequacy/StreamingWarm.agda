@@ -357,6 +357,39 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- UNCONDITIONAL STREAMING ADEQUACY
 -- ============================================================================
 
+-- DEFERRED — TRACKED (R21-AGDA-D-12.1 — DEFER): The `AllObserved` premise
+-- on `streaming-adequacy` (line 372) is documented as a caller obligation
+-- in `Main.agda:45-50` but is NOT discharged at runtime.  When violated
+-- (a property's atom whose target signal never appears in trace), the
+-- kernel's `finalizeL` returns `Unsure → PropertyResult.Unresolved` — sound
+-- but loses diagnostic context (user sees "Unresolved" without knowing it
+-- was a cache miss vs a genuinely undecided Kleene Unknown).
+--
+-- R21 Step 2 Agda D proposed fix (a): at EndStream walk every property's
+-- atoms and emit one `AllObserved`-fail warning per uncached atom,
+-- ratifying the existing `Unresolved` outcome with diagnostic context.
+-- Scope of that fix is genuinely cross-binding wire-protocol extension:
+--   1. New `Response` ADT variant (or extension of `Complete`) carrying a
+--      list of `(propertyIndex, atomName)` warnings — new wire shape.
+--   2. JSON serialiser + 3 binding-side parsers (Python / Go / C++).
+--   3. New `LogEvent` enumerant `endstream.uncached_atom` with parity
+--      tests across `log_events_parity.{py,go,cpp}`.
+--   4. New `check-runbook` entry; runbook regen tool (R19P2 cluster 7
+--      regen-tool preservation pattern applies).
+--   5. PROTOCOL.md update: document the new emission as part of EndStream
+--      response semantics.
+--   6. Cross-binding tests asserting warning emission shape.
+-- Estimated 600-1200 LOC across 8-12 files; not a R21 in-cluster scope.
+--
+-- Correctness rationale for the defer: the existing `Unresolved` outcome
+-- IS sound (caller cannot mistake an undecided property for a satisfied
+-- one).  The fix is purely UX — surfaces WHY the outcome is `Unresolved`.
+-- Soundness is not at risk; only ergonomics.
+--
+-- DO NOT RE-RAISE IN REVIEW unless paired with explicit user approval for
+-- the wire-protocol extension (mirrors the `feedback_no_unilateral_deferral.md`
+-- + `feedback_step_back_when_proofs_balloon.md` cost-benefit gate).
+
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`
 -- (BoundedTwoValued + AllBelow ⇒ runL ≡ ⟦_⟧) to get an unconditional
