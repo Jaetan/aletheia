@@ -33,6 +33,40 @@
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign where
 
+-- ============================================================================
+-- R22-PRE-CLOSE: stale `using (...)` re-exports — RE-EVALUATE BEFORE MERGE
+-- ============================================================================
+-- Per-file type-check (e.g. via `agda Properties/Aggregator/Dispatcher/
+-- Attribute/TopStmt/Default.agda`) surfaces 18 `ModuleDoesntExport` warnings
+-- emitted from the six `open import ... public` clauses below.  Each named
+-- import-clause references identifiers that the cited submodule no longer
+-- exports (presumably renamed or absorbed during a prior split refactor).
+-- The warnings are non-fatal (agda treats them as `-W[no]ModuleDoesntExport`
+-- so `cabal run shake -- build` and `check-properties` both pass), but they
+-- pollute every type-check trace in this subtree and risk masking a real
+-- export break later.
+--
+-- Discovered: 2026-05-18 during R22 batch 15 (commit `afd5ea7`) when the
+-- per-file type-check of `Properties/Aggregator/Dispatcher/Attribute/
+-- TopStmt/Default.agda` printed the full warning list.  See commit body
+-- for the disposition rationale at b15 (out-of-scope for the dead-import
+-- prune; the using-clauses are STALE not DEAD — they reference names the
+-- submodule once exported, not names this file imports-but-doesn't-use).
+--
+-- Pre-close action required (one of):
+--   1. **Prune the stale names** from each `using (...)` clause to whatever
+--      the cited submodule actually exports today (likely the right call —
+--      mirrors R22's dead-import prune posture).
+--   2. **Restore the missing exports** in the submodules if those names
+--      were intended to remain public (less likely — the rename happened
+--      with reason).
+--   3. **Document** if the warnings are intentional (very unlikely — the
+--      warning class exists specifically to flag stale references).
+--
+-- DO NOT MERGE R22 → main without resolving this.  Tracked in
+-- `.session-state.md` → Pre-close checklist.
+-- ============================================================================
+
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network public
   using ( parseRawAttrAssign-after-keyword-Network
         ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
