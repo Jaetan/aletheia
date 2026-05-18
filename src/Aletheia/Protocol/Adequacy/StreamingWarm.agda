@@ -389,22 +389,21 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- emitted unchanged.  Warnings are additive diagnostic context — they
 -- ratify (do not replace or reinterpret) the verdict.
 --
--- OPTIONAL DEFERRED follow-ups (not blocking; future low-priority
--- pickups):
+-- REQUIRED follow-ups (re-classified 2026-05-19 from OPTIONAL — user
+-- directive; must land before next review round's close):
 --   * New `LogEvent.endstream.uncached_atom` enumerant + parity in
 --     `log_events_parity.{py,go,cpp}`.  Currently the cache-miss
 --     count flows through the existing `stream.ended` event's new
 --     `numWarnings` attribute — sufficient for triage; per-warning
---     events would let users grep for specific signals.
+--     events let users grep for specific signals.
 --   * `check-runbook` entry naming the warning class explicitly.
 --   * PROTOCOL.md section documenting the JSON envelope's warnings
---     field (the test trio + feature-matrix row IS the de-facto spec
---     today — formal write-up is documentation hygiene).
+--     field (the test trio + feature-matrix row was the de-facto spec;
+--     formal write-up is now required, not deferred).
 --
 -- DO NOT RE-RAISE the closed work (walker / wire / bindings / tests /
--- feature-matrix row) in review.  The optional follow-ups above are
--- not deferred-pending-approval — they're independent low-priority
--- enhancements visible to a future round if user prioritises.
+-- feature-matrix row) in review.  The three follow-ups above are
+-- live work items, tracked in `.session-state.md`.
 
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`
