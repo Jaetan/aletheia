@@ -20,13 +20,13 @@ open import Data.Bool using (T)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (subst)
 
-open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; finalizeL)
+open import Aletheia.LTL.Coalgebra using (PredTable; finalizeL)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Simplify using (finalizesHolds; finalizesFails; absorb; simplify; _≡ᵇ-proc_)
-open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
-open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
+open import Aletheia.LTL.Incremental using (Holds; Fails; Unsure)
+open import Aletheia.LTL.SignalPredicate using (Unknown)
 open import Aletheia.LTL.Adequacy using (runL; verdictToSV)
 open import Aletheia.LTL.SimplifySound.Decomposition using
   ( ≡ᵇ-proc-correct
