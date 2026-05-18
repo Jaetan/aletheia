@@ -72,7 +72,7 @@ open import Data.Nat.Primality
 open import Relation.Nullary.Decidable.Core using (toWitness; recompute; isYes)
 open import Data.Rational.Unnormalised.Base
   using (mkℚᵘ; *≡*)
-  renaming (_≃_ to _≃ᵘ_; ↥_ to ↥ᵘ_; ↧_ to ↧ᵘ_)
+  renaming (_≃_ to _≃ᵘ_)
 import Data.Integer.Base as ℤ
 import Data.Integer.Properties as ℤP
 import Data.Nat.Base as ℕ

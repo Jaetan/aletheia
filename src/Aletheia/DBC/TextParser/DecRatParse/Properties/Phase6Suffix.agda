@@ -27,7 +27,6 @@ import Data.Empty.Irrelevant as EmptyI
 open import Data.Unit using (tt)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
-  renaming (length-++ to length-++ₗ)
 open import Data.List.Relation.Unary.All using ([]; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<_)
@@ -61,7 +60,7 @@ open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
 open import Data.Integer using (ℤ)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
-  using (DecRat; mkDecRat; IsCanonical;
+  using (mkDecRat; IsCanonical;
          canonicalizeDecRat; fromℤ)
 
 -- Phases 1-4 re-export base — every public lemma above is available.

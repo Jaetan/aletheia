@@ -43,9 +43,8 @@ open import Data.Integer.Properties using (signᵢ◃∣i∣≡i)
 import Relation.Nullary.Decidable.Core as Dec
 open import Data.Nat.Coprimality
   using (Coprime)
-  renaming (sym to coprime-sym)
 open import Data.Rational.Base
-  using (ℚ; mkℚ; normalize; -_; ↥_; ↧_)
+  using (ℚ; mkℚ; normalize; -_; ↥_)
 import Data.Rational.Base as ℚB
 open import Data.Rational.Properties
   using (normalize-coprime; normalize-cong)

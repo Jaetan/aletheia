@@ -50,7 +50,7 @@ open import Relation.Binary.PropositionalEquality
 open import Relation.Nullary using (yes; no)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult;
+  using (Position; mkResult;
          advancePosition; advancePositions;
          satisfy; digit; some; manyHelper;
          char; optional)

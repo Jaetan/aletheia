@@ -18,13 +18,11 @@ module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase4Composition where
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using ()
-  renaming (length-++ to length-++ₗ)
+open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂)
+  using (_≡_; refl; sym; trans; cong₂)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult;
@@ -41,7 +39,7 @@ open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
 open import Data.Integer using (ℤ)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
-  using (DecRat; mkDecRat; IsCanonical)
+  using (mkDecRat; IsCanonical)
 
 -- Phases 1-3 re-export base — every public lemma above is available.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits public
