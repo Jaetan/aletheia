@@ -18,34 +18,31 @@
 -- Depends on all earlier phases (1-4) via the re-export base.
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix where
 
-open import Data.Bool using (Bool; true; false; T)
-open import Data.Char using (Char; toℕ) renaming (_≟_ to _≟ᶜ_)
+open import Data.Bool using (true; false; T)
+open import Data.Char using (Char; toℕ)
 open import Data.Char.Base using (isDigit; _≈ᵇ_)
 open import Data.Char.Properties using (toℕ-injective)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
 open import Data.Unit using (⊤; tt)
-open import Data.List using (List; []; _∷_; length; foldl) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
   renaming (length-++ to length-++ₗ)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.List.Relation.Unary.All.Properties using () renaming (++⁺ to All-++⁺)
-open import Data.Maybe using (Maybe; just; nothing; maybe)
+open import Data.List.Relation.Unary.All using ([]; _∷_)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _/_; _%_; _^_; _⊔_;
-         _<_; _≤_; z≤n; s≤s; NonZero)
-open import Data.Nat.Base using (≢-nonZero⁻¹)
+         _<_; _≤_)
 open import Data.Nat.Properties
   using (*-comm; +-comm; +-identityʳ; *-identityʳ; ≤-<-trans; n<1+n; ^-monoʳ-<;
          m≤m+n; m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl;
          m*n≢0; m^n≢0)
 open import Data.Nat.DivMod
   using (m%n<n; m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
-open import Data.Nat.Divisibility using (_∣_; _∣?_; _∤_)
-open import Data.Product using (Σ; _×_; _,_; ∃; ∃₂; proj₁; proj₂)
-open import Function using (_∘_)
+open import Data.Nat.Divisibility using (_∣_)
+open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
-open import Relation.Nullary using (yes; no)
+open import Relation.Nullary using (no)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; value; position; remaining;
@@ -69,13 +66,11 @@ open import Aletheia.DBC.DecRat.Refinement using
    isNonNegIntegerᵇ; isNonNegIntegerᵇ-fromℕ)
 open import Aletheia.Prelude using (ifᵀ_then_else_; ifᵀ-witness)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Aletheia.Protocol.JSON.Parse using (digitToNat)
 open import Data.Integer using (ℤ; sign; _◃_; ∣_∣)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
   using (DecRat; mkDecRat; isCanonicalᵇ; IsCanonical;
          canonicalizeDecRat; canonicalizeNat; 0ᵈ; fromℤ)
-open import Aletheia.DBC.DecRat.ScaleLemmas using (canonicalizeNat-scale-pos)
 
 -- Phases 1-4 re-export base — every public lemma above is available.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits      public

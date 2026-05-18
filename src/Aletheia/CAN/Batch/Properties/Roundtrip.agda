@@ -15,28 +15,26 @@ open import Aletheia.CAN.Encoding.Properties using (
   signalValue;
   injectSignal-reduces-unsigned; injectSignal-reduces-signed;
   extractSignal-reduces-unsigned; extractSignal-reduces-signed;
-  SignedFits;
-  removeScaling-applyScaling-exact; removeScaling-nothing⇒zero)
-open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; toSigned; removeScaling)
+  SignedFits)
+open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; toSigned)
 open import Aletheia.CAN.Endianness using (extractBits)
 open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
-open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (DBCSignal)
 open import Aletheia.DBC.Properties using (PhysicallyDisjoint; physicallyDisjoint-sym)
 
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
+open import Data.Sum using (inj₂)
+open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_)
 open import Data.Rational using (ℚ; 0ℚ)
-open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; toℚ)
-open import Data.Integer using (ℤ; +_; -[1+_])
+open import Aletheia.DBC.DecRat using (toℚ)
+open import Data.Integer using (ℤ; +_)
 open import Data.Bool using (true; false)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe.Properties using (just-injective)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
-open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Function using (case_of_)
 
 open import Aletheia.Data.BitVec using (BitVec)
