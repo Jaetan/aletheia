@@ -9,20 +9,18 @@
 -- Role: Used by Properties for the top-level parse-wellformed theorem.
 module Aletheia.DBC.JSONParser.MessageWF where
 
-open import Data.Nat using (ℕ; suc; z≤n; _+_; _<_; _≤_; _≡ᵇ_)
+open import Data.Nat using (suc; z≤n; _+_; _<_; _≤_; _≡ᵇ_)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.String using (String)
-open import Data.Product using (_×_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Maybe using (just; nothing)
+open import Data.Bool using (true; false; T)
 open import Data.Unit using (tt)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; m≤m+n; ≤-refl)
 
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupString; lookupChars; lookupNat; lookupArray)
+  lookupChars; lookupNat; lookupArray)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; bytesToValidDLC; dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bvd-bytes)
@@ -30,7 +28,7 @@ open import Aletheia.DBC.Types using (DBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessageId; parseMessageBody;
   parseMessageFields; parseMessage; parseMessageList; parseSignalList;
   parseOptionalArray; parseCharsList; validateIdent; validateIdentList)
-open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
+open import Aletheia.DBC.Formatter.WellFormed using (
   WellFormedMessage; WellFormedMessageRT; PhysicallyValid)
 open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf; parseSignalList-pv)
 

@@ -20,13 +20,13 @@
 --   4. Equivalence: Monotonic σ → ⟦ φ ⟧ σ ≡ ⟦ φ ⟧ₘ σ
 module Aletheia.LTL.Semantics.MTL where
 
-open import Data.Nat using (ℕ; zero; suc; _∸_; _≤_; _≤ᵇ_; _<_; z≤n; s≤s)
+open import Data.Nat using (ℕ; _∸_; _≤_; _≤ᵇ_; _<_)
 open import Data.Nat.Properties using (≤-trans; ∸-monoˡ-≤; ≤⇒≤ᵇ; ≤ᵇ⇒≤; ≤-refl)
 open import Data.Nat.Induction using (<-wellFounded)
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (true; false; T)
 open import Data.List using (List; []; _∷_; length)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Data.Unit using (⊤; tt)
+open import Data.Product using (_×_; _,_; proj₂)
+open import Data.Unit using (tt)
 open import Induction.WellFounded using (Acc; acc)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; cong₂; subst)
 

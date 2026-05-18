@@ -7,18 +7,17 @@
 -- top-level message-roundtrip and message-list-roundtrip theorems.
 module Aletheia.DBC.Formatter.MessageRoundtrip where
 
-open import Data.Nat using (ℕ; _≤_; _+_)
+open import Data.Nat using (_≤_; _+_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
-open import Aletheia.DBC.Types using (messageNameStr; messageSenderStr; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBCMessage)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Formatter using (formatDBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessage; parseMessageList)
-open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
-open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.CAN.Frame using (Standard; Extended)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   WellFormedMessage; WellFormedMessageRT; PhysicallyValid)
 open import Aletheia.DBC.Formatter.MessageRoundtrip.Base using (mkMessage; messageFields)
