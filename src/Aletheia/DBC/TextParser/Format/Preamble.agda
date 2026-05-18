@@ -36,14 +36,14 @@
 -- definitionally.
 module Aletheia.DBC.TextParser.Format.Preamble where
 
-open import Data.Bool using (Bool; true; false; T; _∨_)
-open import Data.Char using (Char; _≈ᵇ_) renaming (_≟_ to _≟ᶜ_)
-open import Data.List using (List; []; _∷_; length; map) renaming (_++_ to _++ₗ_)
+open import Data.Bool using (Bool; false; T; _∨_)
+open import Data.Char using (Char; _≈ᵇ_)
+open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; zero; s≤s; z≤n)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax; Σ; Σ-syntax)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (zero; s≤s; z≤n)
+open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax; Σ-syntax)
 open import Data.String using (String; toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)

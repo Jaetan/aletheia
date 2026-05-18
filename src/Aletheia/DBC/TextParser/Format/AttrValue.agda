@@ -39,16 +39,15 @@
 
 module Aletheia.DBC.TextParser.Format.AttrValue where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit)
 open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc)
+open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (zero; suc)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; cong; subst)
 
