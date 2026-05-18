@@ -38,12 +38,12 @@
 module Aletheia.CAN.Encoding.Properties.Arithmetic.Rational where
 
 open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; removeScaling)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_)
 open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
 open import Data.Nat.DivMod as ℕ using (n/1≡n; n%1≡0)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Integer.DivMod as ℤ using (div-pos-is-/ℕ)
-open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; normalize; 1/_; NonZero; ≢-nonZero; mkℚ; toℚᵘ; fromℚᵘ; _≤ᵇ_) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
+open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; 1/_; NonZero; ≢-nonZero; mkℚ; toℚᵘ; fromℚᵘ; _≤ᵇ_) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
 open import Data.Rational.Unnormalised.Base as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Rational.Literals using (fromℤ)
 open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc; ≤-antisym to ≤ᵣ-antisym; ≤ᵇ⇒≤ to ≤ᵇ⇒≤ᵣ)
@@ -51,11 +51,10 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Maybe.Properties using (just-injective)
 open import Data.Product using (_×_; _,_)
-open import Data.Empty using (⊥; ⊥-elim)
+open import Data.Empty using (⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; subst₂)
 open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
 open ≡-Reasoning
-open import Relation.Nullary using (¬_)
 
 -- ============================================================================
 -- LAYER 3: SCALING PROPERTIES (isolated ℚ lemmas)

@@ -20,19 +20,17 @@ open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Maybe using (just; nothing)
+open import Data.Bool using (true; false; T)
 open import Data.Unit using (tt)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; subst)
 
-open import Data.Char using (Char)
-
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupString; lookupChars; lookupBool; lookupNat; lookupRational; lookupArray)
+  lookupChars; lookupNat; lookupArray)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
-open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
+open import Aletheia.DBC.Types using (DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList; lookupDecRat;
   parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate; validateIdent; validateIdentList;
   parseOptionalArray; parseCharsList; parseValueEntryList)
