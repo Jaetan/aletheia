@@ -12,12 +12,11 @@
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.Char.Base using (_≈ᵇ_)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Integer using (+_; -[1+_])
+open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Product using (∃₂; _,_; Σ; _×_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)

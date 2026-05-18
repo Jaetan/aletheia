@@ -18,7 +18,7 @@ open import Data.Vec using (Vec)
 open import Data.Product using (_×_)
 open import Aletheia.CAN.Frame using (Byte; CANId)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
-open import Aletheia.Protocol.Response using (PropertyResult)
+open import Aletheia.Protocol.Response using (PropertyResult; Warning)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.DBC.Types using (ValidationIssue)
 import Aletheia.Error as Err
@@ -97,8 +97,12 @@ data Response : Set where
   -- Acknowledgment (for data frames that don't trigger property results)
   Ack : Response
 
-  -- Stream complete with finalization results for all properties
-  Complete : List PropertyResult → Response
+  -- Stream complete with finalization results for all properties + any
+  -- EndStream warnings (cache-miss diagnostics per AGDA-D-12.1).  The
+  -- warnings list is empty when no atom went uncached; new wire field
+  -- `warnings: [...]` on the JSON Complete response (binding parsers see
+  -- it as an optional field).
+  Complete : List PropertyResult → List Warning → Response
 
   -- Validation results from validateDBC command (read-only probe)
   ValidationResponse : List ValidationIssue → Response

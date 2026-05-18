@@ -7,9 +7,9 @@
 -- 2. All-error-severity proofs for each of the 9 error checks
 -- Used by Theorem.agda to derive top-level soundness/completeness.
 module Aletheia.DBC.Validity.Composition where
-open import Aletheia.DBC.Identifier using (Identifier; nameStr)
+open import Aletheia.DBC.Identifier using (nameStr)
 
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; Always; When)
 open import Aletheia.DBC.Validator using
   ( errorIssues; findSignalPresence; walkMux
   ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
@@ -27,21 +27,19 @@ open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.List using (List; []; _∷_; concatMap; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-open import Data.Nat using (ℕ; _+_; _*_)
+open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Data.Rational using (ℚ)
 open import Aletheia.DBC.DecRat using (DecRat)
-open import Data.Maybe using (just; nothing)
 open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_)
 open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans; sym)
 

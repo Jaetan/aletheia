@@ -178,8 +178,8 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 -- -cons-cons, -lt, -len-≢, -app-nz) re-type-check unchanged under either
 -- definition (the wrapper is definitionally equivalent on list-ctor
 -- matches), so the cleanup yields no proof-side simplification either.
--- See `DEFERRALS.md` entry "R20-AGDA-C-27.1" for the full audit trail
--- (initial DEFER → re-flip to FIX → revert + DROP after measurement).
+-- Disposition history: initial DEFER (2026-05-15) → re-flip to FIX
+-- (cluster U) → revert + DROP after empirical 5.69× measurement above.
 sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool
 sameLengthᵇ [] [] = true
 sameLengthᵇ (_ ∷ _) [] = false

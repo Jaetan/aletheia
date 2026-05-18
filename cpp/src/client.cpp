@@ -457,14 +457,24 @@ auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFor
     auto result = detail::parse_success(resp);
     if (!result.has_value())
         return result;
-    diags_.clear();
-    diags_.reserve(properties.size());
-    for (const auto& f : properties)
-        diags_.push_back(build_diagnostic(f));
-    cache_.clear();
-    if (logger_)
-        logger_.info("properties.set", {{"count", static_cast<std::uint64_t>(properties.size())}});
-    return result;
+    // build_diagnostic reaches format_rational_ffi which throws
+    // AletheiaException(Ffi) on missing .so; lower to Result<> to honor
+    // the documented contract (mirrors add_checks below).
+    try {
+        diags_.clear();
+        diags_.reserve(properties.size());
+        for (const auto& f : properties)
+            diags_.push_back(build_diagnostic(f));
+        cache_.clear();
+        if (logger_)
+            logger_.info("properties.set",
+                         {{"count", static_cast<std::uint64_t>(properties.size())}});
+        return result;
+    } catch (const AletheiaException& e) {
+        return std::unexpected(e.error());
+    } catch (const std::exception& e) {
+        return std::unexpected(AletheiaError{ErrorKind::Ffi, e.what()});
+    }
 }
 
 auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> checks)
@@ -662,7 +672,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             logger_.info("stream.ended",
                          {{"numResults", static_cast<std::uint64_t>(result->results.size())},
                           {"numFails", num_fails},
-                          {"numUnresolved", num_unresolved}});
+                          {"numUnresolved", num_unresolved},
+                          {"numWarnings", static_cast<std::uint64_t>(result->warnings.size())}});
         }
         last_frames_.clear();
     }

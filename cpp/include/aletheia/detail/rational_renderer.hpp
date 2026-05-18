@@ -17,6 +17,7 @@
 // the search heuristic does not find the .so (e.g. out-of-tree builds).
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 namespace aletheia::detail {
@@ -25,5 +26,16 @@ namespace aletheia::detail {
 // on first call.  Throws `AletheiaException(Ffi)` if the library is
 // not loadable.
 auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+
+// Register a preferred `libaletheia-ffi.so` path for the lazy-load.
+// Called by `make_ffi_backend(lib_path, ...)` so the renderer (which
+// loads independently of the backend) consults the same .so the user
+// asked for, instead of falling back to its relative-path heuristic.
+// First-write-wins under `std::call_once`: subsequent registrations
+// after the renderer has loaded are no-ops (the renderer's state is
+// already pinned).  Pre-load registrations win over the heuristic;
+// `ALETHEIA_LIB` env var still wins over both.
+// Closes R21 CPP-SYS-17.1 / GO-S-17.2 / Python parallel.
+void register_default_lib_path(const std::filesystem::path& lib_path);
 
 } // namespace aletheia::detail

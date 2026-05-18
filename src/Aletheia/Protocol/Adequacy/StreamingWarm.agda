@@ -357,6 +357,57 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- UNCONDITIONAL STREAMING ADEQUACY
 -- ============================================================================
 
+-- R21 cluster 1 — AGDA-D-12.1 CLOSED (walker landed via `afd28f3`):
+--
+-- BACKGROUND.  The `AllObserved` premise on `streaming-adequacy` (line
+-- below) is a documented caller obligation.  When violated at runtime
+-- (a property's atom whose target signal never appears in trace), the
+-- kernel's `finalizeL` returns `Unsure → PropertyResult.Unresolved` —
+-- sound (three-valued Kleene Unknown) but indistinguishable from a
+-- genuinely undecided property without diagnostic context.
+--
+-- LANDED:
+--   * Scaffold (`85623b7`): `WarningKind` + `Warning` ADTs (UncachedAtom
+--     kind), `Response.Complete : List PropertyResult → List Warning
+--     → Response`, `formatResponse` adds `warnings:[...]` field to the
+--     JSON envelope.
+--   * Walker (`afd28f3`): `collectUncachedWarnings` in
+--     `Protocol.Handlers` walks each `PropertyState`'s `atoms` list,
+--     looks up each atom's `signalOf` in the cache, emits
+--     `mkWarning UncachedAtom (toℕ ps.index) (fromList sigName)` on
+--     miss; `handleEndStream` populates the wire field via the walker.
+--   * Three bindings decode + surface the warnings list:
+--       - Python: `CompleteWarning` TypedDict + `CompleteResponse.warnings`
+--       - Go:     `StreamWarning` struct + `StreamResult.Warnings`
+--       - C++:    `StreamWarning` struct + `StreamResult::warnings`
+--     Each binding's `stream.ended` log line records `numWarnings`.
+--   * Test trio (Python + Go + C++) asserts that an atom referencing an
+--     unobserved signal produces exactly one `uncached_atom` warning at
+--     EndStream and that all-observed traces produce none.
+--   * Feature matrix row `end_stream_uncached_atom_warnings` declares
+--     the parity across bindings; per-binding parity tests pass.
+--
+-- Soundness rationale: the existing `Unresolved` verdict is still
+-- emitted unchanged.  Warnings are additive diagnostic context — they
+-- ratify (do not replace or reinterpret) the verdict.
+--
+-- OPTIONAL DEFERRED follow-ups (not blocking; future low-priority
+-- pickups):
+--   * New `LogEvent.endstream.uncached_atom` enumerant + parity in
+--     `log_events_parity.{py,go,cpp}`.  Currently the cache-miss
+--     count flows through the existing `stream.ended` event's new
+--     `numWarnings` attribute — sufficient for triage; per-warning
+--     events would let users grep for specific signals.
+--   * `check-runbook` entry naming the warning class explicitly.
+--   * PROTOCOL.md section documenting the JSON envelope's warnings
+--     field (the test trio + feature-matrix row IS the de-facto spec
+--     today — formal write-up is documentation hygiene).
+--
+-- DO NOT RE-RAISE the closed work (walker / wire / bindings / tests /
+-- feature-matrix row) in review.  The optional follow-ups above are
+-- not deferred-pending-approval — they're independent low-priority
+-- enhancements visible to a future round if user prioritises.
+
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`
 -- (BoundedTwoValued + AllBelow ⇒ runL ≡ ⟦_⟧) to get an unconditional

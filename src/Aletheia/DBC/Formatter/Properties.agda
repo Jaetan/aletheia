@@ -21,15 +21,13 @@
 -- unconvertStartBit→convertStartBit roundtrip.
 module Aletheia.DBC.Formatter.Properties where
 
-open import Data.List using (List; []; map)
 open import Data.Product using (_,_; ∃-syntax)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Data.Sum.Properties using (inj₂-injective)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
 open import Aletheia.DBC.Types using (DBC)
-open import Aletheia.DBC.Formatter using (formatDBC; formatDBCMessage; formatSignalGroup;
-  formatEnvironmentVar; formatValueTable)
+open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 
 -- Re-export predicates so consumers only need to import Properties.

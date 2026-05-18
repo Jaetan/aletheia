@@ -30,25 +30,23 @@ open import Data.Nat.Divisibility
   using (_∣_; _∤_; _∣?_; divides; ∣-refl; ∣-trans; ∣1⇒≡1; >⇒∤;
          m%n≡0⇒n∣m; n∣m⇒m%n≡0)
 open import Data.Nat.DivMod using (m*n/n≡m; m*n%n≡0)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Product using (_,_; proj₁; proj₂)
+open import Data.Maybe using (just)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
-open import Relation.Nullary using (yes; no; ¬_)
+open import Relation.Nullary using (yes; no)
 
-open import Data.Bool.Base using (Bool; true; false; T; not; _∧_)
-open import Data.Bool.Properties using (T-irrelevant; T?)
-open import Data.Unit using (⊤; tt)
-open import Data.Integer.Base using (ℤ; +_; -[1+_]; +[1+_]; ∣_∣; sign; _◃_)
-open import Data.Integer.Properties using (signᵢ◃∣i∣≡i; abs-◃)
-open import Relation.Nullary.Decidable.Core using (isYes; toWitness)
+open import Data.Bool.Base using (Bool; T; not)
+open import Data.Bool.Properties using (T?)
+open import Data.Integer.Base using (+_; ∣_∣; sign; _◃_)
+open import Data.Integer.Properties using (signᵢ◃∣i∣≡i)
+open import Relation.Nullary.Decidable.Core using (isYes)
 import Relation.Nullary.Decidable.Core as Dec
 open import Data.Nat.Coprimality
   using (Coprime; coprime-divisor; 1-coprimeTo)
   renaming (sym to coprime-sym)
 open import Data.Nat.Primality
   using (Prime; prime[2]; prime?; prime⇒irreducible; Irreducible)
-open import Data.Sum.Base using (inj₁; inj₂)
 open import Data.Rational.Base
   using (ℚ; mkℚ; mkℚ+; normalize; -_; ↥_; ↧_; ↧ₙ_)
 import Data.Rational.Base as ℚB

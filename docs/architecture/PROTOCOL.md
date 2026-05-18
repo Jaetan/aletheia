@@ -291,9 +291,9 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 - Response `has_errors`: true if any issue has severity "error"
 - Response `issues`: Array of validation issues
 
-**Issue Codes** (16 total):
+**Issue Codes** (21 total):
 - **Error** (8): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `signal_exceeds_dlc`, `signal_overlap`, `bit_length_zero`
-- **Warning** (8): `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`
+- **Warning** (13): `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`, `duplicate_attribute_name`, `unknown_comment_target`, `unknown_message_sender`, `unknown_signal_receiver`, `unknown_value_description_target` (last 5 added Track B.1.x Tier 2 — see PROJECT_STATUS.md for the per-track ship history)
 
 **State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).
 
@@ -1083,6 +1083,9 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | Signals per single message | 1,024 | `array_cardinality` |
 | Attribute defs / assignments per file | 10,000 | `array_cardinality` |
 | Value descriptions per file (`VAL_` + `VAL_TABLE_`) | 1,000,000 | `array_cardinality` |
+| Comments per DBC file (`CM_`) | 10,000 | `array_cardinality` |
+| Nodes per DBC file (`BU_`) | 10,000 | `array_cardinality` |
+| Value tables per DBC file (`VAL_TABLE_` definitions) | 10,000 | `array_cardinality` |
 | LTL atoms per property | 1,024 | `atom_count` |
 | DBC identifier length | 128 chars | `identifier_length` |
 | Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |

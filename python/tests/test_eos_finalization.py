@@ -263,6 +263,45 @@ class TestMissingSignalFinalization:
             assert len(results) == 1
             assert results[0]["status"] == "fails"
 
+    def test_uncached_atom_warning_emitted(self) -> None:
+        """Signal never observed → EndStream emits an `uncached_atom` warning.
+
+        R21 cluster 1 — AGDA-D-12.1: ratifies the `Unresolved` verdict
+        with diagnostic context.  The kernel walks every property's
+        atoms at EndStream and emits one warning per atom whose target
+        signal never appeared in the cache.  Verifies the Python
+        binding surfaces these warnings on the `CompleteResponse`.
+        """
+        with AletheiaClient() as client:
+            client.parse_dbc(TWO_MESSAGE_DBC)
+            client.set_properties([
+                Signal("Speed").less_than(100).always().to_dict()
+            ])
+            client.start_stream()
+            client.send_frame(0, 512, DLCCode(8),
+                              bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
+            resp = client.end_stream()
+            assert resp["status"] == "complete"
+            warnings = resp["warnings"]
+            assert len(warnings) == 1, f"expected one uncached-atom warning, got {warnings}"
+            assert warnings[0]["kind"] == "uncached_atom"
+            assert warnings[0]["property_index"] == 0
+            assert warnings[0]["detail"] == "Speed"
+
+    def test_no_warning_when_all_signals_observed(self) -> None:
+        """Every atom's signal observed → no warnings emitted."""
+        with AletheiaClient() as client:
+            client.parse_dbc(SIMPLE_DBC)
+            client.set_properties([
+                Signal("Speed").less_than(100).always().to_dict()
+            ])
+            client.start_stream()
+            client.send_frame(0, 256, DLCCode(8),
+                              bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            resp = client.end_stream()
+            assert resp["status"] == "complete"
+            assert resp["warnings"] == []
+
     def test_always_signal_recovers_after_missing(self) -> None:
         """Signal missing for first N frames then arriving → Holds.
 

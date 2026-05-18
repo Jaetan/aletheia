@@ -49,6 +49,8 @@ func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 
 // Use this for predicate construction when the user-facing value is a
 // float (“Equals{Value: aletheia.RationalFromFloat(11.5)}“); for
 // exact-precision use cases prefer “Rational{Numerator: 23, Denominator: 2}“.
+// For inputs that may overflow or be invalid (e.g. spreadsheet cells),
+// see [FloatToRational] which returns an error instead of clamping.
 func RationalFromFloat(v float64) Rational {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return Rational{Numerator: 0, Denominator: 1}
@@ -61,6 +63,31 @@ func RationalFromFloat(v float64) Rational {
 		return Rational{Numerator: 0, Denominator: 1}
 	}
 	return Rational{Numerator: n, Denominator: d}
+}
+
+// FloatToRational converts a float64 to a [Rational] via 10^9 scaling
+// and returns an error for NaN, ±Inf, or values that overflow int64
+// when scaled.  Mirrors [strconv.ParseFloat]'s error-returning shape;
+// use this at user-input boundaries (e.g. Excel-loaded checks) where
+// silent clamping would mask data entry mistakes.  See
+// [RationalFromFloat] for the error-swallowing convenience form used
+// in predicate construction.
+//
+// Integer-valued floats get the exact “n/1“ form (matching
+// [RationalFromFloat]); non-integer floats produce ~9 decimal-digit
+// precision via the shared 10^9-scale path.
+func FloatToRational(v float64) (Rational, error) {
+	if math.IsInf(v, 0) || math.IsNaN(v) {
+		return Rational{}, validationError(fmt.Sprintf("cannot convert %v to rational", v))
+	}
+	if v == math.Trunc(v) && v >= math.MinInt64 && v <= math.MaxInt64 {
+		return Rational{Numerator: int64(v), Denominator: 1}, nil
+	}
+	n, d, err := floatToRational(v)
+	if err != nil {
+		return Rational{}, err
+	}
+	return Rational{Numerator: n, Denominator: d}, nil
 }
 
 // physicalAsRational is the [PhysicalValue]-typed alias for

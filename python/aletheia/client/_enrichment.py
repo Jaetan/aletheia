@@ -12,10 +12,17 @@ from fractions import Fraction
 from typing import cast
 import ctypes
 
+from .._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
+from ..limits import MAX_NESTING_DEPTH
 from ..protocols import LTLFormula
 from ._types import PropertyDiagnostic, ValidationError
 
-_MAX_FORMULA_DEPTH = 100
+# Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
+# exposed as `aletheia.limits.MAX_NESTING_DEPTH`): a deeper formula would
+# pass this local check, serialize to JSON, then get rejected on the wire
+# as `bound_kind_nesting_depth`.  Mirroring the kernel cap surfaces the
+# rejection immediately as `ValidationError` instead of as a wire round-trip
+# error.  R21 PY-A-2.3 / AGDA-D-17.1 cross-binding SSOT fix.
 
 _UNARY_OPS = frozenset({
     "not", "next", "always", "eventually", "metricAlways", "metricEventually",
@@ -32,11 +39,11 @@ def _walk_formula(
 ) -> None:
     """Walk a formula tree, calling on_atomic for each atomic node.
 
-    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
-    if depth > _MAX_FORMULA_DEPTH:
+    if depth > MAX_NESTING_DEPTH:
         raise ValidationError(
-            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         )
     op = formula.get("operator")
     if op == "atomic":
@@ -138,17 +145,50 @@ def _format_rational(v: object) -> str:
     Python, Go, and C++ enrichment paths, so the same Rational value
     renders to byte-identical output everywhere.
 
-    Non-:class:`Fraction` inputs (raw int/float — rare since the DSL
-    now flows through ``to_predicate_fraction``) take the legacy
-    ``:g``-formatting path; they're not subject to the cross-binding
-    invariant since they bypass the Rational kernel type.
+    Accepted input shapes (every shape coerces to ``Fraction`` then
+    flows through the FFI — no local ``:g``-style fallback):
+
+    * ``Fraction`` — passed straight through (DSL path via
+      ``to_predicate_fraction``).
+    * ``int`` / ``float`` — raw-JSON-dict callers (e.g. test fixtures
+      constructing ``{"value": 0}`` directly without the DSL); coerced
+      via ``Fraction(v)`` (exact for ``int``; IEEE-754-exact for
+      ``float``).
+    * ``dict`` with ``{"numerator", "denominator"}`` — wire-rational
+      shape; coerced via ``Fraction(num, den)``.
+
+    Any other shape is a contract violation and raises ``ValidationError``.
     """
-    if not isinstance(v, Fraction):
-        return f"{_coerce_to_float(v):g}"
+    if isinstance(v, Fraction):
+        frac = v
+    elif isinstance(v, int) and not isinstance(v, bool):
+        frac = Fraction(v, 1)
+    elif isinstance(v, float):
+        frac = Fraction(v)
+    elif isinstance(v, dict):
+        d = cast("dict[str, object]", v)
+        num = d.get("numerator")
+        den = d.get("denominator")
+        if not (isinstance(num, int) and isinstance(den, int)
+                and not isinstance(num, bool) and not isinstance(den, bool)):
+            msg = (
+                f"_format_rational rational dict requires int numerator/denominator; "
+                f"got numerator={type(num).__name__} denominator={type(den).__name__}"
+            )
+            raise ValidationError(msg)
+        if den == 0:
+            raise ValidationError("_format_rational rational dict denominator must be non-zero")
+        frac = Fraction(num, den)
+    else:
+        msg = (
+            f"_format_rational expected Fraction / int / float / rational dict; "
+            f"got {type(v).__name__}"
+        )
+        raise ValidationError(msg)
     lib = _get_or_load_renderer_lib()
     raw = lib.aletheia_format_rational(
-        ctypes.c_int64(v.numerator),
-        ctypes.c_int64(v.denominator),
+        ctypes.c_int64(frac.numerator),
+        ctypes.c_int64(frac.denominator),
     )
     if not raw:
         # Defensive: the Agda function always returns a non-null CString
@@ -184,10 +224,10 @@ def _format_predicate(pred: dict[str, object]) -> str:
 
 def _format_timebound(us: int) -> str:
     """Format microseconds as a human-readable time bound."""
-    if us % 1_000_000 == 0:
-        return f"{us // 1_000_000}s "
-    if us % 1_000 == 0:
-        return f"{us // 1_000}ms "
+    if us % MICROSECONDS_PER_SECOND == 0:
+        return f"{us // MICROSECONDS_PER_SECOND}s "
+    if us % MICROSECONDS_PER_MILLISECOND == 0:
+        return f"{us // MICROSECONDS_PER_MILLISECOND}ms "
     return f"{us}\u03bcs "
 
 
@@ -205,11 +245,11 @@ def format_formula(  # pylint: disable=too-many-return-statements,too-many-branc
 ) -> str:
     """Format an LTL formula dict as a human-readable string.
 
-    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
-    if depth > _MAX_FORMULA_DEPTH:
+    if depth > MAX_NESTING_DEPTH:
         raise ValidationError(
-            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         )
     inner = _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
     return inner
@@ -220,9 +260,9 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
     *, parenthesize_binary: bool,
 ) -> str:
     """Inner formatter with parenthesization for binary operators."""
-    if depth > _MAX_FORMULA_DEPTH:
+    if depth > MAX_NESTING_DEPTH:
         raise ValidationError(
-            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         )
     recur = _format_formula_inner
     op = formula.get("operator")
@@ -305,7 +345,7 @@ def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-man
 def collect_signals(formula: dict[str, object]) -> list[str]:
     """Collect all signal names from a formula, deduplicated, in order.
 
-    Raises ValidationError if nesting exceeds _MAX_FORMULA_DEPTH.
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
     signals: list[str] = []
     seen: set[str] = set()

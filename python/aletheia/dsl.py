@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from ._time_units import MICROSECONDS_PER_MILLISECOND
 from .client import ValidationError
 from .client._helpers import to_predicate_fraction
 from .protocols import (
@@ -389,7 +390,7 @@ class Predicate:
         require_non_negative_time_ms(time_ms)
         formula: MetricEventuallyFormula = {
             'operator': 'metricEventually',
-            'timebound': time_ms * 1000,
+            'timebound': time_ms * MICROSECONDS_PER_MILLISECOND,
             'formula': self._formula
         }
         return Property(formula)
@@ -415,7 +416,7 @@ class Predicate:
         require_non_negative_time_ms(time_ms)
         formula: MetricAlwaysFormula = {
             'operator': 'metricAlways',
-            'timebound': time_ms * 1000,
+            'timebound': time_ms * MICROSECONDS_PER_MILLISECOND,
             'formula': self._formula
         }
         return Property(formula)
@@ -710,7 +711,7 @@ class Property:
         require_non_negative_time_ms(time_ms)
         formula: MetricUntilFormula = {
             'operator': 'metricUntil',
-            'timebound': time_ms * 1000,
+            'timebound': time_ms * MICROSECONDS_PER_MILLISECOND,
             'left': self._formula,
             'right': other.to_formula()
         }
@@ -736,7 +737,7 @@ class Property:
         require_non_negative_time_ms(time_ms)
         formula: MetricReleaseFormula = {
             'operator': 'metricRelease',
-            'timebound': time_ms * 1000,
+            'timebound': time_ms * MICROSECONDS_PER_MILLISECOND,
             'left': self._formula,
             'right': other.to_formula()
         }

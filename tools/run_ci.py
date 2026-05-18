@@ -52,12 +52,16 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
     23. gofmt -l + go vet (Go)
     24. clang-format --dry-run --Werror (C++)
     25. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    26. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
+        R21 CPP-SYS-32.2 promotion from opt-in to always-on after CPP-B-8.1
+        UB in Rational::from_double shipped undetected exactly because the
+        lane was opt-in)
   GHA meta-checks (3):
-    26. actionlint (workflow YAML lint, skipped if not installed)
-    27. check-action-pins
-    28. check-workflow-permissions
+    27. actionlint (workflow YAML lint, skipped if not installed)
+    28. check-action-pins
+    29. check-workflow-permissions
 
-═══ OPT-IN LANES (4 total) ═══
+═══ OPT-IN LANES (3 total) ═══
 
 Each opt-in lane is gated on EITHER a command-line flag OR an environment
 variable.  Precedence: CLI flag overrides env var; env var overrides default
@@ -68,16 +72,15 @@ running in a context where one lane is too slow).
   ──────────────────────────────────────────────────────────────────────
   Flag           Env var                       Cost  Wires which step?
   ──────────────────────────────────────────────────────────────────────
-  --san          ALETHEIA_SAN_CHECK=1          ~5m   28: ubsan ctest
-  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  29: check-reproducible-build
-  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   30: stability bench
-  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 31: mutation testing lane
+  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  30: check-reproducible-build
+  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   31: stability bench
+  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 32: mutation testing lane
   ──────────────────────────────────────────────────────────────────────
-  --full         (all four above)              ~50m+ all opt-ins
+  --full         (all three above)             ~45m+ all opt-ins
 
-Total wall-time: ~17-22 min always-on, plus enabled opt-ins.  ``--full`` on
-a warm host typically lands in 50-90 min; cold (no test cache, no Mull
-build-mutation tree) closer to 60-120 min.
+Total wall-time: ~22-27 min always-on (incl. ubsan ctest ~5 min), plus
+enabled opt-ins.  ``--full`` on a warm host typically lands in 45-85 min;
+cold (no test cache, no Mull build-mutation tree) closer to 55-115 min.
 
 ═══ Python venv pinning ═══
 
@@ -143,17 +146,16 @@ _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 @dataclass
 class OptInOptions:
     """Resolved opt-in lane state.  CLI > env > default-off precedence."""
-    san: bool
     repro: bool
     stability: bool
     mutation: bool
 
     @property
     def any_enabled(self) -> bool:
-        return self.san or self.repro or self.stability or self.mutation
+        return self.repro or self.stability or self.mutation
 
     def enabled_count(self) -> int:
-        return sum([self.san, self.repro, self.stability, self.mutation])
+        return sum([self.repro, self.stability, self.mutation])
 
 
 def _resolve_flag(cli_value: bool | None, env_var: str) -> bool:
@@ -175,9 +177,9 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             "CLI flags override env vars; env vars override the default (off).\n"
             "\n"
             "Examples:\n"
-            "  tools/run_ci.py                       # always-on steps only\n"
-            "  tools/run_ci.py --full                # everything (50-90 min)\n"
-            "  tools/run_ci.py --san --stability     # two specific lanes\n"
+            "  tools/run_ci.py                       # always-on steps only (incl. UBSan; ~22-27 min)\n"
+            "  tools/run_ci.py --full                # everything (45-85 min)\n"
+            "  tools/run_ci.py --stability --repro   # two specific opt-in lanes\n"
             "  tools/run_ci.py --full --no-mutation  # all opt-ins except mutation\n"
             "  ALETHEIA_REPRO_CHECK=1 tools/run_ci.py  # legacy env-var trigger\n"
             "\n"
@@ -195,8 +197,6 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             help=f"{help_msg} (env: {env}=1)",
         )
 
-    _add_lane("san", "ALETHEIA_SAN_CHECK",
-              "UBSan ctest battery (R18 cluster 5; ~5 min cold)")
     _add_lane("repro", "ALETHEIA_REPRO_CHECK",
               "reproducible-build hash gate (R18 cluster 3; ~10 min cold)")
     _add_lane("stability", "ALETHEIA_STABILITY_CHECK",
@@ -208,7 +208,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         "--full",
         action="store_true",
         help=(
-            "Enable every opt-in lane (equivalent to --san --repro --stability "
+            "Enable every opt-in lane (equivalent to --repro --stability "
             "--mutation).  Individual --no-<lane> flags can still subtract from "
             "the --full set (e.g. --full --no-mutation runs everything except "
             "mutation testing)."
@@ -221,12 +221,11 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
     # The order matters: apply --full BEFORE _resolve_flag so the env var still
     # gets to enable a lane that --full + --no-<other> didn't touch.
     if args.full:
-        for lane in ("san", "repro", "stability", "mutation"):
+        for lane in ("repro", "stability", "mutation"):
             if getattr(args, lane) is None:
                 setattr(args, lane, True)
 
     return OptInOptions(
-        san=_resolve_flag(args.san, "ALETHEIA_SAN_CHECK"),
         repro=_resolve_flag(args.repro, "ALETHEIA_REPRO_CHECK"),
         stability=_resolve_flag(args.stability, "ALETHEIA_STABILITY_CHECK"),
         mutation=_resolve_flag(args.mutation, "ALETHEIA_MUTATION_CHECK"),
@@ -234,7 +233,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
 
 
 class Runner:
-    BASE_STEPS = 27  # always-on steps after the cluster-7 + offline-enforcers expansion
+    BASE_STEPS = 29  # always-on (incl. UBSan promoted R21 CPP-SYS-32.2)
 
     def __init__(self, opts: OptInOptions) -> None:
         self.opts = opts
@@ -275,7 +274,6 @@ class Runner:
     def header(self) -> None:
         opt_in_summary = []
         for name, enabled in (
-            ("san", self.opts.san),
             ("repro", self.opts.repro),
             ("stability", self.opts.stability),
             ("mutation", self.opts.mutation),
@@ -540,23 +538,19 @@ def main(argv: list[str] | None = None) -> int:
     # they share the same step counter as always-on steps so the "ALL N STEPS
     # PASSED" line in finalize() matches the actual count.
 
-    # Step 28 (opt-in): UBSan lane (R18 cluster 5 — Cat 33a) ───────────────
+    # Step 26 (always-on): UBSan lane (R18 cluster 5 — Cat 33a; promoted from
+    # opt-in to always-on R21 CPP-SYS-32.2 — UB in Rational::from_double had
+    # previously shipped undetected exactly because the lane was opt-in).
     # Builds the full ctest battery against -DALETHEIA_SANITIZER=undefined and
     # asserts every test passes.  Vendored zippy.hpp UB filtered via
     # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
-    if opts.san:
-        r.step(
-            "ubsan ctest",
-            "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
-            "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null"
-            " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
-            cwd=r.repo_root / "cpp", shell=True,
-        )
-    else:
-        r.announce_skip(
-            "ubsan ctest",
-            "set ALETHEIA_SAN_CHECK=1 or pass --san to enable",
-        )
+    r.step(
+        "ubsan ctest",
+        "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
+        "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null"
+        " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
+        cwd=r.repo_root / "cpp", shell=True,
+    )
 
     # Step 29 (opt-in): reproducible-build gate ────────────────────────────
     if opts.repro:

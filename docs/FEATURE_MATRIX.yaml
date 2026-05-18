@@ -302,6 +302,14 @@ features:
       cpp:    { status: implemented, entry: "aletheia/client.hpp#start_stream" }
       go:     { status: implemented, entry: Client.StartStream }
 
+  - id: end_stream_uncached_atom_warnings
+    name: EndStream uncached-atom diagnostics
+    description: end_stream surfaces one `uncached_atom` warning per property atom whose target signal never appeared on the trace. Disambiguates the Unresolved verdict (sound Kleene Unknown vs cache-miss). R21 cluster 1 — AGDA-D-12.1.
+    bindings:
+      python: { status: implemented, entry: aletheia.protocols.CompleteWarning }
+      cpp:    { status: implemented, entry: "aletheia/response.hpp#StreamWarning" }
+      go:     { status: implemented, entry: StreamWarning }
+
   - id: batch_frame_send
     name: Batch frame send
     description: Send multiple frames in one call; amortizes FFI cost; stops on first transport error.

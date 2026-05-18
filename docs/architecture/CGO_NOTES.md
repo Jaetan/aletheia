@@ -111,11 +111,14 @@ cmake --build build-ubsan
 ctest --test-dir build-ubsan
 ```
 
-`tools/run_ci.py`'s `ALETHEIA_SAN_CHECK=1` opt-in lane wires this
-exactly.  When clang is unavailable, the sanitizer lane is unsupported
-(documented here, not silently degraded) — the project's primary
-compiler is g++ (per `project_cpp_compilers.md`); the sanitizer build
-is a separate clang-driven artifact.
+`tools/run_ci.py` wires this exactly as an always-on step (promoted
+from opt-in R21 CPP-SYS-32.2 — UB in `Rational::from_double` had
+previously shipped undetected exactly because the lane was opt-in).
+When clang is unavailable, the always-on step fails loudly rather than
+silently degrading — the project's primary compiler is g++ (per
+`project_cpp_compilers.md`); the sanitizer build is a separate
+clang-driven artifact that must be present for `tools/run_ci.py` to
+return a green report.
 
 ## Sanitizer lane decisions (R18 cluster 5, advisor option (d))
 

@@ -16,12 +16,12 @@ open import Aletheia.CAN.Batch.Properties.Roundtrip using (
   signalFits;
   InjectRoundtrips;
   AllRoundtrip; ar-nil; ar-cons;
-  injectAll-preserves-disjoint; injectAll-roundtrip;
+  injectAll-roundtrip;
   roundtrip-unsigned→IR; roundtrip-signed→IR)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding using (extractSignal; injectSignal)
+open import Aletheia.CAN.Encoding using (extractSignal)
 open import Aletheia.CAN.Encoding.Properties using (
   signalValue;
   SignedFits;
@@ -31,20 +31,19 @@ open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Properties using (
-  PhysicallyDisjoint;
   SignalPairValid; signalPairValid-sym;
-  extractDisjointness; CanCoexist; both-always;
+  extractDisjointness; both-always;
   _≟-DBCSignal_)
-open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factor≢0; nonZeroFactor→factorℚ≢0; BitsInFrame)
+open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factorℚ≢0; BitsInFrame)
 
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
+open import Data.Sum using (inj₂)
+open import Data.Nat using (ℕ; _+_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
 open import Data.Rational using (ℚ; 0ℚ)
 open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_)
-open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; toℚ)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Bool using (true; false)
 open import Data.List.Membership.Propositional using (_∈_)

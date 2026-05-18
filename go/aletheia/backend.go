@@ -31,6 +31,23 @@ func WithFFILogger(l *slog.Logger) FFIBackendOption {
 // Production code uses [FFIBackend]; tests use [MockBackend].
 // Sealed: only types in this package may implement Backend.
 //
+// # Thread safety (GO-S-17.1 contract — R21)
+//
+// Implementations MAY assume the caller serialises all method
+// invocations against a single backend instance.  [Client] provides
+// this serialisation via an internal token channel (see
+// `client.go::lockCh`); direct callers (test harnesses, custom
+// orchestrators that bypass [Client]) MUST provide equivalent
+// serialisation.
+//
+// [MockBackend] enforces serialisation defensively via an internal
+// `sync.Mutex`; [FFIBackend] does NOT carry a mutex — its
+// thread-unsafety is intentional because GHC RTS state has process-
+// global ownership, and double-locking would only mask caller-side
+// bugs.  Concurrent direct calls to [FFIBackend] are undefined
+// behaviour at the GHC RTS level (StablePtr accounting + StreamState
+// IORef updates race).
+//
 // The method set is grouped by data-format and direction to document the
 // JSON-command / binary-FFI mix flagged in R20 GO-D-20.1.  The grouping
 // mirrors the [MANDATORY] / [OPTIONAL] split on C++ `IBackend` at

@@ -47,17 +47,54 @@ var (
 	rendererInitErr  error
 	rendererFormatFn unsafe.Pointer
 	rendererFreeFn   unsafe.Pointer
+
+	// R21 cluster 2: package-static preferred library path, registered
+	// by NewFFIBackend before any Check builder triggers
+	// formatRationalFFI.  First-write-wins (sync.Once around
+	// rendererInitOnce means subsequent registrations after the renderer
+	// has loaded are no-ops; the renderer's state is pinned).  Pre-load
+	// registrations win over the relative-path heuristic; ALETHEIA_LIB
+	// env var still wins over both.  Closes R21 GO-S-17.2 / mirror of
+	// CPP-SYS-17.1.
+	defaultLibPathMu sync.Mutex
+	defaultLibPath   string
 )
 
+// RegisterDefaultLibPath records a preferred libaletheia-ffi.so path
+// for the lazy-loaded renderer.  Called automatically by NewFFIBackend
+// so the renderer (which loads independently of the backend) consults
+// the same .so the user asked for, instead of falling back to its
+// relative-path heuristic.  First-write-wins: subsequent registrations
+// after the renderer has loaded are no-ops.
+func RegisterDefaultLibPath(libPath string) {
+	defaultLibPathMu.Lock()
+	defer defaultLibPathMu.Unlock()
+	if defaultLibPath == "" { // first-write-wins
+		defaultLibPath = libPath
+	}
+}
+
 // findFFILibrary locates libaletheia-ffi.so for the renderer's
-// lazy-load path.  Mirrors the search strategy in
-// `python/aletheia/client/_ffi.py::find_ffi_library` and the test-side
-// `findFFILib` in `ffi_backend_test.go`.  Returns the empty string when
-// no candidate exists.
+// lazy-load path.  Search order:
+//
+//  1. ALETHEIA_LIB env var (operator override)
+//  2. Path registered via RegisterDefaultLibPath (the .so the user
+//     passed to NewFFIBackend)
+//  3. Relative-path heuristic (ctest from cpp/build, go from go/)
+//
+// Returns the empty string when no candidate exists.
 func findFFILibrary() string {
 	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
 		if _, err := os.Stat(env); err == nil {
 			return env
+		}
+	}
+	defaultLibPathMu.Lock()
+	registered := defaultLibPath
+	defaultLibPathMu.Unlock()
+	if registered != "" {
+		if _, err := os.Stat(registered); err == nil {
+			return registered
 		}
 	}
 	candidates := []string{

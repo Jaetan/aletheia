@@ -24,6 +24,7 @@ from ..protocols import (
     PropertyViolationResponse,
     PropertyResultEntry,
     CompleteResponse,
+    CompleteWarning,
     ErrorResponse,
     ValidationResponse,
     ParsedDBCResponse,
@@ -53,6 +54,7 @@ from ._signal_ops import SignalOpsMixin
 from ._types import (
     AletheiaError,
     CANFrameTuple,
+    FFIError,
     FrameResult,
     InputBoundExceededError,
     PropertyDiagnostic,
@@ -466,7 +468,23 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             properties: List of LTL formulas (from DSL .to_dict())
 
         Returns:
-            SuccessResponse or ErrorResponse
+            SuccessResponse or ErrorResponse from the FFI ``setProperties``
+            command.  The return value reflects only the kernel-side outcome;
+            binding-internal failures while constructing per-property
+            diagnostics surface via the ``Raises`` channel below — mirrors
+            the C++ binding's ``Result<void>`` lowering at
+            ``cpp/src/client.cpp::set_properties``.
+
+        Raises:
+            FFIError: The rational renderer cannot load
+                ``libaletheia-ffi.so`` when ``build_diagnostic`` reaches
+                ``_format_rational``.  Kernel-side properties have already
+                been committed at this point; ``self._diags`` is cleared so
+                subsequent stream iterations do not observe partial state.
+            ValidationError: A formula contains a predicate value the
+                kernel accepted but the Python rational renderer rejects
+                (e.g. malformed ``{"numerator", "denominator"}`` dict).
+                Same state-cleanup contract as ``FFIError``.
         """
         cmd: SetPropertiesCommand = {
             "type": "command",
@@ -477,8 +495,15 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
         if response["status"] == "success":
             self._diags.clear()
             self._caches.clear()
-            for i, formula in enumerate(properties):
-                self._diags[i] = build_diagnostic(formula)
+            try:
+                for i, formula in enumerate(properties):
+                    self._diags[i] = build_diagnostic(formula)
+            except (FFIError, ValidationError):
+                # build_diagnostic failed after the kernel accepted the
+                # properties → drop partial diagnostics so subsequent
+                # stream iterations don't observe an inconsistent view.
+                self._diags.clear()
+                raise
             log_event(
                 _logger, logging.INFO, LogEvent.PROPERTIES_SET,
                 count=len(properties),
@@ -857,6 +882,15 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             results = parse_finalization_results(
                 response, self._enrich_finalization_result,
             )
+            raw_warnings = cast(list[dict[str, object]], response.get("warnings", []))
+            warnings: list[CompleteWarning] = [
+                {
+                    "kind": cast(str, w.get("kind", "")),
+                    "property_index": cast(int, w.get("property_index", 0)),
+                    "detail": cast(str, w.get("detail", "")),
+                }
+                for w in raw_warnings
+            ]
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()
@@ -864,8 +898,9 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
                 _logger, logging.INFO, LogEvent.STREAM_ENDED,
                 numResults=len(results), numFails=num_fails,
                 numUnresolved=num_unresolved,
+                numWarnings=len(warnings),
             )
-            return {"status": "complete", "results": results}
+            return {"status": "complete", "results": results, "warnings": warnings}
 
         if status == "error":
             return build_error_response(response)

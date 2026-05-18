@@ -41,7 +41,6 @@ open import Aletheia.DBC.Validator using
   ; checkUnknownValueDescriptionTarget
   ; checkAllUnknownValueDescriptionTargets
   )
-open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using
   ( MinLeqMax; DistinctMessageNames; NonEmptySignals
@@ -57,7 +56,7 @@ open import Aletheia.DBC.Validity.Combinators using
   ; rejectDec-sound; rejectDec-complete
   ; liftTriangular-sound; liftTriangular-complete
   ; triangularCheck )
-open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; map; filter; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
@@ -65,19 +64,17 @@ open import Data.List.Relation.Unary.Any using (Any; any?)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
-open import Data.Rational using (ℚ)
-open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
-open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Unit using (⊤; tt)
-open import Data.Bool using (Bool; true; false)
+open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
+open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
+open import Data.Maybe using (just; nothing)
+open import Data.Unit using (tt)
+open import Data.Bool using (true; false)
 open import Data.Empty using (⊥-elim)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_,_)
 open import Relation.Nullary using (yes; no; ¬_)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.CAN.Constants using (max-physical-bits)
 
 private

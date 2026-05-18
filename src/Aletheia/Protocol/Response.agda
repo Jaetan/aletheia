@@ -9,6 +9,7 @@
 module Aletheia.Protocol.Response where
 
 open import Data.Nat using (ℕ)
+open import Data.String using (String)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.LTL.Incremental using (LTLReason)
 
@@ -41,3 +42,35 @@ data PropertyResult : Set where
   -- Property inconclusive at EndStream (Kleene Unknown — reason ADT formatted
   -- at the JSON boundary, same convention as CounterexampleData.reason)
   Unresolved   : ℕ → LTLReason → PropertyResult
+
+-- ============================================================================
+-- WARNINGS (R21 cluster 1 — AGDA-D-12.1 scaffolding)
+-- ============================================================================
+
+-- Cache-miss-class warnings emitted at EndStream alongside the property
+-- verdicts.  Closes the diagnostic-context gap from AGDA-D-12.1: a property
+-- whose atom's target signal never appears in trace returns `Unresolved`
+-- (sound — three-valued Kleene Unknown) but the user previously had no way
+-- to distinguish a cache-miss `Unresolved` from a genuine Kleene-undecidable
+-- `Unresolved`.  Walking the property atoms at EndStream and emitting one
+-- warning per uncached atom ratifies the existing outcome with diagnostic
+-- context.
+--
+-- Wire shape: `Warning` is currently single-kind (`UncachedAtom`).  Future
+-- warning classes go here as new `WarningKind` constructors; the wire
+-- envelope is a `{kind: string, property_index: int, detail: string}` JSON
+-- object so adding kinds is non-breaking for binding parsers (unknown kind
+-- → unknown-warning stub, do-not-fail).
+data WarningKind : Set where
+  -- Atom's target signal was never extracted from any frame on this trace.
+  UncachedAtom : WarningKind
+
+-- A single EndStream warning carrying the kind, the property index (`Fin n`
+-- via `toℕ` at emit, mirroring PropertyResult's wire boundary), and a
+-- free-text detail string (typically the atom's signal name).
+record Warning : Set where
+  constructor mkWarning
+  field
+    kind          : WarningKind
+    propertyIndex : ℕ
+    detail        : String

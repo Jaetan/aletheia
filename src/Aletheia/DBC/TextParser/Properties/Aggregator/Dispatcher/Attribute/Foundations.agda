@@ -21,13 +21,9 @@
 --      z` via `mkIntDecRatFromℤ-intDecRatToℤ`.  Mirror for NatDecRat.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Foundations where
 
-open import Data.Bool using (Bool; true; false; T; _∧_)
-open import Data.Char using (Char)
-open import Data.Empty using (⊥; ⊥-elim)
-open import Data.Integer using (ℤ; +_)
-open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ)
-open import Data.Product using (Σ; Σ-syntax; _×_; _,_; proj₁; proj₂)
+open import Data.Bool using (Bool; true; T; _∧_)
+open import Data.List using ([]; _∷_)
+open import Data.Product using (Σ-syntax; _×_; _,_; proj₁)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)

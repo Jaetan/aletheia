@@ -24,6 +24,14 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 
 #### Cross-binding (Python / Go / C++)
 
+- EndStream `uncached_atom` warnings — `end_stream()` (Python
+  `CompleteResponse.warnings`, Go `StreamResult.Warnings`, C++
+  `StreamResult::warnings`) now surfaces one warning per property atom
+  whose target signal never appeared in trace.  Disambiguates the
+  Unresolved verdict (sound Kleene Unknown vs cache-miss diagnostic).
+  Wire field `{kind, property_index, detail}`; the only kind today is
+  `"uncached_atom"` (future kinds are additive).  R21 cluster 1 —
+  AGDA-D-12.1.
 - `format_dbc_text` Client method — emit a DBC definition (Python
   `DBCDefinition`, Go `DBCDefinition`, C++ `DbcDefinition`) as canonical
   DBC text via the verified Agda formatter (Track E.10).

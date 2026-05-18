@@ -909,7 +909,23 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
                 .reason = std::move(reason),
             });
         }
-        return StreamResult{.results = std::move(results)};
+
+        std::vector<StreamWarning> warnings;
+        if (j.contains("warnings")) {
+            for (const auto& w : j.at("warnings")) {
+                auto kind = w.value("kind", "");
+                auto idx = parse_rational_as_int(w.at("property_index"));
+                if (idx < 0)
+                    throw std::runtime_error("Negative warning property_index: " + std::to_string(idx));
+                auto detail = w.value("detail", "");
+                warnings.push_back({
+                    .kind = std::move(kind),
+                    .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
+                    .detail = std::move(detail),
+                });
+            }
+        }
+        return StreamResult{.results = std::move(results), .warnings = std::move(warnings)};
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
     }

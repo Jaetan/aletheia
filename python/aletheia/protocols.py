@@ -480,10 +480,25 @@ class PropertyResultEntry(TypedDict):
     enrichment: NotRequired[ViolationEnrichment]  # Auto-derived diagnostic
 
 
+class CompleteWarning(TypedDict):
+    """One EndStream warning surfaced by the kernel.
+
+    R21 cluster 1 — AGDA-D-12.1 closure: emitted by the Agda walker when a
+    property's atom references a signal that never appeared in trace.
+    ``kind == "uncached_atom"`` is the only kind today; new kinds are
+    additive on the wire (future kinds appear here and the binding
+    surfaces them under a string-typed ``kind`` field).
+    """
+    kind: str
+    property_index: int
+    detail: str
+
+
 class CompleteResponse(TypedDict):
     """Stream complete response with per-property finalization results"""
     status: Literal["complete"]
     results: list[PropertyResultEntry]
+    warnings: list[CompleteWarning]
 
 
 class ExtractSignalsResponse(TypedDict):
@@ -654,6 +669,7 @@ __all__ = [
     "PropertyViolationResponse",
     "PropertyResultEntry",
     "CompleteResponse",
+    "CompleteWarning",
     "ExtractSignalsResponse",
     "FormatDBCResponse",
     "ValidationResponse",

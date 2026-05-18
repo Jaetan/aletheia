@@ -868,7 +868,8 @@ Load all CAN frames from a log file into memory.
 from aletheia.can_log import load_can_log
 
 frames = load_can_log("drive.blf")
-# frames is list[(timestamp_us, arbitration_id, dlc, data)]
+# frames is list[CANFrameTuple]; each entry is the 7-tuple
+# (timestamp_us, can_id, dlc, data, extended, brs, esi).
 ```
 
 ### `iter_can_log(path, **kwargs) -> Iterator[CANFrameTuple]`

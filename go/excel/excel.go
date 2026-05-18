@@ -820,39 +820,7 @@ func xlsxRational(d map[string]string, key string, rowNum int) (aletheia.Rationa
 	if err != nil {
 		return aletheia.Rational{}, err
 	}
-	return doubleToRational(v)
-}
-
-// doubleToRational converts a float64 to a Rational.
-// If the value is an exact integer, it uses denominator 1.
-// Otherwise, it uses fixed precision (multiply by 10^6, simplify by GCD).
-// Precision: 6 decimal digits (~1 ppm). Sufficient for DBC signal factors/offsets.
-func doubleToRational(v float64) (aletheia.Rational, error) {
-	if v == math.Floor(v) && math.Abs(v) < 1e15 {
-		return aletheia.Rational{Numerator: int64(v), Denominator: 1}, nil
-	}
-	const scale = 1_000_000
-	scaled := v * scale
-	if scaled > math.MaxInt64 || scaled < math.MinInt64 || math.IsInf(scaled, 0) || math.IsNaN(scaled) {
-		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf("value %g overflows rational conversion", v))
-	}
-	num := int64(math.Round(scaled))
-	g := gcd64(abs64(num), scale)
-	return aletheia.Rational{Numerator: num / g, Denominator: scale / g}, nil
-}
-
-func gcd64(a, b int64) int64 {
-	for b != 0 {
-		a, b = b, a%b
-	}
-	return a
-}
-
-func abs64(x int64) int64 {
-	if x < 0 {
-		return -x
-	}
-	return x
+	return aletheia.FloatToRational(v)
 }
 
 // applyMetadata sets optional name and severity from Excel row data.

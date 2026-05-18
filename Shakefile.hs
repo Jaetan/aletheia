@@ -264,6 +264,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- migrate 3a–3d.3 proofs onto it); same walk-root rationale as
         -- WellFormedText above.
         agdaWithRTS "Aletheia/DBC/TextParser/Format.agda"
+        -- R22 continuation of R21 AGDA-D-15.1 closure: the L1-L9 regression
+        -- test bank that drift-checks the universal `roundtrip` was extracted
+        -- from `Format.agda` (to bring it under the 800-LOC trigger).  Walk
+        -- root keeps the drift-check active since nothing else imports it.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/RegressionTests.agda"
         -- B.3.d Layer 3 3d.5.b: Format DSL gate-target — parseValueTable
         -- expressed in the DSL (88 code-LOC vs the 613-LOC existing
         -- proof, 86% reduction).  Same walk-root rationale; 3d.5.d

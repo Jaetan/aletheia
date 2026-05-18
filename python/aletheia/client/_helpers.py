@@ -261,9 +261,13 @@ def extract_rational_from_dict(
     """
     numerator = d.get("numerator")
     denominator = d.get("denominator")
-    if not isinstance(numerator, int):
+    # PY-B-8.1 (R21): is_pure_int rejects bool subclass so a malicious
+    # response {"numerator": true, "denominator": false} cannot coerce
+    # to Fraction(1, 0).  Mirrors the Go encoding/json + C++
+    # nlohmann/json bool→int rejection contract.
+    if not is_pure_int(numerator):
         raise ProtocolError(f"Expected {context}.numerator to be int")
-    if not isinstance(denominator, int):
+    if not is_pure_int(denominator):
         raise ProtocolError(f"Expected {context}.denominator to be int")
     if denominator <= 0:
         raise ProtocolError(
@@ -274,7 +278,10 @@ def extract_rational_from_dict(
 
 def validate_rational(field_name: str, raw_value: object) -> RationalNumber:
     """Validate and extract RationalNumber from response field."""
-    if isinstance(raw_value, int):
+    # PY-B-8.1 (R21): is_pure_int over isinstance(raw_value, int) so a
+    # `true` on the wire (json deserialised as Python bool) is rejected
+    # rather than silently treated as numerator=1.
+    if is_pure_int(raw_value):
         return {"numerator": raw_value, "denominator": 1}
     if not is_str_dict(raw_value):
         raise ProtocolError(

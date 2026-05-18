@@ -987,8 +987,12 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 // Rational conversion
 // ===========================================================================
 
-func TestDoubleToRationalInteger(t *testing.T) {
-	r, err := doubleToRational(42.0)
+// FloatToRational tests live here (rather than the aletheia package) because
+// the Excel loader is the primary user-input boundary that exercises the
+// error-returning variant; GPS-grade DBC factors (e.g. 1e-7) and overflow
+// from typo'd spreadsheet cells are the motivating cases.
+func TestFloatToRationalInteger(t *testing.T) {
+	r, err := aletheia.FloatToRational(42.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,22 +1001,25 @@ func TestDoubleToRationalInteger(t *testing.T) {
 	}
 }
 
-func TestDoubleToRationalFraction(t *testing.T) {
-	r, err := doubleToRational(0.25)
+func TestFloatToRationalFraction(t *testing.T) {
+	r, err := aletheia.FloatToRational(0.25)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Float64() != 0.25 {
 		t.Errorf("expected 0.25, got %f", r.Float64())
 	}
-	// 0.25 = 250000/1000000 = 1/4
-	if r.Numerator != 1 || r.Denominator != 4 {
-		t.Errorf("expected 1/4, got %d/%d", r.Numerator, r.Denominator)
+	// 0.25 with 10^9 scale produces 250000000/1000000000 before GCD; the
+	// Haskell side normalises to 1/4.  Go-side keeps the scaled form so
+	// the binding-boundary contract is "user passes float, kernel sees
+	// num/denom with denominator divides 1e9".
+	if r.Numerator != 250_000_000 || r.Denominator != 1_000_000_000 {
+		t.Errorf("expected 250000000/1000000000, got %d/%d", r.Numerator, r.Denominator)
 	}
 }
 
-func TestDoubleToRationalNegative(t *testing.T) {
-	r, err := doubleToRational(-40.0)
+func TestFloatToRationalNegative(t *testing.T) {
+	r, err := aletheia.FloatToRational(-40.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1021,23 +1028,37 @@ func TestDoubleToRationalNegative(t *testing.T) {
 	}
 }
 
-func TestDoubleToRationalNegativeFraction(t *testing.T) {
-	r, err := doubleToRational(-0.5)
+func TestFloatToRationalNegativeFraction(t *testing.T) {
+	r, err := aletheia.FloatToRational(-0.5)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Float64() != -0.5 {
 		t.Errorf("expected -0.5, got %f", r.Float64())
 	}
-	if r.Numerator != -1 || r.Denominator != 2 {
-		t.Errorf("expected -1/2, got %d/%d", r.Numerator, r.Denominator)
+	if r.Numerator != -500_000_000 || r.Denominator != 1_000_000_000 {
+		t.Errorf("expected -500000000/1000000000, got %d/%d", r.Numerator, r.Denominator)
 	}
 }
 
-func TestDoubleToRationalOverflow(t *testing.T) {
-	_, err := doubleToRational(math.MaxFloat64)
+func TestFloatToRationalOverflow(t *testing.T) {
+	_, err := aletheia.FloatToRational(math.MaxFloat64)
 	if err == nil {
 		t.Fatal("expected error for overflow, got nil")
+	}
+}
+
+// Cluster 5 regression guard: GPS-grade DBC factor 1e-7 must produce a
+// nonzero rational under the 10^9 scale.  The pre-cluster-5 10^6 scale
+// rounded 1e-7 down to 0/1, silently breaking GPS-grade signal precision
+// (GO-B-8.1).
+func TestFloatToRationalGPSFactor(t *testing.T) {
+	r, err := aletheia.FloatToRational(1e-7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Numerator != 100 || r.Denominator != 1_000_000_000 {
+		t.Errorf("GPS factor 1e-7: expected 100/1000000000, got %d/%d", r.Numerator, r.Denominator)
 	}
 }
 

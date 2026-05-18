@@ -32,7 +32,7 @@ formatResponse-ack-unique (PropertyResponse (PropertyResult.Violation _ _)) ()
 formatResponse-ack-unique (PropertyResponse (PropertyResult.Satisfaction _)) ()
 formatResponse-ack-unique (PropertyResponse (PropertyResult.Unresolved _ _)) ()
 formatResponse-ack-unique Ack _ = refl
-formatResponse-ack-unique (Complete _) ()
+formatResponse-ack-unique (Complete _ _) ()
 formatResponse-ack-unique (DBCResponse _) ()
 formatResponse-ack-unique (ValidationResponse _) ()
 formatResponse-ack-unique (ParsedDBCResponse _ _) ()

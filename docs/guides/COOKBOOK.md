@@ -178,7 +178,8 @@ python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 from aletheia.can_log import load_can_log
 
 frames = load_can_log("drive.blf")
-# frames is list[(timestamp_us, arbitration_id, dlc, data)]
+# frames is list[CANFrameTuple]; each entry is the 7-tuple
+# (timestamp_us, can_id, dlc, data, extended, brs, esi).
 ```
 
 ### Process a large log lazily (streaming)
@@ -296,14 +297,17 @@ The most common codes you'll see:
 
 | Code | Meaning | Severity |
 |---|---|---|
-| `signal_overlaps_another` | Two signals share at least one bit. | error |
-| `signal_exceeds_message_size` | Signal's bit range extends past `DLC` bytes. | error |
-| `multiplexor_value_conflict` | Multiplexor value claimed by two distinct signals. | error |
-| `signal_factor_zero` | `factor=0` makes physical-value extraction undefined. | error |
+| `signal_overlap` | Two signals share at least one bit. | error |
+| `signal_exceeds_dlc` | Signal's bit range extends past `DLC` bytes. | error |
+| `multiplexor_not_found` | Multiplexed signal references an absent multiplexor. | error |
+| `factor_zero` | `factor=0` makes physical-value extraction undefined. | error |
 | `duplicate_message_id` | Two messages share the same CAN ID. | error |
-| `unused_signal` | Signal defined but no message references it. | warning |
+| `unknown_message_sender` | `BU_` sender declared but not in node list. | warning |
 
-The full list lives in [`PROTOCOL.md`](../architecture/PROTOCOL.md#common-error-codes). The structured `code` field
+The 21 IssueCode names are the authoritative cross-binding identifiers — see
+`python/aletheia/issue_codes.py` (mirror) or `src/Aletheia/DBC/Types.agda`
+(SSOT) for the full enum. The full list lives in
+[`PROTOCOL.md`](../architecture/PROTOCOL.md#common-error-codes). The structured `code` field
 is the stable contract — `message` text is for humans and may change between
 releases.
 

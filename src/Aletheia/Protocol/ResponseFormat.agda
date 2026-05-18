@@ -20,7 +20,7 @@ open import Aletheia.Protocol.Message using (Response; Success; Error;
   ParsedDBCResponse; DBCTextResponse)
 import Aletheia.Error as Err
 open import Aletheia.Limits using (BoundKind; boundKindCode)
-open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
+open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData; Warning; WarningKind; UncachedAtom)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
 open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
@@ -58,6 +58,19 @@ formatPropertyResult (PropertyResult.Unresolved idx reason) =
   mkPropertyResult "unresolved" idx
     (("reason" , JStringS (formatLTLReason reason)) ∷ [])
 
+-- R21 cluster 1 — AGDA-D-12.1 scaffolding: per-warning JSON encoder.
+-- Wire shape `{kind: string, property_index: int, detail: string}`.
+formatWarningKind : WarningKind → String
+formatWarningKind UncachedAtom = "uncached_atom"
+
+formatWarning : Warning → JSON
+formatWarning w =
+  JObject (
+    ("kind"           , JStringS (formatWarningKind (Warning.kind w))) ∷
+    ("property_index" , JNumber (ℕtoℚ (Warning.propertyIndex w))) ∷
+    ("detail"         , JStringS (Warning.detail w)) ∷
+    [])
+
 -- Validation issue → JSON.  Hoisted from `formatResponse (ValidationResponse …)`'s
 -- where block so `formatResponse (ParsedDBCResponse …)` can reuse the same shape
 -- for the warnings list it carries on success.
@@ -80,7 +93,6 @@ formatIssueSeverity IsWarning = "warning"
 -- prefix would touch 21 codes here + 21 mirrors in each of the three
 -- bindings (Python `IssueCode` enum, Go `IssueCode` constants, C++
 -- `IssueCode` enum) for zero disambiguation benefit at the JSON wire.
--- See `DEFERRALS.md` entry "R5-C2" for the full audit trail.
 formatIssueCode : IssueCode → String
 formatIssueCode DuplicateMessageId          = "duplicate_message_id"
 formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
@@ -177,10 +189,11 @@ formatResponse Ack =
   JObject (
     ("status" , JStringS "ack") ∷
     [])
-formatResponse (Complete results) =
+formatResponse (Complete results warnings) =
   JObject (
-    ("status" , JStringS "complete") ∷
-    ("results" , JArray (map formatPropertyResult results)) ∷
+    ("status"   , JStringS "complete") ∷
+    ("results"  , JArray (map formatPropertyResult results)) ∷
+    ("warnings" , JArray (map formatWarning warnings)) ∷
     [])
 formatResponse (DBCResponse dbcJSON) =
   JObject (

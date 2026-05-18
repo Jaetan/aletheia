@@ -29,15 +29,13 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Foundations where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_; foldr; map)
+open import Data.List  using (List; []; map)
   renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat   using (ℕ)
-open import Data.Unit  using (⊤; tt)
+open import Data.Maybe using (just; nothing)
+open import Data.Unit  using (⊤)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
-open import Aletheia.DBC.DecRat            using (DecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; NatDecRat; intDecRatToℤ; natDecRatToℕ)
 open import Aletheia.DBC.Types using

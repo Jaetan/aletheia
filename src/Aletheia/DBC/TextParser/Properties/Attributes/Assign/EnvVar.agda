@@ -16,18 +16,14 @@
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.EnvVar where
 
-open import Data.Bool using (Bool; true; false; T)
 open import Data.Char using (Char)
-open import Data.Char.Base using (_≈ᵇ_; isDigit)
-open import Data.Integer using (ℤ; +_; -[1+_])
+open import Data.Integer using (ℤ; +_)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc; length-++ to length-++ₗ)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (∃₂; _,_; Σ; Σ-syntax; _×_; proj₁; proj₂)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.String using (String; toList)
-open import Data.Unit using (⊤; tt)
+open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
+open import Data.Maybe using (just)
+open import Data.Product using (_,_; proj₁; proj₂)
+open import Data.String using (toList)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
 
@@ -80,8 +76,9 @@ open import Aletheia.DBC.TextParser.Format.AttrValue using
 open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrAssignFmt; AttrAssignCarrier;
    stdTargetWireFmt; RatwEv;
-   parseAttrAssign-format-roundtrip;
-   emit-attrAssignFmt-RatwEv;
+   parseAttrAssign-format-roundtrip)
+open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
+  (emit-attrAssignFmt-RatwEv;
    emit-attrAssignFmt-RatwEv-with-outer;
    build-EmitsOK-stdTargetWireFmt-RatwEv)
 
