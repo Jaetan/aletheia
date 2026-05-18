@@ -14,9 +14,8 @@
 -- so the parser refuses signals violating the BigEndian PhysicallyValid bounds.
 module Aletheia.DBC.JSONParser.Properties where
 
-open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (just; nothing)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans)
 
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
@@ -26,7 +25,7 @@ open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; parseMessageList;
   parseOptionalArray; parseSignalGroupList; parseEnvironmentVarList; parseValueTableList;
   parseNodeList; parseCommentList; parseAttributeList; parseRawValueDescList)
 open import Aletheia.DBC.Formatter using (formatDBC)
-open import Aletheia.DBC.Formatter.Properties using (WellFormedDBC; WellFormedDBCRT;
+open import Aletheia.DBC.Formatter.Properties using (WellFormedDBCRT;
   format-parse-roundtrip)
 open import Aletheia.DBC.JSONParser.MessageWF using (parseMessageList-pv)
 

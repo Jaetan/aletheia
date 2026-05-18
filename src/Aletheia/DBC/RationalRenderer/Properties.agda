@@ -28,11 +28,9 @@
 -- Go/C++ `Rational{n, 0}` is a programmer error).
 module Aletheia.DBC.RationalRenderer.Properties where
 
-open import Data.Integer.Base using (ℤ)
-open import Data.Nat.Base using (ℕ; zero; suc; NonZero)
+open import Data.Nat.Base using (suc; NonZero)
 open import Data.Rational.Base using (ℚ; _/_)
-open import Data.String.Base using (String)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; cong)
 
 open import Aletheia.DBC.RationalRenderer using (formatRational; formatℚ)
 
