@@ -15,41 +15,39 @@
 -- This module also provides processStreamCommand (command dispatch).
 module Aletheia.Protocol.Handlers where
 
-open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; fromList)
 open import Data.List using (List; []; _∷_; map; reverse; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing; _>>=_)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
-open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (refl)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; Node; RawValueDesc)
+open import Aletheia.DBC.Types using (DBC; DBCMessage)
 open import Aletheia.DBC.BoundWalks using
   ( totalValueDescriptions
   ; firstOverBoundLC; firstOverBoundInMessages; firstOverBoundInComments
   ; firstOverBoundInAttrs; firstOverBoundInValueTables; firstOverBoundInUnresolved
   )
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
-open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
+open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
-open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)
+open import Aletheia.LTL.Coalgebra using (finalizeL; initProc)
 open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.LTL.Syntax using (atomCount)
-open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
+open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; SendFrame; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult;
-  Warning; mkWarning; WarningKind; UncachedAtom)
-open import Aletheia.Trace.Time using (Timestamp; μs; mkTs)
+  Warning; mkWarning; UncachedAtom)
+open import Aletheia.Trace.Time using (μs; mkTs)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
-open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults; PartitionedResults)
-open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
+open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
   ( Error; ParseErr; HandlerErr; WithContext

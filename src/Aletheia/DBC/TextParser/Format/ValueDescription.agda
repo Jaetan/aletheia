@@ -32,15 +32,15 @@
 -- Format — same pattern as `parseValueTable` vs `ValueTable-format`.
 module Aletheia.DBC.TextParser.Format.ValueDescription where
 
-open import Data.Bool using (Bool; true; false)
-open import Data.Char using (Char; _≈ᵇ_)
+open import Data.Bool using (false)
+open import Data.Char using (Char)
 open import Data.Char.Base using (isDigit)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; s≤s; z≤n)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (just)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.String using (toList)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; sym; cong; subst)

@@ -26,21 +26,20 @@ module Aletheia.LTL.SimplifySound.Decomposition where
 open import Aletheia.Prelude
 open import Data.Bool using (T)
 open import Data.Bool.Properties using (T-∧)
-open import Relation.Binary.PropositionalEquality using (subst; cong₂)
-open import Data.Nat using (_⊔_)
+open import Relation.Binary.PropositionalEquality using (cong₂)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
 
-open import Aletheia.Trace.Time using (Timestamp; mkTs; tsValue; μs)
-open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL)
+open import Aletheia.Trace.Time using (Timestamp; mkTs; tsValue)
+open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; finalizeL)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Simplify using (_≡ᵇ-proc_)
 open import Aletheia.LTL.Incremental using (
-  StepResult; Continue; Violated; Satisfied;
+  Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails; Unsure)
-open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
+open import Aletheia.LTL.SignalPredicate using (True; False)
 open import Aletheia.LTL.Adequacy using (runL; verdictToSV)
 
 -- ============================================================================
