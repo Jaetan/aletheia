@@ -82,8 +82,9 @@ open import Aletheia.DBC.TextParser.Format.AttrValue using
 open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrRelFmt; AttrRelCarrier;
    relTargetWireFmt; RrtNodeMsg; RrtNodeSig;
-   parseAttrRel-format-roundtrip;
-   emit-attrRelFmt-RrtNodeMsg;
+   parseAttrRel-format-roundtrip)
+open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
+  (emit-attrRelFmt-RrtNodeMsg;
    emit-attrRelFmt-RrtNodeMsg-with-outer;
    emit-attrRelFmt-RrtNodeSig;
    emit-attrRelFmt-RrtNodeSig-with-outer;

@@ -85,8 +85,9 @@ open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrAssignFmt; AttrAssignCarrier;
    stdTargetWireFmt; RatwNet;
    parseAttrAssign-format-roundtrip;
-   parseAttrAssign-format-roundtrip-RatwNet;
-   emit-attrAssignFmt-RatwNet;
+   emit-attrAssignFmt-RatwNet)
+open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
+  (parseAttrAssign-format-roundtrip-RatwNet;
    emit-stdTargetWireFmt-RatwNet-on-quote-head;
    emit-stdTargetWireFmt-RatwNet-on-dash-head;
    emit-stdTargetWireFmt-RatwNet-on-digit-head)

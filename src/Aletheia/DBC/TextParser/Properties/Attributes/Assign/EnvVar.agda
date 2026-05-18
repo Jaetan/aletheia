@@ -76,8 +76,9 @@ open import Aletheia.DBC.TextParser.Format.AttrValue using
 open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrAssignFmt; AttrAssignCarrier;
    stdTargetWireFmt; RatwEv;
-   parseAttrAssign-format-roundtrip;
-   emit-attrAssignFmt-RatwEv;
+   parseAttrAssign-format-roundtrip)
+open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
+  (emit-attrAssignFmt-RatwEv;
    emit-attrAssignFmt-RatwEv-with-outer;
    build-EmitsOK-stdTargetWireFmt-RatwEv)
 

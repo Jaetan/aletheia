@@ -80,8 +80,9 @@ open import Aletheia.DBC.TextParser.Format.AttrValue using
 open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrAssignFmt; AttrAssignCarrier;
    stdTargetWireFmt; RatwMsg;
-   parseAttrAssign-format-roundtrip;
-   emit-attrAssignFmt-RatwMsg;
+   parseAttrAssign-format-roundtrip)
+open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
+  (emit-attrAssignFmt-RatwMsg;
    emit-attrAssignFmt-RatwMsg-with-outer;
    build-EmitsOK-stdTargetWireFmt-RatwMsg)
 

@@ -24,62 +24,22 @@
 -- wrapper, NOT in this Format — same η-style wrap pattern as
 -- `Format/EnvVar.agda` / `Format/AttrDef.agda`.
 --
--- DEFERRED — TRACKED (R21-AGDA-D-15.1 — DEFER): file is 1264 LOC, over
--- the 800-LOC `feedback_properties_facade_split.md` trigger.
---
--- R21 cluster 9 EMPIRICAL FINDING (2026-05-17): the natural cut at line
--- 773 (L5 DISJOINTNESS HELPERS → end-of-file, ~492 LOC) was attempted
--- as `Format/AttrLine/Builders.agda` mirroring the
--- `DecRatParse/Properties` 5-phase facade success.  Blocker: the L5 +
--- KEYWORD-TARGET sections depend on `parseStdTgtL1-fails-on-non-keyword-head`
--- plus ~10 sibling helpers defined inside the upstream `private` block
--- at lines 291-419, which sibling modules cannot reach via
--- `open import ... public`.  Fix paths each carry real cost:
---   (a) Drop `private` on the 128-line block 291-419 + dedent every
---       definition → expands public API by ~10 names + per-line edit.
---   (b) Move the 128-line block into a leaf helper module
---       `Format/AttrLine/Helpers.agda` that both AttrLine.agda and
---       Builders.agda import → 3-way restructure + the helper module
---       needs the entire upstream import block re-imported.
---   (c) Inline the helpers' implementations into Builders.agda's L5
---       call sites → loses the named-helper abstraction.
---
--- Each requires a per-private-helper audit (5 such blocks in this file
--- total at lines 146 / 192 / 291 / 424 / 466).  Multi-day effort,
--- distinct from the DecRatParse case where the phase boundaries
--- cleanly fell between conceptual layers without `private` crossings.
---
--- The 6 other AGDA-D-15.1 modules likely share AttrLine's blocker
--- pattern (each has multiple sections with potentially interleaved
--- `private` blocks).  R21 closed 1 of 8 modules (DecRatParse) and
--- defers the remaining 7 to a dedicated proof-restructure cluster with
--- paired user approval for the `private` audit + per-module sibling
--- module structure.
---
--- R22 UPDATE (2026-05-17, post-`5b48948`): the user accepted "fix all
--- 5 items" and the cluster scope expanded; 6 of the 7 remaining 1-of-8
--- modules have since been closed (Primitives `543acee`, Format
--- `000761b`, Format/AttrDef `9421604`, Aggregator/Dispatcher/
--- Attribute/Assign `9c7740d`, Aggregator/Refine/ValueDescriptions
--- `627ad25`, Properties/Attributes/Line `5b48948`).  Four split
--- patterns demonstrated and verified clean by `check-properties` on
--- every commit.  Only AttrLine.agda remains because (1) the prior
--- empirical attempt at `Format/AttrLine/Builders.agda` was
--- abandoned, (2) the file has 6 interleaved `private` blocks (lines
--- 170/216/315/448/490/589/764) rather than the single block the other
--- 6 had, and (3) the proven path-(a) "drop `private` + lift to public"
--- mechanic — which worked on Line.agda's `P1-P5` block in `5b48948` —
--- needs to be applied to multiple blocks here, each with its own
--- per-private-helper audit risk.
---
--- USER-DIRECTED FIX (2026-05-17, post-`85cc9e3`): user has explicitly
--- approved the proof-restructure cluster for this file ("We will want
--- to fix AttrLine.agda as well").  The "DO NOT RE-RAISE" gate from the
--- prior DEFER block is lifted.  Path-(a) "drop `private` + lift to
--- public" is the proven mechanic; execute it across the 6 private
--- blocks (lines 170/216/315/448/490/589/764), then extract the L5 +
--- KEYWORD-TARGET sections to a sibling `Format/AttrLine/Builders.agda`
--- (or per-section siblings).  Next iteration to pick up.
+-- AGDA-D-15.1 CLOSED (2026-05-18, R22): file split into this module
+-- (826 LOC, retains L1-L7 base/dispatch/std/rel/lineformats/emits-ok-
+-- builder/public-emit-equations) + sibling
+-- `Format/AttrLine/Builders.agda` (493 LOC, holds the L5 disjointness
+-- helpers + KEYWORD-TARGET emit equations & L5 builders).  Pattern:
+-- external-consumer-redirect (mirrors R20 cluster Y's `627ad25`
+-- ValueDescriptions split).  Minimum-lift mechanic: only
+-- `parseStdTgtL1-fails-on-non-keyword-head` and `bridge-emit-tail`
+-- were promoted private→public (the two names actually referenced
+-- across the cut).  The empirically abandoned multi-helper-lift
+-- (path-b extract to leaf `Helpers.agda`) and the conservative
+-- everything-lift (path-a "drop `private` on all 7 blocks") were
+-- both unnecessary — the L5+KW-T section uses only two private names.
+-- The 6 consumer Properties files (`Properties/Attributes/Assign/*.agda`)
+-- split their `using` clause across both modules.  All 8 of the
+-- AGDA-D-15.1 candidates are now closed.
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
@@ -405,61 +365,67 @@ private
   map-nothing-local _ p pos input eq with p pos input | eq
   ... | nothing | refl = refl
 
-  -- Compose 4 arm-fails into a single L1 fail via explicit `trans` chain.
-  -- No `with` at the composition level — each step is a small lemma
-  -- application (alt-right-nothing-local, map-nothing-local) over the
-  -- already-proven arm fails.  This avoids the goal-rebuild cascade
-  -- that `with`/`rewrite` over chained `<|>`/`<$>` triggers.
-  parseStdTgtL1-fails-on-non-keyword-head :
-    ∀ (x : Char)  -- explicit (avoid implicit-inference failure across `with`)
-      (x≢B : (x ≈ᵇ 'B') ≡ false)
-      (x≢S : (x ≈ᵇ 'S') ≡ false)
-      (x≢E : (x ≈ᵇ 'E') ≡ false)
-    → ∀ pos rest
-    → parse (altSum (altSum (altSum nodeArm msgArm) sigArm) evArm) pos (x ∷ rest) ≡ nothing
-  parseStdTgtL1-fails-on-non-keyword-head x x≢B x≢S x≢E pos rest =
-    let
-      -- parse nodeArm fails via x ≢ 'B'.
-      node-f : parse nodeArm pos (x ∷ rest) ≡ nothing
-      node-f = parseNodeArm-fails-on-non-B-head x x≢B pos rest
-      -- parse msgArm fails via x ≢ 'B'.
-      msg-f : parse msgArm pos (x ∷ rest) ≡ nothing
-      msg-f = parseMsgArm-fails-on-non-B-head x x≢B pos rest
-      -- parse sigArm fails via x ≢ 'S'.
-      sig-f : parse sigArm pos (x ∷ rest) ≡ nothing
-      sig-f = parseSigArm-fails-on-non-S-head x x≢S pos rest
-      -- parse evArm fails via x ≢ 'E'.
-      ev-f : parse evArm pos (x ∷ rest) ≡ nothing
-      ev-f = parseEvArm-fails-on-non-E-head x x≢E pos rest
+-- Compose 4 arm-fails into a single L1 fail via explicit `trans` chain.
+-- No `with` at the composition level — each step is a small lemma
+-- application (alt-right-nothing-local, map-nothing-local) over the
+-- already-proven arm fails.  This avoids the goal-rebuild cascade
+-- that `with`/`rewrite` over chained `<|>`/`<$>` triggers.
+--
+-- Public (lifted from private block on 2026-05-18) so the L5
+-- disjointness sibling `Format/AttrLine/Builders.agda` can consume it
+-- through `emit-stdTargetWireFmt-RatwNet-on-non-keyword-head` after the
+-- AGDA-D-15.1 split.  The body still references the private arm/step
+-- helpers above — same-module reach keeps that working.
+parseStdTgtL1-fails-on-non-keyword-head :
+  ∀ (x : Char)  -- explicit (avoid implicit-inference failure across `with`)
+    (x≢B : (x ≈ᵇ 'B') ≡ false)
+    (x≢S : (x ≈ᵇ 'S') ≡ false)
+    (x≢E : (x ≈ᵇ 'E') ≡ false)
+  → ∀ pos rest
+  → parse (altSum (altSum (altSum nodeArm msgArm) sigArm) evArm) pos (x ∷ rest) ≡ nothing
+parseStdTgtL1-fails-on-non-keyword-head x x≢B x≢S x≢E pos rest =
+  let
+    -- parse nodeArm fails via x ≢ 'B'.
+    node-f : parse nodeArm pos (x ∷ rest) ≡ nothing
+    node-f = parseNodeArm-fails-on-non-B-head x x≢B pos rest
+    -- parse msgArm fails via x ≢ 'B'.
+    msg-f : parse msgArm pos (x ∷ rest) ≡ nothing
+    msg-f = parseMsgArm-fails-on-non-B-head x x≢B pos rest
+    -- parse sigArm fails via x ≢ 'S'.
+    sig-f : parse sigArm pos (x ∷ rest) ≡ nothing
+    sig-f = parseSigArm-fails-on-non-S-head x x≢S pos rest
+    -- parse evArm fails via x ≢ 'E'.
+    ev-f : parse evArm pos (x ∷ rest) ≡ nothing
+    ev-f = parseEvArm-fails-on-non-E-head x x≢E pos rest
 
-      -- L3 = altSum nodeArm msgArm.  parse L3 pos input
-      -- = (inj₁ <$> parse nodeArm) <|> (inj₂ <$> parse msgArm)
-      -- → (nothing) <|> (inj₂ <$> parse msgArm) → (inj₂ <$> parse msgArm)
-      -- → (inj₂ <$> nothing) → nothing.
-      L3-f : parse (altSum nodeArm msgArm) pos (x ∷ rest) ≡ nothing
-      L3-f = trans
-               (alt-right-nothing-local (inj₁ <$> parse nodeArm)
-                  (inj₂ <$> parse msgArm) pos (x ∷ rest)
-                  (map-nothing-local inj₁ (parse nodeArm) pos (x ∷ rest) node-f))
-               (map-nothing-local inj₂ (parse msgArm) pos (x ∷ rest) msg-f)
+    -- L3 = altSum nodeArm msgArm.  parse L3 pos input
+    -- = (inj₁ <$> parse nodeArm) <|> (inj₂ <$> parse msgArm)
+    -- → (nothing) <|> (inj₂ <$> parse msgArm) → (inj₂ <$> parse msgArm)
+    -- → (inj₂ <$> nothing) → nothing.
+    L3-f : parse (altSum nodeArm msgArm) pos (x ∷ rest) ≡ nothing
+    L3-f = trans
+             (alt-right-nothing-local (inj₁ <$> parse nodeArm)
+                (inj₂ <$> parse msgArm) pos (x ∷ rest)
+                (map-nothing-local inj₁ (parse nodeArm) pos (x ∷ rest) node-f))
+             (map-nothing-local inj₂ (parse msgArm) pos (x ∷ rest) msg-f)
 
-      -- L2 = altSum L3 sigArm.  Same structure.
-      L2-f : parse (altSum (altSum nodeArm msgArm) sigArm) pos (x ∷ rest) ≡ nothing
-      L2-f = trans
-               (alt-right-nothing-local (inj₁ <$> parse (altSum nodeArm msgArm))
-                  (inj₂ <$> parse sigArm) pos (x ∷ rest)
-                  (map-nothing-local inj₁ (parse (altSum nodeArm msgArm))
-                     pos (x ∷ rest) L3-f))
-               (map-nothing-local inj₂ (parse sigArm) pos (x ∷ rest) sig-f)
-    in
-    -- L1 = altSum L2 evArm.
-    trans
-      (alt-right-nothing-local
-         (inj₁ <$> parse (altSum (altSum nodeArm msgArm) sigArm))
-         (inj₂ <$> parse evArm) pos (x ∷ rest)
-         (map-nothing-local inj₁ (parse (altSum (altSum nodeArm msgArm) sigArm))
-            pos (x ∷ rest) L2-f))
-      (map-nothing-local inj₂ (parse evArm) pos (x ∷ rest) ev-f)
+    -- L2 = altSum L3 sigArm.  Same structure.
+    L2-f : parse (altSum (altSum nodeArm msgArm) sigArm) pos (x ∷ rest) ≡ nothing
+    L2-f = trans
+             (alt-right-nothing-local (inj₁ <$> parse (altSum nodeArm msgArm))
+                (inj₂ <$> parse sigArm) pos (x ∷ rest)
+                (map-nothing-local inj₁ (parse (altSum nodeArm msgArm))
+                   pos (x ∷ rest) L3-f))
+             (map-nothing-local inj₂ (parse sigArm) pos (x ∷ rest) sig-f)
+  in
+  -- L1 = altSum L2 evArm.
+  trans
+    (alt-right-nothing-local
+       (inj₁ <$> parse (altSum (altSum nodeArm msgArm) sigArm))
+       (inj₂ <$> parse evArm) pos (x ∷ rest)
+       (map-nothing-local inj₁ (parse (altSum (altSum nodeArm msgArm) sigArm))
+          pos (x ∷ rest) L2-f))
+    (map-nothing-local inj₂ (parse evArm) pos (x ∷ rest) ev-f)
 
 -- ============================================================================
 -- STD TARGET FORMAT — 5-way altSum + iso (Net via empty arm)
@@ -787,522 +753,34 @@ private
     → (xs ++ₗ ' ' ∷ []) ++ₗ ys ≡ xs ++ₗ ' ' ∷ ys
   shift-trail-space-AttrLine xs ys = ++ₗ-assoc xs (' ' ∷ []) ys
 
-  -- Generic bridge for the line-shape `(qsl(name) ++ ' ∷ kw-body ++ (value-chars
-  -- ++ ;\n+[])) ++ outer-suffix ↔ qsl(name) ++ ' ∷ kw-body ++ value-chars ++
-  -- ;\n+ outer-suffix`.  Three nested ++-assoc steps:
-  --   1. `qsl ++ (' ∷ STUFF)` ↔ outer pull through qsl.
-  --   2. `kw-body ++ (value ++ ;\n+[])` ↔ outer pull through kw-body.
-  --   3. `value ++ (;\n+[])` ↔ outer pull through value.
-  -- Treats `kw-body` opaquely; identical proof for Node/Msg/Sig/Ev kw-bodies.
-  -- Also reused by attrRelFmt (BA_REL_) which has the same line-tail shape.
-  bridge-emit-tail :
-    ∀ (name : List Char) (kw-body : List Char) (value-chars : List Char)
-      (outer-suffix : List Char)
-    → (quoteStringLit-chars name ++ₗ
-         ' ' ∷ kw-body ++ₗ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
-        ++ₗ outer-suffix
-      ≡ quoteStringLit-chars name ++ₗ
-          ' ' ∷ kw-body ++ₗ value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix
-  bridge-emit-tail name kw-body value-chars outer-suffix =
-    trans
-      (++ₗ-assoc (quoteStringLit-chars name)
-                 (' ' ∷ kw-body ++ₗ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
-                 outer-suffix)
-      (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
-            (trans
-              (++ₗ-assoc kw-body (value-chars ++ₗ ';' ∷ '\n' ∷ []) outer-suffix)
-              (cong (kw-body ++ₗ_)
-                    (++ₗ-assoc value-chars (';' ∷ '\n' ∷ []) outer-suffix))))
-
--- ============================================================================
--- L5 DISJOINTNESS HELPERS — `EmitsOK stdTargetWireFmt RatwNet input`
--- ============================================================================
+-- Generic bridge for the line-shape `(qsl(name) ++ ' ∷ kw-body ++ (value-chars
+-- ++ ;\n+[])) ++ outer-suffix ↔ qsl(name) ++ ' ∷ kw-body ++ value-chars ++
+-- ;\n+ outer-suffix`.  Three nested ++-assoc steps:
+--   1. `qsl ++ (' ∷ STUFF)` ↔ outer pull through qsl.
+--   2. `kw-body ++ (value ++ ;\n+[])` ↔ outer pull through kw-body.
+--   3. `value ++ (;\n+[])` ↔ outer pull through value.
+-- Treats `kw-body` opaquely; identical proof for Node/Msg/Sig/Ev kw-bodies.
+-- Also reused by attrRelFmt (BA_REL_) which has the same line-tail shape.
 --
--- The L5 obligation of `parseAttrAssign-format-roundtrip` for `wireTgt =
--- RatwNet` reduces (via `iso` then `altSum (inj₂ tt)`) to:
---   ⊤ × (∀ pos → parse <left-keyword-chain> pos input ≡ nothing)
--- where `<left-keyword-chain>` is the private `(((nodeArm | msgArm) | sigArm)
--- | evArm)` 4-way altSum.  Each arm starts with `withPrefix "BU_"/"BO_"/
--- "SG_"/"EV_"`, parsing its first char.  For inputs whose first char is
--- not in `{'B','S','E'}`, all four arms fail by first-char `_≈ᵇ_` mismatch
--- and the chain returns `nothing` — `λ _ → refl` closes the disjointness
--- locally (here, where left-chain is in private scope).
---
--- For the 3 ATgtNetwork value-emit shapes, the leading char is one of:
---   * `'"'`        (RavwString)
---   * digit-or-`'-'` (RavwFrac, RavwBareInt — head-classify dispatched
---                    by the caller in `Properties/.../Network.agda`).
---
--- Each helper below takes the input plus an equality `input ≡ <head> ∷ tail`
--- and pattern-matches on `refl` to expose the closed head locally, sidestep-
--- ping `subst` over the (huge) `EmitsOK stdTargetWireFmt RatwNet …` predicate
--- — pattern-matching `refl` does NOT trigger predicate reduction, while
--- `subst` does, blowing -M16G via the 4-deep nested altSum.
---
--- The per-`k` digit dispatch is closed by 10 explicit cases + an absurd
--- suc-chain (matches `Common.agda`'s `digitChar-not-quote` shape).  For
--- closed `'"'` and `'-'` heads, `λ _ → refl` is used directly.
-
-emit-stdTargetWireFmt-RatwNet-on-quote-head :
-  ∀ (input : List Char) (rest : List Char)
-  → input ≡ '"' ∷ rest
-  → EmitsOK stdTargetWireFmt RatwNet input
-emit-stdTargetWireFmt-RatwNet-on-quote-head _ _ refl = (tt , λ _ → refl)
-
-emit-stdTargetWireFmt-RatwNet-on-dash-head :
-  ∀ (input : List Char) (rest : List Char)
-  → input ≡ '-' ∷ rest
-  → EmitsOK stdTargetWireFmt RatwNet input
-emit-stdTargetWireFmt-RatwNet-on-dash-head _ _ refl = (tt , λ _ → refl)
-
-emit-stdTargetWireFmt-RatwNet-on-digit-head :
-  ∀ (input : List Char) (k : ℕ) → k Data.Nat.< 10
-  → ∀ (rest : List Char)
-  → input ≡ digitChar k ∷ rest
-  → EmitsOK stdTargetWireFmt RatwNet input
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 0 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 1 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 2 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 3 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 4 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 5 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 6 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 7 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 8 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _ 9 _ _ refl = (tt , λ _ → refl)
-emit-stdTargetWireFmt-RatwNet-on-digit-head _
-  (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-  (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
-    (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
-
--- Abstract-head EmitsOK builder.  Takes head-class witness (head + 3 ≢
--- inequalities against keyword first chars) and produces the L5 disjoint-
--- ness witness without the 11-case digit dispatch the on-digit-head trio
--- needs.  The body pair-constructs `(tt , λ pos → parseStdTgtL1-fails ...)`
--- — verified against `EmitsOK stdTargetWireFmt RatwNet (x ∷ rest)`'s
--- ⊤ × Π reduction by a single normalization (no `with` blowup since the
--- disjointness Π is supplied directly as an argument, never reconstructed
--- in scope).  Used by `parseAttrAssign-format-roundtrip-RatwNet`.
-
-emit-stdTargetWireFmt-RatwNet-on-non-keyword-head :
-  ∀ (input : List Char) (x : Char) (rest : List Char)
-  → input ≡ x ∷ rest
-  → (x ≈ᵇ 'B') ≡ false
-  → (x ≈ᵇ 'S') ≡ false
-  → (x ≈ᵇ 'E') ≡ false
-  → EmitsOK stdTargetWireFmt RatwNet input
-emit-stdTargetWireFmt-RatwNet-on-non-keyword-head _ x rest refl x≢B x≢S x≢E =
-  (tt , λ pos → parseStdTgtL1-fails-on-non-keyword-head x x≢B x≢S x≢E pos rest)
-
--- Specialized RatwNet roundtrip — takes a head-class witness instead of
--- the wide `EmitsOK stdTargetWireFmt RatwNet …` obligation that the
--- universal lemma wants for L5.  See `feedback_emitsok_inj2_deep_pattern.md`
--- for why the universal-lemma path OOMs for RatwNet.  Internally builds
--- the L5 via `emit-stdTargetWireFmt-RatwNet-on-non-keyword-head` and
--- delegates to the universal lemma.  Network.agda's per-shape dispatchers
--- consume this with head-class witnesses derived from `showXxx-chars-
--- head-classify`.
-parseAttrAssign-format-roundtrip-RatwNet :
-  ∀ (pos : Position) (n : List Char)
-    (wireVal : RawAttrValueWire) (outer-suffix : List Char)
-    (x : Char) (tail : List Char)
-  → SuffixStops isHSpace
-      (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-  → emit attrValueWireFmt wireVal ≡ x ∷ tail
-  → (x ≈ᵇ 'B') ≡ false
-  → (x ≈ᵇ 'S') ≡ false
-  → (x ≈ᵇ 'E') ≡ false
-  → parse attrAssignFmt pos
-      (emit attrAssignFmt (n , RatwNet , wireVal , tt) ++ₗ outer-suffix)
-    ≡ just (mkResult (n , RatwNet , wireVal , tt)
-              (advancePositions pos
-                (emit attrAssignFmt (n , RatwNet , wireVal , tt)))
-              outer-suffix)
-parseAttrAssign-format-roundtrip-RatwNet pos n wireVal outer-suffix x tail
-                                          l4 l6 val-eq x≢B x≢S x≢E =
-  parseAttrAssign-format-roundtrip pos n RatwNet wireVal outer-suffix l4
-    (emit-stdTargetWireFmt-RatwNet-on-non-keyword-head
-       (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-       x
-       (tail ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-       (cong (_++ₗ ';' ∷ '\n' ∷ outer-suffix) val-eq)
-       x≢B x≢S x≢E)
-    l6
-
--- ============================================================================
--- KEYWORD-TARGET EMIT EQUATIONS — public, full-line attrAssignFmt shapes
--- ============================================================================
---
--- Mirror of `emit-attrAssignFmt-RatwNet` for the 4 keyword targets.  Each
--- exposes the closed-form emit equality so the per-target Properties files
--- can bridge between the inline-input shape (`"BA_ " ++ qsl(name) ++
--- " <KW>_ " ++ <body> ++ ' ' ∷ value-chars ++ ";\n" ++ outer`) and the
--- universal `parseAttrAssign-format-roundtrip`'s `emit attrAssignFmt …`
--- input.  All close by `refl` here (private internals reduce in scope).
-
-emit-attrAssignFmt-RatwNode :
-  ∀ (n : List Char) (idn : Identifier) (wireVal : RawAttrValueWire) →
-  emit attrAssignFmt (n , RatwNode idn , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      ' ' ∷ (toList "BU_" ++ₗ ' ' ∷ Identifier.name idn ++ₗ ' ' ∷ []) ++ₗ
-        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
-emit-attrAssignFmt-RatwNode _ _ _ = refl
-
--- Outer-suffix variant: bakes outer-suffix into the canonical spec shape
--- (`"BA_ " ++ qsl(n) ++ " BU_ " ++ name idn ++ ' ∷ value-emit ++ ;\n+
--- outer-suffix`) — the form per-target dispatcher inputs use.  Composed
--- via `bridge-emit-tail` (3 nested ++-assoc steps over qsl/kw-body/value)
--- + one final ++-assoc over `name idn ++ ' ∷ []` to fold the trailing
--- ws-slot of `identTrailingWS` into the leading ' ∷ value-chars.
-emit-attrAssignFmt-RatwNode-with-outer :
-  ∀ (n : List Char) (idn : Identifier) (wireVal : RawAttrValueWire)
-    (outer-suffix : List Char) →
-  emit attrAssignFmt (n , RatwNode idn , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      toList " BU_ " ++ₗ Identifier.name idn ++ₗ
-      ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
-emit-attrAssignFmt-RatwNode-with-outer n idn wireVal outer-suffix =
+-- Public (lifted from private block on 2026-05-18) so the KEYWORD-TARGET
+-- emit-equation sibling `Format/AttrLine/Builders.agda` can compose the
+-- `*-with-outer` lemmas after the AGDA-D-15.1 split.
+bridge-emit-tail :
+  ∀ (name : List Char) (kw-body : List Char) (value-chars : List Char)
+    (outer-suffix : List Char)
+  → (quoteStringLit-chars name ++ₗ
+       ' ' ∷ kw-body ++ₗ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+      ++ₗ outer-suffix
+    ≡ quoteStringLit-chars name ++ₗ
+        ' ' ∷ kw-body ++ₗ value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix
+bridge-emit-tail name kw-body value-chars outer-suffix =
   trans
-    (cong (_++ₗ outer-suffix) (emit-attrAssignFmt-RatwNode n idn wireVal))
-    (trans
-      (cong (λ z → toList "BA_ " ++ₗ z)
-            (bridge-emit-tail n
-              (toList "BU_" ++ₗ ' ' ∷ Identifier.name idn ++ₗ ' ' ∷ [])
-              (emit attrValueWireFmt wireVal)
-              outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-                     ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ ' ' ∷ z)
-            (++ₗ-assoc (Identifier.name idn) (' ' ∷ [])
-                       (emit attrValueWireFmt wireVal ++ₗ
-                          ';' ∷ '\n' ∷ outer-suffix))))
+    (++ₗ-assoc (quoteStringLit-chars name)
+               (' ' ∷ kw-body ++ₗ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+               outer-suffix)
+    (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
+          (trans
+            (++ₗ-assoc kw-body (value-chars ++ₗ ';' ∷ '\n' ∷ []) outer-suffix)
+            (cong (kw-body ++ₗ_)
+                  (++ₗ-assoc value-chars (';' ∷ '\n' ∷ []) outer-suffix))))
 
-emit-attrAssignFmt-RatwMsg :
-  ∀ (n : List Char) (raw : ℕ) (wireVal : RawAttrValueWire) →
-  emit attrAssignFmt (n , RatwMsg raw , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      ' ' ∷ (toList "BO_" ++ₗ ' ' ∷ emit nat raw ++ₗ ' ' ∷ []) ++ₗ
-        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
-emit-attrAssignFmt-RatwMsg _ _ _ = refl
-
-emit-attrAssignFmt-RatwMsg-with-outer :
-  ∀ (n : List Char) (raw : ℕ) (wireVal : RawAttrValueWire)
-    (outer-suffix : List Char) →
-  emit attrAssignFmt (n , RatwMsg raw , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      toList " BO_ " ++ₗ emit nat raw ++ₗ
-      ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
-emit-attrAssignFmt-RatwMsg-with-outer n raw wireVal outer-suffix =
-  trans
-    (cong (_++ₗ outer-suffix) (emit-attrAssignFmt-RatwMsg n raw wireVal))
-    (trans
-      (cong (λ z → toList "BA_ " ++ₗ z)
-            (bridge-emit-tail n
-              (toList "BO_" ++ₗ ' ' ∷ emit nat raw ++ₗ ' ' ∷ [])
-              (emit attrValueWireFmt wireVal)
-              outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-                     ' ' ∷ 'B' ∷ 'O' ∷ '_' ∷ ' ' ∷ z)
-            (++ₗ-assoc (emit nat raw) (' ' ∷ [])
-                       (emit attrValueWireFmt wireVal ++ₗ
-                          ';' ∷ '\n' ∷ outer-suffix))))
-
-emit-attrAssignFmt-RatwSig :
-  ∀ (n : List Char) (raw : ℕ) (sig : Identifier) (wireVal : RawAttrValueWire) →
-  emit attrAssignFmt (n , RatwSig raw sig , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      ' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
-        ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])) ++ₗ
-        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
-emit-attrAssignFmt-RatwSig _ _ _ _ = refl
-
--- Sig: kw-body has nested `(emit nat raw ++ ' ∷ name sig ++ ' ∷ [])` after
--- the SG_ prefix.  Two nested ++-assoc steps to bridge to the canonical
--- spec form `... " SG_ " ++ emit nat raw ++ ' ∷ name sig ++ ' ∷ value-emit
--- ++ ;\n+ outer-suffix`.
-emit-attrAssignFmt-RatwSig-with-outer :
-  ∀ (n : List Char) (raw : ℕ) (sig : Identifier) (wireVal : RawAttrValueWire)
-    (outer-suffix : List Char) →
-  emit attrAssignFmt (n , RatwSig raw sig , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      toList " SG_ " ++ₗ emit nat raw ++ₗ
-      ' ' ∷ Identifier.name sig ++ₗ
-      ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
-emit-attrAssignFmt-RatwSig-with-outer n raw sig wireVal outer-suffix =
-  trans
-    (cong (_++ₗ outer-suffix) (emit-attrAssignFmt-RatwSig n raw sig wireVal))
-    (trans
-      (cong (λ z → toList "BA_ " ++ₗ z)
-            (bridge-emit-tail n
-              (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
-                ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ []))
-              (emit attrValueWireFmt wireVal)
-              outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-                     ' ' ∷ 'S' ∷ 'G' ∷ '_' ∷ ' ' ∷ z)
-            (trans
-              (++ₗ-assoc (emit nat raw)
-                         (' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])
-                         (emit attrValueWireFmt wireVal ++ₗ
-                            ';' ∷ '\n' ∷ outer-suffix))
-              (cong (λ z → emit nat raw ++ₗ ' ' ∷ z)
-                    (++ₗ-assoc (Identifier.name sig) (' ' ∷ [])
-                               (emit attrValueWireFmt wireVal ++ₗ
-                                  ';' ∷ '\n' ∷ outer-suffix))))))
-
-emit-attrAssignFmt-RatwEv :
-  ∀ (n : List Char) (ev : Identifier) (wireVal : RawAttrValueWire) →
-  emit attrAssignFmt (n , RatwEv ev , wireVal , tt)
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      ' ' ∷ (toList "EV_" ++ₗ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ []) ++ₗ
-        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
-emit-attrAssignFmt-RatwEv _ _ _ = refl
-
-emit-attrAssignFmt-RatwEv-with-outer :
-  ∀ (n : List Char) (ev : Identifier) (wireVal : RawAttrValueWire)
-    (outer-suffix : List Char) →
-  emit attrAssignFmt (n , RatwEv ev , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-      toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-      ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
-emit-attrAssignFmt-RatwEv-with-outer n ev wireVal outer-suffix =
-  trans
-    (cong (_++ₗ outer-suffix) (emit-attrAssignFmt-RatwEv n ev wireVal))
-    (trans
-      (cong (λ z → toList "BA_ " ++ₗ z)
-            (bridge-emit-tail n
-              (toList "EV_" ++ₗ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ [])
-              (emit attrValueWireFmt wireVal)
-              outer-suffix))
-      (cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
-                     ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ z)
-            (++ₗ-assoc (Identifier.name ev) (' ' ∷ [])
-                       (emit attrValueWireFmt wireVal ++ₗ
-                          ';' ∷ '\n' ∷ outer-suffix))))
-
--- BA_REL_ line emit equalities.
-emit-attrRelFmt-RrtNodeMsg :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire) →
-  emit attrRelFmt (n , RrtNodeMsg idn raw , wireVal , tt)
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
-      ' ' ∷ (toList "BU_BO_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
-        ' ' ∷ emit nat raw ++ₗ ' ' ∷ [])) ++ₗ
-        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
-emit-attrRelFmt-RrtNodeMsg _ _ _ _ = refl
-
--- RrtNodeMsg: kw-body has nested `(name idn ++ ' ∷ emit nat raw ++ ' ∷ [])`
--- after BU_BO_REL_ prefix.  Two nested ++-assoc steps.
-emit-attrRelFmt-RrtNodeMsg-with-outer :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (wireVal : RawAttrValueWire)
-    (outer-suffix : List Char) →
-  emit attrRelFmt (n , RrtNodeMsg idn raw , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
-      toList " BU_BO_REL_ " ++ₗ Identifier.name idn ++ₗ
-      ' ' ∷ emit nat raw ++ₗ
-      ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
-emit-attrRelFmt-RrtNodeMsg-with-outer n idn raw wireVal outer-suffix =
-  trans
-    (cong (_++ₗ outer-suffix) (emit-attrRelFmt-RrtNodeMsg n idn raw wireVal))
-    (trans
-      (cong (λ z → toList "BA_REL_ " ++ₗ z)
-            (bridge-emit-tail n
-              (toList "BU_BO_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
-                ' ' ∷ emit nat raw ++ₗ ' ' ∷ []))
-              (emit attrValueWireFmt wireVal)
-              outer-suffix))
-      (cong (λ z → toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
-                     ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ 'B' ∷ 'O' ∷ '_' ∷
-                       'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷ z)
-            (trans
-              (++ₗ-assoc (Identifier.name idn)
-                         (' ' ∷ emit nat raw ++ₗ ' ' ∷ [])
-                         (emit attrValueWireFmt wireVal ++ₗ
-                            ';' ∷ '\n' ∷ outer-suffix))
-              (cong (λ z → Identifier.name idn ++ₗ ' ' ∷ z)
-                    (++ₗ-assoc (emit nat raw) (' ' ∷ [])
-                               (emit attrValueWireFmt wireVal ++ₗ
-                                  ';' ∷ '\n' ∷ outer-suffix))))))
-
-emit-attrRelFmt-RrtNodeSig :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (sig : Identifier)
-    (wireVal : RawAttrValueWire) →
-  emit attrRelFmt (n , RrtNodeSig idn raw sig , wireVal , tt)
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
-      ' ' ∷ (toList "BU_SG_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
-        ' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
-          ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])))) ++ₗ
-        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ [])
-emit-attrRelFmt-RrtNodeSig _ _ _ _ _ = refl
-
--- RrtNodeSig: most nested kw-body — three nested ++-assoc steps.
-emit-attrRelFmt-RrtNodeSig-with-outer :
-  ∀ (n : List Char) (idn : Identifier) (raw : ℕ) (sig : Identifier)
-    (wireVal : RawAttrValueWire) (outer-suffix : List Char) →
-  emit attrRelFmt (n , RrtNodeSig idn raw sig , wireVal , tt) ++ₗ outer-suffix
-  ≡ toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
-      toList " BU_SG_REL_ " ++ₗ Identifier.name idn ++ₗ
-      ' ' ∷ toList "SG_ " ++ₗ emit nat raw ++ₗ
-      ' ' ∷ Identifier.name sig ++ₗ
-      ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
-emit-attrRelFmt-RrtNodeSig-with-outer n idn raw sig wireVal outer-suffix =
-  trans
-    (cong (_++ₗ outer-suffix) (emit-attrRelFmt-RrtNodeSig n idn raw sig wireVal))
-    (trans
-      (cong (λ z → toList "BA_REL_ " ++ₗ z)
-            (bridge-emit-tail n
-              (toList "BU_SG_REL_" ++ₗ ' ' ∷ (Identifier.name idn ++ₗ
-                ' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
-                  ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ []))))
-              (emit attrValueWireFmt wireVal)
-              outer-suffix))
-      (cong (λ z → toList "BA_REL_ " ++ₗ quoteStringLit-chars n ++ₗ
-                     ' ' ∷ 'B' ∷ 'U' ∷ '_' ∷ 'S' ∷ 'G' ∷ '_' ∷
-                       'R' ∷ 'E' ∷ 'L' ∷ '_' ∷ ' ' ∷ z)
-            (trans
-              (++ₗ-assoc (Identifier.name idn)
-                         (' ' ∷ (toList "SG_" ++ₗ ' ' ∷ (emit nat raw ++ₗ
-                           ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])))
-                         (emit attrValueWireFmt wireVal ++ₗ
-                            ';' ∷ '\n' ∷ outer-suffix))
-              (cong (λ z → Identifier.name idn ++ₗ
-                              ' ' ∷ 'S' ∷ 'G' ∷ '_' ∷ ' ' ∷ z)
-                    (trans
-                      (++ₗ-assoc (emit nat raw)
-                                 (' ' ∷ Identifier.name sig ++ₗ ' ' ∷ [])
-                                 (emit attrValueWireFmt wireVal ++ₗ
-                                    ';' ∷ '\n' ∷ outer-suffix))
-                      (cong (λ z → emit nat raw ++ₗ ' ' ∷ z)
-                            (++ₗ-assoc (Identifier.name sig) (' ' ∷ [])
-                                       (emit attrValueWireFmt wireVal ++ₗ
-                                          ';' ∷ '\n' ∷ outer-suffix))))))))
-
--- ============================================================================
--- KEYWORD-TARGET L5 BUILDERS — `EmitsOK stdTargetWireFmt (RatwXxx ...) suffix`
--- ============================================================================
---
--- For keyword targets, L5 reduces (via iso → 4 inj₁ peels through the
--- 5-way altSum) to `EmitsOK <kwArm> body suffix`.  No top-level
--- disjointness obligation (those only apply to the inj₂ empty-arm
--- fall-through, i.e. RatwNet).  The structural EmitsOK pieces are
--- assembled directly from per-shape preconditions (head-stop witnesses
--- + suffix-stop on the value-emit slot).
-
--- For nodeArm / evArm: `pair (literal "<KW>_") (withWS (pair ident ws))`.
--- The L5.2 slot reduces to `SuffixStops isHSpace ((Identifier.name idn
--- ++ ' ' ∷ []) ++ suffix)` — the `(name ++ ' ∷ [])` is the left-assoc
--- output of `emit identTrailingWS idn`, NOT the right-assoc `name ++ ' ∷
--- suffix` form.  Caller must supply this exact shape (constructed via
--- ++-assoc subst from the IdentNameStop head witness).
---
--- Disjointness: `bwdStdTgt`'s inj-position determines what altSum
--- disjointness obligations are needed at the L5.0 (outermost) level:
---   * RatwNode (inj₁₄)         : 0 obligations (innermost inj₁ throughout)
---   * RatwMsg  (inj₁₃ + inj₂₁) : 1 obligation against `nodeArm`
---   * RatwSig  (inj₁₂ + inj₂₁) : 1 obligation against `altSum nodeArm msgArm`
---   * RatwEv   (inj₁  + inj₂)  : 1 obligation against
---                                `altSum (altSum nodeArm msgArm) sigArm`
--- Each disjointness closes by `λ _ → refl` on closed-Char first-char
--- mismatch (Msg's "BO_" vs "BU_" mismatches on second char, etc.).
-
-build-EmitsOK-stdTargetWireFmt-RatwNode :
-  ∀ (idn : Identifier) (suffix : List Char)
-  → SuffixStops isHSpace ((Identifier.name idn ++ₗ ' ' ∷ []) ++ₗ suffix)
-  → SuffixStops isHSpace suffix
-  → EmitsOK stdTargetWireFmt (RatwNode idn) suffix
-build-EmitsOK-stdTargetWireFmt-RatwNode idn suffix name-stop val-stop =
-  tt , name-stop , ∷-stop refl , val-stop
-
-build-EmitsOK-stdTargetWireFmt-RatwEv :
-  ∀ (ev : Identifier) (suffix : List Char)
-  → SuffixStops isHSpace ((Identifier.name ev ++ₗ ' ' ∷ []) ++ₗ suffix)
-  → SuffixStops isHSpace suffix
-  → EmitsOK stdTargetWireFmt (RatwEv ev) suffix
-build-EmitsOK-stdTargetWireFmt-RatwEv ev suffix name-stop val-stop =
-  ((tt , name-stop , ∷-stop refl , val-stop) , λ _ → refl)
-
--- For msgArm: `pair (literal "BO_") (withWS (pair nat ws))`.  Closed via
--- showNat-chars-head — first digit is non-hspace, no caller witness needed.
--- Disjointness against nodeArm closes by `λ _ → refl` (BO_ vs BU_ on 2nd char).
-build-EmitsOK-stdTargetWireFmt-RatwMsg :
-  ∀ (raw : ℕ) (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → EmitsOK stdTargetWireFmt (RatwMsg raw) suffix
-build-EmitsOK-stdTargetWireFmt-RatwMsg raw suffix val-stop =
-  ((tt , raw-stop , ∷-stop refl , val-stop) , λ _ → refl)
-  where
-    raw-stop : SuffixStops isHSpace ((emit nat raw ++ₗ ' ' ∷ []) ++ₗ suffix)
-    raw-stop with showNat-chars-head raw
-    ... | d , tail , d<10 , eq =
-      subst (λ chars → SuffixStops isHSpace ((chars ++ₗ ' ' ∷ []) ++ₗ suffix))
-            (sym eq) (∷-stop (digit-not-isHSpace d))
-
--- For sigArm: `pair (literal "SG_") (withWS (pair nat (withWS (pair ident
--- ws))))`.  Disjointness against `altSum nodeArm msgArm` closes by `λ _ →
--- refl` (SG_ vs B*_ on first char).
-build-EmitsOK-stdTargetWireFmt-RatwSig :
-  ∀ (raw : ℕ) (sig : Identifier) (suffix : List Char)
-  → SuffixStops isHSpace ((Identifier.name sig ++ₗ ' ' ∷ []) ++ₗ suffix)
-  → SuffixStops isHSpace suffix
-  → EmitsOK stdTargetWireFmt (RatwSig raw sig) suffix
-build-EmitsOK-stdTargetWireFmt-RatwSig raw sig suffix sig-stop val-stop =
-  ((tt , raw-stop ,
-    (∷-stop refl , (sig-stop , (∷-stop refl , val-stop)))) ,
-   λ _ → refl)
-  where
-    raw-stop : SuffixStops isHSpace
-      ((emit nat raw ++ₗ
-        ' ' ∷ ((Identifier.name sig ++ₗ ' ' ∷ []))) ++ₗ suffix)
-    raw-stop with showNat-chars-head raw
-    ... | d , tail , d<10 , eq =
-      subst (λ chars → SuffixStops isHSpace
-                ((chars ++ₗ ' ' ∷ ((Identifier.name sig ++ₗ ' ' ∷ [])))
-                  ++ₗ suffix))
-            (sym eq) (∷-stop (digit-not-isHSpace d))
-
--- For nodeMsgArm: `pair (literal "BU_BO_REL_") (withWS (pair ident (withWS
--- (pair nat ws))))`.  L5 inputs: idn IdentNameStop (over the longer span),
--- raw via showNat, val-stop.
-build-EmitsOK-relTargetWireFmt-RrtNodeMsg :
-  ∀ (idn : Identifier) (raw : ℕ) (suffix : List Char)
-  → SuffixStops isHSpace
-      ((Identifier.name idn ++ₗ ' ' ∷ ((emit nat raw ++ₗ ' ' ∷ []))) ++ₗ suffix)
-  → SuffixStops isHSpace suffix
-  → EmitsOK relTargetWireFmt (RrtNodeMsg idn raw) suffix
-build-EmitsOK-relTargetWireFmt-RrtNodeMsg idn raw suffix idn-stop val-stop =
-  tt , idn-stop , (∷-stop refl , (raw-stop , (∷-stop refl , val-stop)))
-  where
-    raw-stop : SuffixStops isHSpace ((emit nat raw ++ₗ ' ' ∷ []) ++ₗ suffix)
-    raw-stop with showNat-chars-head raw
-    ... | d , tail , d<10 , eq =
-      subst (λ chars → SuffixStops isHSpace ((chars ++ₗ ' ' ∷ []) ++ₗ suffix))
-            (sym eq) (∷-stop (digit-not-isHSpace d))
-
--- RrtNodeSig is the inj₂ position of `altSum nodeMsgArm nodeSigArm`, so
--- needs disjointness against nodeMsgArm.  nodeMsgArm prefix is
--- "BU_BO_REL_"; nodeSigArm prefix is "BU_SG_REL_" — differ at index 3
--- (`B` vs `S`).  parse nodeMsgArm pos input fails on 4th-char mismatch
--- once the leading `BU_` matches; closes by `λ _ → refl`.
-build-EmitsOK-relTargetWireFmt-RrtNodeSig :
-  ∀ (idn : Identifier) (raw : ℕ) (sig : Identifier) (suffix : List Char)
-  → SuffixStops isHSpace
-      ((Identifier.name idn ++ₗ ' ' ∷
-        ((toList "SG_" ++ₗ ' ' ∷ ((emit nat raw ++ₗ
-          ' ' ∷ ((Identifier.name sig ++ₗ ' ' ∷ []))))))) ++ₗ suffix)
-  → SuffixStops isHSpace ((Identifier.name sig ++ₗ ' ' ∷ []) ++ₗ suffix)
-  → SuffixStops isHSpace suffix
-  → EmitsOK relTargetWireFmt (RrtNodeSig idn raw sig) suffix
-build-EmitsOK-relTargetWireFmt-RrtNodeSig idn raw sig suffix idn-stop sig-stop val-stop =
-  ((tt , idn-stop , (∷-stop refl ,
-    (∷-stop refl ,
-     (tt , (raw-stop , (∷-stop refl , (sig-stop , (∷-stop refl , val-stop))))))))
-   , λ _ → refl)
-  where
-    raw-stop : SuffixStops isHSpace
-      ((emit nat raw ++ₗ
-        ' ' ∷ ((Identifier.name sig ++ₗ ' ' ∷ []))) ++ₗ suffix)
-    raw-stop with showNat-chars-head raw
-    ... | d , tail , d<10 , eq =
-      subst (λ chars → SuffixStops isHSpace
-                ((chars ++ₗ ' ' ∷ ((Identifier.name sig ++ₗ ' ' ∷ [])))
-                  ++ₗ suffix))
-            (sym eq) (∷-stop (digit-not-isHSpace d))
