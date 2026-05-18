@@ -24,11 +24,11 @@
 --     VERSION / BS_ trailing blank line (`"\n\n"`).
 module Aletheia.DBC.TextParser.Properties.Preamble.Newline where
 
-open import Data.Bool using (Bool; true; false; _∨_)
+open import Data.Bool using (Bool; false; _∨_)
 open import Data.Char using (Char)
 open import Data.Char.Base using (_≈ᵇ_)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.List using (List; []; _∷_)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (toList)

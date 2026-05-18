@@ -9,13 +9,13 @@ module Aletheia.CAN.Batch.Properties.Completeness where
 open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
-open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
-open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; BitExtractionFailed; InContext)
+open import Aletheia.CAN.ExtractionResult using (Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
+open import Aletheia.Error using (MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; BitExtractionFailed; InContext)
 open import Aletheia.CAN.SignalExtraction using (extractSignalDirect)
 open import Aletheia.CAN.BatchExtraction using (PartitionedResults; mkPartitionedResults; ExtractionResults; categorizeResult; combinePartitioned; emptyPartitioned; extractAllSignalsFromMessage)
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
 
-open import Data.List using (List; []; _∷_; length; map; foldr)
+open import Data.List using ([]; _∷_; length; map; foldr)
 open import Data.Nat using (ℕ; _+_; suc)
 open import Data.Nat.Properties using (+-suc)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans)
