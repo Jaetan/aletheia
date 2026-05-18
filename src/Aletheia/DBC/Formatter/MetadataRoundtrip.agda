@@ -30,14 +30,14 @@ open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (map-∘)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (_⊎_; inj₂)
 open import Data.Integer using (ℤ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
 open import Aletheia.DBC.DecRat using (DecRat; toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
 
 open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
-  VarType; IntVar; FloatVar; StringVar; varTypeToℕ;
+  IntVar; FloatVar; StringVar; varTypeToℕ;
   Node; mkNode; DBCComment; mkComment;
   CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
   AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar; ASNodeMsg; ASNodeSig;
@@ -45,10 +45,10 @@ open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
   AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex;
   AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
   ATgtNodeMsg; ATgtNodeSig;
-  AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
+  AttrDef; AttrDefault; AttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
   RawValueDesc; mkRawValueDesc)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; identJSON;
+open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON;
   formatSignalGroup; formatEnvironmentVar; formatValueTable; formatValueEntry;
   formatNode; formatComment; formatCommentTarget;
   formatAttribute; formatAttrScope; formatAttrType;

@@ -21,13 +21,12 @@ module Aletheia.DBC.TextParser.Format.SignalLine.Roundtrip where
 
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; Σ; proj₂)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
-open import Function using (case_of_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; sym; cong)
 
@@ -56,7 +55,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (showNat-chars-head; bind-just-step)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (bind-nothing; parseWS-one-space)
-open import Aletheia.DBC.TextParser.Lexer using (parseWS; parseWSOpt)
+open import Aletheia.DBC.TextParser.Lexer using (parseWS)
 open import Aletheia.Parser.Combinators
   using (_>>=_; pure)
 

@@ -8,10 +8,10 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.TopStmt.Default where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_)
+open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
-open import Data.Product using (Σ; Σ-syntax; _,_; proj₁; proj₂)
+open import Data.Product using (Σ-syntax; proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; cong)
 
