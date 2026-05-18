@@ -5,9 +5,9 @@
 -- For each error check: checkE args ≡ [] ↔ condition(args)
 -- Proved by case analysis on the Dec used in each check function.
 module Aletheia.DBC.Validity.ErrorChecks where
-open import Aletheia.DBC.Identifier using (Identifier; nameStr)
+open import Aletheia.DBC.Identifier using (nameStr)
 
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBCMessage; DBCSignal; Always; When)
 open import Aletheia.DBC.Validator using
   ( checkBitLengthZero; checkAllBitLengthZero
   ; checkFactorZeroSig; checkAllFactorZero
@@ -30,23 +30,20 @@ open import Aletheia.DBC.Validity.Combinators using
   ; liftTriangular-sound; liftTriangular-complete )
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.List using (List; []; _∷_; concatMap; length)
+open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.Nat using (ℕ; _+_; _*_)
+open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Data.Rational using (ℚ)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-open import Data.Maybe using (Maybe; just; nothing; Is-just)
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
-open import Data.Product using (_,_)
 open import Relation.Nullary using (yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 
