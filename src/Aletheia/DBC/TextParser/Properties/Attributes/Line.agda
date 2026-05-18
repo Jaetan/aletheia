@@ -31,9 +31,9 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Line where
 
 open import Data.Char using (Char)
 open import Data.Integer using (ℤ)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.String using (String; toList)
+open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (just; nothing)
+open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
@@ -44,10 +44,9 @@ open import Aletheia.Parser.Combinators
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
 open import Aletheia.DBC.Types using
-  ( AttrDef; mkAttrDef
-  ; AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
+  ( mkAttrDef
+  ; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
   ; ASNodeMsg; ASNodeSig
-  ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig)
 open import Aletheia.DBC.Identifier using (Identifier)
 
@@ -62,7 +61,7 @@ open import Aletheia.DBC.TextParser.Attributes
         ; parseRawAttrAssign; parseRawAttrRel
         ; RawDBCAttribute; RawDef; RawDefault; RawAssign
         ; mkRawAttrAssign; mkRawAttrDefault
-        ; RawAttrValue; RavString; RavDecRat)
+        ; RavString; RavDecRat)
 
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (alt-right-nothing; alt-left-just)
@@ -74,7 +73,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 
 -- Lower-level dispatchers
 open import Aletheia.DBC.TextParser.Properties.Attributes.Def using
-  ( WfAttrType; WfAttrDef-NotRel; WfAttrDef-Rel
+  ( WfAttrType
   ; Wf-Network; Wf-Node; Wf-Message; Wf-Signal; Wf-EnvVar
   ; Wf-NodeMsg; Wf-NodeSig
   ; parseAttrDef-roundtrip; parseAttrDefRel-roundtrip)
@@ -87,21 +86,6 @@ open DefaultProofs using
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign using
   ( IdentNameStop
-  ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
-  ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac
-  ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt
-  ; parseRawAttrAssign-roundtrip-ATgtNode-RavString
-  ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac
-  ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt
-  ; parseRawAttrAssign-roundtrip-ATgtMessage-RavString
-  ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac
-  ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt
-  ; parseRawAttrAssign-roundtrip-ATgtSignal-RavString
-  ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac
-  ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt
-  ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString
-  ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac
-  ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt
   ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString
   ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac
   ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
@@ -112,11 +96,6 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign using
 -- Trace modules for end-position references in dispatcher result types.
 -- Imported as aliased modules — `using (X)` doesn't work for parameterised
 -- submodules.  Default-Trace was made public in 3c.4 to support this.
-import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network as NetworkProofs
-import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node    as NodeProofs
-import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Message as MessageProofs
-import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Signal  as SignalProofs
-import Aletheia.DBC.TextParser.Properties.Attributes.Assign.EnvVar  as EnvVarProofs
 import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel     as RelProofs
 
 -- ============================================================================

@@ -27,27 +27,21 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; cong)
 
 open import Aletheia.DBC.DecRat.Refinement using
-  ( IntDecRat; intDecRatToℤ; mkIntDecRatFromℤ-intDecRatToℤ
-  ; NatDecRat; natDecRatToℕ; mkNatDecRatFromℕ-natDecRatToℕ)
+  ( mkIntDecRatFromℤ-intDecRatToℤ
+  ; mkNatDecRatFromℕ-natDecRatToℕ)
 
 open import Aletheia.DBC.Types using
   ( AttrDef; mkAttrDef
   ; AttrDefault; mkAttrDefault
   ; AttrAssign; mkAttrAssign
-  ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
-  ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
+  ; ATInt; ATFloat; ATString; ATEnum; ATHex
+  ; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   )
 
 open import Aletheia.DBC.TextParser.Attributes using
-  ( RawDBCAttribute; RawDef; RawDefault; RawAssign
-  ; RawAttrDefault; mkRawAttrDefault
-  ; RawAttrAssign; mkRawAttrAssign
-  ; RawAttrValue; RavString; RavDecRat
-  ; refineAttribute; refineAttributes; refineAll
-  ; refineDefaultValue; refineAssignValue
+  ( refineAttribute; refineAttributes; refineAll
   ; collectRawDefs; lookupDef
-  ; decRatToℤ?; decRatToℕ?
   )
 open import Aletheia.DBC.TextFormatter.Attributes using
   (collectDefs)
@@ -61,12 +55,6 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
 open import Aletheia.DBC.TextParser.Properties.Attributes.Common using
   ( ValueMatchesType
   ; VMTInt; VMTFloat; VMTString; VMTEnum; VMTHex
-  ; refineAssignValue-rawOfAssign-roundtrip
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVInt
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVFloat
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVString
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVHex
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVEnum
   ; decRatToℤ?-IntDecRat-value
   ; decRatToℕ?-NatDecRat-value
   )
