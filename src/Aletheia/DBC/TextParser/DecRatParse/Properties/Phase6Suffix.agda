@@ -18,59 +18,51 @@
 -- Depends on all earlier phases (1-4) via the re-export base.
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix where
 
-open import Data.Bool using (true; false; T)
+open import Data.Bool using (false; T)
 open import Data.Char using (Char; toℕ)
 open import Data.Char.Base using (isDigit; _≈ᵇ_)
 open import Data.Char.Properties using (toℕ-injective)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
-open import Data.Unit using (⊤; tt)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.Unit using (tt)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
   renaming (length-++ to length-++ₗ)
 open import Data.List.Relation.Unary.All using ([]; _∷_)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _/_; _%_; _^_; _⊔_;
-         _<_; _≤_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _<_)
 open import Data.Nat.Properties
-  using (*-comm; +-comm; +-identityʳ; *-identityʳ; ≤-<-trans; n<1+n; ^-monoʳ-<;
-         m≤m+n; m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl;
-         m*n≢0; m^n≢0)
-open import Data.Nat.DivMod
-  using (m%n<n; m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
-open import Data.Nat.Divisibility using (_∣_)
-open import Data.Product using (_,_)
+  using (+-identityʳ; *-identityʳ)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
-open import Relation.Nullary using (no)
+  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; value; position; remaining;
+  using (Position; Parser; mkResult;
          advancePosition; advancePositions;
-         satisfy; digit; some; many; manyHelper; sameLengthᵇ;
+         digit; some;
          char; optional; fail;
-         _>>=_; pure; _<$>_; _<*>_; _*>_; _<|>_)
+         _>>=_; pure; _<|>_)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars;
+  using (showNat-chars;
          emitMagnitude-chars; showDecRat-dec-chars; showInt-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
-  using (charToDigit; parseDigitList; parseDecRat; parseDecRatFrac;
-         parseDecRatBareInt; applySign; buildDecRat;
+  using (parseDecRat; parseDecRatFrac;
+         parseDecRatBareInt; buildDecRat;
          parseIntDecRat; parseNatDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
-  (IntDecRat; mkIntDecRat; intDecRatToℤ; mkIntDecRatFromℤ;
+  (mkIntDecRat; intDecRatToℤ;
    mkIntDecRatFromℤ-intDecRatToℤ;
    isIntegerᵇ; isIntegerᵇ-fromℤ;
-   NatDecRat; mkNatDecRat; natDecRatToℕ; mkNatDecRatFromℕ;
+   mkNatDecRat; natDecRatToℕ;
    mkNatDecRatFromℕ-natDecRatToℕ;
    isNonNegIntegerᵇ; isNonNegIntegerᵇ-fromℕ)
 open import Aletheia.Prelude using (ifᵀ_then_else_; ifᵀ-witness)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Data.Integer using (ℤ; sign; _◃_; ∣_∣)
+open import Data.Integer using (ℤ)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
-  using (DecRat; mkDecRat; isCanonicalᵇ; IsCanonical;
-         canonicalizeDecRat; canonicalizeNat; 0ᵈ; fromℤ)
+  using (DecRat; mkDecRat; IsCanonical;
+         canonicalizeDecRat; fromℤ)
 
 -- Phases 1-4 re-export base — every public lemma above is available.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits      public

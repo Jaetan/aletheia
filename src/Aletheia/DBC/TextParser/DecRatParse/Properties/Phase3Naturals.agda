@@ -24,11 +24,11 @@
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase3Naturals where
 
 open import Data.Bool using (Bool; true; false)
-open import Data.Char using (Char; toℕ)
+open import Data.Char using (Char)
 open import Data.Char.Base using (isDigit; _≈ᵇ_)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
-open import Data.List using (List; []; _∷_; length; foldl) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
   renaming (length-++ to length-++ₗ)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
@@ -37,48 +37,43 @@ open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _/_; _%_; _^_; _⊔
          _<_; _≤_; z≤n; s≤s; NonZero)
 open import Data.Nat.Base using (≢-nonZero⁻¹)
 open import Data.Nat.Properties
-  using (*-comm; +-comm; +-identityʳ; *-identityʳ; ≤-<-trans; n<1+n; ^-monoʳ-<;
-         m≤m+n; m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl;
+  using (+-comm;
+         m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl;
          m*n≢0; m^n≢0)
 open import Data.Nat.DivMod
-  using (m%n<n; m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
+  using (m%n<n; m≡m%n+[m/n]*n)
 open import Data.Nat.Divisibility using (_∣_; _∣?_; _∤_)
 open import Data.Product using (_×_; _,_; ∃; ∃₂; proj₁; proj₂)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
+  using (_≡_; refl; sym; trans; cong; cong₂)
 open import Relation.Nullary using (yes; no)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; value; position; remaining;
+  using (Position; Parser; mkResult;
          advancePosition; advancePositions;
-         satisfy; digit; some; many; manyHelper; sameLengthᵇ;
-         char; optional; fail;
-         _>>=_; pure; _<$>_; _<*>_; _*>_; _<|>_)
+         satisfy; digit; some; manyHelper;
+         char; optional)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars;
-         emitMagnitude-chars; showDecRat-dec-chars; showInt-chars)
+         emitMagnitude-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
-  using (charToDigit; parseDigitList; parseDecRat; parseDecRatFrac;
-         parseDecRatBareInt; applySign; buildDecRat;
-         parseIntDecRat; parseNatDecRat)
+  using (parseDigitList; applySign; buildDecRat)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Aletheia.Protocol.JSON.Parse using (digitToNat)
 open import Data.Integer using (ℤ; sign; _◃_; ∣_∣)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
-  using (DecRat; mkDecRat; isCanonicalᵇ; IsCanonical;
-         canonicalizeDecRat; canonicalizeNat; 0ᵈ; fromℤ)
+  using (DecRat; mkDecRat; IsCanonical;
+         canonicalizeDecRat; canonicalizeNat)
 open import Aletheia.DBC.DecRat.ScaleLemmas using (canonicalizeNat-scale-pos)
 
 -- Phase 1 + Phase 2 lemmas consumed by Phase 3.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits
   using (foldl-digitToNat-showNat-chars; parseDigitList-showℕ-padded-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase2Many
-  using (SuffixStops; []-stop; ∷-stop; some-satisfy-prefix;
+  using (SuffixStops; some-satisfy-prefix;
          All-isDigit-showNat-chars; All-isDigit-showℕ-padded-chars;
-         digitChar-isDigit; sameLengthᵇ-cons;
-         manyHelper-satisfy-exhaust-many)
+         sameLengthᵇ-cons)
 
 -- ============================================================================
 -- Phase 3.1: Non-emptiness and position/length lemmas

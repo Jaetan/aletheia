@@ -43,23 +43,21 @@
 module Aletheia.DBC.DecRat where
 
 open import Data.Nat.Base
-  using (ℕ; zero; suc; _+_; _*_; _∸_; _^_; _<_; _≤_; _>_; z<s; s<s; NonZero)
+  using (ℕ; zero; suc; _+_; _*_; _∸_; _^_; _<_; _≤_; _>_; z<s; NonZero)
   renaming (_/_ to _/ₙ_; _%_ to _%ₙ_)
 open import Data.Nat.Properties
-  using (*-identityʳ; *-identityˡ; *-assoc; *-comm; *-zeroˡ; *-zeroʳ;
-         *-cancelʳ-≡; *-cancelˡ-≡;
-         m^n≢0; m*n≢0; m*n≡0⇒m≡0;
-         +-identityˡ; +-identityʳ;
+  using (*-identityʳ; *-identityˡ; *-assoc; *-comm;
+         m^n≢0; m*n≢0;
          suc-pred)
   renaming (_≟_ to _≟ₙ_)
 open import Data.Nat.Divisibility
-  using (_∣_; _∤_; _∣?_; divides; quotient; m∣n⇒n≡m*quotient; ∣-trans;
+  using (_∣_; _∤_; _∣?_; divides; ∣-trans;
          _∣0)
 open import Data.Nat.DivMod using (m/n*n≡m)
 open import Data.Integer.Base
-  using (ℤ; +_; -[1+_]; +0; +[1+_]; ∣_∣; sign; _◃_; 0ℤ)
+  using (ℤ; +_; -[1+_]; ∣_∣; sign; _◃_)
 open import Data.Integer.Properties
-  using (signᵢ◃∣i∣≡i; ◃-cong; abs-◃; sign-◃; abs-*; +◃n≡+n;
+  using (signᵢ◃∣i∣≡i; abs-◃; +◃n≡+n;
          ◃-distrib-*)
   renaming (_≟_ to _≟ℤ_)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -73,7 +71,7 @@ open import Data.Nat.Primality
   using (Prime; prime[2]; prime?; prime⇒irreducible)
 open import Relation.Nullary.Decidable.Core using (toWitness; recompute; isYes)
 open import Data.Rational.Unnormalised.Base
-  using (ℚᵘ; mkℚᵘ; *≡*)
+  using (mkℚᵘ; *≡*)
   renaming (_≃_ to _≃ᵘ_; ↥_ to ↥ᵘ_; ↧_ to ↧ᵘ_)
 import Data.Integer.Base as ℤ
 import Data.Integer.Properties as ℤP
@@ -82,12 +80,12 @@ import Data.Sign.Base as S
 import Data.Sign.Properties as SP
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Sum using (inj₁; inj₂)
-open import Data.Bool.Base using (Bool; true; false; T; _∧_; _∨_; not)
-open import Data.Bool.Properties using (T-irrelevant; T?)
-open import Data.Unit using (⊤; tt)
-open import Data.Empty using (⊥; ⊥-elim)
+open import Data.Bool.Base using (Bool; true; false; T; _∧_; not)
+open import Data.Bool.Properties using (T?)
+open import Data.Unit using (tt)
+open import Data.Empty using (⊥-elim)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
+  using (_≡_; _≢_; refl; sym; trans; cong; subst; module ≡-Reasoning)
 open import Relation.Nullary using (Dec; yes; no)
 
 ------------------------------------------------------------------------
