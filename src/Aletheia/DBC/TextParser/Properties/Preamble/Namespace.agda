@@ -24,16 +24,14 @@
 module Aletheia.DBC.TextParser.Properties.Preamble.Namespace where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.List using (List) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong)
+  using (_≡_; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; mkResult; advancePosition; advancePositions;
-   pure; _>>=_; many)
-open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
+  (Parser; Position; mkResult; advancePositions; pure)
 open import Aletheia.DBC.TextParser.Preamble using (parseNamespace)
 open import Aletheia.DBC.TextFormatter.Preamble using (emitNamespace-chars)
 
@@ -41,7 +39,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; bind-just-step)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
 open import Aletheia.DBC.TextParser.Format.Preamble as FmtNs using
   (nsFmt)
 

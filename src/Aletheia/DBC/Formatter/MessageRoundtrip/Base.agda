@@ -7,7 +7,6 @@ module Aletheia.DBC.Formatter.MessageRoundtrip.Base where
 open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Char using (Char)
-open import Data.Nat using (ℕ)
 open import Data.List using (List; _∷_; map; []) renaming (_++_ to _++ₗ_)
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.Product using (_×_; _,_)
@@ -18,7 +17,7 @@ open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON; formatCANId; formatDBCSignal)
 open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.JSON using (JSON; JString; JNumber; JArray)
+open import Aletheia.JSON using (JSON; JArray)
 open import Aletheia.Prelude using (_>>=ₑ_)
 
 mkMessage : CANId → Identifier → DLC → Identifier → List Identifier → List DBCSignal → DBCMessage

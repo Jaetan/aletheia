@@ -20,13 +20,11 @@
 -- lemmas in `Properties.Attributes.Common`.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine where
 
-open import Data.Char  using (Char)
 open import Data.List  using (List; []; _∷_; map)
-  renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong)
+  using (_≡_; refl; cong)
 
 open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; intDecRatToℤ; mkIntDecRatFromℤ-intDecRatToℤ
