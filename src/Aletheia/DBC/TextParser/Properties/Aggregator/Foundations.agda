@@ -77,15 +77,8 @@ open import Aletheia.DBC.TextFormatter.Attributes   using (emitAttribute-chars)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Common using
   ( ValueMatchesType
-  ; VMTInt; VMTFloat; VMTString; VMTEnum; VMTHex
   ; rawOfAssignValue
   ; rawOfDefaultValue
-  ; refineAssignValue-rawOfAssign-roundtrip
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVInt
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVFloat
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVString
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVHex
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVEnum
   )
 open import Aletheia.DBC.TextParser.Properties.Attributes.Def using
   (WfAttrType)

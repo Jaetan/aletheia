@@ -16,22 +16,21 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Assign.BareInt where
 
 open import Data.Char  using (Char)
-open import Data.Integer using (ℤ; +_)
-open import Data.List  using (List; []; _∷_)
+open import Data.Integer using (ℤ)
+open import Data.List  using (List; _∷_)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
-open import Data.Product using (proj₁; proj₂)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult)
 
 open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
+open import Aletheia.DBC.DecRat using (fromℤ)
 open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)

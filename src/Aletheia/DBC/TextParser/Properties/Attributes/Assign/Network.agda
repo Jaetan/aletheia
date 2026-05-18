@@ -19,7 +19,7 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network where
 
 open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Char.Base using (_≈ᵇ_)
+open import Data.Char.Base using ()
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
@@ -32,24 +32,22 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
-         _>>=_; pure; _<|>_; _*>_; _<*_; string;
-         char; many; satisfy; fail)
+  using (Position; Parser; mkResult; advancePositions;
+         _>>=_; many)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
-  (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
+  (mkIntDecRatFromℤ; intDecRatToℤ;
    intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using
-  ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
-  ; ATgtNodeMsg; ATgtNodeSig)
+  (ATgtNetwork)
 
 open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrAssign;
          RawAttrAssign; mkRawAttrAssign;
-         RawAttrValue; RavString; RavDecRat;
+         RavString; RavDecRat;
          liftRavw; buildAttrAssignP)
 open import Aletheia.DBC.TextParser.Lexer
-  using (parseWS; parseWSOpt; parseStringLit; parseNewline;
+  using (parseNewline;
          isHSpace)
 
 open import Aletheia.DBC.TextFormatter.Emitter
@@ -58,8 +56,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
-  ; SuffixStops; ∷-stop; []-stop
-  ; advancePositions-++
+  ; SuffixStops; ∷-stop
   ; showDecRat-chars-head-digit; showDecRat-chars-head-dash
   ; showNat-chars-head)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
@@ -70,7 +67,6 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
   ; value-stops-isHSpace-RavString
   ; value-stops-isHSpace-RavDecRatFrac
   ; value-stops-isHSpace-RavDecRatBareInt
-  ; digitChar-not-quote; digitChar-not-isHSpace
   ; digitChar-not-B; digitChar-not-S; digitChar-not-E)
 
 open import Aletheia.DBC.TextParser.Format using
@@ -87,10 +83,7 @@ open import Aletheia.DBC.TextParser.Format.AttrLine using
    parseAttrAssign-format-roundtrip;
    emit-attrAssignFmt-RatwNet)
 open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
-  (parseAttrAssign-format-roundtrip-RatwNet;
-   emit-stdTargetWireFmt-RatwNet-on-quote-head;
-   emit-stdTargetWireFmt-RatwNet-on-dash-head;
-   emit-stdTargetWireFmt-RatwNet-on-digit-head)
+  (parseAttrAssign-format-roundtrip-RatwNet)
 
 -- ============================================================================
 -- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
