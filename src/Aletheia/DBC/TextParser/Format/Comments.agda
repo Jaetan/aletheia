@@ -36,11 +36,11 @@
 -- Formatter emits exactly one `\n`, captured by `newlineFmt` here.
 module Aletheia.DBC.TextParser.Format.Comments where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
