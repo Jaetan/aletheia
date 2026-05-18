@@ -7,7 +7,7 @@
 -- Approach: Congruence lemmas, structural induction, no character/integer decomposition.
 module Aletheia.Protocol.JSON.Properties where
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupChars; lookupRational; lookupObject; getNat)
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; parseJSON; lookupString; lookupChars; lookupRational; lookupObject; getNat)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Parser.Combinators using (Parser; ParseResult; Position)
 open import Aletheia.Parser.Properties using (parser-deterministic)
@@ -15,8 +15,8 @@ open import Data.Bool using (true)
 open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
 open import Data.Nat using (ℕ)
-open import Data.List using (List; []; _∷_; length)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.List using (List; _∷_)
+open import Data.Maybe using (just; nothing)
 open import Data.Rational using (ℚ)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
 open import Data.Empty as Empty using (⊥-elim)
@@ -108,7 +108,7 @@ data DBCFileStructure : JSON → Set where
 -- Soundness: parseDBCWithErrors only succeeds on well-formed DBC JSON objects
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Types using (DBC)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₂)
 
 parseDBC-sound : ∀ (input : JSON) (result : DBC)
   → parseDBCWithErrors input ≡ inj₂ result
