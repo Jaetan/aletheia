@@ -71,25 +71,24 @@ open import Data.Nat.Coprimality
   renaming (sym to coprime-sym)
 open import Data.Nat.Primality
   using (Prime; prime[2]; prime?; prime⇒irreducible)
-open import Relation.Nullary.Decidable.Core using (toWitness; recompute; isYes; map′)
+open import Relation.Nullary.Decidable.Core using (toWitness; recompute; isYes)
 open import Data.Rational.Unnormalised.Base
   using (ℚᵘ; mkℚᵘ; *≡*)
   renaming (_≃_ to _≃ᵘ_; ↥_ to ↥ᵘ_; ↧_ to ↧ᵘ_)
 import Data.Integer.Base as ℤ
 import Data.Integer.Properties as ℤP
 import Data.Nat.Base as ℕ
-open import Data.Sign.Base using (Sign)
 import Data.Sign.Base as S
 import Data.Sign.Properties as SP
-open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Sum using (inj₁; inj₂)
 open import Data.Bool.Base using (Bool; true; false; T; _∧_; _∨_; not)
 open import Data.Bool.Properties using (T-irrelevant; T?)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
-open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Relation.Nullary using (Dec; yes; no)
 
 ------------------------------------------------------------------------
 -- Canonical invariant

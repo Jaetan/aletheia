@@ -25,20 +25,18 @@ open import Data.List.Properties using ()
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_,_)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators using
-  ( Parser; Position; ParseResult; mkResult
+  ( Position; mkResult
   ; advancePositions; many; pure; _>>=_
-  ; runParserPartial; initialPosition; value; position; remaining)
+  ; initialPosition; value; position; remaining)
 
 open import Aletheia.DBC.Types using
-  ( DBC; DBCMessage; DBCSignal; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; Node
-  ; AttrDef; DBCAttribute
+  ( DBC
   )
 
 -- DBC-level text-roundtrip precondition.  Definition lives in its own

@@ -4,9 +4,9 @@
 -- `DBCAttrDefault` shape.  (Bisecting heap blowup: AVString-only.)
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Default where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (true; false)
 open import Data.Char  using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (+_)
 open import Data.List  using (List; []; _∷_)
   renaming (_++_ to _++ₗ_)
 import Data.List.Properties as ListProps
@@ -14,12 +14,12 @@ open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Maybe using (just)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
@@ -29,11 +29,11 @@ open import Aletheia.DBC.DecRat.Refinement using
   ; fromℕ-natDecRatToℕ
   )
 open import Aletheia.DBC.Types using
-  ( AttrType; ATEnum
+  ( ATEnum
   ; AttrDef; mkAttrDef
-  ; AttrValue; AVString; AVFloat; AVInt; AVHex; AVEnum
+  ; AVString; AVFloat; AVInt; AVHex; AVEnum
   ; AttrDefault; mkAttrDefault
-  ; DBCAttribute; DBCAttrDefault
+  ; DBCAttrDefault
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
@@ -51,8 +51,8 @@ open import Aletheia.DBC.TextFormatter.Emitter using
   )
 
 open import Aletheia.DBC.TextParser.Attributes using
-  ( RawDBCAttribute; RawDefault; mkRawAttrDefault
-  ; RawAttrValue;    RavString; RavDecRat
+  ( RawDefault; mkRawAttrDefault
+  ; RavString; RavDecRat
   ; parseAttrLine
   ; lookupDef
   )

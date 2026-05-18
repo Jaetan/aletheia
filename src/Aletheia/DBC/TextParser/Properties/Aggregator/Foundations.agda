@@ -37,10 +37,10 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.DBC.DecRat.Refinement using
-  ( IntDecRat; NatDecRat; intDecRatToℤ; natDecRatToℕ)
+  ( IntDecRat; NatDecRat; natDecRatToℕ)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; Node; clearVdsMsg
+  ; clearVdsMsg
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrDef; AttrDefault; AttrAssign
@@ -49,10 +49,9 @@ open import Aletheia.DBC.Types using
 open import Aletheia.DBC.TextParser.Attributes using
   ( RawDBCAttribute; RawDef; RawDefault; RawAssign
   ; RawAttrValue;    RavString; RavDecRat
-  ; RawAttrDefault;  mkRawAttrDefault
-  ; RawAttrAssign;   mkRawAttrAssign
+  ; mkRawAttrDefault
+  ; mkRawAttrAssign
   ; refineAttribute
-  ; collectRawDefs
   ; findLabel
   )
 open import Aletheia.DBC.TextParser.Attributes as ParserAttrs using ()

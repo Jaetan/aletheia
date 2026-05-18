@@ -38,10 +38,10 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
-   pure; _>>=_; _*>_; many)
+   _>>=_; _*>_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
-  (DBCMessage; DBCSignal; SignalPresence; Always; When; clearVds; clearVdsMsg)
+  (DBCMessage; DBCSignal; clearVds; clearVdsMsg)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
 
@@ -52,29 +52,27 @@ open import Aletheia.DBC.TextFormatter.Topology using
 open import Aletheia.DBC.Formatter.WellFormed using
   (WellFormedSignal; PhysicallyValid)
 open import Aletheia.DBC.Formatter.WellFormedText using
-  (WellFormedTextPresence; WellFormedTextSignal; WellFormedTextMessage;
+  (WellFormedTextPresence; WellFormedTextMessage;
    MasterCoherent)
 
 open import Aletheia.DBC.TextParser.Topology.Foundations using
-  (RawSignal; mkRawSignal; buildCANId)
+  (RawSignal; buildCANId)
 open import Aletheia.DBC.TextParser.Topology using
   (parseSignalLine; parseMessage; resolveSignalList; buildMessage)
 
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace; parseNewline)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOK; EmitsOKMany; ParseFailsAt; roundtrip)
+  (emit; parse; EmitsOK; ParseFailsAt; roundtrip)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; bind-just-step; advancePositions-++; showNat-chars-head)
-open import Aletheia.DBC.TextParser.Format.Receivers.Roundtrip using
-  (isReceiverCont)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
   (digitChar-not-isHSpace)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
-  (manyHelper-parseNewline-exhaust; many-parseNewline-one-LF-stop;
+  (many-parseNewline-one-LF-stop;
    isNewlineStart)
 open import Aletheia.DBC.TextParser.Properties.Comments.Comment using
   (buildCANId-rawCanIdℕ)
