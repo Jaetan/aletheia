@@ -34,7 +34,7 @@ open import Data.List  using (List; []; map)
 open import Data.Maybe using (just; nothing)
 open import Data.Unit  using (⊤)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_)
 
 open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; NatDecRat; natDecRatToℕ)
@@ -51,20 +51,18 @@ open import Aletheia.DBC.TextParser.Attributes using
   ; RawAttrValue;    RavString; RavDecRat
   ; mkRawAttrDefault
   ; mkRawAttrAssign
-  ; refineAttribute
   ; findLabel
   )
 open import Aletheia.DBC.TextParser.Attributes as ParserAttrs using ()
 open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
 open import Aletheia.DBC.TextFormatter.Attributes using
-  ( collectDefs
-  ; nthLabel
+  ( nthLabel
   )
 open import Aletheia.DBC.TextParser.TopLevel using
   ( TopStmt; TSValueTable; TSMessage; TSEnvVar; TSComment
   ; TSAttribute; TSSignalGroup
-  ; TSBOTxBu; TSValueDesc; TSSigValType; TSSigMulVal
+  ; TSValueDesc
   )
 
 open import Aletheia.DBC.TextFormatter.Topology    using (emitMessage-chars)
@@ -78,7 +76,6 @@ open import Aletheia.DBC.TextFormatter.Attributes   using (emitAttribute-chars)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Common using
   ( ValueMatchesType
   ; rawOfAssignValue
-  ; rawOfDefaultValue
   )
 open import Aletheia.DBC.TextParser.Properties.Attributes.Def using
   (WfAttrType)

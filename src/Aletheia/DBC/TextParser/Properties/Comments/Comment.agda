@@ -39,7 +39,7 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using
-  (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_; s≤s; z≤n)
+  (ℕ; _≤_; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_; s≤s; z≤n)
 open import Data.Nat.Properties using
   (<-trans; ≤ᵇ⇒≤; ≤⇒≤ᵇ; <ᵇ⇒<; <⇒≱; m≤n+m; m+n∸n≡m)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
@@ -49,8 +49,8 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult; advancePositions;
-   pure; _>>=_; many)
+  (Parser; Position; mkResult; advancePositions;
+   _>>=_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.Foundations
@@ -65,7 +65,7 @@ open import Aletheia.DBC.TextFormatter.Emitter using
   (showℕ-dec-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.Types using
-  ( CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
+  ( CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; DBCComment; mkComment)
 
 open import Aletheia.Prelude using (ifᵀ_then_else_; ifᵀ-witness)
@@ -78,7 +78,6 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 open import Aletheia.DBC.TextParser.Format using (Format; emit; parse)
 open import Aletheia.DBC.TextParser.Format.Comments as FmtCM using
   (commentFmt; rawTargetOf; RawCommentTarget;
-   RawCTNet; RawCTNode; RawCTMsg; RawCTSig; RawCTEnv;
    parseComment-format-roundtrip)
 
 -- ============================================================================

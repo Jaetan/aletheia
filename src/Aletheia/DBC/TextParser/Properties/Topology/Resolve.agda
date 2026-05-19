@@ -43,7 +43,7 @@ open import Data.Nat.Properties using (≤⇒≤ᵇ)
 open import Aletheia.Prelude using (T→true)
 open import Data.Product using (_×_; _,_; Σ; Σ-syntax)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂; subst)
+  using (_≡_; refl; sym; trans; cong)
 open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -52,7 +52,7 @@ open import Aletheia.DBC.Types using
   (DBCSignal; SignalPresence; Always; When; clearVds)
 
 open import Aletheia.CAN.Endianness using
-  (ByteOrder; LittleEndian; BigEndian;
+  (LittleEndian; BigEndian;
    convertStartBit; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties.StartBit using
   (unconvertStartBit-roundtrip)
@@ -66,20 +66,17 @@ open import Aletheia.DBC.Formatter.WellFormed using
    unconvertSB-bound; unconvertSB-bound-BE)
 open import Aletheia.DBC.Formatter.WellFormedText using
   (WellFormedTextPresence; wftp-always; wftp-when-single;
-   WellFormedTextSignal; MasterCoherent; mc-no-mux; mc-mux)
+   MasterCoherent; mc-no-mux; mc-mux)
 open import Aletheia.DBC.TextFormatter.Topology using
   (findMuxMaster)
 
 open import Aletheia.DBC.TextParser.Topology.Foundations using
-  (RawSignal; mkRawSignal;
-   MuxMarker; NotMux; IsMux; SelBy; BothMux)
+  (IsMux)
 open import Aletheia.DBC.TextParser.Topology using
-  (findMuxName; resolvePresence; buildSignal; buildAllRaw;
+  (findMuxName; buildSignal; buildAllRaw;
    resolveSignalList)
-open import Aletheia.DBC.TextParser.Properties.Topology.Signal using
-  (expectedRaw)
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList using
-  (expectedMux; expectedMuxFor; expectedRawOfDBC)
+  (expectedMux; expectedRawOfDBC)
 
 
 -- ============================================================================

@@ -22,17 +22,17 @@ module Aletheia.DBC.TextParser.Topology.SignalLine where
 open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Bool using (if_then_else_)
-open import Data.List using (List; []; _∷_; map)
+open import Data.List using (List; []; _∷_)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _%_; _≤ᵇ_)
 open import Data.Product using (proj₁; proj₂)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; fail; _>>=_; _<|>_; _*>_; _<$>_;
-   char; string; many)
+  (Parser; pure; fail; _>>=_; _*>_;
+   many)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseWS; parseWSOpt; parseNewline; parseNatural)
+  (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (MuxMarker; NotMux; IsMux; SelBy; BothMux;
    buildCANId)
@@ -44,10 +44,10 @@ open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 open import Aletheia.DBC.TextParser.Format.Nodes using (nodeListFmt)
 
 open import Aletheia.DBC.Types using
-  (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
+  (DBCMessage; DBCSignal; SignalPresence; Always; When; Node)
 open import Aletheia.CAN.DLC using (DLC; bytesToValidDLC)
 open import Aletheia.CAN.Endianness using
-  (ByteOrder; convertStartBit)
+  (convertStartBit)
 open import Aletheia.CAN.Constants using
   (max-physical-bits)
 
