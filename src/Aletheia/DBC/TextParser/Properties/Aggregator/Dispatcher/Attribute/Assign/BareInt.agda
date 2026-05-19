@@ -38,12 +38,12 @@ open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; showInt-chars; showℕ-dec-chars)
 
 open import Aletheia.DBC.TextParser.Attributes using
-  (RawDBCAttribute; RawAssign; mkRawAttrAssign
-  ; RawAttrValue;   RavDecRat
+  (RawAssign; mkRawAttrAssign
+  ; RavDecRat
   ; parseAttrLine)
 
 open import Aletheia.DBC.Types using
-  ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
+  ( ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig)
 
 -- alt5 dispatchers moved to Line/Alt5 in R22 (R21 cluster 9 AGDA-D-15.1);
