@@ -42,40 +42,37 @@ open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (zero; s≤s; z≤n)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax; Σ-syntax)
+open import Data.Nat using (s≤s; z≤n)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String; toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; refl; trans; cong)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
+  using (Position; Parser; mkResult; advancePositions;
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
-         char; satisfy; manyHelper)
+         char)
   renaming (many to many-parser)
 open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; isIdentStart; isIdentCont; validIdentifierᵇ)
+  (Identifier; mkIdent; validIdentifierᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseWS; parseWSOpt; parseNewline; parseStringLit;
-   isHSpace; isNonNewline)
+  (parseWS; isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 open import Aletheia.DBC.TextFormatter.Preamble using
   (emitVersion-chars; emitBitTiming-chars; emitNamespace-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; []-stop; ∷-stop; bind-just-step;
-   advancePositions-++)
+  (SuffixStops; []-stop; ∷-stop)
 open import Aletheia.DBC.TextParser.Properties.Primitives using
-  (alt-right-nothing; bind-nothing; map-nothing; char-matches)
+  (alt-right-nothing; bind-nothing; map-nothing)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
-  (isNewlineStart; parseNewline-match-LF; parseNewline-fail-on-stop;
-   manyHelper-parseNewline-exhaust; many-parseNewline-one-LF-stop)
+  (isNewlineStart)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; wsCanonTab; nonNewlineRun;
          stringLit; withPrefix;
-         emit; parse; EmitsOK; EmitsOKMany; ParseFailsAt;
+         emit; parse; EmitsOK; EmitsOKMany;
          []-fails; ∷-cons; roundtrip)
 
 -- ============================================================================

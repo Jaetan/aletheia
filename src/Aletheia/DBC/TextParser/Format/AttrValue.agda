@@ -46,30 +46,28 @@ open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (zero; suc)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; cong; subst)
+  using (_≡_; _≢_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
-  (IntDecRat; intDecRatToℤ; mkIntDecRatFromℤ;
-   NatDecRat; natDecRatToℕ; natDecRatToIntDecRat)
+  (IntDecRat; intDecRatToℤ)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (digitChar; showInt-chars; showNat-chars; showDecRat-dec-chars;
-   quoteStringLit-chars)
+  (digitChar; showInt-chars; showNat-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; headOr;
    showNat-chars-head;
    showDecRat-chars-head-dash; showDecRat-chars-head-digit)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; literal; ident; nat; stringLit; pair; iso; many;
-   altSum; ws; wsOpt; wsCanonOne; decRat; decRatFrac;
-   intDecRat; natDecRat; withPrefix;
-   emit; parse; EmitsOK; ParseFailsAt; roundtrip)
+  (Format; stringLit; iso; many;
+   altSum; decRatFrac;
+   intDecRat;
+   emit; parse; EmitsOK; roundtrip)
 
 -- ============================================================================
 -- WIRE-FORM ADT (3-emit-shape)
