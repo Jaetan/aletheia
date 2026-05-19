@@ -31,7 +31,7 @@
 -- callers (the 3d.4+ composers are still pending).
 module Aletheia.DBC.TextParser.Properties.Topology.Signal where
 
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
@@ -58,19 +58,16 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using
   (RawSignal; mkRawSignal;
    MuxMarker; NotMux; IsMux; SelBy)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showNat-chars; showDecRat-dec-chars; quoteStringLit-chars)
+  (showNat-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitSignalLine-chars; emitMuxMarker-chars; emitReceivers-chars;
    emitByteOrderDigit-chars; emitSignFlag-chars)
-open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
+open import Aletheia.DBC.Types using (DBCSignal)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; iso; pair; literal; ident; nat; stringLit;
-   decRat; wsOpt; ws; wsCanonOne; altSum; withPrefix)
-open import Aletheia.DBC.TextParser.Format.Receivers using
-  (canonicalReceiversFmt)
+  (Format; emit)
 open import Aletheia.DBC.TextParser.Format.SignalLine using
   (signalLineFmt; muxMarkerFmt; byteOrderFmt; signFlagFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine.Roundtrip using

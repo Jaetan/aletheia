@@ -30,37 +30,27 @@ open import Data.Integer using (+_)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
-open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; cong; subst)
+open import Relation.Binary.PropositionalEquality using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.DecRat using (DecRat)
-open import Aletheia.DBC.DecRat.Refinement using
-  ( IntDecRat; NatDecRat
-  ; intDecRatToℤ; natDecRatToℕ
-  ; fromℤ-intDecRatToℤ
-  ; fromℕ-natDecRatToℕ
-  )
 open import Aletheia.DBC.Types using
   ( AttrDef
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  ; AttrAssign; mkAttrAssign
-  ; DBCAttribute; DBCAttrAssign
+  ; mkAttrAssign
+  ; DBCAttrAssign
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
   ( emitAttribute-chars
-  ; emitAttrAssign-chars
   )
 
 open import Aletheia.DBC.TextParser.Attributes using
-  ( RawDBCAttribute; RawAssign; mkRawAttrAssign
-  ; RawAttrValue;   RavDecRat; RavString
-  ; parseAttrLine
+  ( parseAttrLine
   )
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
@@ -72,35 +62,10 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.A
   (parseAttrLine-on-emit-RawAssign-AVString)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Assign.Frac using
   (parseAttrLine-on-emit-RawAssign-AVFloat)
-open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Assign.BareInt using
-  ( parseAttrLine-on-RavBareInt-Network
-  ; parseAttrLine-on-RavBareInt-Node
-  ; parseAttrLine-on-RavBareInt-Message
-  ; parseAttrLine-on-RavBareInt-Signal
-  ; parseAttrLine-on-RavBareInt-EnvVar
-  ; parseAttrLine-on-RavBareInt-NodeMsg
-  ; parseAttrLine-on-RavBareInt-NodeSig
-  )
-
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network using
-  (module TraceNetwork)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node using
-  (module TraceNode)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Message using
-  (module TraceMessage)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Signal using
-  (module TraceSignal)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.EnvVar using
-  (module TraceEnvVar)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel using
-  (module TraceNodeMsg; module TraceNodeSig)
-
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart)
-open import Aletheia.DBC.TextFormatter.Emitter using
-  (showInt-chars; showℕ-dec-chars; quoteStringLit-chars)
 
 
 -- R22 continuation of R21 cluster 9 AGDA-D-15.1: the 21 value-bridge

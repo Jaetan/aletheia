@@ -61,17 +61,16 @@ import Data.List.Properties as ListProps
 open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
+open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
-  (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
-   NatDecRat; mkNatDecRatFromℕ)
+  (IntDecRat; mkIntDecRatFromℤ; mkNatDecRatFromℕ)
 open import Aletheia.DBC.TextParser.DecRatParse using
   (parseDecRat; parseIntDecRat; parseNatDecRat)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; fail; _>>=_; _<|>_; _*>_; _<*_;
-   char; string; many; optional)
+  (Parser; pure; fail; _>>=_; _<|>_; _*>_;
+   char; string; many)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
    parseNatural)
@@ -84,8 +83,8 @@ open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt)
 open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrDefaultFmt; DefaultLineCarrier;
-   attrAssignFmt; AttrAssignCarrier;
-   attrRelFmt; AttrRelCarrier;
+   attrAssignFmt;
+   attrRelFmt;
    RawAttrTargetWire; RatwNode; RatwMsg; RatwSig; RatwEv; RatwNet;
    RawRelTargetWire; RrtNodeMsg; RrtNodeSig)
 
@@ -95,14 +94,12 @@ open import Aletheia.DBC.TextParser.Attributes.Foundations public using
    parseStringType)
 
 open import Aletheia.DBC.Types using
-  ( AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
-  ; ASNodeMsg; ASNodeSig
-  ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
+  ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal
   ; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig
-  ; AttrDef; mkAttrDef; AttrDefault; mkAttrDefault
-  ; AttrAssign; mkAttrAssign
+  ; AttrDef; mkAttrDefault
+  ; mkAttrAssign
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   )
 
