@@ -40,9 +40,8 @@ open import Data.Rational using (ℚ; 0ℚ)
 open import Aletheia.DBC.DecRat using (DecRat; toℚ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; trans; cong)
-open import Relation.Nullary using (¬_; no)
+open import Relation.Nullary using (¬_)
 
 -- ============================================================================
 -- LAYER 4: COMPOSITION - FULL ROUNDTRIP
@@ -78,7 +77,7 @@ private
     -- n < 2^(bl-1) < 2^bl
     <-trans n<half (half<full bitLength bl>0)
     where
-      open import Data.Nat.Properties as ℕP using (<-trans; ^-monoʳ-<; n<1+n; ≤-refl)
+      open import Data.Nat.Properties as ℕP using (<-trans; ^-monoʳ-<; n<1+n)
       -- 2^(bl-1) < 2^bl follows from 1<2 and bl-1 < bl
       half<full : ∀ bl → bl > 0 → 2 ^ (bl ∸ 1) < 2 ^ bl
       half<full (suc bl) _ = ^-monoʳ-< 2 1<2 (n<1+n bl)

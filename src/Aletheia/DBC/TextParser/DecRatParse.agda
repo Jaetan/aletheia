@@ -46,13 +46,13 @@
 module Aletheia.DBC.TextParser.DecRatParse where
 
 open import Data.Char using (Char; toℕ)
-open import Data.List using (List; []; _∷_; foldl; length)
+open import Data.List using (List; []; foldl; length)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _^_)
 open import Data.Integer using (ℤ; +_; -[1+_]) renaming (-_ to -ℤ_)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; fail; _>>=_; _*>_; _<|>_; char; digit; optional; some)
+  (Parser; pure; fail; _>>=_; _<|>_; char; digit; optional; some)
 open import Aletheia.DBC.DecRat using (DecRat; canonicalizeDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRat; isIntegerᵇ;

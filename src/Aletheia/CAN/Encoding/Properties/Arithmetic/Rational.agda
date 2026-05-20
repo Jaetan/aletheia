@@ -38,7 +38,7 @@
 module Aletheia.CAN.Encoding.Properties.Arithmetic.Rational where
 
 open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; removeScaling)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_)
 open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
 open import Data.Nat.DivMod as ℕ using (n/1≡n; n%1≡0)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
@@ -255,7 +255,7 @@ applyScaling-injective raw₁ raw₂ factor offset factor≢0 eq =
 private
   open import Data.Integer.DivMod as ℤ using ([n/d]*d≤n; n<s[n/ℕd]*d)
   open import Data.Rational using (*≤*; *<*)  -- Just constructors; types already renamed to _≤ᵣ_, _<ᵣ_
-  open import Data.Rational.Properties using (toℚᵘ-mono-≤; toℚᵘ-cancel-≤; ≤-reflexive)
+  open import Data.Rational.Properties using (≤-reflexive)
 
   -- Floor lower bound: floor(q) / 1 ≤ q
   -- Strategy: floor q = ↥q ℤ./ ↧q, use [n/d]*d≤n, lift via *≤*
@@ -434,7 +434,7 @@ private
   -- Note: stdlib naming inconsistency - for (_* r):
   --   ≤ version: *-monoʳ-≤-nonNeg (positive), *-monoʳ-≤-nonPos (negative, reverses)
   --   < version: *-monoˡ-<-pos (positive), *-monoˡ-<-neg (negative, reverses)
-  open import Data.Rational.Properties using (+-monoˡ-≤; +-monoʳ-≤; *-monoʳ-≤-nonNeg; *-monoʳ-≤-nonPos; *-monoˡ-<-pos; *-monoˡ-<-neg; neg⇒nonPos)
+  open import Data.Rational.Properties using (+-monoˡ-≤; *-monoʳ-≤-nonNeg; *-monoʳ-≤-nonPos; *-monoˡ-<-pos; *-monoˡ-<-neg; neg⇒nonPos)
   open import Data.Rational using (Positive; Negative; NonNegative; NonPositive; >-nonZero; <-nonZero; positive; negative)
 
   scaling-bounds-pos : ∀ (value factor offset : ℚ) (raw : ℤ)

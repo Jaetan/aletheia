@@ -23,23 +23,23 @@ module Aletheia.LTL.Coalgebra.Properties where
 
 open import Data.Nat using (ℕ; _∸_; _≤_; _≤ᵇ_)
 open import Data.Nat.Properties using (∸-monoˡ-≤; ∸-monoʳ-≤)
-open import Data.Bool using (true; false)
+open import Data.Bool using (false)
 open import Data.List using (List; []; _∷_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; cong)
 
-open import Aletheia.LTL.Syntax using (LTL; mapLTL; decodeStart;
+open import Aletheia.LTL.Syntax using (LTL; mapLTL;
   Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
   MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Coalgebra using (PredTable; LTLProc; initProc; denot; stepL; finalizeL; metricElapsed)
 open import Aletheia.LTL.Incremental using (Counterexample; Continue; Violated; Satisfied;
   mkCounterexample; Holds; Fails; Unsure;
   MetricEventuallyExpired; MetricUntilExpired)
-open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; notTV)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue; Monotonic)
+open import Aletheia.LTL.SignalPredicate using (True; False; Unknown; notTV)
+open import Aletheia.Trace.CANTrace using (TimedFrame; tsValue; Monotonic)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.LTL.Adequacy using (runL; adequacy; Sound; verdictToSV;
-  sound-transport-monitor; sound-transport-denot; sound-transport)
+  sound-transport-denot; sound-transport)
 open import Aletheia.LTL.Semantics using (⟦_⟧)
 open import Aletheia.LTL.Semantics.MTL using (⟦_⟧ₘ; mtl-equiv)
 

@@ -29,7 +29,7 @@ open import Aletheia.Error using
   ( Error; RouteErr; InputBoundExceeded
   ; RouteError; RouteMissingField; RouteMissingArray; UnknownCommand
   ; MissingCommandField; DLCExceedsMax; ByteArrayParseFailed
-  ; ByteCountMismatch; MissingDBCField; MissingPropsField; WrappedParse
+  ; ByteCountMismatch; MissingDBCField; MissingPropsField
   ; InContext
   )
 open import Aletheia.Limits using (FrameByteCount; max-frame-byte-count)
