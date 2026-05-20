@@ -64,12 +64,11 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName; findSignalInList)
-open import Aletheia.CAN.ExtractionResult using (Success)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
 open import Aletheia.LTL.SignalPredicate using
-  (SignalPredicate; SignalCache; CachedSignal; mkCachedSignal;
+  (SignalPredicate; SignalCache; mkCachedSignal;
    lookupCache; updateCache; extractTruthValue)
 open import Aletheia.LTL.SignalPredicate.Evaluation.Properties using (signalOf)
 open import Aletheia.Protocol.StreamState.Internals using

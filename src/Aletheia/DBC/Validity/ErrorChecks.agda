@@ -19,7 +19,7 @@ open import Aletheia.DBC.Validator using
   ; checkAllSignalOverlaps
   ; checkMuxFoundSig; checkAllMuxFound
   ; checkMuxCycleSig; checkAllMuxCycle
-  ; findSignalPresence; walkMux
+  ; walkMux
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxAcyclic)
@@ -30,9 +30,9 @@ open import Aletheia.DBC.Validity.Combinators using
   ; liftTriangular-sound; liftTriangular-complete )
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.List using (List; []; _∷_; length)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
+open import Data.List using (List; []; length)
+open import Data.List.Relation.Unary.All using (All; [])
+open import Data.List.Relation.Unary.AllPairs using (AllPairs; [])
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
@@ -44,7 +44,7 @@ open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
-open import Relation.Nullary using (yes; no; ¬_)
+open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 
 -- ============================================================================

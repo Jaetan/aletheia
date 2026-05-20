@@ -53,7 +53,7 @@ open import Relation.Nullary using (¬_)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
-   pure; fail; _>>=_; _<|>_; _*>_; _<*_; _<$>_; satisfy; many; manyHelper;
+   pure; _>>=_; _<|>_; _*>_; _<$>_; satisfy; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; mkIdentFromChars; isIdentStart; isIdentCont;

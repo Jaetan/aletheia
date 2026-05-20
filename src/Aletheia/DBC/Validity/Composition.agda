@@ -11,7 +11,7 @@ open import Aletheia.DBC.Identifier using (nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; Always; When)
 open import Aletheia.DBC.Validator using
-  ( errorIssues; findSignalPresence; walkMux
+  ( errorIssues; walkMux
   ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
