@@ -16,7 +16,7 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_; length)
+open import Data.List  using (List; _∷_; length)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat   using (_<_; s≤s; z≤n)
@@ -25,18 +25,14 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.Types using
-  ( DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; AttrDef; DBCAttribute
+  ( AttrDef
   )
 
 open import Aletheia.DBC.TextParser.TopLevel using
   (TopStmt; parseTopStmt)
-
-open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttribute-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops)

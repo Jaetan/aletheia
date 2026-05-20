@@ -39,13 +39,12 @@ open import Aletheia.DBC.Types using
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; EnvironmentVar
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
-  ; AttrDef
   )
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Constants using (max-physical-bits)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
-open import Aletheia.CAN.DLC using (DLC; dlcBytes; dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
@@ -53,7 +52,7 @@ open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _^_; _∸_; pred)
 open import Data.Nat.Properties using (_≤?_; _<?_; _≟_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)

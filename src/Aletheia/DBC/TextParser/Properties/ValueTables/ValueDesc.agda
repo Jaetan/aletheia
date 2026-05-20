@@ -34,17 +34,17 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult; advancePositions;
-   pure; _>>=_; many)
+  (Parser; Position; mkResult; advancePositions;
+   _>>=_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.ValueTables using
-  (RawValueDesc; mkRawValueDesc; parseValueDescription; buildResultP)
+  (RawValueDesc; parseValueDescription; buildResultP)
 open import Aletheia.DBC.TextFormatter.ValueTables using
-  (emitValueDescription-chars; emitValueEntry-chars)
+  (emitValueDescription-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using

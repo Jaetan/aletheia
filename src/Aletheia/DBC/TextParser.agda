@@ -65,15 +65,14 @@ open import Data.String using (String; toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; value; position; remaining;
+  (ParseResult; value; position; remaining;
    runParserPartial)
 
 open import Aletheia.DBC.Types using
-  (DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup;
-   Node; DBCAttribute)
+  (DBC; Node; DBCAttribute)
 
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; CollectedTop; mkCollectedTop; partitionTopStmts; parseDBCText)
+  (TopStmt; CollectedTop; partitionTopStmts; parseDBCText)
 open import Aletheia.DBC.TextParser.Attributes using
   (refineAttributes)
 open import Aletheia.DBC.TextParser.ValueDescriptions using

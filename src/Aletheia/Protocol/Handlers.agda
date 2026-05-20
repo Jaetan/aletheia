@@ -44,17 +44,15 @@ open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; 
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult;
   Warning; mkWarning; UncachedAtom)
 open import Aletheia.Trace.Time using (μs; mkTs)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
-  ( Error; ParseErr; HandlerErr; WithContext
-  ; ParseError; InContext; InputBoundExceeded
+  ( Error; HandlerErr; WithContext
+  ; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
   ; PropertyParseFailed; ValidationFailed
-  ; WrappedParse
   )
 open import Aletheia.Limits using
   ( BoundKind; ArrayCardinality; AtomCount; StringLength
@@ -62,7 +60,6 @@ open import Aletheia.Limits using
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
   ; max-atom-count-per-property
-  ; max-string-length-bytes
   )
 open import Data.Char using (Char)
 
