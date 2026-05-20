@@ -25,17 +25,12 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.DBC.Types using
   (AttrDef; DBCAttrDef)
 
-open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttribute-chars; emitAttrDef-chars)
-
-open import Aletheia.DBC.TextParser.Attributes using
-  (parseAttrLine)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSAttribute; parseTopStmt)
+  (TopStmt; parseTopStmt)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( rawOf; WFAttribute
-  ; TopStmtTyped; TAT
+  ( WFAttribute
+  ; TAT
   ; emitTopStmt-chars
   ; liftTopStmt
   )

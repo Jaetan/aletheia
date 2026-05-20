@@ -29,7 +29,7 @@ open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
+  using (_≡_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions;
@@ -63,8 +63,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   ( isNewlineStart
   ; manyHelper-parseNewline-exhaust)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
-  ( showInt-chars-head-classify; showDecRat-chars-head-classify
-  ; value-stops-isHSpace-RavString
+  ( value-stops-isHSpace-RavString
   ; value-stops-isHSpace-RavDecRatFrac
   ; value-stops-isHSpace-RavDecRatBareInt
   ; digitChar-not-B; digitChar-not-S; digitChar-not-E)
@@ -79,8 +78,7 @@ open import Aletheia.DBC.TextParser.Format.AttrValue using
    build-EmitsOK-RavwBareInt)
 open import Aletheia.DBC.TextParser.Format.AttrLine using
   (attrAssignFmt; AttrAssignCarrier;
-   stdTargetWireFmt; RatwNet;
-   parseAttrAssign-format-roundtrip;
+   RatwNet;
    emit-attrAssignFmt-RatwNet)
 open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
   (parseAttrAssign-format-roundtrip-RatwNet)

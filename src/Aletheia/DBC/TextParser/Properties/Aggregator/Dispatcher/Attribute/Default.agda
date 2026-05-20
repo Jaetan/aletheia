@@ -60,9 +60,7 @@ open import Aletheia.DBC.TextParser.Attributes using
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   (rawOf; WFAttribute; wfDefault)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Common using
-  ( ValueMatchesType
-  ; VMTInt; VMTFloat; VMTString; VMTEnum; VMTHex
-  )
+  (VMTEnum)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Line using
   ( parseAttrLine-roundtrip-RawDefault-RavString
