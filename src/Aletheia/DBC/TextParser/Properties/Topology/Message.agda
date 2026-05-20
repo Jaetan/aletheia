@@ -34,7 +34,7 @@ open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
+  using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
@@ -52,13 +52,13 @@ open import Aletheia.DBC.TextFormatter.Topology using
 open import Aletheia.DBC.Formatter.WellFormed using
   (WellFormedSignal; PhysicallyValid)
 open import Aletheia.DBC.Formatter.WellFormedText using
-  (WellFormedTextPresence; WellFormedTextMessage;
+  (WellFormedTextPresence;
    MasterCoherent)
 
 open import Aletheia.DBC.TextParser.Topology.Foundations using
-  (RawSignal; buildCANId)
+  (RawSignal)
 open import Aletheia.DBC.TextParser.Topology using
-  (parseSignalLine; parseMessage; resolveSignalList; buildMessage)
+  (parseSignalLine; parseMessage; buildMessage)
 
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace; parseNewline)
 open import Aletheia.DBC.TextParser.Format using

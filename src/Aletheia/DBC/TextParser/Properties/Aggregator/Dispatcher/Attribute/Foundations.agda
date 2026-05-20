@@ -23,14 +23,11 @@ module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Founda
 
 open import Data.Bool using (Bool; true; T; _∧_)
 open import Data.List using ([]; _∷_)
-open import Data.Product using (Σ-syntax; _×_; _,_; proj₁)
+open import Data.Product using (_×_; _,_; proj₁)
 open import Data.Unit using (⊤; tt)
-open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong)
+open import Relation.Binary.PropositionalEquality using (refl)
 
-open import Aletheia.DBC.Identifier using
-  ( Identifier; mkIdent; isIdentStart; isIdentCont
-  ; validIdentifierᵇ)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent)
 open import Aletheia.DBC.Types using
   ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal
   ; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig)

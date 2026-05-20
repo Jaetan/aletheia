@@ -27,24 +27,23 @@ module Aletheia.DBC.TextParser.Properties.SignalGroups.SignalGroup where
 
 open import Data.Char using (Char)
 open import Data.Nat using (_<_; s≤s; z≤n)
-open import Data.List using (List; []; _∷_; foldr; concatMap; length; map)
+open import Data.List using (List; []; _∷_; foldr; length)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult; advancePositions;
+  (Parser; Position; mkResult; advancePositions;
    pure; _>>=_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using (SignalGroup)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.SignalGroups using (parseSignalGroup)
 open import Aletheia.DBC.TextFormatter.SignalGroups
-  using (emitSignalGroup-chars; emitSignalNames-chars)
+  using (emitSignalGroup-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; bind-just-step; ∷-stop)
