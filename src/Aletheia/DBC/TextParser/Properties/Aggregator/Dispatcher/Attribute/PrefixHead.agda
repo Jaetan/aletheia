@@ -26,18 +26,16 @@ open import Data.List  using (List; _∷_)
 open import Data.Maybe using (just)
 open import Data.Product using (Σ; Σ-syntax; _,_)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult)
+  (Position; mkResult)
 
 open import Aletheia.DBC.Types using
   ( AttrDef; mkAttrDef
-  ; AttrScope
   ; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
   ; ASNodeMsg; ASNodeSig
   ; AttrAssign; mkAttrAssign
-  ; AttrTarget
   ; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig
   ; AttrDefault

@@ -37,7 +37,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult; advancePositions;
+  (Parser; Position; mkResult; advancePositions;
    pure; _>>=_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Lexer using

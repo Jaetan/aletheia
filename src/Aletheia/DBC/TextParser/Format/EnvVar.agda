@@ -34,10 +34,10 @@ open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; cong; subst)
+  using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePositions)
+  using (Position; Parser; mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdent; isIdentCont)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 open import Aletheia.DBC.Types
