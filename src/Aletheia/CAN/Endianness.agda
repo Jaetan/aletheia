@@ -34,11 +34,11 @@ module Aletheia.CAN.Endianness where
 
 open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.Data.BitVec using (BitVec; testBit; setBit)
-open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ; shiftR-conv; boolToℕ; ℕToBitVec-lookup; shiftR-mod-pow2; bitVec-roundtrip)
+open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ; shiftR-conv; boolToℕ; ℕToBitVec-lookup; shiftR-mod-pow2)
 open import Data.Vec using (Vec; []; _∷_; reverse; lookup)
 open import Data.Fin using (Fin; fromℕ<; toℕ)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
-open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; z≤n; s≤s; _/_; _%_; _^_; NonZero)
+open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; z≤n; s≤s; _/_; _%_; NonZero)
 open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n; [m+kn]%n≡m%n; +-distrib-/-∣ʳ; m*n/n≡m)
 open import Data.Nat.Divisibility using (divides-refl)
 open import Data.Nat.Properties using (_≟_; _<?_; +-suc; +-identityʳ; ≤-antisym; ≮⇒≥; m^n≢0)

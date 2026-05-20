@@ -36,12 +36,12 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult; advancePosition;
+  (Parser; Position; mkResult; advancePosition;
    pure; _>>=_; _<|>_; _*>_; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; []-stop; ∷-stop; sameLengthᵇ-cons)
+  (SuffixStops; ∷-stop; sameLengthᵇ-cons)
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (char-matches; alt-right-nothing; bind-nothing)
 

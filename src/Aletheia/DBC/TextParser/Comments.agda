@@ -37,7 +37,6 @@ module Aletheia.DBC.TextParser.Comments where
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_,_; proj₁; proj₂)
-open import Data.Unit using (⊤; tt)
 open import Data.List using (List)
 open import Data.Char using (Char)
 

@@ -33,7 +33,7 @@ open import Data.Product using (_×_; _,_)
 open import Data.String as String using (String; fromList; toList)
 open import Data.Unit using (tt)
 open import Function using (_∘_)
-open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Relation.Nullary using (Dec; yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; cong₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 

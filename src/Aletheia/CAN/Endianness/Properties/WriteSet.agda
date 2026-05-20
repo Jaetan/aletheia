@@ -9,11 +9,10 @@
 module Aletheia.CAN.Endianness.Properties.WriteSet where
 
 open import Aletheia.CAN.Endianness using
-  ( ByteOrder; LittleEndian; BigEndian
+  ( LittleEndian; BigEndian
   ; updateSafe
   ; byteToBitVec; bitVecToByte
   ; extractBits; injectBits
-  ; swapBytes
   ; payloadIso; injectPayload
   )
 open import Aletheia.CAN.Frame using (Byte)

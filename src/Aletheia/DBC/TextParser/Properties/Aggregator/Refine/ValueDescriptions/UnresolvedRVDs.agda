@@ -27,7 +27,7 @@ open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Nat using (ℕ)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; cong; cong₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)

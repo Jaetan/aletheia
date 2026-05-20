@@ -36,7 +36,7 @@ open import Aletheia.DBC.DecRat
          stripShared2-abs-zero ; stripShared5-abs-zero)
 
 open import Data.Nat.Base
-  using (ℕ ; zero ; suc ; _+_ ; _*_ ; _^_ ; _<_ ; _>_ ; z<s)
+  using (zero ; suc ; _+_ ; _*_ ; _^_ ; _<_ ; _>_ ; z<s)
   renaming (_/_ to _/ₙ_)
 open import Data.Nat.Properties
   using (*-identityʳ ; *-assoc ; *-comm)
@@ -47,13 +47,13 @@ open import Data.Nat.Divisibility
 open import Data.Nat.Primality
   using (prime[2] ; euclidsLemma)
 open import Data.Product
-  using (_×_ ; _,_)
+  using (_,_)
 open import Data.Sum
   using (inj₁ ; inj₂)
 open import Data.Empty
   using (⊥-elim)
 open import Relation.Nullary
-  using (yes ; no ; ¬_)
+  using (yes ; no)
 open import Relation.Binary.PropositionalEquality
   using (_≡_ ; refl ; sym ; trans ; cong ; module ≡-Reasoning)
 
