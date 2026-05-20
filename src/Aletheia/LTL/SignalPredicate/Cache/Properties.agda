@@ -23,7 +23,7 @@ open import Aletheia.LTL.SignalPredicate.Cache
   using ( CachedSignal; mkCachedSignal; CacheEntries; SignalCache; mkSignalCache
         ; lookupEntries; updateEntries; lookupCache; updateCache; emptyCache )
 open import Aletheia.DBC.Identifier using
-  (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl; ≡csᵇ-refl-eq; ≡csᵇ-false→≢)
+  (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl-eq)
 open import Data.Bool using (Bool; true; false; T)
 open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)

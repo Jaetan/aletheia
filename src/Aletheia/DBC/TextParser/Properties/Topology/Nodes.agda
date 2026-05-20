@@ -26,17 +26,16 @@ open import Data.List using (List; []; _∷_; map; foldr; length) renaming (_++_
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (Maybe; just)
-open import Data.Product using (_,_)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult;
+  (Parser; Position; mkResult;
    advancePosition; advancePositions;
    pure; _>>=_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.Types using (Node; mkNode)
+open import Aletheia.DBC.Types using (Node)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.SignalLine using (parseBU)
 open import Aletheia.DBC.TextFormatter.Topology using (emitBU-chars)

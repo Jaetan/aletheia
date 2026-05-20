@@ -19,7 +19,7 @@ open import Data.Product using (_×_)
 open import Data.Nat.Divisibility using (_∣?_)
 open import Relation.Nullary using (yes; no)
 open import Aletheia.Prelude using (lookupByKey)
-open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
+open import Aletheia.Protocol.JSON.Types using (JSON; JBool; JNumber; JString; JArray; JObject)
 
 -- ============================================================================
 -- VALUE EXTRACTORS

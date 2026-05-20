@@ -59,7 +59,7 @@ open Syntax using (LTL; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
 open import Aletheia.LTL.TruthVal.Properties using
-  (∨TV-false-l; ∨TV-false-r; ∧TV-false-l; ∧TV-true-l; ∧TV-true-r)
+  (∨TV-false-l; ∨TV-false-r; ∧TV-true-l; ∧TV-true-r)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; denot; metricElapsed)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
