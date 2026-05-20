@@ -69,7 +69,32 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 # Constants
 # ----------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+def _find_repo_root() -> Path:
+    """Locate the Aletheia repo root.
+
+    Search order:
+      1. $ALETHEIA_REPO env var, if set.
+      2. Walk up from CWD looking for `aletheia.agda-lib`.
+      3. Walk up from the script's directory (works when installed in-repo).
+
+    This lets the script live anywhere (e.g. `~/.local/bin/`) and still find
+    the repo when invoked from inside it.
+    """
+    env = os.environ.get("ALETHEIA_REPO")
+    if env:
+        p = Path(env).resolve()
+        if (p / "aletheia.agda-lib").exists():
+            return p
+    for base in (Path.cwd().resolve(), Path(__file__).resolve()):
+        for p in [base] + list(base.parents):
+            if (p / "aletheia.agda-lib").exists():
+                return p
+    raise RuntimeError(
+        "could not locate Aletheia repo root; set ALETHEIA_REPO or run from inside the repo"
+    )
+
+
+REPO_ROOT = _find_repo_root()
 SRC_DIR = REPO_ROOT / "src"
 AGDA_BIN = Path(os.environ.get("AGDA_BIN", "/home/nicolas/.cabal/bin/agda"))
 
