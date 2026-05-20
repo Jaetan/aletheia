@@ -133,6 +133,7 @@ class FileStats:
     public_blocks_skipped: int = 0
     type_checks: int = 0
     seconds: float = 0.0
+    baseline_warnings: int = 0
     error: Optional[str] = None
 
     @property
@@ -371,15 +372,49 @@ def replace_block_in_lines(
 # ----------------------------------------------------------------------------
 
 
+# Warning categories that signal SILENT SEMANTIC CHANGES — must not appear
+# as a NEW warning after a removal:
+#   PatternShadowsConstructor: a pattern like `... | True = X` reinterpreted as
+#     a pattern-variable binding when `True` is no longer in scope as a
+#     constructor.  The file type-checks but its semantics silently change.
+#     Discovered by R22 sweep against Coalgebra/stepL's TruthVal pattern matches.
+#   UnreachableClauses: typically the downstream consequence of
+#     PatternShadowsConstructor (the catch-all swallows later clauses).
+_SEMANTIC_WARNING_TAGS = ("PatternShadowsConstructor", "UnreachableClauses")
+
+
+def _count_semantic_warnings(stdout: bytes, stderr: bytes) -> int:
+    """Count occurrences of semantic-change warnings.
+
+    Agda emits warnings to stdout (not stderr), so the stdout stream is the
+    primary source; stderr is checked as a fallback in case future Agda
+    versions change the routing."""
+    s_out = stdout.decode("utf-8", errors="replace")
+    s_err = stderr.decode("utf-8", errors="replace")
+    combined = s_out + "\n" + s_err
+    return sum(combined.count(tag) for tag in _SEMANTIC_WARNING_TAGS)
+
+
 def typecheck(
     rel_path: str,
     src_dir: Path,
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
+    baseline_warning_count: int = 0,
 ) -> bool:
     """Run `agda --type-check` on `rel_path` (relative to src_dir).
-    Return True iff exit code is 0."""
+
+    Returns True iff:
+      - agda exits 0, AND
+      - the number of `PatternShadowsConstructor` / `UnreachableClauses`
+        warnings is <= `baseline_warning_count`.
+
+    The second condition catches the silent-semantic-change bug where a
+    removal turns constructor patterns into pattern-variable bindings.
+    Caller should compute the baseline via `_warning_count_for(file_path)`
+    before the first removal attempt.
+    """
     cmd = [
         str(AGDA_BIN),
         "+RTS",
@@ -395,9 +430,46 @@ def typecheck(
             capture_output=True,
             timeout=timeout,
         )
-        return result.returncode == 0
+        if result.returncode != 0:
+            return False
+        if _count_semantic_warnings(result.stdout, result.stderr) > baseline_warning_count:
+            return False
+        return True
     except subprocess.TimeoutExpired:
         return False
+
+
+def _warning_count_for(
+    rel_path: str,
+    src_dir: Path,
+    rts_cores: int,
+    rts_heap_gb: int,
+    timeout: int,
+) -> int:
+    """Run agda once and report the count of semantic-change warnings.
+
+    Used as the per-file baseline.  Returns -1 if the file fails to
+    type-check (caller should treat as a pre-check failure)."""
+    cmd = [
+        str(AGDA_BIN),
+        "+RTS",
+        f"-N{rts_cores}",
+        f"-M{rts_heap_gb}G",
+        "-RTS",
+        rel_path,
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(src_dir),
+            capture_output=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            return -1
+        return _count_semantic_warnings(result.stdout, result.stderr)
+    except subprocess.TimeoutExpired:
+        return -1
 
 
 def project_typecheck(timeout: int = 1200) -> bool:
@@ -454,12 +526,16 @@ def prune_file(
     final_content = original_content  # default if anything goes wrong
 
     try:
-        if pre_check:
-            if not typecheck(
-                rel_path, src_dir, rts_cores, rts_heap_gb, timeout
-            ):
-                stats.error = "pre-check failed; file does not type-check"
-                return stats
+        # Compute baseline count of semantic-change warnings (always — even
+        # without --pre-check, we need it to detect when a removal silently
+        # changes pattern matches into pattern-variable bindings).
+        baseline_warnings = _warning_count_for(
+            rel_path, src_dir, rts_cores, rts_heap_gb, timeout
+        )
+        if baseline_warnings < 0:
+            stats.error = "baseline type-check failed; file does not type-check"
+            return stats
+        stats.baseline_warnings = baseline_warnings
 
         blocks = parse_imports(original_content)
         if not blocks:
@@ -727,7 +803,7 @@ def _bisect_helper_using(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.using_tested += len(candidates)
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout):
+    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         # All candidates are dead.
         current_lines.clear()
         current_lines.extend(new_lines)
@@ -805,7 +881,7 @@ def _try_remove_using(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.using_tested += 1
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout):
+    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.using_removed += 1
@@ -878,7 +954,7 @@ def _bisect_helper_renaming(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.renaming_tested += len(candidates)
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout):
+    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.renaming_removed += len(candidates)
@@ -952,7 +1028,7 @@ def _try_remove_renaming(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.renaming_tested += 1
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout):
+    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.renaming_removed += 1
