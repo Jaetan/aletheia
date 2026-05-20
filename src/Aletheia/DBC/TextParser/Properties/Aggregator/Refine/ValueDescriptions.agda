@@ -21,7 +21,7 @@
 --      file additions).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions where
 
-open import Data.Bool using (true; false; _∨_; _∧_)
+open import Data.Bool using (true; false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using (List; []; _∷_; map)
@@ -32,7 +32,7 @@ open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong)
 open import Relation.Nullary using (yes; no)
@@ -49,7 +49,6 @@ open import Aletheia.DBC.TextParser.ValueDescriptions using
   ; attachWithMaybe; attachToSignal; attachToMessage; attachValueDescs
   ; prependVdsRvd
   ; collectFromSignals; collectFromMessage; collectFromMessages
-  ; matchesSigᵇ; matchesMsgᵇ; resolvesᵇ-msgs; unresolvedRVDs
   )
 open import Aletheia.DBC.TextParser.Properties.Topology.Message using
   (MessageWF)
@@ -59,8 +58,6 @@ open import Aletheia.DBC.TextParser.Format.ValueDescription using
   (RawValueDescNameStop)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Foundations using
   (identifier-name-stop)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Assign using
-  (IdentNameStop)
 
 -- ============================================================================
 -- DECIDABLE-EQUALITY MICRO-LEMMAS

@@ -13,11 +13,9 @@ open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
   ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr
   ; ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
-  ; GlobalNameCollision; SignalPresence; Always; When
-  ; Node; DBCComment; EnvironmentVar
-  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef
-  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
-  ; RawValueDesc )
+  ; GlobalNameCollision; Always; When
+  ; DBCComment
+  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames

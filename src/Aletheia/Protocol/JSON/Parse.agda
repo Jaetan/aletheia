@@ -18,7 +18,7 @@ open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational as Rat using (ℚ; _/_; -_) renaming (_*_ to _*ᵣ_)
 open import Data.Product using (_×_; _,_; proj₁)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Parser.Combinators using (Parser; value; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
+open import Aletheia.Parser.Combinators using (Parser; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
 
