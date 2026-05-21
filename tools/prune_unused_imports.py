@@ -383,6 +383,45 @@ def replace_block_in_lines(
 _SEMANTIC_WARNING_TAGS = ("PatternShadowsConstructor", "UnreachableClauses")
 
 
+def path_to_module(file_path: Path, src_dir: Path) -> str:
+    """Convert `src/Aletheia/Foo/Bar.agda` → `Aletheia.Foo.Bar`."""
+    rel = file_path.relative_to(src_dir)
+    return str(rel.with_suffix("")).replace("/", ".")
+
+
+def build_reverse_dep_graph(
+    all_agda_files: List[Path], src_dir: Path
+) -> Dict[str, List[Path]]:
+    """Scan every .agda file's imports; return module-name → list-of-importers.
+
+    Used to compute the direct-consumer set when a removal touches a
+    `public` re-export line: the consumer files need to be re-checked to
+    confirm the removal didn't break their resolution of the re-exported
+    name.
+
+    A file appears in its own consumers list iff it imports itself (which
+    is illegal in Agda — so never), so duplicate-skip isn't strictly
+    required, but we deduplicate anyway for cleanliness."""
+    consumers: Dict[str, List[Path]] = {}
+    pat = re.compile(r"^(?:open\s+)?import\s+([\w.]+)", flags=re.MULTILINE)
+    for f in all_agda_files:
+        try:
+            content = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        seen_modules: Set[str] = set()
+        for m in pat.finditer(content):
+            module = m.group(1)
+            if module in seen_modules:
+                continue
+            seen_modules.add(module)
+            consumers.setdefault(module, []).append(f)
+    # Deduplicate (a file might import the same module twice via aliases).
+    for k in consumers:
+        consumers[k] = list(dict.fromkeys(consumers[k]))
+    return consumers
+
+
 def _count_semantic_warnings(stdout: bytes, stderr: bytes) -> int:
     """Count occurrences of semantic-change warnings.
 
@@ -472,6 +511,134 @@ def _warning_count_for(
         return -1
 
 
+def typecheck_with_consumers(
+    file_path: Path,
+    consumers: List[Path],
+    consumer_baselines: Dict[Path, int],
+    src_dir: Path,
+    rts_cores: int,
+    rts_heap_gb: int,
+    timeout: int,
+    file_baseline_warnings: int,
+) -> bool:
+    """Type-check `file_path` AND each direct consumer.
+
+    Used when testing removals on a `public` re-export line: removing a name
+    from a public block changes the file's exported surface, so we must
+    verify that every direct consumer still type-checks.
+
+    `consumer_baselines` is a mutable cache of {consumer_path: warning_count}
+    populated lazily on first check.  The first time a consumer is checked,
+    its current (pre-modification) warning count is recorded; subsequent
+    checks compare against that baseline.
+
+    NOTE: The baseline is captured the FIRST time we check the consumer
+    AFTER the file under test has been modified — which means the baseline
+    is "the consumer's warning count given some modification to file_path".
+    To get a TRUE pre-modification baseline, the caller should precompute
+    via `prefill_consumer_baselines()` before any modifications.
+
+    Returns True iff:
+      1. `file_path` itself type-checks with no new semantic-change warnings.
+      2. Every consumer type-checks with no new semantic-change warnings."""
+    rel_file = str(file_path.relative_to(src_dir))
+    if not typecheck(
+        rel_file, src_dir, rts_cores, rts_heap_gb, timeout,
+        baseline_warning_count=file_baseline_warnings,
+    ):
+        return False
+    for c in consumers:
+        try:
+            rel_c = str(c.relative_to(src_dir))
+        except ValueError:
+            continue
+        baseline = consumer_baselines.get(c)
+        if baseline is None:
+            # Lazy compute: if no prefill happened, fall back to 0.
+            # (Best-effort; prefill_consumer_baselines is the recommended path.)
+            baseline = 0
+        if not typecheck(
+            rel_c, src_dir, rts_cores, rts_heap_gb, timeout,
+            baseline_warning_count=baseline,
+        ):
+            return False
+    return True
+
+
+def prefill_consumer_baselines(
+    consumers: List[Path],
+    consumer_baselines: Dict[Path, int],
+    src_dir: Path,
+    rts_cores: int,
+    rts_heap_gb: int,
+    timeout: int,
+) -> None:
+    """Compute the pre-modification semantic-warning count for each consumer.
+
+    Called BEFORE any removal attempt that might affect these consumers,
+    so the post-modification check has a true baseline to compare against.
+    Skips consumers already cached."""
+    for c in consumers:
+        if c in consumer_baselines:
+            continue
+        try:
+            rel_c = str(c.relative_to(src_dir))
+        except ValueError:
+            consumer_baselines[c] = 0
+            continue
+        count = _warning_count_for(
+            rel_c, src_dir, rts_cores, rts_heap_gb, timeout
+        )
+        consumer_baselines[c] = max(count, 0)
+
+
+# Per-worker (process-local) consumer-check context.  Set by prune_file
+# at the start of each block; read by the type-check call sites in the
+# bisect helpers.  We use process-local globals here rather than threading
+# additional parameters through the half-dozen helper signatures (which
+# would have made every call site noisier).  Each `ProcessPoolExecutor`
+# worker has its own copy of these globals, so the state is isolated.
+_BLOCK_CONSUMERS: List[Path] = []
+_BLOCK_CONSUMER_BASELINES: Dict[Path, int] = {}
+
+
+def _set_block_check_context(
+    consumers: List[Path], consumer_baselines: Dict[Path, int]
+) -> None:
+    """Update process-local consumer-check state.
+
+    Called by `prune_file` before processing each block.  Pass an empty
+    `consumers` list to disable consumer checks for the current block."""
+    global _BLOCK_CONSUMERS, _BLOCK_CONSUMER_BASELINES
+    _BLOCK_CONSUMERS = consumers
+    _BLOCK_CONSUMER_BASELINES = consumer_baselines
+
+
+def _check_modified(
+    file_path: Path,
+    src_dir: Path,
+    rts_cores: int,
+    rts_heap_gb: int,
+    timeout: int,
+    file_baseline_warnings: int,
+) -> bool:
+    """Universal post-modification check: file itself + any block-context consumers.
+
+    Drop-in replacement for the prior `typecheck(...)` calls in bisect
+    helpers.  When `_BLOCK_CONSUMERS` is empty (non-public blocks or when
+    --include-public is off), behaves identically to `typecheck`."""
+    return typecheck_with_consumers(
+        file_path,
+        _BLOCK_CONSUMERS,
+        _BLOCK_CONSUMER_BASELINES,
+        src_dir,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        file_baseline_warnings,
+    )
+
+
 def project_typecheck(timeout: int = 1200) -> bool:
     """Run `cabal run shake -- check-properties` from repo root."""
     cmd = ["cabal", "run", "shake", "--", "check-properties"]
@@ -501,6 +668,7 @@ def prune_file(
     pre_check: bool,
     use_bisect: bool,
     verbose: bool,
+    consumers_map: Optional[Dict[str, List[Path]]] = None,
 ) -> FileStats:
     """Prune one file.  Returns FileStats.
 
@@ -524,6 +692,7 @@ def prune_file(
     backup_path.write_text(original_content, encoding="utf-8")
 
     final_content = original_content  # default if anything goes wrong
+    consumer_baselines: Dict[Path, int] = {}
 
     try:
         # Compute baseline count of semantic-change warnings (always — even
@@ -536,6 +705,17 @@ def prune_file(
             stats.error = "baseline type-check failed; file does not type-check"
             return stats
         stats.baseline_warnings = baseline_warnings
+
+        # When `--include-public` is on AND the file has any public block,
+        # precompute the consumer set + their warning baselines once.
+        # We use the file's OWN module path (Aletheia.X.Y.Z) to find its
+        # consumers in the global graph.
+        file_consumers: List[Path] = []
+        if include_public and consumers_map is not None:
+            file_module = path_to_module(file_path, src_dir)
+            file_consumers = [
+                c for c in consumers_map.get(file_module, []) if c != file_path
+            ]
 
         blocks = parse_imports(original_content)
         if not blocks:
@@ -557,6 +737,27 @@ def prune_file(
             )
             if live_block is None:
                 continue
+
+            # Per-block check context: when this block has `public` AND
+            # --include-public is on, every removal-attempt also re-checks
+            # the direct consumers of THIS FILE (because removing a name
+            # from a public block changes the file's exported surface).
+            # Otherwise, the consumer list is empty (no extra work).
+            if block.has_public and include_public and file_consumers:
+                # Precompute consumer baselines once on the first public
+                # block we hit, so we have a true pre-modification baseline
+                # to compare each consumer's post-removal warnings against.
+                prefill_consumer_baselines(
+                    file_consumers,
+                    consumer_baselines,
+                    src_dir,
+                    rts_cores,
+                    rts_heap_gb,
+                    timeout,
+                )
+                _set_block_check_context(file_consumers, consumer_baselines)
+            else:
+                _set_block_check_context([], consumer_baselines)
 
             if use_bisect and len(live_block.using_names) > 1:
                 _bisect_using(
@@ -803,7 +1004,7 @@ def _bisect_helper_using(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.using_tested += len(candidates)
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         # All candidates are dead.
         current_lines.clear()
         current_lines.extend(new_lines)
@@ -881,7 +1082,7 @@ def _try_remove_using(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.using_tested += 1
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.using_removed += 1
@@ -954,7 +1155,7 @@ def _bisect_helper_renaming(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.renaming_tested += len(candidates)
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.renaming_removed += len(candidates)
@@ -1028,7 +1229,7 @@ def _try_remove_renaming(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.renaming_tested += 1
-    if typecheck(str(file_path.relative_to(src_dir)), src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.renaming_removed += 1
@@ -1072,6 +1273,7 @@ def worker_process_file(args: tuple) -> FileStats:
         pre_check,
         use_bisect,
         verbose,
+        consumers_map,
     ) = args
     return prune_file(
         file_path,
@@ -1084,6 +1286,7 @@ def worker_process_file(args: tuple) -> FileStats:
         pre_check=pre_check,
         use_bisect=use_bisect,
         verbose=verbose,
+        consumers_map=consumers_map,
     )
 
 
@@ -1120,6 +1323,21 @@ def main() -> int:
         print("error: no .agda files found", file=sys.stderr)
         return 1
 
+    # Build the reverse dependency graph IF --include-public is on (otherwise
+    # no consumer checks are needed and the graph is wasted work).  Always
+    # scan the full src/ tree (not just `paths`) — a file in `paths` may
+    # have consumers outside `paths`.
+    consumers_map: Dict[str, List[Path]] = {}
+    if args.include_public:
+        if not args.quiet:
+            print("  building reverse dependency graph (full src/ tree)...", flush=True)
+        all_files = gather_agda_files([SRC_DIR])
+        consumers_map = build_reverse_dep_graph(all_files, SRC_DIR)
+        if not args.quiet:
+            print(f"  reverse graph: {len(consumers_map)} modules indexed, "
+                  f"{sum(len(v) for v in consumers_map.values())} consumer edges",
+                  flush=True)
+
     if not args.quiet:
         print(f"prune_unused_imports: processing {len(files)} files with {args.workers} workers")
         print(f"  src_dir={SRC_DIR}, rts={args.rts_cores}c/{args.rts_heap}G, "
@@ -1139,6 +1357,7 @@ def main() -> int:
             args.pre_check,
             not args.no_bisect,
             args.verbose,
+            consumers_map,
         )
         for f in files
     ]
