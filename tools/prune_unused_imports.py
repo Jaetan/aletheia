@@ -1396,6 +1396,7 @@ def main() -> int:
     parser.add_argument("--pre-check", action="store_true", help="Verify each file type-checks before pruning")
     parser.add_argument("--no-bisect", action="store_true", help="Disable bisection (pure per-name brute force)")
     parser.add_argument("--no-topo", action="store_true", help="Disable topological-level batching (process all files in one pool; faster on small subsets but exposes the race condition for inter-dependent files)")
+    parser.add_argument("--check-only", action="store_true", help="Lint-mode: implies --dry-run + --quiet; exits 1 if any dead imports would be removed, 0 if clean.  Intended for CI gates / pre-commit / pre-push hooks.")
     parser.add_argument("--restore-backups", action="store_true", help="Restore any *.prune-bak files left by an interrupted run, then exit")
 
     args = parser.parse_args()
@@ -1405,6 +1406,11 @@ def main() -> int:
         n = restore_backups(paths)
         print(f"restored {n} backup(s)")
         return 0
+
+    # --check-only implies --dry-run + --quiet (lint mode for CI/hooks).
+    if args.check_only:
+        args.dry_run = True
+        args.quiet = True
 
     paths = args.paths if args.paths else [SRC_DIR]
     files = gather_agda_files(paths)
@@ -1524,7 +1530,27 @@ def main() -> int:
             print("  FAIL — project-wide check-properties broke after pruning!", file=sys.stderr)
             return 2
 
-    return 1 if errors else 0
+    # Exit-code semantics:
+    #   0 — tool ran successfully AND (apply mode OR dry-run found no dead).
+    #   1 — tool/agda errors during the run (baseline failures, exceptions).
+    #   1 — `--dry-run` (or `--check-only`) AND any dead imports would have
+    #        been removed.  Matches gofmt -l / prettier --check / eslint
+    #        / pyflakes / clang-format --dry-run -Werror — the universal
+    #        lint-tool convention.
+    #   2 — `--final-check` failed in apply mode.
+    if errors:
+        return 1
+    if args.dry_run and total_removed > 0:
+        if args.check_only:
+            # --check-only suppresses verbose output; surface the count here
+            # so CI logs and pre-commit hooks have a one-line failure signal.
+            print(
+                f"prune_unused_imports: {total_removed} dead name(s) found across "
+                f"{files_changed} file(s); run without --check-only to remove",
+                file=sys.stderr,
+            )
+        return 1
+    return 0
 
 
 def _print_stats(stats: FileStats, quiet: bool) -> None:

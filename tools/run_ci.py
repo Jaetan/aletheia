@@ -17,7 +17,7 @@ cabal-install's ``dist-newstyle/`` flock when the parent process is itself
 ``cabal run``.  Direct invocation avoids the flock-recursion entirely.  See
 Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
-═══ ALWAYS-ON STEPS (28 total) ═══
+═══ ALWAYS-ON STEPS (30 total) ═══
 
   Agda gates (8):
      1. build           — produces libaletheia-ffi.so
@@ -28,38 +28,45 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
      6. check-fidelity       (~2 min — runs ConstructorTest binary)
      7. check-ffi-exports
      8. count-modules
+  Branch-scoped Agda gate (1):
+     9. prune-unused-imports — `tools/prune_unused_imports.py --check-only`
+        on .agda files modified vs main.  Agda-driven precise check; fails
+        if any branch-introduced dead imports remain.  Empty diff ⇒ no-op.
+        Omits --include-public (caught by periodic full sweep — too slow
+        for a per-branch gate).  Reference:
+        memory/feedback_agda_import_pruning_safety.md.
   Offline enforcers (6):
-     9. check-changelog
-    10. check-gate-claim
-    11. check-runbook            (R18 cluster 4)
-    12. check-limits-parity      (R20-GO-A-4.10 closure — Agda Limits SSOT
+    10. check-changelog
+    11. check-gate-claim
+    12. check-runbook            (R18 cluster 4)
+    13. check-limits-parity      (R20-GO-A-4.10 closure — Agda Limits SSOT
                                   vs go/aletheia/limits.go mirror)
-    13. check-stability-bench    (R18 cluster 6 static gate)
-    14. check-mutation-setup     (R18 cluster 7 static gate)
+    14. check-stability-bench    (R18 cluster 6 static gate)
+    15. check-mutation-setup     (R18 cluster 7 static gate)
   Binding tests (6):
-    15. Python pytest (deterministic lane)
-    16. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
+    16. Python pytest (deterministic lane)
+    17. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
         harness; was silently absent from the orchestrator before C5)
-    17. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
+    18. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
         ResourceWarning, debug asyncio, deprecation noise)
-    18. Python pytest --random-order (R18 cluster 5 — Cat 14f
+    19. Python pytest --random-order (R18 cluster 5 — Cat 14f
         test-isolation; AGENTS.md "both lanes must stay green")
-    19. Go test -race
-    20. C++ ctest
+    20. Go test -race
+    21. C++ ctest
   Lints (5):
-    21. basedpyright (Python)
-    22. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
-    23. gofmt -l + go vet (Go)
-    24. clang-format --dry-run --Werror (C++)
-    25. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
-    26. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
+    22. basedpyright (Python)
+    23. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
+    24. gofmt -l + go vet (Go)
+    25. clang-format --dry-run --Werror (C++)
+    26. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    27. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
         R21 CPP-SYS-32.2 promotion from opt-in to always-on after CPP-B-8.1
         UB in Rational::from_double shipped undetected exactly because the
         lane was opt-in)
   GHA meta-checks (3):
-    27. actionlint (workflow YAML lint, skipped if not installed)
-    28. check-action-pins
-    29. check-workflow-permissions
+    28. actionlint (workflow YAML lint, skipped if not installed)
+    29. check-action-pins
+    30. check-workflow-permissions
 
 ═══ OPT-IN LANES (3 total) ═══
 
@@ -233,7 +240,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
 
 
 class Runner:
-    BASE_STEPS = 29  # always-on (incl. UBSan promoted R21 CPP-SYS-32.2)
+    BASE_STEPS = 30  # always-on (UBSan promoted R21 CPP-SYS-32.2 + prune-unused-imports gate)
 
     def __init__(self, opts: OptInOptions) -> None:
         self.opts = opts
@@ -413,7 +420,47 @@ def main(argv: list[str] | None = None) -> int:
     r.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
     r.step("count-modules", [*cabal, "count-modules"])
 
-    # ─── Steps 9-13: Offline enforcers ─────────────────────────────────────
+    # ─── Step 9: dead-import gate on branch-modified files ─────────────────
+    # Agda-driven precise check via `tools/prune_unused_imports.py
+    # --check-only`.  Runs on the set of .agda files modified vs main —
+    # not the whole tree — to keep the gate's runtime proportional to
+    # the size of the work.  Empty change-set ⇒ no-op.
+    #
+    # We deliberately OMIT --include-public here: that mode invokes agda
+    # on every direct consumer of each modified file, which can multiply
+    # runtime by 5-30× when a public-heavy file (e.g. Prelude.agda) is
+    # touched.  Public-line dead imports are caught by the full periodic
+    # sweep, not this per-branch gate.  See
+    # memory/feedback_agda_import_pruning_safety.md for the trade-off.
+    #
+    # `--no-topo` because we're running on a small subset; the topological
+    # batching has fixed startup overhead that doesn't pay off below ~20
+    # files.
+    prune_cmd = (
+        "files=$(git diff --name-only main...HEAD -- 'src/' "
+        "| grep '\\.agda$' || true); "
+        "if [ -z \"$files\" ]; then "
+        "  echo 'no .agda files modified vs main; skipping'; "
+        "  exit 0; "
+        "fi; "
+        # Sanity threshold: per-file agda runs are 5-15 min each.  Past
+        # ~30 files the gate runtime becomes hostile for a per-push CI.
+        # Long-running review branches should rely on the periodic full
+        # sweep instead.  Override with ALETHEIA_PRUNE_GATE_NOLIMIT=1.
+        "n=$(echo \"$files\" | wc -l); "
+        "if [ \"$n\" -gt 30 ] && [ -z \"$ALETHEIA_PRUNE_GATE_NOLIMIT\" ]; then "
+        "  echo \"$n modified .agda files exceeds the gate's 30-file threshold.\"; "
+        "  echo 'Branches this large should rely on the periodic full sweep'; "
+        "  echo '(tools/prune_unused_imports.py -j 4 --include-public --final-check).'; "
+        "  echo 'Override with ALETHEIA_PRUNE_GATE_NOLIMIT=1 to force the gate to run.'; "
+        "  exit 0; "
+        "fi; "
+        "printf 'checking %s modified file(s) for dead imports...\\n' \"$n\"; "
+        "tools/prune_unused_imports.py --check-only --no-topo $files"
+    )
+    r.step("prune-unused-imports", prune_cmd, shell=True)
+
+    # ─── Steps 10-14: Offline enforcers ────────────────────────────────────
     r.step("check-changelog", [*cabal, "check-changelog"])
     r.step("check-gate-claim", [*cabal, "check-gate-claim"])
     r.step("check-runbook", [*cabal, "check-runbook"])
