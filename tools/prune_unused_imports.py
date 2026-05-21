@@ -484,11 +484,23 @@ def _warning_count_for(
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
+    retries: int = 4,
+    retry_sleep_s: int = 45,
 ) -> int:
     """Run agda once and report the count of semantic-change warnings.
 
     Used as the per-file baseline.  Returns -1 if the file fails to
-    type-check (caller should treat as a pre-check failure)."""
+    type-check (caller should treat as a pre-check failure).
+
+    **Race-condition mitigation:** when multiple workers process files in
+    parallel and a worker happens to test removals on file F while another
+    worker is computing the baseline for F's dependent G, G's elaboration
+    can fail because F's `.agdai` is mid-flight.  This typically resolves
+    itself once the first worker's agda invocation completes and writes a
+    consistent `.agdai`.  Retry up to `retries` times with `retry_sleep_s`
+    backoff between attempts.  R22 full-sweep #2 (2026-05-21) showed this
+    on the `CAN/Encoding/*` cluster: 7 of 16 files failed baseline without
+    retries; retry+sleep would have let those settle."""
     cmd = [
         str(AGDA_BIN),
         "+RTS",
@@ -497,18 +509,24 @@ def _warning_count_for(
         "-RTS",
         rel_path,
     ]
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(src_dir),
-            capture_output=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
-            return -1
-        return _count_semantic_warnings(result.stdout, result.stderr)
-    except subprocess.TimeoutExpired:
-        return -1
+    last_failure: Optional[str] = None
+    for attempt in range(retries):
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(src_dir),
+                capture_output=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            last_failure = "timeout"
+        else:
+            if result.returncode == 0:
+                return _count_semantic_warnings(result.stdout, result.stderr)
+            last_failure = f"exit={result.returncode}"
+        if attempt < retries - 1:
+            time.sleep(retry_sleep_s)
+    return -1
 
 
 def typecheck_with_consumers(
