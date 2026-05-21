@@ -389,6 +389,76 @@ def path_to_module(file_path: Path, src_dir: Path) -> str:
     return str(rel.with_suffix("")).replace("/", ".")
 
 
+def topological_levels(
+    files: List[Path], src_dir: Path
+) -> List[List[Path]]:
+    """Group `files` into topological levels.
+
+    Level 0 = files with no Aletheia.* dependencies on other files IN
+    `files` (true leaves wrt the queue).
+    Level N = files whose every Aletheia.* dependency on a file in `files`
+    is at level < N.
+
+    Within a single level, files have no inter-dependencies, so parallel
+    workers can safely process them concurrently without `.agdai` race
+    conditions (see `feedback_agda_import_pruning_safety.md` for the race
+    pattern observed in sweeps #2 and #3).  Across levels, level K's files
+    are processed strictly AFTER all of level <K, so by the time a level-K
+    file is touched its dependencies' interfaces are stable.
+
+    Dependencies on files OUTSIDE `files` (e.g. stdlib, or files the user
+    excluded from this run) are ignored — those interfaces are stable for
+    the whole run, so they don't constrain the order.
+
+    Returns: `List[List[Path]]` ordered from level 0 (leaves) upward.
+    Within a level, files are sorted alphabetically for determinism."""
+    files_set = set(files)
+    module_to_file: Dict[str, Path] = {}
+    for f in files:
+        try:
+            module_to_file[path_to_module(f, src_dir)] = f
+        except ValueError:
+            continue
+
+    # Forward dependencies: f → set of files (also in `files`) that f imports.
+    deps: Dict[Path, Set[Path]] = {f: set() for f in files}
+    pat = re.compile(r"^(?:open\s+)?import\s+([\w.]+)", flags=re.MULTILINE)
+    for f in files:
+        try:
+            content = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for m in pat.finditer(content):
+            mod = m.group(1)
+            dep_file = module_to_file.get(mod)
+            if dep_file is not None and dep_file != f:
+                deps[f].add(dep_file)
+
+    # Kahn's algorithm: in-degree = number of unprocessed dependencies.
+    in_degree: Dict[Path, int] = {f: len(deps[f]) for f in files}
+    # Reverse graph: f → set of files that depend on f (its dependents).
+    dependents: Dict[Path, List[Path]] = {f: [] for f in files}
+    for f in files:
+        for d in deps[f]:
+            dependents[d].append(f)
+
+    levels: List[List[Path]] = []
+    remaining = set(files)
+    while remaining:
+        level = [f for f in remaining if in_degree[f] == 0]
+        if not level:
+            # Cycle (shouldn't happen in Agda).  Dump remaining as a final
+            # bucket so we don't hang.
+            levels.append(sorted(remaining))
+            break
+        levels.append(sorted(level))
+        for f in level:
+            remaining.discard(f)
+            for dep in dependents[f]:
+                in_degree[dep] -= 1
+    return levels
+
+
 def build_reverse_dep_graph(
     all_agda_files: List[Path], src_dir: Path
 ) -> Dict[str, List[Path]]:
@@ -1325,6 +1395,7 @@ def main() -> int:
     parser.add_argument("--verbose", action="store_true", help="Per-name decision logging")
     parser.add_argument("--pre-check", action="store_true", help="Verify each file type-checks before pruning")
     parser.add_argument("--no-bisect", action="store_true", help="Disable bisection (pure per-name brute force)")
+    parser.add_argument("--no-topo", action="store_true", help="Disable topological-level batching (process all files in one pool; faster on small subsets but exposes the race condition for inter-dependent files)")
     parser.add_argument("--restore-backups", action="store_true", help="Restore any *.prune-bak files left by an interrupted run, then exit")
 
     args = parser.parse_args()
@@ -1383,22 +1454,50 @@ def main() -> int:
     all_stats: List[FileStats] = []
     errors = 0
 
-    if args.workers <= 1:
-        for wa in worker_args:
-            stats = worker_process_file(wa)
-            all_stats.append(stats)
-            _print_stats(stats, args.quiet)
-            if stats.error:
-                errors += 1
+    # Decide whether to use topological-level batching.  Default is ON
+    # because R22 sweeps #2 and #3 demonstrated race conditions when
+    # parallel workers process inter-dependent files concurrently (one
+    # worker's .agdai mid-write breaks another's elaboration).  Topo
+    # batching processes files level by level; within a level, files
+    # have no inter-dependencies so parallel is safe.  Pass `--no-topo`
+    # to disable (faster on small subsets where the graph is shallow).
+    if args.workers <= 1 or args.no_topo:
+        batches: List[List[tuple]] = [worker_args]  # single bucket
     else:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(worker_process_file, wa): wa[0] for wa in worker_args}
-            for fut in concurrent.futures.as_completed(futures):
-                stats = fut.result()
-                all_stats.append(stats)
-                _print_stats(stats, args.quiet)
-                if stats.error:
-                    errors += 1
+        levels = topological_levels(files, SRC_DIR)
+        wa_by_file = {wa[0]: wa for wa in worker_args}
+        batches = [
+            [wa_by_file[f] for f in level if f in wa_by_file]
+            for level in levels
+        ]
+        if not args.quiet:
+            print(f"  topological-level batching: {len(batches)} levels "
+                  f"(sizes: {[len(b) for b in batches[:10]]}{'...' if len(batches) > 10 else ''})",
+                  flush=True)
+
+    def _consume(stats: FileStats) -> None:
+        nonlocal errors
+        all_stats.append(stats)
+        _print_stats(stats, args.quiet)
+        if stats.error:
+            errors += 1
+
+    if args.workers <= 1:
+        # Serial: one batch contains every file (above), process linearly.
+        for wa in batches[0]:
+            _consume(worker_process_file(wa))
+    else:
+        for level_idx, batch in enumerate(batches):
+            if not batch:
+                continue
+            if not args.quiet and len(batches) > 1:
+                print(f"  >>> level {level_idx} ({len(batch)} files)", flush=True)
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=min(args.workers, len(batch))
+            ) as pool:
+                futures = {pool.submit(worker_process_file, wa): wa[0] for wa in batch}
+                for fut in concurrent.futures.as_completed(futures):
+                    _consume(fut.result())
 
     elapsed = time.monotonic() - t_start
     total_removed = sum(s.removed_total for s in all_stats)
