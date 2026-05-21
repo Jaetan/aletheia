@@ -29,9 +29,9 @@
 module Aletheia.DBC.TextParser.Properties.EnvVars.EnvVar where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; foldr; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; foldr; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (_<_; s≤s; z≤n)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
@@ -40,7 +40,7 @@ open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePositions;
    pure; _>>=_; many)
 open import Aletheia.DBC.Types
-  using (EnvironmentVar; VarType; IntVar; FloatVar; StringVar)
+  using (EnvironmentVar; IntVar; FloatVar; StringVar)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.EnvVars using (parseEnvVar)
 open import Aletheia.DBC.TextFormatter.EnvVars using (emitEnvVar-chars)

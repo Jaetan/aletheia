@@ -7,7 +7,7 @@
 module Aletheia.DBC.Properties.Equality where
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Identifier using (Identifier; _≟ᴵ_)
+open import Aletheia.DBC.Identifier using (_≟ᴵ_)
 open import Aletheia.DBC.CanonicalReceivers using (_≟ᶜʳ_)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (_≟-ByteOrder_)

@@ -32,7 +32,7 @@ open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (s≤s; z≤n)
-open import Data.Product using (_×_; _,_; proj₂; Σ; Σ-syntax)
+open import Data.Product using (_×_; _,_; proj₂; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Sum using (inj₂)
 open import Data.Unit using (⊤; tt)
@@ -40,7 +40,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Parser; mkResult; advancePositions)
+  using (mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using (SignalGroup)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)

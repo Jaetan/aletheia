@@ -18,7 +18,7 @@ open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
+open import Aletheia.LTL.Incremental using (Holds; Fails; Unsure)
 open import Data.Nat using (_≡ᵇ_)
 open import Data.Bool using (Bool; true; false; _∧_)
 

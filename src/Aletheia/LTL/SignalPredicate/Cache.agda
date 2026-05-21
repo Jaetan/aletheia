@@ -10,12 +10,12 @@
 module Aletheia.LTL.SignalPredicate.Cache where
 
 open import Aletheia.Prelude
-open import Data.Bool using (T)
+open import Data.Bool using ()
 open import Data.Char using (Char)
-open import Data.Rational using (ℚ)
+open import Data.Rational using ()
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs as AP using (AllPairs; []; _∷_)
-open import Data.Unit using (tt)
+open import Data.Unit using ()
 open import Relation.Binary.PropositionalEquality using (_≢_; subst)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 

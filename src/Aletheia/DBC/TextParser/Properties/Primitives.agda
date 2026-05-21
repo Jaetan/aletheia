@@ -36,7 +36,7 @@ open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Data.String using (String; toList)
-open import Data.Unit using (tt)
+open import Data.Unit using ()
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 

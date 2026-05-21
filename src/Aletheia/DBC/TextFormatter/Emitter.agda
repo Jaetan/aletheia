@@ -36,7 +36,7 @@ open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ; zero; suc; _*_; _/_; _%_; _∸_; _^_; _⊔_; NonZero)
 open import Data.Nat.Properties using (m^n≢0)
-open import Data.String using (String; toList)
+open import Data.String using ()
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)

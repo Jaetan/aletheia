@@ -26,10 +26,10 @@ module Aletheia.DBC.TextParser.Format.EnvVar where
 
 open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Integer using (ℤ) renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
+open import Data.Integer using () renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (just; nothing)
-open import Data.Product using (_×_; _,_; proj₂; Σ; Σ-syntax)
+open import Data.Maybe using (just)
+open import Data.Product using (_×_; _,_; proj₂; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -37,20 +37,19 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; isIdentCont)
+  using (Position; mkResult; advancePositions)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 open import Aletheia.DBC.Types
   using (EnvironmentVar; VarType; IntVar; FloatVar; StringVar)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (digitChar; showDecRat-dec-chars)
+  using (showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop;
          showDecRat-chars-head-dash; showDecRat-chars-head-digit)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; literal; ident; nat; stringLit; pair; iso; many;
-         altSum; ws; wsOpt; decRat; withPrefix;
+  using (Format; literal; ident; nat; stringLit; pair; iso; altSum; ws; wsOpt; decRat; withPrefix;
          emit; parse; EmitsOK;
          roundtrip)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common

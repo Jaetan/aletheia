@@ -53,7 +53,7 @@
 module Aletheia.DBC.TextParser.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
 
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Bool using (true; false; if_then_else_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)

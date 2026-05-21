@@ -16,8 +16,8 @@
 module Aletheia.LTL.SimplifySound.Composition where
 
 open import Aletheia.Prelude
-open import Data.Bool using (T)
-open import Data.Unit using (tt)
+open import Data.Bool using ()
+open import Data.Unit using ()
 open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.LTL.Coalgebra using (PredTable; finalizeL)

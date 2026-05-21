@@ -34,7 +34,7 @@ open import Aletheia.LTL.Incremental using
   ; AtomicUnresolved
   )
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue)
 open import Data.Nat using (_≤ᵇ_; _⊔_)
 
 -- ============================================================================

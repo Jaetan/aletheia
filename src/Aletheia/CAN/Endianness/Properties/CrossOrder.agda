@@ -36,9 +36,9 @@ open import Aletheia.CAN.Endianness.Properties.StartBit using
   ; physicalBitPos-BE-div8; physicalBitPos-BE-mod8
   ; physicalBitPos-BE-bounded
   )
-open import Data.Vec using (Vec; []; _∷_; _∷ʳ_; reverse)
+open import Data.Vec using (Vec; []; _∷_; reverse)
 open import Data.Vec.Properties using (reverse-involutive; reverse-∷)
-open import Data.Fin using (Fin; fromℕ<)
+open import Data.Fin using (fromℕ<)
 open import Data.Fin.Properties using (toℕ-fromℕ<; toℕ-injective)
 open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; z≤n; s≤s; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n*o⇒m/o<n)

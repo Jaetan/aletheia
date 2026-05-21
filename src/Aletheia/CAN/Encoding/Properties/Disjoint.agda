@@ -25,7 +25,7 @@ open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; e
 open import Aletheia.CAN.Endianness.Properties using (payloadIso-involutive; injectBits-preserves-disjoint; injectBits-preserves-outside; physicalBitPos-BE-involutive; extractBits-swap-inject-preserves)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; mkBoundedBitVec)
+open import Aletheia.Data.BitVec.Conversion using (mkBoundedBitVec)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_)
 open import Data.Nat.Properties using (<-≤-trans; +-monoʳ-<)

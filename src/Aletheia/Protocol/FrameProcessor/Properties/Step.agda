@@ -22,7 +22,7 @@
 module Aletheia.Protocol.FrameProcessor.Properties.Step where
 
 open import Aletheia.Protocol.StreamState
-    using (StreamState; WaitingForDBC; ReadyToStream; Streaming;
+    using (WaitingForDBC; ReadyToStream; Streaming;
            handleDataFrame; checkMonotonic;
            PropertyState; mkPropertyState)
 open import Aletheia.Protocol.StreamState.Internals

@@ -24,14 +24,14 @@
 module Aletheia.LTL.SimplifySound.Decomposition where
 
 open import Aletheia.Prelude
-open import Data.Bool using (T)
+open import Data.Bool using ()
 open import Data.Bool.Properties using (T-∧)
 open import Relation.Binary.PropositionalEquality using (cong₂)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
 
 open import Aletheia.Trace.Time using (Timestamp; mkTs; tsValue)
-open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; finalizeL)
+open import Aletheia.LTL.Coalgebra using (stepL; finalizeL)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)

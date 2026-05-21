@@ -20,7 +20,7 @@ open import Aletheia.Protocol.StreamState.Internals
     using (updateCacheFromFrame; updateSignals)
 open import Aletheia.LTL.SignalPredicate
     using (SignalCache; mkSignalCache; CacheEntries;
-           CachedSignal; mkCachedSignal; lookupCache; updateCache;
+           mkCachedSignal; lookupCache; updateCache;
            lookupEntries; updateEntries; extractTruthValue)
 open import Aletheia.LTL.SignalPredicate.Cache.Properties
     using (AllTimestamps≤; updateCache-monotone; updateCache-timestamps≤)
@@ -29,7 +29,7 @@ open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Data.Char using (Char)
 open import Data.String using (String)
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (true; false; T)
 open import Data.Unit using (tt)
 open import Data.Product using (_,_; ∃-syntax)
 open import Data.Maybe using (just; nothing)

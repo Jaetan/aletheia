@@ -24,7 +24,7 @@ open import Aletheia.DBC.Properties using (PhysicallyDisjoint; physicallyDisjoin
 
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Sum using (inj₂)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_)
 open import Data.Rational using (ℚ; 0ℚ)

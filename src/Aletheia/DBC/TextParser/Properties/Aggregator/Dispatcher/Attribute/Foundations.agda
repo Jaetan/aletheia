@@ -31,7 +31,7 @@ open import Aletheia.DBC.Identifier using (Identifier; mkIdent)
 open import Aletheia.DBC.Types using
   ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal
   ; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig)
-open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
+open import Aletheia.DBC.TextParser.Lexer using ()
 
 open import Aletheia.DBC.TextParser.Properties.CharClassDisjoint using
   (isIdentStart→¬isHSpace)

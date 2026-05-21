@@ -22,10 +22,10 @@
 module Aletheia.Protocol.FrameProcessor.Properties.Monotonic where
 
 open import Aletheia.Protocol.StreamState
-    using (StreamState; Streaming; handleDataFrame; checkMonotonic)
+    using (Streaming; handleDataFrame; checkMonotonic)
 open import Aletheia.Protocol.StreamState.Internals
     using (stepProperty; dispatchIterResult; updateCacheFromFrame)
-open import Aletheia.Protocol.Message using (Response; Error)
+open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-streaming)

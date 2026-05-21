@@ -10,7 +10,7 @@
 -- All numeric fields use ℕ for O(1) MAlonzo allocation.
 module Aletheia.DBC.Types where
 
-open import Aletheia.CAN.DLC using (DLC; dlcBytes)
+open import Aletheia.CAN.DLC using (DLC)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder)
@@ -19,7 +19,7 @@ open import Data.String using (String; fromList)
 open import Data.List using (List; []; map)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.Nat using (ℕ)
-open import Data.Integer using (ℤ)
+open import Data.Integer using ()
 open import Data.Product using (_×_)
 open import Function using (_∘_)
 open import Aletheia.DBC.DecRat using (DecRat)

@@ -22,9 +22,9 @@ module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Prefix
 
 open import Data.Char  using (Char)
 open import Data.List  using (List; _∷_)
-  renaming (_++_ to _++ₗ_)
+  renaming ()
 open import Data.Maybe using (just)
-open import Data.Product using (Σ; Σ-syntax; _,_)
+open import Data.Product using (Σ-syntax; _,_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 

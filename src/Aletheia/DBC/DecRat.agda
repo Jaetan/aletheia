@@ -43,7 +43,7 @@
 module Aletheia.DBC.DecRat where
 
 open import Data.Nat.Base
-  using (ℕ; zero; suc; _+_; _*_; _∸_; _^_; _<_; _≤_; _>_; z<s; NonZero)
+  using (ℕ; zero; suc; _*_; _∸_; _^_; _<_; _>_; z<s; NonZero)
   renaming (_/_ to _/ₙ_; _%_ to _%ₙ_)
 open import Data.Nat.Properties
   using (*-identityʳ; *-identityˡ; *-assoc; *-comm;

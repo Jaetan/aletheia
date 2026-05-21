@@ -24,7 +24,7 @@ module Aletheia.Protocol.Iteration where
 open import Data.List using (List; []; _∷_; reverse; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc; ++-identityʳ; unfold-reverse)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _≤_; z≤n; s≤s)
+open import Data.Nat using (_≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≤-refl; m≤n⇒m≤1+n)
 open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong; sym)

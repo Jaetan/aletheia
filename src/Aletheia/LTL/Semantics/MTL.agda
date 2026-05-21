@@ -33,7 +33,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong;
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually;
   Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue; Monotonic)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue; Monotonic)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
 open import Aletheia.Prelude using (T→true)
 

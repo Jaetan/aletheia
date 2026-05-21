@@ -10,7 +10,7 @@
 -- used by Semantics.Duality to prove safety/liveness operator dualities.
 module Aletheia.LTL.TruthVal.Properties where
 
-open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
+open import Aletheia.LTL.SignalPredicate using (True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; sym; cong)
 

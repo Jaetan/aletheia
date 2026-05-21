@@ -24,7 +24,7 @@
 --   private Layer 4A helpers.
 module Aletheia.CAN.Encoding.Properties.Roundtrip where
 
-open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractionBytes; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true)
+open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.CAN.Encoding.Properties.Arithmetic using (SignedFits; toSigned-fromSigned-roundtrip; removeScaling-applyScaling-exact)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; injectPayload)

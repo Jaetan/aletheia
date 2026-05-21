@@ -37,7 +37,7 @@ open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; foldr; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using
   (ℕ; _≤_; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_; s≤s; z≤n)
 open import Data.Nat.Properties using
@@ -75,7 +75,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
-open import Aletheia.DBC.TextParser.Format using (Format; emit; parse)
+open import Aletheia.DBC.TextParser.Format using (emit; parse)
 open import Aletheia.DBC.TextParser.Format.Comments as FmtCM using
   (commentFmt; rawTargetOf; RawCommentTarget;
    parseComment-format-roundtrip)

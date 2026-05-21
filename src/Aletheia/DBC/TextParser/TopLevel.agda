@@ -63,7 +63,7 @@ module Aletheia.DBC.TextParser.TopLevel where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Unit using (⊤; tt)
 

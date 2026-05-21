@@ -37,7 +37,7 @@ module Aletheia.DBC.TextParser.Properties.Topology.Receivers where
 open import Data.Bool.Properties using (T?)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
-open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
+open import Data.List.Relation.Unary.All as All using (All; _∷_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; cong)
 open import Relation.Nullary using (¬_; yes; no)

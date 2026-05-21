@@ -53,9 +53,9 @@ open import Aletheia.DBC.Identifier using
 
 open import Aletheia.Prelude
 open import Data.Empty using (⊥; ⊥-elim)
-open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (just; nothing)
-open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.List using ()
+open import Data.Maybe using ()
+open import Data.Product using (_,_; ∃-syntax)
 open import Data.Char using (Char)
 open import Data.Bool using (true; false; T)
 open import Data.Unit using (⊤; tt)

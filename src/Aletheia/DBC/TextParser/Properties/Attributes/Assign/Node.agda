@@ -16,11 +16,11 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node where
 
 open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (ℤ)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
-open import Data.Product using (_,_; Σ; Σ-syntax; _×_; proj₁; proj₂)
+open import Data.Product using (_,_; Σ-syntax; _×_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality

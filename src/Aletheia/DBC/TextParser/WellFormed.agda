@@ -44,7 +44,7 @@
 -- as an R18 cluster 14 deferral.
 module Aletheia.DBC.TextParser.WellFormed where
 
-open import Data.List using (List; []; map)
+open import Data.List using ([]; map)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_)

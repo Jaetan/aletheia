@@ -31,14 +31,13 @@ open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using (List; []; _∷_)
 import Data.List.Properties as ListProps
 open import Data.String using (toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; cong)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 
 open import Aletheia.DBC.Identifier
-  using (Identifier; mkIdent; validIdentifierᵇ; _≡csᵇ_; ≡csᵇ-refl-eq;
-         _≟ᴵ_)
+  using (Identifier; mkIdent; _≡csᵇ_; _≟ᴵ_)
 
 -- ============================================================================
 -- VECTOR__XXX MAGIC IDENTIFIER

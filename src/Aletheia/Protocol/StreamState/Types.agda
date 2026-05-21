@@ -15,13 +15,13 @@
 -- Invalid phase transitions are unrepresentable at the type level.
 module Aletheia.Protocol.StreamState.Types where
 
-open import Data.List using (List; [])
+open import Data.List using (List)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Fin using (Fin)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache)
 open import Aletheia.LTL.Coalgebra using (LTLProc)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 

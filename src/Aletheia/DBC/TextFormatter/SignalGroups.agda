@@ -37,7 +37,7 @@ open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 
 open import Aletheia.DBC.Types using (SignalGroup)
 

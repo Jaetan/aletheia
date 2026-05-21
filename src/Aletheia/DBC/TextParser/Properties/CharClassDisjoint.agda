@@ -48,7 +48,7 @@ open import Data.Product using (_,_)
 open import Data.Unit using (tt)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; subst)
+  using (_≡_; refl; subst)
 open import Relation.Nullary using (yes; no; ¬_)
 
 open import Aletheia.DBC.Identifier using (isIdentStart; isIdentCont)

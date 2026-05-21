@@ -23,11 +23,11 @@ open import Data.Nat.Base
 open import Data.Nat.Properties
   using (*-identityʳ; *-identityˡ; *-assoc; *-comm;
          m^n≢0; m*n≢0; m^n>0;
-         ≤-refl; suc-injective; suc-pred)
+         suc-injective; suc-pred)
   renaming (_≟_ to _≟ₙ_)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat.Divisibility
-  using (_∣_; _∤_; _∣?_; ∣-refl; ∣1⇒≡1; >⇒∤;
+  using (_∤_; _∣?_; ∣-refl; ∣1⇒≡1; >⇒∤;
          m%n≡0⇒n∣m)
 open import Data.Nat.DivMod using (m*n/n≡m; m*n%n≡0)
 open import Data.Product using (_,_; proj₁; proj₂)

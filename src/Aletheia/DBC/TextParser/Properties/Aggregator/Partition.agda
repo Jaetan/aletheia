@@ -26,7 +26,7 @@ open import Data.List  using (List; []; _∷_; foldr; map)
 open import Data.List.Properties using (foldr-++; map-++)
   renaming (++-identityʳ to ++ₗ-identityʳ)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong)
+  using (_≡_; refl; trans; cong)
 
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup

@@ -34,8 +34,8 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Default where
 
 open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Char.Base using (_≈ᵇ_; isDigit)
-open import Data.Integer using (ℤ; +_)
+open import Data.Char.Base using (isDigit)
+open import Data.Integer using (ℤ)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just; nothing)

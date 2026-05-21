@@ -50,14 +50,14 @@ open import Relation.Binary.PropositionalEquality public
   using (_≡_; refl; cong; sym; trans)
 
 open import Relation.Nullary public
-  using (Dec; yes; no; ¬_)
+  using (Dec; yes)
 
 open import Relation.Nullary.Decidable public
   using (⌊_⌋)
 
 -- Function combinators
 open import Function public
-  using (_∘_; _$_; id; const)
+  using (_∘_)
 
 -- COMMON UTILITY FUNCTIONS
 -- ============================================================================
@@ -103,7 +103,7 @@ inj₂ x >>=ₑ f = f x
 -- CAN domain constants re-exported for convenience.
 -- Canonical definitions live in Aletheia.CAN.Constants.
 open import Aletheia.CAN.Constants public
-  using (standard-can-id-max; extended-can-id-max; max-physical-bits; 8≤max-physical-bits)
+  using ()
 
 -- Boolean conditional that provides a T proof in the true branch.
 -- Unlike if_then_else_, this passes the T b witness to the true branch,
@@ -115,7 +115,7 @@ ifᵀ false then _ else x = x
 
 -- T b has at most one inhabitant: T true = ⊤ (unique by η), T false = ⊥ (empty).
 -- Essential for decidable equality and roundtrip proofs on bounded types.
-open import Data.Bool.Properties public using (T-irrelevant; T-≡)
+open import Data.Bool.Properties public using (T-≡)
 open import Function.Bundles using (module Equivalence)
 
 -- Convert T b witness to propositional equality b ≡ true (stdlib T-≡ forward).

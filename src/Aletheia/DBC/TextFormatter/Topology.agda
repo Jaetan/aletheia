@@ -48,10 +48,10 @@ open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
-open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
+open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _^_)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.Types using

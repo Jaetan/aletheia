@@ -51,10 +51,10 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; cong)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions;
+  using (Position; mkResult; advancePositions;
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
          char)
-  renaming (many to many-parser)
+  renaming ()
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; validIdentifierᵇ)
 open import Aletheia.DBC.TextParser.Lexer using

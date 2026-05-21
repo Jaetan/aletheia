@@ -45,7 +45,7 @@ open import Aletheia.DBC.TextParser.Format.Nodes using (nodeListFmt)
 
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; Node)
-open import Aletheia.CAN.DLC using (DLC; bytesToValidDLC)
+open import Aletheia.CAN.DLC using (bytesToValidDLC)
 open import Aletheia.CAN.Endianness using
   (convertStartBit)
 open import Aletheia.CAN.Constants using

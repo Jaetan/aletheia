@@ -18,14 +18,14 @@
 --     Identifier construction site.
 module Aletheia.DBC.Identifier where
 
-open import Data.Bool using (Bool; true; false; T; _∨_; _∧_; not)
+open import Data.Bool using (Bool; true; false; T; _∨_; _∧_)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isAlpha; _≈ᵇ_; toℕ)
 open import Data.Char.Properties using (≈⇒≡)
 open import Data.List using (List; []; _∷_; length)
 import Data.List.Properties as ListProps
-open import Data.List.Relation.Unary.All as All using ([]; _∷_)
+open import Data.List.Relation.Unary.All as All using ()
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (suc; _<ᵇ_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ)

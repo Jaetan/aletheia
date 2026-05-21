@@ -36,7 +36,7 @@ open import Aletheia.DBC.DecRat
          stripShared2-abs-zero ; stripShared5-abs-zero)
 
 open import Data.Nat.Base
-  using (zero ; suc ; _+_ ; _*_ ; _^_ ; _<_ ; _>_ ; z<s)
+  using (zero ; suc ; _+_ ; _*_ ; _^_ ; _<_ ; z<s)
   renaming (_/_ to _/ₙ_)
 open import Data.Nat.Properties
   using (*-identityʳ ; *-assoc ; *-comm)

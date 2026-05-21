@@ -31,15 +31,14 @@ import Data.Empty.Irrelevant as EmptyI
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
   renaming (length-++ to length-++ₗ)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
+open import Data.List.Relation.Unary.All using (All; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _/_; _%_; _^_; _⊔_;
          _<_; _≤_; z≤n; s≤s; NonZero)
-open import Data.Nat.Base using (≢-nonZero⁻¹)
+open import Data.Nat.Base using ()
 open import Data.Nat.Properties
   using (+-comm;
-         m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl;
-         m*n≢0; m^n≢0)
+         m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl)
 open import Data.Nat.DivMod
   using (m%n<n; m≡m%n+[m/n]*n)
 open import Data.Nat.Divisibility using (_∣_; _∣?_; _∤_)
@@ -60,10 +59,10 @@ open import Aletheia.DBC.TextFormatter.Emitter
 open import Aletheia.DBC.TextParser.DecRatParse
   using (parseDigitList; applySign; buildDecRat)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Data.Integer using (ℤ; sign; _◃_; ∣_∣)
+open import Data.Integer using (sign; _◃_; ∣_∣)
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
-  using (DecRat; mkDecRat; IsCanonical;
+  using (mkDecRat; IsCanonical;
          canonicalizeDecRat; canonicalizeNat)
 open import Aletheia.DBC.DecRat.ScaleLemmas using (canonicalizeNat-scale-pos)
 

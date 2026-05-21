@@ -28,7 +28,7 @@
 --     witnesses are `tt : ⊤`).
 module Aletheia.DBC.TextParser.Format.Receivers where
 
-open import Data.Bool using (Bool; T)
+open import Data.Bool using (T)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_)

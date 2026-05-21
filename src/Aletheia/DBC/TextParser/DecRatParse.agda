@@ -49,7 +49,7 @@ open import Data.Char using (Char; toℕ)
 open import Data.List using (List; []; foldl; length)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _^_)
-open import Data.Integer using (ℤ; +_; -[1+_]) renaming (-_ to -ℤ_)
+open import Data.Integer using (ℤ; +_; -[1+_]) renaming ()
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; fail; _>>=_; _<|>_; char; digit; optional; some)

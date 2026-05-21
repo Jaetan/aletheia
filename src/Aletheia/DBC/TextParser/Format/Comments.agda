@@ -41,7 +41,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
+open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -49,12 +49,12 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
-open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
+  using (Position; mkResult; advancePositions)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types
   using (CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
          DBCComment; mkComment)
-open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.CAN.Frame using ()
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (showℕ-dec-chars; quoteStringLit-chars)

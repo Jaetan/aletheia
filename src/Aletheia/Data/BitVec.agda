@@ -12,7 +12,7 @@ module Aletheia.Data.BitVec where
 
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Fin using (Fin)
-open import Data.Vec using (Vec; []; _∷_; lookup; updateAt)
+open import Data.Vec using (Vec; _∷_; lookup; updateAt)
 open import Data.Bool using (Bool)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong)
 open import Function using (const; _∘_)
