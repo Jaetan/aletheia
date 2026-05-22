@@ -137,17 +137,17 @@ private
   all-++ []       _ []        ays = ays
   all-++ (x ∷ xs) ys (px ∷ axs) ays = px ∷ all-++ xs ys axs ays
 
-toTopStmtsTyped-WF :
+toTopStmtsTyped-wf :
     ∀ (d : DBC) → WellFormedTextDBCAgg d
   → All (TopStmtTypedWF (collectDefs (DBC.attributes d))) (toTopStmtsTyped d)
-toTopStmtsTyped-WF d wf =
+toTopStmtsTyped-wf d wf =
   all-++ _ _ (all-map TVT (DBC.valueTables d)
                (lift-stops TVT (TopStmtTypedWF defs) (DBC.valueTables d)
                            (WellFormedTextDBCAgg.vt-stops wf) wfTVT))
             (all-++ _ _ (all-map TM (DBC.messages d)
                           (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
                                       (WellFormedTextDBCAgg.msg-wfs wf) wfTM))
-                       (all-++ _ _ tvd-WF
+                       (all-++ _ _ tvd-wf
                                   (all-++ _ _ (all-map TEV (DBC.environmentVars d)
                                                 (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
                                                             (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
@@ -186,8 +186,8 @@ toTopStmtsTyped-WF d wf =
     -- comes from some `s.name : Identifier`, whose `valid` witness
     -- decomposes to a head non-isHSpace).  No `vds-empty` precondition
     -- needed.  `lift-stops` then routes through `wfTVD`.
-    tvd-WF : All (TopStmtTypedWF defs) (map TVD (collectFromMessages (DBC.messages d)))
-    tvd-WF =
+    tvd-wf : All (TopStmtTypedWF defs) (map TVD (collectFromMessages (DBC.messages d)))
+    tvd-wf =
       all-map TVD (collectFromMessages (DBC.messages d))
         (lift-stops TVD (TopStmtTypedWF defs)
                     (collectFromMessages (DBC.messages d))
@@ -243,7 +243,7 @@ parseTopStmts-on-formatChars-body d pos wf =
                 [])
     body-eq =
       parseTopStmts-roundtrip defs pos (toTopStmtsTyped d) []
-        (toTopStmtsTyped-WF d wf)
+        (toTopStmtsTyped-wf d wf)
         []-stop
         parseTopStmt-on-empty
       where

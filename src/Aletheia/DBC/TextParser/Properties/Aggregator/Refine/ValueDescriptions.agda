@@ -470,7 +470,7 @@ attachValueDescs-on-collectFromMessages msgs msg-uniq all-wfs =
     (λ m m∈ → attachToMessage-on-collected msgs m m∈ msg-uniq all-wfs)
 
 -- ============================================================================
--- E.9a — clearVds bridge for non-vacuous tvd-WF coverage
+-- E.9a — clearVds bridge for non-vacuous tvd-wf coverage
 -- ============================================================================
 --
 -- E.7's universal proof closed vacuously: `MessageWF.vds-empty` (an E.1

@@ -15,6 +15,7 @@ open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; _≡ᵇ_; z≤n; s≤s)
 open import Data.Nat.Properties using (_≟_; _≤?_; ≡ᵇ⇒≡; ≡⇒≡ᵇ; +-identityʳ; +-suc)
+open import Data.Nat.Properties using (≤-refl; m≤n⇒m≤1+n; ≤∧≢⇒<) public
 open import Data.Bool using (Bool; true; false; _∨_; T)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (tt)
@@ -85,16 +86,16 @@ private
   allBounded _ zero = yes (λ _ ())
   allBounded decide (suc n) with decide n | allBounded decide n
   ... | no ¬pn | _ = no (λ f → ¬pn (f n (Data.Nat.Properties.≤-refl)))
-    where open import Data.Nat.Properties using (≤-refl)
+    
   ... | _ | no ¬rest = no (λ f → ¬rest (λ k k<n → f k (Data.Nat.Properties.m≤n⇒m≤1+n k<n)))
-    where open import Data.Nat.Properties using (m≤n⇒m≤1+n)
+    
   ... | yes pn | yes rest = yes lemma
     where
       lemma : ∀ k → k < suc n → _
       lemma k (s≤s k≤n) with k ≟ n
       ... | yes refl = pn
       ... | no k≢n = rest k (Data.Nat.Properties.≤∧≢⇒< k≤n k≢n)
-        where open import Data.Nat.Properties using (≤∧≢⇒<)
+        
 
 physicallyDisjoint? : (n : ℕ) → (sig₁ sig₂ : DBCSignal) → Dec (PhysicallyDisjoint n sig₁ sig₂)
 physicallyDisjoint? n sig₁ sig₂ =
