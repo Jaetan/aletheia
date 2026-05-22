@@ -125,9 +125,16 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 // parser via stack overflow without this guard).  See AGENTS.md universal
 // rule "Adversarial-input bounds at parser surfaces" + R18 cluster 2 closure.
 //
-// Throws `std::runtime_error` with a descriptive message on depth exceedance;
-// the existing `catch (const std::exception&)` block at every parse_*
-// callsite converts it to a `Result<>` error via `make_error`.
+// Throws `std::runtime_error` (not typed `InputBoundExceeded`) by design:
+// `InputBoundExceeded` carries the kernel-side `bound_kind / observed / limit`
+// triple where `bound_kind` is one of the kernel's `BoundKind` ADT entries
+// (`MessageCount`, `AtomCount`, `IdentifierLength`, `PropertyCount`, etc.).
+// JSON nesting depth is a client-side guard against malformed *responses*
+// from the kernel — not an inbound kernel input bound — so it doesn't fit
+// any `BoundKind` and the typed shape would be misleading.  The existing
+// `catch (const std::exception&)` block at every parse_* callsite converts
+// the `runtime_error` to a `Result<>` error via `make_error(ErrorKind::Protocol,
+// ...)`, which is the right semantic class (malformed/corrupted server reply).
 static auto parse_bounded(std::string_view input) -> Json {
     auto callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
         if (static_cast<std::uint64_t>(depth) > max_nesting_depth) {
@@ -139,15 +146,6 @@ static auto parse_bounded(std::string_view input) -> Json {
     return Json::parse(input, callback);
 }
 
-/// Extract error from a JSON response with status=="error", parsing the code field.
-///
-/// Both ``code`` and ``message`` must be non-null strings — a missing or
-/// non-string value surfaces as a ``Protocol`` error rather than being
-/// papered over with a default. Matches Python's ``build_error_response``
-/// strict contract; R16 shipped with a silent "unknown error code"
-/// regression in production logs because the old ``j.value("code", "")``
-/// / ``j.value("message", "Unknown error")`` defaults masked malformed
-/// responses.
 // Post-R19P2-cluster-14: routes the response through `ErrorKind::InputBoundExceeded`
 // regardless of the kind the caller guessed from the response section (Protocol /
 // Validation), so the typed bound-info shape is exposed uniformly across the JSON /
@@ -159,6 +157,15 @@ static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
     return code == ErrorCode::InputBoundExceeded;
 }
 
+/// Extract error from a JSON response with status=="error", parsing the code field.
+///
+/// Both ``code`` and ``message`` must be non-null strings — a missing or
+/// non-string value surfaces as a ``Protocol`` error rather than being
+/// papered over with a default. Matches Python's ``build_error_response``
+/// strict contract; R16 shipped with a silent "unknown error code"
+/// regression in production logs because the old ``j.value("code", "")``
+/// / ``j.value("message", "Unknown error")`` defaults masked malformed
+/// responses.
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     if (!j.contains("code") || !j.at("code").is_string())
         return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
@@ -188,6 +195,24 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
                          std::move(bound_info)};
 }
 
+// Decode a JSON {numerator, denominator} object into a normalized (num, den)
+// pair with den > 0.  Throws on zero denominator or normalization overflow
+// (INT64_MIN cannot be negated).  Caller is responsible for first verifying
+// `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
+static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
+    auto num = j.at("numerator").get<std::int64_t>();
+    auto den = j.at("denominator").get<std::int64_t>();
+    if (den == 0)
+        throw std::runtime_error("Zero denominator in rational: " + j.dump());
+    if (den < 0) {
+        if (num == std::numeric_limits<std::int64_t>::min())
+            throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
+        num = -num;
+        den = -den;
+    }
+    return {num, den};
+}
+
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.
 // Returns Rational for exact precision (no double truncation).
 // Throws on unrecognized formats; callers catch at the public API boundary.
@@ -197,64 +222,43 @@ static auto parse_signal_value(const Json& j) -> Rational {
     if (j.is_number())
         return Rational::from_double(j.get<double>());
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<std::int64_t>();
-        auto den = j.at("denominator").get<std::int64_t>();
-        if (den == 0)
-            throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        if (den < 0) {
-            if (num == std::numeric_limits<std::int64_t>::min())
-                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
-            num = -num;
-            den = -den;
-        }
+        auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
     throw std::runtime_error("Expected number or {numerator, denominator}, got: " + j.dump());
 }
 
-static auto parse_issue_code(const std::string& code) -> IssueCode {
-    if (code == "duplicate_message_id")
-        return IssueCode::DuplicateMessageId;
-    if (code == "duplicate_message_name")
-        return IssueCode::DuplicateMessageName;
-    if (code == "duplicate_signal_name")
-        return IssueCode::DuplicateSignalName;
-    if (code == "factor_zero")
-        return IssueCode::FactorZero;
-    if (code == "multiplexor_not_found")
-        return IssueCode::MultiplexorNotFound;
-    if (code == "multiplexor_cycle")
-        return IssueCode::MultiplexorCycle;
-    if (code == "global_name_collision")
-        return IssueCode::GlobalNameCollision;
-    if (code == "min_exceeds_max")
-        return IssueCode::MinExceedsMax;
-    if (code == "signal_exceeds_dlc")
-        return IssueCode::SignalExceedsDlc;
-    if (code == "signal_overlap")
-        return IssueCode::SignalOverlap;
-    if (code == "bit_length_zero")
-        return IssueCode::BitLengthZero;
-    if (code == "offset_scale_range")
-        return IssueCode::OffsetScaleRange;
-    if (code == "empty_message")
-        return IssueCode::EmptyMessage;
-    if (code == "start_bit_out_of_range")
-        return IssueCode::StartBitOutOfRange;
-    if (code == "bit_length_excessive")
-        return IssueCode::BitLengthExcessive;
-    if (code == "multiplexor_non_unit_scaling")
-        return IssueCode::MultiplexorNonUnitScaling;
-    if (code == "duplicate_attribute_name")
-        return IssueCode::DuplicateAttributeName;
-    if (code == "unknown_comment_target")
-        return IssueCode::UnknownCommentTarget;
-    if (code == "unknown_message_sender")
-        return IssueCode::UnknownMessageSender;
-    if (code == "unknown_signal_receiver")
-        return IssueCode::UnknownSignalReceiver;
-    if (code == "unknown_value_description_target")
-        return IssueCode::UnknownValueDescriptionTarget;
+// String → IssueCode lookup table.  Same shape as `error_code_table` at the
+// top of this file; linear scan is fine on the cold validation path.
+using IssueCodeEntry = std::pair<std::string_view, IssueCode>;
+constexpr std::array<IssueCodeEntry, 21> issue_code_table{{
+    {"duplicate_message_id", IssueCode::DuplicateMessageId},
+    {"duplicate_message_name", IssueCode::DuplicateMessageName},
+    {"duplicate_signal_name", IssueCode::DuplicateSignalName},
+    {"factor_zero", IssueCode::FactorZero},
+    {"multiplexor_not_found", IssueCode::MultiplexorNotFound},
+    {"multiplexor_cycle", IssueCode::MultiplexorCycle},
+    {"global_name_collision", IssueCode::GlobalNameCollision},
+    {"min_exceeds_max", IssueCode::MinExceedsMax},
+    {"signal_exceeds_dlc", IssueCode::SignalExceedsDlc},
+    {"signal_overlap", IssueCode::SignalOverlap},
+    {"bit_length_zero", IssueCode::BitLengthZero},
+    {"offset_scale_range", IssueCode::OffsetScaleRange},
+    {"empty_message", IssueCode::EmptyMessage},
+    {"start_bit_out_of_range", IssueCode::StartBitOutOfRange},
+    {"bit_length_excessive", IssueCode::BitLengthExcessive},
+    {"multiplexor_non_unit_scaling", IssueCode::MultiplexorNonUnitScaling},
+    {"duplicate_attribute_name", IssueCode::DuplicateAttributeName},
+    {"unknown_comment_target", IssueCode::UnknownCommentTarget},
+    {"unknown_message_sender", IssueCode::UnknownMessageSender},
+    {"unknown_signal_receiver", IssueCode::UnknownSignalReceiver},
+    {"unknown_value_description_target", IssueCode::UnknownValueDescriptionTarget},
+}};
+
+static auto parse_issue_code(std::string_view s) -> IssueCode {
+    for (const auto& [name, code] : issue_code_table)
+        if (name == s)
+            return code;
     return IssueCode::Unknown;
 }
 
@@ -264,17 +268,7 @@ static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
         return Rational{j.get<std::int64_t>(), 1};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<std::int64_t>();
-        auto den = j.at("denominator").get<std::int64_t>();
-        if (den == 0)
-            throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        // Normalize: denominator always positive
-        if (den < 0) {
-            if (num == std::numeric_limits<std::int64_t>::min())
-                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
-            num = -num;
-            den = -den;
-        }
+        auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
@@ -284,12 +278,10 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
     if (j.is_number_integer())
         return j.get<std::int64_t>();
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<std::int64_t>();
-        auto den = j.at("denominator").get<std::int64_t>();
-        if (den == 0)
-            throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        if (den == -1 && num == std::numeric_limits<std::int64_t>::min())
-            throw std::runtime_error("Integer overflow in rational: " + j.dump());
+        // parse_rational_dict normalizes den > 0, so the asymmetric INT64_MIN/-1
+        // overflow check from the pre-extraction code is subsumed by the helper's
+        // general (den<0, num==INT64_MIN) check.  After normalization num/den is safe.
+        auto [num, den] = parse_rational_dict(j);
         if (num % den != 0)
             throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
         return num / den;
@@ -504,22 +496,24 @@ static auto parse_comment(const Json& j) -> DbcComment {
     };
 }
 
-static auto parse_attr_scope(const std::string& s) -> DbcAttrScope {
-    if (s == "network")
-        return DbcAttrScope::Network;
-    if (s == "node")
-        return DbcAttrScope::Node;
-    if (s == "message")
-        return DbcAttrScope::Message;
-    if (s == "signal")
-        return DbcAttrScope::Signal;
-    if (s == "envVar")
-        return DbcAttrScope::EnvVar;
-    if (s == "nodeMsg")
-        return DbcAttrScope::NodeMsg;
-    if (s == "nodeSig")
-        return DbcAttrScope::NodeSig;
-    throw std::runtime_error("Unknown attribute scope: " + s);
+// String → DbcAttrScope lookup table.  Same shape as `error_code_table` /
+// `issue_code_table`; unknown scope is a hard error (unlike issue_code).
+using AttrScopeEntry = std::pair<std::string_view, DbcAttrScope>;
+constexpr std::array<AttrScopeEntry, 7> attr_scope_table{{
+    {"network", DbcAttrScope::Network},
+    {"node", DbcAttrScope::Node},
+    {"message", DbcAttrScope::Message},
+    {"signal", DbcAttrScope::Signal},
+    {"envVar", DbcAttrScope::EnvVar},
+    {"nodeMsg", DbcAttrScope::NodeMsg},
+    {"nodeSig", DbcAttrScope::NodeSig},
+}};
+
+static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
+    for (const auto& [name, scope] : attr_scope_table)
+        if (name == s)
+            return scope;
+    throw std::runtime_error("Unknown attribute scope: " + std::string{s});
 }
 
 static auto parse_attr_type(const Json& j) -> DbcAttrType {
