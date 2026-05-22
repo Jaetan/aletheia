@@ -1318,7 +1318,8 @@ TEST_CASE("parse_dbc_response rejects truncating standard CAN ID (70000)", "[jso
         }
     })");
     CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("uint16"));
+    CHECK_THAT(std::string{result.error().message()},
+               ContainsSubstring("11-bit standard-frame range"));
 }
 
 TEST_CASE("ExtractionResult::get helper", "[response]") {

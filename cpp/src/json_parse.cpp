@@ -854,6 +854,26 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
     }
 }
 
+// Parse one entry in the `warnings` array.  Extracted from
+// `parse_stream_result` so the outer function stays under clang-tidy's
+// readability-function-cognitive-complexity threshold (25).  R23 cluster C
+// added the `contains("property_index")` guard, which bumped the outer
+// function above the threshold.
+static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
+    if (!w.contains("property_index"))
+        throw std::runtime_error("Warning entry missing required 'property_index' field");
+    auto kind = w.value("kind", "");
+    auto idx = parse_rational_as_int(w.at("property_index"));
+    if (idx < 0)
+        throw std::runtime_error("Negative warning property_index: " + std::to_string(idx));
+    auto detail = w.value("detail", "");
+    return StreamWarning{
+        .kind = std::move(kind),
+        .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
+        .detail = std::move(detail),
+    };
+}
+
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
     try {
         auto j = parse_bounded(input);
@@ -902,22 +922,8 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
 
         std::vector<StreamWarning> warnings;
         if (j.contains("warnings")) {
-            for (const auto& w : j.at("warnings")) {
-                if (!w.contains("property_index"))
-                    throw std::runtime_error(
-                        "Warning entry missing required 'property_index' field");
-                auto kind = w.value("kind", "");
-                auto idx = parse_rational_as_int(w.at("property_index"));
-                if (idx < 0)
-                    throw std::runtime_error("Negative warning property_index: " +
-                                             std::to_string(idx));
-                auto detail = w.value("detail", "");
-                warnings.push_back({
-                    .kind = std::move(kind),
-                    .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-                    .detail = std::move(detail),
-                });
-            }
+            for (const auto& w : j.at("warnings"))
+                warnings.push_back(parse_stream_warning_entry(w));
         }
         return StreamResult{.results = std::move(results), .warnings = std::move(warnings)};
     } catch (const std::exception& e) {
