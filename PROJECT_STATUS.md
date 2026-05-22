@@ -1,12 +1,12 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-05-22 (R23 first full review under the new R22 meta-review protocol — in progress on `review-r23`).  R22 ✅ merged to main at `3ebfc37` + clang-format follow-up `ce7bbcc`; main pushed to `origin` (push gap closed).
+**Last Updated**: 2026-05-23 (R23 in flight on `review-r23`; 18 in-flight DEFERs reversed to FIX by user directive at `5367334`).  R22 ✅ merged to main at `3ebfc37` + clang-format follow-up `ce7bbcc`; main pushed to `origin` (push gap closed).
 
 **Recent rounds**: R20 ✅ merged 2026-05-17 (`2477d5c`), R21 ✅ merged 2026-05-18 (`315c1a3`), R22 ✅ merged 2026-05-22 (`3ebfc37`).  R22 closed: AGDA-A-1.1 dead-import campaign (sweep #4 `56ac3d6` + two-tier gates `403555b`); AGDA-D-12.1 end-of-stream warnings (`d51cdb1`); Assign.agda b15 marker (`57ad862`); review-process meta-review (`80e3d2a` / `36fc47b` / `9f7d38e` / `b98661e` / `92bb3ae`).  R23 launched on the new protocol — delta scope on Step 1A/1B (saved 6 agents); whole-program on Step 1C + Step 2; cat 1 Agda graduated.
 
-**Closure narratives**: per-round detail in `memory/project_review_round{18,19,20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22}/findings/` (queryable via `tools/review_db.py`); historical PROJECT_STATUS narrative paragraphs preserved verbatim in [`docs/archive/PROJECT_STATUS_HISTORY.md`](docs/archive/PROJECT_STATUS_HISTORY.md).
+**R23 in-flight**: 39 of 57 findings status:closed (35 FIX + 3 FP-VERIFIED + 1 carrier); 18 remaining open-FIX after user reversed all in-flight DEFERs (see `.archive/reviews/r23/round.yaml` notes for the reversal entry + affected finding list).  Critical (XDOC-15.1 module count drift) raised AND closed in-round at `66cf92b` cluster A doc-sync; no carry-forward criticals.
 
-**Push gap**: local `main` 162+ commits ahead of `origin/main` — R20+R21 merges + R22 work held local per `feedback_review_branch_workflow.md`.
+**Closure narratives**: per-round detail in `memory/project_review_round{18,19,20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py`); historical PROJECT_STATUS narrative paragraphs preserved verbatim in [`docs/archive/PROJECT_STATUS_HISTORY.md`](docs/archive/PROJECT_STATUS_HISTORY.md).
 
 ---
 
