@@ -7,7 +7,7 @@ category:
   agent: A
 severity: low
 disposition: DEFER
-status: closed
+status: open
 title: Docker image lacks dedicated SBOM
 description: dist tarball has SBOM; docker image consumers should mount/extract.  Defer
   to release-docs update.
@@ -18,5 +18,6 @@ resolution:
   commit: 09e276c
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

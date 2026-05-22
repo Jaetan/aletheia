@@ -16,7 +16,7 @@ files:
 - docs/operations/RUNBOOK.md
 cluster: I-polish
 resolution:
-  commit: pending
+  commit: 8e50b86
   round: R23
   date: '2026-05-22'
 re_raised_from: null

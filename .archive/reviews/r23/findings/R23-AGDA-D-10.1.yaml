@@ -7,7 +7,7 @@ category:
   agent: D
 severity: medium
 disposition: DEFER
-status: closed
+status: open
 title: Unify SignalPredicate signal-name field with Identifier
 description: 'Cross-cutting refactor — promoting `signalName : List Char` to `Identifier`
   requires changing every LTL constructor + every JSON parser + every binding''s SignalPredicate
@@ -19,5 +19,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

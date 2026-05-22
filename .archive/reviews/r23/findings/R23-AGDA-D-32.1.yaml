@@ -7,7 +7,7 @@ category:
   agent: D
 severity: high
 disposition: DEFER
-status: closed
+status: open
 title: parseSignalPredicate accepts unbounded signal names
 description: Pairs with AGDA-D-10.1 — closing both via Identifier promotion is the
   cleanest path.  Defer to the same cluster.
@@ -18,5 +18,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

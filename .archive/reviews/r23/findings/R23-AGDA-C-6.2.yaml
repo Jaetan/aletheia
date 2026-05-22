@@ -7,7 +7,7 @@ category:
   agent: C
 severity: low
 disposition: DEFER
-status: closed
+status: open
 title: Consolidate 13 scattered imports in Integer.agda
 description: Multi-name consolidation; defer to dedicated import-hygiene pass.
 files:
@@ -17,5 +17,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

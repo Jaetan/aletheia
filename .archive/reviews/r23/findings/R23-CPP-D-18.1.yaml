@@ -7,7 +7,7 @@ category:
   agent: D
 severity: medium
 disposition: DEFER
-status: closed
+status: open
 title: Test binaries bake absolute paths into compile-time defines
 description: Reproducibility violation for test binaries (library itself uses -ffile-prefix-map
   and is reproducible).  Tests are out of release scope; defer + document the test-only
@@ -19,5 +19,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

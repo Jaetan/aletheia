@@ -7,7 +7,7 @@ category:
   agent: D
 severity: low
 disposition: DEFER
-status: closed
+status: open
 title: 'RE-DEFER R19P2-CL10-5: Check static-method-class idiom'
 description: In-source DEFERRED — TRACKED block at cpp/include/aletheia/check.hpp:309.
   Trigger ('C++ idiom-conformance cluster opened') still holds.
@@ -18,5 +18,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: cpp/include/aletheia/check.hpp:309-316

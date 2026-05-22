@@ -7,7 +7,7 @@ category:
   agent: A
 severity: low
 disposition: DEFER
-status: closed
+status: open
 title: make_json_error doc block adjacency
 description: /// doc block separated from `make_json_error` by an unrelated helper.  Cosmetic;
   defer.
@@ -18,5 +18,6 @@ resolution:
   commit: d11e1a3
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

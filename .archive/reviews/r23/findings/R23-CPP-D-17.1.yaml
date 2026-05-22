@@ -7,7 +7,7 @@ category:
   agent: D
 severity: medium
 disposition: DEFER
-status: closed
+status: open
 title: Two independent dlopen+hs_init sites (renderer + FfiBackend)
 description: Cross-singleton ordering documented in code but untested.  Defer to a
   dedicated test addition + comment block; current behaviour is correct under normal
@@ -20,5 +20,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

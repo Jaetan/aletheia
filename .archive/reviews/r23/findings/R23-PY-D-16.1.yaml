@@ -7,7 +7,7 @@ category:
   agent: D
 severity: medium
 disposition: DEFER
-status: closed
+status: open
 title: _helpers.py 798+ LOC split into rational/dbc_normalize/json_codec
 description: R19 DEFER condition is met (coherent sub-modules emerged); but the split
   touches imports across the binding.  Defer to the same Python-API-hygiene cluster
@@ -19,5 +19,6 @@ resolution:
   commit: 8e7400d
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null

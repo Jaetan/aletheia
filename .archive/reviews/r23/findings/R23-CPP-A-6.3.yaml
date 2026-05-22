@@ -7,7 +7,7 @@ category:
   agent: A
 severity: low
 disposition: DEFER
-status: closed
+status: open
 title: parse_issue_code 21-entry if-else → table pattern
 description: Refactor scope; the if-else chain is correct, just verbose.
 files:
@@ -17,5 +17,6 @@ resolution:
   commit: d11e1a3
   round: R23
   date: '2026-05-22'
+  notes: R23 attempted to defer; user reversed — must be fixed before merge.
 re_raised_from: null
 in_source_marker: null
