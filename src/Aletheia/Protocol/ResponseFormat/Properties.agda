@@ -9,7 +9,7 @@ module Aletheia.Protocol.ResponseFormat.Properties where
 
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
-open import Aletheia.Protocol.Message using (Response; Success; Error;
+open import Aletheia.Protocol.Message using (Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
 open import Aletheia.Protocol.Response using (PropertyResult)

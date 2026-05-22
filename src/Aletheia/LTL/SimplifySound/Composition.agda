@@ -20,7 +20,7 @@ open import Data.Bool using ()
 open import Data.Unit using ()
 open import Relation.Binary.PropositionalEquality using (subst)
 
-open import Aletheia.LTL.Coalgebra using (PredTable; finalizeL)
+open import Aletheia.LTL.Coalgebra using (finalizeL)
 open import Aletheia.LTL.Syntax using
   (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)

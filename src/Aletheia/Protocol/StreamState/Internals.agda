@@ -32,7 +32,7 @@ open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete)
-open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
+open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
 open import Aletheia.Prelude using (listIndex)
 
 -- ============================================================================

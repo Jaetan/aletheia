@@ -18,7 +18,7 @@ open import Data.Maybe using (just)
 open import Data.Product using (_,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
-open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat)
+open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject; getNat)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)

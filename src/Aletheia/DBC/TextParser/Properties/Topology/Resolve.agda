@@ -26,12 +26,12 @@
 -- BO_-header `messageHeaderFmt` to close `parseMessage-roundtrip`.
 module Aletheia.DBC.TextParser.Properties.Topology.Resolve where
 
-open import Data.Bool using (true; false; T; if_then_else_)
+open import Data.Bool using (true; false; if_then_else_)
 open import Data.Bool.Properties using (T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
 open import Data.List using (List; []; _∷_; map)
-  renaming (_++_ to _++ₗ_)
+  renaming ()
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
@@ -41,7 +41,7 @@ open import Data.Nat using (ℕ; _<_; _≤_; _+_; _%_; _≤ᵇ_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.Nat.Properties using (≤⇒≤ᵇ)
 open import Aletheia.Prelude using (T→true)
-open import Data.Product using (_×_; _,_; Σ; Σ-syntax)
+open import Data.Product using (_×_; _,_; Σ)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 open import Relation.Nullary using (yes; no)

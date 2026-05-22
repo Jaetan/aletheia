@@ -26,7 +26,7 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Assign where
 
 open import Data.Char  using (Char)
-open import Data.Integer using (+_)
+open import Data.Integer using ()
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)

@@ -27,7 +27,7 @@ open import Data.List using (List; length)
 open import Data.Bool.ListAction using (any)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; if_then_else_; _∧_)
+open import Data.Bool using (if_then_else_; _∧_)
 
 -- ============================================================================
 -- SIGNAL EXTRACTION WITH MULTIPLEXING (NESTED CHAINS SUPPORTED)

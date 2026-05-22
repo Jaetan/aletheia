@@ -9,23 +9,23 @@ module Aletheia.Prelude where
 
 -- Basic types
 open import Data.Bool public
-  using (Bool; true; false; if_then_else_; _∧_; _∨_; not; T)
+  using (Bool; true; false; if_then_else_; _∧_; not; T)
 open import Data.Unit public
   using (tt)
 
 open import Data.Nat public
-  using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _≡ᵇ_)
+  using (ℕ; zero; suc; _∸_; _<_; _≡ᵇ_)
   -- Note: _≤ᵇ_ not exported to avoid clash with Data.Rational._≤ᵇ_
 
 open import Data.List public
-  using (List; []; _∷_; length; map; filter; foldr)
+  using (List; []; _∷_; length)
 
 open import Data.Maybe public
   using (Maybe; just; nothing; maybe)
 
 open import Data.String public
   using (String)
-  renaming (_++_ to _++ₛ_)
+  renaming ()
 
 -- Import string equality for utility functions
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
@@ -43,14 +43,14 @@ open import Data.Rational public
 open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
 
 open import Data.Integer public
-  using (ℤ; +_; -[1+_])
+  using (+_)
 
 -- Equality and decidability
 open import Relation.Binary.PropositionalEquality public
   using (_≡_; refl; cong; sym; trans)
 
 open import Relation.Nullary public
-  using (Dec; yes)
+  using ()
 
 open import Relation.Nullary.Decidable public
   using (⌊_⌋)

@@ -5,7 +5,7 @@
 module Aletheia.DBC.Formatter.MessageRoundtrip.Extended where
 
 open import Data.Bool using (T)
-open import Data.Nat using (_<_; _≤_; _<ᵇ_)
+open import Data.Nat using (_≤_; _<ᵇ_)
 open import Data.List using (List; map)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Sum using (inj₂)

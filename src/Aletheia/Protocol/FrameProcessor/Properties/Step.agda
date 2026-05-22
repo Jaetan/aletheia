@@ -28,11 +28,11 @@ open import Aletheia.Protocol.StreamState
 open import Aletheia.Protocol.StreamState.Internals
     using (classifyStepResult; stepProperty; dispatchIterResult;
            mkPredTable; updateCacheFromFrame)
-open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
-open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
+open import Aletheia.Protocol.Message using (Response)
+open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
 open import Aletheia.Protocol.Iteration using (advance; halt; complete; iterate; iterate-correct; specResult; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
+open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (stepL)
 open import Aletheia.LTL.Simplify using (simplify)
 open import Data.List using (List)

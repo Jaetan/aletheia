@@ -36,7 +36,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 open import Relation.Nullary using (yes; no)
 
-open import Data.Bool.Base using (Bool; T)
+open import Data.Bool.Base using ()
 open import Data.Bool.Properties using (T?)
 open import Data.Integer.Base using (+_; ∣_∣; sign; _◃_)
 open import Data.Integer.Properties using (signᵢ◃∣i∣≡i)

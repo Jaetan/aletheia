@@ -21,10 +21,10 @@ open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
-open import Data.Nat using (ℕ; zero; suc)
+open import Data.Nat using (ℕ; suc)
 open import Data.Product using (_,_)
 open import Data.String using (toList)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; cong; trans; subst)
 
@@ -37,7 +37,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; nat; emit; parse; EmitsOK)
+  using (nat; emit; parse; EmitsOK)
 open import Aletheia.DBC.TextParser.Format.AttrValue
   using (RawAttrValueWire; attrValueWireFmt; digit-not-isHSpace)
 open import Aletheia.DBC.TextParser.Format.AttrLine

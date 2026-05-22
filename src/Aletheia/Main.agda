@@ -58,18 +58,10 @@ module Aletheia.Main where
 -- rather than this facade, so these re-exports are for discoverability).
 
 open import Aletheia.Main.JSON public
-  using (processJSONLine)
+  using ()
 
 open import Aletheia.Main.Binary public
   using ( processFrameDirect
-        ; processEventDirect
-        ; processStartStreamDirect
-        ; processEndStreamDirect
-        ; processFormatDBCDirect
-        ; processExtractDirect
-        ; processBuildFrameBin
-        ; processUpdateFrameBin
-        ; processExtractBin
         )
 
 -- ============================================================================
@@ -80,16 +72,7 @@ open import Aletheia.Main.Binary public
 -- proof clients can reference the monotonicity predicate directly.
 
 open import Aletheia.Protocol.StreamState public
-  using ( StreamState
-        ; WaitingForDBC
-        ; ReadyToStream
-        ; Streaming
-        ; initialState
-        ; getDBC
-        ; checkMonotonic
-        ; handleDataFrame
-        ; handleTraceEvent
-        )
+  using ( )
 
 -- ============================================================================
 -- COMMAND DISPATCH
@@ -99,32 +82,11 @@ open import Aletheia.Protocol.StreamState public
 -- to avoid clashing with Aletheia.Error.Error.
 
 open import Aletheia.Protocol.Message public
-  using ( StreamCommand
-        ; ParseDBC
-        ; SetProperties
-        ; StartStream
-        ; SendFrame
-        ; ExtractAllSignals
-        ; EndStream
-        ; ValidateDBC
-        ; FormatDBC
-        ; ParseDBCText
-        ; FormatDBCText
-        ; Response
-        ; Success
-        ; ExtractionResultsResponse
-        ; PropertyResponse
-        ; Ack
-        ; Complete
-        ; ValidationResponse
-        ; DBCResponse
-        ; ParsedDBCResponse
-        ; DBCTextResponse
-        )
-  renaming (Error to ResponseError)
+  using ( )
+  renaming ()
 
 open import Aletheia.Protocol.Handlers public
-  using (processStreamCommand)
+  using ()
 
 -- ============================================================================
 -- FRAME, TRACE, AND DLC TYPES
@@ -134,39 +96,17 @@ open import Aletheia.Protocol.Handlers public
 -- Aletheia.Error.Error.
 
 open import Aletheia.CAN.Frame public
-  using ( Byte
-        ; CANId
-        ; Standard
-        ; Extended
-        ; CANFrame
-        )
+  using ( )
 
 open import Aletheia.CAN.DLC public
-  using ( DLC
-        ; mkDLC
-        ; dlcBytes
-        ; dlcToBytes
-        ; bytesToDlc
-        ; maxDLC-2B
-        ; maxDLC-FD
-        )
+  using ( )
 
 open import Aletheia.Trace.CANTrace public
-  using ( TimedFrame
-        ; TraceEvent
-        ; Data
-        ; Remote
-        ; timestampℕ
-        ; eventTimestamp
-        )
-  renaming (Error to TraceError)
+  using ( )
+  renaming ()
 
 open import Aletheia.Trace.Time public
-  using ( Timestamp
-        ; tsValue
-        ; TimeUnit
-        ; μs
-        )
+  using ( )
 
 -- ============================================================================
 -- ERROR TYPES AND INSPECTION
@@ -176,29 +116,7 @@ open import Aletheia.Trace.Time public
 -- use to classify failures.
 
 open import Aletheia.Error public
-  using ( Error
-        ; ParseErr
-        ; FrameErr
-        ; ExtractionErr
-        ; RouteErr
-        ; HandlerErr
-        ; DispatchErr
-        ; WithContext
-        ; ParseError
-        ; FrameError
-        ; ExtractionError
-        ; RouteError
-        ; HandlerError
-        ; DispatchError
-        ; formatError
-        ; errorCode
-        ; formatParseError
-        ; formatFrameError
-        ; formatExtractionError
-        ; formatRouteError
-        ; formatHandlerError
-        ; formatDispatchError
-        )
+  using ( )
 
 -- ============================================================================
 -- JSON AND RESPONSE FORMATTING
@@ -209,17 +127,14 @@ open import Aletheia.Error public
 -- shim does.
 
 open import Aletheia.Protocol.JSON public
-  using ( JSON
-        ; parseJSON
-        ; formatJSON
-        )
+  using ( )
 
 open import Aletheia.Protocol.ResponseFormat public
-  using (formatResponse)
+  using ()
 
 -- Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
 -- Exposed so the FFI shim can call `formatRational` on raw (numerator,
 -- denominator) pairs and return the result via CString.  Replaces three
 -- per-binding implementations with a single Agda kernel function.
 open import Aletheia.DBC.RationalRenderer public
-  using (formatRational; formatℚ)
+  using ()

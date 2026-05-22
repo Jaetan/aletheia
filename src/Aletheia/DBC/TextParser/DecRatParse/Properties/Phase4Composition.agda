@@ -16,11 +16,11 @@
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase4Composition where
 
 open import Data.Char using (Char)
-open import Data.Empty using (⊥-elim)
+open import Data.Empty using ()
 import Data.Empty.Irrelevant as EmptyI
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _+_)
+open import Data.Nat using (ℕ; zero; suc)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong₂)
 
@@ -36,7 +36,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
 open import Aletheia.DBC.TextParser.DecRatParse
   using (parseDecRatFrac; buildDecRat)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Data.Integer using (ℤ)
+open import Data.Integer using ()
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
   using (mkDecRat; IsCanonical)

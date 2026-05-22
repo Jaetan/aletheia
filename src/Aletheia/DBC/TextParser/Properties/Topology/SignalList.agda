@@ -43,7 +43,7 @@ open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
-open import Data.Product using (Σ-syntax)
+open import Data.Product using ()
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂)

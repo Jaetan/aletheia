@@ -34,16 +34,9 @@ module Aletheia.CAN.Encoding.Properties where
 -- Two's-complement (ℕ ↔ ℤ) and scaling (ℤ ↔ ℚ) bridge lemmas. These are
 -- the algebraic primitives consumed by Layer 4 composition proofs.
 open import Aletheia.CAN.Encoding.Properties.Arithmetic public
-  using ( fromSigned-toSigned-roundtrip
-        ; SignedFits
-        ; toSigned-fromSigned-roundtrip
-        ; fromSigned-bounded-neg
-        ; removeScaling-zero⇒nothing
+  using ( SignedFits
         ; removeScaling-nothing⇒zero
-        ; removeScaling-factor-zero-iff-nothing
         ; removeScaling-applyScaling-exact
-        ; applyScaling-injective
-        ; applyScaling-removeScaling-bounded
         )
 
 -- ============================================================================
@@ -53,15 +46,12 @@ open import Aletheia.CAN.Encoding.Properties.Arithmetic public
 -- level, for both unsigned and signed signals. Includes the
 -- WellFormedSignal record that captures the precondition.
 open import Aletheia.CAN.Encoding.Properties.Roundtrip public
-  using ( WellFormedSignal
-        ; signalValue
-        ; injectedFrame
+  using ( signalValue
         ; injectSignal-reduces-unsigned
         ; extractSignal-reduces-unsigned
         ; extractSignal-injectSignal-roundtrip-unsigned
         ; injectSignal-reduces-signed
         ; extractSignal-reduces-signed
-        ; extractSignal-injectSignal-roundtrip-signed
         )
 
 -- ============================================================================
@@ -71,7 +61,5 @@ open import Aletheia.CAN.Encoding.Properties.Roundtrip public
 -- one signal does not corrupt the bits of disjoint signals — even when
 -- injection and extraction use different byte orders.
 open import Aletheia.CAN.Encoding.Properties.Disjoint public
-  using ( extractionBytes≡payloadIso
-        ; injectSignal-preserves-disjoint-bits
-        ; injectSignal-preserves-disjoint-bits-physical
+  using ( injectSignal-preserves-disjoint-bits-physical
         )

@@ -8,7 +8,7 @@
 module Aletheia.DBC.Formatter.MessageRoundtrip where
 
 open import Data.Nat using (_≤_; _+_)
-open import Data.List using (List; []; _∷_; map)
+open import Data.List using ([]; _∷_; map)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)

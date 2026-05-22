@@ -23,21 +23,17 @@ module Aletheia.DBC.TextParser.Properties.Preamble where
 -- Newline infrastructure (reused by every Layer-3 commit).
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline public
   using (isNewlineStart;
-         parseNewline-match-LF;
-         parseNewline-fail-on-stop;
-         manyHelper-parseNewline-exhaust;
-         manyHelper-one-iter;
-         many-parseNewline-one-LF-stop)
+         parseNewline-match-LF)
 
 -- Per-construct roundtrips.
 open import Aletheia.DBC.TextParser.Properties.Preamble.Version public
-  using (parseVersion-roundtrip)
+  using ()
 
 open import Aletheia.DBC.TextParser.Properties.Preamble.BitTiming public
-  using (parseBitTiming-roundtrip)
+  using ()
 
 open import Aletheia.DBC.TextParser.Properties.Preamble.Namespace public
-  using (parseNamespace-roundtrip; isNSLineStart)
+  using ()
 
 -- Load-bearing reduction canary for `Namespace.agda`'s `nsKeywords-valid`
 -- discharge.  Imported (not re-exported) only to make the canary reachable

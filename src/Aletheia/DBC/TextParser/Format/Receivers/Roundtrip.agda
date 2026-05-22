@@ -32,7 +32,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
 open import Aletheia.Parser.Combinators
-  using (Parser; mkResult; advancePositions)
+  using (mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.CanonicalReceivers
   using (CanonicalReceivers; mkCanonical)
@@ -40,7 +40,7 @@ open import Aletheia.DBC.CanonicalReceivers
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; ident; withPrefix;
+  using (ident; withPrefix;
          emit; parse; EmitsOK; EmitsOKMany;
          []-fails; ∷-cons; roundtrip)
 open import Aletheia.DBC.TextParser.Format.Receivers

@@ -22,7 +22,7 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.ManyTopStmts where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_; foldr; map)
+open import Data.List  using (List; []; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (just; nothing)

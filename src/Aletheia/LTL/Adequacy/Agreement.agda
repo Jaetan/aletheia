@@ -56,8 +56,7 @@ open import Relation.Binary.PropositionalEquality using (subst; cong₂)
 
 import Aletheia.LTL.Syntax as Syntax
 open Syntax using (LTL; decodeStart)
-open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
-  notTV; _∧TV_; _∨TV_)
+open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; notTV; _∧TV_; _∨TV_)
 open import Aletheia.LTL.TruthVal.Properties using
   (∨TV-false-l; ∨TV-false-r; ∧TV-true-l; ∧TV-true-r)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; denot; metricElapsed)
@@ -66,7 +65,7 @@ open import Aletheia.LTL.Syntax using
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.LTL.Adequacy using (runL;
   runL-and-decomp; runL-or-decomp; runL-not-decomp;

@@ -54,10 +54,10 @@ open import Aletheia.DBC.Validity.Combinators using
   ; rejectDec-sound; rejectDec-complete
   ; liftTriangular-sound; liftTriangular-complete
   ; triangularCheck )
-open import Data.List using (List; []; _∷_; map; filter; concatMap)
+open import Data.List using ([]; _∷_; map; filter; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
-open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
+open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any; any?)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)

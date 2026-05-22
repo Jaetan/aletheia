@@ -143,37 +143,9 @@ open import Aletheia.DBC.TextParser.Properties.CharClassDisjoint public
 -- BA_DEF_DEF_).  Future 3c.3–3c.4 land BA_/BA_REL_ and the top-level
 -- parseAttrLine 5-way <|> composer.
 open import Aletheia.DBC.TextParser.Properties.Attributes public
-  using ( WfAttrType; WfATInt; WfATFloat; WfATString; WfATEnum; WfATHex
-        ; WfAttrDef-NotRel; Wf-Network; Wf-Node; Wf-Message; Wf-NodeMsg; Wf-NodeSig
-        ; IdentNameStop
-        ; parseAttrDef-roundtrip
-        ; parseAttrDefRel-roundtrip
-        ; parseRawAttrDefault-roundtrip-RavString
-        ; parseRawAttrDefault-roundtrip-RavDecRatFrac
-        ; parseRawAttrDefault-roundtrip-RavDecRatBareInt
-        -- Assign dispatchers (3c.3) — 5 standard × 3 + 2 rel × 3 = 21.
-        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
-        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac
-        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt
-        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavString
-        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac
-        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac
-        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt
-        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString
-        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac
-        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt
-        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString
-        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac
-        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
-        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavString
-        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac
-        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt
+  using ( -- Assign dispatchers (3c.3) — 5 standard × 3 + 2 rel × 3 = 21.
         -- parseAttrLine 5-way `<|>` composer (3c.4) — 31 dispatchers
         -- across alt1 (RawDef-Rel × 2 scopes), alt2 (RawDefault × 3
         -- shapes), alt3 (RawDef-NotRel × 5 scopes), alt4 (RawAssign-Rel
         -- × 6), alt5 (RawAssign × 15).
-        ; parseAttrLine-roundtrip-RawDef-Rel-NodeMsg
-        ; parseAttrLine-roundtrip-RawDef-Rel-NodeSig
-        ; parseAttrLine-roundtrip-RawDefault-RavString
-        ; parseAttrLine-roundtrip-RawDefault-RavDecRatFrac
         )

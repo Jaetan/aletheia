@@ -16,7 +16,7 @@ open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _%_; _/_; _≤ᵇ_; _<ᵇ_; suc; zero; z≤n; s≤s; _∸_)
 open import Data.Nat.DivMod using (m%n<n)
 open import Data.Nat.Properties using (≤-trans; m∸n≤m; *-monoˡ-≤; ≤ᵇ⇒≤; <ᵇ⇒<)
-open import Data.List using (List; []; _∷_)
+open import Data.List using ([]; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
@@ -26,7 +26,7 @@ open import Data.Unit using (tt)
 open import Data.Sum using (inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; subst)
 
-open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
+open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject;
   lookupChars; lookupNat; lookupArray)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)

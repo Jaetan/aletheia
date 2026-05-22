@@ -21,7 +21,7 @@ module Aletheia.DBC.TextParser.Properties.Aggregator.Universal where
 open import Data.List  using (List; []; _∷_; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
-  renaming (++-assoc to ++ₗ-assoc; ++-identityʳ to ++ₗ-identityʳ)
+  renaming (++-identityʳ to ++ₗ-identityʳ)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_,_)

@@ -41,7 +41,7 @@ open import Data.Nat.Properties
          m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl)
 open import Data.Nat.DivMod
   using (m%n<n; m≡m%n+[m/n]*n)
-open import Data.Nat.Divisibility using (_∣_; _∣?_; _∤_)
+open import Data.Nat.Divisibility using (_∣?_; _∤_)
 open import Data.Product using (_×_; _,_; ∃; ∃₂; proj₁; proj₂)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality

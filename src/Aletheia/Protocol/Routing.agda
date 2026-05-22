@@ -11,7 +11,7 @@ module Aletheia.Protocol.Routing where
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Bool using (Bool; if_then_else_)
+open import Data.Bool using (if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ; zero; suc; _<ᵇ_)

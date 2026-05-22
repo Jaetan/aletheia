@@ -17,7 +17,7 @@ open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Bool using (Bool; true; false)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
-open import Relation.Nullary using (¬_)
+open import Relation.Nullary using ()
 
 -- ============================================================================
 -- LAYER 2: INTEGER CONVERSION PROPERTIES (no ℚ)

@@ -15,12 +15,12 @@ module Aletheia.Protocol.StreamState where
 
 open import Data.Bool using (true; false)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _<ᵇ_)
+open import Data.Nat using (_<ᵇ_)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent; Data; Error; Remote; timestamp; timestampℕ)
 open import Aletheia.Protocol.Iteration using (iterate)
-open import Aletheia.Error as Err using (Error; HandlerErr; WithContext; HandlerError; NoDBC; StreamNotStarted; NonMonotonicTimestamp)
+open import Aletheia.Error as Err using (HandlerErr; WithContext; HandlerError; NoDBC; StreamNotStarted; NonMonotonicTimestamp)
 
 -- ============================================================================
 -- RE-EXPORTS: Types (public)

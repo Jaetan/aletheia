@@ -24,8 +24,8 @@ module Aletheia.DBC.TextParser.Properties.Topology.Nodes where
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map; foldr; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just)
+open import Data.List.Relation.Unary.All using (All)
+open import Data.Maybe using (just)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)

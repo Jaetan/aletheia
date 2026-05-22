@@ -30,8 +30,8 @@ open import Data.Nat using (_<_; s≤s; z≤n)
 open import Data.List using (List; []; _∷_; foldr; length)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.List.Relation.Unary.All as All using (All)
+open import Data.Maybe using (just; nothing)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 

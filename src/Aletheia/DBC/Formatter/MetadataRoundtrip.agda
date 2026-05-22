@@ -32,7 +32,7 @@ open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
 
 open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;

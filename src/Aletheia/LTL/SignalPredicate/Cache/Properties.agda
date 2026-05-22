@@ -24,7 +24,7 @@ open import Aletheia.LTL.SignalPredicate.Cache
         ; lookupEntries; updateEntries; lookupCache; updateCache; emptyCache )
 open import Aletheia.DBC.Identifier using
   (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl-eq)
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (true; false; T)
 open import Data.List using ([]; _∷_; length)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Nat using (_≤_; z≤n; s≤s)

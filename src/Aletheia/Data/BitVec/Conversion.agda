@@ -21,7 +21,7 @@
 module Aletheia.Data.BitVec.Conversion where
 
 open import Aletheia.Data.BitVec using (BitVec)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; _<ᵇ_; s≤s; z≤n; pred; NonZero; _≡ᵇ_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; _<ᵇ_; s≤s; z≤n; pred; NonZero)
 open import Data.Nat.DivMod using (_mod_; _/_; m≡m%n+[m/n]*n; m%n<n; m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m<n*o⇒m/o<n; m%[n*o]/o≡m/o%n)
 open import Data.Nat.Properties using (*-comm; +-identityˡ; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; *-cancelˡ-≡; suc-injective; m^n≢0; m*n≢0; *-assoc; <-irrelevant; <ᵇ-reflects-<)
 open import Data.Fin using (Fin; toℕ)

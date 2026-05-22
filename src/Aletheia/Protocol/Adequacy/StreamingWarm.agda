@@ -55,16 +55,16 @@ open import Aletheia.Prelude
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using ()
 open import Data.Maybe using ()
-open import Data.Product using (_,_; ∃-syntax)
+open import Data.Product using (∃-syntax)
 open import Data.Char using (Char)
-open import Data.Bool using (true; false; T)
-open import Data.Unit using (⊤; tt)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
+open import Data.Bool using ()
+open import Data.Unit using (⊤)
+open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName; findSignalInList)
-open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.CAN.SignalExtraction using ()
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
 open import Aletheia.LTL.SignalPredicate using

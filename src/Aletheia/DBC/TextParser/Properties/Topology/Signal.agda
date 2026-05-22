@@ -37,7 +37,7 @@ open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just)
 open import Data.Nat using (ℕ)
-open import Data.Product using (Σ; Σ-syntax; _×_; _,_)
+open import Data.Product using (Σ-syntax; _×_; _,_)
 open import Data.String using (toList)
 open import Data.Empty using (⊥-elim)
 open import Relation.Binary.PropositionalEquality

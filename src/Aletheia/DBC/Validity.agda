@@ -12,7 +12,7 @@ module Aletheia.DBC.Validity where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Validator using (findSignalPresence; walkMux)
+open import Aletheia.DBC.Validator using (walkMux)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)

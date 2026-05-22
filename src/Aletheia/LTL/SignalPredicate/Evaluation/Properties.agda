@@ -37,11 +37,11 @@ module Aletheia.LTL.SignalPredicate.Evaluation.Properties where
 
 open import Aletheia.Prelude
 open import Data.Char using (Char)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Product using (∃-syntax; _,_)
-open import Data.Maybe using (just; nothing)
+open import Data.Sum using ()
+open import Data.Product using (∃-syntax)
+open import Data.Maybe using ()
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; trans; cong; cong₂)
+  using (cong₂)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.DBC.Types using (DBC)

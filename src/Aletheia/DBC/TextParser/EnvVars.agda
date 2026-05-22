@@ -23,7 +23,7 @@
 -- the synthesized drop-field design.
 module Aletheia.DBC.TextParser.EnvVars where
 
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using ()
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; many)

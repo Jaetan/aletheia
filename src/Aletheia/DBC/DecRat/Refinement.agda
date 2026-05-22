@@ -35,7 +35,7 @@ open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; cong; cong₂; subst)
+  using (_≡_; refl; sym; subst)
 
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 

@@ -9,9 +9,9 @@ module Aletheia.Protocol.JSON.Properties where
 
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; parseJSON; lookupString; lookupChars; lookupRational; lookupObject; getNat)
 open import Aletheia.Prelude using (ℕtoℚ)
-open import Aletheia.Parser.Combinators using (Parser; ParseResult; Position)
+open import Aletheia.Parser.Combinators using (ParseResult; Position)
 open import Aletheia.Parser.Properties using (parser-deterministic)
-open import Data.Bool using (true)
+open import Data.Bool using ()
 open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
 open import Data.Nat using (ℕ)

@@ -29,7 +29,7 @@
 module Aletheia.DBC.TextParser.Format.AttrDef where
 
 open import Data.Char using (Char; _≈ᵇ_)
-open import Data.Integer using (+_)
+open import Data.Integer using ()
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat using ()
@@ -41,7 +41,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
+  using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; intDecRatToℤ; NatDecRat; natDecRatToℕ)

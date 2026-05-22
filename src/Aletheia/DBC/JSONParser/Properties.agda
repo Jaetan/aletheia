@@ -18,7 +18,7 @@ open import Data.Maybe using (just; nothing)
 open import Data.Sum using (inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans)
 
-open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
+open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject;
   lookupChars; lookupArray)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; parseMessageList;

@@ -49,11 +49,11 @@
 module Aletheia.DBC.Formatter.WellFormedText where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; [])
 open import Data.List.Membership.Propositional using (_∈_)
-open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
+open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All using (All)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Relation.Nullary using (¬_)

@@ -43,11 +43,11 @@
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
-open import Data.Bool using (Bool; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (toList)

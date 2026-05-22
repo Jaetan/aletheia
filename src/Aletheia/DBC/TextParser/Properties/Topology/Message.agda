@@ -30,7 +30,7 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
+open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality

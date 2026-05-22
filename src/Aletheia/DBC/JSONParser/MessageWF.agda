@@ -9,8 +9,8 @@
 -- Role: Used by Properties for the top-level parse-wellformed theorem.
 module Aletheia.DBC.JSONParser.MessageWF where
 
-open import Data.Nat using (suc; z≤n; _+_; _<_; _≤_; _≡ᵇ_)
-open import Data.List using (List; []; _∷_)
+open import Data.Nat using (suc; z≤n; _+_; _≤_; _≡ᵇ_)
+open import Data.List using ([]; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Bool using (true; false; T)
@@ -19,9 +19,9 @@ open import Data.Sum using (inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; m≤m+n; ≤-refl)
 
-open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
+open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject;
   lookupChars; lookupNat; lookupArray)
-open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.CAN.Frame using ()
 open import Aletheia.CAN.DLC using (DLC; mkDLC; bytesToValidDLC; dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bvd-bytes)
 open import Aletheia.DBC.Types using (DBCMessage)
