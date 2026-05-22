@@ -14,8 +14,9 @@ open import Aletheia.CAN.Endianness using (ByteOrder; physicalBitPos)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; _≡ᵇ_; z≤n; s≤s)
-open import Data.Nat.Properties using (_≟_; _≤?_; ≡ᵇ⇒≡; ≡⇒≡ᵇ; +-identityʳ; +-suc)
-open import Data.Nat.Properties using (≤-refl; m≤n⇒m≤1+n; ≤∧≢⇒<) public
+open import Data.Nat.Properties using
+  (_≟_; _≤?_; ≡ᵇ⇒≡; ≡⇒≡ᵇ; +-identityʳ; +-suc;
+   ≤-refl; m≤n⇒m≤1+n; ≤∧≢⇒<)
 open import Data.Bool using (Bool; true; false; _∨_; T)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (tt)
