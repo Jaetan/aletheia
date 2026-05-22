@@ -15,33 +15,65 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Offline correctness sweep | `tools/run_ci.py` | `git push` (via pre-push hook) | 27 always-on steps — Agda gates, offline enforcers, binding tests, lints, GHA meta-checks (+ 4 opt-in lanes) |
+| Pre-commit advisory | `tools/scan_dead_imports.py` (via pre-commit hook) | `git commit` | Regex dead-import scan on staged `.agda` files (advisory only — never blocks; ~1s/file) |
+| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **30 always-on steps** — Agda gates (incl. agda-driven dead-import gate on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
-The pre-push hook (`tools/install_hooks.py`) is the principal correctness
-gate; the GHA workflows are intentionally narrow.
+The pre-push hook (installed by `tools/install_hooks.py`) is the principal
+correctness gate; the GHA workflows are intentionally narrow.
+
+## Pre-commit hook (advisory) — `tools/scan_dead_imports.py`
+
+A fast regex scanner runs at every `git commit` against staged `.agda`
+files.  Findings are printed as a WARNING; the commit always proceeds.
+
+Rationale: the regex scanner has a non-trivial false-positive rate
+(mixfix syntax sugar, sections, public re-exports — see
+`memory/feedback_agda_import_pruning_safety.md`).  Blocking commits on
+its output would be too noisy; the precise check happens at pre-push.
+
+Known FPs are persistently suppressed via the committed ignore file
+`tools/scan_dead_imports.ignore` so the hook is silent on a
+dead-name-clean codebase.  Refresh the ignore file after each periodic
+full sweep with `tools/scan_dead_imports.py --write-ignore`.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). 29 always-on
-sequential steps, ~22-27 minutes warm (UBSan ctest promoted from opt-in
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **30 always-on**
+sequential steps, ~22-30 minutes warm (UBSan ctest promoted from opt-in
 to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
-`Rational::from_double` because the lane was opt-in).  Plus 3 opt-in
-lanes (reproducible build, stability bench, mutation testing) that can
-be enabled individually via CLI flags or env vars, or all at once via
-`--full`.  Logs to `tools/ci-output/ci-<branch>-<timestamp>.log` for use
-as falsifiable gate-claim-integrity evidence.
+`Rational::from_double` because the lane was opt-in; agda-driven
+dead-import gate added at step 9 as part of the R22 sweep follow-up).
+Plus 3 opt-in lanes (reproducible build, stability bench, mutation
+testing) that can be enabled individually via CLI flags or env vars,
+or all at once via `--full`.  Logs to
+`tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
+gate-claim-integrity evidence.
 
-Install the pre-push hook:
+Step 9 — `prune-unused-imports` — runs `tools/prune_unused_imports.py
+--check-only --no-topo` on the set of `.agda` files modified vs `main`.
+Fails the sweep if any branch-introduced dead imports remain.  Skipped
+automatically when more than 30 files have been modified vs `main`
+(set `ALETHEIA_PRUNE_GATE_NOLIMIT=1` to force).  Omits `--include-public`
+to keep runtime proportional to the branch size — public-line dead
+imports are caught by the periodic full sweep.
+
+Install both hooks (pre-commit + pre-push):
 
 ```bash
 tools/install_hooks.py
 ```
 
-Idempotent (safe to re-run). After install, every `git push` runs the sweep
-before allowing the push. Bypass with `git push --no-verify` for incident
-response.
+Idempotent (safe to re-run; preserves any existing hooks by backing them
+up).  After install, every `git commit` runs the pre-commit scanner
+(advisory only) and every `git push` runs the 30-step sweep (blocking).
+Bypass either hook with `--no-verify`:
+
+```bash
+git commit --no-verify   # skip pre-commit scanner
+git push   --no-verify   # skip pre-push CI sweep (for incident response)
+```
 
 ### Opt-in lanes
 
@@ -59,7 +91,7 @@ opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
 everything except mutation testing).
 
 ```bash
-# Always-on steps only (default; ~22-27 min, incl. UBSan ctest ~5 min)
+# Always-on steps only (default; ~22-30 min, incl. UBSan ctest ~5 min)
 tools/run_ci.py
 
 # Two specific opt-in lanes
@@ -219,7 +251,7 @@ provides; treat `act` as an opt-in workflow-development tool.
 For a CI-style local replay, run both:
 
 ```bash
-tools/run_ci.py    # correctness gates (27 always-on steps, ~17-22 min warm)
+tools/run_ci.py    # correctness gates (30 always-on steps, ~22-30 min warm)
 act push           # GHA meta-gates (workflows, ~1-2 min)
 ```
 
@@ -249,7 +281,7 @@ from GHA's amd64 runners.
 
 ### Pre-push hook is slow / blocking work
 
-The pre-push hook runs the full 27-step always-on sweep (~17-22 min warm). If you need to
+The pre-push hook runs the full 30-step always-on sweep (~22-30 min warm). If you need to
 push iteratively (e.g., a doc-only fix that doesn't affect gates), bypass
 with:
 
@@ -265,7 +297,10 @@ assertions, even if the pre-push hook didn't run.
 ## See also
 
 - [`tools/run_ci.py`](../../tools/run_ci.py) — offline correctness orchestrator (Phase 3).
-- [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-push hook installer.
+- [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-commit + pre-push hook installer.
+- [`tools/scan_dead_imports.py`](../../tools/scan_dead_imports.py) — fast regex dead-import scanner (pre-commit advisory).
+- [`tools/prune_unused_imports.py`](../../tools/prune_unused_imports.py) — agda-driven precise dead-import remover (pre-push step 9 + manual full sweeps).
+- [`tools/scan_dead_imports.ignore`](../../tools/scan_dead_imports.ignore) — committed known-FP suppression list for the scanner.
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — UR-1 enforcement (Phase 1).
 - [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity (Phase 2).
 - [`memory/feedback_gate_claim_integrity.md`](../../../.claude/projects/-home-nicolas-dev-agda-aletheia/memory/feedback_gate_claim_integrity.md) — the discipline this enforces.

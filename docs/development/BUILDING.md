@@ -365,6 +365,34 @@ PREFIX=/opt/aletheia cabal run shake -- uninstall     # custom prefix
 
 For Docker deployment (Dockerfiles, build commands, runtime image), see [DISTRIBUTION.md](DISTRIBUTION.md#docker).
 
+### 8. Install Git Hooks (Recommended for Contributors)
+
+Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs an advisory dead-import scan on staged `.agda` files. Install both with:
+
+```bash
+tools/install_hooks.py
+```
+
+Idempotent (safe to re-run; preserves any existing hooks by backing them up). After install:
+
+| Hook | When | What runs | Severity |
+|---|---|---|---|
+| `pre-commit` | `git commit` | `tools/scan_dead_imports.py` on staged `.agda` files (regex, ~1s/file) | **Advisory** — prints warning, always proceeds |
+| `pre-push` | `git push` | `tools/run_ci.py` — the 30-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
+
+Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
+
+```bash
+git commit --no-verify   # skip pre-commit scanner
+git push   --no-verify   # skip pre-push CI sweep
+```
+
+The pre-push sweep includes a dead-import gate (step 9) that runs `tools/prune_unused_imports.py --check-only` on `.agda` files modified vs `main`. It blocks the push if any branch-introduced dead imports remain. Skipped automatically when more than 30 files have been modified vs `main` (signal that the branch is review-scale — rely on the periodic full sweep instead). Override the skip with `ALETHEIA_PRUNE_GATE_NOLIMIT=1`.
+
+Both hooks are optional; the project is fully functional without them. They are strongly recommended for contributors because they catch many issues before they reach the maintainer's review.
+
+See [`docs/development/CI_LOCAL.md`](CI_LOCAL.md) for the full CI architecture.
+
 ## Common Build Commands
 ```bash
 # Always ensure you're in the project root

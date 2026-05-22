@@ -102,6 +102,20 @@ Please follow the existing style and structure of the codebase:
 
 Consistency matters more than personal preference.
 
+### Recommended: install the git hooks
+
+After your initial build (see [BUILDING.md](docs/development/BUILDING.md)),
+run:
+
+```bash
+tools/install_hooks.py
+```
+
+This installs an advisory pre-commit dead-import scanner and the
+correctness-blocking pre-push CI sweep. Both are idempotent and bypass-able
+with `--no-verify`. See [docs/development/CI_LOCAL.md](docs/development/CI_LOCAL.md)
+for the full CI architecture.
+
 ---
 
 ## Maintainer Decisions
