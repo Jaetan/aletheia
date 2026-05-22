@@ -8,12 +8,17 @@ category:
   agent: A
 severity: low
 disposition: FIX
-status: open
+status: closed
 title: parse_issue_code 21-entry if-else → table pattern
 description: Refactor scope; the if-else chain is correct, just verbose.
 files:
 - cpp/src/json_parse.cpp
 cluster: C
-resolution: null
+resolution:
+  commit: '2849371'
+  round: R23
+  date: '2026-05-23'
+  notes: Replaced parse_issue_code 21-entry if/else chain with issue_code_table linear scan;
+    mirrors error_code_table pattern at L32.  Signature widened to std::string_view.
 re_raised_from: null
 in_source_marker: null

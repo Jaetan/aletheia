@@ -8,13 +8,18 @@ category:
   agent: A
 severity: low
 disposition: FIX
-status: open
+status: closed
 title: make_json_error doc block adjacency
 description: /// doc block separated from `make_json_error` by an unrelated helper.  Cosmetic;
   defer.
 files:
 - cpp/src/json_parse.cpp
 cluster: C
-resolution: null
+resolution:
+  commit: '2849371'
+  round: R23
+  date: '2026-05-23'
+  notes: Moved is_input_bound_exceeded_code BEFORE the make_json_error Doxygen block; ///
+    doc-comment now adjacent to its function.
 re_raised_from: null
 in_source_marker: null

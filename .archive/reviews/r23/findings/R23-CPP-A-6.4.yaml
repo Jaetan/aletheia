@@ -8,12 +8,18 @@ category:
   agent: A
 severity: low
 disposition: FIX
-status: open
+status: closed
 title: parse_attr_scope 7-entry if-else → table pattern
 description: Refactor scope; same rationale as CPP-A-6.3.
 files:
 - cpp/src/json_parse.cpp
 cluster: C
-resolution: null
+resolution:
+  commit: '2849371'
+  round: R23
+  date: '2026-05-23'
+  notes: Replaced parse_attr_scope 7-entry if/else chain with attr_scope_table linear scan;
+    same pattern as issue_code_table.  Unknown scope still throws (unlike issue_code's Unknown
+    sentinel, by design).
 re_raised_from: null
 in_source_marker: null
