@@ -88,7 +88,7 @@ dev = [
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
     "hypothesis>=6.0,<7",
-    "pylint>=4.0,<5",
+    "pylint>=4.0.5,<5",
     "basedpyright>=1.0,<2",
     # AGENTS.md Python cat 25 long-run sub-check (NEW R18) — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
