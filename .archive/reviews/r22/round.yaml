@@ -9,7 +9,8 @@ closed_findings_count: 3       # AGDA-A-1.1 (carry-over), AGDA-D-12.1 (carry-ove
 agent_fleet: []
 notes: |
   Pure carry-over round: no fresh Step-1/Step-2 agent fleet has run.
-  R22's work-to-date is exclusively closure of R21 carry-over items:
+  R22's work-to-date is exclusively closure of R21 carry-over items plus
+  the review-process meta-review.
 
     1. AGDA-A-1.1 dead-import prune long-tail (b25 series + sweeps #3/#4
        via tools/prune_unused_imports.py).  Closed at 56ac3d6.
@@ -17,10 +18,12 @@ notes: |
        Closed at d51cdb1.
     3. Assign.agda b15 marker (stale -- resolved by later A-1.1 sweeps).
        Closed at 57ad862.
+    4. Review-process meta-review (user directive 2026-05-20) -- this
+       archive infrastructure + AGENTS.md split + UPD frequency rule +
+       PROJECT_STATUS / CLAUDE / MEMORY compression.  Shipped across
+       80e3d2a / 36fc47b / 9f7d38e / b98661e / 92bb3ae.
 
-  Pre-close item before merge: review-process meta-review.  Outcome of
-  that meta-review is this archive infrastructure plus AGENTS.md updates
-  (Proposals A/B/C/D from the meta-review session).
+  All pre-close items resolved; R22 ready to merge to main.
 
   Going forward, future rounds will emit findings/*.yaml directly during
   Step-1/Step-2; this R22 entry is a backfilled minimal record.
