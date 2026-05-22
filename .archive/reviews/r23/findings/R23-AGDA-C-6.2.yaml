@@ -8,12 +8,21 @@ category:
   agent: C
 severity: low
 disposition: FIX
-status: open
+status: closed
 title: Consolidate 13 scattered imports in Integer.agda
 description: Multi-name consolidation; defer to dedicated import-hygiene pass.
 files:
 - src/Aletheia/CAN/Encoding/Properties/Arithmetic/Integer.agda
 cluster: B
-resolution: null
+resolution:
+  commit: '7922851'
+  round: R23
+  date: '2026-05-23'
+  notes: Consolidated 18 scattered local opens in Integer.agda (the finding said 13; actual
+    count higher when including duplicates).  All Data.Nat.Properties names (16 of them) and
+    the lone Data.Bool.T, Data.Unit.tt, Data.Nat._≤ᵇ_ names lifted to module-top.  Removed
+    redundant local opens of Data.Empty, Relation.Binary.PropositionalEquality (already at
+    module-top), plus the two `where open import Data.Nat using (_≤ᵇ_)` clauses attached to
+    with-statements.
 re_raised_from: null
 in_source_marker: null

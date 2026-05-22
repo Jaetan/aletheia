@@ -5,7 +5,7 @@ merge_commit: null
 merge_date: null
 status: open
 raw_findings_count: 219
-closed_findings_count: 44
+closed_findings_count: 48
 agent_fleet:
   - agda-C-cross-file
   - cpp-A-hygiene
