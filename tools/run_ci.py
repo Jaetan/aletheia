@@ -433,9 +433,11 @@ def main(argv: list[str] | None = None) -> int:
     # sweep, not this per-branch gate.  See
     # memory/feedback_agda_import_pruning_safety.md for the trade-off.
     #
-    # `--no-topo` because we're running on a small subset; the topological
-    # batching has fixed startup overhead that doesn't pay off below ~20
-    # files.
+    # `--no-topo` is a hint here: skip the topo-graph startup overhead
+    # IF the modified file set has no inter-dependencies (single topo
+    # level).  Per R23, the tool auto-overrides to topo batching when
+    # inter-deps are detected (e.g., a branch that touches Universal.agda +
+    # its imports), keeping the race-free guarantee.
     prune_cmd = (
         "files=$(git diff --name-only main...HEAD -- 'src/' "
         "| grep '\\.agda$' || true); "
