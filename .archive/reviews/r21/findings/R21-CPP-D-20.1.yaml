@@ -1,0 +1,20 @@
+id: R21-CPP-D-20.1
+round: R21
+category:
+  number: 20
+  name: Architectural form / exception safety
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Documented exception contract for set_properties unenforced
+description: 'Cross-binding parity: Python had a parallel escape; both fixed in this
+  cluster.'
+cluster: '6'
+resolution:
+  commit: cb96c39
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,21 @@
+id: R20-CPP-B-8.1
+round: R20
+category:
+  number: 8
+  name: (unspecified category 8)
+  language: cpp
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: C++ MockBackend serialize_send_frame missed BRS/ESI fields
+description: Extended with std::optional<bool> brs/esi parity to real backend.
+files:
+- cpp/src/detail/mock_backend.cpp
+cluster: F
+resolution:
+  commit: 036a684
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,52 @@
+id: R22-AGDA-D-12.1
+round: R22
+category:
+  number: 12
+  name: "Property completeness (end-of-stream uncached-atom emission)"
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+cluster: "carry-over"
+title: "AGDA-D-12.1 end-of-stream warning emission for uncached atoms"
+description: |
+  Raised in R21 cluster 1 / 7.  Wire scaffold (Warning ADT + Response.Complete
+  extension + JSON serializer) landed in R21 at 85623b7; binding decoders
+  at afd28f3.  R22 ships the three REQUIRED follow-ups:
+
+    1. New LogEvent.endstream.uncached_atom (warn) emitted per
+       CompleteWarning by all 3 bindings' end_stream, alongside the
+       existing aggregate stream.ended numWarnings.
+    2. RUNBOOK § End-of-stream diagnostics entry.
+    3. PROTOCOL § End-of-stream Warnings spec (wire shape + 7-step
+       evolution rule for new warning kinds).
+
+  Parity tests bumped 15 → 16.  Prose count drift fixed in 5 sites.
+  Helper log_end_stream_summary extracted in C++ to keep end_stream
+  under clang-tidy cognitive-complexity 25.
+
+  In-source DEFER block at StreamingWarm.agda:391-405 flipped to a
+  CLOSED historical record at 1e53080.
+files:
+  - src/Aletheia/Protocol/StreamingWarm.agda
+  - python/aletheia/
+  - go/aletheia/
+  - cpp/src/
+  - docs/operations/RUNBOOK.md
+  - docs/architecture/PROTOCOL.md
+  - CHANGELOG.md
+resolution:
+  commit: d51cdb1
+  round: R22
+  date: "2026-05-22"
+  notes: |
+    Three REQUIRED follow-ups shipped in one commit.  Cross-binding
+    parity tests + sanity-floor asserts mirror existing dbc.parsed floor.
+re_raised_from: R21-AGDA-D-12.1
+in_source_marker: null
+tags:
+  - end-of-stream
+  - logging
+  - cross-binding
+  - carry-over-r21

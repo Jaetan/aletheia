@@ -1,0 +1,24 @@
+id: R20-PY-B-23.1
+round: R20
+category:
+  number: 23
+  name: (unspecified category 23)
+  language: python
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: 'Cluster P test bug: JSON-fallback path not exercised'
+description: test_extract_signals_json_fallback_when_backend_binary_unsupported's
+  canned response had messages=[] so _signal_lookup was empty; lookup.get returned
+  None; binary path was never attempted; test passed for the wrong reason.  Caught
+  post-commit by advisor.
+files:
+- python/tests/test_backend_protocol.py
+cluster: P-followup
+resolution:
+  commit: ac202e6
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

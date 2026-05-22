@@ -1,0 +1,36 @@
+id: R20
+fork_point: 2e79ed8
+fork_date: "2026-05-12"
+merge_commit: 2477d5c
+merge_date: "2026-05-17"
+status: merged
+raw_findings_count: 671        # Step-1 agent fleet total, recorded at commit 3571702
+closed_findings_count: 88      # backfilled at closed-finding granularity from cluster commit messages
+agent_fleet:
+  - agda-A-hygiene
+  - agda-B-semantics
+  - agda-C-cross-file
+  - agda-D-system
+  - go-A-hygiene
+  - go-B-correctness
+  - go-D-system
+  - cpp-A-hygiene
+  - cpp-B-correctness
+  - cpp-D-system
+  - python-A-hygiene
+  - python-B-correctness
+  - python-D-system
+  - docs-A-hygiene
+  - docs-B-deep
+  - docs-cross
+  - cicd
+notes: |
+  17-agent review fleet → 671 raw findings (commit 3571702).  Cluster split
+  saved as 3fa8e65 mapping 624 still-open into clusters A-V + DEFER-end-of-round.
+  W/X/Y/GO-A-3.5 closed in pass-2; nine user-redirected closures post-Y.
+
+  Backfilled from memory/project_review_round20.md and the cluster commit
+  log.  At closed-cluster granularity (one YAML per major closed finding
+  ID), not the raw 671 -- the raw count is preserved as raw_findings_count.
+
+  Empirical WSL2 jitter measured 2026-05-12: median 1.70%, max 4.58% inter-batch CV.

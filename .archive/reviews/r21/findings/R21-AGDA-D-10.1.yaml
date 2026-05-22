@@ -1,0 +1,23 @@
+id: R21-AGDA-D-10.1
+round: R21
+category:
+  number: 10
+  name: Domain model fidelity
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Kernel error string used stdlib showℚ instead of aletheia formatℚ
+description: SignalValueOutOfBounds error emitted 1/2-shape while every other kernel-side
+  Rational rendering used trimmed-decimal.  Per-call-site SSOT divergence inside the
+  kernel.
+files:
+- src/Aletheia/CAN/BatchExtraction.agda
+cluster: '4'
+resolution:
+  commit: b296c34
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

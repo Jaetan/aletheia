@@ -1,0 +1,19 @@
+id: R20-PY-B-27.1
+round: R20
+category:
+  number: 27
+  name: (unspecified category 27)
+  language: python
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: Doc-harness empty-fixture mask hid the failure
+description: Surfaced new lesson feedback_doc_harness_empty_fixture_mask.md.
+cluster: A
+resolution:
+  commit: 4be9a84
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,18 @@
+id: R20-DOCS-A-1.5
+round: R20
+category:
+  number: 1
+  name: Accuracy / drift
+  language: docs
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Python 3.12 -> 3.13 floor sync across guides
+cluster: E
+resolution:
+  commit: c795141
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

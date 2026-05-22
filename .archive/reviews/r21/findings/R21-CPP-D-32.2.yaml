@@ -1,0 +1,24 @@
+id: R21-CPP-D-32.2
+round: R21
+category:
+  number: 32
+  name: CI hardening (sanitizers, clang-tidy promotion)
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: ASan/UBSan/clang-tidy opt-in -> always-on in tools/run_ci.py
+description: Initially DEFER'd as an operational decision; user-directed closure at
+  3498782 flipped UBSan from --san opt-in to always-on.  BASE_STEPS 27 -> 29.
+files:
+- tools/run_ci.py
+cluster: '14'
+resolution:
+  commit: '3498782'
+  round: R21
+  date: '2026-05-17'
+  notes: Initially DEFER at 12ce99a, flipped to always-on at 3498782 per user direction.  BASE_STEPS
+    bumped 27 -> 29.
+re_raised_from: null
+in_source_marker: null

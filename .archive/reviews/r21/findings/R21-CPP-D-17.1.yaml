@@ -1,0 +1,25 @@
+id: R21-CPP-D-17.1
+round: R21
+category:
+  number: 17
+  name: Cross-binding parity
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: C++ rational renderer ignored make_ffi_backend(lib_path)
+description: find_library_path() consulted env-var + heuristic but not the explicit
+  lib_path passed at FFIBackend construction.  Added aletheia::detail::register_default_lib_path;
+  search order env > registered > heuristic.
+files:
+- cpp/include/aletheia/detail/rational_renderer.hpp
+- cpp/src/rational_renderer.cpp
+- cpp/src/ffi_backend.cpp
+cluster: '2'
+resolution:
+  commit: 2fde107
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

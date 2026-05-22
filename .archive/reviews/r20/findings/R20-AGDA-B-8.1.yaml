@@ -1,0 +1,28 @@
+id: R20-AGDA-B-8.1
+round: R20
+category:
+  number: 8
+  name: Proof simplification
+  language: agda
+  agent: B
+severity: medium
+disposition: FIX-PARTIAL
+status: closed
+title: AGDA-B-9.2 'stability argument' comment factually wrong
+description: 'Two claims false: (1) ''Always/Release the only safety operators that
+  yield Satisfied'' -- Always proc never returns Satisfied; (2) ''re-stepping after
+  Satisfied always returns Satisfied or Continue'' -- false; concrete Until(Atomic
+  0)(Atomic 1) witness in commit body.  Discovery: latent soundness gap in streaming
+  runtime.  Comment rewritten; two step-level lemmas added; full operational fix in
+  cluster W.'
+files:
+- src/Aletheia/Protocol/StreamState/Internals.agda
+- src/Aletheia/LTL/Coalgebra/Properties.agda
+cluster: S
+resolution:
+  commit: 637b2e0
+  round: R20
+  date: '2026-05-12'
+  notes: Followup commit d838fa5 in same cluster.
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,18 @@
+id: R20-PY-B-8.4
+round: R20
+category:
+  number: 8
+  name: Wire validation
+  language: python
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: ValueError migration sites (PY-B-8.4)
+cluster: J
+resolution:
+  commit: efa041f
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

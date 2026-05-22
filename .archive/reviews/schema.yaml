@@ -1,0 +1,126 @@
+# Review findings archive — JSON Schema (in YAML form for readability).
+#
+# Consumed by tools/review_db.py to validate each round.yaml + findings/*.yaml
+# before loading into the regenerable SQLite database.
+#
+# Finding ID convention (carried over from R18-R22 review-rN-findings.md):
+#   <ROUND>-<LANG>-<AGENT>-<CAT>.<NUM>
+#   - ROUND  : R18, R19, R20, R21, R22, ...
+#   - LANG   : AGDA | GO | CPP | PY | DOC | XDOC | CICD | XBINDING
+#   - AGENT  : A | B | C | D            (Step-1 hygiene / correctness / cross-file / Step-2 system-level)
+#   - CAT    : 1..N                     (per-language category number from AGENTS.md)
+#   - NUM    : 1..N                     (index within category, this round)
+#   e.g. R20-AGDA-A-1.1  ·  R21-PY-B-26.2  ·  R20-CPP-D-22.1
+#
+# A re-raise of a closed finding from an earlier round uses a NEW id in the
+# current round and points back via `re_raised_from`.
+
+$schema: "http://json-schema.org/draft-07/schema#"
+
+$defs:
+
+  finding:
+    type: object
+    additionalProperties: false
+    required: [id, round, category, severity, disposition, status, title]
+    properties:
+      id:
+        type: string
+        pattern: "^R[0-9]+-[A-Z]+-[A-Z]-[0-9]+\\.[0-9]+$"
+      round:
+        type: string
+        pattern: "^R[0-9]+$"
+      category:
+        type: object
+        additionalProperties: false
+        required: [number, name, language, agent]
+        properties:
+          number: { type: integer, minimum: 1, maximum: 99 }
+          name:   { type: string }
+          language:
+            enum: [agda, go, cpp, python, docs, cicd, xbinding]
+          agent:
+            enum: [A, B, C, D]
+      severity:
+        enum: [critical, high, medium, low, info]
+      disposition:
+        # FIX        : will be implemented this round
+        # FIX-PARTIAL: partial closure, residual deferred
+        # DEFER      : user-approved defer to a later round (with in-source marker)
+        # NO-FIX     : structurally infeasible / cost-prohibitive (with in-source DO-NOT-RE-RAISE marker)
+        # FP / FP-VERIFIED : user-confirmed false positive (FP-VERIFIED = cross-binding scan confirmed)
+        # DROP       : finding withdrawn before closure (typically scoped to a later cluster or different category)
+        enum: [FIX, FIX-PARTIAL, DEFER, NO-FIX, FP, FP-VERIFIED, DROP]
+      status:
+        enum: [open, in_progress, closed]
+      title:
+        type: string
+        maxLength: 240
+      description:
+        type: string
+      files:
+        type: array
+        items: { type: string }
+      cluster:
+        # Round-internal cluster designator, e.g. "H", "P", "P-followup", "user-redirect-1".
+        type: string
+      resolution:
+        type: object
+        additionalProperties: false
+        properties:
+          commit:
+            type: string
+            pattern: "^[0-9a-f]{7,40}$"
+          round:
+            type: string
+            pattern: "^R[0-9]+$"
+          date:
+            type: string
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          notes:
+            type: string
+      re_raised_from:
+        # Predecessor finding id this finding re-raises, or null if novel.
+        type: [string, "null"]
+      in_source_marker:
+        # "<path>:<line>" pointing at a DO-NOT-RE-RAISE / DEFERRED-TRACKED block, or null.
+        type: [string, "null"]
+      tags:
+        type: array
+        items: { type: string }
+
+  round:
+    type: object
+    additionalProperties: false
+    required: [id, fork_point, fork_date, status]
+    properties:
+      id:
+        type: string
+        pattern: "^R[0-9]+$"
+      fork_point:
+        type: string
+        pattern: "^[0-9a-f]{7,40}$"
+      fork_date:
+        type: string
+        pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      merge_commit:
+        type: [string, "null"]
+        pattern: "^[0-9a-f]{7,40}$"
+      merge_date:
+        type: [string, "null"]
+        pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      status:
+        enum: [open, merged, abandoned]
+      raw_findings_count:
+        # Step-1 agent total before dispositioning (R20: 671; R21: 241; ...).
+        type: integer
+        minimum: 0
+      closed_findings_count:
+        # Findings actually recorded in findings/*.yaml after dispositioning.
+        type: integer
+        minimum: 0
+      agent_fleet:
+        type: array
+        items: { type: string }
+      notes:
+        type: string

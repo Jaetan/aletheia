@@ -1,0 +1,18 @@
+id: R20-GO-A-1.1
+round: R20
+category:
+  number: 1
+  name: (unspecified category 1)
+  language: go
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Go nocgo dead helper functions
+cluster: B
+resolution:
+  commit: dbd3e60
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

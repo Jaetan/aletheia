@@ -1,0 +1,22 @@
+id: R21-AGDA-D-17.1
+round: R21
+category:
+  number: 17
+  name: Cross-layer
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Kernel max_nesting_depth not visible at C++/Python serializer surfaces
+description: Cross-layer parity gap -- kernel had the constant but neither binding
+  consumed it.  Exposed via limits.hpp / limits.py mirrors.
+files:
+- src/Aletheia/Limits.agda
+cluster: '3'
+resolution:
+  commit: d41d6d3
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

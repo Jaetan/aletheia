@@ -1,0 +1,19 @@
+id: R20-PY-A-27.2
+round: R20
+category:
+  number: 27
+  name: (unspecified category 27)
+  language: python
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: _ffi._validate_lib_path extraction from inline ALETHEIA_LIB block
+description: Applied to all 4 fallback resolution paths.
+cluster: N
+resolution:
+  commit: d5f28b8
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

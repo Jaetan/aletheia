@@ -1,0 +1,22 @@
+id: R20-AGDA-B-26.4
+round: R20
+category:
+  number: 26
+  name: Equality discipline
+  language: agda
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: AGDA-B-26.3 closure via Reflects two-with form
+description: injectHelper lifted + Bool fast-path via stdlib Reflects.  Reproducer
+  at /tmp/agda-with-in-eq-repro.  Revised feedback feedback_with_in_eq_outer_abstraction_barrier.md.
+files:
+- src/Aletheia/Data/BitVec/Conversion.agda
+cluster: user-redirect
+resolution:
+  commit: f478bb5
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

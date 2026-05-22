@@ -1,0 +1,22 @@
+id: R20-GO-D-14.1
+round: R20
+category:
+  number: 14
+  name: (unspecified category 14)
+  language: go
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Go Backend interface gains structured grouping docstring
+description: 'Mirrors C++ IBackend''s [MANDATORY] / [OPTIONAL] split.  Three groups:
+  session lifecycle+JSON, binary-FFI send/event/state, binary-FFI bidi.'
+files:
+- go/aletheia/backend.go
+cluster: R
+resolution:
+  commit: 10a07d6
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

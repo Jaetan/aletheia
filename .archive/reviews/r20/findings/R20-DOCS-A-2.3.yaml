@@ -1,0 +1,18 @@
+id: R20-DOCS-A-2.3
+round: R20
+category:
+  number: 2
+  name: Staleness
+  language: docs
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Stale Last-Updated stamps (DOCS-A-2.3)
+cluster: E
+resolution:
+  commit: c795141
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

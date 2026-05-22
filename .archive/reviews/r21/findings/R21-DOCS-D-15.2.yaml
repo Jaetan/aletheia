@@ -1,0 +1,23 @@
+id: R21-DOCS-D-15.2
+round: R21
+category:
+  number: 15
+  name: Cross-document drift
+  language: docs
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: PROTOCOL.md max_nesting_depth value drifted (XDOC-16.2)
+description: Numerical drift between PROTOCOL.md and src/Aletheia/Limits.agda.
+files:
+- docs/architecture/PROTOCOL.md
+cluster: '3'
+resolution:
+  commit: d41d6d3
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null
+tags:
+- xdoc

@@ -1,0 +1,28 @@
+id: R20-PY-D-22.1
+round: R20
+category:
+  number: 22
+  name: Architectural form / DI seam
+  language: python
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Python Backend Protocol + DI seam (mirrors Go/C++ interfaces)
+description: 'New python/aletheia/client/_backend.py (~640 LOC): public Backend Protocol
+  (13 methods, runtime_checkable), FFIBackend, MockBackend.  AletheiaClient.__init__
+  gains backend kwarg.  Hot-path bound-method caching for per-frame attribute-lookup
+  dodge.  Stream LTL within WSL2 jitter; Signal Ext +10.71%, Frame Building +12.61%
+  (real wins from removing per-call BinaryFFI construction).'
+files:
+- python/aletheia/client/_backend.py
+- python/aletheia/client/_client.py
+- python/aletheia/asyncio/testing.py
+- python/tests/test_backend_protocol.py
+cluster: P
+resolution:
+  commit: 4dd3c05
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,26 @@
+id: R20-CPP-B-32.1
+round: R20
+category:
+  number: 32
+  name: CI hardening (sanitizers, clang-tidy promotion)
+  language: cpp
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: C++ Excel/YAML loaders lacked symlink/size/ZIP-bomb checks
+description: 'New cpp/src/detail/loader_utils.{hpp,cpp} (~280 LOC).  4 helpers: validate_loader_path,
+  check_file_size_bound, check_xlsx_uncompressed_bound, validate_output_parent_dir.  Cross-binding
+  mirror in Python and Go.'
+files:
+- cpp/src/detail/loader_utils.hpp
+- cpp/src/detail/loader_utils.cpp
+- cpp/src/excel.cpp
+- cpp/src/yaml.cpp
+cluster: N
+resolution:
+  commit: d5f28b8
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

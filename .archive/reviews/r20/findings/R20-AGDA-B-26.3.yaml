@@ -1,0 +1,21 @@
+id: R20-AGDA-B-26.3
+round: R20
+category:
+  number: 26
+  name: Equality discipline
+  language: agda
+  agent: B
+severity: medium
+disposition: DEFER
+status: closed
+title: AGDA-B-26.3 injectHelper Bool fast-path
+description: Hit 'with...in eq' outer-abstraction barrier.  R19-CARRY-1 RE-DEFER.  Closed
+  in user-redirect at f478bb5 via stdlib Reflects two-with form.
+cluster: S
+resolution:
+  commit: 637b2e0
+  round: R20
+  date: '2026-05-12'
+  notes: DEFER followed by user-redirect closure at f478bb5.
+re_raised_from: null
+in_source_marker: src/Aletheia/Data/BitVec/Conversion.agda

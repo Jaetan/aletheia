@@ -1,0 +1,21 @@
+id: R21-DOCS-A-1.2
+round: R21
+category:
+  number: 1
+  name: Accuracy / drift
+  language: docs
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: PROJECT_STATUS.md iter_can_log return-type drift
+description: tuple[int,int,int,bytearray] -> CANFrameTuple 7-NamedTuple.
+files:
+- PROJECT_STATUS.md
+cluster: '11'
+resolution:
+  commit: 7cd017e
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,20 @@
+id: R20-CPP-D-17.1
+round: R20
+category:
+  number: 17
+  name: Cross-binding parity
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: BRS/ESI cross-binding parity gap on mock backends
+description: 9-combination cross-binding parity tests added (BRS/ESI in {None, True,
+  False}^2).
+cluster: F
+resolution:
+  commit: 036a684
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

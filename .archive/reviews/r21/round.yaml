@@ -1,0 +1,36 @@
+id: R21
+fork_point: 2477d5c
+fork_date: "2026-05-17"
+merge_commit: 315c1a3
+merge_date: "2026-05-18"
+status: merged
+raw_findings_count: 241        # 17 agents → 241 finding bullets per CLAUDE.md
+closed_findings_count: 48      # backfilled at closed-finding granularity from cluster commit messages
+agent_fleet:
+  - agda-A-hygiene
+  - agda-B-semantics
+  - agda-C-cross-file
+  - agda-D-system
+  - go-A-hygiene
+  - go-B-correctness
+  - go-D-system
+  - cpp-A-hygiene
+  - cpp-B-correctness
+  - cpp-D-system
+  - python-A-hygiene
+  - python-B-correctness
+  - python-D-system
+  - docs-A-hygiene
+  - docs-B-deep
+  - docs-cross
+  - cicd
+notes: |
+  17 agents → 241 findings.  Initial pass: 14 clusters (1-14) covering
+  9 HIGH items + 4 cross-binding HIGH + 5 DEFERs with in-source markers.
+  User-directed closure on the 5 DEFERs followed: 3 fully closed
+  (D-12.1 walker + bindings, SYS-32.2 UBSan-on, D-13.2 correction),
+  2 PARTIAL (A-1.1 ~29% via 6 dead-import batches; D-15.1 1of8 via
+  DecRatParse split chain).
+
+  Carry-over to R22: AGDA-A-1.1 long-tail dead-import work and the 3
+  AGDA-D-12.1 follow-ups.

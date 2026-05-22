@@ -1,0 +1,20 @@
+id: R20-AGDA-D-32.4
+round: R20
+category:
+  number: 32
+  name: Parser resource bounds
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: 'Universal-rule cardinality gap: 3 new BoundKind constants'
+description: max-comments-per-file / max-nodes-per-file / max-value-tables-per-file
+  added.
+cluster: H
+resolution:
+  commit: ea62e60
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

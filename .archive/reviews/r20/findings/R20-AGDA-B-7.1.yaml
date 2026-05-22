@@ -1,0 +1,19 @@
+id: R20-AGDA-B-7.1
+round: R20
+category:
+  number: 7
+  name: Type tightness
+  language: agda
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: 'Phase C1: Metric* lift N -> Timestamp us across LTL'
+description: 'Audit-trail flips: R5-A11 / R6-P1.1 / R6-B9.1 / R6-B7.3.'
+cluster: user-redirect
+resolution:
+  commit: 92e7eaa
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

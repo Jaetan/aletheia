@@ -1,0 +1,19 @@
+id: R21-CPP-A-2.1
+round: R21
+category:
+  number: 2
+  name: Magic numbers / hardcoded constants
+  language: cpp
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Magic number 100 in C++ JSON depth cap
+description: Hardcoded literal replaced with aletheia::max_nesting_depth constant.
+cluster: '3'
+resolution:
+  commit: d41d6d3
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

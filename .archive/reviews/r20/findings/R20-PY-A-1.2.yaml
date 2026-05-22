@@ -1,0 +1,20 @@
+id: R20-PY-A-1.2
+round: R20
+category:
+  number: 1
+  name: (unspecified category 1)
+  language: python
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Python asyncio/_client.py misleading 'retained as imports' comment
+files:
+- python/aletheia/asyncio/_client.py
+cluster: Q
+resolution:
+  commit: e15bd6d
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

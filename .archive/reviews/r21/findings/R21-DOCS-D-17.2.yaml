@@ -1,0 +1,20 @@
+id: R21-DOCS-D-17.2
+round: R21
+category:
+  number: 17
+  name: Cross-language parity drift
+  language: docs
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Cross-doc count drift (XDOC-17.2)
+cluster: 13b
+resolution:
+  commit: e3cbea0
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null
+tags:
+- xdoc

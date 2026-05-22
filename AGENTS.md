@@ -50,15 +50,28 @@ Reviews run in two phases: per-file analysis (local concerns within each file) f
 ### Step 0: Carry-over review (before step 1)
 
 Before launching any agents, the driver reads:
-1. The most recent round's plan file in `~/.claude/plans/`.
-2. `MEMORY.md` → any `project_*_deferred*` or `project_system_review_deferred*` entries.
-3. In-source deferral comment blocks (see Universal Rules).
+1. **Prior-rounds archive at `.archive/reviews/r*/`** — `findings/*.yaml` with `disposition` in `{DEFER, FIX-PARTIAL, NO-FIX}` are automatic carry-over candidates. Round metadata at `.archive/reviews/r<N>/round.yaml`. Use `tools/review_db.py --report graduation` to surface categories that have gone N rounds with zero real findings (graduation candidates per the **Graduation** rule below); use `tools/review_db.py --report critical-high-trend` to verify the "0 critical stays 0 critical" invariant has not regressed.
+2. The most recent round's working findings file in `~/.claude/plans/` (round-scope working state; superseded by archive YAML after merge).
+3. `MEMORY.md` → any `project_*_deferred*` or `project_system_review_deferred*` entries.
+4. In-source deferral comment blocks (see Universal Rules).
 
 Every deferred finding from prior rounds is automatically a carry-over candidate for this round. If the conditions that justified deferral still hold, re-defer explicitly in this round's plan; if they no longer hold, the finding is live again and must be fixed. A deferred finding silently dropped across rounds is a procedure violation.
+
+**Graduation (load-bearing rule for keeping the agent fleet bounded):** A review category that has gone **2 rounds with zero real findings** (FIX / FIX-PARTIAL / NO-FIX closures imply a real issue was caught; FP and FP-VERIFIED do not count) is a **graduation candidate**. A category graduates from the agent fleet only when:
+1. A **mechanical gate** exists that catches the category's semantic surface (the gate is the new enforcement; agent reasoning is no longer required).
+2. The graduation is recorded in `memory/feedback_graduated_categories.md` with the gate's name.
+
+Once graduated, the category is no longer reviewed at Step 1 / Step 2 — the gate runs continuously, and a re-raise in a review is a regression of the graduation. Step 3's coverage check skips graduated categories per the list in `memory/feedback_graduated_categories.md`. The per-language agent tables below may still list a graduated category in their range (e.g. "1-6"); the graduated-set table in memory takes precedence. `tools/review_db.py --report graduation` surfaces candidates; merging a category into the graduated set is a deliberate documented step, not an automatic consequence of the report.
+
+Cat 1 (Dead code) is the worked example: graduated after R22's `tools/prune_unused_imports.py --check-only` was wired as a strict pre-push gate (commit `403555b`); R22's residual A-1.1 work was historical cleanup wearing review clothes — the new-code regression class is now caught at push time, not at review time.
 
 ### Step 1: Per-file review (agents A, B, C in parallel)
 
 Each agent reads files individually and checks local concerns. These categories can be fully evaluated by examining one file at a time.
+
+**Delta-based scope for Step-1 agents A and B (token-efficiency rule).** Per-file agents A (hygiene) and B (correctness) review **only the files touched since the previous round's merge commit** (`git diff <prev_merge>...HEAD --name-only -- '*.<ext>'`). Per-round file scope drops from O(263 modules) to O(30–80 touched files). Whole-program coverage on these agents is recovered by the next periodic full sweep, scheduled out of band; for a typical follow-up round, delta scope is enough.
+
+**Whole-program scope (must NOT delta) — Agent C and Step-2 system-level Agent D.** Edits in touched files can introduce drift against untouched ones (a renamed function in `M` regresses naming consistency in `N` that imports it; an error message added to `M` may collide with one in `N`). Cross-file comparison categories (Agda cat 3, 5, 6, 27) and every Step-2 category stay whole-program. If the round driver elects to skip whole-program agents to save tokens, that decision is recorded in the round.yaml `notes` field as an explicit scope decision, not a silent omission.
 
 **Agda per-file agents:**
 
@@ -176,10 +189,11 @@ Finding G.1: [file:line] description
 
 Enter plan mode. Before collating findings:
 
-1. **Coverage check**: verify that all categories received a report from exactly one agent. List any gaps. If a category was missed, the round is incomplete — reassign and re-run before proceeding.
+1. **Coverage check**: verify that all categories received a report from exactly one agent (skipping graduated categories — those covered by mechanical gates, see Step 0). List any gaps. If a non-graduated category was missed, the round is incomplete — reassign and re-run before proceeding.
 2. **Collate**: merge all findings into a single numbered plan. Present suspected false positives with justification; the user decides what to dismiss.
 3. **No deferrals**: findings are fixed in the current round. "Future work" and "out of scope" are not valid dispositions. The only exception is when the user explicitly defers a finding after reviewing it.
-4. **Explicit disposition per finding**: every entry in the collated plan must carry one of three labels before step 4 starts: `FIX` (will be implemented this round), `FP` (suspected false positive — user confirmed), or `DEFER-<reason>` (user-approved deferral with pointer to in-source comment and/or memory file). A plan containing unlabeled findings cannot proceed to step 4.
+4. **Explicit disposition per finding**: every entry in the collated plan must carry one of `FIX`, `FIX-PARTIAL`, `DEFER`, `NO-FIX`, `FP`, `FP-VERIFIED`, `DROP` before step 4 starts. Definitions are in `.archive/reviews/schema.yaml`. A plan containing unlabeled findings cannot proceed to step 4.
+5. **Findings emitted as structured YAML at round close**: every closed finding gets exactly one file at `.archive/reviews/r<N>/findings/<id>.yaml` (schema enforced by `tools/review_db.py`). The round-scope working file `~/.claude/plans/review-r<N>-findings.md` is the human-readable draft; the per-finding YAMLs are the durable record. Round metadata at `.archive/reviews/r<N>/round.yaml` records `raw_findings_count`, `closed_findings_count`, agent fleet, merge SHA. The working `.md` can be archived to the round directory at merge if desired (it is not load-bearing once the YAMLs are written).
 
 ### Step 4: Implement and verify
 

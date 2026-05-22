@@ -1,0 +1,22 @@
+id: R21-CPP-D-15.3
+round: R21
+category:
+  number: 15
+  name: Hot-path cost / eager construction
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Lazy CheckResult::condition_desc() to defer FFI rendering
+description: Check builders eagerly threw AletheiaException(Ffi) at construction when
+  ALETHEIA_LIB unset.  Switched condition_desc to lazy.
+files:
+- cpp/include/aletheia/check.hpp
+cluster: '1'
+resolution:
+  commit: df533e7
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

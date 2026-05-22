@@ -1,0 +1,18 @@
+id: R20-AGDA-B-18.3
+round: R20
+category:
+  number: 18
+  name: (unspecified category 18)
+  language: agda
+  agent: B
+severity: low
+disposition: DEFER
+status: closed
+title: AGDA-B-18.3 same where-block scope as B-26.3
+cluster: S
+resolution:
+  commit: 637b2e0
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: src/Aletheia/Data/BitVec/Conversion.agda

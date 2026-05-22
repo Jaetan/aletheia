@@ -1,0 +1,20 @@
+id: R21-GO-D-20.1
+round: R21
+category:
+  number: 20
+  name: Architectural form / parity gates
+  language: go
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Excel loader scale divergence not caught by cross-binding parity test
+description: Architectural form -- go/excel/ is Go-only so cross-binding wire test
+  did not cover it.  Extracted shared aletheia.FloatToRational.
+cluster: '5'
+resolution:
+  commit: 7e3b035
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

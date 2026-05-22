@@ -1,0 +1,24 @@
+id: R20-AGDA-D-11.2
+round: R20
+category:
+  number: 11
+  name: Invariant sufficiency
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: AGDA-D-11.2 cardinality checks missing for comments/nodes/valueTables
+description: Plus totalValueDescriptions summing per-signal vds + ValueTable.entries
+  + unresolved.
+files:
+- src/Aletheia/Protocol/Handlers.agda
+- src/Aletheia/Protocol/Handlers/ParseDBCText.agda
+- src/Aletheia/Limits.agda
+cluster: H
+resolution:
+  commit: ea62e60
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

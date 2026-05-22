@@ -1,0 +1,46 @@
+id: R22-AGDA-A-1.1
+round: R22
+category:
+  number: 1
+  name: "Dead code (dead imports across 263-module corpus)"
+  language: agda
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+cluster: "carry-over"
+title: "AGDA-A-1.1 dead-import prune across the 263-module Agda corpus"
+description: |
+  R21 surfaced ~864 candidate dead names from the 263-module Agda corpus.
+  R21 closed ~29% via 6 dead-import scanner batches; the remaining tail
+  carried into R22.
+
+  R22 closure path:
+    * Manual b25 series (b25b → b25n, 13 batches, ~605 names removed)
+    * tools/prune_unused_imports.py (agda-driven, race-free brute force)
+    * Sweep #4 at 56ac3d6: 90 files / 532 dead removed, project-wide
+      check-properties PASS.
+
+  Final inventory across the campaign: ~1100+ dead names removed.
+
+  Closure paired with two-tier sanity gate at 403555b (pre-commit
+  advisory + pre-push step 9 strict) so the class never regrows.
+  This makes cat 1 a graduation candidate per AGENTS.md.
+files:
+  - src/Aletheia/
+  - tools/prune_unused_imports.py
+  - tools/scan_dead_imports.py
+  - tools/scan_dead_imports.ignore
+resolution:
+  commit: 56ac3d6
+  round: R22
+  date: "2026-05-22"
+  notes: |
+    Sweep #4 is canonical post-prune state.  Race-free via topological-level
+    batching (b1d3d34).  Two-tier gate (403555b) prevents regrowth.
+re_raised_from: R21-AGDA-A-1.1
+in_source_marker: null
+tags:
+  - dead-imports
+  - graduation-candidate
+  - carry-over-r21

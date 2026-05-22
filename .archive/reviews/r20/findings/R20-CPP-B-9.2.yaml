@@ -1,0 +1,20 @@
+id: R20-CPP-B-9.2
+round: R20
+category:
+  number: 9
+  name: Adversarial input validation
+  language: cpp
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: C++ rational_to_json missing INT64_MIN guard
+files:
+- cpp/src/json_serialize.cpp
+cluster: C
+resolution:
+  commit: c2c6bab
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

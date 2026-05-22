@@ -1,0 +1,20 @@
+id: R20-CPP-A-4.2
+round: R20
+category:
+  number: 4
+  name: (unspecified category 4)
+  language: cpp
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: last_frames_ runtime-cost comment relocated from field decl to call site
+files:
+- cpp/src/client.cpp
+cluster: Q
+resolution:
+  commit: e15bd6d
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

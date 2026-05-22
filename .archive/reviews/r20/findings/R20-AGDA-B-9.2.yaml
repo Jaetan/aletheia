@@ -1,0 +1,25 @@
+id: R20-AGDA-B-9.2
+round: R20
+category:
+  number: 9
+  name: (unspecified category 9)
+  language: agda
+  agent: B
+severity: critical
+disposition: FIX
+status: closed
+title: classifyStepResult Satisfied -> complete operational soundness gap
+description: Raw Until/Release/Atomic emit false counterexamples after Satisfied.  StepOutcome
+  extended with `complete` ctor; classifyStepResult no longer re-evaluates after Satisfied.  Discovery
+  in cluster S; closure here.
+files:
+- src/Aletheia/Protocol/StreamState/Internals.agda
+- src/Aletheia/LTL/Coalgebra.agda
+cluster: W
+resolution:
+  commit: c40e3ba
+  round: R20
+  date: '2026-05-12'
+  notes: Detail in memory/project_classify_satisfied_soundness_gap.md.
+re_raised_from: null
+in_source_marker: null

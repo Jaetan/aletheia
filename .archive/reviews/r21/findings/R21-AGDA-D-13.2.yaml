@@ -1,0 +1,24 @@
+id: R21-AGDA-D-13.2
+round: R21
+category:
+  number: 13
+  name: Assumption audit
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Metric-LTL unit-tag asymmetry on MetricEventually + siblings
+description: Originally surfaced as 'parameterize on unit phantom OR document'.  Type-level
+  option assessed and DEFERRED in-source; cluster ships the doc form + cross-binding
+  magic-number hoists.
+files:
+- src/Aletheia/LTL/Syntax.agda
+cluster: '8'
+resolution:
+  commit: 013f5c4
+  round: R21
+  date: '2026-05-17'
+  notes: Corrected at 0f8f831 -- original finding misread the signature.
+re_raised_from: null
+in_source_marker: src/Aletheia/LTL/Syntax.agda

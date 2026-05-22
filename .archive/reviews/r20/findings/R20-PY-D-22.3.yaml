@@ -1,0 +1,18 @@
+id: R20-PY-D-22.3
+round: R20
+category:
+  number: 22
+  name: Architectural form / DI seam
+  language: python
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Python DI seam follow-ups (PY-D-24.3)
+cluster: P
+resolution:
+  commit: 4dd3c05
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,20 @@
+id: R20-AGDA-B-7.4
+round: R20
+category:
+  number: 7
+  name: Type tightness
+  language: agda
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: 'R6-B7.4 FIX: PropertyState n parameterised with Fin n index'
+description: Wire-only (single toN at emit); no per-frame impact on Continue path.  8
+  Agda + 3 haskell-shim files.
+cluster: user-redirect
+resolution:
+  commit: 5e01ce3
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

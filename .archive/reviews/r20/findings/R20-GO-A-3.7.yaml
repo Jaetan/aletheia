@@ -1,0 +1,23 @@
+id: R20-GO-A-3.7
+round: R20
+category:
+  number: 3
+  name: (unspecified category 3)
+  language: go
+  agent: A
+severity: low
+disposition: NO-FIX
+status: closed
+title: Go lockCh vs closeOnce style split in Client
+description: Different sync mechanisms (lockCh = context-aware TryLock semaphore;
+  closeOnce = sync.Once one-shot).  Consolidating either loses capability.  In-source
+  DO-NOT-RE-RAISE block at 3194ea4.
+files:
+- go/aletheia/client.go
+cluster: O
+resolution:
+  commit: 8bb0055
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: go/aletheia/client.go

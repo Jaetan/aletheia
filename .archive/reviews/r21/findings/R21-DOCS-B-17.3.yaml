@@ -1,0 +1,18 @@
+id: R21-DOCS-B-17.3
+round: R21
+category:
+  number: 17
+  name: Cross-language parity drift
+  language: docs
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: Cross-language parity drift in docs (DOCS-B-17.3)
+cluster: '11'
+resolution:
+  commit: 7cd017e
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

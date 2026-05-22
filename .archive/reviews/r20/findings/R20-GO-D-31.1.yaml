@@ -1,0 +1,22 @@
+id: R20-GO-D-31.1
+round: R20
+category:
+  number: 31
+  name: (unspecified category 31)
+  language: go
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Go ffi_nocgo build matrix failed after R19 cluster 18 BRS/ESI extension
+description: 'SendFrameBinary 7-arg stub missing from ffi_nocgo.go.  Cross-build-mode
+  Backend assertions added: var _ Backend = (*FFIBackend)(nil) etc.'
+files:
+- go/aletheia/ffi_nocgo.go
+cluster: B
+resolution:
+  commit: dbd3e60
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

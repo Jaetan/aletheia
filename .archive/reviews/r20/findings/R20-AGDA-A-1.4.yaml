@@ -1,0 +1,18 @@
+id: R20-AGDA-A-1.4
+round: R20
+category:
+  number: 1
+  name: Dead code
+  language: agda
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Improved unreachable-clause comment (digitToNat catch-all)
+cluster: Q
+resolution:
+  commit: e15bd6d
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

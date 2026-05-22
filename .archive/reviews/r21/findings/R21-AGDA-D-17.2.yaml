@@ -1,0 +1,20 @@
+id: R21-AGDA-D-17.2
+round: R21
+category:
+  number: 17
+  name: Cross-layer
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: BatchExtraction.formatBounds bypass of kernel SSOT renderer
+description: All three bindings observed the stdlib shape on this single path and
+  the trimmed-decimal shape everywhere else.
+cluster: '4'
+resolution:
+  commit: b296c34
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null
