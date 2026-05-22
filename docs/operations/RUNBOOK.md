@@ -345,7 +345,7 @@ exports.
 `strings libaletheia-ffi.so | grep aletheia-ffi-`. Reinstall the
 matching pair: `cabal run shake -- build && pip install -e python`.
 
-#### MAlonzo symbol not found at FFI load time
+#### MAlonzo name mismatch (`d_<fn>_<NN>` rename drift)
 
 **Symptom:** The library loads, but the first call crashes with
 `Prelude.undefined` or a missing symbol like `_d_processJSONLine_*`.
@@ -503,6 +503,57 @@ equivalent) to enumerate issues. Each issue carries a stable
 `go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.
+
+#### `handler_non_monotonic_timestamp` on `send_frame` / `send_error` / `send_remote`
+
+**Symptom:** A streaming operation returns
+`{"status": "error", "code": "handler_non_monotonic_timestamp", ...}`
+mid-stream.  The committed prefix is preserved; the offending frame
+and all subsequent frames in the batch are rejected.
+
+**Cause:** The current frame's timestamp is below the previous accepted
+frame's.  Metric LTL operators (`MetricEventually`, `MetricAlways`,
+`MetricUntil`, `MetricRelease`) require a monotonic time axis and the
+streaming runtime enforces this at every event-kind boundary —
+mixing `send_frame`, `send_error`, and `send_remote` does NOT reset
+the monotonic anchor.  A backwards timestamp on ANY of the three
+event kinds rejects.
+
+**Action:** Sort frames by timestamp before streaming.  If the source
+is a CAN log file (CSV / BLF / asc), pre-sort once with
+`sort -k1,1n` (CSV with ts in col 1) or use the binding's
+`iter_can_log` helper which yields in source order — verify your
+source produces a monotonic stream.  If your source intentionally
+interleaves out-of-order events, batch into monotonic sub-streams
+and `end_stream()` + `start_stream()` between batches to reset.
+
+**Cross-event-kind monotonicity (subtle):** This error fires across
+`send_frame` AND `send_error` AND `send_remote` — they all consume
+the same `prev` anchor in `Protocol.StreamState`.  An operator who
+interleaves real Data frames with Error / Remote frames (e.g., to
+inject bus-fault events into a replay) must order ALL three kinds
+together by timestamp, not just within each kind.
+
+#### `dbc_text_parse_error` on `parse_dbc_text`
+
+**Symptom:** `parse_dbc_text` returns
+`{"status": "error", "code": "dbc_text_parse_error", ...}`.
+
+**Cause:** The DBC source text failed the Agda-verified grammar
+parser (`Aletheia.DBC.TextParser`).  Causes: malformed `BO_` / `SG_` /
+`VAL_` lines, unbalanced quotes, invalid identifier characters,
+out-of-range numeric literals, or constructs the parser doesn't yet
+cover (the parser implements full cantools equivalence; if a
+construct is rejected, the source likely has a syntax error rather
+than a cantools-only extension).
+
+**Action:** The error message carries the line offset and a
+`DBCTextParseError` constructor identifying the parse stage.  Compare
+the rejected line against the `cantools` reference parser
+(`python3 -c 'import cantools; cantools.db.load_string(open("...").read())'`);
+if cantools also rejects, the DBC is malformed at source.  If cantools
+accepts but Aletheia rejects, the construct may be an Aletheia-side
+parser gap — file a GitHub issue with the minimal failing DBC.
 
 ### Runtime — cancellation
 
