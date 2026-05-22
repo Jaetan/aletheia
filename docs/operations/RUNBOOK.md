@@ -115,6 +115,15 @@ client. If the warning fires from a third-party library that also
 uses GHC, this is a host-application coordination issue and the
 warning is informational only.
 
+**Cross-binding wiring asymmetry — wire the logger early:** The event
+fires from different sites depending on the binding (Go: `NewFFIBackend`
+before any client; Python: `LibraryHandle.acquire` during first client
+construction; C++: `AletheiaClient` constructor). An operator who has
+wired the logger only at one point may silently miss the warning.
+The safe pattern: wire the structured logger to the FFI Backend (Go /
+C++ / Python alike) at the earliest construction step in the host
+program, then pass that backend to every Client.
+
 ### Frame processing
 
 #### `frame.processed`
@@ -179,9 +188,20 @@ exists in the DBC but its bits do not fit the frame's payload (DLC
 mismatch).
 
 **Action:** Cross-check the violating predicate against the DBC's
-message and signal definitions for the violating CAN ID. If the
-predicate is correct, the frame is malformed; if the predicate is
-wrong, fix the property.
+message and signal definitions for the violating CAN ID. Operator
+workflow:
+
+```bash
+# Python (or via the unified CLI):
+python3 -m aletheia signals --dbc <file>.dbc | grep -i <signal_name>
+# Inspect the CAN ID:
+python3 -m aletheia messages --dbc <file>.dbc | grep -i <can_id_hex>
+```
+
+If the predicate is correct, the frame is malformed (check the producer's
+DLC + payload bits against the signal's start_bit + bit_length); if
+the predicate references a signal that does not exist on the violating
+frame's CAN ID, fix the property.
 
 ### Extraction cache
 
@@ -423,14 +443,34 @@ or the binding raises `aletheia.InputBoundExceededError` (Python) /
   DLC values `0..15`).
 
 **Action:** Read the `bound_kind` / `observed` / `limit` fields on
-the typed error to identify which bound was crossed. If the input is
-legitimately oversize, see
-[PROTOCOL.md § Updating bounds](../architecture/PROTOCOL.md#updating-bounds)
-— bounds are intentionally generous (~6× headroom for commercial
-DBCs; commercial automotive DBCs are typically 1-10 MiB) and
-adjustments are a kernel + per-binding mirror change. If the input
-is a synthetic stress test or unexpected user data, this is the
-correct rejection.
+the typed error to identify which bound was crossed. Action then
+splits by bound-kind family:
+
+- **`nesting_depth`** — almost always a synthetic adversarial input
+  (no production JSON exceeds 64-level nesting).  Reject upstream; do
+  not raise the bound.
+- **`input_length_bytes`** / **`max_dbc_text_bytes`** / **`max_json_bytes`**
+  — a legitimate commercial DBC can exceed the 64 MiB cap if it carries
+  large value-table glossaries; see PROTOCOL.md § Updating bounds for
+  the kernel+binding mirror procedure.
+- **`array_cardinality`** on `max_messages_per_file` /
+  `max_signals_per_message` / `max_attributes_per_file` /
+  `max_value_descriptions_per_file` — most commonly hit by very large
+  commercial DBCs; the per-section caps have ~6× headroom but a single
+  oversize ECU bundle can exceed them.  Raising the bound requires
+  benchmarking the parser's O(N²) sub-paths (see
+  `feedback_parsedbc_quadratic_scaling.md`) before flipping the
+  constant.
+- **`identifier_length`** / **`string_length`** — legitimate DBCs do
+  not have 128-char identifiers; this is almost always input
+  corruption or a fuzz input.  Reject.
+- **`atom_count`** — an LTL property exceeded 1024 atoms.  The
+  property is likely the wrong shape (a real-world property should
+  fit in a few atoms); restructure rather than raising the cap.
+- **`frame_byte_count`** — structurally impossible for a valid CAN /
+  CAN-FD frame.  Indicates a binding-side encoding bug; check the
+  producer's DLC-to-bytes mapping (valid table:
+  `{0..8, 12, 16, 20, 24, 32, 48, 64}` for DLC values `0..15`).
 
 ### Runtime — OOM / heap pressure
 
@@ -503,6 +543,20 @@ equivalent) to enumerate issues. Each issue carries a stable
 `go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.
+
+**Binding-specific exception types** (when wiring a programmatic
+handler):
+
+- **Python**: `aletheia.ValidationError` (subclass of `AletheiaError`).
+  Catch via `except aletheia.ValidationError as e: ...` and inspect
+  `e.issues` for the list.
+- **Go**: a `*aletheia.ValidationError` returned from `ParseDBC` /
+  `ParseDBCText`.  Type-assert via
+  `if vErr := (*aletheia.ValidationError)(nil); errors.As(err, &vErr) {
+  ... vErr.Issues ... }`.
+- **C++**: `aletheia::ValidationError` (subclass of
+  `aletheia::AletheiaException`).  Catch via
+  `catch (const aletheia::ValidationError& e) { ... e.issues() ... }`.
 
 #### `handler_non_monotonic_timestamp` on `send_frame` / `send_error` / `send_remote`
 

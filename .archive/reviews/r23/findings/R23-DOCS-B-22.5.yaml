@@ -1,0 +1,24 @@
+id: R23-DOCS-B-22.5
+round: R23
+category:
+  number: 22
+  name: Operational runbook
+  language: docs
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: rts.cores_mismatch cross-binding wiring asymmetry note
+description: 'Event fires from Go''s NewFFIBackend / Python''s LibraryHandle.acquire
+  / C++ AletheiaClient ctor — each at a DIFFERENT lifecycle point.  Logger wired only
+  at the client level may miss the warning.  Added explicit guidance: wire the structured
+  logger to the FFI Backend at the earliest construction step in the host program.'
+files:
+- docs/operations/RUNBOOK.md
+cluster: I-polish
+resolution:
+  commit: pending
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null
