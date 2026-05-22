@@ -1,6 +1,6 @@
 """Tests for opt-in structured logging.
 
-Verifies that the 15 log events shared with Go's ``slog`` and the C++
+Verifies that the 16 log events shared with Go's ``slog`` and the C++
 ``Logger`` class are emitted at the correct levels with the expected
 fields.  Uses Python's standard ``logging`` module with a capturing
 handler — no output is produced unless a handler is installed, matching
@@ -156,7 +156,7 @@ class TestLoggingStreamingEvents:
                 assert record.levelno == logging.DEBUG, (
                     f"Expected DEBUG for {msg}, got {record.levelname}"
                 )
-            elif msg.startswith(("cache.full", "enrichment.")):
+            elif msg.startswith(("cache.full", "enrichment.", "endstream.")):
                 assert record.levelno == logging.WARNING, (
                     f"Expected WARNING for {msg}, got {record.levelname}"
                 )
@@ -171,9 +171,9 @@ class TestLoggingSchema:
     """
 
     def test_known_events_matches_enum(self) -> None:
-        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 15 names."""
+        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 16 names."""
         assert KNOWN_EVENTS == {event.value for event in LogEvent}
-        assert len(KNOWN_EVENTS) == 15
+        assert len(KNOWN_EVENTS) == 16
 
     def test_event_names_follow_namespace_dot_action(self) -> None:
         """All events are of the form ``namespace.action`` for grep-ability."""
@@ -212,3 +212,93 @@ class TestLoggingSchema:
                 f"record emitted unknown event {event!r}; "
                 f"add it to LogEvent or switch the call site"
             )
+
+
+class TestEndStreamWarnings:
+    """Per-warning log events on the EndStream Complete response.
+
+    R22 AGDA-D-12.1 closure — the kernel emits one ``CompleteWarning`` per
+    atom whose target signal was never observed during the stream.  The
+    binding re-emits each warning as a structured ``endstream.<kind>`` log
+    event so operators can grep for specific properties.  The existing
+    ``stream.ended`` event still carries the aggregate ``numWarnings``
+    count; the per-warning events sit alongside, not in place of, it.
+    """
+
+    def test_uncached_atom_emits_per_warning_event(
+        self, capture: _Capture,
+    ) -> None:
+        """Unobserved signal → one ``endstream.uncached_atom`` log event."""
+        # Two-message DBC: predicate references Speed (msg 256), but only
+        # msg 512 frames are sent — Speed is never observed.
+        two_message_dbc: DBCDefinition = {
+            "version": "1.0",
+            "messages": [
+                {
+                    "id": 256, "extended": False, "name": "Msg256", "dlc": 8,
+                    "sender": "ECU",
+                    "signals": [{
+                        "name": "Speed", "startBit": 0, "length": 16,
+                        "byteOrder": "little_endian", "signed": False,
+                        "factor": {"numerator": 1, "denominator": 1},
+                        "offset": {"numerator": 0, "denominator": 1},
+                        "minimum": {"numerator": 0, "denominator": 1},
+                        "maximum": {"numerator": 1000, "denominator": 1},
+                        "unit": "kph", "presence": "always",
+                        "valueDescriptions": [],
+                    }],
+                },
+                {
+                    "id": 512, "extended": False, "name": "Msg512", "dlc": 8,
+                    "sender": "ECU",
+                    "signals": [{
+                        "name": "Rpm", "startBit": 0, "length": 16,
+                        "byteOrder": "little_endian", "signed": False,
+                        "factor": {"numerator": 1, "denominator": 1},
+                        "offset": {"numerator": 0, "denominator": 1},
+                        "minimum": {"numerator": 0, "denominator": 1},
+                        "maximum": {"numerator": 8000, "denominator": 1},
+                        "unit": "rpm", "presence": "always",
+                        "valueDescriptions": [],
+                    }],
+                },
+            ],
+        }
+        with AletheiaClient() as client:
+            client.parse_dbc(two_message_dbc)
+            client.set_properties([
+                Signal("Speed").less_than(100).always().to_dict(),
+            ])
+            client.start_stream()
+            client.send_frame(
+                timestamp=0, can_id=512, dlc=DLCCode(8),
+                data=bytearray([5, 0, 0, 0, 0, 0, 0, 0]),
+            )
+            client.end_stream()
+
+        uncached = [
+            r for r in capture.records
+            if getattr(r, "event", None) == LogEvent.ENDSTREAM_UNCACHED_ATOM.value
+        ]
+        assert len(uncached) == 1, (
+            f"expected one endstream.uncached_atom record, got {len(uncached)}"
+        )
+        rec = uncached[0]
+        assert rec.levelno == logging.WARNING
+        assert getattr(rec, "property_index", None) == 0
+        assert getattr(rec, "detail", None) == "Speed"
+
+    def test_all_observed_emits_no_per_warning_event(
+        self, simple_dbc: DBCDefinition, capture: _Capture,
+    ) -> None:
+        """Every atom's signal observed → no ``endstream.uncached_atom`` event."""
+        run_one_frame_stream(
+            simple_dbc, bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
+        )
+        uncached = [
+            r for r in capture.records
+            if getattr(r, "event", None) == LogEvent.ENDSTREAM_UNCACHED_ATOM.value
+        ]
+        assert not uncached, (
+            f"expected no endstream.uncached_atom records, got {len(uncached)}"
+        )

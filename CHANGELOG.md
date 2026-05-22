@@ -32,6 +32,18 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   Wire field `{kind, property_index, detail}`; the only kind today is
   `"uncached_atom"` (future kinds are additive).  R21 cluster 1 —
   AGDA-D-12.1.
+- `endstream.uncached_atom` structured log event — each binding's
+  `end_stream` / `EndStream` / `end_stream` now emits one warn-level
+  structured log event per `CompleteWarning` carried on the response,
+  in addition to the existing `stream.ended` lifecycle event's
+  `numWarnings` aggregate.  Per-warning records carry
+  `property_index` and `detail` fields so operators can grep for
+  specific properties.  Cross-binding canonical event count bumped
+  15 → 16; new "End-of-stream diagnostics" section in
+  `docs/LOG_EVENTS.yaml`.  Documented in PROTOCOL.md
+  § End-of-stream Warnings (wire shape + evolution rule for adding
+  new kinds) and RUNBOOK.md § End-of-stream diagnostics (operator
+  symptom/cause/action).  R22 AGDA-D-12.1 closure.
 - `format_dbc_text` Client method — emit a DBC definition (Python
   `DBCDefinition`, Go `DBCDefinition`, C++ `DbcDefinition`) as canonical
   DBC text via the verified Agda formatter (Track E.10).

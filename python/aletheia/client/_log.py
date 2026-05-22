@@ -1,6 +1,6 @@
 """Structured logging schema for the Python binding.
 
-Mirrors the 15-event vocabulary used by the Go binding's ``slog`` calls and
+Mirrors the 16-event vocabulary used by the Go binding's ``slog`` calls and
 the C++ binding's custom ``Logger`` class so a downstream log collector can
 treat all three bindings interchangeably.  The set is the authoritative
 source of truth — adding a new event here forces the call site to pick a
@@ -32,7 +32,7 @@ from typing import Final
 class LogEvent(str, Enum):
     """Structured log event names shared with Go (``slog``) and C++ (``Logger``).
 
-    Exactly 15 values — the set must stay identical across bindings.  Every
+    Exactly 16 values — the set must stay identical across bindings.  Every
     ``Client``/``AletheiaClient`` observability call site uses one of these;
     any new event must be added here first.
     """
@@ -65,6 +65,12 @@ class LogEvent(str, Enum):
     # --- Extraction errors (WARNING) ---
     EXTRACTION_PROCESS_FAILED = "extraction.process_failed"
     EXTRACTION_PARSE_FAILED = "extraction.parse_failed"
+
+    # --- End-of-stream diagnostics (WARNING) ---
+    # Per-warning event emitted once per ``CompleteWarning`` carried on the
+    # EndStream Complete response, in addition to the lifecycle
+    # ``stream.ended`` record.  Lets operators grep for specific properties.
+    ENDSTREAM_UNCACHED_ATOM = "endstream.uncached_atom"
 
 
 # Exposed as ``Final[frozenset[str]]`` so the test suite can assert that

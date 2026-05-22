@@ -382,8 +382,8 @@ features:
   # =====================================================================
 
   - id: structured_logging
-    name: Structured logging (15 events)
-    description: Canonical 15-event log vocabulary across lifecycle / stream / cache / enrichment / extraction domains.
+    name: Structured logging (16 events)
+    description: Canonical 16-event log vocabulary across lifecycle / stream / cache / enrichment / extraction / end-of-stream-diagnostic domains.
     bindings:
       python: { status: implemented, entry: "aletheia.client._log" }
       cpp:    { status: implemented, entry: "aletheia/log.hpp#Logger" }

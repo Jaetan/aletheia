@@ -388,21 +388,31 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- emitted unchanged.  Warnings are additive diagnostic context — they
 -- ratify (do not replace or reinterpret) the verdict.
 --
--- REQUIRED follow-ups (re-classified 2026-05-19 from OPTIONAL — user
--- directive; must land before next review round's close):
---   * New `LogEvent.endstream.uncached_atom` enumerant + parity in
---     `log_events_parity.{py,go,cpp}`.  Currently the cache-miss
---     count flows through the existing `stream.ended` event's new
---     `numWarnings` attribute — sufficient for triage; per-warning
---     events let users grep for specific signals.
---   * `check-runbook` entry naming the warning class explicitly.
---   * PROTOCOL.md section documenting the JSON envelope's warnings
---     field (the test trio + feature-matrix row was the de-facto spec;
---     formal write-up is now required, not deferred).
+-- REQUIRED follow-ups — ✅ CLOSED 2026-05-22 (R22 AGDA-D-12.1 closure):
+--   * `LogEvent.endstream.uncached_atom` enumerant — added to
+--     `docs/LOG_EVENTS.yaml` (warn, new "End-of-stream diagnostics"
+--     section), `python/aletheia/client/_log.py` (`LogEvent`),
+--     `go/aletheia/client.go` (slog.LevelWarn emit in `EndStream`),
+--     `cpp/src/client.cpp` (`logger_.warn` in
+--     `log_end_stream_summary` helper).  Cross-binding parity tests
+--     (`test_log_events_parity.{py,go,cpp}` + `test_logging.py
+--     TestEndStreamWarnings`) bump the canonical event count 15 → 16
+--     and exercise the uncached_atom scenario via mock backend.
+--     Per-warning events carry `property_index` + `detail` so
+--     operators can grep for specific properties.
+--   * `check-runbook` entry — `#### `endstream.uncached_atom``
+--     section added under "End-of-stream diagnostics" in
+--     `docs/operations/RUNBOOK.md`; `tools/check_runbook_coverage.py`
+--     now reports 16/16 covered.
+--   * PROTOCOL.md section — `§ End-of-stream Warnings` added under
+--     the Complete Response, documenting wire shape (kind /
+--     property_index / detail), defined kinds (currently
+--     `uncached_atom`), evolution rule (7-step coordinated change
+--     when adding a new kind), and the logging mirror.
 --
--- DO NOT RE-RAISE the closed work (walker / wire / bindings / tests /
--- feature-matrix row) in review.  The three follow-ups above are
--- live work items, tracked in `.session-state.md`.
+-- DO NOT RE-RAISE in review.  All four pieces (scaffold / walker /
+-- bindings / log+runbook+protocol mirror) are durable; cross-binding
+-- parity tests + check-runbook gate enforce non-regression.
 
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`

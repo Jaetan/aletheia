@@ -894,6 +894,13 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()
+            for w in warnings:
+                if w["kind"] == "uncached_atom":
+                    log_event(
+                        _logger, logging.WARNING, LogEvent.ENDSTREAM_UNCACHED_ATOM,
+                        property_index=w["property_index"],
+                        detail=w["detail"],
+                    )
             log_event(
                 _logger, logging.INFO, LogEvent.STREAM_ENDED,
                 numResults=len(results), numFails=num_fails,

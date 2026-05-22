@@ -22,7 +22,7 @@
 //   - SendFrame ack     (frame.processed)
 //   - SendFrame violate (frame.processed + cache.miss + cache.hit +
 //                        enrichment.* on extraction failure)
-//   - EndStream         (stream.ended)
+//   - EndStream         (stream.ended + endstream.uncached_atom per warning)
 //   - Extraction error  (extraction.parse_failed + enrichment.extraction_failed)
 //
 // Events not exercised (need exotic setups, deliberately not asserted as
@@ -90,7 +90,7 @@ func loadLogEvents(t *testing.T) []logEventRow {
 
 func TestLogEventsYAML_Schema(t *testing.T) {
 	events := loadLogEvents(t)
-	if got, want := len(events), 15; got != want {
+	if got, want := len(events), 16; got != want {
 		t.Fatalf("event count: got %d, want %d (cross-binding canonical total)", got, want)
 	}
 	seen := make(map[string]struct{}, len(events))
@@ -190,10 +190,11 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}`),
 		// 7. Enrichment extraction returns success (cache.miss + value)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
-		// 8. EndStream (stream.ended)
+		// 8. EndStream (stream.ended + endstream.uncached_atom per warning)
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],
+			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
 		}`),
 		// 9. EOS extraction (cache.hit reuses prior value if SignalKey matches)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
@@ -259,6 +260,14 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 	if _, ok := uniqueEmitted["dbc.parsed"]; !ok {
 		t.Error("dbc.parsed not emitted — workflow does not exercise the " +
 			"DBC parse paths; the gate would have missed the original drift")
+	}
+
+	// Sanity floor: the EndStream Complete carries an uncached_atom warning,
+	// so the per-warning event MUST fire — otherwise a future refactor that
+	// drops the emit site would slip past this gate.
+	if _, ok := uniqueEmitted["endstream.uncached_atom"]; !ok {
+		t.Error("endstream.uncached_atom not emitted — EndStream mock carries " +
+			"a CompleteWarning but the per-warning emit site did not fire")
 	}
 }
 
