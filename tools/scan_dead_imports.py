@@ -26,16 +26,44 @@ Use `tools/prune_unused_imports.py` instead when you want:
  - Safe automatic application (`--include-public` and consumer-check).
  - CI-grade gates (exits 1 on findings).
 
+**Ignore file** — to suppress known false positives, this scanner loads
+`tools/scan_dead_imports.ignore` (relative to repo root) if it exists.
+The format is line-numberless so entries don't churn on every edit:
+
+    # comment
+    [Aletheia/Protocol/Routing.agda]
+    if_then_else_
+    _≤?_
+
+    [Aletheia/Prelude.agda]
+    map₁ to mapₑ
+
+Each `[path]` section lists names to suppress in that file (path is
+relative to `src/`).  Names are matched EXACTLY against the scanner's
+reported text (including mixfix underscores and `X to Y` rename pairs).
+
+Populate / refresh via `--write-ignore` after running the precise tool:
+any name the precise tool kept but the scanner flags is a FP by
+definition.
+
 Usage:
     tools/scan_dead_imports.py [OPTIONS] [PATHS...]
     tools/scan_dead_imports.py --top 20 src/        # top-20 dirtiest files
     tools/scan_dead_imports.py --summary src/       # one-liners per file
     tools/scan_dead_imports.py src/Aletheia/X.agda  # detail for one file
+    tools/scan_dead_imports.py --write-ignore       # capture current findings
+                                                    # as a fresh ignore file
+                                                    # (overwrites)
 
 Options:
-    --top N      Report only the top-N files by dead count.
-    --summary    One-line summary per file, no per-name listing.
-    --quiet      Only the totals line.
+    --top N           Report only the top-N files by dead count.
+    --summary         One-line summary per file, no per-name listing.
+    --quiet           Only the totals line.
+    --no-ignore       Don't load the ignore file (show raw findings).
+    --write-ignore    Write current findings to `tools/scan_dead_imports.ignore`
+                      and exit.  Use after the precise tool has verified the
+                      codebase is dead-name-clean — remaining scanner findings
+                      are by definition FPs.
 
 Exit:
     0 — always (warning-only; this tool never blocks workflows).
@@ -53,7 +81,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 IDENT_CHARS = r"A-Za-z0-9_'\-"
 
@@ -62,6 +90,103 @@ IDENT_CHARS = r"A-Za-z0-9_'\-"
 # use it would produce a guaranteed FN — only the precise agda-driven tool
 # can decide correctness here.
 PUBLIC_RE = re.compile(r"\bpublic\b")
+
+
+def _find_repo_root() -> Path:
+    """Walk up looking for `aletheia.agda-lib`; fall back to script location."""
+    for base in (Path.cwd().resolve(), Path(__file__).resolve()):
+        for p in [base] + list(base.parents):
+            if (p / "aletheia.agda-lib").exists():
+                return p
+    return Path(__file__).resolve().parent.parent
+
+
+REPO_ROOT = _find_repo_root()
+SRC_DIR = REPO_ROOT / "src"
+IGNORE_PATH = REPO_ROOT / "tools" / "scan_dead_imports.ignore"
+
+
+def load_ignore_file(path: Path) -> Dict[str, Set[str]]:
+    """Parse an ignore file: returns {rel_path: set(names_to_suppress)}.
+
+    Format:
+        # comments allowed
+        [Aletheia/Foo/Bar.agda]
+        name1
+        _≡_
+        map₁ to mapₑ
+
+        [Aletheia/Baz.agda]
+        ...
+
+    Names are stored verbatim and matched against scanner output exactly.
+    Trailing whitespace stripped.  Empty sections (header followed by no
+    names) are tolerated.  An entry with no preceding section header is
+    silently dropped (with no warning, to keep the scanner quiet)."""
+    ignore: Dict[str, Set[str]] = {}
+    if not path.is_file():
+        return ignore
+    current: str | None = None
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1].strip()
+            ignore.setdefault(current, set())
+        elif current is not None:
+            ignore[current].add(line)
+    return ignore
+
+
+def write_ignore_file(
+    path: Path,
+    per_file: List[Tuple[Path, List[Tuple[int, str]]]],
+    src_dir: Path,
+) -> int:
+    """Write the current findings as a fresh ignore file.
+
+    Returns the number of (file, name) entries written.  Sorted alphabetically
+    by file path; within a file, sorted alphabetically by name.  Removes
+    duplicates within a file."""
+    entries = 0
+    with path.open("w", encoding="utf-8") as f:
+        f.write("# tools/scan_dead_imports.ignore — known scanner false positives\n")
+        f.write("#\n")
+        f.write("# Populated by `tools/scan_dead_imports.py --write-ignore` AFTER\n")
+        f.write("# a clean run of `tools/prune_unused_imports.py --include-public\n")
+        f.write("# --final-check` confirms the codebase has no truly-removable\n")
+        f.write("# dead imports.  Any name the precise agda-driven tool kept but\n")
+        f.write("# this regex scanner flags is a false positive by definition,\n")
+        f.write("# and belongs here.\n")
+        f.write("#\n")
+        f.write("# Hand-edit to add entries (e.g. a new mixfix operator the scanner\n")
+        f.write("# misclassifies) or remove them when an entry becomes stale (the\n")
+        f.write("# underlying name was genuinely deleted in a later edit).\n")
+        f.write("#\n")
+        f.write("# Format:\n")
+        f.write("#   [path/relative/to/src.agda]\n")
+        f.write("#     name1\n")
+        f.write("#     _∷_\n")
+        f.write("#     map₁ to mapₑ      ← renaming-pair from the scanner's output\n")
+        f.write("#\n")
+        f.write("# Names are matched EXACTLY against the scanner's reported text.\n")
+        f.write("\n")
+        sorted_files = sorted(per_file, key=lambda t: str(t[0]))
+        for file_path, flagged in sorted_files:
+            try:
+                rel = str(file_path.relative_to(src_dir))
+            except ValueError:
+                rel = str(file_path)
+            names = sorted(set(n for _, n in flagged))
+            if not names:
+                continue
+            f.write(f"[{rel}]\n")
+            for n in names:
+                f.write(f"{n}\n")
+                entries += 1
+            f.write("\n")
+    return entries
 
 
 def _strip_comments(text: str) -> str:
@@ -196,9 +321,11 @@ def main() -> int:
     parser.add_argument("--top", type=int, default=0, help="Report only the top-N dirtiest files")
     parser.add_argument("--summary", action="store_true", help="One-line summary per file")
     parser.add_argument("--quiet", action="store_true", help="Only print the totals line")
+    parser.add_argument("--no-ignore", action="store_true", help="Don't load tools/scan_dead_imports.ignore (show raw findings)")
+    parser.add_argument("--write-ignore", action="store_true", help="Write current findings to tools/scan_dead_imports.ignore and exit (overwrites)")
     args = parser.parse_args()
 
-    paths = args.paths if args.paths else [Path("src")]
+    paths = args.paths if args.paths else [SRC_DIR]
     files: List[Path] = []
     for p in paths:
         if p.is_file() and p.suffix == ".agda":
@@ -208,11 +335,40 @@ def main() -> int:
         else:
             print(f"warning: {p} not a file or directory", file=sys.stderr)
 
-    per_file: List[Tuple[Path, List[Tuple[int, str]]]] = []
+    # Scan first (without applying ignore — we need raw findings for
+    # --write-ignore).
+    per_file_raw: List[Tuple[Path, List[Tuple[int, str]]]] = []
     for f in files:
         flagged = scan_file(f)
         if flagged:
-            per_file.append((f, flagged))
+            per_file_raw.append((f, flagged))
+
+    if args.write_ignore:
+        IGNORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        n = write_ignore_file(IGNORE_PATH, per_file_raw, SRC_DIR)
+        print(
+            f"wrote {n} entries across {len(per_file_raw)} files to {IGNORE_PATH}"
+        )
+        return 0
+
+    # Apply ignore file (unless --no-ignore).
+    if args.no_ignore:
+        ignore_map: Dict[str, Set[str]] = {}
+    else:
+        ignore_map = load_ignore_file(IGNORE_PATH)
+
+    per_file: List[Tuple[Path, List[Tuple[int, str]]]] = []
+    suppressed_total = 0
+    for f, flagged in per_file_raw:
+        try:
+            rel = str(f.relative_to(SRC_DIR))
+        except ValueError:
+            rel = str(f)
+        sup = ignore_map.get(rel, set())
+        kept = [(line, name) for (line, name) in flagged if name not in sup]
+        suppressed_total += len(flagged) - len(kept)
+        if kept:
+            per_file.append((f, kept))
 
     if args.top > 0:
         per_file.sort(key=lambda t: -len(t[1]))
@@ -236,10 +392,17 @@ def main() -> int:
     total = sum(len(f) for _, f in per_file)
     flagged_files = len(per_file)
     print()
-    print(
-        f"Total: {total} dead candidates across {flagged_files} flagged files "
-        f"(of {len(files)} scanned)"
-    )
+    if suppressed_total > 0:
+        print(
+            f"Total: {total} dead candidates across {flagged_files} flagged files "
+            f"(of {len(files)} scanned; {suppressed_total} known-FP suppressed via "
+            f"{IGNORE_PATH.name})"
+        )
+    else:
+        print(
+            f"Total: {total} dead candidates across {flagged_files} flagged files "
+            f"(of {len(files)} scanned)"
+        )
     return 0
 
 
