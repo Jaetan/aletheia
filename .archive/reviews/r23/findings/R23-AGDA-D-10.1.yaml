@@ -1,3 +1,4 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
 id: R23-AGDA-D-10.1
 round: R23
 category:
@@ -6,7 +7,7 @@ category:
   language: agda
   agent: D
 severity: medium
-disposition: DEFER
+disposition: FIX
 status: open
 title: Unify SignalPredicate signal-name field with Identifier
 description: 'Cross-cutting refactor — promoting `signalName : List Char` to `Identifier`
@@ -15,10 +16,6 @@ description: 'Cross-cutting refactor — promoting `signalName : List Char` to `
 files:
 - src/Aletheia/LTL/SignalPredicate/Types.agda
 cluster: D
-resolution:
-  commit: 8e7400d
-  round: R23
-  date: '2026-05-22'
-  notes: R23 attempted to defer; user reversed — must be fixed before merge.
+resolution: null
 re_raised_from: null
 in_source_marker: null

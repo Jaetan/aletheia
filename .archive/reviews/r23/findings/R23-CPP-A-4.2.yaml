@@ -1,3 +1,4 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
 id: R23-CPP-A-4.2
 round: R23
 category:
@@ -6,7 +7,7 @@ category:
   language: cpp
   agent: A
 severity: low
-disposition: DEFER
+disposition: FIX
 status: open
 title: make_json_error doc block adjacency
 description: /// doc block separated from `make_json_error` by an unrelated helper.  Cosmetic;
@@ -14,10 +15,6 @@ description: /// doc block separated from `make_json_error` by an unrelated help
 files:
 - cpp/src/json_parse.cpp
 cluster: C
-resolution:
-  commit: d11e1a3
-  round: R23
-  date: '2026-05-22'
-  notes: R23 attempted to defer; user reversed — must be fixed before merge.
+resolution: null
 re_raised_from: null
 in_source_marker: null

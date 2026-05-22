@@ -5,7 +5,7 @@ merge_commit: null
 merge_date: null
 status: open
 raw_findings_count: 219
-closed_findings_count: 53
+closed_findings_count: 39
 agent_fleet:
   - agda-C-cross-file
   - cpp-A-hygiene
@@ -58,11 +58,21 @@ notes: |
     cluster D heavy (DEFER)        —         4 DEFER (Identifier promotion etc.)
     cluster F structural (DEFER)   —         4 DEFER (PY-D-16.x, CPP-D-17/18)
 
-  YAML emission: 53 findings recorded under .archive/reviews/r23/findings/.
-  The remaining ~166 findings are LOW/INFO polish items documented in
+  YAML emission: 57 findings recorded under .archive/reviews/r23/findings/
+  (53 at initial emission + 4 added during cluster C followup work).
+  The remaining ~162 findings are LOW/INFO polish items documented in
   review-r23-findings.md and slated for R24 or graduation-as-mechanical-gate.
 
   CRITICAL-HIGH trend (per tools/review_db.py --report critical-high-trend):
     R20: 1 / 22  | R21: 0 / 17  | R22: 0 / 1   | R23: 1 / 8  (1 critical closed in-round, no re-raise)
   The R23 critical (XDOC-15.1, Agda module count drift) was surfaced AND
   closed in the same round (cluster A); no open criticals carry forward.
+
+  DEFER reversal 2026-05-23: user reversed all 18 in-flight DEFERs to FIX
+  before R23 → main merge.  Per-finding YAML flipped DEFER → FIX with
+  resolution: null (no fix landed yet); audit trail preserved as top-of-file
+  YAML comment.  Affected: AGDA-C-{5.1, 5.2, 6.1, 6.2, 27.1}, AGDA-D-{10.1,
+  12.1}, CICD-A-5.4, CPP-A-{4.2, 6.2, 6.3, 6.4}, CPP-B-12.2, CPP-D-{15.1,
+  15.2, 17.1, 18.1}, PY-D-16.1.  All work scheduled in-round; merge gated
+  on close (status:open → status:closed).  Cluster G (R19 re-DEFERs) now
+  in-scope: Rational class promotion + Check static-method idiom.

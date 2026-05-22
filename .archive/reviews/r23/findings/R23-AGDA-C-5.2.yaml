@@ -1,3 +1,4 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
 id: R23-AGDA-C-5.2
 round: R23
 category:
@@ -6,19 +7,15 @@ category:
   language: agda
   agent: C
 severity: low
-disposition: DEFER
+disposition: FIX
 status: open
 title: Drop String payload from AttributeRefinementFailed
-description: Single-call-site String payload; could be inlined in formatter.  Touches
-  wire shape; defer.
+description: Single-call-site String payload; could be inlined in formatter.  Touches wire
+  shape; defer.
 files:
 - src/Aletheia/DBC/TextParser.agda
 - src/Aletheia/Error.agda
 cluster: B
-resolution:
-  commit: 8e7400d
-  round: R23
-  date: '2026-05-22'
-  notes: R23 attempted to defer; user reversed — must be fixed before merge.
+resolution: null
 re_raised_from: null
 in_source_marker: null
