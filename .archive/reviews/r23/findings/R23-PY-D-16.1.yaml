@@ -8,13 +8,22 @@ category:
   agent: D
 severity: medium
 disposition: FIX
-status: open
+status: closed
 title: _helpers.py 798+ LOC split into rational/dbc_normalize/json_codec
 description: R19 DEFER condition is met (coherent sub-modules emerged); but the split touches
   imports across the binding.  Defer to the same Python-API-hygiene cluster as PY-D-16.2.
 files:
 - python/aletheia/client/_helpers.py
 cluster: F
-resolution: null
+resolution:
+  commit: 9543be1
+  round: R23
+  date: '2026-05-23'
+  notes: 'Split client/_helpers.py (742 LOC) into a package with three sub-modules: rational.py
+    (ℚ arithmetic + parsing + validation), dbc_normalize.py (outbound + inbound DBC normalisation),
+    json_codec.py (protocol list parsers).  Per feedback_no_backward_compat, no re-export
+    shim — all 6 call sites (4 internal + 2 test) updated to import from the specific submodule.  Whitelist
+    test updated.  basedpyright shows zero new errors (stash-pop comparison: 28 baseline,
+    28 post-split).'
 re_raised_from: null
 in_source_marker: null
