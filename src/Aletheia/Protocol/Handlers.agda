@@ -54,12 +54,13 @@ open import Aletheia.Error as Err using
   ; PropertyParseFailed; ValidationFailed
   )
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; AtomCount; StringLength; PropertyCount
+  ( BoundKind; ArrayCardinality; AtomCount; StringLength; PropertyCount; IdentifierLength
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
   ; max-atom-count-per-property
   ; max-properties-per-stream
+  ; max-identifier-length
   )
 open import Data.Char using (Char)
 
@@ -261,6 +262,17 @@ withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj�
 -- property identifier; `toℕ` lifts it to `ℕ` only for the wire-side
 -- `PropertyParseFailed` envelope (which still carries `ℕ` because the
 -- error message reaches the user regardless of `n`).
+
+-- AGDA-D-32.1 (R23): per-atom signal-name length check.  Walks the
+-- collected atoms and returns the first (signal-name-length, sentinel)
+-- pair whose length exceeds `max-identifier-length`.  Returns `nothing`
+-- when every atom's signalOf fits the bound.
+firstOverLongSignalName : List SignalPredicate → Maybe ℕ
+firstOverLongSignalName [] = nothing
+firstOverLongSignalName (sp ∷ rest) with length (signalOf sp) <ᵇ suc max-identifier-length
+... | true  = firstOverLongSignalName rest
+... | false = just (length (signalOf sp))
+
 parseAllProperties : (n : ℕ) → StreamState → DBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
 parseAllProperties n _ dbc [] acc =
   (ReadyToStream n dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
@@ -270,10 +282,19 @@ parseAllProperties n state dbc ((idx , json) ∷ rest) acc with parseProperty js
 ...   | false | observed = (state , Response.Error
                               (WithContext "SetProperties"
                                 (InputBoundExceeded AtomCount observed max-atom-count-per-property)))
-...   | true  | _        = let atoms = collectAtoms prop
-                               proc = initProc (indexFormula prop)
-                               propState = mkPropertyState idx prop atoms proc
-                           in parseAllProperties n state dbc rest (propState ∷ acc)
+...   | true  | _        =
+       let atoms = collectAtoms prop
+       in checkSignalNamesThenContinue atoms
+  where
+    checkSignalNamesThenContinue : List SignalPredicate → StreamState × Response
+    checkSignalNamesThenContinue atoms with firstOverLongSignalName atoms
+    ... | just observed = (state , Response.Error
+                                      (WithContext "SetProperties"
+                                        (InputBoundExceeded IdentifierLength observed max-identifier-length)))
+    ... | nothing       =
+        let proc = initProc (indexFormula prop)
+            propState = mkPropertyState idx prop atoms proc
+        in parseAllProperties n state dbc rest (propState ∷ acc)
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
