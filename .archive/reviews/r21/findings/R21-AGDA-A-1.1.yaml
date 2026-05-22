@@ -17,8 +17,23 @@ resolution:
   commit: 13cdd07
   round: R21
   date: '2026-05-17'
-  notes: 'R22 carry-over closure at 56ac3d6 (sweep #4: 90 files / 532 dead removed).  Total
-    ~1100+ across the campaign.'
+  notes: |
+    Round-scope: FIX-PARTIAL is accurate for R21 — 29% of the ~864
+    candidates closed across 6 cluster-10 batches.  Issue-scope: CLOSED
+    via R22 carry-over R22-AGDA-A-1.1 at 56ac3d6 (sweep #4: 90 files /
+    532 dead removed; project-wide check-properties PASS).  Total
+    ~1100+ dead names removed across the R21+R22 campaign.
+
+    Verification 2026-05-22: tools/prune_unused_imports.py --check-only
+    on the 2 .agda files modified since sweep #4 (Assign.agda,
+    StreamingWarm.agda) reports 0 dead names.  tools/scan_dead_imports.py
+    advisory pass: 0 candidates across 263 modules.  No residual
+    remaining at the issue level.
+
+    Cat 1 (Dead code) graduated post-R22; the pre-push gate
+    (tools/prune_unused_imports.py --check-only) is now the canonical
+    enforcement.  Future regression would surface at git push, not at
+    review-round time.  See memory/feedback_graduated_categories.md.
 re_raised_from: null
 in_source_marker: null
 tags:

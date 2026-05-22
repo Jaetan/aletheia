@@ -19,8 +19,21 @@ resolution:
   commit: '6210872'
   round: R21
   date: '2026-05-17'
-  notes: 7 of 8 closed in R21; AttrLine.agda final closure 0b360fd during R22 carry-over.  Module
-    count climbed 250 -> 263.
+  notes: |
+    Round-scope: FIX-PARTIAL is accurate for R21 — 7 of 8 modules closed.
+    Issue-scope: CLOSED via R22 carry-over R22-AGDA-D-15.1 at 0b360fd
+    (Format/AttrLine.agda 1308 LOC -> 786 LOC via L5 + KEYWORD-TARGET
+    extraction into Format/AttrLine/Builders.agda sibling).
+
+    Module count climbed 250 -> 263 across the R21+R22 closure chain.
+
+    Verification 2026-05-22: all 8 originally-flagged modules confirmed
+    under the 800-LOC trigger; no residual remaining at the issue level.
+
+    Going forward, cat 15 module structure remains a Step-2 system-level
+    review category (no mechanical gate exists for the 800-LOC trigger);
+    new modules over the trigger surface as a fresh finding, not as a
+    re-raise of this one.
 re_raised_from: null
 in_source_marker: null
 tags:
