@@ -1,0 +1,22 @@
+id: R23-CPP-B-12.2
+round: R23
+category:
+  number: 12
+  name: Parsing robustness
+  language: cpp
+  agent: B
+severity: low
+disposition: DEFER
+status: closed
+title: parse_bounded throws runtime_error (not typed InputBoundExceeded)
+description: Defense-in-depth; the FFI-entry size cap is the canonical InputBoundExceeded
+  enforcer.  Defer + document.
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

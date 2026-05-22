@@ -1,0 +1,22 @@
+id: R23-DOCS-D-15.8
+round: R23
+category:
+  number: 6
+  name: Commands
+  language: docs
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: BUILDING.md Python version floor 3.12 vs pyproject 3.13
+description: 'BUILDING.md L124 said ''Minimum version: 3.12''; python/pyproject.toml
+  says `requires-python = ">=3.13"`.  Fixed to 3.13 + cite pyproject.toml as authoritative.'
+files:
+- docs/development/BUILDING.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

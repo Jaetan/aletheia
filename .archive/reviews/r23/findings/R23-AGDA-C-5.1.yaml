@@ -1,0 +1,22 @@
+id: R23-AGDA-C-5.1
+round: R23
+category:
+  number: 5
+  name: Error message consistency
+  language: agda
+  agent: C
+severity: medium
+disposition: DEFER
+status: closed
+title: Dedupe 'non-integer in multiplex_values' literal in JSONParser
+description: Requires typed sub-ctor extension (NonIntegerMultiplexValue) touching
+  the wire ParseError ADT; cross-binding ripples.  Defer.
+files:
+- src/Aletheia/DBC/JSONParser.agda
+cluster: B
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

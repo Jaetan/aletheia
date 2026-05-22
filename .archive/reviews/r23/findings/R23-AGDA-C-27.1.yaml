@@ -1,0 +1,22 @@
+id: R23-AGDA-C-27.1
+round: R23
+category:
+  number: 27
+  name: Stdlib coverage & lemma deduplication
+  language: agda
+  agent: C
+severity: medium
+disposition: DEFER
+status: closed
+title: Replace hand-rolled all-map/all-++ with stdlib
+description: Data.List.Relation.Unary.All.Properties.{map⁻,++⁺} are stdlib equivalents;
+  need argument-order verification.  Defer.
+files:
+- src/Aletheia/DBC/TextParser/Properties/Aggregator/Universal.agda
+cluster: B
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

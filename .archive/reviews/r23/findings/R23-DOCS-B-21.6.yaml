@@ -1,0 +1,21 @@
+id: R23-DOCS-B-21.6
+round: R23
+category:
+  number: 21
+  name: Missing content
+  language: docs
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: RUNBOOK missing dbc_text_parse_error entry
+description: Track B.3 surface error had no runbook entry.  Added.
+files:
+- docs/operations/RUNBOOK.md
+cluster: I
+resolution:
+  commit: 425b99a
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

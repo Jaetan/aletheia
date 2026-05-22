@@ -1,0 +1,22 @@
+id: R23-AGDA-D-12.1
+round: R23
+category:
+  number: 12
+  name: Property completeness
+  language: agda
+  agent: D
+severity: medium
+disposition: DEFER
+status: closed
+title: Properties dropped via complete silently absent from Complete.results
+description: In-source comment at Internals.agda:259-265 notes this as a 'separate
+  enhancement'; defer to a property-completeness cluster.
+files:
+- src/Aletheia/Protocol/StreamState/Internals.agda
+cluster: D
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

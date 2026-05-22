@@ -1,0 +1,23 @@
+id: R23-CPP-D-15.1
+round: R23
+category:
+  number: 15
+  name: API ergonomics
+  language: cpp
+  agent: D
+severity: low
+disposition: DEFER
+status: closed
+title: 'RE-DEFER R19P2-CL10-4: struct Rational class-promotion'
+description: In-source DEFERRED — TRACKED block at cpp/include/aletheia/types.hpp:76.
+  Trigger conditions ('C++ ergonomics cluster opened; factory bypass') still hold.  RE-DEFER
+  per Step-0 carry-over rule.
+files:
+- cpp/include/aletheia/types.hpp
+cluster: G
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: cpp/include/aletheia/types.hpp:76-86

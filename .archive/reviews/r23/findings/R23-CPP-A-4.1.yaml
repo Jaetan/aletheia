@@ -1,0 +1,23 @@
+id: R23-CPP-A-4.1
+round: R23
+category:
+  number: 4
+  name: Comment quality
+  language: cpp
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: Stale 'three codes' comment on is_input_bound_exceeded_code
+description: R19 cluster 8 comment said 'any of these three codes' but the helper
+  checks one code only (R19P2 cluster 14 collapsed three codes into a single top-level
+  ErrorCode::InputBoundExceeded).  Refreshed comment.
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

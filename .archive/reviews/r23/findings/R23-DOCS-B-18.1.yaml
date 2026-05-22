@@ -1,0 +1,22 @@
+id: R23-DOCS-B-18.1
+round: R23
+category:
+  number: 18
+  name: Operational runbook coverage
+  language: docs
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: MAlonzo runbook section heading not searchable on the symptom
+description: Renamed 'MAlonzo symbol not found at FFI load time' to 'MAlonzo name
+  mismatch (`d_<fn>_<NN>` rename drift)' to match BUILDING.md / CLAUDE.md keyword.
+files:
+- docs/operations/RUNBOOK.md
+cluster: I
+resolution:
+  commit: 425b99a
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

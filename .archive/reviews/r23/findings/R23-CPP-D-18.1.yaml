@@ -1,0 +1,23 @@
+id: R23-CPP-D-18.1
+round: R23
+category:
+  number: 18
+  name: Build system / CMake hygiene
+  language: cpp
+  agent: D
+severity: medium
+disposition: DEFER
+status: closed
+title: Test binaries bake absolute paths into compile-time defines
+description: Reproducibility violation for test binaries (library itself uses -ffile-prefix-map
+  and is reproducible).  Tests are out of release scope; defer + document the test-only
+  exception.
+files:
+- cpp/CMakeLists.txt
+cluster: F
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

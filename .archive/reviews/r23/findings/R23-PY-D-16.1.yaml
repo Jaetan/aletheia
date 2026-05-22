@@ -1,0 +1,23 @@
+id: R23-PY-D-16.1
+round: R23
+category:
+  number: 16
+  name: Package boundaries
+  language: python
+  agent: D
+severity: medium
+disposition: DEFER
+status: closed
+title: _helpers.py 798+ LOC split into rational/dbc_normalize/json_codec
+description: R19 DEFER condition is met (coherent sub-modules emerged); but the split
+  touches imports across the binding.  Defer to the same Python-API-hygiene cluster
+  as PY-D-16.2.
+files:
+- python/aletheia/client/_helpers.py
+cluster: F
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

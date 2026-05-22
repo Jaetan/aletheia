@@ -1,0 +1,22 @@
+id: R23-CPP-A-6.1
+round: R23
+category:
+  number: 6
+  name: Redundant patterns
+  language: cpp
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: Extracted json_to_can_id helper (deduplicated 17-line lambda)
+description: 'Byte-identical lambda in parse_message_def + parse_raw_value_desc.  Extracted
+  to static helper.  Net diff: ~30 LOC removed.'
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,21 @@
+id: R23-DOCS-D-15.9
+round: R23
+category:
+  number: 1
+  name: Accuracy
+  language: docs
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: PROJECT_STATUS.md Python test count stale (866 vs 872)
+description: Live pytest output is 872p+1s; PROJECT_STATUS said 866.  Fixed.
+files:
+- PROJECT_STATUS.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

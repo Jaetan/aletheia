@@ -1,0 +1,22 @@
+id: R23-CICD-A-5.4
+round: R23
+category:
+  number: 5
+  name: Artifact and release surface
+  language: cicd
+  agent: A
+severity: low
+disposition: DEFER
+status: closed
+title: Docker image lacks dedicated SBOM
+description: dist tarball has SBOM; docker image consumers should mount/extract.  Defer
+  to release-docs update.
+files:
+- Shakefile.hs
+cluster: H
+resolution:
+  commit: 09e276c
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,22 @@
+id: R23-CPP-A-6.2
+round: R23
+category:
+  number: 6
+  name: Redundant patterns
+  language: cpp
+  agent: A
+severity: low
+disposition: DEFER
+status: closed
+title: parse_rational_dict helper extraction
+description: Three parsers share {numerator, denominator} decoding.  Refactor scope;
+  deferred to a dedicated polish pass.
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

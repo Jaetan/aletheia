@@ -1,0 +1,22 @@
+id: R23-DOCS-B-21.1
+round: R23
+category:
+  number: 21
+  name: Missing content
+  language: docs
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: RUNBOOK missing handler_non_monotonic_timestamp entry
+description: PROTOCOL.md error code reference (L1271) documented it; RUNBOOK had no
+  entry.  Added complete Symptom/Cause/Action block.
+files:
+- docs/operations/RUNBOOK.md
+cluster: I
+resolution:
+  commit: 425b99a
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

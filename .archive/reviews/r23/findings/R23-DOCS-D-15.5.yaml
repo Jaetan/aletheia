@@ -1,0 +1,24 @@
+id: R23-DOCS-D-15.5
+round: R23
+category:
+  number: 16
+  name: Cross-language parity drift
+  language: docs
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Go concurrency primitive drift (sync.Mutex vs lockCh)
+description: CLAUDE.md L171 and go/README.md L57 said `sync.Mutex`; actual is a 1-deep
+  channel-token semaphore (`lockCh chan struct{}`) chosen deliberately for ctx-aware
+  TryLock cancellation.  Fixed both files; added pointer to CANCELLATION.md as canonical.
+files:
+- CLAUDE.md
+- go/README.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

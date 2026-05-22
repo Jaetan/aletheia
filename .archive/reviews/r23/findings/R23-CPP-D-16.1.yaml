@@ -1,0 +1,22 @@
+id: R23-CPP-D-16.1
+round: R23
+category:
+  number: 16
+  name: Encapsulation
+  language: cpp
+  agent: D
+severity: low
+disposition: FP-VERIFIED
+status: closed
+title: detail/cache_keys.hpp public install — documented exception
+description: Header WARNING block + IWYU pragma + CMake comment document the no-pImpl
+  hot-path-inlining rationale.  Reaffirmed FP-VERIFIED.
+files:
+- cpp/include/aletheia/detail/cache_keys.hpp
+cluster: J
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

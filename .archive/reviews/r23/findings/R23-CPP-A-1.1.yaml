@@ -1,0 +1,22 @@
+id: R23-CPP-A-1.1
+round: R23
+category:
+  number: 1
+  name: Dead code
+  language: cpp
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: is_input_bound_exceeded_code trivial helper kept + comment refreshed
+description: Decided to keep the named predicate (self-documenting at call site) rather
+  than inline.  Comment refreshed to match post-collapse single-code state.
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

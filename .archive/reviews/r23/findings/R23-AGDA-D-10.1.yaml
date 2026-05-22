@@ -1,0 +1,23 @@
+id: R23-AGDA-D-10.1
+round: R23
+category:
+  number: 10
+  name: Domain model fidelity
+  language: agda
+  agent: D
+severity: medium
+disposition: DEFER
+status: closed
+title: Unify SignalPredicate signal-name field with Identifier
+description: 'Cross-cutting refactor — promoting `signalName : List Char` to `Identifier`
+  requires changing every LTL constructor + every JSON parser + every binding''s SignalPredicate
+  type.  Defer to a dedicated Identifier-promotion cluster; pairs with AGDA-D-32.1.'
+files:
+- src/Aletheia/LTL/SignalPredicate/Types.agda
+cluster: D
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

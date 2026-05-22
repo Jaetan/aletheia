@@ -1,0 +1,22 @@
+id: R23-DOCS-D-15.11
+round: R23
+category:
+  number: 14
+  name: Hardcoded values & durability
+  language: docs
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: CHANGELOG.md L86 single-file 15-event vs L42 16-event
+description: CHANGELOG had internal disagreement on 15 vs 16 event count (L42 said
+  16, L86 said 15).  L86 fixed.
+files:
+- CHANGELOG.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

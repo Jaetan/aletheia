@@ -1,0 +1,24 @@
+id: R23-AGDA-C-3.1
+round: R23
+category:
+  number: 3
+  name: Naming consistency
+  language: agda
+  agent: C
+severity: medium
+disposition: FIX
+status: closed
+title: 'Naming consistency: -WF → -wf rename'
+description: Project-wide lowercase convention; 2 outliers renamed to match the 60+
+  -wf sites.  toTopStmtsTyped-WF + tvd-WF.
+files:
+- src/Aletheia/DBC/TextParser/Properties/Aggregator/Universal.agda
+- src/Aletheia/DBC/TextParser/Properties/Aggregator/Refine/ValueDescriptions.agda
+- src/Aletheia/DBC/Formatter/WellFormedText/ValueDescResolves.agda
+cluster: B
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

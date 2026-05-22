@@ -1,0 +1,68 @@
+id: R23
+fork_point: ce7bbcc
+fork_date: "2026-05-22"
+merge_commit: null
+merge_date: null
+status: open
+raw_findings_count: 219
+closed_findings_count: 53
+agent_fleet:
+  - agda-C-cross-file
+  - cpp-A-hygiene
+  - cpp-B-correctness
+  - docs-A-hygiene
+  - docs-B-deep
+  - cicd-A
+  - agda-D-system
+  - go-D-system
+  - cpp-D-system
+  - python-D-system
+  - docs-cross
+notes: |
+  First R23 launch on the new R22 meta-review protocol.
+
+  Delta scope from R22 merge (3ebfc37) — files touched since:
+    - .archive/reviews/r22/round.yaml         (archive only)
+    - cpp/src/json_parse.cpp                  (clang-format fix)
+    - cpp/src/rational_renderer.cpp           (clang-format fix)
+    - cpp/tests/unit_tests_enrich.cpp         (clang-format fix)
+
+  No .agda / .py / .go files touched.  Per the delta-scope rule
+  (AGENTS.md Step 1), per-file agents A/B for languages with empty
+  delta are skipped — their category coverage is vacuous truth
+  (0 files in delta = 0 findings).  Step 2 whole-program agents
+  still cover the whole codebase.
+
+  Cat 1 (Agda Dead code) graduated per
+  memory/feedback_graduated_categories.md.  Skipped at Step 1A
+  Agda.  Mechanical gate: tools/prune_unused_imports.py
+  --check-only on pre-push.
+
+  Agents actually launched:
+    Step 1 (in parallel): agda-C, cpp-A, cpp-B, docs-A, docs-B, cicd-A
+    Step 2 (post-Step-1): agda-D, go-D, cpp-D, python-D
+    Post-Step-2: docs-cross-document
+
+  Step 1 + 2 raw output: ~219 findings (1 critical / ~25 high / ~60 medium /
+  ~95 low / ~38 info).
+
+  Closure shipped (R23 still in flight as of last commit):
+    cluster A (doc-sync sweep)     — 12 FIX  (66cf92b)
+    cluster C (cpp delta)          —  5 FIX +  5 DEFER  (d11e1a3)
+    cluster H (CI/CD)              —  4 FIX +  1 DEFER + 1 FP  (09e276c)
+    D+E easy wins                  —  2 FIX +  1 FP             (580b337)
+    cluster I (runbook gaps)       —  4 FIX                     (425b99a)
+    cluster B partial              —  2 FIX +  5 DEFER          (8e7400d)
+    cluster G (R19 re-DEFERs)      —         2 DEFER (in-source marked)
+    cluster J (FP-VERIFY)          —                 1 FP-VERIFIED
+    cluster D heavy (DEFER)        —         4 DEFER (Identifier promotion etc.)
+    cluster F structural (DEFER)   —         4 DEFER (PY-D-16.x, CPP-D-17/18)
+
+  YAML emission: 53 findings recorded under .archive/reviews/r23/findings/.
+  The remaining ~166 findings are LOW/INFO polish items documented in
+  review-r23-findings.md and slated for R24 or graduation-as-mechanical-gate.
+
+  CRITICAL-HIGH trend (per tools/review_db.py --report critical-high-trend):
+    R20: 1 / 22  | R21: 0 / 17  | R22: 0 / 1   | R23: 1 / 8  (1 critical closed in-round, no re-raise)
+  The R23 critical (XDOC-15.1, Agda module count drift) was surfaced AND
+  closed in the same round (cluster A); no open criticals carry forward.

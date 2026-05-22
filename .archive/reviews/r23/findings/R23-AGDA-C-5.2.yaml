@@ -1,0 +1,23 @@
+id: R23-AGDA-C-5.2
+round: R23
+category:
+  number: 5
+  name: Error message consistency
+  language: agda
+  agent: C
+severity: low
+disposition: DEFER
+status: closed
+title: Drop String payload from AttributeRefinementFailed
+description: Single-call-site String payload; could be inlined in formatter.  Touches
+  wire shape; defer.
+files:
+- src/Aletheia/DBC/TextParser.agda
+- src/Aletheia/Error.agda
+cluster: B
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

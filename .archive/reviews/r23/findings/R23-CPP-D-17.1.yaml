@@ -1,0 +1,24 @@
+id: R23-CPP-D-17.1
+round: R23
+category:
+  number: 17
+  name: Extensibility / Cross-layer
+  language: cpp
+  agent: D
+severity: medium
+disposition: DEFER
+status: closed
+title: Two independent dlopen+hs_init sites (renderer + FfiBackend)
+description: Cross-singleton ordering documented in code but untested.  Defer to a
+  dedicated test addition + comment block; current behaviour is correct under normal
+  usage.
+files:
+- cpp/src/rational_renderer.cpp
+- cpp/src/ffi_backend.cpp
+cluster: F
+resolution:
+  commit: 8e7400d
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

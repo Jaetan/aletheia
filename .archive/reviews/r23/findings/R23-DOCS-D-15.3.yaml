@@ -1,0 +1,23 @@
+id: R23-DOCS-D-15.3
+round: R23
+category:
+  number: 22
+  name: Operational runbook
+  language: docs
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: AGENTS/docs.md cat 22 rubric stale (15 events)
+description: Cat 22 rubric itself said 'the 15 shared events' / 'the standard 15';
+  the meta-rule would have under-counted in future rounds.  Fixed to say 16 + explicit
+  pointer to docs/LOG_EVENTS.yaml as canonical source.
+files:
+- AGENTS/docs.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

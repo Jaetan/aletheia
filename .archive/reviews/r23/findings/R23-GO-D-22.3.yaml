@@ -1,0 +1,25 @@
+id: R23-GO-D-22.3
+round: R23
+category:
+  number: 22
+  name: Cross-layer alignment
+  language: go
+  agent: D
+severity: high
+disposition: FP-VERIFIED
+status: closed
+title: parseEventAck ack vocabulary cross-binding consistency
+description: Agent suspected Go-only divergence (accepting only 'ack' while Python/C++
+  might accept 'success').  Cross-binding scan confirmed all three accept only 'ack'
+  for trace events.  FP per feedback_cross_binding_consistency_as_fp.md.
+files:
+- go/aletheia/json.go
+- python/aletheia/client/_client.py
+- cpp/src/json_parse.cpp
+cluster: D-E-easy
+resolution:
+  commit: 580b337
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

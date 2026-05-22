@@ -1,0 +1,23 @@
+id: R23-CICD-A-1.1
+round: R23
+category:
+  number: 1
+  name: Workflow YAML hygiene
+  language: cicd
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: AGENTS/cicd.md policy text reconciled with check_action_pins.py
+description: L7 said 'every action SHA-pinned, never tag' but check_action_pins.py
+  carves out actions/* and github/* for major-tag pins.  Encoded the carve-out in
+  the policy text + pointed at the script as canonical.
+files:
+- AGENTS/cicd.md
+cluster: H
+resolution:
+  commit: 09e276c
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null
