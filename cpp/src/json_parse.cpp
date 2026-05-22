@@ -148,12 +148,13 @@ static auto parse_bounded(std::string_view input) -> Json {
 /// regression in production logs because the old ``j.value("code", "")``
 /// / ``j.value("message", "Unknown error")`` defaults masked malformed
 /// responses.
-// R19 cluster 8 — CPP-D-21.5: any of these three codes routes the response
-// through `ErrorKind::InputBoundExceeded` regardless of the kind the caller
-// guessed from the response section (Protocol / Validation), so the typed
-// bound-info shape is exposed uniformly across the JSON / DBC-text / binary
-// parser surfaces.  Mirrors Python's `InputBoundExceededError` subclassing
-// and Go's typed `*InputBoundExceededError` discriminator.
+// Post-R19P2-cluster-14: routes the response through `ErrorKind::InputBoundExceeded`
+// regardless of the kind the caller guessed from the response section (Protocol /
+// Validation), so the typed bound-info shape is exposed uniformly across the JSON /
+// DBC-text / binary parser surfaces.  Mirrors Python's `InputBoundExceededError`
+// subclassing and Go's typed `*InputBoundExceededError` discriminator.  Originally
+// dispatched over three codes; cluster 14 collapsed Parse/Route/Handler input-bound
+// variants into a single top-level `ErrorCode::InputBoundExceeded`.
 static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
     return code == ErrorCode::InputBoundExceeded;
 }
@@ -357,27 +358,32 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
     };
 }
 
+// Construct a typed `CanId` from a JSON `{id, extended}` pair.  Centralises
+// the 11-bit standard-frame range check (max 2047) and the typed factory
+// failure paths so parse_message_def and parse_raw_value_desc agree on the
+// error wording.
+static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
+    if (extended) {
+        auto result = ExtendedId::create(id_val);
+        if (!result)
+            throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) + ": " +
+                                     result.error());
+        return CanId{*result};
+    }
+    if (id_val > 0x7FFU)
+        throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
+                                 " exceeds 11-bit standard-frame range (max 2047)");
+    auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
+    if (!result)
+        throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
+                                 result.error());
+    return CanId{*result};
+}
+
 static auto parse_message_def(const Json& j) -> DbcMessage {
     auto id_val = j.at("id").get<std::uint32_t>();
     const bool extended = j.value("extended", false);
-
-    const CanId id = [&]() -> CanId {
-        if (extended) {
-            auto result = ExtendedId::create(id_val);
-            if (!result)
-                throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) +
-                                         ": " + result.error());
-            return CanId{*result};
-        }
-        if (id_val > std::numeric_limits<std::uint16_t>::max())
-            throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
-                                     " exceeds uint16 range");
-        auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
-        if (!result)
-            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                     result.error());
-        return CanId{*result};
-    }();
+    const CanId id = json_to_can_id(id_val, extended);
 
     auto dlc_result = bytes_to_dlc(j.at("dlc").get<std::size_t>());
     if (!dlc_result)
@@ -618,23 +624,7 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
     auto id_val = j.at("id").get<std::uint32_t>();
     const bool extended = j.value("extended", false);
-    const CanId can_id = [&]() -> CanId {
-        if (extended) {
-            auto result = ExtendedId::create(id_val);
-            if (!result)
-                throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) +
-                                         ": " + result.error());
-            return CanId{*result};
-        }
-        if (id_val > std::numeric_limits<std::uint16_t>::max())
-            throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
-                                     " exceeds uint16 range");
-        auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
-        if (!result)
-            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                     result.error());
-        return CanId{*result};
-    }();
+    const CanId can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
     for (const auto& e : j.at("entries"))
         entries.push_back(DbcValueEntry{
@@ -913,6 +903,9 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
         std::vector<StreamWarning> warnings;
         if (j.contains("warnings")) {
             for (const auto& w : j.at("warnings")) {
+                if (!w.contains("property_index"))
+                    throw std::runtime_error(
+                        "Warning entry missing required 'property_index' field");
                 auto kind = w.value("kind", "");
                 auto idx = parse_rational_as_int(w.at("property_index"));
                 if (idx < 0)
