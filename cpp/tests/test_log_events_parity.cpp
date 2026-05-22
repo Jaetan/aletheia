@@ -37,7 +37,9 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <stdexcept>
 #include <memory>
 #include <set>
 #include <string>
@@ -45,18 +47,20 @@
 #include <utility>
 #include <vector>
 
-#ifndef ALETHEIA_REPO_ROOT
-#error "ALETHEIA_REPO_ROOT must be defined at compile time by CMake"
-#endif
-
 using namespace aletheia;
 
 namespace {
 
 constexpr std::array<std::string_view, 3> kValidLevels = {"debug", "info", "warn"};
 
+// CPP-D-18.1 R23: repo root via env var, see test_feature_matrix_parity.cpp.
 auto repo_root() -> std::filesystem::path {
-    return std::filesystem::path{ALETHEIA_REPO_ROOT};
+    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
+        return std::filesystem::path{env};
+    }
+    throw std::runtime_error(
+        "ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
+        "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
 }
 
 auto yaml_path() -> std::filesystem::path {

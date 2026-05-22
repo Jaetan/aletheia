@@ -24,7 +24,7 @@ from fractions import Fraction
 
 from ._time_units import MICROSECONDS_PER_MILLISECOND
 from .client import ValidationError
-from .client._helpers import float_to_rational
+from .client._helpers.rational import float_to_rational
 from .protocols import (
     PredicateType,
     LTLFormula,

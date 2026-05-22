@@ -374,9 +374,12 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(feature_matrix_tests tests/test_feature_matrix_parity.cpp)
     target_link_libraries(feature_matrix_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    target_compile_definitions(feature_matrix_tests
-        PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
+    # CPP-D-18.1 R23: pass repo root via env var, not compile-time define,
+    # so the binary is bit-identical regardless of build location
+    # (reproducible-build invariant).
+    set_tests_properties(feature_matrix_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # Layer 6b: Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
     # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend
@@ -387,9 +390,10 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_include_directories(log_events_tests PRIVATE src)
     target_link_libraries(log_events_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    target_compile_definitions(log_events_tests
-        PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME log_events_tests COMMAND log_events_tests)
+    # CPP-D-18.1 R23: see feature_matrix_tests above.
+    set_tests_properties(log_events_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # R18 cluster 5 — Cat 33d cross-binding integration. Counterpart of
     # python/tests/test_cross_binding_integration.py and
@@ -434,17 +438,23 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     elseif(ALETHEIA_SANITIZER STREQUAL "thread")
         set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=thread")
     endif()
+    # CPP-D-18.1 R23: ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE moved
+    # to runtime env vars via set_tests_properties below; the remaining
+    # defines (CXX / LIB_FILE / YAML_LIB / OPENXLSX_LIB / SANITIZER_FLAG)
+    # come from CMake-resolved tool paths and TARGET_FILE generator
+    # expressions, not from CMAKE_CURRENT_SOURCE_DIR.  Reproducibility of
+    # those is a separate concern tracked outside R23.
     target_compile_definitions(doc_example_tests
         PRIVATE
-            ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
             ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
-            ALETHEIA_DOC_INCLUDE="${CMAKE_CURRENT_SOURCE_DIR}/include"
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
             ALETHEIA_DOC_YAML_LIB="$<TARGET_FILE:yaml-cpp::yaml-cpp>"
             ALETHEIA_DOC_OPENXLSX_LIB="$<TARGET_FILE:OpenXLSX::OpenXLSX>"
             ALETHEIA_DOC_CXX_STD="23"
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)
+    set_tests_properties(doc_example_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
 
     # R18 cluster 5 — Cat 33b libFuzzer harnesses.  Opt-in via
     # -DALETHEIA_FUZZ=ON because the harnesses require clang with

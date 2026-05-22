@@ -24,7 +24,8 @@ from ..protocols import (
     is_str_dict,
 )
 from ..issue_codes import ValidationIssue
-from ._helpers import normalize_dbc, validate_integer_rational
+from ._helpers.dbc_normalize import normalize_dbc
+from ._helpers.rational import validate_integer_rational
 from ._log import LogEvent, log_event
 from ._types import ProtocolError
 

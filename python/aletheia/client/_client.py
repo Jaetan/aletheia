@@ -35,11 +35,8 @@ from ._client_bin import FrameIdentity
 from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import parse_json_object
 from ..protocols import dump_json
-from ._helpers import (
-    coerce_to_rational,
-    normalize_dbc,
-    normalize_dbc_for_wire,
-)
+from ._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
+from ._helpers.rational import coerce_to_rational
 from ._log import LogEvent, log_event
 from ._response_parsers import (
     build_error_response,

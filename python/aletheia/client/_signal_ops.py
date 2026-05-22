@@ -20,7 +20,7 @@ from ..protocols import DLCCode, Response, is_object_list
 from ._backend import Backend, BinaryPathUnsupportedError
 from ._client_bin import parse_extraction_buffer
 from ._ffi import parse_json_object
-from ._helpers import (
+from ._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
     parse_values_list,

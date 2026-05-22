@@ -60,19 +60,21 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
     # API takes ``Fraction`` directly; the helpers convert user-supplied
     # floats/strings for the loader paths and don't need to be called
     # from user code.
+    # PY-D-16.1 (R23): _helpers.py split into a package; the test paths
+    # below pin to the new submodule layout.
     (
         "test_types_and_conditions.py",
-        "aletheia.client._helpers",
+        "aletheia.client._helpers.rational",
         "float_to_rational",
     ),
     (
         "test_types_and_conditions.py",
-        "aletheia.client._helpers",
+        "aletheia.client._helpers.rational",
         "parse_rational",
     ),
     (
         "test_property_hypothesis.py",
-        "aletheia.client._helpers",
+        "aletheia.client._helpers.rational",
         "parse_rational",
     ),
     (
