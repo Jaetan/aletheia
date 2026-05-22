@@ -1,9 +1,9 @@
 id: R22
 fork_point: 315c1a3
 fork_date: "2026-05-18"
-merge_commit: null
-merge_date: null
-status: open
+merge_commit: 3ebfc37
+merge_date: "2026-05-22"
+status: merged
 raw_findings_count: 0          # carry-over round; no fresh agent fleet has been launched
 closed_findings_count: 4       # AGDA-A-1.1 + AGDA-D-12.1 + AGDA-D-15.1 carry-overs + Assign-b15 marker
 agent_fleet: []
