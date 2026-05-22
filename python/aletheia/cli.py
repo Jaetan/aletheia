@@ -36,7 +36,7 @@ from .client import (
     ValidationError,
     bytes_to_dlc,
 )
-from .client._helpers import dump_json
+from .protocols import dump_json
 from .dbc_queries import (
     is_multiplexed,
     message_by_id,

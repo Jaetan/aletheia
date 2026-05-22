@@ -11,11 +11,10 @@
 # Revisit when: This file exceeds 1000 LOC (pylint C0302 default threshold),
 #   OR a coherent sub-module emerges from another refactor.
 
-import json
 import math
 from collections.abc import Callable, Sequence
 from fractions import Fraction
-from typing import cast, override
+from typing import cast
 
 from ..protocols import (
     AttrScope,
@@ -50,42 +49,6 @@ _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
 
 # Fields in a DBCEnvironmentVar that carry ℚ on the Agda wire.
 _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
-
-
-class FractionJSONEncoder(json.JSONEncoder):
-    """JSONEncoder that serializes Fraction in Agda's canonical rational form.
-
-    Mirrors ``Aletheia.Format.Rational.formatRational``: emit a bare integer
-    when the denominator is 1, otherwise the ``{"numerator": n,
-    "denominator": d}`` dict. Agda's ``parseRational`` accepts integer
-    literals, rational dicts, and decimal floats, so this preserves exact
-    precision on any DBCDefinition round-trip path while staying
-    byte-identical to Go's ``serializeRational`` and C++'s
-    ``serialize_rational`` — the cross-binding canonical form B.3.j gates on.
-    """
-
-    @override
-    def default(self, o: object) -> object:
-        if isinstance(o, Fraction):
-            if o.denominator == 1:
-                return o.numerator
-            return {"numerator": o.numerator, "denominator": o.denominator}
-        return super().default(o)
-
-
-def dump_json(value: object, *, indent: int | None = None) -> str:
-    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
-
-    ``ensure_ascii=False`` is pinned so identifier and string-literal
-    fields with non-ASCII characters (DBC permits non-ASCII in
-    ``CM_`` text bodies, comments, and similar opaque-tail consumers)
-    serialize as their UTF-8 bytes rather than ``\\uXXXX`` escapes.  The
-    Agda-side parser is byte-oriented; the Go and C++ bindings emit
-    UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
-    byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
-    (cross-binding wire-byte parity).
-    """
-    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
 
 
 # Outgoing-DBC normalization: C++/Go always emit these list keys (their
@@ -203,49 +166,6 @@ def coerce_to_rational(value: float | Fraction) -> tuple[int, int]:
     return float_to_rational(value)
 
 
-def to_signal_fraction(value: float | int | Fraction) -> Fraction:
-    """Convert a decimal-intent numeric input to a Fraction for DBCSignal fields.
-
-    Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
-    decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
-    IEEE-754 approximation's monstrous denominator.  Int and existing
-    Fraction inputs flow through unchanged.
-    """
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
-    return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN)
-
-
-def to_predicate_fraction(value: float | int | Fraction) -> Fraction:
-    """Convert a numeric predicate input to a Fraction matching Go/C++ from_double.
-
-    Mirrors Go ``floatToRational`` (``client.go``) and C++ ``Rational::from_double``
-    (``types.cpp``) exactly: float inputs go through ``round(value * 10^9), 10^9``
-    so the user-side construction produces structurally identical Rationals across
-    all three bindings.  Without this, ``Signal.equals(0.1)`` in Python would
-    produce ``Fraction(0.1)`` = the exact IEEE 754 binary fraction
-    (3602879701896397/36028797018963968), which the predicate pretty-printer
-    would then render as a 56-character exact decimal — while Go and C++ render
-    the same call as ``"0.1"``.
-
-    Differs from :func:`to_signal_fraction` (which uses ``limit_denominator``):
-    ``Fraction(0.333333).limit_denominator(10**9)`` finds the closest fraction
-    with denominator <= 10^9 (returns ``Fraction(1, 3)``); ``round-and-scale``
-    produces ``Fraction(333333, 10**6)``.  For predicate inputs Go-parity
-    matters more than continued-fraction simplification.
-
-    Raises:
-        ValidationError: When *value* is NaN, infinite, or overflows int64
-        when scaled (delegated to :func:`float_to_rational`).
-    """
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
-    n, d = float_to_rational(value)
-    return Fraction(n, d)
 
 
 def extract_rational_from_dict(

@@ -86,7 +86,7 @@ from ._loader_utils import (
     get_bool,
     reject_symlink_loader_path,
 )
-from .client._helpers import to_signal_fraction
+from .protocols import to_signal_fraction
 
 
 def _check_xlsx_uncompressed_bound(path: Path) -> None:

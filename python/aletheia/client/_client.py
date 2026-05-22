@@ -34,9 +34,9 @@ from ._backend import Backend, FFIBackend
 from ._client_bin import FrameIdentity
 from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import parse_json_object
+from ..protocols import dump_json
 from ._helpers import (
     coerce_to_rational,
-    dump_json,
     normalize_dbc,
     normalize_dbc_for_wire,
 )
