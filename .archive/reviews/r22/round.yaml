@@ -5,7 +5,7 @@ merge_commit: null
 merge_date: null
 status: open
 raw_findings_count: 0          # carry-over round; no fresh agent fleet has been launched
-closed_findings_count: 3       # AGDA-A-1.1 (carry-over), AGDA-D-12.1 (carry-over), Assign-b15 marker (carry-over)
+closed_findings_count: 4       # AGDA-A-1.1 + AGDA-D-12.1 + AGDA-D-15.1 carry-overs + Assign-b15 marker
 agent_fleet: []
 notes: |
   Pure carry-over round: no fresh Step-1/Step-2 agent fleet has run.

@@ -6,15 +6,26 @@ category:
   language: cpp
   agent: D
 severity: medium
-disposition: FIX-PARTIAL
+disposition: FIX
 status: closed
-title: Partial closure of CPP-SYS-15.4 builder-cost audit
-description: Closed alongside 15.1 + 15.3; residual builder-cost items folded into
-  the lazy condition_desc fix.
+title: CPP-SYS-15.4 builder-cost audit (eager FFI on cold path)
+description: |
+  Broader builder-cost audit raised alongside CPP-SYS-15.1 (namespace move)
+  and CPP-SYS-15.3 (lazy condition_desc).  Cluster 1 (`df533e7`) shipped
+  15.1 + 15.3 in one commit; the empirical reproducer (cwd=/tmp,
+  ALETHEIA_LIB="") dropped from 21/22 [check] tests failing to 19/22.
+  Residual 19 failures all required cross-binding renderer-lib-path
+  resolution -- closed by cluster 2 (`2fde107`, finding R21-CPP-D-17.1
+  "renderer honors NewFFIBackend/make_ffi_backend lib_path").  Combined
+  closure: 0 reproducer failures.
 cluster: '1'
 resolution:
   commit: df533e7
   round: R21
   date: '2026-05-17'
+  notes: |
+    Two-commit closure across clusters 1 + 2.  Cluster 1 (df533e7) shipped
+    the eager-FFI fix; cluster 2 (2fde107, R21-CPP-D-17.1) shipped the
+    cross-binding lib-path resolution that closed the residual.
 re_raised_from: null
 in_source_marker: null

@@ -2,24 +2,48 @@ id: R20-AGDA-B-9.2
 round: R20
 category:
   number: 9
-  name: (unspecified category 9)
+  name: Proof soundness
   language: agda
   agent: B
 severity: critical
 disposition: FIX
 status: closed
 title: classifyStepResult Satisfied -> complete operational soundness gap
-description: Raw Until/Release/Atomic emit false counterexamples after Satisfied.  StepOutcome
-  extended with `complete` ctor; classifyStepResult no longer re-evaluates after Satisfied.  Discovery
-  in cluster S; closure here.
+description: |
+  Latent soundness gap in the streaming runtime.  Two related closures:
+
+  (a) Cluster S (`637b2e0`, partial — documentation + lemmas):
+      Discovery surfaced the `Internals.agda:225-238` 'stability argument'
+      comment as factually wrong on two counts.  (1) Claim "Always/Release
+      the only safety operators that yield Satisfied" -- false; Always proc
+      never returns Satisfied.  (2) Claim "re-stepping after Satisfied
+      always returns Satisfied or Continue" -- false; concrete witness
+      `Until(Atomic 0)(Atomic 1)` produces a false `Violated` counterexample
+      on a property already declared satisfied.  Cluster S shipped:
+      (i) Comment rewrite at Internals.agda:225-238 accurately describing
+      safe vs latent shapes; (ii) two provable step-level lemmas in
+      Coalgebra/Properties.agda (stepL-always-never-satisfied +
+      stepL-eventually-never-violated); (iii) new project memory
+      project_classify_satisfied_soundness_gap.md documenting the gap.
+
+  (b) Cluster W (`c40e3ba`, full operational fix):
+      StepOutcome extended with `complete` constructor; classifyStepResult
+      no longer re-evaluates after Satisfied.  Raw Until/Release/Atomic no
+      longer emit false counterexamples post-Satisfied.
 files:
 - src/Aletheia/Protocol/StreamState/Internals.agda
 - src/Aletheia/LTL/Coalgebra.agda
+- src/Aletheia/LTL/Coalgebra/Properties.agda
 cluster: W
 resolution:
   commit: c40e3ba
   round: R20
   date: '2026-05-12'
-  notes: Detail in memory/project_classify_satisfied_soundness_gap.md.
+  notes: |
+    Two-commit closure: partial documentation+lemmas at 637b2e0 (cluster S),
+    full operational fix at c40e3ba (cluster W).  Detail in
+    memory/project_classify_satisfied_soundness_gap.md.  An earlier backfill
+    iteration listed cluster S separately as R20-AGDA-B-8.1 (FIX-PARTIAL,
+    miscategorised as cat 8); consolidated here at the corrected cat 9.
 re_raised_from: null
 in_source_marker: null

@@ -5,7 +5,7 @@ merge_commit: 2477d5c
 merge_date: "2026-05-17"
 status: merged
 raw_findings_count: 671        # Step-1 agent fleet total, recorded at commit 3571702
-closed_findings_count: 88      # backfilled at closed-finding granularity from cluster commit messages
+closed_findings_count: 87      # backfilled at closed-finding granularity from cluster commit messages
 agent_fleet:
   - agda-A-hygiene
   - agda-B-semantics
