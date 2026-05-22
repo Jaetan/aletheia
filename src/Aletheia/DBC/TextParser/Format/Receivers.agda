@@ -28,22 +28,22 @@
 --     witnesses are `tt : ⊤`).
 module Aletheia.DBC.TextParser.Format.Receivers where
 
-open import Data.Bool using (Bool; true; false; T; not)
+open import Data.Bool using (T)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; cong; subst)
 open import Relation.Nullary using (yes; no)
 
 open import Aletheia.DBC.Identifier
-  using (Identifier; _≡csᵇ_; ≡csᵇ-refl-eq)
+  using (Identifier; ≡csᵇ-refl-eq)
 open import Aletheia.DBC.CanonicalReceivers
   using (CanonicalReceivers; mkCanonical;
          vectorXXX-name; vectorXXX-id;
-         isVectorXXXᵇ; isCanonicalReceiversᵇ;
+         isVectorXXXᵇ;
          ¬T→T-not; T-not-and-T; mkCanonicalFromList)
 
 open import Aletheia.DBC.TextParser.Format

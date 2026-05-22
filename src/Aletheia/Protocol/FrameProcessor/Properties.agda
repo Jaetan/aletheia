@@ -36,22 +36,7 @@ module Aletheia.Protocol.FrameProcessor.Properties where
 -- stepProperty / dispatchIterResult characterizations, the Streaming
 -- decomposition lemma, and Ack/Violation soundness + completeness.
 open import Aletheia.Protocol.FrameProcessor.Properties.Step public
-  using ( handleDataFrame-guard-waitingForDBC
-        ; handleDataFrame-guard-readyToStream
-        ; mod-identity-byte
-        ; classifyStepResult-violated
-        ; classifyStepResult-continue
-        ; classifyStepResult-satisfied
-        ; stepProperty-violated
-        ; stepProperty-halt-implies-violated
-        ; dispatchIterResult-ack
-        ; dispatchIterResult-violation
-        ; handleDataFrame-streaming
-        ; handleDataFrame-ack-sound
-        ; handleDataFrame-violation-sound
-        ; handleDataFrame-ack-complete
-        ; handleDataFrame-violation-complete
-        )
+  using ( )
 
 -- ============================================================================
 -- CACHE UPDATE PROPERTIES (P10-P13, P23-P26, P30)
@@ -62,22 +47,7 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Step public
 -- coherence property (P30) showing that the post-update cache for a frame
 -- agrees with the value `extractTruthValue` would compute on the same frame.
 open import Aletheia.Protocol.FrameProcessor.Properties.Cache public
-  using ( lookupCache-updateCache-hit
-        ; lookupCache-updateCache-miss
-        ; updateSignals-step-hit
-        ; updateSignals-step-miss
-        ; updateCacheFromFrame-no-match
-        ; updateCacheFromFrame-match
-        ; updateSignals-monotone
-        ; updateSignals-timestamps≤
-        ; updateCacheFromFrame-monotone
-        ; updateCacheFromFrame-timestamps≤
-        ; NotInSignals
-        ; updateSignals-preserves-hit
-        ; updateSignals-coherent-head
-        ; updateSignals-coherent-split
-        ; updateCacheFromFrame-coherent
-        )
+  using ( )
 
 -- ============================================================================
 -- HANDLER + FFI LINK PROPERTIES (P16-P19, P22)
@@ -87,12 +57,7 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Cache public
 -- level, and read-only handler state preservation for the two remaining
 -- non-mutating handler entry points (extract and formatDBC).
 open import Aletheia.Protocol.FrameProcessor.Properties.Handlers public
-  using ( processFrameDirect-state
-        ; processFrameDirect-response
-        ; processFrameDirect-ack-sound-json
-        ; handleExtractAllSignals-preserves-state
-        ; handleFormatDBC-preserves-state
-        )
+  using ( )
 
 -- ============================================================================
 -- ATOM-INDEX BOUND PROPERTIES (P9, P27)
@@ -106,29 +71,8 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Handlers public
 -- `AllBelow` and `mkPredTable-lookup` are the names consumed by
 -- `Protocol.Adequacy.WarmCache` to discharge the warm-cache agreement chain.
 open import Aletheia.Protocol.FrameProcessor.Properties.Bounded public
-  using ( flattenAtoms
-        ; lookupAtom-++-left
-        ; lookupAtom-++-right
-        ; indexHelper-counter
-        ; Faithful
-        ; faithful-gen
-        ; collectAtomsAcc-spec
-        ; collectAtoms-is-flattenAtoms
-        ; collectAtoms-faithful
-        ; mkPredTable-lookup
+  using ( mkPredTable-lookup
         ; AllBelow
-        ; AllBelow-mono
-        ; indexHelper-mono
-        ; indexHelper-bound
-        ; indexFormula-bound
-        ; ResultBound
-        ; combineAnd-bound
-        ; combineOr-bound
-        ; absorb-bound
-        ; simplify-bound
-        ; stepL-bound
-        ; lookupAtom-total
-        ; mkPredTable-bounded
         )
 
 -- ============================================================================
@@ -142,17 +86,4 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Bounded public
 -- `Monotonic σ` precondition of the metric LTL soundness theorems in
 -- `Coalgebra.Properties`.
 open import Aletheia.Protocol.FrameProcessor.Properties.Monotonic public
-  using ( checkMonotonic-first
-        ; checkMonotonic-≥
-        ; checkMonotonic-<
-        ; handleDataFrame-rejects-regress
-        ; handleDataFrame-accepts-monotonic
-        ; handleDataFrame-first-frame
-        ; checkMonotonic-≥-inv
-        ; checkedFrames
-        ; HeadBounded
-        ; HeadBounded→Monotonic
-        ; mon-cons
-        ; checkedFrames-headBounded
-        ; checkedFrames-monotonic
-        )
+  using ( )

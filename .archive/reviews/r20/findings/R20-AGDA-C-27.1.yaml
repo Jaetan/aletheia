@@ -1,0 +1,23 @@
+id: R20-AGDA-C-27.1
+round: R20
+category:
+  number: 27
+  name: Stdlib coverage & lemma deduplication
+  language: agda
+  agent: C
+severity: medium
+disposition: DROP
+status: closed
+title: 'AGDA-C-27.1 audit: stdlib equivalence vs expansion'
+description: Initial DEFER -> FIX -> revert + DROP after empirical 5.69x regression
+  measurement on parseDBCText path from length xs == length ys swap.  24-line in-source
+  DO-NOT-RE-RAISE block; new feedback.
+files:
+- src/Aletheia/DBC/TextParser.agda
+cluster: user-redirect
+resolution:
+  commit: e6bbb31
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: src/Aletheia/DBC/TextParser.agda

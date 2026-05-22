@@ -22,23 +22,22 @@
 module Aletheia.Protocol.FrameProcessor.Properties.Step where
 
 open import Aletheia.Protocol.StreamState
-    using (StreamState; WaitingForDBC; ReadyToStream; Streaming;
+    using (WaitingForDBC; ReadyToStream; Streaming;
            handleDataFrame; checkMonotonic;
            PropertyState; mkPropertyState)
 open import Aletheia.Protocol.StreamState.Internals
     using (classifyStepResult; stepProperty; dispatchIterResult;
            mkPredTable; updateCacheFromFrame)
-open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
-open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete; iterate; iterate-correct; specResult; specHalt)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
+open import Aletheia.Protocol.Message using (Response)
+open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
+open import Aletheia.Protocol.Iteration using (advance; halt; complete; iterate; iterate-correct; specResult; specHalt)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
+open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (stepL)
 open import Aletheia.LTL.Simplify using (simplify)
 open import Data.List using (List)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _<_; _%_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.Fin using (Fin; toℕ)

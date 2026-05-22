@@ -1,0 +1,24 @@
+id: R20-GO-B-32.1
+round: R20
+category:
+  number: 32
+  name: (unspecified category 32)
+  language: go
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: Go excel + yaml loaders lacked symlink/size/ZIP-bomb checks
+description: Cross-binding gap surfaced by post-commit advisor consult -- go/excel/
+  is a separate Go module and original cluster N orientation missed it.  4 helpers
+  mirror C++ set; uses stdlib archive/zip.
+files:
+- go/excel/hardening.go
+- go/aletheia/yaml.go
+cluster: N-followup
+resolution:
+  commit: f39de48
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

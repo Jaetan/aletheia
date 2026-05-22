@@ -16,10 +16,10 @@
 module Aletheia.Protocol.JSON.Types where
 
 open import Data.Char using (Char)
-open import Data.String using (String; toList; fromList)
+open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_)
 open import Data.Bool using (Bool)
-open import Data.Nat using (ℕ; zero; suc; _⊔_)
+open import Data.Nat using (ℕ; suc; _⊔_)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; proj₂)
 open import Function using (_∘_)

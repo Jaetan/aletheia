@@ -8,30 +8,28 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.TopStmt.Default where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_)
+open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
-open import Data.Product using (Σ; Σ-syntax; _,_; proj₁; proj₂)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; cong)
+  using (_≡_; cong)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.Types using
-  (AttrDef; AttrDefault; DBCAttribute; DBCAttrDefault)
+  (AttrDef; AttrDefault; DBCAttrDefault)
 
-open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttribute-chars; emitAttrDefault-chars)
+open import Aletheia.DBC.TextFormatter.Attributes using ()
 
-open import Aletheia.DBC.TextParser.Attributes using
-  (parseAttrLine)
+open import Aletheia.DBC.TextParser.Attributes using ()
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSAttribute; parseTopStmt)
+  (TopStmt; parseTopStmt)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( rawOf; WFAttribute
-  ; TopStmtTyped; TAT
+  ( WFAttribute
+  ; TAT
   ; emitTopStmt-chars
   ; liftTopStmt
   )

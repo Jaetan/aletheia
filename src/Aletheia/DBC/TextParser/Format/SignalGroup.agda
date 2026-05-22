@@ -26,32 +26,30 @@
 --                        accepts `\n` / `\r\n`.
 module Aletheia.DBC.TextParser.Format.SignalGroup where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length; map) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _<_; s≤s; z≤n)
-open import Data.Product using (_×_; _,_; proj₂; Σ; Σ-syntax)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (s≤s; z≤n)
+open import Data.Product using (_×_; _,_; proj₂; Σ-syntax)
 open import Data.String using (toList)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; trans; sym; cong; subst)
+  using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePosition;
-         advancePositions; pure; _>>=_)
+  using (mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using (SignalGroup)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
-  using (SuffixStops; ∷-stop; bind-just-step)
+  using (SuffixStops; ∷-stop)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; withPrefix;
-         emit; parse; EmitsOK; EmitsOKMany; ParseFailsAt;
+         emit; parse; EmitsOK; EmitsOKMany;
          []-fails; ∷-cons;
          roundtrip)
 

@@ -21,24 +21,22 @@ module Aletheia.DBC.TextParser.Properties.Aggregator.Universal where
 open import Data.List  using (List; []; _∷_; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
-  renaming (++-assoc to ++ₗ-assoc; ++-identityʳ to ++ₗ-identityʳ)
+  renaming (++-identityʳ to ++ₗ-identityʳ)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_,_)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
+  using (_≡_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators using
-  ( Parser; Position; ParseResult; mkResult
+  ( Position; mkResult
   ; advancePositions; many; pure; _>>=_
-  ; runParserPartial; initialPosition; value; position; remaining)
+  ; initialPosition)
 
 open import Aletheia.DBC.Types using
-  ( DBC; DBCMessage; DBCSignal; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; Node
-  ; AttrDef; DBCAttribute
+  ( DBC
   )
 
 -- DBC-level text-roundtrip precondition.  Definition lives in its own
@@ -48,33 +46,17 @@ open import Aletheia.DBC.TextParser.WellFormed using
   (WellFormedTextDBCAgg)
 
 open import Aletheia.DBC.TextParser using
-  ( parseText; parseTextChars; finalizeParse; buildDBC
-  ; DBCTextParseError)
+  ( parseTextChars; finalizeParse)
 
 open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 
 open import Aletheia.DBC.TextParser.TopLevel using
-  ( TopStmt; CollectedTop; mkCollectedTop; partitionTopStmts
-  ; parseDBCText; parseTopStmt
+  ( parseDBCText; parseTopStmt
   )
 open import Aletheia.DBC.TextParser.Preamble using
   (parseVersion; parseNamespace; parseBitTiming)
 open import Aletheia.DBC.TextParser.Topology using
   (parseBU)
-open import Aletheia.DBC.TextParser.Attributes using
-  (refineAttributes)
-
--- Per-section preconditions.
-open import Aletheia.DBC.TextParser.Properties.ValueTables using
-  (ValueTableNameStop)
-open import Aletheia.DBC.TextParser.Properties.Topology using
-  (MessageWF; NodeNameStop)
-open import Aletheia.DBC.TextParser.Properties.EnvVars using
-  (EnvVarNameStop)
-open import Aletheia.DBC.TextParser.Properties.Comments using
-  (CommentTargetStop)
-open import Aletheia.DBC.TextParser.Properties.SignalGroups using
-  (SignalGroupWF)
 
 -- Per-section slim roundtrips (Layer 3 / 4a / 4b).
 open import Aletheia.DBC.TextParser.Properties.Preamble.Version using
@@ -96,7 +78,6 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   ( TopStmtTyped; toTopStmtsTyped
   ; emitTopStmt-chars; liftTopStmt
-  ; WFAttribute; rawOf
   )
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher using
   (TopStmtTypedWF; wfTVT; wfTM; wfTEV; wfTCM; wfTAT; wfTSG; wfTVD)

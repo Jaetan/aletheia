@@ -32,7 +32,7 @@
 -- into `ℕ × Identifier × ℕ × Identifier`.
 module Aletheia.DBC.TextParser.Format.Message where
 
-open import Data.List using (List; []; _∷_)
+open import Data.List using ([]; _∷_)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (toList)

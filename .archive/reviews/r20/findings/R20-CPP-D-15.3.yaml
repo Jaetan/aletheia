@@ -1,0 +1,22 @@
+id: R20-CPP-D-15.3
+round: R20
+category:
+  number: 15
+  name: Hot-path cost / eager construction
+  language: cpp
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: C++ Strong<Tag,T> newtype unification + LtlFormula variant-by-composition
+description: Virtual-dispatch Visitor was pure cost; ADT pinned by upstream SSOT.  Switched
+  to std::variant + std::visit.  New feedback feedback_visitor_vs_variant_for_closed_adt.md.
+files:
+- cpp/include/aletheia/
+cluster: X
+resolution:
+  commit: 83ad17a
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

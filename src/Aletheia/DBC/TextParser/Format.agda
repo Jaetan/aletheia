@@ -32,7 +32,7 @@
 -- but drifted as 3d.5.b–3d.5.d landed.  Updated to the current shape.
 module Aletheia.DBC.TextParser.Format where
 
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (Bool; false; T)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Relation.Nullary using (yes; no)
 open import Data.Char using (Char; _≈ᵇ_)
@@ -40,10 +40,10 @@ open import Data.Char.Base using (isDigit)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; length; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (length-++) renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _+_; s≤s; z≤n)
-open import Data.Nat.Properties using (≤-trans; m≤m+n; m≤n+m; n≤1+n; +-mono-≤)
-open import Data.Product using (_×_; _,_; Σ; proj₁; proj₂)
+open import Data.Nat.Properties using (≤-trans; m≤m+n; m≤n+m; +-mono-≤)
+open import Data.Product using (_×_; _,_; Σ; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
@@ -73,7 +73,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives
          parseStringLit-roundtrip; parseWS-one-space; parseWS-one-tab;
          alt-left-just; alt-right-nothing)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
-  using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
+  using (SuffixStops; advancePositions-++; bind-just-step;
          parseNatural-showNat-chars; parseDecRat-roundtrip-suffix;
          parseDecRatFrac-roundtrip-suffix;
          parseIntDecRat-roundtrip-suffix; parseNatDecRat-roundtrip-suffix;

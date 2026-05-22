@@ -1,0 +1,21 @@
+id: R21-PY-A-2.3
+round: R21
+category:
+  number: 2
+  name: Magic numbers / hardcoded constants
+  language: python
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Magic number 100 in Python _walk_formula depth cap
+description: Same drift as CPP-B-9.1 -- replaced with kernel mirror.
+files:
+- python/aletheia/client/_enrichment.py
+cluster: '3'
+resolution:
+  commit: d41d6d3
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

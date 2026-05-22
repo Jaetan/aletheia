@@ -1,0 +1,20 @@
+id: R20-AGDA-B-7.3
+round: R20
+category:
+  number: 7
+  name: Type tightness
+  language: agda
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: 'R6-B7.3 FIX: CachedSignal.lastObserved : N -> Timestamp us'
+description: Lift across 7 files.  Per-frame on handleDataFrame's cache-update path;
+  MAlonzo neutral (Timestamp us compiles to same Integer as N via @0 erasure).
+cluster: user-redirect
+resolution:
+  commit: 7d35b6c
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

@@ -15,55 +15,31 @@
 -- Depends on Phases 1-3 (re-exports via `public open import`).
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase4Composition where
 
-open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Char.Base using (isDigit)
-open import Data.Empty using (⊥-elim)
+open import Data.Empty using ()
 import Data.Empty.Irrelevant as EmptyI
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using ()
-  renaming (length-++ to length-++ₗ)
+open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _/_; _%_; _^_; _⊔_;
-         _<_; _≤_)
-open import Data.Nat.Properties
-  using (*-comm; +-comm; +-identityʳ; *-identityʳ; ≤-<-trans; n<1+n; ^-monoʳ-<;
-         m≤m+n; m∸n+n≡m; m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl;
-         m*n≢0; m^n≢0)
-open import Data.Nat.DivMod
-  using (m%n<n; m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
-open import Data.Product using (_,_)
+open import Data.Nat using (ℕ; zero; suc)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
-open import Relation.Nullary using (no)
+  using (_≡_; refl; sym; trans; cong₂)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; value; position; remaining;
+  using (Position; Parser; mkResult;
          advancePosition; advancePositions;
-         satisfy; digit; some; many; manyHelper; sameLengthᵇ;
-         char; optional; fail;
-         _>>=_; pure; _<$>_; _<*>_; _*>_; _<|>_)
+         digit; some;
+         char; optional;
+         _>>=_; pure)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars;
-         emitMagnitude-chars; showDecRat-dec-chars; showInt-chars)
+  using (showNat-chars;
+         emitMagnitude-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
-  using (charToDigit; parseDigitList; parseDecRat; parseDecRatFrac;
-         parseDecRatBareInt; applySign; buildDecRat;
-         parseIntDecRat; parseNatDecRat)
-open import Aletheia.DBC.DecRat.Refinement using
-  (IntDecRat; mkIntDecRat; intDecRatToℤ; mkIntDecRatFromℤ;
-   mkIntDecRatFromℤ-intDecRatToℤ;
-   isIntegerᵇ; isIntegerᵇ-fromℤ;
-   NatDecRat; mkNatDecRat; natDecRatToℕ; mkNatDecRatFromℕ;
-   mkNatDecRatFromℕ-natDecRatToℕ;
-   isNonNegIntegerᵇ; isNonNegIntegerᵇ-fromℕ)
+  using (parseDecRatFrac; buildDecRat)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
-open import Data.Integer using (ℤ; sign)
+open import Data.Integer using ()
   renaming (+_ to ℤ+_; -[1+_] to ℤ-[1+_])
 open import Aletheia.DBC.DecRat
-  using (DecRat; mkDecRat; isCanonicalᵇ; IsCanonical;
-         canonicalizeDecRat; canonicalizeNat; 0ᵈ; fromℤ)
-open import Aletheia.DBC.DecRat.ScaleLemmas using (canonicalizeNat-scale-pos)
+  using (mkDecRat; IsCanonical)
 
 -- Phases 1-3 re-export base — every public lemma above is available.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits public

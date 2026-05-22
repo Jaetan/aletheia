@@ -5,17 +5,17 @@
 -- Purpose: Prove parser laws (determinism, monad laws, position tracking).
 module Aletheia.Parser.Properties where
 
-open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remaining; position; Position; line; column; pure; fail; _>>=_; _<$>_; satisfy; char; advancePosition; advancePositions; mkResult)
+open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remaining; position; Position; line; column; pure; fail; _>>=_; _<$>_; satisfy; advancePosition; advancePositions; mkResult)
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Maybe.Properties using (just-injective)
-open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
+open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Nat using (ℕ; zero; suc; _+_; _≤_; _<_; s≤s; _≥_; _∸_)
+open import Data.Nat using (ℕ; _≤_; _<_; s≤s; _≥_; _∸_)
 open import Data.Nat.Properties using (≤-refl; ≤-trans; <-trans; <⇒≤; n∸n≡0; m+n∸n≡m)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; subst)
 open import Relation.Nullary using (¬_)

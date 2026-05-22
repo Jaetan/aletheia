@@ -34,13 +34,13 @@ open import Data.List  using (List; []; map)
 open import Data.Maybe using (just; nothing)
 open import Data.Unit  using (⊤)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_)
 
 open import Aletheia.DBC.DecRat.Refinement using
-  ( IntDecRat; NatDecRat; intDecRatToℤ; natDecRatToℕ)
+  ( IntDecRat; NatDecRat; natDecRatToℕ)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; Node; clearVdsMsg
+  ; clearVdsMsg
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrDef; AttrDefault; AttrAssign
@@ -49,23 +49,20 @@ open import Aletheia.DBC.Types using
 open import Aletheia.DBC.TextParser.Attributes using
   ( RawDBCAttribute; RawDef; RawDefault; RawAssign
   ; RawAttrValue;    RavString; RavDecRat
-  ; RawAttrDefault;  mkRawAttrDefault
-  ; RawAttrAssign;   mkRawAttrAssign
-  ; refineAttribute
-  ; collectRawDefs
+  ; mkRawAttrDefault
+  ; mkRawAttrAssign
   ; findLabel
   )
 open import Aletheia.DBC.TextParser.Attributes as ParserAttrs using ()
 open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
 open import Aletheia.DBC.TextFormatter.Attributes using
-  ( collectDefs
-  ; nthLabel
+  ( nthLabel
   )
 open import Aletheia.DBC.TextParser.TopLevel using
   ( TopStmt; TSValueTable; TSMessage; TSEnvVar; TSComment
   ; TSAttribute; TSSignalGroup
-  ; TSBOTxBu; TSValueDesc; TSSigValType; TSSigMulVal
+  ; TSValueDesc
   )
 
 open import Aletheia.DBC.TextFormatter.Topology    using (emitMessage-chars)
@@ -78,15 +75,7 @@ open import Aletheia.DBC.TextFormatter.Attributes   using (emitAttribute-chars)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Common using
   ( ValueMatchesType
-  ; VMTInt; VMTFloat; VMTString; VMTEnum; VMTHex
   ; rawOfAssignValue
-  ; rawOfDefaultValue
-  ; refineAssignValue-rawOfAssign-roundtrip
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVInt
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVFloat
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVString
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVHex
-  ; refineDefaultValue-rawOfDefault-roundtrip-AVEnum
   )
 open import Aletheia.DBC.TextParser.Properties.Attributes.Def using
   (WfAttrType)

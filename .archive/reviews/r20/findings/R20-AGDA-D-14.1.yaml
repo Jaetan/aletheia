@@ -1,0 +1,24 @@
+id: R20-AGDA-D-14.1
+round: R20
+category:
+  number: 14
+  name: API surface
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: 'regen-ffi-exports overwrote C:/T:/indirect F: entries (advisor lock)'
+description: 'Regen iterated only ffiExports (11 entries) and wrote whole snapshot,
+  would have wiped 14 C: + 11 T: + 8 indirect F: lines.  Fixed to refresh F: NN suffix
+  only and preserve all other lines verbatim.'
+files:
+- Shakefile.hs
+cluster: I-followup
+resolution:
+  commit: ba1f005
+  round: R20
+  date: '2026-05-12'
+  notes: Footgun caught by post-cluster advisor consult.
+re_raised_from: null
+in_source_marker: null

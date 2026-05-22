@@ -22,7 +22,7 @@ module Aletheia.Trace.CANTrace where
 open import Aletheia.CAN.Frame using (CANFrame; CANId)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.Trace.Time public
-  using (TimeUnit; ns; μs; ms; s; Timestamp; mkTs; tsValue; _≤ᵗ_)
+  using (μs; Timestamp; tsValue; _≤ᵗ_)
 open import Data.Bool using (Bool)
 open import Data.Maybe using (Maybe)
 open import Data.Nat using (ℕ)

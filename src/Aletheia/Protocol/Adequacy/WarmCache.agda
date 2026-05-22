@@ -68,7 +68,7 @@ open import Aletheia.LTL.Adequacy.Agreement using
    agree-met-ev; agree-met-al; agree-met-un; agree-met-re;
    met-ev-go-denot; met-al-go-denot; met-un-go-denot; met-re-go-denot)
 
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ)
 open import Aletheia.Protocol.StreamState.Internals using (lookupAtom; mkPredTable)
 open import Aletheia.Protocol.FrameProcessor.Properties using
   (AllBelow; mkPredTable-lookup)

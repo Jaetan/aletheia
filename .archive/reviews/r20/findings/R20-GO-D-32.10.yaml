@@ -1,0 +1,21 @@
+id: R20-GO-D-32.10
+round: R20
+category:
+  number: 32
+  name: (unspecified category 32)
+  language: go
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: GO-A-4.10 cross-binding limits parity gate
+description: New tools/check_limits_parity.py; run_ci.py BASE_STEPS 27 -> 28.
+files:
+- tools/check_limits_parity.py
+cluster: user-redirect
+resolution:
+  commit: 7cb131a
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

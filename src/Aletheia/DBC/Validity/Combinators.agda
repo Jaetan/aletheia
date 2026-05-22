@@ -10,7 +10,7 @@
 module Aletheia.DBC.Validity.Combinators where
 
 open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
-open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
+open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_,_)

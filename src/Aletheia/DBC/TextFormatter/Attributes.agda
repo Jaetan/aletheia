@@ -58,7 +58,7 @@ open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 import Data.List.Properties as ListProps
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.Types using

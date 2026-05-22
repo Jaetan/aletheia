@@ -1,0 +1,19 @@
+id: R20-PY-B-17.2
+round: R20
+category:
+  number: 17
+  name: Cross-binding parity
+  language: python
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: ctypes.c_void_p -> int state handle type (cross-binding opacity parity)
+description: Matches Go unsafe.Pointer and C++ void*.
+cluster: P
+resolution:
+  commit: 4dd3c05
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

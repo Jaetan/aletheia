@@ -1,0 +1,21 @@
+id: R20-AGDA-D-32.5
+round: R20
+category:
+  number: 32
+  name: Parser resource bounds
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: AGDA-D-32.5 Shake gate check-bound-enforcement
+description: Greps BoundKind ctors and verifies each has >= 1 emit site.
+files:
+- tools/check_bound_enforcement.py
+cluster: I
+resolution:
+  commit: 33d0e44
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

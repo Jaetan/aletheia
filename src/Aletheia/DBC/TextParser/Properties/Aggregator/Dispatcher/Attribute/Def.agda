@@ -19,36 +19,31 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Def where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_)
+open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl)
+  using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.Types using
   ( AttrDef; mkAttrDef
-  ; AttrScope
   ; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
   ; ASNodeMsg; ASNodeSig
-  ; DBCAttribute; DBCAttrDef
+  ; DBCAttrDef
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttribute-chars; emitAttrDef-chars)
+  (emitAttribute-chars)
 
 open import Aletheia.DBC.TextParser.Attributes using
-  ( RawDBCAttribute; RawDef
-  ; parseAttrLine
+  ( parseAttrLine
   )
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   (rawOf; WFAttribute; wfDef)
-
-open import Aletheia.DBC.TextParser.Properties.Attributes.Def using
-  (WfAttrType)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Line using
   ( parseAttrLine-roundtrip-RawDef-NotRel-Network
   ; parseAttrLine-roundtrip-RawDef-NotRel-Node

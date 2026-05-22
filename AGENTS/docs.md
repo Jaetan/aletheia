@@ -1,0 +1,39 @@
+## Documentation (22 categories)
+
+Scope: ALL docs -- CLAUDE.md, PROJECT_STATUS.md, BUILDING.md, DESIGN.md, PITCH.md, README.md, and any other .md files.
+
+Also applies to infrastructure changes (Shakefile, dist targets, packaging) since the docs describing them must be accurate.
+
+### Hygiene (8)
+
+1. **Accuracy** -- do stated facts (module counts, file paths, command examples) match reality?
+2. **Staleness** -- references to removed files, old workflows, or completed phases described as in-progress
+3. **Consistency** -- do different docs agree on the same facts?
+4. **Completeness** -- are important features/workflows undocumented?
+5. **Redundancy / single source of truth** -- each piece of information must appear in exactly one place; other docs must cross-reference, not duplicate. Duplicated facts across files are always a finding. Consistency between copies is not a defense — if the same fact appears in two files and both are correct, that is still a category 5 finding because one copy should be a cross-reference. **Scope boundary with cat 17**: cat 5 catches the same fact duplicated across multiple files (resolved by making one canonical and the rest cross-references). Cat 17 catches a single file contradicting itself (two sections disagreeing). Same-file duplication that is consistent is cat 5; same-file statements that disagree are cat 17.
+6. **Command correctness** -- do shell commands actually work as written?
+7. **Link integrity** -- do internal cross-references resolve?
+8. **Audience fit** -- is the right level of detail in the right doc?
+
+### Precision (1)
+
+9. **Precision & terseness** -- documentation must be precise, concise, non-ambiguous, and terse. Flag verbose/vague/ambiguous language.
+
+### Deep (12)
+
+10. **Structure & navigation** -- is there a clear reading path from "I just cloned this" to "I'm productive"?
+11. **Worked examples & error guidance** -- do guides cover real use cases, not just the happy path? When something goes wrong, do docs explain why and how to fix?
+12. **Decision rationale** -- are key design decisions explained where someone would naturally ask "why"?
+13. **Onboarding friction** -- walk through as a newcomer. What assumptions are unstated?
+14. **Hardcoded values & durability** -- counts, versions, performance numbers that will rot. Are they concentrated or scattered? **Scope boundary with cat 16**: cat 14 catches durability/location issues (the same number living in five places that will drift). Cat 16 catches the qualifiers that must accompany the number (what hardware, what protocol, what entry-point produced the measurement). A "9,704 fps" scattered across three docs is cat 14; a "9,704 fps" stated anywhere without "(C++, binary FFI, CAN 2.0B, Ryzen 9 5950X)" is cat 16. A single number that is both scattered and unqualified yields one finding under each category.
+15. **Code example testability** -- can every code snippet be copy-pasted and run? Check for wrong signatures, missing imports, undefined variables, wrong argument counts. Cross-check every call site against the actual API.
+16. **Qualifier accuracy** -- are numbers qualified with their conditions? Every benchmark needs language, protocol, and entry-point context. "~48,000 fps" without "C++, CAN 2.0B, binary FFI" is a finding. **Scope boundary with cat 14**: cat 16 is about the qualifiers accompanying a number (do we know what produced it?); cat 14 is about the durability of the number itself (is it living in one place, or scattered across docs that will drift?). Fix the qualifier with cat 16, fix the location with cat 14.
+17. **Internal consistency** -- does a single file contradict itself? This catches a file that states one thing in one section and the opposite in another. **Scope boundary with cat 3 and cat 5**: cat 3 catches two files disagreeing on the same fact; cat 5 catches the same fact duplicated across files (even when consistent); cat 17 catches a single file contradicting itself. A file that says "120 modules" in the introduction and "119 modules" in a later table is a cat 17 finding, not cat 3 or cat 5.
+18. **Scope labels on aggregates** -- when a number aggregates sub-items, is the scope stated? "532 tests" without "Python-only" is a finding when the total is 900+.
+19. **Missing content & improvements** -- documentation that should exist but does not: missing troubleshooting sections, missing error guidance, missing design rationale, missing onboarding steps, missing recipes for common failure modes. These are findings, not suggestions — absent documentation is a defect when users would reasonably expect it.
+20. **Numerical correctness** -- verify all arithmetic in examples: byte encodings, bit positions, scaling computations (factor × raw + offset), DLC-to-bytes mappings, unit conversions, and signal range calculations. A code example can have the right API call with wrong numbers. Cross-check every worked example against the DBC definition it references (start bit, length, byte order, factor, offset, signedness). This is distinct from category 15 (which checks that code *runs*) — this checks that the numbers are *mathematically correct*.
+21. **Cross-language parity** -- when docs claim a feature exists in multiple bindings (Python, C++, Go), verify the claim against the actual code in each binding. Check that feature tables, API descriptions, and "all bindings support X" statements are accurate per-language. A feature documented as available in Go but missing from `go/aletheia/` is a finding. Compare: type names, method signatures, constructor options, error handling patterns, and enrichment fields across all three bindings.
+
+### Operational (1)
+
+22. **Operational runbook — log-keyed symptom → cause → action** -- for every structured log event the bindings emit (the 15 shared slog/Logger/Python event names), the operations docs must contain an entry keyed on the event name with three fields: symptom (what the operator sees), likely cause (what produces it), suggested action (what to do next). The runbook must cover both library events (the standard 15) and binding-specific diagnostic paths (rts_cores mismatch warning, hs_init failure, .so load failure, ctypes signature mismatch). Missing runbook entries for emitted events are a finding — an event the code emits but the docs do not explain leaves an operator blind. The table of common error codes (PROTOCOL.md) is related but not identical: error codes describe protocol-level failures, runbook entries describe observational/operational events that may or may not carry an error code. **Failure-mode coverage**: in addition to log-event entries, the runbook covers each documented failure mode keyed by the operator-visible symptom — sources include BUILDING.md § Troubleshooting (`hs_init` failure, `.so` load failure, ctypes signature mismatch, MAlonzo name mismatch, build-failure recovery), CANCELLATION.md (mid-stream cancellation paths, partial-commit semantics, deadline exhaustion), the bounded-input rejections from Agda cat 32 / Go cat 28 / C++ cat 28 / Python cat 26 (`InputBoundExceeded` per field), and OOM / heap-pressure paths (heap-cap exceeded mid-parse, GHC RTS allocation failure, runaway cache growth detected by stability bench). For each: symptom, likely cause, suggested action. A failure mode that exists in BUILDING.md or any architecture doc but is missing from the operations runbook is a finding — operations docs are the single point an on-call would consult, and a missing entry leaves them searching across files.

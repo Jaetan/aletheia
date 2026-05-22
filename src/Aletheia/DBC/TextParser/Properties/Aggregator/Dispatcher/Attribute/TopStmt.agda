@@ -13,14 +13,14 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.TopStmt where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_)
+open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl)
+  using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.DBC.Types using
   (AttrDef; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
@@ -30,7 +30,7 @@ open import Aletheia.DBC.TextParser.TopLevel using
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   ( WFAttribute
-  ; TopStmtTyped; TAT
+  ; TAT
   ; emitTopStmt-chars
   ; liftTopStmt
   )

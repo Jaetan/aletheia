@@ -1,0 +1,21 @@
+id: R20-PY-B-8.2
+round: R20
+category:
+  number: 8
+  name: Wire validation
+  language: python
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: Python _helpers.parse_rational accepted denominator <= 0
+description: Both scalar string and dict forms now reject 1/0, 1/-2, etc.
+files:
+- python/aletheia/client/_helpers.py
+cluster: C
+resolution:
+  commit: c2c6bab
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

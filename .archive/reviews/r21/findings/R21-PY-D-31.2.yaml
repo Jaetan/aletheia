@@ -1,0 +1,19 @@
+id: R21-PY-D-31.2
+round: R21
+category:
+  number: 31
+  name: Packaging hygiene
+  language: python
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Python single-file HIGH (PY-S-31.2)
+description: Packaging hygiene fix.
+cluster: '12'
+resolution:
+  commit: 2be48fd
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

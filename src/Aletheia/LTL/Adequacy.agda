@@ -42,7 +42,7 @@ open import Aletheia.LTL.Syntax using
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 
 -- ============================================================================

@@ -1,0 +1,24 @@
+id: R21-PY-B-8.1
+round: R21
+category:
+  number: 8
+  name: Wire validation
+  language: python
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: Python isinstance(x, int) admits bool subclass on wire decode
+description: 'Malicious response {"numerator": true, "denominator": false} silently
+  coerced to Fraction(1, 0).  Replaced 3 sites with is_pure_int guard.  Mirrors Go
+  encoding/json + C++ nlohmann/json bool->int rejection contract -- Python was the
+  outlier.'
+files:
+- python/aletheia/client/_helpers.py
+cluster: '12'
+resolution:
+  commit: 2be48fd
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

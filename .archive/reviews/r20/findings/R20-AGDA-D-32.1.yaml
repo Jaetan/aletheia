@@ -1,0 +1,23 @@
+id: R20-AGDA-D-32.1
+round: R20
+category:
+  number: 32
+  name: Parser resource bounds
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: AGDA-D-32.1 IdentifierLength enforcement gap
+description: validateIdent split on T?(validIdentifierᵇ cs) first then on length;
+  IdentifierLength emits InputBoundExceeded with structured bound_info.  Caused JSONParser
+  cascade ParseError -> Error across ~40 signatures.
+files:
+- src/Aletheia/DBC/JSONParser.agda
+cluster: I
+resolution:
+  commit: 33d0e44
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

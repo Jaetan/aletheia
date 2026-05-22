@@ -1,0 +1,19 @@
+id: R20-PY-B-8.1
+round: R20
+category:
+  number: 8
+  name: Wire validation
+  language: python
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: 'R5-B1 + R6-B7.1: LE bitLength=0 -> parse error across both parse surfaces'
+description: Test guard parameterise lesson surfaced.
+cluster: user-redirect
+resolution:
+  commit: aa308c8
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

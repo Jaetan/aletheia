@@ -17,9 +17,9 @@
 -- `FrameProcessor.Properties.Step`.
 module Aletheia.Protocol.FrameProcessor.Properties.Handlers where
 
-open import Aletheia.Protocol.StreamState using (StreamState; getDBC; PropertyState)
+open import Aletheia.Protocol.StreamState using (getDBC; PropertyState)
 open import Aletheia.Protocol.StreamState.Internals using (stepProperty)
-open import Aletheia.Protocol.Message using (Response; Ack)
+open import Aletheia.Protocol.Message using (Ack)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 open import Aletheia.Protocol.ResponseFormat.Properties using (formatResponse-ack-unique)
 open import Aletheia.Protocol.JSON using (JSON; formatJSON)
@@ -31,7 +31,7 @@ open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.Trace.CANTrace using ()
 open import Aletheia.CAN.DLC using (DLC)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.List using (List)

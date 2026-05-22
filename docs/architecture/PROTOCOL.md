@@ -506,9 +506,14 @@ End streaming mode and return final results.
   "results": [
     {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
     {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
+  ],
+  "warnings": [
+    {"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
   ]
 }
 ```
+
+The `warnings` array carries non-fatal end-of-stream diagnostics — see [§ End-of-stream Warnings](#end-of-stream-warnings) for the wire shape and evolution rule. The array is always emitted (empty when no warnings fired).
 
 **State Requirements**: Must be in `Streaming` state
 **State Transition**: `Streaming` → `ReadyToStream` (can stream again)
@@ -698,10 +703,45 @@ Used for data frames when no violation is detected.
   "results": [
     {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
     {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
+  ],
+  "warnings": [
+    {"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
   ]
 }
 ```
-Returned when streaming ends. The `results` array contains per-property finalization verdicts.
+Returned when streaming ends. The `results` array contains per-property finalization verdicts; the `warnings` array carries non-fatal end-of-stream diagnostics (see [§ End-of-stream Warnings](#end-of-stream-warnings)).
+
+#### End-of-stream Warnings
+
+The `warnings` field on the `Complete` response is a (possibly empty) list of `Warning` records emitted by the verified kernel during end-of-stream finalization. Each warning ratifies — never replaces — a per-property verdict in `results` by providing diagnostic context.
+
+**Wire shape** (every binding decodes the same JSON):
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | string | Enumerated warning class. Currently `"uncached_atom"`; the kernel may add new kinds additively. Bindings MUST accept unknown `kind` values without rejecting the response. |
+| `property_index` | integer | Zero-based index into the registered property set; identifies which property the warning relates to. |
+| `detail` | string | Free-form diagnostic detail. Schema depends on `kind`. For `uncached_atom`, the unobserved signal name. |
+
+**Defined warning kinds**:
+
+- **`uncached_atom`** — end-of-stream finalization found at least one atom in the property whose target signal was never observed during the stream. The property's verdict remains the verdict the kernel computed (typically `Unresolved`); the warning attaches the signal name so operators can identify the missing data source. `detail` carries the signal name. Soundness rationale: the existing verdict is emitted unchanged — warnings are additive diagnostic context, they do not alter the verdict. See [`Aletheia.Protocol.Adequacy.StreamingWarm`](../../src/Aletheia/Protocol/Adequacy/StreamingWarm.agda) for the underlying adequacy theorem.
+
+**Evolution rule (binding contract)**:
+
+Adding a new `kind` requires a coordinated change:
+
+1. Extend the Agda kernel's `WarningKind` ADT and the JSON serializer in `Aletheia.Protocol.ResponseFormat`.
+2. Add a new `endstream.<kind>` row to [`docs/LOG_EVENTS.yaml`](../LOG_EVENTS.yaml).
+3. Add a matching log event emit site in all three bindings' `end_stream` / `EndStream` implementations (level: `warn`).
+4. Add a per-binding parity test that exercises the new kind.
+5. Add a `#### `endstream.<kind>`` heading to [`docs/operations/RUNBOOK.md`](../operations/RUNBOOK.md).
+6. Update this section's table of defined kinds.
+7. Add a CHANGELOG entry under `Added` per Public API stability discipline.
+
+Removing or renaming a `kind` is a breaking wire change (downstream collectors may be filtering on the literal name) and is governed by the CHANGELOG `Removed` discipline.
+
+**Logging mirror**: Per-binding `end_stream` implementations re-emit each warning as a `endstream.<kind>` structured log event (level `warn`) with `property_index` and `detail` fields, in addition to the aggregate `stream.ended` event's `numWarnings` count. The per-warning events let operators grep for specific properties. See [`docs/LOG_EVENTS.yaml`](../LOG_EVENTS.yaml) and the per-binding parity tests for the canonical contract.
 
 ---
 
@@ -1274,7 +1314,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 
 *This section is the single source of truth for the structured-log event taxonomy. Other docs that mention the event count or list events should link back here rather than restate.*
 
-Every binding emits the same 15-event vocabulary so a single downstream log pipeline can consume all three (Python `logging`, C++ `Logger` callback, Go `slog`).
+Every binding emits the same 16-event vocabulary so a single downstream log pipeline can consume all three (Python `logging`, C++ `Logger` callback, Go `slog`).
 
 | Category | Level | Events |
 |---|---|---|
@@ -1283,6 +1323,7 @@ Every binding emits the same 15-event vocabulary so a single downstream log pipe
 | Enrichment diagnostics | WARNING | `enrichment.property_index_oob`, `enrichment.extraction_failed` |
 | Extraction cache | DEBUG / WARNING | `cache.hit`, `cache.miss`, `cache.full` |
 | Extraction errors | WARNING | `extraction.process_failed`, `extraction.parse_failed` |
+| End-of-stream diagnostics | WARNING | `endstream.uncached_atom` |
 
 Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). Per-binding definitions are `python/aletheia/client/_log.py` (`LogEvent` enum), `cpp/include/aletheia/log.hpp` (string constants), and `go/aletheia/client.go` + `go/aletheia/ffi_backend.go` (slog emission sites). Adding a new event requires adding it to all three bindings and updating this table.
 

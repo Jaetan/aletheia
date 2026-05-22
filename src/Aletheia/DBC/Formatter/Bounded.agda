@@ -30,10 +30,10 @@ module Aletheia.DBC.Formatter.Bounded where
 open import Data.Nat using (ℕ; _≤_)
 open import Data.List using (List; length; map)
 open import Data.List.Properties using (length-map)
-open import Relation.Binary.PropositionalEquality using (_≡_; sym; subst)
+open import Relation.Binary.PropositionalEquality using (sym; subst)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage)
-open import Aletheia.DBC.Formatter using (formatDBC; formatDBCMessage; formatAttribute; formatDBCSignal)
+open import Aletheia.DBC.Formatter using (formatDBCMessage; formatAttribute; formatDBCSignal)
 
 -- Helper: lift `length-map` to a bound-preservation statement.  Given
 -- `length xs ≤ n` and `f`, conclude `length (map f xs) ≤ n`.

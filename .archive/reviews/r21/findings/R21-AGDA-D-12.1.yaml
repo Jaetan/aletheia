@@ -1,0 +1,28 @@
+id: R21-AGDA-D-12.1
+round: R21
+category:
+  number: 12
+  name: Property completeness
+  language: agda
+  agent: D
+severity: high
+disposition: DEFER
+status: closed
+title: End-of-stream uncached-atom warning emission proposal
+description: 'Initial Step-2 finding: kernel should emit warnings per CompleteWarning
+  alongside the aggregate count.  Initially DEFER''d as a multi-commit wire scaffold;
+  closed during R21 across 85623b7 / afd28f3 / 1e53080 / dd8bb81 (scaffold + walker
+  + bindings + CHANGELOG); R22 ships the three follow-ups (log event + RUNBOOK + PROTOCOL).'
+files:
+- src/Aletheia/Protocol/StreamingWarm.agda
+cluster: '7'
+resolution:
+  commit: 616cef1
+  round: R21
+  date: '2026-05-17'
+  notes: Scaffold closed in R21; carry-over follow-ups closed in R22 d51cdb1.
+re_raised_from: null
+in_source_marker: src/Aletheia/Protocol/StreamingWarm.agda:391-405
+tags:
+- multi-commit-closure
+- carry-over-source

@@ -36,28 +36,28 @@
 -- Formatter emits exactly one `\n`, captured by `newlineFmt` here.
 module Aletheia.DBC.TextParser.Format.Comments where
 
-open import Data.Bool using (Bool; true; false)
-open import Data.Char using (Char; _≈ᵇ_)
+open import Data.Bool using (false)
+open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (ℕ)
+open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; cong; subst)
+  using (_≡_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePositions)
-open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
+  using (Position; mkResult; advancePositions)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types
   using (CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
          DBCComment; mkComment)
-open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.CAN.Frame using ()
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (digitChar; showℕ-dec-chars; quoteStringLit-chars)
+  using (showℕ-dec-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; ∷-stop; showNat-chars-head)

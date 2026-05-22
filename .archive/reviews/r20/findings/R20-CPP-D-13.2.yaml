@@ -1,0 +1,18 @@
+id: R20-CPP-D-13.2
+round: R20
+category:
+  number: 13
+  name: Exception escape from documented contract
+  language: cpp
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: C++ Excel/YAML loader ErrorKind discrimination
+cluster: N
+resolution:
+  commit: d5f28b8
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

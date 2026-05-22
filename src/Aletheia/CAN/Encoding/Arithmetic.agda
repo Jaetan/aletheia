@@ -11,8 +11,8 @@
 module Aletheia.CAN.Encoding.Arithmetic where
 
 open import Data.Nat using (ℕ; zero; suc; _∸_; _^_)
-open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; toℚᵘ; fromℚᵘ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ)
+open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
+open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)

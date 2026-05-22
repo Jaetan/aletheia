@@ -1,0 +1,22 @@
+id: R21-CPP-B-9.1
+round: R21
+category:
+  number: 9
+  name: Adversarial input validation
+  language: cpp
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: C++ formula_to_json had local depth cap of 100; kernel enforces 64
+description: Depth 65-100 silently passed local check then got rejected on the wire.  Replaced
+  with aletheia::max_nesting_depth (kernel SSOT).
+files:
+- cpp/src/json_serialize.cpp
+cluster: '3'
+resolution:
+  commit: d41d6d3
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

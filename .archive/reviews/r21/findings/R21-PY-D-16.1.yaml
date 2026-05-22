@@ -1,0 +1,18 @@
+id: R21-PY-D-16.1
+round: R21
+category:
+  number: 16
+  name: Threading / concurrency
+  language: python
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Python async / threading HIGH (PY-S-16.1)
+cluster: 13a
+resolution:
+  commit: b611250
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

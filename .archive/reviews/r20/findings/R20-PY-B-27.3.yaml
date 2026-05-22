@@ -1,0 +1,19 @@
+id: R20-PY-B-27.3
+round: R20
+category:
+  number: 27
+  name: (unspecified category 27)
+  language: python
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: Exception-class migration audit catches in tests
+description: 30+ pytest.raises(ValueError) -> pytest.raises(ValidationError).
+cluster: J
+resolution:
+  commit: efa041f
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

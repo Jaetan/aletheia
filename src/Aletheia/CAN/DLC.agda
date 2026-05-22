@@ -10,7 +10,7 @@
 module Aletheia.CAN.DLC where
 
 open import Data.Nat using (ℕ; suc; _≡ᵇ_; _<ᵇ_)
-open import Data.Bool using (Bool; T; if_then_else_)
+open import Data.Bool using (T; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (tt)
 

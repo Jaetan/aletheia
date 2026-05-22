@@ -1,0 +1,23 @@
+id: R20-GO-A-3.4
+round: R20
+category:
+  number: 3
+  name: (unspecified category 3)
+  language: go
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Go wrap helper Error suffix asymmetry (wrapValidation vs validationError)
+description: wrapValidation -> wrapValidationError, wrapProtocol -> wrapProtocolError.  Pair-symmetry
+  restored.
+files:
+- go/aletheia/yaml.go
+- go/aletheia/json.go
+cluster: O
+resolution:
+  commit: 8bb0055
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

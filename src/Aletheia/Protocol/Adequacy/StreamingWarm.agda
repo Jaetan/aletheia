@@ -53,25 +53,22 @@ open import Aletheia.DBC.Identifier using
 
 open import Aletheia.Prelude
 open import Data.Empty using (⊥; ⊥-elim)
-open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ)
-open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.List using ()
+open import Data.Maybe using ()
+open import Data.Product using (∃-syntax)
 open import Data.Char using (Char)
-open import Data.String using (String)
-open import Data.Bool using (Bool; true; false; T)
-open import Data.Unit using (⊤; tt)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
+open import Data.Bool using ()
+open import Data.Unit using (⊤)
+open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName; findSignalInList)
-open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; getValue)
-open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
+open import Aletheia.CAN.SignalExtraction using ()
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
 open import Aletheia.LTL.SignalPredicate using
-  (SignalPredicate; SignalCache; CachedSignal; mkCachedSignal;
+  (SignalPredicate; SignalCache; mkCachedSignal;
    lookupCache; updateCache; extractTruthValue)
 open import Aletheia.LTL.SignalPredicate.Evaluation.Properties using (signalOf)
 open import Aletheia.Protocol.StreamState.Internals using
@@ -391,22 +388,31 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- emitted unchanged.  Warnings are additive diagnostic context — they
 -- ratify (do not replace or reinterpret) the verdict.
 --
--- OPTIONAL DEFERRED follow-ups (not blocking; future low-priority
--- pickups):
---   * New `LogEvent.endstream.uncached_atom` enumerant + parity in
---     `log_events_parity.{py,go,cpp}`.  Currently the cache-miss
---     count flows through the existing `stream.ended` event's new
---     `numWarnings` attribute — sufficient for triage; per-warning
---     events would let users grep for specific signals.
---   * `check-runbook` entry naming the warning class explicitly.
---   * PROTOCOL.md section documenting the JSON envelope's warnings
---     field (the test trio + feature-matrix row IS the de-facto spec
---     today — formal write-up is documentation hygiene).
+-- REQUIRED follow-ups — ✅ CLOSED 2026-05-22 (R22 AGDA-D-12.1 closure):
+--   * `LogEvent.endstream.uncached_atom` enumerant — added to
+--     `docs/LOG_EVENTS.yaml` (warn, new "End-of-stream diagnostics"
+--     section), `python/aletheia/client/_log.py` (`LogEvent`),
+--     `go/aletheia/client.go` (slog.LevelWarn emit in `EndStream`),
+--     `cpp/src/client.cpp` (`logger_.warn` in
+--     `log_end_stream_summary` helper).  Cross-binding parity tests
+--     (`test_log_events_parity.{py,go,cpp}` + `test_logging.py
+--     TestEndStreamWarnings`) bump the canonical event count 15 → 16
+--     and exercise the uncached_atom scenario via mock backend.
+--     Per-warning events carry `property_index` + `detail` so
+--     operators can grep for specific properties.
+--   * `check-runbook` entry — `#### `endstream.uncached_atom``
+--     section added under "End-of-stream diagnostics" in
+--     `docs/operations/RUNBOOK.md`; `tools/check_runbook_coverage.py`
+--     now reports 16/16 covered.
+--   * PROTOCOL.md section — `§ End-of-stream Warnings` added under
+--     the Complete Response, documenting wire shape (kind /
+--     property_index / detail), defined kinds (currently
+--     `uncached_atom`), evolution rule (7-step coordinated change
+--     when adding a new kind), and the logging mirror.
 --
--- DO NOT RE-RAISE the closed work (walker / wire / bindings / tests /
--- feature-matrix row) in review.  The optional follow-ups above are
--- not deferred-pending-approval — they're independent low-priority
--- enhancements visible to a future round if user prioritises.
+-- DO NOT RE-RAISE in review.  All four pieces (scaffold / walker /
+-- bindings / log+runbook+protocol mirror) are durable; cross-binding
+-- parity tests + check-runbook gate enforce non-regression.
 
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`

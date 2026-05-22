@@ -34,8 +34,8 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Default where
 
 open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Char.Base using (_≈ᵇ_; isDigit)
-open import Data.Integer using (ℤ; +_)
+open import Data.Char.Base using (isDigit)
+open import Data.Integer using (ℤ)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just; nothing)
@@ -46,7 +46,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
+  using (Position; Parser; mkResult; advancePositions;
          _>>=_; pure; many)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
@@ -57,16 +57,16 @@ open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrDefault; parseRawAttrValue;
          liftRavw; liftDefaultLine;
          RawAttrDefault; mkRawAttrDefault;
-         RawAttrValue; RavString; RavDecRat)
+         RavString; RavDecRat)
 open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Aletheia.DBC.TextParser.Lexer
-  using (parseNewline; parseStringLit; isHSpace)
+  using (parseNewline; parseStringLit)
 
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (bind-just-step; SuffixStops; ∷-stop; []-stop; headOr;
+  (bind-just-step; SuffixStops; ∷-stop; headOr;
    parseDecRat-roundtrip-suffix; parseDecRat-bareInt-roundtrip-suffix)
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (parseStringLit-roundtrip; alt-left-just; alt-right-nothing; bind-nothing)

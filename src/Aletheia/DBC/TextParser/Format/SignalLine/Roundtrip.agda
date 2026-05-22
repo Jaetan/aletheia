@@ -21,15 +21,13 @@ module Aletheia.DBC.TextParser.Format.SignalLine.Roundtrip where
 
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; Σ; proj₂)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Unit using (⊤; tt)
-open import Function using (case_of_)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; trans; sym; cong)
+  using (_≡_; refl; trans; sym)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions)
@@ -40,7 +38,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using
   (MuxMarker; NotMux; IsMux; SelBy; BothMux;
    RawSignal; mkRawSignal)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
-  using (SuffixStops; []-stop; ∷-stop)
+  using (SuffixStops; ∷-stop)
 open import Aletheia.DBC.TextParser.Format
   using (Format; emit; parse; EmitsOK; roundtrip)
 open import Aletheia.DBC.TextParser.Format.Receivers using (canonicalReceiversFmt)
@@ -48,15 +46,14 @@ open import Aletheia.DBC.TextParser.Format.Receivers.Roundtrip using (isReceiver
 import Aletheia.DBC.TextParser.Format.Receivers.Roundtrip as ReceiversRT
 open import Aletheia.DBC.TextParser.Format.SignalLine using
   (signalLineFmt; muxMarkerFmt; byteOrderFmt; signFlagFmt;
-   headerFmt; sizeFmt; scalingFmt; rangeFmt; tailFmt;
-   withWSCanonOne; withWS; withWSOpt)
+   headerFmt; sizeFmt; scalingFmt; rangeFmt; tailFmt)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
-  using (showNat-chars-head-stop-isHSpace; digitChar-not-isHSpace)
+  using (digitChar-not-isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (showNat-chars-head; bind-just-step)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (bind-nothing; parseWS-one-space)
-open import Aletheia.DBC.TextParser.Lexer using (parseWS; parseWSOpt)
+open import Aletheia.DBC.TextParser.Lexer using (parseWS)
 open import Aletheia.Parser.Combinators
   using (_>>=_; pure)
 

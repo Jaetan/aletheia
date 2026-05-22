@@ -1,0 +1,38 @@
+id: R22-AGDA-A-1.2
+round: R22
+category:
+  number: 1
+  name: "Dead code (stale R21 carry-over marker in Assign.agda)"
+  language: agda
+  agent: A
+severity: info
+disposition: FP-VERIFIED
+status: closed
+cluster: "carry-over"
+title: "Assign.agda b15 marker — stale, retired without code change"
+description: |
+  R21 batch 15 left a `-- R22-PRE-CLOSE` marker block above 6 `using`
+  clauses in src/Aletheia/DBC/Parser/Assign.agda, flagging 18
+  ModuleDoesntExport warnings the b15 scanner had surfaced.
+
+  Direct re-check 2026-05-22 with `--ignore-interfaces -W error`
+  reported 0 ModuleDoesntExport warnings: every name in the 6 `using`
+  clauses resolves cleanly.  The warnings were cleared as a side-effect
+  of later A-1.1 work (batches 21/24/25i + sweeps #3/#4 from the
+  agda-driven prune tool).
+
+  Marker comment block removed in 57ad862; no code changes.
+files:
+  - src/Aletheia/DBC/Parser/Assign.agda
+resolution:
+  commit: 57ad862
+  round: R22
+  date: "2026-05-22"
+  notes: |
+    Comment-only removal of the now-stale marker.  Closed without any
+    code change because the underlying warnings cleared during A-1.1.
+re_raised_from: null
+in_source_marker: null
+tags:
+  - stale-marker
+  - investigation-only

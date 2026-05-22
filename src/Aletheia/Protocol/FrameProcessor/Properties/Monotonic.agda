@@ -22,19 +22,19 @@
 module Aletheia.Protocol.FrameProcessor.Properties.Monotonic where
 
 open import Aletheia.Protocol.StreamState
-    using (StreamState; Streaming; handleDataFrame; checkMonotonic)
+    using (Streaming; handleDataFrame; checkMonotonic)
 open import Aletheia.Protocol.StreamState.Internals
     using (stepProperty; dispatchIterResult; updateCacheFromFrame)
-open import Aletheia.Protocol.Message using (Response; Error)
+open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-streaming)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; Monotonic)
 open import Aletheia.Error using (NonMonotonicTimestamp; HandlerErr; WithContext)
-open import Data.Product using (_×_; _,_; proj₂)
+open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; _<_; _≤_)
+open import Data.Nat using (_<_; _≤_)
 open import Data.Nat.Properties using (≮⇒≥; <⇒<ᵇ; <ᵇ⇒<)
 open import Data.Bool using (T; true; false)
 open import Data.Unit using (⊤; tt)

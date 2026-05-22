@@ -17,7 +17,7 @@
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Message where
 
 open import Data.Char using (Char)
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (ℤ)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
@@ -26,39 +26,33 @@ open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
+  using (_≡_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
-         _>>=_; pure; _<|>_; _*>_; _<*_; string;
-         char; many; satisfy; fail)
+  using (Position; Parser; mkResult; advancePositions; _>>=_; many)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
    intDecRatToℤ-mkIntDecRatFromℤ)
-open import Aletheia.DBC.Types using
-  ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
-  ; ATgtNodeMsg; ATgtNodeSig)
+open import Aletheia.DBC.Types using (ATgtMessage)
 open import Aletheia.CAN.Frame using (CANId)
 
 open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrAssign;
          RawAttrAssign; mkRawAttrAssign;
-         RawAttrValue; RavString; RavDecRat;
+         RavString; RavDecRat;
          liftRavw; buildAttrAssignP)
-open import Aletheia.DBC.TextParser.Lexer
-  using (parseWS; parseWSOpt; parseStringLit; parseNewline;
-         isHSpace)
+open import Aletheia.DBC.TextParser.Lexer using (parseNewline; isHSpace)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
-         showℕ-dec-chars; digitChar)
+         showℕ-dec-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
-  ; SuffixStops; ∷-stop; []-stop)
+  ; SuffixStops; ∷-stop)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   ( isNewlineStart
   ; manyHelper-parseNewline-exhaust)

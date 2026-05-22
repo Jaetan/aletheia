@@ -18,10 +18,10 @@ open import Data.Nat.Properties using (_≟_; _≤?_; ≡ᵇ⇒≡; ≡⇒≡ᵇ
 open import Data.Bool using (Bool; true; false; _∨_; T)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (tt)
-open import Data.Product using (_×_; _,_; Σ; Σ-syntax)
+open import Data.Product using (_×_; _,_; Σ-syntax)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; subst)
-open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Relation.Nullary using (Dec; yes; no)
 open import Function using (case_of_)
 
 -- ============================================================================

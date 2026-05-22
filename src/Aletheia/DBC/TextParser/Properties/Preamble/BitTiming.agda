@@ -25,7 +25,7 @@ open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong)
+  using (_≡_; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;

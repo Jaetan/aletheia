@@ -9,11 +9,10 @@
 module Aletheia.CAN.Endianness.Properties.WriteSet where
 
 open import Aletheia.CAN.Endianness using
-  ( ByteOrder; LittleEndian; BigEndian
+  ( LittleEndian; BigEndian
   ; updateSafe
   ; byteToBitVec; bitVecToByte
   ; extractBits; injectBits
-  ; swapBytes
   ; payloadIso; injectPayload
   )
 open import Aletheia.CAN.Frame using (Byte)
@@ -24,9 +23,9 @@ open import Aletheia.CAN.Endianness.Properties.Roundtrip using
   ; injectBits-preserves-disjoint
   )
 open import Data.Vec using (Vec; []; _∷_)
-open import Data.Fin using (Fin; fromℕ<; toℕ)
+open import Data.Fin using (fromℕ<; toℕ)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
-open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; z≤n; s≤s; _%_; _/_)
+open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; z≤n; s≤s)
 open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n)
 open import Data.Nat.Properties using (_≟_; <⇒≢; +-suc; ≤-refl; ≤-trans; n≤1+n; m<m+n; <-≤-trans; m≤n⇒m≤1+n)
 open import Data.Bool using (Bool)

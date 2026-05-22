@@ -1,0 +1,18 @@
+id: R20-GO-D-22.1
+round: R20
+category:
+  number: 22
+  name: (unspecified category 22)
+  language: go
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Go interface conformance assertion missing across build modes
+cluster: B
+resolution:
+  commit: dbd3e60
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

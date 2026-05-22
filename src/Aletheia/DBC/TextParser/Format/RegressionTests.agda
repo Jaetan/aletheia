@@ -19,7 +19,7 @@ module Aletheia.DBC.TextParser.Format.RegressionTests where
 
 open import Data.Bool using (Bool; T)
 open import Data.Char.Base using (isDigit)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.List using ([]; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_,_)
@@ -28,7 +28,7 @@ open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
 open import Aletheia.Parser.Combinators
-  using (Position; mkResult; advancePositions)
+  using (mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
@@ -37,8 +37,7 @@ open import Aletheia.DBC.TextFormatter.Emitter
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using (SuffixStops)
 
 open import Aletheia.DBC.TextParser.Format
-  using (Format; parse; emit;
-         literal; ident; nat; pair; refined; decRat; wsOpt; ws; altSum;
+  using (parse; literal; ident; nat; pair; refined; decRat; wsOpt; ws; altSum;
          roundtrip)
 
 -- L1: literal-only.  Witness: `tt : ⊤`.

@@ -10,7 +10,7 @@ module Aletheia.DBC.Formatter.WellFormed where
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; z≤n; s≤s; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
-open import Data.Nat.Properties using (≤-trans; <-≤-trans; *-monoˡ-≤)
+open import Data.Nat.Properties using (<-≤-trans; *-monoˡ-≤)
 open import Data.Integer using (+_; -[1+_])
 open import Data.List using (List)
 open import Data.List.Relation.Unary.All using (All)

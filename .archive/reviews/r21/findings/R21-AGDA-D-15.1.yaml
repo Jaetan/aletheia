@@ -1,0 +1,41 @@
+id: R21-AGDA-D-15.1
+round: R21
+category:
+  number: 15
+  name: Module structure
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX-PARTIAL
+status: closed
+title: 8 Agda modules over the 800-LOC split trigger
+description: 'Initially DEFER -- 8 modules required individual split work.  Closed
+  across multi-commit chain: 543acee (Primitives), 000761b (Format regression tests),
+  9421604 (AttrDef), 9c7740d (Dispatcher/Attribute/Assign), 627ad25 (Refine/ValueDescriptions),
+  5b48948 (Properties/Attributes/Line/Alt5), and 0b360fd (AttrLine/Builders -- the
+  final 8th candidate; landed during R22 after user-directed FIX directive 2026-05-17).'
+cluster: '9'
+resolution:
+  commit: '6210872'
+  round: R21
+  date: '2026-05-17'
+  notes: |
+    Round-scope: FIX-PARTIAL is accurate for R21 — 7 of 8 modules closed.
+    Issue-scope: CLOSED via R22 carry-over R22-AGDA-D-15.1 at 0b360fd
+    (Format/AttrLine.agda 1308 LOC -> 786 LOC via L5 + KEYWORD-TARGET
+    extraction into Format/AttrLine/Builders.agda sibling).
+
+    Module count climbed 250 -> 263 across the R21+R22 closure chain.
+
+    Verification 2026-05-22: all 8 originally-flagged modules confirmed
+    under the 800-LOC trigger; no residual remaining at the issue level.
+
+    Going forward, cat 15 module structure remains a Step-2 system-level
+    review category (no mechanical gate exists for the 800-LOC trigger);
+    new modules over the trigger surface as a fresh finding, not as a
+    re-raise of this one.
+re_raised_from: null
+in_source_marker: null
+tags:
+- multi-commit-closure
+- module-split

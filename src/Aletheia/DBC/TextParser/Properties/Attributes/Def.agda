@@ -20,17 +20,17 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Product using (_,_)
-open import Data.String using (String; toList)
+open import Data.String using (String)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePositions;
+  using (Position; Parser; mkResult; advancePositions;
          _>>=_; pure; many)
 open import Aletheia.DBC.Types using
   ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
-  ; AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
+  ; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
   ; ASNodeMsg; ASNodeSig
   ; AttrDef; mkAttrDef)
 
@@ -38,7 +38,7 @@ open import Aletheia.DBC.TextParser.Attributes using
   (parseAttrDef; parseAttrDefRel)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttrDef-chars; emitAttrType-chars; emitScopePrefix-chars; isRelScope)
+  (emitAttrDef-chars; emitAttrType-chars; isRelScope)
 open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using

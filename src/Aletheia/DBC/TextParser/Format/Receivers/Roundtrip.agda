@@ -22,17 +22,17 @@ module Aletheia.DBC.TextParser.Format.Receivers.Roundtrip where
 
 open import Data.Bool using (Bool; true; false; _∨_)
 open import Data.Char using (Char; _≈ᵇ_)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; s≤s; z≤n)
-open import Data.Product using (_×_; _,_)
-open import Data.Unit using (⊤; tt)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (s≤s; z≤n)
+open import Data.Product using (_,_)
+open import Data.Unit using (tt)
 open import Function using (case_of_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
+  using (mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.CanonicalReceivers
   using (CanonicalReceivers; mkCanonical)
@@ -40,8 +40,8 @@ open import Aletheia.DBC.CanonicalReceivers
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; ident; pair; many; iso; withPrefix;
-         emit; parse; EmitsOK; EmitsOKMany; ParseFailsAt;
+  using (ident; withPrefix;
+         emit; parse; EmitsOK; EmitsOKMany;
          []-fails; ∷-cons; roundtrip)
 open import Aletheia.DBC.TextParser.Format.Receivers
   using (canonicalReceiversFmt)

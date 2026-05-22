@@ -1,0 +1,19 @@
+id: R20-AGDA-B-26.1
+round: R20
+category:
+  number: 26
+  name: Equality discipline
+  language: agda
+  agent: B
+severity: low
+disposition: FP
+status: closed
+title: AGDA-B-26.1 parse-time validator Dec cold-path FP
+description: Cold-path Dec is fine; benchmark already shows it's not in the hot loop.
+cluster: S
+resolution:
+  commit: 637b2e0
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: src/Aletheia/DBC/

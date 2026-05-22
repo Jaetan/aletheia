@@ -1,0 +1,25 @@
+id: R21-DOCS-D-15.3
+round: R21
+category:
+  number: 15
+  name: Cross-document drift
+  language: docs
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: COOKBOOK.md listed 5 invented IssueCodes
+description: Names that don't exist in the Agda IssueCode ADT (signal_overlaps_another
+  / signal_exceeds_message_size / multiplexor_value_conflict / signal_factor_zero
+  / unused_signal).  Replaced with real ADT names.
+files:
+- docs/guides/COOKBOOK.md
+cluster: 13b
+resolution:
+  commit: e3cbea0
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null
+tags:
+- xdoc

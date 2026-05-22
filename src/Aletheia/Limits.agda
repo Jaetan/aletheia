@@ -34,7 +34,6 @@ module Aletheia.Limits where
 
 open import Data.Nat using (ℕ)
 open import Data.String using (String)
-open import Data.Bool using (Bool; true; false)
 
 -- ============================================================================
 -- BOUND KIND ENUM

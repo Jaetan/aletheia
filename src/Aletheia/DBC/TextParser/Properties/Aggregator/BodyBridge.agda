@@ -20,7 +20,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List; []; _∷_; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
-  renaming (++-assoc to ++ₗ-assoc; ++-identityʳ to ++ₗ-identityʳ)
+  renaming (++-assoc to ++ₗ-assoc)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 

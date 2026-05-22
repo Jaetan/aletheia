@@ -57,5 +57,4 @@ open import Aletheia.CAN.Encoding.Properties.Arithmetic.Rational public
         ; removeScaling-factor-zero-iff-nothing
         ; removeScaling-applyScaling-exact
         ; applyScaling-injective
-        ; applyScaling-removeScaling-bounded
         )

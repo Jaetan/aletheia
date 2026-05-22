@@ -16,11 +16,11 @@ open import Data.Char using (Char)
 open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; _+_; _≤ᵇ_; _<ᵇ_)
+open import Data.Nat using (ℕ; suc; _≤ᵇ_; _<ᵇ_)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; ValueTable; RawValueDesc)
+open import Aletheia.DBC.Types using (DBC; DBCMessage)
 open import Aletheia.DBC.BoundWalks using
   ( totalValueDescriptions
   ; firstOverBoundLC; firstOverBoundInMessages; firstOverBoundInComments
@@ -38,12 +38,11 @@ open import Aletheia.Error using
   ; ValidationFailed
   )
 open import Aletheia.Limits using
-  ( BoundKind; InputLengthBytes; ArrayCardinality; StringLength
+  ( InputLengthBytes; ArrayCardinality; StringLength
   ; max-dbc-text-bytes
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
-  ; max-string-length-bytes
   )
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.

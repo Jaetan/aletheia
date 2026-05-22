@@ -1,0 +1,22 @@
+id: R21-GO-B-8.1
+round: R21
+category:
+  number: 8
+  name: Wire validation
+  language: go
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: go/excel/ doubleToRational scale 10^6 vs binding-wide 10^9
+description: GPS-grade DBC factor 1e-7 round-tripped to Rational{0, 1} (silent round-to-zero)
+  breaking GPS/IMU precision on Excel-loaded checks.
+files:
+- go/excel/excel.go
+cluster: '5'
+resolution:
+  commit: 7e3b035
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

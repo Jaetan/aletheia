@@ -2,7 +2,7 @@
 //
 // Reads docs/LOG_EVENTS.yaml and asserts:
 //
-//   1. The YAML is well-formed (15 entries, each with name + valid level
+//   1. The YAML is well-formed (16 entries, each with name + valid level
 //      ∈ {debug, info, warn} + non-empty description, no duplicate names).
 //   2. Every event captured from a comprehensive workflow against the mock
 //      backend is a member of the canonical YAML name set — catches a
@@ -22,7 +22,7 @@
 //   - start_stream       (stream.started)
 //   - send_frame ack     (frame.processed)
 //   - send_frame violate (frame.processed + cache.miss + enrichment.*)
-//   - end_stream         (stream.ended)
+//   - end_stream         (stream.ended + endstream.uncached_atom per warning)
 //
 // Events not exercised (require exotic setups; they remain protected by
 // the membership assertion against any future drift): rts.cores_mismatch
@@ -102,7 +102,7 @@ auto canonical_event_set() -> std::set<std::string> {
 
 TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
     auto rows = load_log_events();
-    REQUIRE(rows.size() == 15);
+    REQUIRE(rows.size() == 16);
 
     std::set<std::string> seen;
     for (size_t i = 0; i < rows.size(); ++i) {
@@ -180,7 +180,8 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
         R"({"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]})");
     mock_ptr->queue_response(R"({
         "status":"complete",
-        "results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]
+        "results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}],
+        "warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
     })");
     mock_ptr->queue_response(
         R"({"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]})");
@@ -241,6 +242,11 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     // Sanity floor: dbc.parsed MUST be exercised — that's the path that
     // drifted; without this the gate is silently weakened.
     CHECK(unique_emitted.contains("dbc.parsed"));
+
+    // Sanity floor: the EndStream Complete carries an uncached_atom warning,
+    // so the per-warning event MUST fire — otherwise a future refactor that
+    // drops the emit site would slip past this gate.
+    CHECK(unique_emitted.contains("endstream.uncached_atom"));
 }
 
 // Unit test of the gate's rejection logic: confirms the canonical set

@@ -1,0 +1,23 @@
+id: R20-DOCS-B-4.2
+round: R20
+category:
+  number: 4
+  name: Examples / fences
+  language: docs
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: 10 tuple-unpack sites stale after R19 cluster 18 BRS/ESI 5->7-tuple
+description: PITCH/QUICKSTART/TUTORIAL/COOKBOOK/PYTHON_API/INTERFACES extended.  Slipped
+  past R18 cluster 11 + R19 cluster 18 because can_trace=[] empty-fixture mask kept
+  loop bodies un-iterated.
+files:
+- docs/
+cluster: L
+resolution:
+  commit: eb597f9
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

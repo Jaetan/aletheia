@@ -15,15 +15,14 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Line.Alt5 where
 
 open import Data.Char using (Char)
 open import Data.Integer using (ℤ)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
 open import Aletheia.Parser.Combinators
-  using (Position; mkResult;
-         _>>=_; pure)
+  using (mkResult; pure)
 
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
@@ -35,7 +34,7 @@ open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 
 open import Aletheia.DBC.TextParser.Attributes
   using ( parseAttrLine; parseRawAttrAssign
-        ; RawDBCAttribute; RawAssign
+        ; RawAssign
         ; mkRawAttrAssign
         ; RavString; RavDecRat)
 

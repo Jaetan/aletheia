@@ -43,10 +43,10 @@ open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
-open import Data.Product using (Σ-syntax)
+open import Data.Product using ()
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂; subst)
+  using (_≡_; refl; sym; trans; cong; cong₂)
 
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
@@ -54,21 +54,18 @@ open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
   (DBCSignal; SignalPresence; Always; When)
 
-open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec-chars; showNat-chars)
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitMuxMarker-chars; emitSignalLine-chars)
 
 open import Aletheia.DBC.Formatter.WellFormedText using
-  (WellFormedTextPresence; wftp-always; wftp-when-single;
-   WellFormedTextSignal)
+  (WellFormedTextPresence; wftp-always; wftp-when-single)
 
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (RawSignal; mkRawSignal;
    MuxMarker; NotMux; IsMux; SelBy)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOK; EmitsOKMany; []-fails; ∷-cons;
+  (Format; emit; parse; EmitsOKMany; []-fails; ∷-cons;
    ParseFailsAt; roundtrip)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.SignalLine using

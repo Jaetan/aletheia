@@ -5,14 +5,13 @@
 module Aletheia.DBC.Formatter.MessageRoundtrip.Standard where
 
 open import Data.Bool using (T)
-open import Data.Nat using (ℕ; suc; _<_; _≤_; _<ᵇ_; s≤s)
+open import Data.Nat using (_≤_; _<ᵇ_)
 open import Data.List using (List; map)
 open import Data.List.Relation.Unary.All using (All)
-open import Data.String using (String)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans)
 
-open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBCSignal)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Formatter.MetadataRoundtrip using (validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier)
 open import Aletheia.JSON using (JString)
@@ -20,7 +19,7 @@ open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
 open import Aletheia.DBC.JSONParser using (parseMessage;
   parseMessageId; parseMessageBody; parseCANId)
-open import Aletheia.CAN.Frame using (CANId; Standard)
+open import Aletheia.CAN.Frame using (Standard)
 open import Aletheia.CAN.Constants using (standard-can-id-max)
 open import Aletheia.Prelude using (ifᵀ-witness)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; PhysicallyValid;

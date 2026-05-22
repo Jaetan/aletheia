@@ -21,7 +21,7 @@
 module Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; foldl) renaming (_++_ to _++ₗ_)
+open import Data.List using ([]; _∷_; foldl) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _/_; _%_; _^_;
          _<_; z≤n; s≤s)
 open import Data.Nat.Properties

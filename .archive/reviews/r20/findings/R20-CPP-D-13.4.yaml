@@ -1,0 +1,26 @@
+id: R20-CPP-D-13.4
+round: R20
+category:
+  number: 13
+  name: Exception escape from documented contract
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: C++ std::runtime_error throws lacked ErrorKind discrimination
+description: 'New AletheiaException class deriving from std::runtime_error.  Holds
+  AletheiaError; exposes kind()/code()/error().  6 throw sites migrated.  Catch-site
+  update: catch (const AletheiaException&) BEFORE base (otherwise typed errors got
+  silently downgraded to Validation).'
+files:
+- cpp/include/aletheia/error.hpp
+- cpp/src/client.cpp
+- cpp/src/ffi_backend.cpp
+cluster: K
+resolution:
+  commit: ee76e91
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

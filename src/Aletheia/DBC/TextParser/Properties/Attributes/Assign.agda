@@ -34,47 +34,33 @@
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign where
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network public
-  using ( parseRawAttrAssign-after-keyword-Network
-        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
+  using ( parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
         ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac
         ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node public
   using ( IdentNameStop
-        ; parseRawAttrAssign-after-keyword-Node
         ; parseRawAttrAssign-roundtrip-ATgtNode-RavString
         ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac
         ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Message public
-  using ( wrapMsgTarget-roundtrip
-        ; parseMsgTgt-roundtrip
-        ; parseRawAttrAssign-after-keyword-Message
-        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavString
+  using ( parseRawAttrAssign-roundtrip-ATgtMessage-RavString
         ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac
         ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Signal public
-  using ( wrapSigTarget-roundtrip
-        ; parseSigTgt-roundtrip
-        ; parseRawAttrAssign-after-keyword-Signal
-        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavString
+  using ( parseRawAttrAssign-roundtrip-ATgtSignal-RavString
         ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac
         ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.EnvVar public
-  using ( parseEvTgt-roundtrip
-        ; parseRawAttrAssign-after-keyword-EnvVar
-        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString
+  using ( parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString
         ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac
         ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt)
 
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel public
-  using ( wrapNodeMsgTarget-roundtrip; wrapNodeSigTarget-roundtrip
-        ; parseNodeMsgTgt-roundtrip; parseNodeSigTgt-roundtrip
-        ; parseRawAttrRel-after-keyword-NodeMsg
-        ; parseRawAttrRel-after-keyword-NodeSig
-        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString
+  using ( parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString
         ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac
         ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
         ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavString

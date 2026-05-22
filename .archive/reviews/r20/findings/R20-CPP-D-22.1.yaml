@@ -1,0 +1,22 @@
+id: R20-CPP-D-22.1
+round: R20
+category:
+  number: 22
+  name: (unspecified category 22)
+  language: cpp
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: C++ send_frames mid-batch error wrap dropped bound_info
+description: Without the 4-arg ctor the 3-arg overload defaulted bound_info to nullopt,
+  dropping cross-binding parity with Python/Go bound-info preservation.
+files:
+- cpp/src/client.cpp
+cluster: D
+resolution:
+  commit: 9a73a48
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

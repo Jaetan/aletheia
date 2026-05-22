@@ -881,6 +881,13 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 	}
 	c.lastFrames = nil
 	if c.logger != nil {
+		for _, w := range sr.Warnings {
+			if w.Kind == "uncached_atom" {
+				c.logger.LogAttrs(ctx, slog.LevelWarn, "endstream.uncached_atom",
+					slog.Int("property_index", w.PropertyIndex),
+					slog.String("detail", w.Detail))
+			}
+		}
 		c.logger.LogAttrs(ctx, slog.LevelInfo, "stream.ended",
 			slog.Int("numResults", len(sr.Results)),
 			slog.Int("numFails", numFails),

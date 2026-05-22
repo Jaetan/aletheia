@@ -174,6 +174,7 @@ private:
     void enrich_violation(Violation& v, CanId id, Dlc dlc, std::span<const std::byte> data,
                           std::uint32_t id_value, bool is_extended);
     void enrich_property_result(PropertyResult& pr);
+    void log_end_stream_summary(const StreamResult& result);
     auto extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
                                std::span<const std::byte> data, std::uint32_t id_value,
                                bool is_extended) -> std::map<SignalName, PhysicalValue>;

@@ -13,17 +13,17 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Assign.Frac where
 
 open import Data.Char  using (Char)
-open import Data.List  using (List; []; _∷_)
+open import Data.List  using (List; _∷_)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult; advancePositions)
 
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.DecRat using (DecRat)
@@ -32,20 +32,20 @@ open import Aletheia.DBC.Types using
   ( AttrDef
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig
-  ; AttrValue; AVFloat
-  ; AttrAssign; mkAttrAssign
-  ; DBCAttribute; DBCAttrAssign
+  ; AVFloat
+  ; mkAttrAssign
+  ; DBCAttrAssign
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttribute-chars; emitAttrAssign-chars)
+  (emitAttribute-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; showDecRat-dec-chars; showℕ-dec-chars)
 
 open import Aletheia.DBC.TextParser.Attributes using
-  (RawDBCAttribute; RawAssign; mkRawAttrAssign
-  ; RawAttrValue;   RavDecRat
+  (RawAssign; mkRawAttrAssign
+  ; RavDecRat
   ; parseAttrLine)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using

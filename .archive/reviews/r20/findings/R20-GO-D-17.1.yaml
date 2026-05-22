@@ -1,0 +1,23 @@
+id: R20-GO-D-17.1
+round: R20
+category:
+  number: 17
+  name: Cross-layer parity
+  language: go
+  agent: D
+severity: low
+disposition: FP-VERIFIED
+status: closed
+title: GO-D-19.1 Rational wire form claim was FP
+description: 'Cross-binding evidence: Python/C++/Go all share to_double + {:g} pattern.  Wire
+  form is JSON {numerator, denominator}, not N/D string.  Switching to literal N/D
+  would regress test corpus across all 3 bindings.'
+cluster: R
+resolution:
+  commit: 10a07d6
+  round: R20
+  date: '2026-05-12'
+  notes: Smart renderer (exact decimal when DecRat-terminating, N/D otherwise) called
+    out as Phase-6 enhancement; cross-binding.
+re_raised_from: null
+in_source_marker: null

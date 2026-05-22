@@ -23,11 +23,11 @@ open import Aletheia.LTL.SignalPredicate.Cache
   using ( CachedSignal; mkCachedSignal; CacheEntries; SignalCache; mkSignalCache
         ; lookupEntries; updateEntries; lookupCache; updateCache; emptyCache )
 open import Aletheia.DBC.Identifier using
-  (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl; ≡csᵇ-refl-eq; ≡csᵇ-false→≢)
-open import Data.Bool using (Bool; true; false; T)
-open import Data.List using (List; []; _∷_; length)
+  (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl-eq)
+open import Data.Bool using (true; false; T)
+open import Data.List using ([]; _∷_; length)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.Nat using (ℕ; _≤_; z≤n; s≤s)
+open import Data.Nat using (_≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≤-refl)
 open import Aletheia.Trace.Time using (Timestamp; μs; _≤ᵗ_)
 open import Data.Product using (_,_; proj₂; ∃)

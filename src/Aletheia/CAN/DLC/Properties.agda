@@ -17,7 +17,7 @@ open import Data.Nat.Properties using (m≤m+n; ≤-refl; ≤-trans; 1+n≰n; �
 open import Data.Maybe using (just; Is-just)
 open import Data.Maybe.Properties using (just-injective)
 open import Data.Maybe.Relation.Unary.Any using () renaming (just to is-just)
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (true; false; T)
 open import Data.Product using (_×_; _,_; Σ-syntax)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥; ⊥-elim)

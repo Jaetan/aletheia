@@ -34,7 +34,7 @@ open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState)
-open import Aletheia.Error using (WithContext; HandlerErr; WrappedParse)
+open import Aletheia.Error using (WithContext)
 
 private
   -- True if `i` is structurally equal to any element of `xs`.

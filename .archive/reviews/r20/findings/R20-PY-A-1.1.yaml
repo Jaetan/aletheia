@@ -1,0 +1,20 @@
+id: R20-PY-A-1.1
+round: R20
+category:
+  number: 1
+  name: (unspecified category 1)
+  language: python
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: cli.py docstring missing format-dbc subcommand
+files:
+- python/aletheia/cli.py
+cluster: Q
+resolution:
+  commit: e15bd6d
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

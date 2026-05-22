@@ -43,7 +43,7 @@ production.
 
 ## Log Events
 
-Fifteen structured log events are emitted by the bindings. Levels
+Sixteen structured log events are emitted by the bindings. Levels
 (info / debug / warn) are the same in all three bindings; severity is
 informational below and authoritative in
 [LOG_EVENTS.yaml](../LOG_EVENTS.yaml).
@@ -256,6 +256,42 @@ Verify `python -m aletheia --version` (or equivalent) matches the
 loaded `libaletheia-ffi.so` build. The fix is usually a clean
 rebuild: `cabal run shake -- clean && cabal run shake -- build`,
 followed by a binding reinstall (`pip install -e python` for Python).
+
+### End-of-stream diagnostics
+
+#### `endstream.uncached_atom`
+
+**Symptom:** warn-level log line emitted from `end_stream` /
+`EndStream` / `end_stream`, one per warning the kernel carried on the
+`Complete` response; the structured record fields are
+`property_index` (integer) and `detail` (string — usually the
+unobserved signal name). The aggregate `stream.ended` event's
+`numWarnings` attribute equals the number of these per-warning records.
+
+**Cause:** The verified kernel walked every registered property's
+atoms at end-of-stream and found at least one atom whose target
+signal was never observed by the cache during the stream. The
+property's verdict is `Unresolved` — the kernel correctly refuses to
+satisfy or refute an `Always (atom)` it never had data for. The
+warning ratifies the verdict with diagnostic context (which property,
+which signal) so operators can grep for specific properties.
+
+**Action:** Investigate why the signal was absent. Common causes:
+- The property's predicate references a signal name that exists in
+  the DBC but is on a message the stream never carried (mux-only,
+  filtered upstream, or producer ECU silent for the session).
+- The signal is on a multiplexed branch that never won the mux
+  selector during the stream.
+- The stream is shorter than the warm-up window for a slow-cadence
+  message.
+
+If the absence is expected for the workload (e.g., the property
+guards a fault path the test session deliberately avoided), the
+`Unresolved` verdict is the correct outcome and the warning is
+informational. If the absence is a surprise, cross-check the
+property's signal name against the DBC (`dbc_queries`
+`signal_by_name` returns the message that hosts a given signal) and
+the producer side of the bus.
 
 ## Failure Modes
 
@@ -543,7 +579,7 @@ the kernel — no state was touched.
 
 ## See also
 
-- [LOG_EVENTS.yaml](../LOG_EVENTS.yaml) — canonical 15-event vocabulary.
+- [LOG_EVENTS.yaml](../LOG_EVENTS.yaml) — canonical 16-event vocabulary.
 - [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)
   — every wire-level error code, grouped by domain.
 - [PROTOCOL.md § Limits](../architecture/PROTOCOL.md#limits) —

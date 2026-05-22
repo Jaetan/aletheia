@@ -27,21 +27,21 @@
 -- `parseValueTable`.
 module Aletheia.DBC.TextParser.Format.Nodes where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; suc; s≤s; z≤n)
-open import Data.Product using (_×_; _,_; proj₂; Σ; Σ-syntax)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (s≤s; z≤n)
+open import Data.Product using (_×_; _,_; proj₂; Σ-syntax)
 open import Data.String using (toList)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; cong; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePositions)
+  using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.Types using (Node; mkNode)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
@@ -50,8 +50,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; pair; iso; many;
          altSum; wsOpt; ws; withPrefix;
-         emit; parse; EmitsOK; EmitsOKMany; ParseFailsAt;
-         []-fails; ∷-cons; roundtrip)
+         emit; parse; EmitsOK; EmitsOKMany; []-fails; ∷-cons; roundtrip)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators

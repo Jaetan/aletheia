@@ -12,7 +12,7 @@ module Aletheia.LTL.SignalPredicate.Types where
 
 open import Aletheia.Prelude
 open import Data.Char using (Char)
-open import Data.Rational using (ℚ)
+open import Data.Rational using ()
 
 -- ============================================================================
 -- SIGNAL EVALUATION VALUES (Extended Kleene logic)

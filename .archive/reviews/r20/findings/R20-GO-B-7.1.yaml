@@ -1,0 +1,19 @@
+id: R20-GO-B-7.1
+round: R20
+category:
+  number: 7
+  name: (unspecified category 7)
+  language: go
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: Go FFIBackend doesn't implement Backend in nocgo mode
+description: Type-tightening assertions added at compile time.
+cluster: B
+resolution:
+  commit: dbd3e60
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

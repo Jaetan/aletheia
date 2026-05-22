@@ -17,18 +17,18 @@
 module Aletheia.DBC.DecRat.RationalRoundtrip where
 
 open import Data.Nat.Base
-  using (ℕ; zero; suc; _+_; _*_; _^_; _<_; _≤_; s≤s; z≤n; z<s; s<s;
+  using (ℕ; zero; suc; _+_; _*_; _^_; _<_; _≤_; s≤s; z≤n;
          NonZero)
   renaming (_/_ to _/ₙ_; _%_ to _%ₙ_)
 open import Data.Nat.Properties
-  using (*-identityʳ; *-identityˡ; *-assoc; *-comm; *-zeroˡ; *-zeroʳ;
-         m^n≢0; m*n≢0; m^n>0; *-cancelˡ-≡; <-irrefl;
-         ≤-refl; <-trans; n<1+n; suc-injective; suc-pred)
+  using (*-identityʳ; *-identityˡ; *-assoc; *-comm;
+         m^n≢0; m*n≢0; m^n>0;
+         suc-injective; suc-pred)
   renaming (_≟_ to _≟ₙ_)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat.Divisibility
-  using (_∣_; _∤_; _∣?_; divides; ∣-refl; ∣-trans; ∣1⇒≡1; >⇒∤;
-         m%n≡0⇒n∣m; n∣m⇒m%n≡0)
+  using (_∤_; _∣?_; ∣-refl; ∣1⇒≡1; >⇒∤;
+         m%n≡0⇒n∣m)
 open import Data.Nat.DivMod using (m*n/n≡m; m*n%n≡0)
 open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.Maybe using (just)
@@ -36,19 +36,15 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 open import Relation.Nullary using (yes; no)
 
-open import Data.Bool.Base using (Bool; T; not)
+open import Data.Bool.Base using ()
 open import Data.Bool.Properties using (T?)
 open import Data.Integer.Base using (+_; ∣_∣; sign; _◃_)
 open import Data.Integer.Properties using (signᵢ◃∣i∣≡i)
-open import Relation.Nullary.Decidable.Core using (isYes)
 import Relation.Nullary.Decidable.Core as Dec
 open import Data.Nat.Coprimality
-  using (Coprime; coprime-divisor; 1-coprimeTo)
-  renaming (sym to coprime-sym)
-open import Data.Nat.Primality
-  using (Prime; prime[2]; prime?; prime⇒irreducible; Irreducible)
+  using (Coprime)
 open import Data.Rational.Base
-  using (ℚ; mkℚ; mkℚ+; normalize; -_; ↥_; ↧_; ↧ₙ_)
+  using (ℚ; mkℚ; normalize; -_; ↥_)
 import Data.Rational.Base as ℚB
 open import Data.Rational.Properties
   using (normalize-coprime; normalize-cong)
@@ -58,8 +54,7 @@ open import Aletheia.DBC.DecRat using
    fromℚ?-raw; canonicalizeDecRat; canonicalizeNat;
    stripShared2-abs; stripShared5-abs; stripFactor-fuel;
    2^a·5^b-NonZero; T-not-isYes-∤; splitBool-T;
-   prime[5]; ∤-prime⇒coprime; coprime-product; coprime-prime-power;
-   IsCanonical→Coprime)
+   prime[5]; ∤-prime⇒coprime; coprime-prime-power)
 import Aletheia.DBC.DecRat as D
 
 -- ----------------------------------------------------------------------------
@@ -374,7 +369,7 @@ n≤p^n p _   zero    = z≤n
 n≤p^n p 2≤p (suc n) = ≤-trans step₁ step₂
   where
   open import Data.Nat.Properties using (+-mono-≤; ≤-trans; ≤-refl; +-identityʳ;
-                                          *-monoˡ-≤; *-monoʳ-≤; m≤n+m; m≤m+n)
+                                          *-monoˡ-≤)
 
   ih : n ≤ p ^ n
   ih = n≤p^n p 2≤p n

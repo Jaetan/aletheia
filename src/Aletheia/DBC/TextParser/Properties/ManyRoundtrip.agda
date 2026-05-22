@@ -23,7 +23,7 @@
 -- (this module) + IH.  Position bridge via `advancePositions-++`.
 module Aletheia.DBC.TextParser.Properties.ManyRoundtrip where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; foldr; length; map)
@@ -31,12 +31,11 @@ open import Data.List using (List; []; _∷_; foldr; length; map)
 open import Data.List.Properties using (length-++)
   renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using
   (ℕ; zero; suc; _+_; _≤_; _<_; s≤s; z≤n)
 open import Data.Nat.Properties using
   (m≤n+m; m≤m+n; <⇒≢; ≤-trans; ≤-step; +-mono-≤)
-open import Relation.Nullary using (¬_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; subst)
 

@@ -56,9 +56,9 @@ open import Aletheia.DBC.Validity.WarningChecks using
   ; checkAllUnknownAdditionalSenders-allW
   ; checkAllUnknownValueDescriptionTargets-allW
   )
-open import Data.List using (List; []) renaming (_++_ to _++ₗ_)
+open import Data.List using ([])
 open import Data.Product using (proj₁; proj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_)
 
 -- ============================================================================
 -- SOUNDNESS: no errors reported ⟹ DBC is valid

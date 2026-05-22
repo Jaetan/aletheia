@@ -17,8 +17,7 @@ open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL;
   denot; initProc)
 open import Aletheia.LTL.Simplify using (simplify)
-open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied;
-  StepResult)
+open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied)
 open import Aletheia.LTL.Adequacy using (runL; verdictToSV; adequacy)
 open import Aletheia.LTL.Adequacy.SoundOps using (Sound)
 open import Aletheia.LTL.SimplifySound using (simplify-runL)

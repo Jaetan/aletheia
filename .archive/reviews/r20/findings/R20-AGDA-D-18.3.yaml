@@ -1,0 +1,20 @@
+id: R20-AGDA-D-18.3
+round: R20
+category:
+  number: 18
+  name: (unspecified category 18)
+  language: agda
+  agent: D
+severity: low
+disposition: NO-FIX
+status: closed
+title: 'Final pre-merge audit: in-source DO-NOT-RE-RAISE blocks'
+description: R20-AGDA-D-19.3/D-GA20.1 nothing!=just in StreamingWarm.agda, R20-GO-A-3.6/3.7
+  already noted.  Every open R20 item now has durable in-source justification.
+cluster: user-redirect
+resolution:
+  commit: 3194ea4
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: src/Aletheia/Protocol/StreamingWarm.agda

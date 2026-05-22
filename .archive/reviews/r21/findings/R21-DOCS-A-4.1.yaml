@@ -1,0 +1,18 @@
+id: R21-DOCS-A-4.1
+round: R21
+category:
+  number: 4
+  name: Examples / fences
+  language: docs
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Example fence drift (DOCS-A-4.1)
+cluster: '11'
+resolution:
+  commit: 7cd017e
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

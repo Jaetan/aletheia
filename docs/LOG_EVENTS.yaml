@@ -102,3 +102,9 @@ events:
   - name: extraction.parse_failed
     level: warn
     description: An extraction response could not be parsed (malformed JSON or schema violation) — error recorded, stream continues.
+
+  # --- End-of-stream diagnostics (warn) ---
+
+  - name: endstream.uncached_atom
+    level: warn
+    description: An atom referenced a signal the cache never observed before stream end — the kernel emitted one warning per such atom on the Complete response; bindings re-emit them per-warning with property_index and detail so operators can grep for specific properties.

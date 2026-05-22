@@ -1,0 +1,21 @@
+id: R20-GO-A-1.3
+round: R20
+category:
+  number: 1
+  name: (unspecified category 1)
+  language: go
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Go enrich.go default-branch comments rephrase
+description: Name sealedFormula/sealedPredicate markers as structural reason.
+files:
+- go/aletheia/enrich.go
+cluster: Q
+resolution:
+  commit: e15bd6d
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

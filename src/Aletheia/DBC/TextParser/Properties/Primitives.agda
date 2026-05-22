@@ -36,40 +36,33 @@ open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Data.String using (String; toList)
-open import Data.Unit using (tt)
+open import Data.Unit using ()
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 
-open import Data.Bool.Base using (if_then_else_)
-open import Data.Char.Base using (_≈ᵇ_; toℕ; isDigit)
+open import Data.Char.Base using (_≈ᵇ_; toℕ)
 open import Data.Char using () renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Properties using (toℕ-injective)
 open import Data.List using (foldr; length)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Nat using (ℕ; zero; suc; _≤_; z≤n; s≤s; _+_)
+open import Data.Nat using (ℕ; zero; suc; _≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≡⇒≡ᵇ; ≡ᵇ⇒≡; m≤n⇒m≤1+n; m≤m+n; ≤-trans)
 open import Data.Unit using (tt)
 open import Relation.Nullary.Decidable using (⌊_⌋; yes; no)
 open import Relation.Nullary using (¬_)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult; advancePosition; advancePositions;
-   pure; fail; _>>=_; _<|>_; _*>_; _<*_; _<$>_; satisfy; many; manyHelper;
+  (Parser; Position; mkResult; advancePosition; advancePositions;
+   pure; _>>=_; _<|>_; _*>_; _<$>_; satisfy; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; mkIdentFromChars; isIdentStart; isIdentCont;
    validIdentifierᵇ; allᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; buildIdent; fromMaybeIdent;
-   parseStringLit; parseStringChar; parseWS; parseWSOpt; isHSpace;
-   parseNatural)
-open import Aletheia.DBC.TextParser.Topology.Foundations using
-  (parseByteOrderDigit; parseSignFlag;
-   parseMuxMarker; MuxMarker; NotMux; IsMux; SelBy; BothMux)
-open import Aletheia.DBC.TextFormatter.Topology using
-  (emitByteOrderDigit-chars; emitSignFlag-chars; emitMuxMarker-chars)
+   parseStringLit; parseStringChar; parseWS; isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (quoteStringLit-chars; escapeChar-chars; showℕ-dec-chars; showNat-chars)
+  (quoteStringLit-chars; escapeChar-chars)
 -- Post-3d.4 + JSON-mirror: Substrate.Unsafe is no longer imported here.
 -- `mkIdentFromCharsUnsafe-on-valid` (which needed `fromList∘toList`)
 -- becomes `mkIdentFromChars-on-valid` (axiom-free, via `T?` decision).
@@ -77,12 +70,10 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 -- back to the same `cs`, so the trailing `fromList∘toList s` cong step
 -- is gone.  This module becomes axiom-free and lifts to `--safe`.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; []-stop; ∷-stop; bind-just-step;
+  (SuffixStops; ∷-stop; bind-just-step;
    manyHelper-satisfy-exhaust-many; sameLengthᵇ-cons;
-   advancePositions-++; parseNatural-showNat-chars)
+   advancePositions-++)
 open import Aletheia.Prelude using (T→true)
-open import Aletheia.CAN.Endianness using
-  (ByteOrder; LittleEndian; BigEndian)
 
 -- ============================================================================
 -- Probe 1 — decompose-valid

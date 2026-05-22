@@ -20,40 +20,34 @@
 -- header note kept under that name for backwards compatibility.
 module Aletheia.DBC.TextParser.Topology.SignalLine where
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
-open import Data.Bool using (Bool; if_then_else_)
-open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; map)
+open import Data.Bool using (if_then_else_)
+open import Data.List using (List; []; _∷_)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _%_; _≤ᵇ_)
 open import Data.Product using (proj₁; proj₂)
-open import Aletheia.DBC.DecRat using (DecRat)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; fail; _>>=_; _<|>_; _*>_; _<$>_;
-   char; string; many)
+  (Parser; pure; fail; _>>=_; _*>_;
+   many)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseWS; parseWSOpt; parseNewline; parseNatural)
+  (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (MuxMarker; NotMux; IsMux; SelBy; BothMux;
    buildCANId)
 open import Aletheia.DBC.TextParser.Topology.Foundations public using
   (RawSignal; mkRawSignal)
 open import Aletheia.DBC.TextParser.Format using (parse)
-open import Aletheia.DBC.TextParser.Format.Receivers using (canonicalReceiversFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 open import Aletheia.DBC.TextParser.Format.Nodes using (nodeListFmt)
 
 open import Aletheia.DBC.Types using
-  (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
-open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.CAN.DLC using (DLC; bytesToValidDLC)
+  (DBCMessage; DBCSignal; SignalPresence; Always; When; Node)
+open import Aletheia.CAN.DLC using (bytesToValidDLC)
 open import Aletheia.CAN.Endianness using
-  (ByteOrder; convertStartBit)
-open import Aletheia.CAN.Signal using (SignalDef)
+  (convertStartBit)
 open import Aletheia.CAN.Constants using
   (max-physical-bits)
 

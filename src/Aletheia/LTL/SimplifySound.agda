@@ -45,26 +45,11 @@ module Aletheia.LTL.SimplifySound where
 -- DECOMPOSITION LAYER: ≡ᵇ correctness, idempotency, runL congruence
 -- ============================================================================
 open import Aletheia.LTL.SimplifySound.Decomposition public
-  using ( ≡ᵇ-proc-correct
-        ; and-idem-runL
-        ; or-idem-runL
-        ; and-nested-idem-runL
-        ; or-nested-idem-runL
-        ; and-always-nonempty
-        ; or-eventually-nonempty
-        ; runL-and-right-True
-        ; runL-and-right-False
-        ; runL-and-cong-r
-        ; runL-or-right-True
-        ; runL-or-right-False
-        ; runL-or-cong-r
-        )
+  using ( )
 
 -- ============================================================================
 -- COMPOSITION LAYER: absorb-runL, simplify-runL, simplify-finalize-sv
 -- ============================================================================
 open import Aletheia.LTL.SimplifySound.Composition public
-  using ( absorb-runL
-        ; simplify-runL
-        ; simplify-finalize-sv
+  using ( simplify-runL
         )

@@ -13,11 +13,9 @@ open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
   ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr
   ; ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
-  ; GlobalNameCollision; SignalPresence; Always; When
-  ; Node; DBCComment; EnvironmentVar
-  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef
-  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
-  ; RawValueDesc )
+  ; GlobalNameCollision; Always; When
+  ; DBCComment
+  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames
@@ -56,10 +54,10 @@ open import Aletheia.DBC.Validity.Combinators using
   ; rejectDec-sound; rejectDec-complete
   ; liftTriangular-sound; liftTriangular-complete
   ; triangularCheck )
-open import Data.List using (List; []; _∷_; map; filter; concatMap)
+open import Data.List using ([]; _∷_; map; filter; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
-open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
+open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any; any?)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)

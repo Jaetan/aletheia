@@ -1,0 +1,23 @@
+id: R20-GO-D-15.1
+round: R20
+category:
+  number: 15
+  name: (unspecified category 15)
+  language: go
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: 'R19 cluster 5 carry-over: NewDbcMessage -> NewDBCMessage et al'
+description: NewDBCMessage/NewDBCDefinition + FormatDBCBinary across 4 impls + WithDBCSheet
+  + 5 unexported parseDbc* + formatDbcFn + 12 test helpers.
+files:
+- go/aletheia/
+- go/excel/
+cluster: O
+resolution:
+  commit: 8bb0055
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

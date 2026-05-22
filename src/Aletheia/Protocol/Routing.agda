@@ -8,10 +8,10 @@
 -- Validation: All required fields checked, typed RouteError on failure.
 module Aletheia.Protocol.Routing where
 
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Bool using (Bool; T; true; false; if_then_else_)
+open import Data.Bool using (if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ; zero; suc; _<ᵇ_)
@@ -20,16 +20,16 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
 open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; mapₑ; ifᵀ_then_else_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; lookupBool; getInt)
+open import Aletheia.Protocol.JSON using (JSON; lookupString; lookupNat; lookupArray; lookupBool; getInt)
 open import Aletheia.DBC.JSONParser using (parseCANId)
 open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; SendFrame; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
-open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
+open import Aletheia.CAN.Frame using (Byte; CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.Error using
   ( Error; RouteErr; InputBoundExceeded
   ; RouteError; RouteMissingField; RouteMissingArray; UnknownCommand
   ; MissingCommandField; DLCExceedsMax; ByteArrayParseFailed
-  ; ByteCountMismatch; MissingDBCField; MissingPropsField; WrappedParse
+  ; ByteCountMismatch; MissingDBCField; MissingPropsField
   ; InContext
   )
 open import Aletheia.Limits using (FrameByteCount; max-frame-byte-count)

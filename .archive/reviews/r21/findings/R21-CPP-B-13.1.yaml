@@ -1,0 +1,22 @@
+id: R21-CPP-B-13.1
+round: R21
+category:
+  number: 13
+  name: Exception escape from documented contract
+  language: cpp
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: set_properties leaked AletheiaException(Ffi) from build_diagnostic
+description: R20 cluster Y stage 2 moved Rational rendering through FFI.  build_diagnostic
+  now reached format_rational_ffi which can throw.  Result<void> contract violated.
+files:
+- cpp/src/client.cpp
+cluster: '6'
+resolution:
+  commit: cb96c39
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

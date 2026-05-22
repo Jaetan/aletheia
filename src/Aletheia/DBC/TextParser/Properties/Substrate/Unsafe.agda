@@ -73,7 +73,7 @@ module Aletheia.DBC.TextParser.Properties.Substrate.Unsafe where
 open import Data.Char using (Char)
 open import Data.List using (List)
 open import Data.String using (String; toList; fromList)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; trans; cong)
 

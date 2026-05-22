@@ -660,24 +660,34 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
                     enrich_property_result(pr);
             }
         }
-        if (logger_) {
-            std::uint64_t num_fails = 0;
-            std::uint64_t num_unresolved = 0;
-            for (const auto& pr : result->results) {
-                if (pr.verdict == Verdict::Fails)
-                    ++num_fails;
-                else if (pr.verdict == Verdict::Unresolved)
-                    ++num_unresolved;
-            }
-            logger_.info("stream.ended",
-                         {{"numResults", static_cast<std::uint64_t>(result->results.size())},
-                          {"numFails", num_fails},
-                          {"numUnresolved", num_unresolved},
-                          {"numWarnings", static_cast<std::uint64_t>(result->warnings.size())}});
-        }
+        if (logger_)
+            log_end_stream_summary(*result);
         last_frames_.clear();
     }
     return result;
+}
+
+void AletheiaClient::log_end_stream_summary(const StreamResult& result) {
+    std::uint64_t num_fails = 0;
+    std::uint64_t num_unresolved = 0;
+    for (const auto& pr : result.results) {
+        if (pr.verdict == Verdict::Fails)
+            ++num_fails;
+        else if (pr.verdict == Verdict::Unresolved)
+            ++num_unresolved;
+    }
+    for (const auto& w : result.warnings) {
+        if (w.kind == "uncached_atom") {
+            logger_.warn("endstream.uncached_atom",
+                         {{"property_index", static_cast<std::uint64_t>(w.property_index.get())},
+                          {"detail", std::string_view{w.detail}}});
+        }
+    }
+    logger_.info("stream.ended",
+                 {{"numResults", static_cast<std::uint64_t>(result.results.size())},
+                  {"numFails", num_fails},
+                  {"numUnresolved", num_unresolved},
+                  {"numWarnings", static_cast<std::uint64_t>(result.warnings.size())}});
 }
 
 // ---------------------------------------------------------------------------

@@ -32,20 +32,20 @@ open import Aletheia.JSON using (JSON; JObject; JString; JStringS; JNumber; JBoo
 open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
   SignalGroup; EnvironmentVar; ValueTable; varTypeToℕ;
-  Node; mkNode; DBCComment; mkComment;
+  Node; DBCComment;
   CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
   AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar; ASNodeMsg; ASNodeSig;
   AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex;
   AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex;
   AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig;
-  AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
+  AttrDef; AttrDefault; AttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
-  RawValueDesc; mkRawValueDesc)
+  RawValueDesc)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat using (toℚ)
 
 -- ============================================================================
 -- HELPER: ℕ → JNumber

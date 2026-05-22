@@ -1,0 +1,21 @@
+id: R20-GO-B-24.1
+round: R20
+category:
+  number: 24
+  name: (unspecified category 24)
+  language: go
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: Go rationalLess used int64 cross-product (overflow risk)
+description: Replaced with math/big.Int cross-product.
+files:
+- go/aletheia/rational.go
+cluster: C
+resolution:
+  commit: c2c6bab
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

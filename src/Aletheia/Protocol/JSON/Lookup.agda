@@ -13,13 +13,13 @@ open import Data.Bool using (Bool)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣)
-open import Data.Rational as Rat using (ℚ; _/_; toℚᵘ)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ)
+open import Data.Rational as Rat using (ℚ; _/_)
+open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ)
 open import Data.Product using (_×_)
 open import Data.Nat.Divisibility using (_∣?_)
 open import Relation.Nullary using (yes; no)
 open import Aletheia.Prelude using (lookupByKey)
-open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
+open import Aletheia.Protocol.JSON.Types using (JSON; JBool; JNumber; JString; JArray; JObject)
 
 -- ============================================================================
 -- VALUE EXTRACTORS

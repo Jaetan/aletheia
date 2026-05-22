@@ -12,7 +12,7 @@ open import Data.String using (String; toList; _≟_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Product using (proj₁; _×_; _,_)
 open import Data.List using (List; length)
-open import Data.Nat using (ℕ; _≤ᵇ_; _<ᵇ_; suc)
+open import Data.Nat using (_≤ᵇ_; _<ᵇ_; suc)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
@@ -24,9 +24,9 @@ open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers using (processStreamCommand)
 open import Aletheia.Error using
-  ( Error; ParseErr; DispatchErr
-  ; ParseError; InputBoundExceeded
-  ; DispatchError; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
+  ( Error; DispatchErr
+  ; InputBoundExceeded
+  ; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
   )
 open import Aletheia.Limits using
   ( InputLengthBytes; NestingDepth

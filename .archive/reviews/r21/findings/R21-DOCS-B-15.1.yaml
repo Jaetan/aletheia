@@ -1,0 +1,18 @@
+id: R21-DOCS-B-15.1
+round: R21
+category:
+  number: 15
+  name: Cross-document drift
+  language: docs
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: Cross-document drift (DOCS-B-15.1)
+cluster: '11'
+resolution:
+  commit: 7cd017e
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

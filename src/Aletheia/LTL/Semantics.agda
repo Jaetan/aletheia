@@ -30,7 +30,7 @@ open import Data.Nat using (_≤ᵇ_)
 
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; tsValue)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ; tsValue)
 
 open TruthVal
 

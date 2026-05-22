@@ -40,7 +40,7 @@ open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Sum using (inj₂)
-open import Data.Nat using (ℕ; _+_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
+open import Data.Nat using (ℕ; _<_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
 open import Data.Rational using (ℚ; 0ℚ)
 open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_)
 open import Aletheia.DBC.DecRat using (toℚ)
@@ -53,7 +53,7 @@ import Data.List.Relation.Unary.All as StdAll
 import Data.List.Relation.Unary.AllPairs as StdAP
 open import Data.Empty using (⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
-open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Relation.Nullary using (Dec; yes; no)
 open import Function using (case_of_)
 
 -- ============================================================================

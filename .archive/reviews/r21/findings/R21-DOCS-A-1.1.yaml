@@ -1,0 +1,22 @@
+id: R21-DOCS-A-1.1
+round: R21
+category:
+  number: 1
+  name: Accuracy / drift
+  language: docs
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: go/README.md import path (DOCS-A-1.1)
+description: Example import path wrong vs go/go.mod -- example as written would not
+  compile.
+files:
+- go/README.md
+cluster: '11'
+resolution:
+  commit: 7cd017e
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

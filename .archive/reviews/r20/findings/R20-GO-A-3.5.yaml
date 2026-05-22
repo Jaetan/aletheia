@@ -1,0 +1,24 @@
+id: R20-GO-A-3.5
+round: R20
+category:
+  number: 3
+  name: (unspecified category 3)
+  language: go
+  agent: A
+severity: low
+disposition: DEFER
+status: closed
+title: Go MuxValues() method shadows Multiplexed.MuxValues field
+description: Needs cross-binding fix (C++/Python use multiplex_values; Go-only rename
+  would widen parity gap).  Closed in user-redirect b77ec3a cross-binding rename to
+  MultiplexValues.
+files:
+- go/aletheia/dbc.go
+cluster: O
+resolution:
+  commit: 8bb0055
+  round: R20
+  date: '2026-05-12'
+  notes: DEFER followed by cross-binding closure at b77ec3a.
+re_raised_from: null
+in_source_marker: null

@@ -14,18 +14,17 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Assign.Bridges where
 
 open import Data.Char  using (Char)
-open import Data.Integer using (ℤ; +_)
-open import Data.List  using (List; []; _∷_)
+open import Data.Integer using (+_)
+open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Product using (proj₁; proj₂)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; cong; subst)
+  using (_≡_; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions)
+  (Position; mkResult)
 
-open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; NatDecRat
   ; intDecRatToℤ; natDecRatToℕ
@@ -35,21 +34,20 @@ open import Aletheia.DBC.DecRat.Refinement using
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
   ( AttrDef
-  ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
+  ; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig
-  ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  ; AttrAssign; mkAttrAssign
-  ; DBCAttribute; DBCAttrAssign
+  ; AVInt; AVEnum; AVHex
+  ; mkAttrAssign
+  ; DBCAttrAssign
   )
 
 open import Aletheia.DBC.TextFormatter.Attributes using
   ( emitAttribute-chars
-  ; emitAttrAssign-chars
   )
 
 open import Aletheia.DBC.TextParser.Attributes using
-  ( RawDBCAttribute; RawAssign; mkRawAttrAssign
-  ; RawAttrValue;   RavDecRat; RavString
+  ( RawAssign; mkRawAttrAssign
+  ; RavDecRat
   ; parseAttrLine
   )
 
@@ -84,7 +82,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showInt-chars; showℕ-dec-chars; quoteStringLit-chars)
+  (showInt-chars; showℕ-dec-chars)
 
 -- ============================================================================
 -- AVInt × 7 targets  (bridge: fromℤ-intDecRatToℤ z')

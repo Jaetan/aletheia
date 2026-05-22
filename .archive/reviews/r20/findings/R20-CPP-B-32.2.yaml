@@ -1,0 +1,19 @@
+id: R20-CPP-B-32.2
+round: R20
+category:
+  number: 32
+  name: CI hardening (sanitizers, clang-tidy promotion)
+  language: cpp
+  agent: B
+severity: high
+disposition: FIX
+status: closed
+title: C++ Excel ZIP-bomb defence (CPP-B-29.2)
+description: Defensive central-directory walker (no third-party dep).
+cluster: N
+resolution:
+  commit: d5f28b8
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

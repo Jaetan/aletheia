@@ -1,0 +1,22 @@
+id: R21-GO-D-17.1
+round: R21
+category:
+  number: 17
+  name: Cross-layer parity
+  language: go
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: Go Backend interface lacked Thread Safety section in doc-comment
+description: Caller-serialisation contract documented in interface.  Client provides
+  serialisation via internal lockCh channel; direct callers must equivalent-serialise.
+files:
+- go/aletheia/backend.go
+cluster: 13a
+resolution:
+  commit: b611250
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

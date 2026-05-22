@@ -1,0 +1,24 @@
+id: R20-PY-A-5.3
+round: R20
+category:
+  number: 5
+  name: (unspecified category 5)
+  language: python
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: Python production raise ValueError(...) sites mass migrated to ValidationError
+description: '65+ raise sites across _types/_enrichment/_helpers/dsl/checks/etc.  Stdlib
+  except ValueError catches preserved as control flow.  cli.py production fallthrough
+  fix: except ValueError -> except ValidationError (mux-query name-fallback path was
+  silently failing).'
+files:
+- python/aletheia/
+cluster: J
+resolution:
+  commit: efa041f
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

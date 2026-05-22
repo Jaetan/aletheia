@@ -30,15 +30,14 @@
 module Aletheia.DBC.DecRat.Refinement where
 
 open import Data.Bool using (Bool; true; false; T)
-open import Data.Empty using (⊥; ⊥-elim)
+open import Data.Empty using ()
 open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Unit using (⊤; tt)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; cong; cong₂; subst)
+  using (_≡_; refl; sym; subst)
 
-open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ; 0ᵈ; 1ᵈ)
+open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 
 -- ============================================================================
 -- INTEGER PREDICATE

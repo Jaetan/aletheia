@@ -1,0 +1,23 @@
+id: R21-AGDA-A-4.1
+round: R21
+category:
+  number: 4
+  name: Comment quality
+  language: agda
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Format.agda module header documents stale 3d.5.a state
+description: Header described 3 constructors / 'resist speculative growth' which became
+  stale as the DSL grew to 18 constructors.  Updated header to cross-reference CLAUDE.md's
+  Format DSL toolkit section.
+files:
+- src/Aletheia/DBC/TextParser/Format.agda
+cluster: '10'
+resolution:
+  commit: 3ed5bb4
+  round: R21
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

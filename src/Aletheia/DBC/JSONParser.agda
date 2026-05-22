@@ -32,8 +32,8 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
   RawValueDesc; mkRawValueDesc)
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; mkIdentFromChars; validIdentifierᵇ)
-open import Relation.Nullary.Decidable using (Dec; yes; no; T?)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
+open import Relation.Nullary.Decidable using (yes; no; T?)
 open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 open import Aletheia.DBC.DecRat.Refinement using (mkIntDecRatFromℤ; mkNatDecRatFromℕ)
 open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupChars; lookupBool; lookupInt;
@@ -50,7 +50,6 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Nat using (ℕ; suc; _%_; _≤ᵇ_; _+_; _<ᵇ_; _∸_; _*_)
-open import Data.Integer using (ℤ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
@@ -58,7 +57,7 @@ open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-m
 open import Aletheia.Prelude using (require; _>>=ₑ_; ifᵀ_then_else_; mapₑ)
 open import Aletheia.Error using
   ( Error; ParseErr; InputBoundExceeded; WithContext
-  ; ParseError; MissingField; InvalidByteOrder; InvalidPresence
+  ; MissingField; InvalidByteOrder; InvalidPresence
   ; MissingSigned; InvalidSigned; NotAnObject; ExtCANIdOutOfRange
   ; StdCANIdOutOfRange; DefaultCANIdOutOfRange; InvalidDLCBytes
   ; RootNotObject; MissingSignalName; InContext

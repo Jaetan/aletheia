@@ -18,14 +18,14 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions;
+  (Position; mkResult; advancePositions;
    _>>=_; pure)
 
 open import Aletheia.DBC.Types using
-  (DBCComment; mkComment; CommentTarget;
+  (DBCComment; mkComment;
    CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSComment; parseTopStmt)
+  (TSComment; parseTopStmt)
 open import Aletheia.DBC.TextParser.Comments using
   (parseComment)
 

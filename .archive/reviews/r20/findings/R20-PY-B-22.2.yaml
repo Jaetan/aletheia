@@ -1,0 +1,18 @@
+id: R20-PY-B-22.2
+round: R20
+category:
+  number: 22
+  name: Architectural form / DI seam
+  language: python
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: MockBackend conformance tests (PY-B-22.2)
+cluster: P
+resolution:
+  commit: 4dd3c05
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,22 @@
+id: R20-AGDA-A-1.1
+round: R20
+category:
+  number: 1
+  name: Dead code
+  language: agda
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Aletheia.Main facade missing 5 drifted Protocol.Message ctors
+description: SendFrame/ParseDBCText/FormatDBCText/DBCTextResponse/ParsedDBCResponse
+  added to facade (dispatcher already handled them).
+files:
+- src/Aletheia/Main.agda
+cluster: Q
+resolution:
+  commit: e15bd6d
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

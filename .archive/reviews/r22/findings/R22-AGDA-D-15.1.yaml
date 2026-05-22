@@ -1,0 +1,52 @@
+id: R22-AGDA-D-15.1
+round: R22
+category:
+  number: 15
+  name: Module structure
+  language: agda
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+cluster: "carry-over"
+title: "AGDA-D-15.1 final 8th module split (AttrLine.agda)"
+description: |
+  R21 finding R21-AGDA-D-15.1 closed 7 of 8 modules over the 800-LOC
+  split trigger (DecRatParse, Primitives, Format regression tests,
+  AttrDef, Dispatcher/Attribute/Assign, Refine/ValueDescriptions,
+  Properties/Attributes/Line/Alt5).  R22 carry-over closed the 8th:
+  Format/AttrLine.agda 1308 LOC -> 786 LOC via L5 disjointness +
+  KEYWORD-TARGET emit equations + L5 builders extracted to
+  Format/AttrLine/Builders.agda sibling (546 LOC).
+
+  Pattern: external-consumer-redirect (mirrors R20 cluster Y's
+  Aggregator/Refine/ValueDescriptions split at 627ad25).  Module-level
+  `private` controls name export but not definitional reduction;
+  consumer reductions through `attrAssignFmt` / `stdTargetWireFmt`
+  work via unfolding through still-private helpers.
+
+  6 consumer Properties/Attributes/Assign/{EnvVar,Message,Network,Node,
+  Rel,Signal}.agda files split their `using` clause to import the
+  promoted-to-public `parseStdTgtL1-fails-on-non-keyword-head` and
+  `bridge-emit-tail`.
+files:
+  - src/Aletheia/DBC/TextParser/Format/AttrLine.agda
+  - src/Aletheia/DBC/TextParser/Format/AttrLine/Builders.agda
+  - src/Aletheia/DBC/TextParser/Properties/Attributes/Assign/EnvVar.agda
+  - src/Aletheia/DBC/TextParser/Properties/Attributes/Assign/Message.agda
+  - src/Aletheia/DBC/TextParser/Properties/Attributes/Assign/Network.agda
+  - src/Aletheia/DBC/TextParser/Properties/Attributes/Assign/Node.agda
+  - src/Aletheia/DBC/TextParser/Properties/Attributes/Assign/Rel.agda
+  - src/Aletheia/DBC/TextParser/Properties/Attributes/Assign/Signal.agda
+resolution:
+  commit: 0b360fd
+  round: R22
+  date: "2026-05-18"
+  notes: |
+    Closes AGDA-D-15.1 fully (8 of 8 modules).  Module count climbed
+    250 -> 263 across the R21+R22 closure chain.
+re_raised_from: R21-AGDA-D-15.1
+in_source_marker: null
+tags:
+  - module-split
+  - carry-over-r21

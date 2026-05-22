@@ -14,10 +14,10 @@
 -- + `validateIdent : List Char → …`).  These proofs are axiom-free —
 -- `validateIdent-roundtrip` no longer goes through `toList`.
 module Aletheia.DBC.Formatter.MetadataRoundtrip where
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ; mkIdentFromChars)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
 open import Aletheia.DBC.DecRat.Refinement using
-  (intDecRatToℤ; mkIntDecRatFromℤ;
-   natDecRatToℕ; mkNatDecRatFromℕ;
+  (intDecRatToℤ;
+   natDecRatToℕ;
    mkIntDecRatFromℤ-intDecRatToℤ; mkNatDecRatFromℕ-natDecRatToℕ)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Empty using (⊥-elim)
@@ -30,25 +30,24 @@ open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (map-∘)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Integer using (ℤ)
+open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
 
 open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
-  VarType; IntVar; FloatVar; StringVar; varTypeToℕ;
+  IntVar; FloatVar; StringVar; varTypeToℕ;
   Node; mkNode; DBCComment; mkComment;
-  CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
-  AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar; ASNodeMsg; ASNodeSig;
-  AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex;
-  AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex;
-  AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
+  CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
+  ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar; ASNodeMsg; ASNodeSig;
+  ATInt; ATFloat; ATString; ATEnum; ATHex;
+  AVInt; AVFloat; AVString; AVEnum; AVHex;
+  ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
   ATgtNodeMsg; ATgtNodeSig;
-  AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
+  AttrDef; AttrDefault; AttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
   RawValueDesc; mkRawValueDesc)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; identJSON;
+open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON;
   formatSignalGroup; formatEnvironmentVar; formatValueTable; formatValueEntry;
   formatNode; formatComment; formatCommentTarget;
   formatAttribute; formatAttrScope; formatAttrType;
@@ -72,7 +71,7 @@ open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
 open import Aletheia.Error using (Error)
 open import Aletheia.JSON using (JSON; JObject; JString; JStringS; JNumber; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
-open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
+open import Aletheia.CAN.Frame using (Standard; Extended)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.Prelude using (ifᵀ-witness; _>>=ₑ_)
 

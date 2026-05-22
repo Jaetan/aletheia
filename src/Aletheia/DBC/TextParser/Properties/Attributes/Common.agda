@@ -31,34 +31,24 @@ open import Data.Integer using (+_; -[1+_])
 open import Data.List using ([])
 open import Data.Maybe using (just)
 open import Data.Nat using (zero; suc)
-open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
 
 open import Aletheia.DBC.DecRat using (mkDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
-  ( IntDecRat; mkIntDecRat; mkIntDecRatFromℤ
-  ; intDecRatToℤ; intDecRatToℤ-mkIntDecRatFromℤ
+  ( IntDecRat; mkIntDecRat
+  ; intDecRatToℤ
   ; mkIntDecRatFromℤ-intDecRatToℤ
-  ; NatDecRat; mkNatDecRat; mkNatDecRatFromℕ
-  ; natDecRatToℕ; natDecRatToℕ-mkNatDecRatFromℕ
+  ; NatDecRat; mkNatDecRat
+  ; natDecRatToℕ
   ; mkNatDecRatFromℕ-natDecRatToℕ)
 open import Aletheia.DBC.Types using
-  ( AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
-  ; ASNodeMsg; ASNodeSig
-  ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
+  ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal
-  ; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig
-  ; AttrDef; AttrDefault; AttrAssign
-  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
-  ; attrDefNameStr; attrDefaultNameStr; attrAssignNameStr
+  ; DBCAttribute
   )
 open import Aletheia.DBC.TextParser.Attributes using
   ( RawAttrValue; RavString; RavDecRat
-  ; RawAttrDefault; mkRawAttrDefault
-  ; RawAttrAssign; mkRawAttrAssign
-  ; RawDBCAttribute; RawDef; RawDefault; RawAssign
   ; decRatToℤ?; decRatToℕ?
   ; findLabel
   ; refineDefaultValue; refineAssignValue

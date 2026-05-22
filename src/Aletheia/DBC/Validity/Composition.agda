@@ -11,7 +11,7 @@ open import Aletheia.DBC.Identifier using (nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; Always; When)
 open import Aletheia.DBC.Validator using
-  ( errorIssues; findSignalPresence; walkMux
+  ( errorIssues; walkMux
   ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
@@ -27,7 +27,7 @@ open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using ([]; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.Any using (any?)

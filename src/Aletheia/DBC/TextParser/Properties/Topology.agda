@@ -20,11 +20,10 @@
 module Aletheia.DBC.TextParser.Properties.Topology where
 
 open import Aletheia.DBC.TextParser.Properties.Topology.Nodes public
-  using (parseBU-roundtrip; NodeNameStop)
+  using (NodeNameStop)
 
 open import Aletheia.DBC.TextParser.Properties.Topology.Receivers public
-  using ( isReceiverCont
-        ; emit-canonicalReceiversFmt-eq-emitReceivers)
+  using ( )
 
 -- 3d.5.c-η: SG_ parseSignalLine per-MuxMarker-shape roundtrip
 -- dispatchers — slim wrappers over `Format.SignalLine.signalLine-
@@ -33,37 +32,25 @@ open import Aletheia.DBC.TextParser.Properties.Topology.Receivers public
 -- `WellFormedText.agda`'s module header) so only NotMux / IsMux /
 -- SelBy v are exposed.
 open import Aletheia.DBC.TextParser.Properties.Topology.Signal public
-  using ( SignalNameStop; expectedRaw
-        ; parseSignalLine-roundtrip-NotMux
-        ; parseSignalLine-roundtrip-IsMux
-        ; parseSignalLine-roundtrip-SelBy)
+  using ( )
 
 -- 3d.6: SG_ block (`many parseSignalLine`) roundtrip — list-level
 -- composition of `signalLine-roundtrip` via the framework's universal
 -- `roundtrip (many signalLineFmt)`.
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList public
-  using ( SignalLineWF
-        ; expectedMux; expectedMuxFor; expectedRawOfDBC
-        ; parseSignalLines-roundtrip)
+  using ( )
 
 -- 3d.7: `resolveSignalList`-roundtrip — recovers `List DBCSignal` from
 -- the formatter-emitted `List RawSignal` under MasterCoherent +
 -- per-signal WellFormedSignal + PhysicallyValid + WellFormedTextPresence.
 open import Aletheia.DBC.TextParser.Properties.Topology.Resolve public
-  using ( SigOK; sigok-always; sigok-when
-        ; resolveSignalList-roundtrip)
+  using ( )
 
 -- 3d.8: `parseMessage`-roundtrip — full BO_ block composer.  Composes
 -- `messageHeader-roundtrip` (DSL universal on `messageHeaderFmt`) +
 -- `parseSignalLines-roundtrip` (3d.6) + `manyHelper-parseNewline-exhaust`
 -- + `buildMessage-roundtrip` (Layer-2 canid/dlc roundtrips + 3d.7).
 open import Aletheia.DBC.TextParser.Properties.Topology.Message public
-  using ( IdentHeadNonHSpace
-        ; emitMessage-chars-decompose
-        ; messageHeader-roundtrip
-        ; buildMessage-roundtrip
-        ; parseMessage-roundtrip
+  using ( parseMessage-roundtrip
         -- 4b: list-level lift via the polymorphic `many-η-roundtrip`.
-        ; MessageWF; parseMessage-roundtrip-bundled
-        ; signalLineFmt-fails-on-newline
-        ; parseMessages-roundtrip)
+        ; MessageWF)

@@ -98,10 +98,10 @@ def test_yaml_matches_log_event_enum() -> None:
 
 
 def test_yaml_event_count_matches_documented_total() -> None:
-    """The YAML carries exactly 15 events — the count documented in
+    """The YAML carries exactly 16 events — the count documented in
     ``python/aletheia/client/_log.py``, ``go/aletheia/doc.go``, and
     ``cpp/include/aletheia/log.hpp``.  Bumping the count requires a
     coordinated edit across all four files plus a CHANGELOG entry."""
-    assert len(_EVENTS) == 15, (
-        f"expected 15 cross-binding events, found {len(_EVENTS)}"
+    assert len(_EVENTS) == 16, (
+        f"expected 16 cross-binding events, found {len(_EVENTS)}"
     )

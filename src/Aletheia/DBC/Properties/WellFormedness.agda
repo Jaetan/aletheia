@@ -9,8 +9,7 @@
 module Aletheia.DBC.Properties.WellFormedness where
 
 open import Aletheia.DBC.Properties.Disjointness using
-  ( PhysicallyDisjoint; physicallyDisjoint-sym; physicallyDisjoint?
-  ; SignalsDisjoint; signalsDisjoint-sym)
+  ( PhysicallyDisjoint; physicallyDisjoint-sym; physicallyDisjoint?)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.CAN.DLC using (dlcBytes)

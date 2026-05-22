@@ -24,7 +24,7 @@
 --   private Layer 4A helpers.
 module Aletheia.CAN.Encoding.Properties.Roundtrip where
 
-open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractionBytes; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true)
+open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.CAN.Encoding.Properties.Arithmetic using (SignedFits; toSigned-fromSigned-roundtrip; removeScaling-applyScaling-exact)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; injectPayload)
@@ -37,12 +37,11 @@ open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ; 0ℚ)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; trans; cong)
-open import Relation.Nullary using (¬_; no)
+open import Relation.Nullary using (¬_)
 
 -- ============================================================================
 -- LAYER 4: COMPOSITION - FULL ROUNDTRIP
@@ -78,7 +77,7 @@ private
     -- n < 2^(bl-1) < 2^bl
     <-trans n<half (half<full bitLength bl>0)
     where
-      open import Data.Nat.Properties as ℕP using (<-trans; ^-monoʳ-<; n<1+n; ≤-refl)
+      open import Data.Nat.Properties as ℕP using (<-trans; ^-monoʳ-<; n<1+n)
       -- 2^(bl-1) < 2^bl follows from 1<2 and bl-1 < bl
       half<full : ∀ bl → bl > 0 → 2 ^ (bl ∸ 1) < 2 ^ bl
       half<full (suc bl) _ = ^-monoʳ-< 2 1<2 (n<1+n bl)

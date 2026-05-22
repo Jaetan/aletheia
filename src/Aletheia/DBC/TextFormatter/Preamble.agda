@@ -36,7 +36,7 @@ module Aletheia.DBC.TextFormatter.Preamble where
 
 open import Data.Char using (Char)
 open import Data.List using (List) renaming (_++_ to _++ₗ_)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 
 open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 

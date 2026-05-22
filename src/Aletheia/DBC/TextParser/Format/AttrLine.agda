@@ -43,13 +43,13 @@
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (_×_; _,_; Σ; Σ-syntax; proj₁; proj₂)
+open import Data.Maybe using (just; nothing)
+open import Data.Nat using (ℕ)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -57,30 +57,25 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; cong; trans; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; ParseResult; mkResult; advancePositions;
+  using (Position; Parser; mkResult; advancePositions;
          _<|>_; _<$>_)
 open import Data.Char.Base using (isDigit)
-open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
-  using (SuffixStops; ∷-stop; headOr; showNat-chars-head)
+  using (SuffixStops; ∷-stop; headOr)
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (digitChar; showNat-chars; showInt-chars; showDecRat-dec-chars;
-   quoteStringLit-chars)
+  (quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.Format
-  using (Format; literal; ident; nat; stringLit; pair; iso; many;
-         altSum; ws; wsOpt; wsCanonOne; withPrefix;
-         emit; parse; EmitsOK; ParseFailsAt; roundtrip)
+  using (Format; literal; ident; nat; stringLit; pair; iso;
+         altSum; ws; wsOpt; withPrefix;
+         emit; parse; EmitsOK; roundtrip)
 open import Aletheia.DBC.TextParser.Format.AttrValue
   using (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
          attrValueWireFmt;
-         build-EmitsOK-RavwString;
-         build-EmitsOK-RavwFrac;
-         build-EmitsOK-RavwBareInt;
          showInt-chars-head-stop;
-         showDecRat-chars-head-stop;
-         digit-not-isHSpace)
+         showDecRat-chars-head-stop)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators (same as Format/AttrDef.agda)

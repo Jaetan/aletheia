@@ -50,15 +50,28 @@ Reviews run in two phases: per-file analysis (local concerns within each file) f
 ### Step 0: Carry-over review (before step 1)
 
 Before launching any agents, the driver reads:
-1. The most recent round's plan file in `~/.claude/plans/`.
-2. `MEMORY.md` → any `project_*_deferred*` or `project_system_review_deferred*` entries.
-3. In-source deferral comment blocks (see Universal Rules).
+1. **Prior-rounds archive at `.archive/reviews/r*/`** — `findings/*.yaml` with `disposition` in `{DEFER, FIX-PARTIAL, NO-FIX}` are automatic carry-over candidates. Round metadata at `.archive/reviews/r<N>/round.yaml`. Use `tools/review_db.py --report graduation` to surface categories that have gone N rounds with zero real findings (graduation candidates per the **Graduation** rule below); use `tools/review_db.py --report critical-high-trend` to verify the "0 critical stays 0 critical" invariant has not regressed.
+2. The most recent round's working findings file in `~/.claude/plans/` (round-scope working state; superseded by archive YAML after merge).
+3. `MEMORY.md` → any `project_*_deferred*` or `project_system_review_deferred*` entries.
+4. In-source deferral comment blocks (see Universal Rules).
 
 Every deferred finding from prior rounds is automatically a carry-over candidate for this round. If the conditions that justified deferral still hold, re-defer explicitly in this round's plan; if they no longer hold, the finding is live again and must be fixed. A deferred finding silently dropped across rounds is a procedure violation.
+
+**Graduation (load-bearing rule for keeping the agent fleet bounded):** A review category that has gone **2 rounds with zero real findings** (FIX / FIX-PARTIAL / NO-FIX closures imply a real issue was caught; FP and FP-VERIFIED do not count) is a **graduation candidate**. A category graduates from the agent fleet only when:
+1. A **mechanical gate** exists that catches the category's semantic surface (the gate is the new enforcement; agent reasoning is no longer required).
+2. The graduation is recorded in `memory/feedback_graduated_categories.md` with the gate's name.
+
+Once graduated, the category is no longer reviewed at Step 1 / Step 2 — the gate runs continuously, and a re-raise in a review is a regression of the graduation. Step 3's coverage check skips graduated categories per the list in `memory/feedback_graduated_categories.md`. The per-language agent tables below may still list a graduated category in their range (e.g. "1-6"); the graduated-set table in memory takes precedence. `tools/review_db.py --report graduation` surfaces candidates; merging a category into the graduated set is a deliberate documented step, not an automatic consequence of the report.
+
+Cat 1 (Dead code) is the worked example: graduated after R22's `tools/prune_unused_imports.py --check-only` was wired as a strict pre-push gate (commit `403555b`); R22's residual A-1.1 work was historical cleanup wearing review clothes — the new-code regression class is now caught at push time, not at review time.
 
 ### Step 1: Per-file review (agents A, B, C in parallel)
 
 Each agent reads files individually and checks local concerns. These categories can be fully evaluated by examining one file at a time.
+
+**Delta-based scope for Step-1 agents A and B (token-efficiency rule).** Per-file agents A (hygiene) and B (correctness) review **only the files touched since the previous round's merge commit** (`git diff <prev_merge>...HEAD --name-only -- '*.<ext>'`). Per-round file scope drops from O(263 modules) to O(30–80 touched files). Whole-program coverage on these agents is recovered by the next periodic full sweep, scheduled out of band; for a typical follow-up round, delta scope is enough.
+
+**Whole-program scope (must NOT delta) — Agent C and Step-2 system-level Agent D.** Edits in touched files can introduce drift against untouched ones (a renamed function in `M` regresses naming consistency in `N` that imports it; an error message added to `M` may collide with one in `N`). Cross-file comparison categories (Agda cat 3, 5, 6, 27) and every Step-2 category stay whole-program. If the round driver elects to skip whole-program agents to save tokens, that decision is recorded in the round.yaml `notes` field as an explicit scope decision, not a silent omission.
 
 **Agda per-file agents:**
 
@@ -152,34 +165,35 @@ Agent D must concretely:
 
 ### Per-category reporting (mandatory, all agents in steps 1 and 2)
 
-Each agent must produce a section for every assigned category, even when no findings exist. Format:
+Each agent emits findings as one `## Category N: Name` section per category that has at least one finding, plus a single consolidated `## Coverage` section at the end listing every assigned category as `N covered` or `N skipped: <reason>`. Empty `## Category N: No findings.` blocks are no longer required (and are a token-efficiency violation if produced); silence on a category is interpreted as `covered, no findings` and is verified against the `## Coverage` table.
 
 ```
 ## Category N: Name
 Finding N.1: [file:line] description
 Finding N.2: [file:line] description
 
-## Category M: Name
-No findings.
-```
-
-A missing section is a procedure violation. "No findings" after examination is a valid result; silence is not.
-
-Each agent must also report on its assigned guidelines using the same format:
-
-```
 ## Guideline: Name (→ Category N)
 Finding G.1: [file:line] description
+
+## Coverage
+- 1 covered
+- 2 covered
+- 3 covered
+- 4 covered (graduated; see memory/feedback_graduated_categories.md)
+- ...
 ```
+
+A `## Coverage` section that omits an assigned category is a procedure violation. A category listed as `skipped` must carry a reason (typically `graduated`, with a pointer to the graduated-set registry).
 
 ### Step 3: Coverage reconciliation and planning
 
 Enter plan mode. Before collating findings:
 
-1. **Coverage check**: verify that all categories received a report from exactly one agent. List any gaps. If a category was missed, the round is incomplete — reassign and re-run before proceeding.
+1. **Coverage check**: verify that all categories received a report from exactly one agent (skipping graduated categories — those covered by mechanical gates, see Step 0). List any gaps. If a non-graduated category was missed, the round is incomplete — reassign and re-run before proceeding.
 2. **Collate**: merge all findings into a single numbered plan. Present suspected false positives with justification; the user decides what to dismiss.
 3. **No deferrals**: findings are fixed in the current round. "Future work" and "out of scope" are not valid dispositions. The only exception is when the user explicitly defers a finding after reviewing it.
-4. **Explicit disposition per finding**: every entry in the collated plan must carry one of three labels before step 4 starts: `FIX` (will be implemented this round), `FP` (suspected false positive — user confirmed), or `DEFER-<reason>` (user-approved deferral with pointer to in-source comment and/or memory file). A plan containing unlabeled findings cannot proceed to step 4.
+4. **Explicit disposition per finding**: every entry in the collated plan must carry one of `FIX`, `FIX-PARTIAL`, `DEFER`, `NO-FIX`, `FP`, `FP-VERIFIED`, `DROP` before step 4 starts. Definitions are in `.archive/reviews/schema.yaml`. A plan containing unlabeled findings cannot proceed to step 4.
+5. **Findings emitted as structured YAML at round close**: every closed finding gets exactly one file at `.archive/reviews/r<N>/findings/<id>.yaml` (schema enforced by `tools/review_db.py`). The round-scope working file `~/.claude/plans/review-r<N>-findings.md` is the human-readable draft; the per-finding YAMLs are the durable record. Round metadata at `.archive/reviews/r<N>/round.yaml` records `raw_findings_count`, `closed_findings_count`, agent fleet, merge SHA. The working `.md` can be archived to the round directory at merge if desired (it is not load-bearing once the YAMLs are written).
 
 ### Step 4: Implement and verify
 
@@ -198,596 +212,17 @@ Documentation categories 5, 15, 16, 17, and 18 cannot be checked per-file — th
 
 ---
 
-## Agda (32 categories)
-
-Scope: ALL Agda modules -- production code and proofs alike. Never skip a file because it is large or proof-heavy.
-
-### Hygiene/Style (9)
-
-1. **Dead code** -- unused imports, unreferenced definitions, unused where-block variables, dead exports
-2. **Magic numbers** -- hardcoded numeric literals that should be named constants
-3. **Naming consistency** -- inconsistent naming patterns across modules
-4. **Comment quality** -- stale comments that no longer match the code, misleading descriptions
-5. **Error message consistency** -- inconsistent error/reason strings across modules
-6. **Redundant patterns** -- repeated logic or case-analysis boilerplate that could share helpers or use combinators
-27. **Stdlib coverage & lemma deduplication** -- hand-rolled lemmas that duplicate stdlib exports (commonly missed: `Data.Nat.DivMod`, `Data.Nat.Properties`, `Data.List.Properties`, `Data.Vec.Properties`); direction-symmetric lemma pairs (`foo-left`/`foo-right` where one is the composition of the other with a symmetry axiom); proof code copy-pasted between Properties submodules that should factor into a shared helper. A hand-written lemma that duplicates a stdlib export is a finding. This category is the home for the "Stdlib before rolling your own" guideline.
-28. **Pragma abuse audit** -- cat 21 covers `OPTIONS` pragmas; this covers all other pragmas that bypass soundness checks. Production modules must not contain `{-# TERMINATING #-}`, `{-# NON_TERMINATING #-}`, `{-# NO_POSITIVITY_CHECK #-}`, `{-# INJECTIVE #-}`, `{-# NON_COVERING #-}`, `{-# REWRITE #-}`, or `{-# POLARITY #-}` — they bypass the termination/positivity/coverage checkers that `--safe` relies on. `{-# COMPILE #-}` and `{-# BUILTIN #-}` are valid but assert a Haskell/primitive bridge the review must verify for faithfulness.
-29. **Instance & reflection discipline** -- instance arguments (`{{_ : Foo}}`) and reflection (`unquoteDecl`, `macro`) cause type-checking slowdowns and fragility: instance search can loop or resolve ambiguously; reflection macros generate invisible code. The project uses no reflection. Instance arguments appear only where stdlib operations mandate them (e.g., `.{{_ : NonZero q}}` on `_÷_` for ℚ; `.{{_ : NonZero n}}` on `_mod_`/`_%_` for ℕ) — these sites carry a `DEFER-stdlib-mandate` note at the top of the affected module (currently `CAN/Encoding/Properties/Arithmetic/Rational.agda`, `CAN/Endianness.agda`, `Data/BitVec/Conversion.agda`), and every call site supplies the witness explicitly so instance resolution stays trivial. Any other accidental introduction of instance-argument or reflection use is a finding. Further justified exceptions follow the standard deferral path (Universal Rules → "The only valid dismissal"): proposed in the round plan, labeled `DEFER-<reason>` after user approval, and recorded in-source.
-
-### Types & Proofs (10)
-
-7. **Type tightness** -- local type choice within a definition or module: `List` where `Vec n` fits, `String` where an enum fits, raw `ℕ` where a validated newtype fits, exploit dependent types for invariant enforcement. **Scope**: finds cases where the type used is strictly wider than the values it can hold within one file's control. Inter-module contract strength is cat 11, not this category
-8. **Proof simplification** -- shorter proofs via stdlib lemmas, eliminating unnecessary case splits, combinator usage; consistent use of modern `with ... in eq` over legacy `inspect` idiom.  Caveat for Bool-fast-path bridges: when a runtime function uses `with x in eq` on a Bool scrutinee to extract a proof witness, AND a consumer needs to reduce the function while abstracting on the same scrutinee, `with ... in eq` triggers Agda's "ill-typed with-abstraction" elaboration limit (the `eq` binding doesn't propagate through nested function bodies).  Use stdlib's `Reflects` data witness (e.g. `<ᵇ-reflects-< : Reflects (m < n) (m <ᵇ n)`) in two-with form `with (m <ᵇ n) | <ᵇ-reflects-< m n`; pattern-matching on `ofʸ`/`ofⁿ` carries the witness AS DATA, so consumers can mirror the same two-with abstraction without crossing the elaboration barrier.  See `memory/feedback_with_in_eq_outer_abstraction_barrier.md` + the worked example at `Aletheia.Data.BitVec.Conversion.mkBoundedBitVec` (R20-AGDA-B-26.3 closure, `f478bb5`)
-9. **Proof soundness** -- proofs about the code that actually runs (not stale paths), correct proof strategy (cong/subst/trans vs rewrite chains), memory-safe patterns; **proof-to-implementation currency** — when core functions are refactored, dependent proofs must be updated, not mediated through equivalence with the old path; a proof that holds about a code path no longer taken is a finding
-18. **Dead-branch provability** -- defensive fallbacks (`nothing → default`, catch-alls for constructors that cannot occur, "safety" Maybe returns) that are not reached by the calling pipeline. Either prove the branch is unreachable via a bound/hypothesis theorem (see `mkPredTable` + `indexHelper-bound`), or tighten the types so the branch cannot be constructed. A bare defensive fallback with no proof of unreachability and no comment pointing to one is a finding
-20. **Termination metric hygiene** -- ranking: structural > length > fuel > well-founded; prefer the leftmost that works. Finding triggers: (a) the function uses a weaker metric than the next-leftmost option would have handled, with no justification, OR (b) the chosen metric is correct but not justified (fuel size has no comment identifying an upper bound on recursion depth; well-founded was used but structural/length could have). A well-justified length-based metric is fine and not a finding
-22. **Irrelevance annotation `.(…)` discipline** -- load-bearing proof fields that are used only in type-checking (FFI boundary proofs, bounded-constructor witnesses, preconditions) should be marked `.(p : P)` to kill downstream `subst`/`transport` obligations. Irrelevant fields are ignored by `_≡_`, which simplifies call sites dramatically. The project currently uses relevant proofs everywhere; this category exists to surface candidates for irrelevance, not to mandate a blanket change. This category is the home for the "Irrelevance" guideline.
-23. **Erasure `@0` discipline** -- runtime-erased arguments (`(@0 x : T)`) disappear at MAlonzo compile time. They must be genuinely unused at runtime; a load-bearing field mistakenly erased is a latent crash when MAlonzo projects a stub. Conversely, purely phantom fields (type-level tags, unit dimensions) kept runtime-relevant waste heap. `Timestamp (@0 u : TimeUnit)` is the worked example — any similar phantom parameter should follow suit.
-24. **Pattern coverage & clause order** -- Agda's coverage checker is sound but clause-order-sensitive. Overlapping clauses that fire before the intended one silently hide bugs. `{-# CATCHALL #-}` pragmas masking missing cases. Implicit absurd patterns (`()`) vs explicit `⊥-elim` (prefer the latter when the impossibility is load-bearing for a reader). Redundant clauses that pass coverage but waste code. When a new data constructor is added (e.g., Path G's `FinalVerdict.Unsure`), every existing match on that type must be audited — any `CATCHALL` on it now hides a silent default.
-25. **Universe level hygiene** -- `Set` vs `Set₁` vs `Setω`. Accidental universe polymorphism inflates type-checking time; levels leak through records (a field at `Set ℓ` forces the whole record up). The project is currently all `Set₀` (`Set`); any jump up the hierarchy must be justified. Gratuitously level-polymorphic helper lemmas `∀ {ℓ} {A : Set ℓ} → …` where `A : Set` would suffice are a finding.
-26. **Equality discipline (`_≡_` vs `_==ᵇ_` vs `_≟_`)** -- propositional `_≡_` for proofs, boolean `_==ᵇ_`/`_<ᵇ_` for runtime branches, decidable `_≟_`/`_<?_` where you need both. Missing conversion lemmas (`P⇒Pᵇ`/`Pᵇ⇒P`) force duplicated proofs across call sites. **Owner boundary with cat 16**: this category owns the design choice ("which equality does this call site need?"), cat 16 owns the measured perf finding. Heuristic: if a `Dec`-valued check sits on a hot path but no benchmark has been run, it is a cat 26 finding (the choice is wrong). If the benchmark shows the regression, it is a cat 16 finding (the measured cost). Report it once, under the category matching the current evidence.
-
-### Specification (7)
-
-10. **Domain model fidelity** -- do the Agda types faithfully model the real-world CAN/DBC/LTL domain? Are there protocol features, edge cases, or real-world behaviors the model can't represent?
-11. **Invariant sufficiency** -- inter-module contract strength: are type-level constraints the right ones? Runtime checks that could be compile-time guarantees? Over-constrained types rejecting valid inputs? Under-constrained types admitting invalid states? **Scope boundary with cat 7**: cat 7 is local ("this field could have been tighter"); cat 11 is systemic ("module X should guarantee P so that module Y's precondition is discharged at the type level"). A finding about a single field's type width is cat 7; a finding about the contract between two modules is cat 11
-12. **Property completeness** -- are the proven properties the ones that matter for safety? Important unproven properties? Gap between what the proofs guarantee and what users believe the system guarantees?
-13. **Assumption audit** -- implicit preconditions, unchecked coercions, model simplifications that could silently produce wrong results? Agreement with relevant standards (CAN 2.0B, ISO 11898, CAN-FD, DBC format)? MAlonzo compilation faithfulness?
-19. **Hypothesis propagation** -- when a theorem takes a precondition (`Monotonic σ`, `TwoValued table`, `AllBelow b φ`), is the hypothesis enforced by an upstream runtime check, embedded as a structural type-level guarantee, or documented as an explicit caller obligation? A theorem whose hypothesis has no enforcement path is vacuously applicable and a finding. Pure mathematical identities (e.g. Kleene algebra laws on `⟦_⟧`) are the exception — they hold on all σ
-21. **Safety flag & zero-postulate audit** -- every module carries `{-# OPTIONS --safe --without-K #-}` (plus `--no-main` where applicable); every production module contains zero `postulate` declarations; `*.Unsafe.agda` modules are the documented exception and must not be imported transitively by any safe module. Missing flags, stray postulates, or unsafe-via-import leakage are findings — this category is a gate on the whole soundness story
-
-32. **Parser resource bounds (adversarial-input limits)** -- every parser at a trust boundary must enforce explicit, compile-time-known upper bounds on the inputs it accepts: max nesting depth, max list cardinality (signals per message, messages per file, attributes per file, value-descriptions per file, comments per file), max identifier length, max single-string length, max total input length (`length input ≤ N` where N is a constant). Bounds are documented in `docs/architecture/PROTOCOL.md` § Limits as named constants and are referenced by `Aletheia.Limits` (or equivalent) on the Agda side. Rejection over a bound is a typed `InputBoundExceeded` error carrying the offending field and the limit it crossed, not a partial parse and not a downstream OOM. The DBC text parser's structural-recursion termination proof is necessary but not sufficient — a verified-terminating parser fed a hand-crafted DBC with 10⁷ signals will produce a 10⁷-element list that exhausts heap in `attachValueDescs`, in the validator's `liftPerSignal`, or at the JSON marshal step. A parser entry point without an explicit bound check is a finding regardless of `--safe` status. The bound check is `O(1)` decidable on the input-length / cardinality counter, not on the parsed value — folding the check into the parser's pre-pass keeps the verified core unchanged. Cross-binding policy is in Universal Rules → "Adversarial-input bounds at parser surfaces". Worked instances expected to surface in the first round under this category: `parseDBCText` (no input-length cap), `parseJSON` at FFI entry (no nesting depth cap), `attachValueDescs` (no `unresolvedValueDescs` cardinality cap), `mkPredTable` (atom-list cardinality is bounded by `length atoms` but not by an explicit max).
-
-### Architecture & Performance (6)
-
-14. **API surface** -- over-exported or under-exported names
-15. **Module structure** -- modules mixing concerns or too large, dependency direction, circular or unnecessary dependencies; Properties modules that mix abstraction levels (e.g. termination bounds alongside completeness theorems in one file) should split per proof layer. Canonical worked example: on 2026-04-08 the 1581-line `CAN/Encoding/Properties.agda` and the 1256-line `Protocol/FrameProcessor/Properties.agda` were split into per-topic submodules (Arithmetic/Roundtrip/Disjoint and Step/Cache/Handlers/Bounded/Monotonic respectively) behind curated `open import X.Y public using (...)` facades. The facade pattern preserves the public API for downstream consumers (`LTL.Adequacy.WarmCache` still imports `AllBelow` and `mkPredTable-lookup` from the top-level path) and emits no runtime code of its own — MAlonzo's mangled symbols depend only on the submodule path, not the facade. Use this pattern when a Properties file passes ~600–800 lines or starts mixing termination/algebraic/topical abstraction layers
-16. **Performance** -- MAlonzo compilation patterns: Fin compiles to O(n) suc chains (use ℕ on hot paths), normalization overhead, large pattern matches; **`Dec`-valued predicates allocate proof terms on every call — each `yes`/`no` is a closure, and nested quantifiers like `allBounded` build nested closures per iteration. Replacing an O(1) or Bool-valued check with a Dec-valued one in a hot path costs dramatically more than it looks on paper.** On 2026-04-07 commit `5aa345e` replaced the O(1) `rangesOverlap` in `BatchFrameBuilding.hasOverlaps` with the endianness-aware Dec-valued `physicallyDisjoint?`; CAN-FD frame building dropped 64% even though every correctness gate passed. The fix is a Bool-valued fast path with equivalence proofs (see `DBC/Properties.agda` `signalsPhysicallyOverlapᵇ` / `physicallyOverlapᵇ-sound` / `-complete`) — keep `Dec` for formal reasoning, use `Bool` for execution, and prove equivalence between them. Also watch: `Data.Sum.map₂`/`Maybe.map`/etc. allocate a per-call closure that direct pattern matching avoids. Any change to `Protocol/Handlers.agda`, `Protocol/StreamState.agda`, `CAN/Encoding*.agda`, `CAN/Batch*.agda`, `DBC/Properties.agda`, `LTL/Coalgebra.agda`, `LTL/Incremental.agda`, `LTL/SignalPredicate/Evaluation*.agda`, or anything transitively imported into `Main.agda` is NOT valid without pre-commit benchmark verification via `bash benchmarks/run_all.sh --frames 10000 --runs 5 --bench throughput` — correctness gates (ctest/go test/pytest/basedpyright) do not catch allocation-overhead regressions. See `feedback_hot_path_refactor_benchmark.md` for the full rule. **Stability-bench artifact discipline**: when the throughput run sweeps ≥1M frames (the long-run lane all bindings inherit from this category and from Go cat 27 / C++ cat 26 / Python cat 25), capture the GHC RTS heap-and-time profile (`+RTS -hT -p -RTS`) so per-frame allocation behavior is recorded alongside the throughput number. A run where steady-state RSS or per-frame allocation drifts upward across the 1M-frame window is a finding even if mean throughput stays inside the variance band — long-run stability requires a flat heap profile, not just a flat throughput line. The artifact path is `benchmarks/stability/<commit>/aletheia-ffi.hp` and `aletheia-ffi.prof`; archived per stability run.
-17. **Cross-layer** -- Agda ↔ Haskell ↔ binding boundaries: FFI assumptions, marshalling, type alignment, behavioral parity across all bindings. **Agda is the semantic source of truth.** Bindings conform to the Agda `Response` / `Protocol/ResponseFormat.agda` contract, not to each other. Python is the reference implementation for binding-layer ergonomics (context manager shape, exception types, CLI surface) but behavior differences between bindings are resolved by asking "what does Agda emit?", not "what does Python do?". **Response format specification**: when the Agda `Response` type or `responseToJSON` / `formatResponse` functions change, audit all three binding parsers for the affected operation. A new response variant (status string, field, or structure) that exists in Agda but is not handled by a binding parser is a finding. The canonical list of status strings per operation is derivable from `Protocol/ResponseFormat.agda` — if a binding parser accepts a status string not produced by that module, or rejects one that is, that is a cross-layer finding. **JSON wire-format evolution**: new status strings, new field names, field-type changes in `Response` are change-reviewed. Every such change requires: (a) an entry in this round's plan labeled `FIX`, (b) corresponding parser updates in all three bindings, (c) a round-trip test in at least one binding. An Agda-side change that lands without the three-binding update is a cross-layer finding. The worked example: Agda returns `"ack"` for error/remote events but C++ `parse_success` only accepted `"success"` (latent bug from 2026-04-10); Go discarded the response entirely. Both were cross-layer findings surfaced by tracing the response lifecycle from Agda to each binding
-30. **MAlonzo export surface stability** -- `AletheiaFFI.hs` references MAlonzo mangled names (`d_processJSONLine_64`, `C_mkTs_26`, etc.). Renaming or reordering definitions changes the mangled suffix. The Shake build detects mismatches and prints a sed fix, but a review should verify any change to `Main.agda`, `Main/JSON.agda`, `Main/Binary.agda`, or any upstream module would not silently break Haskell shim references. Also checks the FFI export surface hasn't grown without a wire-format specification (parallel to the Binary FFI wire format guideline).
-31. **Stdlib version pinning & API compatibility** -- `aletheia.agda-lib` pins `standard-library-2.3`. Imports must target 2.3's API, not 2.4+. Newly-added stdlib modules (post-2.3) must not be imported. Deprecation warnings in 2.3 should be noted. If the pin is bumped, review verifies no behavioral drift from any lemma reduction change between versions.
-
-### Guidelines
-
-Each guideline below carries a stable identifier (`G-A1`..`G-A24`) so the step-1/step-2 agent tables and finding reports can reference it directly. New guidelines should follow the shape: **Rule** (one-line imperative), **Why** (mechanism/incident), **How to apply** (when the reviewer should flag), **Example** (in-tree pointer or worked snippet). Existing guidelines vary in format — they were written over multiple review rounds and use the structure loosely; migrate them toward the shape when adjacent edits land, but do not rewrite en-masse.
-
-**G-A1 — Import hygiene:**
-- Bare `using ()` with no renaming clause is dead code -- remove the import line entirely.
-- `using () renaming (A to B)` is valid and intentional -- it imports ONLY the renamed name. Do NOT flag as empty import.
-
-**G-A2 — Proof style:**
-- Prefer `cong`/`subst`/`trans` over chained `rewrite`. Each `rewrite` desugars to a with-auxiliary that copies the full goal type; on large goals (e.g., records with many fields), even 2 rewrites can cause >8 GB memory blowup. Max 1 rewrite per function on large goals.
-- Don't pile up nested `suc`/`s≤s` constructors in absurd patterns. Use `_≤?_` with yes/no case analysis, helper lemmas, `Fin n`, or `toWitness`/`fromWitness` instead.
-- Prove properties directly about the code that runs -- don't mediate through equivalence with an old code path. The specification is the desired behavior, not a prior implementation.
-- Proofs can be updated for performance. When optimizing core functions, modify them directly and update dependent proofs rather than maintaining parallel "fast" and "proof" variants.
-- **Overlapping Kleene clauses don't reduce on abstract operands.** `_∧TV_`/`_∨TV_` (in `LTL/SignalPredicate/Types.agda`) only reduce definitionally for the FIRST matching clause. With an abstract operand, expressions like `True ∧TV x`, `x ∧TV True`, `False ∨TV x`, `x ∨TV False` stay stuck. Two unblocking tools: (a) `rewrite sym ih` to replace abstract denotations with concrete `True`/`False`, then case-split; (b) identity lemmas from `LTL/TruthVal/Properties.agda` (`∧TV-true-l`, `∧TV-false-l`, `∨TV-false-l`, etc.). On small goals (TruthVal equalities) `rewrite` is fine — the memory caveat above only applies to large record goals.
-- **`cong₂ _OP_ refl eq` fails when `_OP_` is non-injective.** `_∧TV_`/`_∨TV_` are functions, not constructors, so Agda can't unify `f a b ≡ f a' b'` with `a ≡ a' × b ≡ b'`; the `refl` argument leaves an unsolvable metavariable. Fix: merge `trans (cong₂ f A B) (cong₂ f refl C)` into `cong₂ f A (trans B C)`.
-- **Mirror function discrimination in preservation proofs.** When a function uses overlapping pattern matching with `with` discrimination on a sub-component (e.g., `absorb` checks the right child of `And`/`Or` against ψ's 13 LTL constructors and `with φ ≡ᵇ-proc ψ` for special cases), the preservation proof must mirror that structure exactly: write **per-outer-constructor private helpers** (e.g., `absorb-And-bound`, `absorb-Or-bound`) each with one clause per right-side constructor, using identical `with` patterns for the special cases. The top-level lemma becomes a thin dispatcher (one clause per outer constructor). A flat top-level proof would require an N×N cross-product of clauses; mirroring keeps it linear. See `FrameProcessor/Properties.agda` Property 27.
-- **`subst T eq` to bridge decision procedure witnesses with `with … in eq`.** Decision procedures like `<⇒<ᵇ : m < n → T (m <ᵇ n)` return `T _`, not `_ ≡ true`. In an absurd branch of `with b in eq` (where `b = m <ᵇ n` and the current branch has `eq : b ≡ false`), use `⊥-elim (subst T eq (<⇒<ᵇ m<n))` — `subst T eq` transports `T (m <ᵇ n)` through `eq` to `T false = ⊥`. Do NOT try `trans (sym (<⇒<ᵇ …)) eq`; it fails with `UnequalTerms` because `<⇒<ᵇ` does not return an equality. Applies symmetrically to `≤⇒≤ᵇ`, `≡⇒≡ᵇ`, and any `P⇒Pᵇ`. See `FrameProcessor/Properties.agda` Property 28 (`checkMonotonic-<`).
-
-**G-A3 — `in eq` idiom:**
-- Modern Agda supports `with expr in eq` which both scrutinizes `expr` AND introduces `eq : expr ≡ scrutinee_pattern` in one step. Prefer this over the legacy `inspect` idiom (`with expr | inspect (λ x → expr) x`). New proofs must use `in eq`; legacy `inspect` calls encountered during a review round should be migrated. Mixed usage within a file is a category 3 (Naming consistency) finding; standalone legacy `inspect` is a category 8 (Proof simplification) finding.
-
-**G-A4 — Irrelevance:**
-- Agda's irrelevance annotation `.(p : P)` marks an argument as computationally irrelevant — it is used only in type-checking, never in runtime behavior or proof obligations. Consider irrelevance for (a) FFI boundary proofs where Haskell cannot inspect the witness anyway (e.g. `Standard : (n : ℕ) → .(T (n <ᵇ 2048)) → CANId`), (b) bounded-constructor proofs whose inhabitant is discarded, (c) any `T _` or `P ≡ Q` field that exists solely to enforce a precondition. Irrelevance can eliminate entire classes of `subst`/`transport` obligations in downstream proofs because irrelevant fields are ignored by `≡`. The project currently uses relevant proofs everywhere — reviewers should flag load-bearing proof fields that could become `.(…)` to simplify call sites.
-
-**G-A5 — Termination metric choice:**
-- Structural recursion on constructor descent is always preferred; Agda infers the metric and no justification is needed.
-- Length-based recursion on `length xs` is acceptable for operations that cannot recurse on structurally inductive form (e.g., parser combinators on `String`, which is a primitive, not an inductive type).
-- Fuel-based termination is acceptable ONLY when the fuel size is a provable upper bound on the recursion depth, with a one-line comment stating why (e.g. `walkMux fuel = length signals` because a multiplexor chain visits each signal at most once before cycle detection forces termination). A bare numeric fuel with no justification is a finding.
-- Well-founded recursion (`<′`, `Acc`) is a last resort — it bloats MAlonzo output, complicates proofs, and should only be used when the other three options genuinely don't work.
-
-**G-A6 — Dead branches:**
-- Defensive fallbacks (`nothing → default`, impossible-constructor catch-alls, "safety" Maybe returns) must be either (a) eliminated by type sharpening so the impossible state cannot be constructed, or (b) proven dead by an external bound theorem. A bare defensive fallback with no proof of unreachability and no comment pointing to one is a finding.
-- The external-proof approach keeps the runtime signature simple while documenting unreachability. Canonical pattern: `mkPredTable`'s `nothing → Unknown` fallback combined with `FrameProcessor/Properties.agda` Property 27 (`indexHelper-bound` + `mkPredTable-bounded`), which proves the fallback is unreachable under the stepping pipeline without rewriting the API.
-- **Do not re-raise type-sharpening of `mkPredTable`'s atom index.** A future review may notice Property 27 proves the `nothing → Unknown` branch is dead and propose lifting the index from `ℕ` to `Fin (length atoms)`. This was analysed on 2026-04-08 and deliberately deferred: MAlonzo compiles `Fin n` as a unary Peano chain (`data T_Fin_10 = C_zero_12 | C_suc_16 T_Fin_10`), so every index becomes k heap-allocated cells vs the current `ℕ`-via-BUILTIN `Integer` representation, and the refactor would put that allocation cost on a per-frame hot path (`mkPredTable` → `stepL` → every Atomic cell). Same class of hazard as the `Dec`-vs-`Bool` regression (commit `5aa345e`, 30–65% throughput loss). The full rationale — refactor scope, hazard, recovery path — is recorded in-source above `mkPredTable` in `src/Aletheia/Protocol/StreamState/Internals.agda:91`; read it before re-opening the discussion. Corresponding memory: `project_system_review_deferred.md` item 11.1, `feedback_in_source_deferral_notes.md`.
-
-**G-A7 — Proof hypothesis discharge:**
-- A theorem `thm : P σ → Q σ` establishes `Q σ` only for σ where `P σ` holds. For `Q` to apply to the running system, one of: (a) an entry point enforces `P σ` at runtime and rejects violators (e.g. `handleDataFrame` rejects non-monotonic frames via `checkMonotonic`, making all accepted σ satisfy `Monotonic σ`), (b) the stream type makes `P σ` structurally inevitable (rarely achievable for runtime traces), or (c) the property's public boundary documents `P σ` as a caller obligation with a pointer to the enforcement path.
-- A hypothesis with no enforcement path is a vacuous guarantee; the theorem is provable but never applies to production σ. Pure mathematical identities (`eventually-always-dual`, Kleene laws on `⟦_⟧`) are exempt — they hold for all σ and need no discharge.
-- Reviews should trace each major theorem's hypothesis from its introduction down to the boundary where the production pipeline would need to establish it. "The caller guarantees X" in a comment is not discharge; it defers the obligation to whoever reads the comment.
-
-**G-A8 — Flag hygiene:**
-- Every module must begin with `{-# OPTIONS --safe --without-K #-}` (plus `--no-main` for entry-point modules compiled separately). Missing flags → finding; partial flags (only `--safe`, only `--without-K`) → finding.
-- Every production module contains zero `postulate` declarations. A `postulate` in `src/` outside the allowlisted Unsafe substrate → finding, regardless of what it postulates.
-- The allowlist is by **name**, not by file pattern. Exactly one non-`--safe` module is permitted: `src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`. A new module that drops `--safe`/`--without-K` without containing a `postulate` and without being named `Unsafe.agda` will slip past `check-invariants` (which only flags `^postulate` lines and `Unsafe`-named modules) — but still violates the policy. Adding a second non-`--safe` module requires explicit user approval (per `feedback_no_suppression_without_approval.md`); the gate gap is not approval.
-- When a proof needs to consume an axiom from `Substrate.Unsafe`, co-locate the consuming proof inside `Substrate.Unsafe.agda` itself rather than spawning a new non-`--safe` host module — even at the cost of `Substrate.Unsafe.agda` ceasing to be a leaf module. Worked example: B.3.d Layer 4c task E (2026-05-03) appended the high-level `parseText-on-formatText` theorem to `Substrate/Unsafe.agda` after the user rejected an `Aggregator/UniversalText.agda` (`--without-K`-only) variant.
-- `Substrate.Unsafe.agda` must not be imported transitively from any `--safe` module. Run `grep -rn "import.*Substrate.Unsafe" src/` during every review to verify isolation; only the Unsafe module itself should match. A `--safe` module importing the Unsafe substrate breaks the soundness story; it's a finding that blocks merge.
-
-**G-A9 — Where-block provability:**
-- Where-block helpers that return a pair `(state , f x)` where both branches share the same `state` prevent external proofs from seeing `proj₁ = state` without reducing through the case split. Refactor as `(state , g x)` where `g : A → B` returns only the varying component. This makes `proj₁` reduce immediately without needing to case-split on `x`.
-
-**G-A10 — Bounded types and proof-carrying constructors:**
-- When a constructor carries a `T (n <ᵇ max)` proof (like `Standard n pf`), do NOT use `with`-abstraction or `rewrite` on `n <ᵇ max` in roundtrip proofs. The constructor's rigid type dependency prevents generalization — abstracting `n <ᵇ max` to a fresh variable `w` makes `T w ≠ T (n <ᵇ max)`, producing an ill-typed with-abstraction.
-- Use `ifᵀ-witness` from `Prelude` instead: it proves `ifᵀ b then f else e ≡ f pf` by splitting on `b` internally. Apply as a regular function (`= ifᵀ-witness _ _ pf`), not via `with`. η for `⊤` closes the `true` case.
-- At the FFI boundary, supply `unsafeCoerce ()` for `T (n <ᵇ max)` proof fields ONLY after validating bounds in Haskell. MAlonzo compiles `⊤`/`tt` to a nullary constructor equivalent to `()`.
-
-**G-A11 — Validity predicates — sum of constraint sets, not globally-quantified record:**
-- When a validity predicate `P : ... → A → Set` has fields that only apply to a subset of `A` (e.g., only to one byte order, only to a specific signal kind), refactor the record into a data type with one constructor per semantic case. Each constructor carries only the constraints that apply to its case.
-- A globally-quantified record forces the same set of constraints on every value of `A`, even when some constraints are nonsensical on some subset. Classic instance: `PhysicallyValid` used to be a 4-field record quantifying `msb-ge-len : bitLength ∸ 1 ≤ startBit` over every signal; the field is BigEndian-specific (LE addresses from the LSB, so "MSB index ≥ bit length" has no LE meaning), and as a record field it rejected `startBit = 0`, `bitLength = 1` LE signals.
-- Refactor pattern: `data P : ... → A → Set where p-LE : byteOrder ≡ LE → P ...; p-BE : byteOrder ≡ BE → constraint₁ → constraint₂ → ... → P ...`. The LE witness is a single `refl`; the BE witness carries all the bounds. Downstream proofs pattern-match on the outer constructor and handle the cases separately — honest about the semantics and amenable to Agda's definitional equality.
-- See `src/Aletheia/DBC/Formatter/WellFormed.agda` `PhysicallyValid` and the `signal-roundtrip-go` proof in `Formatter/SignalRoundtrip.agda` for a worked example (closed §12.1 on 2026-04-08).
-
-**G-A12 — Decidable check combinators (DBC validity):**
-- For check functions that case-split on a single `Dec P`, use `requireDec`/`rejectDec` from `Validity.Combinators` instead of raw `with`-patterns. `requireDec dec issue` returns `[]` when `dec = yes _` (property holds); `rejectDec dec issue` returns `[]` when `dec = no _` (property fails). Sound/complete proofs become one-liners via `requireDec-sound`/`rejectDec-sound` etc.
-- For pairwise (triangular) AllPairs proofs, use `liftTriangular-sound`/`liftTriangular-complete` instead of manual induction with `++-≡[]-split`/`++-≡[]-combine`.
-
-**G-A13 — Generalization:**
-- When parameterizing types (e.g., `CANFrame n` for CAN-FD), generalize ALL layers (proofs, protocol, trace) with `∀ {n}` from the start. Do not pin at a fixed size as a shortcut.
-
-**G-A14 — Error types:**
-- All module-boundary error handling uses typed error ADTs from `Aletheia.Error` (not `String ⊎ A`). Each domain has its own error type (`ParseError`, `FrameError`, `RouteError`, `HandlerError`, `DispatchError`). Cross-domain lifting uses `mapₑ` + wrapper constructors (e.g., `WrappedParseError`). Handler-level context uses `WithContext`. Only binary FFI entry points in `Main.agda` use literal error strings (by design -- Haskell FFI returns `String ⊎ Vec Byte`). New error constructors that bypass the typed ADTs are a finding. This guideline and **G-A17 (Typed error handling)** overlap intentionally: G-A14 is the "which type goes at which boundary" rule, G-A17 is the "adding new error paths" rule.
-
-**G-A15 — Combinator-first:**
-- Before writing pattern matching on `_⊎_` / `Maybe` / `_×_`, check if a combinator handles it (`Data.Sum.map`, `Data.Maybe.map`, `Data.Product.map₂`). Explicit case analysis should be the fallback, not the default.
-
-**G-A16 — Stdlib before rolling your own:**
-- Check the standard library before writing a new lemma. Commonly missed modules: `Data.Nat.DivMod`, `Data.Nat.Properties`, `Data.List.Properties`, `Data.Vec.Properties`. A hand-written lemma that duplicates a stdlib export is a finding.
-
-**G-A17 — Typed error handling:**
-- All module-boundary operations use typed error ADTs from `Aletheia.Error`. The five domain types (`ParseError`, `FrameError`, `RouteError`, `HandlerError`, `DispatchError`) cover all error-producing paths. New error paths must use the appropriate typed constructor, not `inj₁ "string"`. If a new domain emerges, add a new error type to `Error.agda` and a corresponding `errorCode`/`formatError` case. Binary FFI entry points are the sole exception (they return `String ⊎ Vec Byte` for Haskell marshalling).
-
-**G-A18 — State machine encoding:**
-- When a protocol has phases or states, ask whether transitions are enforced by types or only checked at runtime. Runtime-only state machines are specification gaps -- invalid transitions should ideally be unrepresentable.
-
-**G-A19 — Binary FFI wire format:**
-- Every binary FFI endpoint must document its wire format (field types, sizes, endianness, field order) in exactly one canonical location. All binding implementations must reference this specification. An undocumented wire format is a finding.
-
-**G-A20 — Module separation:**
-- Separate domain Types, Operations, and Properties into distinct modules (e.g., `CAN/Frame.agda` for types, `CAN/Encoding.agda` for operations, `CAN/Encoding/Properties.agda` for proofs). Don't put proofs alongside the implementation they verify -- it conflates "what runs" with "what we know about what runs."
-
-**G-A21 — Refinement-types pattern (`record { value : Base; witness : T (predicateᵇ value) }`):**
-- When two or more types in the codebase differ only on a decidable predicate over a shared base type (e.g., `ℤ`-typed bounds vs `DecRat`-typed bounds, or "any string" vs "valid identifier string"), unify them under the more general type with a witness record carrying `T (predicateᵇ value)`. The runtime check happens once at the boundary; downstream code carries the proof at the type level.
-- Worked examples in-tree: `Identifier` (String/List Char + `T validIdentifierᵇ`), `IntDecRat` (DecRat + `T isIntegerᵇ`), `NatDecRat` (DecRat + `T isNonNegIntegerᵇ`), `CanonicalReceivers` (List Identifier + `T isCanonicalReceiversᵇ` — no singleton-`Vector__XXX`, the cantools placeholder for `[]`).  See `memory/project_refinement_types_pattern.md` for the 5 design choices (relevant witness, smart constructor via `subst T`, total projection via `()`, bidirectional roundtrip via `T-irrelevant`, parser via `ifᵀ_then_else_`) plus the **boundary-detoxifier usage** (γ.1+γ.2 lifted the asymmetric `stripVectorPlaceholder` step into the AST as a refinement, so both wire formats normalise via a single smart constructor and the roundtrip proof becomes a one-line `iso` bijection in the Format DSL).
-- Required constraints: (a) **witness field MUST be relevant** (no `.` modality / no `@0` erasure) under `--without-K` — irrelevant witnesses break `_≟_` decidable equality (Identifier T3 incident, see `project_identifier_eq_revisit.md`); (b) the predicate must reduce on closed canonical-form inputs, otherwise `subst T` cannot auto-witness in smart constructors; (c) for parser combinator promotion, use `parseDecRat >>= λ d → ifᵀ predicateᵇ d then mkRefined else fail` — the `ifᵀ` combinator from `Aletheia.Prelude` provides the witness inside the `then` branch automatically (G-A10's bounded-constructor pattern is the inline cousin of this).
-- When NOT to apply: when the base type is genuinely the wrong representation (the refinement carries semantic information beyond a constraint), or when introducing the refinement would create an asymmetric API where some callers see the refined type and others see the base type (per `feedback_no_subsumption_asymmetry.md`, asymmetric subsumption invites pushback — apply across every call site that admits the unification).
-
-**G-A22 — Step back when proof-shape patterns repeat across constructs:**
-- Type-checking is a local correctness signal, not an architectural one.  Per-construct proofs that grow past ~500–1000 LOC and share the *same proof-shape* (long `bind-just-step` chains, deep `cong (trans …)` cascades, repeated `SuffixStops` discharges, position alignment via repeated `advancePositions-++` chains, per-construct shape lemmas doing the same `++ₗ-assoc` reshuffling) are a structural signal that the abstraction layer is wrong.
-- After the 2nd or 3rd per-construct proof in a tree, check: are the same patterns showing up?  If yes, *do not just commit and continue*.  Pause the per-construct grind and surface the question to the user with ≥2 architectural alternatives + concrete LOC cost/savings estimates.
-- The agent must raise this proactively — it is not the user's job to notice the convolution.  See `memory/feedback_step_back_when_proofs_balloon.md` for the canonical statement of this rule.
-- Worked example: B.3.d Layer 3 went 8 constructs deep (3a/3b/3c.1/3c.2/3c.3/3c.4/3d.2/3d.3) at 500–2,500 LOC each before the user asked "Are we missing something?" post-3d.3b on 2026-04-26.  The locked refactor (`3d.4` Identifier de-tainting + `3d.5` Format DSL framework, projected ~85% Layer-3 LOC reduction; see `docs/development/PARITY_PLAN.md` §B.3.d) should have been initiated from the agent side after construct #2 or #3.
-- Anti-pattern to reject: "this construct is also complex, but it type-checks, so I'll commit and move on."
-
-**G-A23 — Audit ALL wire boundaries when changing a runtime representation:**
-- When a refactor changes a type's internal representation (e.g. `Identifier.name : String → List Char`, or any `record { … }` field whose value crosses a wire format), enumerate **every boundary** the type crosses — text wire, JSON wire, binary FFI wire, accessor API surface — and verify the per-boundary proof obligation BEFORE locking the plan.  Don't analyze only the boundary in front of you.
-- For each boundary, write the per-boundary roundtrip claim and trace whether it reduces definitionally or needs a primitive-bridging axiom (`toList∘fromList`, `fromList∘toList`, etc.).  If any boundary needs an axiom that the plan didn't account for, the plan is incomplete — not "just an extra step at commit time."
-- Before locking, ask the advisor explicitly: "Are there other boundaries this refactor touches that I haven't analyzed?"
-- Worked example: B.3.d 3d.4 plan was authored 2026-04-26 with text-parser-side analysis only.  "Axioms only at the outer parseText/formatText wrap" was correct for the text-parser path but missed that JSON has multiple String boundaries (one per JString site).  Resumption session 2026-04-27 surfaced the gap; replanning committed weeks of additional work (Option 2: mirror 3d.4 fix on JSON side via `JString : List Char → JSON` + DBC AST text fields → List Char).  See `memory/feedback_audit_all_wire_boundaries.md`.
-- Counterexample to the rule "axioms only at outer wrap": any wire format that's structurally heterogeneous (JSON has many `JString` sites) needs either an internal-representation alignment (JSON spine to `List Char`) or accept axioms at each site.  Single-site wires (text-parser entry/exit) localise cleanly; multi-site wires don't.
-
-**G-A24 — Head-dispatch over chain when navigating large `<|>` parsers at concrete-prefix input:**
-- When a parser is defined as a K-way `<|>` chain and proofs need to discharge `parser pos (emitX-chars x ++ outer) ≡ just r` at concrete-prefix inputs, the chain elaboration cost is **non-linear in K**.  Empirical (B.3.d Layer 4c, 2026-05-01): 5-way chain (`parseAttrLine`) → 31 dispatchers in one module at ~500 MB total residency; 10-way chain (`parseTopStmt` before refactor) → ONE dispatcher at 15.7 GB residency / 273s wall, projected ~3 hours wall + per-module residency at the `-M16G` tripwire across 5 simples + ~33 TAT sub-cases.
-- For K > 5, **restructure the parser definition to head-character pattern dispatch** — partition alts into per-head buckets (1-2 alts each), pattern-match on input's first 1-2 chars at the parser's top level, and let each bucket reduce in 1 step.  Per-bucket `<|>` proofs use existing `alt-left-just` / `alt-right-nothing` primitives.  Behavioral equivalence to the chain holds when inter-bucket prefixes are disjoint (which is normally already proven for the head-fail leading lemmas a chain composer needs anyway).
-- For K = 3-5 with prefix-disjoint alts: the existing `lift-altK` composer pattern (`feedback_lift_altK_composer.md`, mirrored in `Properties/Attributes/Line.agda`) is fine.
-- The cost localizes to dispatcher BODIES, not types or helpers — type-only stub at 448 MB; AltChain helpers alone at 2.3 GB; HeadFails leading-fails alone at 500 MB.  Even monolithic single-module variants (everything inlined) reproduce the cost — module splitting doesn't help.
-- Worked example: `parseTopStmt` refactored from 10-way chain to 7-bucket head-dispatch in commit `cf091d8`; TVT pilot 15.7 GB / 273s → 443 MB / 14s (35× memory, 19× speedup).  See `memory/feedback_chain_dispatch_at_concrete_input.md`.
-
-### Verification
-
-```bash
-cd src && agda +RTS -N32 -M4G -RTS Aletheia/YourModule.agda
-```
-
-The `-M<size>` heap cap is **mandatory**, not optional — it doubles as a runaway-elaboration tripwire and prevents the typechecker from thrashing the host.  Use `-M4G` for all proof modules under review (catches memory blowups from rewrite chains).  Use `-M8G` for larger modules if `-M4G` is too tight.  For ad-hoc development invocations outside review, use the `-M16G` default documented in `CLAUDE.md`.  Bump only when a specific module legitimately needs more; never raise the cap globally.  Empirical floor: `Aletheia/DBC/TextParser/Properties/Comments/Comment.agda` blew >48 GB during B.3.d Layer 3 Commit 3b (open issue tracked in `memory/project_b3d_cm_heap_blowup.md`); without a cap that would have OOM-killed the WSL host instead of failing the build. See `memory/feedback_agda_rts_memlimit.md`.
-
----
-
-## Go (33 categories)
-
-Scope: ALL Go source files and test files in `go/aletheia/`.
-
-### Hygiene/Style (6)
-
-1. **Naming conventions** -- Go MixedCaps (not underscores), acronym casing (ID not Id, FFI not Ffi), receiver names, consistent across package
-2. **Package API surface** -- exported vs unexported, godoc comments on all exports, no over-export
-3. **Dead code** -- unused types, functions, imports, variables
-4. **Comment/doc quality** -- godoc format, [Type] cross-references, explains "why" not "what", no stale comments
-5. **Error message consistency** -- consistent format, lowercase per Go convention, no punctuation
-6. **Formatting** -- gofmt compliance (non-negotiable in Go), goimports ordering
-
-### Type & Safety (4)
-
-7. **Strong type coverage** -- no raw int/float64/string where a domain type exists; validated constructors
-8. **Interface design** -- sealed interfaces correct, minimal surface ("accept interfaces, return structs"), no interface pollution
-9. **cgo safety** -- memory management across Go/C boundary, C.free after C.CString, defer for RAII-equivalent, LockOSThread for thread-pinned FFI
-10. **Goroutine & concurrency safety** -- sync.Once correctness, no data races (would fail -race), proper context.Context cancellation, channel direction types
-
-### Correctness (4)
-
-11. **Serialization fidelity** -- JSON output matches Agda protocol exactly (field names, types, structure, command strings)
-12. **Parsing robustness** -- handles all response variants, all three number formats (int/float/rational dict), error paths, no silent data loss. **Discarded protocol responses**: every `Backend` method that returns `(string, error)` must have its string return parsed by the caller — `_, err := backend.Foo(...)` discarding the response string is a finding. Protocol-level errors (Agda core returning `{"status":"error","code":"..."}`) are invisible when the response is discarded; only FFI-level failures (nil pointer, dlsym failure) would be caught. The pattern `_, err :=` on a protocol response is always a bug. Worked example: `Client.SendError` / `Client.SendRemote` discarded the backend response (fixed 2026-04-10)
-13. **FFI lifecycle** -- dlopen/hs_init/close ordering, null checks, string ownership via defer, never hs_exit
-14. **Test adequacy** -- sub-checks:
-    - (a) **Baseline coverage**: public API, edge cases, negative paths, table-driven tests where appropriate, `-race` clean.
-    - (b) **Mock fidelity**: for every `Backend` method, verify `MockBackend` produces responses with the same status strings, field set, and schema as the real `FFIBackend`. A mock that returns `"success"` where the real FFI returns `"ack"` creates latent bugs where tests pass but production fails.
-    - (c) **Cross-binding mock agreement**: all three binding mocks (Python canned responses, C++ `IBackend` defaults + `MockBackend`, Go `MockBackend`) must agree for the same operation — if Go's mock returns `{"status":"ack"}` for `SendErrorBinary` but C++'s returns `{"status":"success"}`, that is a finding regardless of which is "correct".
-    - (d) **Real-vs-mock divergence testing**: for operations where the mock response differs from the real FFI, there must be a test that exercises the real FFI format. If integration tests (real `.so`) are not available, update the mock to match and add a comment documenting what the real FFI returns. A mock chosen for convenience (e.g., `"success"` because `parseSuccessResponse` already works) rather than fidelity is a finding.
-    - (e) **Regression test discipline**: every bug fix must be accompanied by a test that fails without the fix and passes with it. Landing a fix without a guarding test re-opens the regression surface the next time this file is refactored; prior-round fixes listed in memory are not substitutes — the test must live in the repo.
-    - (f) **Test isolation**: `go test -shuffle=on -count=1 -race ./aletheia/` must pass — order-dependent flakes (shared tempdir, package-level state leaked between tests, goroutine leaks observed by the next test, `os.Setenv` without a paired restore, sync.Once consumed in a prior test) are findings. Tests must clean up tempdirs via `t.TempDir()`, register `t.Cleanup`, and use `t.Setenv` instead of raw `os.Setenv`. The `-shuffle=on` lane runs in CI alongside the deterministic lane; both must be green.
-    - (g) **Mutation testing**: a mutation pass (`gomut`, `go-mutesting`, or `mutate`) on hot-path source files (`client.go`, `dbc.go`, `protocol.go`, `ffi_*.go`, `frame.go`) — surviving mutants on operational logic (not on log-string formatting, comment-tagged unreachable branches, or pure metadata/version strings) are findings. Justify any survivor with a comment block at the source site naming why the mutant is equivalent or unreachable; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient; per-commit is overkill.
-
-### Architecture (4)
-
-15. **API ergonomics** -- idiomatic Go (io.Closer, functional options, error wrapping), pit of success, zero-value usability
-16. **Package boundaries** -- clean separation, no circular imports, internal/ where needed, build tag isolation
-17. **Extensibility** -- adding new predicates, new operations doesn't break existing callers
-18. **Dependency discipline** -- minimal external deps, cgo requirements documented, go.sum hygiene
-
-### Specification/Design (4)
-
-19. **Domain model fidelity** -- do the types and abstractions faithfully represent the CAN/DBC/LTL domain? Are there gaps?
-20. **Design coherence** -- are the right things grouped together? Are abstractions justified or gratuitous? Is coupling minimized?
-21. **Use-case coverage** -- does the API serve its intended users well? Are there missing capabilities or workflows harder than they should be?
-22. **Cross-layer alignment** -- does the Go binding correctly mirror the Agda core's semantics? All bindings (Python, C++, Go) must have identical behavior -- any divergence is a finding. **Response contract audit**: for every client method, trace the response lifecycle: (a) what status strings can the Agda core return for this operation? (b) does the binding's parser accept all of them? (c) does the client method actually call the parser (not discard the response)? A parser that accepts `"success"` but not `"ack"` for an operation where the Agda core returns `"ack"` is a finding. A client method that calls a backend method and discards the response string with `_` is a finding — protocol errors from the Agda core would be silently lost. **Concrete cross-binding comparison**: for each of the 15 `Backend` interface methods, compare: (1) what the Python client does with the response, (2) what the C++ client does, (3) what the Go client does. Any behavioral divergence is a finding. Python is the reference implementation — Python's `_ACK_BYTES` fast path in `send_error`/`send_remote` is the gold standard for event response handling
-
-### Runtime Safety (3)
-
-23. **Error wrapping & sentinel discipline** -- `fmt.Errorf("...: %w", err)` preserves the chain; `%v` silently drops it. Typed errors (`*aletheia.Error`) matched via `errors.As`, not string comparison. Sentinel errors must be package-level `var ErrX = errors.New(...)`, not re-created per call. `errors.Is`/`errors.As` at every catch point that reacts to a specific kind. No `strings.Contains(err.Error(), "...")` as a branch condition.
-24. **`nil` & zero-value discipline** -- typed nil is not interface nil: `var e *Error = nil; var i error = e` satisfies `i != nil`. `nil` map writes panic; callers must initialize with `make(map[K]V)` before first write. `nil` slice vs empty slice differ in JSON output (`null` vs `[]`) — cross-binding parity requires one canonical form. Zero-value usability is a Go idiom: `&Client{}` must either work or fail loudly, never silently misbehave.
-25. **Context propagation discipline** -- `context.Context` is the first parameter of any function that can block or be cancelled, never stored in a struct, never `nil` (`context.Background()` / `context.TODO()` instead). Every `ctx` argument must reach a `select { case <-ctx.Done(): }` or be passed downstream. Cancellation must propagate to every goroutine launched. `context.WithTimeout`/`WithCancel` must have their `cancel` called (usually via `defer cancel()`).
-
-### Concurrency & Performance (2)
-
-26. **Channel & goroutine lifecycle** -- the sender owns the close (closing from the receiver is a bug; closing twice panics; sending on closed panics). Every `go func(){…}()` must have a documented termination path. Goroutine leaks from forgotten `<-ch` on error paths are the most common Go bug; every `select` on a send or receive needs a `case <-ctx.Done():` unless the channel lifecycle is bounded. Buffered vs unbuffered is a design choice, not a performance knob -- buffer size must be justified.
-27. **Hot-path performance** -- `defer` has per-call cost (~50ns) and matters inside tight loops; `strings.Builder` vs `+=` for concatenation; unnecessary interface boxing (`any` parameter causing heap escape); `sync.Pool` for per-frame allocations; `reflect` avoidance; slice growth via `append` without pre-sized capacity; map access patterns that can be a single compound op instead of lookup-then-insert. **Long-run stability**: a stability benchmark of ≥ 1M frames must not exceed the proven O(1) per-frame bound (no unbounded cache growth, no leaked goroutines, no slow map rehash amortized across millions of inserts). Per-frame throughput must stay within the variance band of the short-run benchmark. A run that degrades over time is a hot-path finding even if the short bench passes. **Long-run resource leakage sub-checks**: the stability bench must record (a) FD count delta — `len(must(os.ReadDir("/proc/self/fd")))` at start vs end — drift indicates a forgotten `Close` somewhere on the FFI/file-loader path; (b) goroutine count delta via `runtime.NumGoroutine()`, capturing the goroutine stack via `pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)` on drift > 0 so the leaking call site is identifiable; (c) RSS delta via `runtime/metrics` (`/memory/classes/heap/objects:bytes` start vs end after `runtime.GC()`); (d) Haskell `StablePtr` accounting on the cgo side — a `StablePtr` retained past `Close()` is a bug regardless of whether `runtime.SetFinalizer` would eventually catch it. Every drift is a finding, not a "monitor over time" item.
-
-### Security & I/O (2)
-
-28. **Security / input sanitisation at cgo boundary** -- every `C.size_t` from Haskell must be bounds-checked before cast to `int`, every `*C.char` return must be nil-checked, `C.GoStringN(ptr, length)` is unsafe if `length` is attacker-controlled, `unsafe.Slice(ptr, n)` can create an out-of-bounds slice header. Path inputs from user data must go through `filepath.Clean` and be rejected on `..` traversal. **Adversarial-input bounds at the cgo entry**: every input from the C side (`*C.char` from `dlsym`'d return values, `C.size_t` length fields, response payloads from `processJSONLine` / `processFrameDirect`) must be bounds-checked against a documented maximum from `docs/architecture/PROTOCOL.md` § Limits before use — the Agda kernel checks bounds first (definitive), but the binding short-circuits oversized inputs at the FFI entry to avoid marshaling a payload that will be rejected. Overflow returns a typed `*aletheia.InputBoundExceededError` carrying the field name and limit, never a panic, never a slice header pointing past the buffer. See Universal Rules → "Adversarial-input bounds at parser surfaces".
-29. **File I/O & encoding** -- `os.ReadFile` vs streaming for potentially large files (DBC files can be multi-MB), `bufio.Scanner` default 64KB buffer silently truncates long lines (must call `Buffer` explicitly), file open modes explicit (`os.O_RDONLY|os.O_CREATE|os.O_TRUNC` not magic numbers), library APIs accept `io.Reader` rather than `*os.File`, line endings handled portably, explicit UTF-8 validation for DBC strings, no `ioutil.*` usage (deprecated since Go 1.16).
-
-### Observability & Diagnostics (1)
-
-30. **Logging discipline (`slog` parity)** -- `slog` is the established logging path; same 15 event names, same field names, same field types as C++ `Logger` and Python logger. Use `slog.LogAttrs` in hot paths (skips the `any...` variadic allocation). Level discipline matches severity (Debug/Info/Warn/Error). No `log.Printf` or `fmt.Println` in library code. `slog.With` for scoped loggers at entry points, not per-call. Per-`Client` logger passed in, not pulled from `slog.Default()`.
-
-### Build & Reproducibility (2)
-
-31. **Build tag & module hygiene** -- `//go:build cgo && linux` for FFI files, `//go:build !cgo` stubs for portability (`ffi_nocgo.go`), no accidental duplicate symbols across build-tagged files, `go.mod` `go` directive matches CI version, `toolchain` directive explicit, no `replace` directives pointing at local paths in committed code, `go.sum` complete after every `go mod tidy`, minimal indirect deps.
-32. **Determinism & reproducibility** -- Go `map` iteration order is randomized; user-visible output from `range m` is a correctness bug (tests pass locally, fail in CI). `slices.Sort` is not stable — use `slices.SortStableFunc` when tie-breaking matters. No `time.Now()` in library code that produces output. No `math/rand` at package level without an explicit `rand.NewSource(seed)`. JSON encoding order must match Python/C++ for cross-binding parity.
-
-### Dynamic Correctness Analysis (1)
-
-33. **Dynamic correctness analysis (sanitizers, fuzzers, property-based, cross-binding integration)** -- four sub-lanes that each cover correctness surfaces unit tests cannot reach:
-    - (a) **Sanitizers beyond `-race`**: where toolchain support exists, run `CGO_CFLAGS="-fsanitize=address" CGO_LDFLAGS="-fsanitize=address" go test -tags=asan ./aletheia/` against the cgo paths. ASan catches use-after-free / double-free / heap-buffer-overflow on the cgo boundary that `-race` does not see. If the GHC RTS interferes with ASan instrumentation, document the gap in `docs/architecture/CGO_NOTES.md`; "we can't run ASan on the FFI path because of GHC" is itself a finding because the gap is unmitigated.
-    - (b) **Native Go fuzz tests** (`testing.F`, Go ≥1.18): one fuzz target per binding-side parser/serializer (`FuzzParseResponse`, `FuzzMarshalCommand`, `FuzzDecodeBinaryFrame`, `FuzzParseRationalNumber`, `FuzzParseDBCJSON`); seed corpus committed under `go/aletheia/testdata/fuzz/<target>/`; CI runs each corpus as a 60s smoke (`go test -fuzz=Fuzz... -fuzztime=60s`) plus a nightly extended lane (`-fuzztime=1h`).
-    - (c) **Property-based tests** (`testing/quick`): round-trip properties for every wire-format encode/decode pair (frame encode → decode → frame, response marshal → parse → response, command marshal → parse → command); parity invariants for every `Backend` method (the response field-set returned by `MockBackend` and `FFIBackend` must agree over generated inputs). A binding-side data type without a round-trip property is a finding under cat 14 (b)/(c) compounded — per-binding mock fidelity AND per-binding property-test coverage are the two halves.
-    - (d) **Cross-binding integration test**: a single replay corpus (frames + DBC + checks) is fed through Python, Go, and C++ bindings via `libaletheia-ffi.so` in lockstep; the test asserts identical sequences of parsed responses, log events, and error cases — any divergence across bindings is a parity finding regardless of which binding is "right" (per `feedback_cross_language_parity.md`). Test lives at `go/aletheia/cross_binding_integration_test.go`, opt-in via `//go:build cross_binding` build tag, paired with the matching Python (`python/tests/test_cross_binding_integration.py`) and C++ (`cpp/tests/cross_binding_integration_tests.cpp`) entry points so the three bindings exercise the same fixtures from one canonical corpus.
-
-### Verification
-
-```bash
-cd go && gofmt -l ./aletheia/
-cd go && go test ./aletheia/ -v -count=1 -race
-cd go && go test ./aletheia/ -shuffle=on -count=1 -race
-cd go && go vet ./...
-cd go && CGO_ENABLED=0 go build ./aletheia/
-# Cat 33 dynamic-analysis lanes (opt-in via build tags or extended runs):
-cd go && go test ./aletheia/ -fuzz=Fuzz -fuzztime=60s -run='^$'   # one target at a time; iterate
-cd go && go test ./aletheia/ -tags=cross_binding -v               # cross-binding integration
-# Cat 33 (a) sanitizer lane (when toolchain supports it):
-cd go && CGO_CFLAGS="-fsanitize=address" CGO_LDFLAGS="-fsanitize=address" go test -tags=asan ./aletheia/
-```
-
-The `go test ./aletheia/` battery includes the Track D.2 doc-example
-harness (`TestDocExamples`) — every ```go fence across `README.md`,
-`docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
-`docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`
-is wrapped as `package main` in a per-fence tempdir (with a
-`replace`-directive go.mod pointing at the local repo) and executed via
-`go run`. The companion structural gate `TestNoNotestGoFences` rejects
-`<!-- go notest -->` annotations: non-runnable fences must use the
-`text` info string, mirroring the Python `python notest` ban
-(`python/tests/test_doc_examples_harness.py`). Adding a new user-facing
-markdown file means adding it to the `docFiles` list in
-`go/aletheia/doc_examples_test.go`. Skipped automatically when
-`libaletheia-ffi.so` is missing (run `cabal run shake -- build` first).
-
----
-
-## C++ (33 categories)
-
-Scope: ALL source files, headers, and test files in `cpp/`.
-
-**Tooling gates (hard requirements):**
-- `clang-format --dry-run -Werror` must produce **zero violations** on all source files.
-- `clang-tidy -p build` must produce **zero errors and zero warnings** on all source files.
-- **Adding any suppression annotation** (`NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN/END`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
-
-### Hygiene/Style (6)
-
-1. **Naming consistency** -- matches .clang-tidy conventions across all files
-2. **Formatting** -- .clang-format compliance
-3. **Include hygiene** -- minimal includes, no implementation details leaking into public headers
-4. **Dead code** -- no unused types, functions, or includes
-5. **const-correctness** -- const where possible, no unnecessary mutability
-6. **Comment quality** -- explains "why" not "what"; no stale comments
-
-### Type & Safety (4)
-
-7. **Strong type coverage** -- no raw int/double/string where a domain type exists
-8. **Ownership & RAII** -- unique_ptr, move semantics, no raw owning pointers, no double-free
-9. **Memory safety** -- no dangling references, no use-after-move, no buffer overflows
-10. **Thread safety** -- per-instance isolation correct, documented, and tested
-
-### Correctness (4)
-
-11. **Serialization fidelity** -- JSON output matches the Agda protocol exactly (field names, types, structure)
-12. **Parsing robustness** -- handles all response variants, rational formats, error paths; no silent data loss. **Response-status exhaustiveness**: response parsers that switch on status strings must account for all statuses the Agda core can produce for the operations they serve. A parser used by multiple client methods (e.g., `parse_success` serving both `parse_dbc` and `send_error`) must accept the union of all valid statuses across those methods. When a parser serves operations with different valid statuses, document the accepted set in a comment. Worked example: `parse_success` only accepted `"success"` but `send_error`/`send_remote` receive `"ack"` from the real FFI — latent bug fixed 2026-04-10 by adding `"ack"` acceptance
-13. **FFI lifecycle** -- dlopen/hs_init/close ordering correct, null checks, string ownership
-14. **Test adequacy** -- sub-checks:
-    - (a) **Baseline coverage**: public API, edge cases, negative paths, concurrency.
-    - (b) **Mock fidelity**: for every `IBackend` virtual method, verify the default implementation and `MockBackend` produce responses with the same status strings, field set, and schema as the real `FfiBackend`. A default that returns `"success"` where the real FFI returns `"ack"` creates latent bugs where tests pass but production fails.
-    - (c) **Cross-binding mock agreement**: all three binding mocks (Python canned responses, C++ `IBackend` defaults + `MockBackend`, Go `MockBackend`) must agree for the same operation.
-    - (d) **Real-vs-mock divergence testing**: for operations where the mock/default response differs from the real FFI, there must be a test that exercises the real FFI format. If integration tests (real `.so`) are not available, update the default to match and add a comment documenting what the real FFI returns. A default chosen for convenience (e.g., `"success"` because `parse_success` already works) rather than fidelity is a finding. Worked example: `IBackend::send_error_binary` / `send_remote_binary` defaults returned `"success"` while real FFI returns `"ack"` — fixed 2026-04-10.
-    - (e) **Regression test discipline**: every bug fix must be accompanied by a test that fails without the fix and passes with it. A fix landed without a guarding test re-opens the regression surface the next time the file is refactored.
-    - (f) **Test isolation**: `ctest --schedule-random --output-on-failure` must pass — order-dependent flakes (shared tempdirs, static-init ordering surprises, `std::thread` leaks across cases, libaletheia-ffi state retained between cases) are findings. Each test fixture must clean up via RAII; static globals modified during a test must be restored via scope-exit guard. The `--schedule-random` lane runs in CI alongside the deterministic lane; both must be green.
-    - (g) **Mutation testing**: a Mull (or equivalent — Dextool-mutate, mull-runner) pass on `cpp/src/*.cpp` — surviving mutants on operational logic are findings. Justify any survivor with a comment block at the source site; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient.
-
-### Architecture (4)
-
-15. **API surface** -- minimal, consistent, hard to misuse (pit of success)
-16. **Encapsulation** -- detail/ stays private, public headers don't expose nlohmann or implementation
-17. **Extensibility** -- adding new predicates, new commands doesn't break existing API
-18. **Build system** -- correct dependencies, no unnecessary exports to consumers
-
-### Specification/Design (4)
-
-19. **Domain model fidelity** -- do the types and abstractions faithfully represent the CAN/DBC/LTL domain? Are there gaps?
-20. **Design coherence** -- are the right things grouped together? Are abstractions justified or gratuitous? Is coupling minimized?
-21. **Use-case coverage** -- does the API serve its intended users well? Are there missing capabilities or workflows harder than they should be?
-22. **Cross-layer alignment** -- does the C++ binding correctly mirror the Agda core's semantics? All bindings (Python, C++, Go) must have identical behavior -- any divergence is a finding. **Response contract audit**: for every client method, trace the response lifecycle: (a) what status strings can the Agda core return for this operation? (b) does the binding's parser accept all of them? (c) does the client method actually call the parser? A parser that accepts `"success"` but not `"ack"` for an operation where the Agda core returns `"ack"` is a finding. **Concrete cross-binding comparison**: for each of the 15 `IBackend` virtual methods, compare: (1) what the Python client does with the response, (2) what the C++ client does, (3) what the Go client does. Any behavioral divergence is a finding. Python is the reference implementation
-
-### Runtime Safety (3)
-
-23. **Exception safety & `noexcept` discipline** -- move constructors/assignment must be `noexcept` for STL container efficiency (vector reallocation picks copy over throwing-move), destructors must not throw during stack unwinding, exceptions must not cross the FFI boundary (would unwind through Haskell RTS frames), basic/strong/nothrow guarantees documented on public APIs, `throw;` vs `throw e;` distinction respected, destructor exception guards (`try`/`catch` around logging in destructors).
-24. **Undefined behavior hazards** -- signed integer overflow (prefer unsigned or `__builtin_add_overflow` at boundaries), strict-aliasing violations (prefer `std::bit_cast`), unaligned loads on primitive types, lifetime-extended temporaries bound to `auto&&`, dangling references returned from functions, uninitialized reads, `reinterpret_cast` through non-matching types, pointer arithmetic outside array bounds.
-25. **Data race & memory order discipline** -- `std::atomic` memory order choice justified (no gratuitous `seq_cst`, no unsound `relaxed`), lock hierarchy / acquisition order documented, no lock held across FFI call that could re-enter through Haskell, `std::mutex` vs `std::shared_mutex` choice justified, condition variable spurious wakeups handled via predicate loops, no plain reads/writes on shared non-atomic data without a lock.
-
-### Performance & Runtime Discipline (2)
-
-26. **Hot-path performance** -- unnecessary copies (`const T&` vs `T` on params, missing `std::move` on rvalues, copy-on-return killing NRVO), heap allocation in tight loops (prefer `std::array`/small-buffer types), `std::shared_ptr` where `std::unique_ptr` suffices, `std::function` indirection where templates fit, repeated `.find()` + `.insert()` pairs that should be `.try_emplace()`, small-string optimisation misses, `std::vector<bool>` surprises. **Long-run stability**: a stability benchmark of ≥ 1M frames must not exceed the proven O(1) per-frame bound (no unbounded cache growth, no arena fragmentation that slows allocation over time, no leaked `std::thread`). Per-frame throughput must stay within the variance band of the short-run benchmark. A run that degrades over time is a hot-path finding even if the short bench passes. **Long-run resource leakage sub-checks**: the stability bench captures (a) RSS via `/proc/self/status` `VmRSS` start vs end (after explicit shrink-to-fit on caches); (b) FD count via `count_if(directory_iterator("/proc/self/fd"), …)`; (c) `std::thread` lifecycle — every constructed thread joined or detached deliberately, no `std::async` chain that accumulates a `std::future` queue, no detached-thread escape; (d) heap fragmentation via `malloc_info` snapshot diff, since arena fragmentation that does not show as RSS still inflates allocation latency over time. Drift on any sub-check is a finding.
-27. **Standard library idiomatic usage** -- C++23 features used where appropriate (`std::expected`, `std::print`, ranges, `std::byteswap`, `std::span`), `std::string_view` lifetime hazards (no views of temporaries), `std::optional` vs pointer for optional references, `std::from_chars` vs locale-dependent `strtod`/`stoi`, `std::format` vs iostream for non-log output, `std::span<const std::byte>` over `(const uint8_t*, size_t)` pairs.
-
-### Security & I/O (2)
-
-28. **Security / input sanitisation at FFI boundary** -- bounds checks on all size/length fields from callers, integer overflow on `size_t` arithmetic (`n * sizeof(T)` can wrap), null pointer checks on all input pointers including return values from `dlsym`, validation of DLC/frame-length fields before indexing, no trust of structure layout across the ABI, defensive handling of caller-owned strings. **Adversarial-input bounds at the FFI entry**: every input from the FFI side (`dlsym`'d return values, payload pointers from `process_json_line`, length fields from `process_frame_direct`, response strings, response payloads) must be bounds-checked against a documented maximum from `docs/architecture/PROTOCOL.md` § Limits before use — the Agda kernel checks bounds first (definitive), but the binding short-circuits oversized inputs at the FFI entry to avoid copying a payload that will be rejected. Overflow throws `aletheia::InputBoundExceededError` (or returns `std::unexpected<…>` where the API uses `std::expected`), never reads past the buffer, never relies on UB caught by an ASan run that is not in the standard CI lane. See Universal Rules → "Adversarial-input bounds at parser surfaces".
-29. **File I/O & encoding** -- `std::ifstream`/`std::ofstream` opened in correct mode (binary for payloads, text for DBC/YAML), stream state checked after every read (`good()`/`fail()`), `std::locale::global` never mutated, locale-independent parsing for numbers, `std::filesystem::path` instead of string concatenation, explicit handling of multi-byte UTF-8 in DBC strings.
-
-### Observability & Diagnostics (1)
-
-30. **Logging discipline** -- `Logger` class usage matches Go `slog` and Python parity (same 15 event names, same field names), lazy formatting (no string construction unless logger present), log level discipline (DEBUG/INFO/WARN/ERROR matches actual severity), `std::println(stderr, ...)` reserved for documented startup warnings (rts_cores mismatch), no `std::cout`/`std::cerr` in library code outside documented warning paths, no eager concatenation in disabled log calls.
-
-### Build & Packaging (2)
-
-31. **ABI & compiler portability** -- targets g++ >= 14 and clang >= 21 on Linux only; any `__attribute__`/`[[gnu::...]]` extension must work on both; no GCC-only builtins without a fallback; public headers use only C++23 features supported by both compilers; no reliance on undocumented layout of `std::` types; anonymous namespaces only in `.cpp` files, never in headers (ODR violations).
-32. **Build reproducibility & CMake hygiene** -- `target_include_directories` uses `BUILD_INTERFACE`/`INSTALL_INTERFACE` correctly, no absolute paths baked into binaries, `__DATE__`/`__TIME__` not used, `target_link_libraries` scope (`PRIVATE`/`PUBLIC`/`INTERFACE`) intentional with no leaky `PUBLIC` on implementation-only deps, ctest targets isolated from each other (no shared temp files), FetchContent pinned to exact commits not floating branches, no global `add_definitions`.
-
-### Dynamic Correctness Analysis (1)
-
-33. **Dynamic correctness analysis (sanitizers, fuzzers, property-based, cross-binding integration)** -- four sub-lanes that each cover correctness surfaces unit tests cannot reach:
-    - (a) **Sanitizer build matrix**: a separate CI lane builds with `-fsanitize=address,undefined` (ASan + UBSan) and runs the full ctest battery green; this is the standing UB gate that the regular Release build cannot replace. Add MSan if achievable on cgo-style boundaries; if the GHC RTS interferes with the sanitizer's instrumentation, document the gap in `docs/architecture/CGO_NOTES.md` rather than dismissing it. The ASan/UBSan lane catches lifetime, aliasing, and signed-overflow bugs that survive every other gate.
-    - (b) **libFuzzer harnesses**: one fuzz target per binding-side parser (`fuzz_parse_response`, `fuzz_decode_binary_frame`, `fuzz_parse_dbc_json`, `fuzz_parse_rational_number`); seed corpus under `cpp/tests/fuzz/seed/<target>/`; CI runs each corpus as a 60s smoke plus a nightly extended lane (`-max_total_time=3600`). Fuzz targets compile under both Release and ASan to catch UB-on-fuzzed-input paths.
-    - (c) **Property-based tests** via Catch2 generators (`GENERATE`, `GENERATE_REF`): round-trip properties for every wire-format encode/decode pair, parity invariants for `IBackend` defaults vs `FfiBackend` over generated inputs (the response field-set must agree). A binding-side data type without a round-trip property is a finding compounding cat 14 (b)/(c).
-    - (d) **Cross-binding integration test**: mirror of Go cat 33d / Python cat 34d — one replay corpus across all three bindings produces identical sequences. Test lives at `cpp/tests/cross_binding_integration_tests.cpp`, opt-in via the same `cross_binding` build flag as the Go and Python entries so the three bindings exercise the same fixtures from one canonical corpus.
-
-### Verification
-
-```bash
-cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
-cd cpp && ctest --test-dir build --schedule-random --output-on-failure
-clang-format --dry-run -Werror include/aletheia/*.hpp src/*.cpp src/detail/*.hpp tests/*.cpp
-clang-tidy -p build src/*.cpp
-# Cat 33 dynamic-analysis lanes:
-cd cpp && cmake -B build-asan -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build-asan && ctest --test-dir build-asan
-cd cpp && cmake --build build --target fuzz_parse_response && ./build/tests/fuzz_parse_response -max_total_time=60 tests/fuzz/seed/parse_response/
-cd cpp && cmake --build build --target cross_binding_integration_tests && ctest --test-dir build -R cross_binding
-```
-
-The `ctest` battery includes the Track D.1 doc-example harness
-(`doc_example_tests`) — every ```cpp fence across `README.md`,
-`docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
-`docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`
-is extracted, wrapped (3 shapes — full `int main()` / `#include` block
-+ decls / body fragment with `using namespace aletheia` and
-predeclared `client`/`backend`/`ts`/`can_id`/`dlc`/`data`/`frames`),
-compiled by `${CMAKE_CXX_COMPILER}` (linked against
-`$<TARGET_FILE:aletheia-cpp>` plus the static yaml-cpp / OpenXLSX
-archives), and executed end-to-end. The companion structural gates
-ban `<!-- cpp notest -->` annotations and enforce a `≥6` collective
-fence floor — non-runnable fences must use the `text` info string,
-mirroring the Python and Go ban. Adding a new user-facing markdown
-file means adding it to `kDocFiles` in
-`cpp/tests/doc_example_tests.cpp`. Skipped automatically when
-`libaletheia-ffi.so` is missing (run `cabal run shake -- build` first).
-
----
-
-## Python (34 categories)
-
-Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, and benchmark scripts in `python/benchmarks/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
-
-**Tooling gates (hard requirements):**
-- `pylint` score must stay **10.00/10**. Any score drop is a blocking finding.
-- `basedpyright` must produce **zero errors and zero warnings**. Any new diagnostic is a blocking finding.
-- **Adding any suppression annotation** (`# type: ignore`, `# pylint: disable`, `# noqa`, `# pyright: ignore`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
-
-### Hygiene/Style (6)
-
-1. **PEP 8 & formatting** -- consistent style, line lengths, import ordering
-2. **Naming conventions** -- snake_case for functions/variables, PascalCase for classes, UPPER_CASE for constants, leading underscore for private
-3. **Dead code** -- unused imports, unreachable branches, unused variables, commented-out code
-4. **Comment/doc quality** -- Google-style docstrings on public API, explains "why" not "what", no stale comments
-5. **Error message consistency** -- consistent format across client, CLI, loaders; actionable messages
-6. **Module organization** -- each module has a single concern; no circular imports; private modules prefixed with underscore
-
-### Type & Safety (4)
-
-7. **Type annotation coverage** -- all public functions fully annotated; basedpyright strict mode clean; TypedDict/Protocol/Literal used correctly
-8. **Strong type usage** -- sub-checks:
-    - (a) **Domain types over primitives**: no bare `dict`/`list`/`Any` where a TypedDict, Protocol, or domain type exists; validated constructors over raw `int`/`str` at boundaries.
-    - (b) **Tightness**: type hints must be as tight as the underlying value permits. basedpyright accepts any supertype (including `object`), so loose annotations silently pass the gate — reviewer must check that each annotation reflects the narrowest type the value can hold. If a third-party library produces a more specific type (e.g. cantools' `NamedSignalValue`, `Fraction` over `float`, `Literal[0, 1, 2]` over `int`), use that; do not fall back to `object` just because it type-checks.
-9. **Error handling** -- exceptions are specific (not bare `except`), raised with context, documented in docstrings; no silent swallowing
-10. **Resource safety** -- ctypes handles cleaned up, file handles closed, context managers used where appropriate
-
-### Correctness (4)
-
-11. **Serialization fidelity** -- JSON output matches Agda protocol exactly (field names, types, structure, command strings)
-12. **Parsing robustness** -- handles all response variants, all number formats (int/float/rational dict), error paths; no silent data loss. Response parsers must accept all status strings the Agda core can produce for the operations they serve
-13. **FFI lifecycle** -- ctypes CDLL loading, hs_init ref-counting, string marshalling, GHC RTS constraints (never hs_exit)
-14. **Test adequacy** -- sub-checks:
-    - (a) **Baseline coverage**: public API, edge cases, negative paths, fixture reuse via `conftest`; `pytest -v` clean.
-    - (b) **Mock fidelity**: for every operation, verify canned test responses use the same status strings, field set, and schema as the real FFI backend.
-    - (c) **Cross-binding mock agreement**: all three binding mocks (Python canned responses, C++ `IBackend` defaults + `MockBackend`, Go `MockBackend`) must agree for the same operation — a divergence between mocks is a finding regardless of which is "correct".
-    - (d) **Real-vs-mock divergence testing**: for operations where the mock response differs from the real FFI, there must be a test that exercises the real FFI format via the real `.so` integration tests. A mock chosen for convenience rather than fidelity is a finding.
-    - (e) **Regression test discipline**: every bug fix must be accompanied by a test that fails without the fix and passes with it. A fix landed without a guarding test re-opens the regression surface the next time the file is refactored.
-    - (f) **Test isolation**: `pytest --random-order --random-order-bucket=package` (plugin pinned in dev deps) must pass — order-dependent flakes (shared tempdir, module-import side effects, fixture leakage between tests, `os.environ` mutation outside `monkeypatch`, ctypes handle retained between tests) are findings. Each test must clean up via `tmp_path` fixtures, register cleanup via fixture teardown or `addfinalizer`, and never mutate global state without a paired restore. The `--random-order` lane runs in CI alongside the deterministic lane; both must be green.
-    - (g) **Mutation testing**: `mutmut` (or `cosmic-ray`) on hot-path modules (`client.py`, `dbc_converter.py`, `dbc_loader.py`, `validation.py`, `protocols.py`) — surviving mutants on operational logic are findings. Justify any survivor with a comment block at the source site; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient.
-
-### Architecture (4)
-
-15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success, clear import path from `aletheia`
-16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI; no leaking of internal modules
-17. **Extensibility** -- adding new predicates, loaders, or check types doesn't break existing callers
-18. **Dependency discipline** -- minimal external deps; cantools/openpyxl/python-can/pyyaml justified; no unnecessary additions
-
-### Specification/Design (4)
-
-19. **Domain model fidelity** -- do the types and abstractions faithfully represent the CAN/DBC/LTL domain? Are there gaps?
-20. **Design coherence** -- are the right things grouped together? Are abstractions justified or gratuitous? Is coupling minimized?
-21. **Use-case coverage** -- does the API serve its intended users well? Are there missing capabilities or workflows harder than they should be?
-22. **Cross-layer alignment** -- does the Python binding correctly mirror the Agda core's semantics? All bindings (Python, C++, Go) must have identical behavior -- any divergence is a finding. **Response contract audit**: for every client method, trace the response lifecycle: (a) what status strings can the Agda core return for this operation? (b) does the binding's parser accept all of them? (c) does the client method actually call the parser? **Python is the reference implementation**: when reviewing Python, check whether the C++/Go bindings match Python's response handling for each operation. Python's `_ACK_BYTES` fast path in `send_error`/`send_remote` is the gold standard for event response handling — the other bindings must match it. **Concrete cross-binding comparison**: for each of the 15 backend operations, compare what Python, C++, and Go do with the response. Any behavioral divergence is a finding
-
-### Concurrency & Performance (3)
-
-23. **Concurrency & GIL discipline** -- ctypes calls release the GIL, so concurrent `AletheiaClient` instances on distinct state pointers are legal but must not share mutable Python state without a lock. Flag shared `threading.Lock`/`RLock` missing on cross-thread mutable state, `hs_init` ref-counting races, per-thread state pointers held across threads, and any assumption that `hs_init` is called more than once per process.
-24. **Mutability & aliasing hazards** -- default mutable arguments (`def f(x=[])`), shared list/dict aliasing across instances, `dataclass` without `frozen=True` where immutability is intended, `.copy()` vs `copy.deepcopy` at API boundaries, mutation of internal caches (`_signal_cache`, DSL state) during iteration.
-25. **Hot-path performance** -- `json.dumps(..., sort_keys=True)` inside per-frame loops, unnecessary `ctypes.cast` round-trips, eager f-string formatting in `logger.debug(f"...")` (use `%`-style lazy args), `list()` materialization of generators used only for iteration, repeated attribute lookups inside tight loops. **Long-run stability**: a stability benchmark of ≥ 1M frames must not exceed the proven O(1) per-frame bound (no unbounded Python dict growth, no `ctypes` handle leaks, no logger-handler accretion across reconfigurations). Per-frame throughput must stay within the variance band of the short-run benchmark. A run that degrades over time is a hot-path finding even if the short bench passes. **Long-run resource leakage sub-checks**: the stability bench captures (a) RSS via `psutil.Process().memory_info().rss` start vs end (after explicit `gc.collect()`); (b) FD count via `psutil.Process().num_fds()` on Linux (`num_handles()` on Windows); (c) ctypes handle accounting — no `cdll.LoadLibrary` accumulation across iterations, no `c_void_p` retained past `Client.close()`; (d) logger-handler count via `len(logging.getLogger().handlers)` start vs end (a logger-handler accreted across `dictConfig` reconfigurations is a leak even if RSS is stable). Drift on any sub-check is a finding.
-
-### Security & I/O (2)
-
-26. **Security / input sanitisation** -- `yaml.safe_load` (not `yaml.load`), no `pickle` on untrusted input, `subprocess` without `shell=True`, file path traversal from untrusted DBC/log inputs, XML entity expansion safety, credential leakage in logs. **Adversarial-input bounds at user-data entrypoints**: every entrypoint that accepts user-supplied data — `load_dbc`, `load_checks`, `load_checks_from_excel`, `load_dbc_from_excel`, `dbc_to_json`, `iter_can_log`, `Client.send_frame*` payloads — must enforce documented bounds from `docs/architecture/PROTOCOL.md` § Limits before invoking the parser: max file size (via `pathlib.Path.stat().st_size` pre-check), max identifier length, max list cardinality (signals/messages/attributes per file), max nesting depth for JSON-shaped inputs (validated via a recursive-descent depth counter, not a stack-overflow trampoline). Overflow raises `aletheia.InputBoundExceededError` (a domain-specific exception type carrying the field name and limit), never relies on the FFI parser to OOM and never trusts cantools / openpyxl / pyyaml to bound the input. See Universal Rules → "Adversarial-input bounds at parser surfaces".
-27. **File I/O & encoding** -- `open()` must pass explicit `encoding=` (prefer `"utf-8"`), `pathlib.Path` used consistently rather than `os.path` string concatenation, resource loading via `importlib.resources` rather than `__file__`-relative paths, newline handling on text files, binary mode for non-text payloads.
-
-### Observability & Diagnostics (2)
-
-28. **Logging discipline** -- structured logging parity with Go `slog` and C++ `Logger` (same 15 event names, same fields); lazy log message formatting (`%`-style, not f-strings); `exc_info=True` on error paths; level usage matches severity (DEBUG/INFO/WARNING/ERROR); no `print()` in library code. Any helper that wraps `logger.log(...)` on a hot path MUST check `logger.isEnabledFor(level)` and early-return before building `extra` dicts / f-strings — R12's `log_event` missed this and regressed Python Stream LTL by −16.1% until `1e40b4d` restored the guard.
-29. **Exception chaining & context** -- `raise X from Y` to preserve `__cause__`, never `except ... as e: raise RuntimeError(str(e))` (loses traceback), no bare `except:` (use `except Exception:` minimum), re-raises preserve original context, error messages are actionable.
-
-### Packaging & Reproducibility (3)
-
-30. **Determinism & reproducibility** -- no reliance on `dict`/`set` iteration order where output is user-visible, stable sort keys, no timestamp-dependent output in library code, explicit `random.Random(seed)` rather than module-level `random`, no `datetime.now()` in serialization paths.
-31. **Packaging hygiene** -- `pyproject.toml` version pin policy (minimum versions, not exact pins for library code), entry points declared correctly, optional dependency groups (`[project.optional-dependencies]`), wheel/sdist symmetry, `[tool.*]` section consistency (pylint, basedpyright, pytest all configured here).
-32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples. **Doc-example harness (runtime gate)**: every ```python fence across the user-facing docs (`README.md`, `docs/PITCH.md`, `docs/guides/{QUICKSTART,COOKBOOK}.md`, `docs/reference/{CLI,PYTHON_API,INTERFACES}.md`, `docs/architecture/{CANCELLATION,DESIGN,PROTOCOL}.md`, `python/README.md`, `examples/README.md`) must execute end-to-end under `pytest --markdown-docs` against the real FFI. The repo-root `conftest.py` injects globals (pre-built `dbc`, entered `client`, loader fakes for `dbc_to_json`/`iter_can_log`/`load_checks`/`load_checks_from_excel`/`load_dbc_from_excel`/`create_template`) so doc prose stays readable while still exercising live code. Fence tagging conventions: use ```text (not ```python) for pseudo-signatures, JSON return-value shapes, and class-body-shape sketches; use ```python continuation for fences that chain onto a prior runnable fence's namespace; never use ```python notest (the structural gate test `python/tests/test_doc_examples_harness.py` rejects this tag so the "skipped" state is unambiguous). **Structural gate (static)**: `python/tests/test_doc_examples_harness.py` parametrises over the doc-file list above and fails on any `python notest` fence — this runs inside the default `pytest tests/` battery. **Runtime gate (executes the fences)**: the markdown-docs invocation below exercises every live `python` fence against the real FFI. Both cross-binding mirrors closed Track D: Go via `go/aletheia/doc_examples_test.go` (D.2, 2026-05-04 — see Go § Verification) and C++ via `cpp/tests/doc_example_tests.cpp` (D.1, 2026-05-04 — see C++ § Verification). R17-DEF-6 is fully closed.
-
-### Command-line Interface (1)
-
-33. **Command-line interface quality** -- argparse wiring on every CLI subcommand: every flag/positional has a non-empty `help=` string, every subcommand has a one-line description visible from `--help`, mutually exclusive flags are grouped (`add_mutually_exclusive_group`), required arguments are validated at parse time not at use site. Exit codes follow Unix convention: `0` success, `1` generic failure, `2` argument/usage error (`argparse` default), distinct non-zero codes for distinct failure classes (parse error vs runtime error vs I/O error). Stderr/stdout discipline: diagnostic messages (warnings, errors, progress) go to stderr; primary output (parsed JSON, validation results, query responses) goes to stdout so downstream tools can pipe the output. No `print()` of progress to stdout. Argument validation happens before any FFI/I/O side effect — parse and type-check all flags before opening the shared library or any file. Tab-completion (argcomplete) is optional but if present must stay in sync with the `add_argument` declarations; stale completion specs are a finding.
-
-### Dynamic Correctness Analysis (1)
-
-34. **Dynamic correctness analysis (sanitizers, fuzzers, property-based, cross-binding integration)** -- four sub-lanes that each cover correctness surfaces unit tests cannot reach:
-    - (a) **`python -X dev` mode**: a CI lane runs `python -X dev -m pytest tests/` in addition to the standard lane — `dev` mode enables `ResourceWarning` (catches unclosed file/socket/ctypes handles), debug `asyncio` (catches unawaited coroutines), and surfaces deprecation warnings as visible output. Findings under `dev` mode that pass the standard lane are findings, not noise — they are real bugs the standard lane silently masks.
-    - (b) **`hypothesis`-driven property tests**: one strategy per wire-format encode/decode pair (`hyp_test_response_roundtrip`, `hyp_test_dbc_to_json_roundtrip`, `hyp_test_command_marshal_roundtrip`, `hyp_test_rational_number_roundtrip`); strategies pinned in `python/tests/conftest.py` via `@hypothesis.strategies.composite`. Hypothesis profile pinned for CI (`max_examples=200`, deterministic seed) and developer (`max_examples=20`, statistically-shrunk failures). A binding-side parser without a hypothesis property is a finding compounding cat 14 (b)/(c).
-    - (c) **`atheris` fuzz harnesses**: one entry per binding-side parser (`fuzz_parse_response.py`, `fuzz_dbc_to_json.py`, `fuzz_iter_can_log.py`); seed corpus under `python/tests/fuzz/seed/<target>/`. Atheris dependency is opt-in (`[project.optional-dependencies]` group `fuzz`). CI runs each corpus as a 60s smoke plus a nightly extended lane.
-    - (d) **Cross-binding integration test**: mirror of Go cat 33d / C++ cat 33d — one replay corpus across all three bindings produces identical sequences. Test lives at `python/tests/test_cross_binding_integration.py`, opt-in via `pytest -m cross_binding`. Python is the reference implementation per cross-layer alignment guidance — when the three bindings diverge on a sequence, Python's behavior is the baseline against which Go and C++ are reconciled (per `feedback_cross_language_parity.md`).
-
-### Verification
-
-```bash
-cd python && python3 -m pytest tests/ -v
-cd python && python3 -X dev -m pytest tests/ -v
-cd python && python3 -m pytest tests/ --random-order --random-order-bucket=package
-cd python && basedpyright aletheia/ benchmarks/  # benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
-cd python && pylint aletheia/
-cd python && pylint tests/ ../conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
-cd python && pylint benchmarks/  # same 10.00/10 gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
-# Cat 32 doc-example harness — runs every ``python`` fence across the
-# user-facing docs against the real FFI. Must be run from the repo root
-# so pytest picks up the repo-root ``conftest.py`` (which provides the
-# harness globals and loader fakes) instead of the ``python/pyproject.toml``
-# rootdir that the ``cd python`` commands above use.
-cd "$(git rev-parse --show-toplevel)" && python3 -m pytest --markdown-docs \
-  --rootdir="$(pwd)" \
-  README.md docs/PITCH.md \
-  docs/guides/QUICKSTART.md docs/guides/COOKBOOK.md \
-  docs/reference/CLI.md docs/reference/PYTHON_API.md docs/reference/INTERFACES.md \
-  docs/architecture/CANCELLATION.md docs/architecture/DESIGN.md docs/architecture/PROTOCOL.md \
-  python/README.md examples/README.md
-```
-
----
-
-## CI/CD (5 categories)
-
-Scope: ALL files in `.github/workflows/`, `.github/actions/`, plus any cron/scheduled-job configuration files, release-pipeline scripts under `tools/release/`, and the Shake build targets that ship to release lanes (`Shakefile.hs` `dist`/`install`/`release` rules). The CI/CD configuration is part of the supply chain — review with the same rigor as production code. A workflow YAML that silently masks a failed test produces a false green build; a misconfigured cache poisons every downstream build until detected. CI/CD findings block release.
-
-**Tooling gates (hard requirements):**
-- `actionlint` must produce **zero findings** on every workflow YAML in `.github/workflows/`.
-- Every external action reference uses a 40-character commit SHA, never a tag (`@v3`, `@v4.0.1`) or branch (`@main`); a `dependabot.yml` config raises PRs to bump SHAs and the bump is reviewed like any other dependency change.
-- **Adding any `continue-on-error: true` or `|| true`-style mask** requires a written rationale comment naming the failure mode and the recovery path — without a rationale, the silent-failure surface is a finding.
-
-### Hygiene & Hardening (5)
-
-1. **Workflow YAML hygiene** -- `actionlint` clean. Every action pinned by 40-char commit SHA. Runner OS+version pinned (`ubuntu-24.04`, never `ubuntu-latest` — silent runner upgrades have produced regressions in adjacent projects; the project must own the upgrade window). No `|| true` masking failures. No `continue-on-error: true` without a written rationale comment naming the failure mode. Multi-step `run:` blocks use `set -euo pipefail` (or `bash -e`) at the top — bare `run: |` lets earlier-line failures pass silently because GitHub Actions only checks the final exit code. `if: always()` on cleanup steps; `if: failure()` on diagnostic-collection steps; never bare `if:` evaluating a non-boolean.
-2. **Cache discipline** -- cache keys hash all inputs (lockfiles + workflow file SHA + tool versions + matrix-cell identifier); a key that excludes the workflow file is a finding because workflow edits silently reuse poisoned caches. No overlap with adjacent jobs that would write/read the same key cross-purpose. Explicit cache size caps where the runner has limits (GitHub-hosted: 10 GB per repo). `restore-keys` ordered most-specific-first; the catch-all key is documented as "cold start acceptable, never a correctness fallback." Cache misses are reported in the build summary, not silently absorbed.
-3. **Permission scoping** -- every workflow has an explicit `permissions:` block at workflow or job level. The default is `contents: read` (or `permissions: {}` on jobs that need none); write permissions are granted only on the smallest scope that needs them (`pull-requests: write` on the autocomment job, never blanket on the build job). `GITHUB_TOKEN` not echoed, not passed through `set-output`/`$GITHUB_OUTPUT`. Secrets (`${{ secrets.X }}`) accessed only inside steps that need them, never piped through environment variables exposed to logs. Third-party actions running on PRs from forks use `pull_request_target` only with explicit understanding of the privilege escalation risk and a written rationale.
-4. **Build-vs-test isolation** -- build jobs do not depend on test jobs and vice versa where the dependency is artificial; matrix builds are independent across cells. `fail-fast: true` only when matrix members are equivalent (a partial-failure run produces no useful information when cells are independent). No shared mutable state via cache between matrix cells of different language versions, OS versions, or platforms — that is the canonical CI flake source. Per-cell working directories isolated; concurrent jobs that write to the same artifact path are findings.
-5. **Artifact and release surface** -- `actions/upload-artifact` retention explicitly set per artifact class (build artifacts: 7-14 days; release artifacts: 90 days or longer per release policy; debug artifacts: 1-3 days). Release-build path documented in `docs/development/RELEASE.md` (or equivalent) with the exact workflow file and target. Signed artifacts (Sigstore / cosign) where the toolchain supports it; an unsigned release artifact is acceptable only with a written justification in the release doc. SBOM (CycloneDX or SPDX) generated per release — the SBOM is the audit trail for the GHC/cabal/Agda toolchain pin and the LGPL-contingency `--bignum=native` rebuild verification (Universal Rules → "Reproducible build verification"). Reproducible-build hash recorded per release artifact and compared against a second clean build; drift is a finding.
-
-### Verification
-
-```bash
-# actionlint must be installed locally for the workflow-YAML gate
-actionlint .github/workflows/*.yml .github/workflows/*.yaml
-# Pin-by-SHA gate (audit script); the script's absence is itself a CI/CD cat 1 finding:
-tools/check_action_pins.py
-# Permission-scoping gate; same — script absence is a finding:
-tools/check_workflow_permissions.py
-# Reproducible-build hash diff (Universal Rules cross-reference):
-tools/check_reproducible_build.py
-```
-
-All three audit scripts and `.github/dependabot.yml` are in place (added 2026-05-09).  Subsequent rounds maintain them: R20 surfaced regex-hardening and edge-case findings against the scripts themselves (`CICD-1.2`, `CICD-1.3`, `CICD-2.3`, `CICD-3.2`, `CICD-5.1`) — open work, tracked in the round's findings doc.  Action references in `.github/workflows/` are still tag-pinned (`@v4`) rather than 40-char SHA; the SHA-migration is the next reviewable change under cat 1 and remains in the queue until Dependabot raises and lands the migration PRs.
-
----
-
-## Documentation (22 categories)
-
-Scope: ALL docs -- CLAUDE.md, PROJECT_STATUS.md, BUILDING.md, DESIGN.md, PITCH.md, README.md, and any other .md files.
-
-Also applies to infrastructure changes (Shakefile, dist targets, packaging) since the docs describing them must be accurate.
-
-### Hygiene (8)
-
-1. **Accuracy** -- do stated facts (module counts, file paths, command examples) match reality?
-2. **Staleness** -- references to removed files, old workflows, or completed phases described as in-progress
-3. **Consistency** -- do different docs agree on the same facts?
-4. **Completeness** -- are important features/workflows undocumented?
-5. **Redundancy / single source of truth** -- each piece of information must appear in exactly one place; other docs must cross-reference, not duplicate. Duplicated facts across files are always a finding. Consistency between copies is not a defense — if the same fact appears in two files and both are correct, that is still a category 5 finding because one copy should be a cross-reference. **Scope boundary with cat 17**: cat 5 catches the same fact duplicated across multiple files (resolved by making one canonical and the rest cross-references). Cat 17 catches a single file contradicting itself (two sections disagreeing). Same-file duplication that is consistent is cat 5; same-file statements that disagree are cat 17.
-6. **Command correctness** -- do shell commands actually work as written?
-7. **Link integrity** -- do internal cross-references resolve?
-8. **Audience fit** -- is the right level of detail in the right doc?
-
-### Precision (1)
-
-9. **Precision & terseness** -- documentation must be precise, concise, non-ambiguous, and terse. Flag verbose/vague/ambiguous language.
-
-### Deep (12)
-
-10. **Structure & navigation** -- is there a clear reading path from "I just cloned this" to "I'm productive"?
-11. **Worked examples & error guidance** -- do guides cover real use cases, not just the happy path? When something goes wrong, do docs explain why and how to fix?
-12. **Decision rationale** -- are key design decisions explained where someone would naturally ask "why"?
-13. **Onboarding friction** -- walk through as a newcomer. What assumptions are unstated?
-14. **Hardcoded values & durability** -- counts, versions, performance numbers that will rot. Are they concentrated or scattered? **Scope boundary with cat 16**: cat 14 catches durability/location issues (the same number living in five places that will drift). Cat 16 catches the qualifiers that must accompany the number (what hardware, what protocol, what entry-point produced the measurement). A "9,704 fps" scattered across three docs is cat 14; a "9,704 fps" stated anywhere without "(C++, binary FFI, CAN 2.0B, Ryzen 9 5950X)" is cat 16. A single number that is both scattered and unqualified yields one finding under each category.
-15. **Code example testability** -- can every code snippet be copy-pasted and run? Check for wrong signatures, missing imports, undefined variables, wrong argument counts. Cross-check every call site against the actual API.
-16. **Qualifier accuracy** -- are numbers qualified with their conditions? Every benchmark needs language, protocol, and entry-point context. "~48,000 fps" without "C++, CAN 2.0B, binary FFI" is a finding. **Scope boundary with cat 14**: cat 16 is about the qualifiers accompanying a number (do we know what produced it?); cat 14 is about the durability of the number itself (is it living in one place, or scattered across docs that will drift?). Fix the qualifier with cat 16, fix the location with cat 14.
-17. **Internal consistency** -- does a single file contradict itself? This catches a file that states one thing in one section and the opposite in another. **Scope boundary with cat 3 and cat 5**: cat 3 catches two files disagreeing on the same fact; cat 5 catches the same fact duplicated across files (even when consistent); cat 17 catches a single file contradicting itself. A file that says "120 modules" in the introduction and "119 modules" in a later table is a cat 17 finding, not cat 3 or cat 5.
-18. **Scope labels on aggregates** -- when a number aggregates sub-items, is the scope stated? "532 tests" without "Python-only" is a finding when the total is 900+.
-19. **Missing content & improvements** -- documentation that should exist but does not: missing troubleshooting sections, missing error guidance, missing design rationale, missing onboarding steps, missing recipes for common failure modes. These are findings, not suggestions — absent documentation is a defect when users would reasonably expect it.
-20. **Numerical correctness** -- verify all arithmetic in examples: byte encodings, bit positions, scaling computations (factor × raw + offset), DLC-to-bytes mappings, unit conversions, and signal range calculations. A code example can have the right API call with wrong numbers. Cross-check every worked example against the DBC definition it references (start bit, length, byte order, factor, offset, signedness). This is distinct from category 15 (which checks that code *runs*) — this checks that the numbers are *mathematically correct*.
-21. **Cross-language parity** -- when docs claim a feature exists in multiple bindings (Python, C++, Go), verify the claim against the actual code in each binding. Check that feature tables, API descriptions, and "all bindings support X" statements are accurate per-language. A feature documented as available in Go but missing from `go/aletheia/` is a finding. Compare: type names, method signatures, constructor options, error handling patterns, and enrichment fields across all three bindings.
-
-### Operational (1)
-
-22. **Operational runbook — log-keyed symptom → cause → action** -- for every structured log event the bindings emit (the 15 shared slog/Logger/Python event names), the operations docs must contain an entry keyed on the event name with three fields: symptom (what the operator sees), likely cause (what produces it), suggested action (what to do next). The runbook must cover both library events (the standard 15) and binding-specific diagnostic paths (rts_cores mismatch warning, hs_init failure, .so load failure, ctypes signature mismatch). Missing runbook entries for emitted events are a finding — an event the code emits but the docs do not explain leaves an operator blind. The table of common error codes (PROTOCOL.md) is related but not identical: error codes describe protocol-level failures, runbook entries describe observational/operational events that may or may not carry an error code. **Failure-mode coverage**: in addition to log-event entries, the runbook covers each documented failure mode keyed by the operator-visible symptom — sources include BUILDING.md § Troubleshooting (`hs_init` failure, `.so` load failure, ctypes signature mismatch, MAlonzo name mismatch, build-failure recovery), CANCELLATION.md (mid-stream cancellation paths, partial-commit semantics, deadline exhaustion), the bounded-input rejections from Agda cat 32 / Go cat 28 / C++ cat 28 / Python cat 26 (`InputBoundExceeded` per field), and OOM / heap-pressure paths (heap-cap exceeded mid-parse, GHC RTS allocation failure, runaway cache growth detected by stability bench). For each: symptom, likely cause, suggested action. A failure mode that exists in BUILDING.md or any architecture doc but is missing from the operations runbook is a finding — operations docs are the single point an on-call would consult, and a missing entry leaves them searching across files.
+## Per-language categories and guidelines
+
+Per-language category lists and guidelines have been split into per-file modules to reduce token cost of agent invocations. An agent assigned to a language reads only that language's file (plus this `AGENTS.md` for Universal Rules and the Review Procedure).
+
+| Language | File | Categories |
+|----------|------|------------|
+| Agda     | [`AGENTS/agda.md`](AGENTS/agda.md)     | 32 |
+| Go       | [`AGENTS/go.md`](AGENTS/go.md)         | 33 |
+| C++      | [`AGENTS/cpp.md`](AGENTS/cpp.md)       | 33 |
+| Python   | [`AGENTS/python.md`](AGENTS/python.md) | 34 |
+| CI/CD    | [`AGENTS/cicd.md`](AGENTS/cicd.md)     | 5  |
+| Documentation | [`AGENTS/docs.md`](AGENTS/docs.md) | 22 |
+
+When citing a finding category in commit messages, round plans, or in-source markers, use the canonical reference form `<LANG> cat <N>` (e.g. `Agda cat 16`, `Python cat 26`) or the finding-id shorthand `<LANG>-<AGENT>-<CAT>.<NUM>` (e.g. `AGDA-A-1.1`). The full text of each category definition lives in the file above.

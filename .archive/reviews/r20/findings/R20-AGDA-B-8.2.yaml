@@ -1,0 +1,19 @@
+id: R20-AGDA-B-8.2
+round: R20
+category:
+  number: 8
+  name: Proof simplification
+  language: agda
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: R6-B8.2 sound-or derived from sound-and via De Morgan
+description: Net -161 LOC.  New feedback feedback_nofix_rationale_incomplete_axis.md.
+cluster: user-redirect
+resolution:
+  commit: 970f704
+  round: R20
+  date: '2026-05-17'
+re_raised_from: null
+in_source_marker: null

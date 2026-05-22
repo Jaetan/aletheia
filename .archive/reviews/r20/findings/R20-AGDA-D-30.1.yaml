@@ -1,0 +1,24 @@
+id: R20-AGDA-D-30.1
+round: R20
+category:
+  number: 30
+  name: (unspecified category 30)
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: FFI snapshot lacked constructor/type entries; rename drift possible
+description: 'haskell-shim/ffi-exports.snapshot extended with F: / C: / T: mode markers.  44
+  entries = 19 functions + 14 constructors + 11 types pinning every load-bearing C_*_NN
+  / T_*_NN.'
+files:
+- haskell-shim/ffi-exports.snapshot
+- tools/check_ffi_exports.py
+cluster: I
+resolution:
+  commit: 33d0e44
+  round: R20
+  date: '2026-05-12'
+re_raised_from: null
+in_source_marker: null

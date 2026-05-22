@@ -30,9 +30,8 @@ module Aletheia.DBC.TextParser.Lexer where
 
 open import Data.Bool using (Bool; _∨_; not)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.String using (String; fromList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
@@ -42,7 +41,7 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; isIdentStart; isIdentCont; mkIdentFromChars) public
 
-open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseInt; parseRational) public
+open import Aletheia.Protocol.JSON.Parse using (parseNatural) public
 
 -- ============================================================================
 -- CHARACTER CLASSES
