@@ -6,8 +6,8 @@ category:
   language: agda
   agent: D
 severity: high
-disposition: DEFER
-status: open
+disposition: FIX
+status: closed
 title: parseSignalPredicate accepts unbounded signal names
 description: Pairs with AGDA-D-10.1 — closing both via Identifier promotion is the
   cleanest path.  Defer to the same cluster.
@@ -15,9 +15,15 @@ files:
 - src/Aletheia/LTL/JSON.agda
 cluster: D
 resolution:
-  commit: 8e7400d
+  commit: aacc970
   round: R23
   date: '2026-05-22'
-  notes: R23 attempted to defer; user reversed — must be fixed before merge.
+  notes: 'Handler-boundary IdentifierLength bound check at parseAllProperties matches
+    existing AtomCount pattern.  firstOverLongSignalName helper + checkSignalNamesThenContinue
+    where-clause; over-long name → typed InputBoundExceeded IdentifierLength.  check-bound-enforcement:
+    IdentifierLength=2 emit sites (was 1); check-properties 8m19s clean. Paired finding
+    D-10.1 (Identifier structural witness) is a separate refactor with proof-tree
+    cascade through JSON/Properties.agda predicate-roundtrip — to be handled in a
+    follow-up commit.'
 re_raised_from: null
 in_source_marker: null

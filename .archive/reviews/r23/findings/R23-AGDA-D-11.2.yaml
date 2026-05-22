@@ -6,8 +6,8 @@ category:
   language: agda
   agent: D
 severity: medium
-disposition: DEFER
-status: open
+disposition: FIX
+status: closed
 title: handleSetProperties unbounded property count
 description: Add `max-properties-per-stream` BoundKind + handler check at handleSetProperties.  Defer
   to a bounds-extension cluster.
@@ -16,9 +16,12 @@ files:
 - src/Aletheia/Limits.agda
 cluster: D
 resolution:
-  commit: 8e7400d
+  commit: 3694a58
   round: R23
   date: '2026-05-22'
-  notes: R23 attempted to defer; user reversed — must be fixed before merge.
+  notes: Added max-properties-per-stream (1024) + PropertyCount BoundKind ctor; handleSetProperties
+    pre-checks property count before parseAllProperties. All 3 binding mirrors updated
+    (Go/C++/Python limits.*); check-limits-parity tables extended; bound enforcement
+    gate clean.
 re_raised_from: null
 in_source_marker: null
