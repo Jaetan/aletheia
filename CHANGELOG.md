@@ -83,7 +83,7 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `go/aletheia/feature_matrix_test.go`,
   `cpp/tests/test_feature_matrix_parity.cpp`) — every `implemented`
   row must resolve to a real symbol or the build fails (Track A).
-- `docs/LOG_EVENTS.yaml` SSOT for the 15-event structured-log
+- `docs/LOG_EVENTS.yaml` SSOT for the 16-event structured-log
   vocabulary plus three per-binding parity-gate tests
   (`python/tests/test_log_events_parity.py`,
   `go/aletheia/log_events_test.go`,

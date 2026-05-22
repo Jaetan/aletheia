@@ -35,7 +35,7 @@ following table summarizes feature availability per binding:
 
 | Feature | Python | C++ | Go |
 |---|---|---|---|
-| Check API (`Check.signal(...).never_exceeds(...)`) | ✅ | ✅ (`aletheia::check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
+| Check API (`Check.signal(...).never_exceeds(...)`) | ✅ | ✅ (`aletheia::Check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
 | Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`aletheia.Always{Inner: ...}` struct literals) |
 | YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
 | Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
