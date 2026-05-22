@@ -24,6 +24,7 @@ const (
 	BoundKindStringLength     = "string_length"
 	BoundKindAtomCount        = "atom_count"
 	BoundKindFrameByteCount   = "frame_byte_count"
+	BoundKindPropertyCount    = "property_count"
 )
 
 // Numeric bound constants — mirror src/Aletheia/Limits.agda exactly.
@@ -57,6 +58,10 @@ const (
 
 	// MaxAtomCountPerProperty — LTL atoms per single property.
 	MaxAtomCountPerProperty = 1024
+
+	// MaxPropertiesPerStream — LTL properties submittable in one
+	// setProperties call.  Mirrors src/Aletheia/Limits.agda.
+	MaxPropertiesPerStream = 1024
 
 	// MaxFrameByteCount — CAN frame payload byte count (CAN-FD maximum).
 	MaxFrameByteCount = 64

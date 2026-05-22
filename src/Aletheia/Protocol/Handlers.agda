@@ -54,11 +54,12 @@ open import Aletheia.Error as Err using
   ; PropertyParseFailed; ValidationFailed
   )
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; AtomCount; StringLength
+  ( BoundKind; ArrayCardinality; AtomCount; StringLength; PropertyCount
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
   ; max-atom-count-per-property
+  ; max-properties-per-stream
   )
 open import Data.Char using (Char)
 
@@ -278,7 +279,12 @@ parseAllProperties n state dbc ((idx , json) ∷ rest) acc with parseProperty js
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
-handleSetProperties propJSONs state@(ReadyToStream _ dbc _ _) =
+handleSetProperties propJSONs state@(ReadyToStream _ dbc _ _)
+  with length propJSONs <ᵇ suc max-properties-per-stream | length propJSONs
+... | false | observed = (state , Response.Error
+                            (WithContext "SetProperties"
+                              (InputBoundExceeded PropertyCount observed max-properties-per-stream)))
+... | true  | _        =
   parseAllProperties (length propJSONs) state dbc (withIndices propJSONs) []
 handleSetProperties propJSONs state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))

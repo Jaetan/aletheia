@@ -59,6 +59,8 @@ data BoundKind : Set where
   AtomCount               : BoundKind
   -- CAN frame byte count (8 for CAN 2.0B, 64 for CAN-FD).
   FrameByteCount          : BoundKind
+  -- Number of properties submitted in one `setProperties` call.
+  PropertyCount           : BoundKind
 
 boundKindCode : BoundKind → String
 boundKindCode InputLengthBytes  = "input_length_bytes"
@@ -68,6 +70,7 @@ boundKindCode IdentifierLength  = "identifier_length"
 boundKindCode StringLength      = "string_length"
 boundKindCode AtomCount         = "atom_count"
 boundKindCode FrameByteCount    = "frame_byte_count"
+boundKindCode PropertyCount     = "property_count"
 
 boundKindLabel : BoundKind → String
 boundKindLabel InputLengthBytes  = "input length (bytes)"
@@ -77,6 +80,7 @@ boundKindLabel IdentifierLength  = "identifier length"
 boundKindLabel StringLength      = "string length"
 boundKindLabel AtomCount         = "atom count"
 boundKindLabel FrameByteCount    = "frame byte count"
+boundKindLabel PropertyCount     = "property count"
 
 -- ============================================================================
 -- BOUND CONSTANTS
@@ -145,4 +149,10 @@ max-atom-count-per-property = 1024
 -- CAN frame payload byte count (CAN-FD maximum).
 max-frame-byte-count : ℕ
 max-frame-byte-count = 64
+
+-- LTL properties submittable in one `setProperties` call.  1024 is
+-- symmetric with `max-atom-count-per-property`; real-world CAN
+-- analyses run 1-50 properties per stream so this is ~20x headroom.
+max-properties-per-stream : ℕ
+max-properties-per-stream = 1024
 
