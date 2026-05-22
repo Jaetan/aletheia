@@ -273,8 +273,8 @@ TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"UnobservedSignal"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(ltl::atomic(
+        ltl::less_than(SignalName{"UnobservedSignal"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 

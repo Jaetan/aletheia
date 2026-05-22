@@ -916,7 +916,8 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
                 auto kind = w.value("kind", "");
                 auto idx = parse_rational_as_int(w.at("property_index"));
                 if (idx < 0)
-                    throw std::runtime_error("Negative warning property_index: " + std::to_string(idx));
+                    throw std::runtime_error("Negative warning property_index: " +
+                                             std::to_string(idx));
                 auto detail = w.value("detail", "");
                 warnings.push_back({
                     .kind = std::move(kind),

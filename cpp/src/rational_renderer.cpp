@@ -187,7 +187,7 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
 void register_default_lib_path(const std::filesystem::path& lib_path) {
     auto& d = default_path_state();
     const std::lock_guard lk{d.mu};
-    if (d.path.empty())  // first-write-wins
+    if (d.path.empty()) // first-write-wins
         d.path = lib_path.string();
 }
 
