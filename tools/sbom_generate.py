@@ -177,14 +177,29 @@ def build_sbom(
     ghc_deps: list[Path],
     main_so: Path | None,
     source_epoch: int | None = None,
+    image_id: str | None = None,
+    image_base: str | None = None,
+    image_libgmp: str | None = None,
 ) -> dict:
+    """Emit a CycloneDX 1.5 SBOM.
+
+    When ``image_id``/``image_base``/``image_libgmp`` are passed the SBOM
+    additionally records OCI-image-layer pins as properties on the main
+    component plus a top-level metadata property — this is the docker
+    variant (CICD-A-5.4 R23 closure).  Without the image-* args the SBOM
+    is the dist-variant (UR-3.2 / CICD-5.3).
+    """
     aletheia_version = _aletheia_version(repo)
     git_commit = _git_commit(repo)
 
     # Reproducible serial number: UUID5 derived from git commit + version, so
     # the same source produces the same UUID.  Avoids uuid.uuid4()'s entropy
-    # source (which would defeat artifact-level repro).
+    # source (which would defeat artifact-level repro).  Image SBOMs get a
+    # distinct namespace suffix so dist + image SBOMs from the same commit
+    # don't collide on serial.
     serial_seed = f"aletheia/{aletheia_version}/{git_commit}"
+    if image_id is not None:
+        serial_seed += f"/image/{image_id}"
     serial_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, serial_seed))
 
     if source_epoch is None:
@@ -195,19 +210,31 @@ def build_sbom(
 
     components = _toolchain_components(repo) + _ghc_dep_components(ghc_deps)
 
+    main_properties = [
+        {"name": "aletheia:git-commit", "value": git_commit},
+        {"name": "aletheia:agda-stdlib", "value": _agda_stdlib(repo)},
+        {"name": "aletheia:ghc-libdir", "value": _ghc_libdir()},
+    ]
+    if image_id is not None:
+        main_properties.append({"name": "aletheia:image-id", "value": image_id})
+    if image_base is not None:
+        main_properties.append({"name": "aletheia:image-base", "value": image_base})
+    if image_libgmp is not None:
+        main_properties.append({"name": "aletheia:image-libgmp-version", "value": image_libgmp})
+
     main_component = {
-        "type": "library",
+        "type": "container" if image_id is not None else "library",
         "bom-ref": f"pkg:aletheia/aletheia-ffi@{aletheia_version}",
-        "name": "aletheia-ffi",
+        "name": "aletheia-ffi-image" if image_id is not None else "aletheia-ffi",
         "version": aletheia_version,
         "scope": "required",
         "purl": f"pkg:generic/aletheia/aletheia-ffi@{aletheia_version}",
-        "description": "Aletheia FFI shared library — formally verified CAN frame analysis.",
-        "properties": [
-            {"name": "aletheia:git-commit", "value": git_commit},
-            {"name": "aletheia:agda-stdlib", "value": _agda_stdlib(repo)},
-            {"name": "aletheia:ghc-libdir", "value": _ghc_libdir()},
-        ],
+        "description": (
+            "Aletheia OCI runtime image — Debian-slim base + libgmp10 + Python 3.13 + aletheia-ffi."
+            if image_id is not None
+            else "Aletheia FFI shared library — formally verified CAN frame analysis."
+        ),
+        "properties": main_properties,
     }
     if main_so and main_so.is_file():
         main_component["hashes"] = [{"alg": "SHA-256", "content": _sha256(main_so)}]
@@ -256,6 +283,21 @@ def main() -> int:
         default=None,
         help="Unix epoch for SBOM timestamp (use git commit time for reproducible builds)",
     )
+    ap.add_argument(
+        "--image-id",
+        default=None,
+        help="OCI image SHA-256 digest (docker variant; CICD-A-5.4)",
+    )
+    ap.add_argument(
+        "--image-base",
+        default=None,
+        help="Base image digest (e.g. python:3.13-slim@sha256:...); used with --image-id",
+    )
+    ap.add_argument(
+        "--image-libgmp",
+        default=None,
+        help="Pinned libgmp10 Debian version (e.g. 2:6.2.1+dfsg1-1.1); used with --image-id",
+    )
     ap.add_argument("ghc_deps", nargs="*", type=Path, help="GHC runtime .so dependencies")
     args = ap.parse_args()
 
@@ -264,6 +306,9 @@ def main() -> int:
         [d.resolve() for d in args.ghc_deps],
         args.main_so,
         source_epoch=args.source_epoch,
+        image_id=args.image_id,
+        image_base=args.image_base,
+        image_libgmp=args.image_libgmp,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")

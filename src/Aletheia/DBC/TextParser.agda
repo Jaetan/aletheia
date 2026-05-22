@@ -235,8 +235,7 @@ finalizeParse (just res) with remaining res
 ... | []      with value res
 ...   | (ver , nodes , stmts) with partitionTopStmts stmts
 ...     | collected with refineAttributes (CollectedTop.rawAttributes collected)
-...       | nothing     = inj₁ (AttributeRefinementFailed
-                                  "BA_DEF_DEF_ / BA_ / BA_REL_ references unknown AttrDef or OOB ENUM index")
+...       | nothing     = inj₁ AttributeRefinementFailed
 ...       | just attrs  = inj₂ (buildDBC ver nodes collected attrs)
 
 -- Parse a DBC text image given as a `List Char`.  Layer-1 form

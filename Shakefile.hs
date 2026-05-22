@@ -145,6 +145,31 @@ checkFFINames ffiFile = do
             Just c  -> checkOneFFIName (ffiQualifier e) (ffiFuncName e) c ffiContent
             Nothing -> return ()  -- unreachable: loadFFIModuleContents covers every module
 
+-- | Parse the digest-pinned base image from Dockerfile.runtime.
+-- Returns the value after `FROM ` up to end-of-line (e.g.
+-- `python:3.13-slim@sha256:...`).  Falls back to "unknown" if no
+-- `FROM` line is found.
+parseFromBase :: String -> String
+parseFromBase dockerfile =
+    case [ rest | l <- lines dockerfile
+                , Just rest <- [stripPrefix "FROM " l]
+                ]
+      of (x:_) -> strip x
+         []    -> "unknown"
+
+-- | Parse the pinned libgmp10 version from Dockerfile.runtime.
+-- Looks for the `libgmp10=<version>` token inside an `apt-get install`
+-- line and returns just the version.  Falls back to "unknown".
+parseLibgmpVersion :: String -> String
+parseLibgmpVersion dockerfile =
+    case [ ver | tok <- words dockerfile
+               , Just rest <- [stripPrefix "libgmp10=" tok]
+               , let ver = takeWhile (\c -> c /= ' ' && c /= '\\' && c /= '\n') rest
+               , not (null ver)
+               ]
+      of (x:_) -> x
+         []    -> "unknown"
+
 -- | Get GHC runtime .so dependencies for a shared library.
 -- Runs ldd and filters for libraries under GHC's lib directory.
 getGhcDeps :: FilePath -> Action [FilePath]
@@ -1174,10 +1199,43 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             "-t" shaTag
             "-f" "Dockerfile.runtime" "."
         Stdout imageSize <- cmd Shell "docker images aletheia:latest --format '{{.Size}}'"
+
+        -- CICD-A-5.4 R23 closure: emit an OCI-image SBOM alongside the
+        -- existing dist tarball SBOM.  Three image-layer pins augment the
+        -- dist SBOM: the built image's content-addressed SHA-256, the
+        -- digest-pinned base image (parsed from `FROM ...@sha256:...`),
+        -- and the libgmp10 Debian version (parsed from the `apt-get
+        -- install` line).  All three are reproducible-build inputs the
+        -- consumer needs to verify image provenance.
+        Stdout imageIdRaw <- cmd Shell "docker images aletheia:latest --no-trunc --format '{{.ID}}'"
+        Stdout commitTimeRaw <- cmd Shell "git log -1 --pretty=%ct"
+        dockerfile <- liftIO $ readFile "Dockerfile.runtime"
+        ghcDepsDocker <- getGhcDeps "build/libaletheia-ffi.so"
+        let imageId       = strip imageIdRaw
+            commitEpochD  = strip commitTimeRaw
+            imageBase     = parseFromBase dockerfile
+            imageLibgmp   = parseLibgmpVersion dockerfile
+            imageSbomFile = "build/docker/aletheia-image-sbom.cdx.json"
+            distLibDocker = "dist/aletheia/lib"
+            distGhcDepsDocker = map (\dep -> distLibDocker </> takeFileName dep) ghcDepsDocker
+        liftIO $ createDirectoryIfMissing True (takeDirectory imageSbomFile)
+        putInfo $ "Generating image SBOM (" ++ imageSbomFile ++ ")..."
+        cmd_ "python3" "tools/sbom_generate.py"
+            "--repo" "."
+            "--main-so" (distLibDocker </> "libaletheia-ffi.so")
+            "--out" imageSbomFile
+            "--source-epoch" commitEpochD
+            "--image-id" imageId
+            "--image-base" imageBase
+            "--image-libgmp" imageLibgmp
+            distGhcDepsDocker
+
         putInfo ""
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo $ "  Docker image: aletheia:latest (" ++ strip imageSize ++ ")"
         putInfo $ "  Pinned tag:   " ++ shaTag
+        putInfo $ "  Image ID:     " ++ imageId
+        putInfo $ "  Image SBOM:   " ++ imageSbomFile
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo ""
         putInfo "  Run:"

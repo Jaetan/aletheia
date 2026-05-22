@@ -348,9 +348,13 @@ dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 data DBCTextParseError : Set where
   ParseFailure              : DBCTextParseError
   TrailingInput             : Position → DBCTextParseError
-  AttributeRefinementFailed : String   → DBCTextParseError
+  AttributeRefinementFailed : DBCTextParseError
   -- NOTE: DBC-text-input bytes adversarial bound emits via the top-level
   -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2).
+  -- AttributeRefinementFailed carries no payload — `refineAttributes`
+  -- has a single failure cause (`BA_DEF_DEF_` / `BA_` / `BA_REL_` references
+  -- an unknown AttrDef or OOB ENUM index); the detail is baked into the
+  -- formatter rather than passed as data (AGDA-C-5.2 R23 closure).
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError ParseFailure =
@@ -358,13 +362,13 @@ formatDBCTextParseError ParseFailure =
 formatDBCTextParseError (TrailingInput pos) =
   "trailing input after parse at line " ++ₛ showℕ (Position.line pos)
     ++ₛ ", column " ++ₛ showℕ (Position.column pos)
-formatDBCTextParseError (AttributeRefinementFailed detail) =
-  "attribute refinement failed: " ++ₛ detail
+formatDBCTextParseError AttributeRefinementFailed =
+  "attribute refinement failed: BA_DEF_DEF_ / BA_ / BA_REL_ references unknown AttrDef or OOB ENUM index"
 
 dbcTextParseErrorCode : DBCTextParseError → String
-dbcTextParseErrorCode ParseFailure                  = "dbc_text_parse_failure"
-dbcTextParseErrorCode (TrailingInput _)             = "dbc_text_trailing_input"
-dbcTextParseErrorCode (AttributeRefinementFailed _) = "dbc_text_attribute_refinement_failed"
+dbcTextParseErrorCode ParseFailure                = "dbc_text_parse_failure"
+dbcTextParseErrorCode (TrailingInput _)           = "dbc_text_trailing_input"
+dbcTextParseErrorCode AttributeRefinementFailed   = "dbc_text_attribute_refinement_failed"
 
 -- ============================================================================
 -- TOP-LEVEL ERROR SUM
