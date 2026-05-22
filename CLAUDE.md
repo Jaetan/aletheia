@@ -253,25 +253,25 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **Active branch: `review-r23`** — forked from `main` post-R22 merge at `ce7bbcc` (2026-05-22).  Module count **263**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
 
-**R23 closed work** (35 status:closed + 3 FP-VERIFIED + 1 carrier finding = 39 in DB):
-- **Cluster A** (doc-sync sweep, `66cf92b`) — closed the 1 R23 critical (XDOC-15.1 module count drift) + 11 high/medium doc drifts in one commit.
-- **Cluster C** (C++ delta cleanup, `d11e1a3` + followup `3bb26b3`) — 5 FIX closed; remaining 5 reversed from DEFER to FIX 2026-05-23.
-- **Cluster H** (CI/CD hardening, `09e276c`) — 4 FIX closed.
-- **D+E easy wins** (`580b337`) — FFI snapshot gap + Python lazy-load lock.
-- **Cluster I** (RUNBOOK gaps, `425b99a` + followup `8e50b86` / `03f6111`) — operator-facing error codes documented.
-- **Cluster B partial** (`8e7400d`) — AGDA-C-3.1 lowercase `-wf` rename + AGDA-C-6.3 import consolidate; remaining 5 reversed from DEFER to FIX 2026-05-23.
-- **PY-D-16.2** (`6c9c202` + `ce39687` + `46b9b11`) — promoted cross-cutting helpers out of `_helpers` private surface.
-- **AGDA-D-11.2** (`3694a58`) — max-properties-per-stream bound + `PropertyCount` BoundKind.
-- **AGDA-D-32.1** (`aacc970`) — IdentifierLength bound check at `parseAllProperties` handler boundary.
-- **DEFER reversal** (`5367334`, 2026-05-23) — user reversed all 18 in-flight DEFERs to FIX; DB-only commit (YAML disposition flip + audit trail).
+**R23 closed work** (51 of 57 findings closed: 48 FIX + 3 FP-VERIFIED):
+- **Cluster A** (`66cf92b`) — closed XDOC-15.1 critical + 11 doc drifts.
+- **Cluster C** (`d11e1a3` + `3bb26b3` + `2849371`) — all 10 C++ delta cleanup findings closed.
+- **Cluster H** (`09e276c` + `7922851`) — CI/CD + docker SBOM (5 closed).
+- **Cluster I** (`425b99a` + `8e50b86` / `03f6111`) — runbook gaps (4 closed).
+- **Cluster B** (`8e7400d` + `7922851`) — Agda hygiene (6 closed: C-3.1/5.2/6.2/6.3/27.1 + lowercase `-wf` rename + stdlib lift).
+- **D + E easy wins** (`580b337`) — FFI snapshot gap + Python lazy-load lock.
+- **PY-D-16.2 / 16.1** (`6c9c202` / `ce39687` / `46b9b11` / `9543be1`) — `_helpers` private-surface promotion + 742-LOC file split into `_helpers/{rational, dbc_normalize, json_codec}.py`.
+- **AGDA-D-11.2 / 32.1** (`3694a58` / `aacc970`) — max-properties bound + IdentifierLength bound check.
+- **AGDA-C-6.1** (`9543be1`) — `requireDec-allE` / `rejectDec-allE` lemmas in `Validity.Combinators`; 6 of 8 proofs collapse to one-liners.
+- **CPP-D-18.1** (`9543be1`) — reproducible-build invariant restored: `CMAKE_CURRENT_SOURCE_DIR` defines moved to runtime env vars via `set_tests_properties(ENVIRONMENT ...)`.
+- **DEFER reversal** (`5367334`, 2026-05-23) — user reversed all 18 in-flight DEFERs to FIX; DB-only commit (audit trail preserved as top-of-file YAML comment).
 
-**R23 open work** (18 FIX status:open, all to land before merge):
-- **Agda hygiene** (5): AGDA-C-{5.1, 5.2, 6.1, 6.2, 27.1}
-- **Agda system** (2): AGDA-D-10.1 (Identifier promotion), 12.1 (Complete-results refactor)
-- **C++ cleanup** (5): CPP-A-{4.2, 6.2, 6.3, 6.4}, CPP-B-12.2
-- **C++ structural** (4): CPP-D-{15.1, 15.2, 17.1, 18.1}  — includes the two R19 re-DEFERs now in-scope (Rational class promotion + Check static-method idiom)
-- **Python structural** (1): PY-D-16.1 (`_helpers.py` split)
-- **CI/CD** (1): CICD-A-5.4 (docker SBOM)
+**R23 open work** (6 FIX status:open, all big structural):
+- **AGDA-C-5.1** — typed sub-ctor `NonIntegerMultiplexValue`; cross-binding ErrorCode addition.
+- **AGDA-D-10.1** — `SignalPredicate.signalName : List Char → Identifier`; cross-cutting LTL + JSON + Properties + 3 bindings.
+- **AGDA-D-12.1** — `Complete.results` surfaces dropped-via-`complete` properties.
+- **CPP-D-15.1 / 15.2** — R19 re-DEFERs: `Rational` class-promotion + `Check` static-method idiom.
+- **CPP-D-17.1** — cross-singleton `dlopen` + `hs_init` ordering between rational_renderer + ffi_backend.
 
 **Earlier rounds**: R20 ✅ merged `2477d5c` 2026-05-17, R21 ✅ merged `315c1a3` 2026-05-18, R22 ✅ merged `3ebfc37` + clang-format follow-up `ce7bbcc` 2026-05-22.  Per-round detail in `memory/project_review_round{20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py --report ...`); pre-R22 PROJECT_STATUS narrative archived at `docs/archive/PROJECT_STATUS_HISTORY.md`.
 
