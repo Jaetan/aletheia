@@ -876,7 +876,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     --   * Per-gate:  `cabal run shake -- check-properties` (etc.)
 
     phony "dist" $ do
-        need ["build/libaletheia-ffi.so"]
+        -- CICD-5.2 (R23): dist must NOT ship a tarball that skipped the proof
+        -- tree.  Pre-push hook is the canonical defense; bind the proof gates
+        -- here too as defense-in-depth so direct `cabal run shake -- dist`
+        -- invocations cannot side-step them.  Adds ~10 min to a release cut.
+        need ["check-properties",
+              "check-invariants",
+              "check-no-properties-in-runtime",
+              "check-erasure",
+              "check-fidelity",
+              "check-ffi-exports",
+              "build/libaletheia-ffi.so"]
 
         let distDir = "dist/aletheia"
         let distLib = distDir </> "lib"
