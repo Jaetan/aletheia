@@ -189,6 +189,7 @@ add_library(aletheia-cpp
     src/client.cpp
     src/dbc.cpp
     src/detail/loader_utils.cpp
+    src/detail/rts_init.cpp
     src/enrich.cpp
     src/excel.cpp
     src/ffi_backend.cpp
@@ -366,6 +367,23 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
+
+    # R23 — CPP-D-17.1: cross-singleton RTS init ordering test.  Must run
+    # in its own process because the GHC RTS is process-global and `hs_init`
+    # is one-shot; sharing a process with any FfiBackend-first test would
+    # race on the first init.  This binary triggers the lazy
+    # `format_rational_ffi` first (renderer-first init), then constructs
+    # an FfiBackend with `rts_cores = 4`, and asserts the
+    # `rts.cores_mismatch` warning fires — which requires the shared
+    # `detail::rts_init_state` introduced in `cpp/src/detail/rts_init.hpp`.
+    add_executable(rts_init_renderer_first_tests tests/rts_init_renderer_first_tests.cpp)
+    target_link_libraries(rts_init_renderer_first_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    add_test(NAME rts_init_renderer_first_tests COMMAND rts_init_renderer_first_tests)
+    # Pass repo root via env var per CPP-D-18.1 reproducible-build
+    # invariant (no compile-time CMAKE_CURRENT_SOURCE_DIR defines).
+    set_tests_properties(rts_init_renderer_first_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # Layer 6: Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
