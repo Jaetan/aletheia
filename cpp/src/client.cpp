@@ -402,8 +402,8 @@ auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> sign
         }
         resolved.indices.push_back(it->second);
         const auto& r = sv.value.get();
-        resolved.numerators.push_back(r.numerator);
-        resolved.denominators.push_back(r.denominator);
+        resolved.numerators.push_back(r.numerator());
+        resolved.denominators.push_back(r.denominator());
     }
     return resolved;
 }

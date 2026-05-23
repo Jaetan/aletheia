@@ -42,7 +42,7 @@ namespace aletheia::detail {
 // `AletheiaException(Ffi)` per the rational_renderer.hpp contract.
 inline auto fmt_pv(PhysicalValue v) -> std::string {
     const auto& r = v.get();
-    return format_rational_ffi(r.numerator, r.denominator);
+    return format_rational_ffi(r.numerator(), r.denominator());
 }
 
 } // namespace aletheia::detail

@@ -38,11 +38,11 @@ static auto rational_to_json(const Rational& r) -> Json {
     // at construction, but on the format-only path we emit raw to surface
     // the upstream defect rather than UB-fault here.
     constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
-    if (r.numerator == int64_min || r.denominator == int64_min) {
-        return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+    if (r.numerator() == int64_min || r.denominator() == int64_min) {
+        return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
     }
-    auto num = r.numerator;
-    auto den = r.denominator;
+    auto num = r.numerator();
+    auto den = r.denominator();
     if (den < 0) {
         num = -num;
         den = -den;
@@ -50,7 +50,7 @@ static auto rational_to_json(const Rational& r) -> Json {
     if (den == 0) {
         // Mirrored at the `Rational::make` invariant; emit raw to surface
         // the bug rather than masking it.
-        return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+        return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
     }
     const auto g = std::gcd(std::abs(num), den);
     num /= (g == 0 ? 1 : g);

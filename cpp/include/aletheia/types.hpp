@@ -73,24 +73,15 @@ using Unit = Strong<struct UnitTag, std::string>;
 // Rational: exact numerator/denominator
 // ---------------------------------------------------------------------------
 
-// DEFERRED — TRACKED (R19P2-CL10-4 — DEFER).
-// Finding: `struct Rational` with public `num`/`den` fields; C++ idiom prefers
-//   `class` with private fields + accessors once an invariant exists
-//   (cluster 12 added `den > 0` guard in the constructor).
-// Why DEFER: Cluster 12's `den > 0` `throw std::invalid_argument` runs at
-//   every callsite via the constructor / `Rational::make`, so the `struct`
-//   public-field exposure is already gated.  The cosmetic class promotion
-//   gains constructor-discipline but mass-migrates ~28 YAML/Excel/JSON sites.
-// Revisit when: A C++ ergonomics cluster is opened, OR a callsite bypasses
-//   the factory and constructs a malformed `Rational` directly.
-
-// Invariant: denominator must be > 0; enforced by the constructor.
-struct Rational {
-    std::int64_t numerator = 0;
-    std::int64_t denominator = 1;
-
+// Exact rational with the invariant `den_ > 0`, enforced by every ctor +
+// factory.  Class (not struct) per R23 — CPP-D-15.1: a public-fields
+// struct invites direct writes that would bypass the invariant; private
+// fields + `numerator()` / `denominator()` accessors make `den_ > 0` a
+// type-level guarantee rather than a callsite discipline.
+class Rational {
+public:
     constexpr Rational() = default;
-    constexpr Rational(std::int64_t n, std::int64_t d) : numerator(n), denominator(d) {
+    constexpr Rational(std::int64_t n, std::int64_t d) : num_(n), den_(d) {
         // The bare `assert` would disappear under -DNDEBUG (the default Release
         // CMake mode); throwing keeps the invariant enforced at every callsite
         // so a Release-build hot-path call cannot silently accept den == 0 or
@@ -102,8 +93,11 @@ struct Rational {
         }
     }
 
+    [[nodiscard]] constexpr auto numerator() const -> std::int64_t { return num_; }
+    [[nodiscard]] constexpr auto denominator() const -> std::int64_t { return den_; }
+
     [[nodiscard]] constexpr auto to_double() const -> double {
-        return static_cast<double>(numerator) / static_cast<double>(denominator);
+        return static_cast<double>(num_) / static_cast<double>(den_);
     }
 
     // Cross-multiply comparison (avoids floating-point).
@@ -115,8 +109,8 @@ struct Rational {
                                           "(g++ >= 14 / clang >= 21 on Linux).");
     constexpr auto operator<=>(const Rational& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
-        auto lhs_prod = static_cast<__int128>(numerator) * rhs.denominator;
-        auto rhs_prod = static_cast<__int128>(rhs.numerator) * denominator;
+        auto lhs_prod = static_cast<__int128>(num_) * rhs.den_;
+        auto rhs_prod = static_cast<__int128>(rhs.num_) * den_;
         return lhs_prod <=> rhs_prod;
     }
     constexpr bool operator==(const Rational& rhs) const {
@@ -124,7 +118,7 @@ struct Rational {
     }
 
     // Validated factory: returns an error if denominator is not positive.
-    // Use for untrusted input; direct construction asserts in debug mode.
+    // Use for untrusted input; direct construction throws in every mode.
     static constexpr auto make(std::int64_t num, std::int64_t den)
         -> std::expected<Rational, std::string> {
         if (den <= 0)
@@ -135,6 +129,10 @@ struct Rational {
     // Convert a double to an exact Rational. Integer-valued doubles use
     // denominator 1; others use 10^9 fixed-point scaling then GCD-reduced.
     static auto from_double(double d) -> Rational;
+
+private:
+    std::int64_t num_ = 0;
+    std::int64_t den_ = 1;
 };
 
 // ---------------------------------------------------------------------------

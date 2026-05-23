@@ -633,8 +633,8 @@ TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
     REQUIRE(result.has_value());
     auto& factor = result->messages[0].signals[0].factor.get();
     // Integer 1 should be represented as 1/1
-    CHECK(factor.numerator == 1);
-    CHECK(factor.denominator == 1);
+    CHECK(factor.numerator() == 1);
+    CHECK(factor.denominator() == 1);
 }
 
 TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
@@ -645,8 +645,8 @@ TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
     REQUIRE(result.has_value());
     auto& factor = result->messages[0].signals[0].factor.get();
     // 0.1 should be represented as 1/10 (after GCD simplification)
-    CHECK(factor.numerator == 1);
-    CHECK(factor.denominator == 10);
+    CHECK(factor.numerator() == 1);
+    CHECK(factor.denominator() == 10);
 }
 
 // ===========================================================================

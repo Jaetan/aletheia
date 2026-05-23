@@ -257,20 +257,20 @@ TEST_CASE("Rational::from_double accepts large integer values via fast path", "[
     // Integer-valued doubles take the fast path (no scaling), so they
     // bypass the overflow guard regardless of magnitude up to int64 max.
     auto r = Rational::from_double(1e15);
-    CHECK(r.denominator == 1);
-    CHECK(r.numerator == 1'000'000'000'000'000);
+    CHECK(r.denominator() == 1);
+    CHECK(r.numerator() == 1'000'000'000'000'000);
 }
 
 TEST_CASE("Rational::from_double accepts ordinary scaled values", "[types]") {
     // 0.1 → 1/10, 11.5 → 23/2 — the human-friendly forms (R19 cluster G
     // preserves prior behavior; bounds added without changing scaling).
     auto r1 = Rational::from_double(0.1);
-    CHECK(r1.numerator == 1);
-    CHECK(r1.denominator == 10);
+    CHECK(r1.numerator() == 1);
+    CHECK(r1.denominator() == 10);
 
     auto r2 = Rational::from_double(11.5);
-    CHECK(r2.numerator == 23);
-    CHECK(r2.denominator == 2);
+    CHECK(r2.numerator() == 23);
+    CHECK(r2.denominator() == 2);
 }
 
 // ===========================================================================
