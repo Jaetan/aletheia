@@ -39,6 +39,7 @@ class ErrorCode(str, Enum):
     PARSE_INVALID_KIND = "parse_invalid_kind"
     PARSE_NON_TERMINATING_RATIONAL = "parse_non_terminating_rational"
     PARSE_INVALID_IDENTIFIER = "parse_invalid_identifier"
+    PARSE_NON_INTEGER_MULTIPLEX_VALUE = "parse_non_integer_multiplex_value"
     # DBC text parse errors
     DBC_TEXT_PARSE_FAILURE = "dbc_text_parse_failure"
     DBC_TEXT_TRAILING_INPUT = "dbc_text_trailing_input"

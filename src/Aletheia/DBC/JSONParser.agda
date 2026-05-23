@@ -63,6 +63,7 @@ open import Aletheia.Error using
   ; RootNotObject; MissingSignalName; InContext
   ; SignalBitLengthZero; SignalOverflowsFrame; SignalMSBBelowBitLength
   ; InvalidKind; NonTerminatingRational; InvalidIdentifier
+  ; NonIntegerMultiplexValue
   )
 open import Aletheia.Limits using (IdentifierLength; max-identifier-length)
 open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
@@ -136,7 +137,7 @@ parseByteOrder cs =
 parseNatList : List JSON → Error ⊎ List ℕ
 parseNatList [] = inj₂ []
 parseNatList (j ∷ rest) with getNat j
-... | nothing = inj₁ (ParseErr (InvalidPresence "non-integer in multiplex_values"))
+... | nothing = inj₁ (ParseErr NonIntegerMultiplexValue)
 ... | just n  = parseNatList rest >>=ₑ λ ns → inj₂ (n ∷ ns)
 
 -- Parse a non-empty JSON array of naturals into a List⁺ ℕ.
@@ -145,7 +146,7 @@ parseNatList (j ∷ rest) with getNat j
 -- empty-list branch; the type system rules out the empty result.
 parseNatList⁺ : List⁺ JSON → Error ⊎ List⁺ ℕ
 parseNatList⁺ (j List⁺.∷ rest) with getNat j
-... | nothing = inj₁ (ParseErr (InvalidPresence "non-integer in multiplex_values"))
+... | nothing = inj₁ (ParseErr NonIntegerMultiplexValue)
 ... | just n  = parseNatList rest >>=ₑ λ ns → inj₂ (n List⁺.∷ ns)
 
 -- Parse SignalPresence from JSON object

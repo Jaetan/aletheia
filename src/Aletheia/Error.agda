@@ -61,6 +61,14 @@ data ParseError : Set where
   -- reject invalid identifiers at the JSON parse boundary; the text parser
   -- already rejects these syntactically via `parseIdentifier`.
   InvalidIdentifier       : String → ParseError
+  -- Non-integer value in a `multiplex_values` JSON array.  Split out from
+  -- `InvalidPresence` in R23 (AGDA-C-5.1) so the wire code distinguishes
+  -- "presence string not 'always'" (the original InvalidPresence intent)
+  -- from "multiplex_values array contains a non-natural element".  The
+  -- two pre-R23 emit sites at `JSONParser.parseNatList[⁺]` shared the
+  -- `InvalidPresence "non-integer in multiplex_values"` literal which
+  -- collapsed both classes onto a single wire code.
+  NonIntegerMultiplexValue : ParseError
   InContext               : String → ParseError → ParseError
   -- NOTE: Adversarial-input bounds are emitted via the top-level
   -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2 —
@@ -107,6 +115,8 @@ formatParseError (NonTerminatingRational f) =
   "rational field '" ++ₛ f ++ₛ "' is non-terminating in decimal (denominator has a prime factor outside {2, 5})"
 formatParseError (InvalidIdentifier s) =
   "'" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
+formatParseError NonIntegerMultiplexValue =
+  "non-integer value in 'multiplex_values' array (every element must be a JSON natural number)"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -129,6 +139,7 @@ parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_lengt
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
 parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
+parseErrorCode NonIntegerMultiplexValue    = "parse_non_integer_multiplex_value"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================

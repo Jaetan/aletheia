@@ -82,6 +82,15 @@ TEST_CASE("New ErrorCode entries map from string", "[input_bounds][trackUR2]") {
           aletheia::ErrorCode::DBCTextAttributeRefinementFailed);
 }
 
+TEST_CASE("R23 — AGDA-C-5.1: parse_non_integer_multiplex_value maps from string", "[parse_error]") {
+    // Typed sub-ctor split out from `parse_invalid_presence` so the wire
+    // code distinguishes "presence string not 'always'" from "non-natural
+    // element in multiplex_values array".  Asserts the C++ binding decodes
+    // the new wire code into the matching enum constant.
+    CHECK(aletheia::error_code_from_string("parse_non_integer_multiplex_value") ==
+          aletheia::ErrorCode::ParseNonIntegerMultiplexValue);
+}
+
 // R19 cluster A: every detail::parse_* callsite uses the parse_bounded helper
 // which enforces nlohmann's nesting depth via a SAX callback. Defense-in-depth
 // against malformed-but-bound-passing responses (the FFI-entry size cap fires

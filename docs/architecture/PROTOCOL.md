@@ -1207,6 +1207,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `parse_missing_field` | Required JSON field absent | Check the schema in the relevant Command section above |
 | `parse_invalid_byte_order` | Byte order string not `little_endian` or `big_endian` | Fix the signal `byteOrder` value |
 | `parse_invalid_presence` | Presence string not `always` | Use `always` or switch to `multiplexor`/`multiplex_values` |
+| `parse_non_integer_multiplex_value` | `multiplex_values` array contains a non-natural element | Every element must be a JSON natural number |
 | `parse_missing_signed` | Signal `signed` field absent | Add `"signed": true` or `"signed": false` |
 | `parse_invalid_signed` | `signed` value not `signed` or `unsigned` (legacy string form) | Use boolean `true`/`false` |
 | `parse_not_an_object` | Array element expected to be an object | Messages/signals must be JSON objects |

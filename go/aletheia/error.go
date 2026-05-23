@@ -100,6 +100,8 @@ const (
 	CodeParseNonTerminatingRational = "parse_non_terminating_rational"
 	// CodeParseInvalidIdentifier — identifier fails DBC's identifier syntax.
 	CodeParseInvalidIdentifier = "parse_invalid_identifier"
+	// CodeParseNonIntegerMultiplexValue — `multiplex_values` array contains a non-natural element.
+	CodeParseNonIntegerMultiplexValue = "parse_non_integer_multiplex_value"
 
 	// CodeDBCTextParseFailure — generic .dbc text parse failure.
 	CodeDBCTextParseFailure = "dbc_text_parse_failure"

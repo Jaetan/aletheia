@@ -27,9 +27,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 58-entry table on a cold parse path.
+// for the 59-entry table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
+constexpr std::array<ErrorCodeEntry, 59> error_code_table{{
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -49,6 +49,7 @@ constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
     {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
+    {"parse_non_integer_multiplex_value", ErrorCode::ParseNonIntegerMultiplexValue},
     // DBC text parse errors
     {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
     {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},

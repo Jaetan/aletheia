@@ -375,7 +375,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
         if status == "error":
             message = response.get("message", "Unknown error")
-            raise ProtocolError(f"validateDBC failed: {message}")
+            code = response.get("code")
+            raise ProtocolError(
+                f"validateDBC failed: {message}",
+                code=code if isinstance(code, str) else None,
+            )
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'validation' or 'error')"
@@ -408,7 +412,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
         if status == "error":
             message = response.get("message", "Unknown error")
-            raise ProtocolError(f"formatDBC failed: {message}")
+            code = response.get("code")
+            raise ProtocolError(
+                f"formatDBC failed: {message}",
+                code=code if isinstance(code, str) else None,
+            )
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'success' or 'error')"
@@ -449,7 +457,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
         if status == "error":
             message = response.get("message", "Unknown error")
-            raise ProtocolError(f"formatDBCText failed: {message}")
+            code = response.get("code")
+            raise ProtocolError(
+                f"formatDBCText failed: {message}",
+                code=code if isinstance(code, str) else None,
+            )
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'success' or 'error')"
