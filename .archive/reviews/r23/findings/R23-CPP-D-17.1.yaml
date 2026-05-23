@@ -1,4 +1,8 @@
-# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flipped to FIX,
+# closed 2026-05-24 by user-chosen "Full fix: share rts_state across both TUs"
+# (not "test+comment only" per the original YAML wording — investigation
+# surfaced a real renderer-first-rts_cores-downgrade bug that the test-only
+# scope would not have caught).
 id: R23-CPP-D-17.1
 round: R23
 category:
@@ -8,7 +12,7 @@ category:
   agent: D
 severity: medium
 disposition: FIX
-status: open
+status: closed
 title: Two independent dlopen+hs_init sites (renderer + FfiBackend)
 description: Cross-singleton ordering documented in code but untested.  Defer to a dedicated
   test addition + comment block; current behaviour is correct under normal usage.
@@ -16,6 +20,35 @@ files:
 - cpp/src/rational_renderer.cpp
 - cpp/src/ffi_backend.cpp
 cluster: F
-resolution: null
+resolution:
+  commit: c348317
+  round: R23
+  date: '2026-05-24'
+  notes: 'Original YAML claimed "current behaviour is correct under normal usage"
+    but the investigation found a real bug: renderer-first hs_init (via
+    `format_rational_ffi`) followed by `make_ffi_backend(lib, rts_cores > 1)`
+    silently dropped the user''s `-N` flag (GHC hs_init is idempotent, second
+    call no-op) AND failed to surface the `rts.cores_mismatch` warning,
+    because each TU held its own function-static `rts_state` and FfiBackend
+    thought it was first-init.  User authorized full fix vs.
+    test+comment-only via question prompt before any code change landed.
+    Fix: new `cpp/src/detail/rts_init.{hpp,cpp}` exposes a single
+    function-static `RTSInitState` (mutex + initialized + cores) shared
+    across both TUs; renderer + FfiBackend both lock and check it instead
+    of their per-TU duplicates.  Renderer records `cores = 1` on its
+    init; FfiBackend checks the shared state and surfaces the renderer-
+    first downgrade as the existing `rts_mismatch_info()` warning so
+    Client emits the standard `rts.cores_mismatch` structured log event
+    (parity with Go ffi.go:336 + Python client/_ffi.py:77-82).  New test
+    `cpp/tests/rts_init_renderer_first_tests.cpp` (separate ctest binary
+    — must be its own process because the GHC RTS is process-global) runs
+    the renderer-first scenario end-to-end and asserts the mismatch fires
+    with the expected `{1, 4}` payload.  The backend-first ordering is
+    already covered by `integration_tests.cpp:1469+` cases.  CMake
+    registers `rts_init.cpp` in `aletheia-cpp` source list and the new
+    test binary uses `ALETHEIA_REPO_ROOT` env var per CPP-D-18.1
+    reproducible-build pattern.  Dead local `RTSState` struct removed
+    from `ffi_backend.cpp`.  Gates: cpp ctest 11/11 (added 1, was 10/10),
+    clang-format clean, clang-tidy clean.'
 re_raised_from: null
 in_source_marker: null
