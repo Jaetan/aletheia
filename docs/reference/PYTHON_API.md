@@ -555,11 +555,11 @@ dbc_out = client.format_dbc()
 Set LTL checks, merging with default checks from the constructor. Calls `set_properties()` which auto-derives enrichment diagnostics.
 
 ```python
-from aletheia import Check
+from aletheia.checks import signal
 
 checks = [
-    Check.signal("Speed").never_exceeds(220),
-    Check.signal("Voltage").stays_between(11.5, 14.5),
+    signal("Speed").never_exceeds(220),
+    signal("Voltage").stays_between(11.5, 14.5),
 ]
 response = client.add_checks(checks)
 assert response["status"] == "success"

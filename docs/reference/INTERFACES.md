@@ -16,7 +16,7 @@ formulas — only the syntax differs.
 |------|----------|-------------|
 | **Excel** | Technician | Fill in spreadsheet templates, no code |
 | **YAML** | Test engineer | Declarative config, version-controllable, CI/CD |
-| **Check API** | Python scripter | `Check.signal("Speed").never_exceeds(220)` |
+| **Check API** | Python scripter | `signal("Speed").never_exceeds(220)` |
 | **DSL** | Developer | Full LTL: `Signal("Speed").less_than(220).always()` |
 
 Choose the simplest tier that covers your needs. The tiers compose without
@@ -35,7 +35,7 @@ following table summarizes feature availability per binding:
 
 | Feature | Python | C++ | Go |
 |---|---|---|---|
-| Check API (`Check.signal(...).never_exceeds(...)`) | ✅ | ✅ (`aletheia::Check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
+| Check API (`signal(...).never_exceeds(...)`) | ✅ (`aletheia.checks.signal(...)`) | ✅ (`aletheia::check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
 | Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`aletheia.Always{Inner: ...}` struct literals) |
 | YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
 | Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
@@ -48,11 +48,11 @@ The same call, side by side across the three bindings:
 
 **Check API** — "Speed must never exceed 220":
 ```python
-Check.signal("Speed").never_exceeds(220)
+signal("Speed").never_exceeds(220)
 ```
 ```cpp
 [[maybe_unused]] auto _check =
-    aletheia::Check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
+    aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
 ```
 ```go
 aletheia.CheckSignal("Speed").NeverExceeds(220)
@@ -144,27 +144,27 @@ The Check API wraps the DSL with industry vocabulary. Each method returns a
 same JSON that the verified Agda core processes.
 
 ```python
-from aletheia import Check            # re-exported from aletheia.checks
+from aletheia.checks import signal, when
 ```
 
-Each `Check.…` call returns a `CheckResult` object; in real programs, collect the results into a list and pass them to `client.add_checks(...)`. The snippets below show one call per line so the fluent API surface is obvious; see the end-to-end example in the next section for how to wire them together.
+Each `signal(...)` / `when(...)` call returns a `CheckResult` object; in real programs, collect the results into a list and pass them to `client.add_checks(...)`. The snippets below show one call per line so the fluent API surface is obvious; see the end-to-end example in the next section for how to wire them together.
 
 ### Simple Signal Checks
 
 ```python
 # Value bounds
-Check.signal("VehicleSpeed").never_exceeds(220)      # G(speed < 220)
-Check.signal("BatteryVoltage").never_below(11.0)     # G(voltage >= 11.0)
+signal("VehicleSpeed").never_exceeds(220)      # G(speed < 220)
+signal("BatteryVoltage").never_below(11.0)     # G(voltage >= 11.0)
 
 # Range
-Check.signal("BatteryVoltage").stays_between(11.5, 14.5)  # G(11.5 <= v <= 14.5)
+signal("BatteryVoltage").stays_between(11.5, 14.5)  # G(11.5 <= v <= 14.5)
 
 # Equality
-Check.signal("FaultCode").never_equals(255)           # G(not(fault == 255))
-Check.signal("ParkingBrake").equals(1).always()        # G(brake == 1)
+signal("FaultCode").never_equals(255)           # G(not(fault == 255))
+signal("ParkingBrake").equals(1).always()        # G(brake == 1)
 
 # Settling (time-bounded range)
-Check.signal("CoolantTemp").settles_between(80, 100).within(5000)
+signal("CoolantTemp").settles_between(80, 100).within(5000)
 # G_{<=5000ms}(80 <= temp <= 100)
 ```
 
@@ -174,17 +174,17 @@ Express response-time requirements: "when X happens, Y must follow within T ms."
 
 ```python
 # Brake light must activate within 100ms of pedal press
-Check.when("BrakePedal").exceeds(50) \
+when("BrakePedal").exceeds(50) \
      .then("BrakeLight").equals(1) \
      .within(100)
 
 # Engine must start within 2s of ignition
-Check.when("Ignition").equals(1) \
+when("Ignition").equals(1) \
      .then("EngineRPM").exceeds(500) \
      .within(2000)
 
 # Fuel warning must activate within 50ms of low fuel
-Check.when("FuelLevel").drops_below(10) \
+when("FuelLevel").drops_below(10) \
      .then("FuelWarning").stays_between(1, 1) \
      .within(50)
 ```
@@ -214,7 +214,7 @@ affect the LTL formula.
 
 ```python
 check = (
-    Check.signal("VehicleSpeed").never_exceeds(220)
+    signal("VehicleSpeed").never_exceeds(220)
     .named("Speed limit")
     .severity("safety")
 )
@@ -231,9 +231,9 @@ from aletheia import AletheiaClient, Check
 from aletheia.dbc_converter import dbc_to_json
 
 checks = [
-    Check.signal("VehicleSpeed").never_exceeds(220),
-    Check.signal("BatteryVoltage").stays_between(11.5, 14.5),
-    Check.when("BrakePedal").exceeds(50)
+    signal("VehicleSpeed").never_exceeds(220),
+    signal("BatteryVoltage").stays_between(11.5, 14.5),
+    when("BrakePedal").exceeds(50)
          .then("BrakeLight").equals(1).within(100),
 ]
 
@@ -630,7 +630,7 @@ All four tiers produce identical LTL formulas. This check:
 
 ```python
 # Check API
-Check.signal("VehicleSpeed").never_exceeds(220)
+signal("VehicleSpeed").never_exceeds(220)
 ```
 
 ```yaml

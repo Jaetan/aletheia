@@ -617,6 +617,52 @@ step count: 27 → 28.
 
 ### Changed
 
+#### Changed — Python + C++: Check entry points migrated from class statics to free functions (R23 — CPP-D-15.2)
+
+**BREAKING** — The `Check` class (Python `aletheia.Check`, C++ `aletheia::Check`)
+is removed.  Its two static factories `Check.signal(...)` / `Check.when(...)`
+are now module-level free functions in `aletheia.checks` (Python) and
+namespace-level free functions in `aletheia::check` (C++).
+
+Caller migration:
+
+```python
+# Before
+from aletheia import Check
+Check.signal("Speed").never_exceeds(220)
+Check.when("Brake").exceeds(50).then("Light").equals(1).within(100)
+
+# After
+from aletheia.checks import signal, when
+signal("Speed").never_exceeds(220)
+when("Brake").exceeds(50).then("Light").equals(1).within(100)
+```
+
+```cpp
+// Before
+aletheia::Check::signal("Speed").never_exceeds(...);
+aletheia::Check::when("Brake")...;
+
+// After (using namespace aletheia; in scope)
+check::signal("Speed").never_exceeds(...);
+check::when("Brake")...;
+```
+
+Go is unaffected — package-level `aletheia.CheckSignal(...)` /
+`aletheia.CheckWhen(...)` already used the free-function shape.
+
+Why: the `Check` class-with-statics shape was Python-mirror legacy
+(`Check.signal` mirrored Python's `Check.signal`).  C++ idiom prefers a
+namespace with free functions for stateless factories; Python aligns by
+exposing the same factories as module-level functions in `aletheia.checks`.
+The `Check` class was a single-purpose factory holder with no state — the
+class container added no value over the namespace form.  Not re-exported
+at top level (`aletheia.signal` / `aletheia.when`) because both names are
+generic and would shadow the stdlib `signal` module or local `signal`
+parameters; use `from aletheia.checks import signal, when` (no shadow at
+call sites) or `from aletheia import checks; checks.signal(...)` (no shadow
+where `signal` is a local).
+
 #### Changed — Parsers: LittleEndian `bitLength = 0` now rejected at parse time (R5-B1 / R6-B7.1 closure)
 
 **BREAKING** — `validate_dbc` (and `parse_dbc` / `parse_dbc_text`) on a

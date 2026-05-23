@@ -43,7 +43,6 @@ from aletheia import (
     AletheiaError,
     BatchError,
     CANFrameTuple,
-    Check,
     FrameResponse,
     ProtocolError,
     Signal,
@@ -52,6 +51,7 @@ from aletheia import (
     infinitely_often,
     never,
 )
+from aletheia.checks import signal as check_signal, when as check_when
 from aletheia.dsl import Predicate, Property
 
 _REPO_ROOT = Path(__file__).parent
@@ -191,7 +191,8 @@ def _make_globals() -> dict[str, Any]:
         "Signal": Signal,
         "Predicate": Predicate,
         "Property": Property,
-        "Check": Check,
+        "signal": check_signal,
+        "when": check_when,
         "AletheiaError": AletheiaError,
         "ProtocolError": ProtocolError,
         "ValidationError": ValidationError,

@@ -340,10 +340,10 @@ features:
 
   - id: check_dsl
     name: Fluent Check DSL
-    description: Programmatic check construction — Signal("X").equals(1).always() / Check::signal(...) / CheckSignal(...).
+    description: Programmatic check construction — Signal("X").equals(1).always() / check::signal(...) / CheckSignal(...).
     bindings:
       python: { status: implemented, entry: aletheia.Signal }
-      cpp:    { status: implemented, entry: "aletheia/check.hpp#Check" }
+      cpp:    { status: implemented, entry: "aletheia/check.hpp#signal" }
       go:     { status: implemented, entry: CheckSignal }
 
   - id: add_checks

@@ -16,7 +16,6 @@ from pathlib import Path
 from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
 
 from aletheia import (
-    Check,
     Signal,
     load_checks,
     load_checks_from_excel,
@@ -70,18 +69,18 @@ print("\n" + "=" * 60)
 print("TIER 2: Check API (scripter)")
 print("=" * 60)
 
-api_1 = Check.signal("VehicleSpeed").never_exceeds(220).to_dict()
-api_2 = Check.signal("BatteryVoltage").stays_between(11.5, 14.5).to_dict()
+api_1 = signal("VehicleSpeed").never_exceeds(220).to_dict()
+api_2 = signal("BatteryVoltage").stays_between(11.5, 14.5).to_dict()
 api_3 = (
-    Check.when("BrakePedal").exceeds(50)
+    when("BrakePedal").exceeds(50)
     .then("BrakeLight").equals(1)
     .within(100)
     .to_dict()
 )
 
-print("\n  Check.signal('VehicleSpeed').never_exceeds(220)")
-print("  Check.signal('BatteryVoltage').stays_between(11.5, 14.5)")
-print("  Check.when('BrakePedal').exceeds(50)")
+print("\n  signal('VehicleSpeed').never_exceeds(220)")
+print("  signal('BatteryVoltage').stays_between(11.5, 14.5)")
+print("  when('BrakePedal').exceeds(50)")
 print("      .then('BrakeLight').equals(1).within(100)")
 
 

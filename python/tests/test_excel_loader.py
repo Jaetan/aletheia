@@ -20,7 +20,7 @@ from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
 from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
 from aletheia import ValidationError
-from aletheia.checks import Check
+from aletheia.checks import signal, when
 from aletheia.excel_loader import (
     CHECKS_HEADERS,
     DBC_HEADERS,
@@ -113,7 +113,7 @@ class TestLoadSimpleChecks:
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
 
     def test_never_below(self, tmp_path: Path) -> None:
         """Verify never below."""
@@ -122,7 +122,7 @@ class TestLoadSimpleChecks:
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Voltage").never_below(11.5).to_dict()
+        assert checks[0].to_dict() == signal("Voltage").never_below(11.5).to_dict()
 
     def test_stays_between(self, tmp_path: Path) -> None:
         """Verify stays between."""
@@ -132,7 +132,7 @@ class TestLoadSimpleChecks:
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
         assert checks[0].to_dict() == (
-            Check.signal("Voltage").stays_between(11.5, 14.5).to_dict()
+            signal("Voltage").stays_between(11.5, 14.5).to_dict()
         )
 
     def test_never_equals(self, tmp_path: Path) -> None:
@@ -142,7 +142,7 @@ class TestLoadSimpleChecks:
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("ErrorCode").never_equals(255).to_dict()
+        assert checks[0].to_dict() == signal("ErrorCode").never_equals(255).to_dict()
 
     def test_equals_always(self, tmp_path: Path) -> None:
         """Verify equals always."""
@@ -151,7 +151,7 @@ class TestLoadSimpleChecks:
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Gear").equals(0).always().to_dict()
+        assert checks[0].to_dict() == signal("Gear").equals(0).always().to_dict()
 
     def test_settles_between(self, tmp_path: Path) -> None:
         """Verify settles between."""
@@ -161,7 +161,7 @@ class TestLoadSimpleChecks:
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
         assert checks[0].to_dict() == (
-            Check.signal("CoolantTemp").settles_between(80, 100).within(5000).to_dict()
+            signal("CoolantTemp").settles_between(80, 100).within(5000).to_dict()
         )
 
     def test_multiple_checks(self, tmp_path: Path) -> None:
@@ -172,9 +172,9 @@ class TestLoadSimpleChecks:
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 2
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
         assert checks[1].to_dict() == (
-            Check.signal("Voltage").stays_between(11.5, 14.5).to_dict()
+            signal("Voltage").stays_between(11.5, 14.5).to_dict()
         )
 
 
@@ -198,7 +198,7 @@ class TestLoadWhenThenChecks:
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
         expected = (
-            Check.when("BrakePedal").exceeds(50)
+            when("BrakePedal").exceeds(50)
             .then("BrakeLight").equals(1)
             .within(100)
             .to_dict()
@@ -215,7 +215,7 @@ class TestLoadWhenThenChecks:
         ])
         checks = load_checks_from_excel(p)
         expected = (
-            Check.when("Ignition").equals(1)
+            when("Ignition").equals(1)
             .then("RPM").exceeds(500)
             .within(2000)
             .to_dict()
@@ -232,7 +232,7 @@ class TestLoadWhenThenChecks:
         ])
         checks = load_checks_from_excel(p)
         expected = (
-            Check.when("FuelLevel").drops_below(10)
+            when("FuelLevel").drops_below(10)
             .then("FuelWarning").stays_between(1, 1)
             .within(50)
             .to_dict()
@@ -701,7 +701,7 @@ class TestLoadFromFile:
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
         assert checks[0].name == "Speed limit"
         assert checks[0].check_severity == "critical"
 
@@ -728,9 +728,9 @@ class TestLoadFromFile:
         checks = load_checks_from_excel(p)
         assert len(checks) == 2
         # First is the simple check, second is the when/then
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
         expected_wt = (
-            Check.when("Brake").exceeds(50)
+            when("Brake").exceeds(50)
             .then("BrakeLight").equals(1)
             .within(100)
             .to_dict()

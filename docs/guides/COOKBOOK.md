@@ -25,7 +25,7 @@ Problem-driven recipes. Each recipe is self-contained: title, code, done.
 ### Signal never exceeds a value
 
 ```python
-Check.signal("VehicleSpeed").never_exceeds(220)
+signal("VehicleSpeed").never_exceeds(220)
 ```
 
 ```yaml
@@ -37,7 +37,7 @@ Check.signal("VehicleSpeed").never_exceeds(220)
 ### Signal never drops below a value
 
 ```python
-Check.signal("BatteryVoltage").never_below(11.0)
+signal("BatteryVoltage").never_below(11.0)
 ```
 
 ```yaml
@@ -49,7 +49,7 @@ Check.signal("BatteryVoltage").never_below(11.0)
 ### Signal stays in a range
 
 ```python
-Check.signal("BatteryVoltage").stays_between(11.5, 14.5)
+signal("BatteryVoltage").stays_between(11.5, 14.5)
 ```
 
 ```yaml
@@ -62,7 +62,7 @@ Check.signal("BatteryVoltage").stays_between(11.5, 14.5)
 ### Signal never equals a forbidden value
 
 ```python
-Check.signal("FaultCode").never_equals(255)
+signal("FaultCode").never_equals(255)
 ```
 
 ```yaml
@@ -74,7 +74,7 @@ Check.signal("FaultCode").never_equals(255)
 ### Signal settles into range within time
 
 ```python
-Check.signal("CoolantTemp").settles_between(80, 100).within(5000)
+signal("CoolantTemp").settles_between(80, 100).within(5000)
 ```
 
 ```yaml
@@ -128,7 +128,7 @@ Signal("CoolantTemp").stable_within(1.0).within(30000)
 ### When A happens, B must follow within T ms
 
 ```python
-Check.when("BrakePedal").exceeds(50) \
+when("BrakePedal").exceeds(50) \
      .then("BrakeLight").equals(1) \
      .within(100)
 ```
@@ -149,7 +149,7 @@ Check.when("BrakePedal").exceeds(50) \
 ### Engine must start within T ms of ignition
 
 ```python
-Check.when("Ignition").equals(1) \
+when("Ignition").equals(1) \
      .then("EngineRPM").exceeds(500) \
      .within(2000)
 ```
@@ -157,7 +157,7 @@ Check.when("Ignition").equals(1) \
 ### Signal settles after trigger
 
 ```python
-Check.when("FuelLevel").drops_below(10) \
+when("FuelLevel").drops_below(10) \
      .then("FuelWarning").stays_between(1, 1) \
      .within(50)
 ```
@@ -448,7 +448,7 @@ from aletheia.dbc_converter import dbc_to_json
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
 dbc = dbc_to_json("vehicle.dbc")
-checks = [Check.signal("Speed").never_exceeds(220).named("speed_limit")]
+checks = [signal("Speed").never_exceeds(220).named("speed_limit")]
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
@@ -493,12 +493,13 @@ missing on a `fails` response, that's the cause.
 ```python
 from pathlib import Path
 
-from aletheia import Check, load_checks, load_checks_from_excel
+from aletheia import load_checks, load_checks_from_excel
+from aletheia.checks import signal
 
 checks = []
 checks.extend(load_checks(Path("base_checks.yaml")))         # YAML (Path → file)
 checks.extend(load_checks_from_excel("extra_checks.xlsx"))   # Excel
-checks.append(Check.signal("Speed").never_exceeds(220))      # Check API
+checks.append(signal("Speed").never_exceeds(220))      # Check API
 
 client.add_checks(checks)
 ```

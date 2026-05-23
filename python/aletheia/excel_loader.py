@@ -55,7 +55,8 @@ from openpyxl.styles import Font
 from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from .checks import Check, CheckResult
+from . import checks
+from .checks import CheckResult
 from .client import AletheiaError, check_dbc_text_size_bound
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
@@ -409,7 +410,7 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
             raise ValidationError(
                 f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
             )
-        result = Check.signal(signal).stays_between(
+        result = checks.signal(signal).stays_between(
             get_number(d, "Min", _row_ctx(row_num)),
             get_number(d, "Max", _row_ctx(row_num)),
         )
@@ -422,13 +423,13 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
             raise ValidationError(
                 f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
             )
-        result = Check.signal(signal).settles_between(
+        result = checks.signal(signal).settles_between(
             get_number(d, "Min", _row_ctx(row_num)),
             get_number(d, "Max", _row_ctx(row_num)),
         ).within(get_int(d, "Time (ms)", _row_ctx(row_num)))
     elif condition in SIMPLE_EQUALS_CONDITIONS:
         value = get_number(d, "Value", _row_ctx(row_num))
-        result = Check.signal(signal).equals(value).always()
+        result = checks.signal(signal).equals(value).always()
     else:
         raise ValidationError(f"Row {row_num}: unknown condition '{condition}'")
 
@@ -445,7 +446,7 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     if when_cond not in WHEN_CONDITIONS:
         raise ValidationError(f"Row {row_num}: unknown when condition '{when_cond}'")
 
-    when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
+    when_result = dispatch_when(checks.when(when_signal), when_cond, when_value)
 
     # Then clause
     then_signal = get_str(d, "Then Signal", _row_ctx(row_num))

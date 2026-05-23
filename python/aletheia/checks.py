@@ -5,14 +5,14 @@ automotive technicians can define signal checks without knowing
 temporal logic.
 
 Usage:
-    from aletheia import Check
+    from aletheia.checks import signal, when
 
     # Simple signal bounds
-    Check.signal("Speed").never_exceeds(220)
-    Check.signal("Voltage").stays_between(11.5, 14.5)
+    signal("Speed").never_exceeds(220)
+    signal("Voltage").stays_between(11.5, 14.5)
 
     # Causal / response checks
-    Check.when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+    when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
 
 Every check compiles to the same LTL Property used by the DSL layer.
 """
@@ -127,7 +127,7 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
 
 
 class CheckSignal:
-    """Builder for single-signal checks (returned by ``Check.signal()``)."""
+    """Builder for single-signal checks (returned by ``checks.signal()``)."""
 
     def __init__(self, signal_name: str) -> None:
         self._name = signal_name
@@ -252,7 +252,7 @@ class WhenCondition:  # pylint: disable=too-few-public-methods
 
 
 class WhenSignal:
-    """Builder for the when-clause (returned by ``Check.when()``)."""
+    """Builder for the when-clause (returned by ``checks.when()``)."""
 
     def __init__(self, signal_name: str) -> None:
         self._name = signal_name
@@ -277,21 +277,23 @@ class WhenSignal:
 # Top-level entry point
 # ============================================================================
 
-class Check:
-    """Entry point for the Check API.
+def signal(name: str) -> CheckSignal:
+    """Start a single-signal check.
 
-    Examples::
+    Example::
 
-        Check.signal("Speed").never_exceeds(220)
-        Check.when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+        from aletheia.checks import signal
+        signal("Speed").never_exceeds(220)
     """
+    return CheckSignal(name)
 
-    @staticmethod
-    def signal(name: str) -> CheckSignal:
-        """Start a single-signal check."""
-        return CheckSignal(name)
 
-    @staticmethod
-    def when(signal_name: str) -> WhenSignal:
-        """Start a causal when/then check."""
-        return WhenSignal(signal_name)
+def when(signal_name: str) -> WhenSignal:
+    """Start a causal when/then check.
+
+    Example::
+
+        from aletheia.checks import when
+        when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
+    """
+    return WhenSignal(signal_name)

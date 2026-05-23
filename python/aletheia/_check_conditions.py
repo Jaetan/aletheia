@@ -5,7 +5,8 @@ through the same Check API builders.  This module defines the keyword sets
 and dispatch helpers so that the two loaders stay in sync.
 """
 
-from .checks import Check, CheckResult, WhenCondition, WhenSignal
+from . import checks
+from .checks import CheckResult, WhenCondition, WhenSignal
 from .client import ValidationError
 
 
@@ -60,9 +61,9 @@ def dispatch_simple(
 ) -> CheckResult:
     """Apply a simple single-signal, single-value condition (never_exceeds/below/equals)."""
     if condition == "never_exceeds":
-        return Check.signal(signal).never_exceeds(value)
+        return checks.signal(signal).never_exceeds(value)
     if condition == "never_below":
-        return Check.signal(signal).never_below(value)
+        return checks.signal(signal).never_below(value)
     if condition == "never_equals":
-        return Check.signal(signal).never_equals(value)
+        return checks.signal(signal).never_equals(value)
     raise ValidationError(f"Unknown simple condition: {condition!r}")

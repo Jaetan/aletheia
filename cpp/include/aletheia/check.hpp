@@ -6,8 +6,8 @@
 // automotive technicians can define signal checks without knowing
 // temporal logic.
 //
-//   Check::signal("Speed").never_exceeds(PhysicalValue{220});
-//   Check::when("Brake").exceeds(PhysicalValue{50})
+//   check::signal("Speed").never_exceeds(PhysicalValue{220});
+//   check::when("Brake").exceeds(PhysicalValue{50})
 //       .then("BrakeLight").equals(PhysicalValue{1}).within(100ms);
 //
 // Every check compiles to the same LtlFormula used by the LTL layer.
@@ -306,22 +306,16 @@ private:
 // Entry point
 // ---------------------------------------------------------------------------
 
-// DEFERRED — TRACKED (R19P2-CL10-5 — DEFER).
-// Finding: `class Check` with static-method factory pattern (Check::signal(...),
-//   Check::when(...)) versus a `namespace aletheia::check` with free functions.
-// Why DEFER: Namespace pattern is more idiomatic C++ for stateless factories;
-//   current class-with-statics came from a Python-mirror design ("Check.range(...)").
-//   Migration touches every Check callsite in cpp/tests/ and cpp/examples/.
-//   Stylistic.
-// Revisit when: A C++ idiom-conformance cluster is opened.
+namespace check {
 
-class Check {
-public:
-    static auto signal(std::string name) -> CheckSignal { return CheckSignal{std::move(name)}; }
+inline auto signal(std::string name) -> CheckSignal {
+    return CheckSignal{std::move(name)};
+}
 
-    static auto when(std::string signal_name) -> WhenSignal {
-        return WhenSignal{std::move(signal_name)};
-    }
-};
+inline auto when(std::string signal_name) -> WhenSignal {
+    return WhenSignal{std::move(signal_name)};
+}
+
+} // namespace check
 
 } // namespace aletheia

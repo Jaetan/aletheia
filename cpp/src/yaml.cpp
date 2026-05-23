@@ -108,7 +108,7 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
                                      "' requires 'min' and 'max'");
         auto lo = PhysicalValue{Rational::from_double(get_number(entry, "min", ctx(name)))};
         auto hi = PhysicalValue{Rational::from_double(get_number(entry, "max", ctx(name)))};
-        return Check::signal(signal).stays_between(lo, hi);
+        return check::signal(signal).stays_between(lo, hi);
     }
 
     if (detail::is_simple_settles_condition(condition)) {
@@ -121,14 +121,14 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
         auto lo = PhysicalValue{Rational::from_double(get_number(entry, "min", ctx(name)))};
         auto hi = PhysicalValue{Rational::from_double(get_number(entry, "max", ctx(name)))};
         auto ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
-        return Check::signal(signal).settles_between(lo, hi).within(ms);
+        return check::signal(signal).settles_between(lo, hi).within(ms);
     }
 
     // equals
     if (!entry["value"])
         throw std::runtime_error(ctx(name) + ": condition 'equals' requires 'value'");
     auto value = PhysicalValue{Rational::from_double(get_number(entry, "value", ctx(name)))};
-    return Check::signal(signal).equals(value).always();
+    return check::signal(signal).equals(value).always();
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> 
 
     auto when_signal = get_str(when, "signal", ctx(name));
     auto when_value = PhysicalValue{Rational::from_double(get_number(when, "value", ctx(name)))};
-    auto when_builder = Check::when(when_signal);
+    auto when_builder = check::when(when_signal);
     auto when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
     // Then clause

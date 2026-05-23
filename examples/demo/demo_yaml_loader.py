@@ -10,7 +10,8 @@ No FFI or Agda build required — this demo only generates formulas.
 import json
 from pathlib import Path
 
-from aletheia import Check, load_checks
+from aletheia import load_checks
+from aletheia.checks import signal, when
 
 
 # =============================================================================
@@ -65,12 +66,12 @@ print("SECTION 3: Equivalence with Check API")
 print("=" * 60)
 
 yaml_speed = checks[0].to_dict()
-api_speed = Check.signal("VehicleSpeed").never_exceeds(220).to_dict()
+api_speed = signal("VehicleSpeed").never_exceeds(220).to_dict()
 print(f"\n  YAML 'Speed limit' == Check API: {yaml_speed == api_speed}")
 
 yaml_brake = checks[6].to_dict()
 api_brake = (
-    Check.when("BrakePedal").exceeds(50)
+    when("BrakePedal").exceeds(50)
     .then("BrakeLight").equals(1)
     .within(100)
     .to_dict()
