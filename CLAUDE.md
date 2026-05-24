@@ -253,7 +253,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **Active branch: `review-r23`** — forked from `main` post-R22 merge at `ce7bbcc` (2026-05-22).  Module count **263**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
 
-**R23 closed work** (51 of 57 findings closed: 48 FIX + 3 FP-VERIFIED):
+**R23 closed work** (56 of 57 findings closed: 53 FIX + 3 FP-VERIFIED):
 - **Cluster A** (`66cf92b`) — closed XDOC-15.1 critical + 11 doc drifts.
 - **Cluster C** (`d11e1a3` + `3bb26b3` + `2849371`) — all 10 C++ delta cleanup findings closed.
 - **Cluster H** (`09e276c` + `7922851`) — CI/CD + docker SBOM (5 closed).
@@ -265,17 +265,17 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 - **AGDA-C-6.1** (`9543be1`) — `requireDec-allE` / `rejectDec-allE` lemmas in `Validity.Combinators`; 6 of 8 proofs collapse to one-liners.
 - **CPP-D-18.1** (`9543be1`) — reproducible-build invariant restored: `CMAKE_CURRENT_SOURCE_DIR` defines moved to runtime env vars via `set_tests_properties(ENVIRONMENT ...)`.
 - **DEFER reversal** (`5367334`, 2026-05-23) — user reversed all 18 in-flight DEFERs to FIX; DB-only commit (audit trail preserved as top-of-file YAML comment).
+- **AGDA-C-5.1** (`165de76`) — typed `NonIntegerMultiplexValue` ParseError ctor + cross-binding ErrorCode addition + Python `ProtocolError` code propagation.
+- **CPP-D-15.1 / 15.2** (`8aff66b` / `e15d7d8`) — `struct Rational` → class with private fields + accessors; `Check` class dropped for free-function namespace (Python + C++).
+- **CPP-D-17.1** (`c348317`) — shared GHC RTS init state across rational_renderer + FfiBackend singletons (renderer-first construction no longer drops `rts_cores`).
+- **AGDA-D-12.1** (`7dc4fcb`) — mid-stream `Satisfied` properties lifted to wire via PropertyBatch; `Complete.results` no longer silently drops them.
 
-**R23 open work** (6 FIX status:open, all big structural):
-- **AGDA-C-5.1** — typed sub-ctor `NonIntegerMultiplexValue`; cross-binding ErrorCode addition.
-- **AGDA-D-10.1** — `SignalPredicate.signalName : List Char → Identifier`; cross-cutting LTL + JSON + Properties + 3 bindings.
-- **AGDA-D-12.1** — `Complete.results` surfaces dropped-via-`complete` properties.
-- **CPP-D-15.1 / 15.2** — R19 re-DEFERs: `Rational` class-promotion + `Check` static-method idiom.
-- **CPP-D-17.1** — cross-singleton `dlopen` + `hs_init` ordering between rational_renderer + ffi_backend.
+**R23 open work** (1 FIX status:open — last item before merge gate):
+- **AGDA-D-10.1** — promote `SignalPredicate.signalName : List Char → Identifier`; cross-cutting LTL constructors + JSON parsers + Properties + 3 bindings' SignalPredicate type.  Pairs with the closed AGDA-D-32.1 (IdentifierLength bound).  Largest remaining R23 refactor.
 
 **Earlier rounds**: R20 ✅ merged `2477d5c` 2026-05-17, R21 ✅ merged `315c1a3` 2026-05-18, R22 ✅ merged `3ebfc37` + clang-format follow-up `ce7bbcc` 2026-05-22.  Per-round detail in `memory/project_review_round{20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py --report ...`); pre-R22 PROJECT_STATUS narrative archived at `docs/archive/PROJECT_STATUS_HISTORY.md`.
 
-**Gates posture** at last code-affecting commit `aacc970` (AGDA-D-32.1): build clean, check-properties clean 8m19s, parity tests bumped 15→16.  Commits since (`a1891cb`, `5367334`) are `.archive/`-only (DB / audit trail) — no code path touched, so no re-run needed.  Full CI deferred to merge gate per "CI takes 25 min, reserve for substantive validation" user policy.
+**Gates posture**: AGDA-D-10.1 still open → round not yet at the merge gate.  The 5 big-structural closures (AGDA-C-5.1, CPP-D-15.1/15.2/17.1, AGDA-D-12.1) landed across prior pre-crash sessions through `7dc4fcb`, touching Agda core + C++/Python bindings; per-finding gate-run evidence for them is NOT captured in recovered session notes (treat as unvalidated per `feedback_gate_claim_integrity.md`).  Full `tools/run_ci.py` NOT run since session start `5367334` — REQUIRED before R23 → main merge, and re-run after AGDA-D-10.1 lands.  HEAD `2eb6305` is `.archive/`-only.
 
 **Push gap**: ✅ CLOSED.  `main` is in sync with `origin/main` after R22 merge push.
 

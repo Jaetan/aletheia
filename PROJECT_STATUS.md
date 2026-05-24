@@ -1,10 +1,10 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-05-23 (R23 in flight on `review-r23`; 18 in-flight DEFERs reversed to FIX by user directive at `5367334`).  R22 ✅ merged to main at `3ebfc37` + clang-format follow-up `ce7bbcc`; main pushed to `origin` (push gap closed).
+**Last Updated**: 2026-05-24 (R23 in flight on `review-r23`; 56 of 57 findings closed, 1 open — AGDA-D-10.1).  R22 ✅ merged to main at `3ebfc37` + clang-format follow-up `ce7bbcc`; main pushed to `origin` (push gap closed).
 
 **Recent rounds**: R20 ✅ merged 2026-05-17 (`2477d5c`), R21 ✅ merged 2026-05-18 (`315c1a3`), R22 ✅ merged 2026-05-22 (`3ebfc37`).  R22 closed: AGDA-A-1.1 dead-import campaign (sweep #4 `56ac3d6` + two-tier gates `403555b`); AGDA-D-12.1 end-of-stream warnings (`d51cdb1`); Assign.agda b15 marker (`57ad862`); review-process meta-review (`80e3d2a` / `36fc47b` / `9f7d38e` / `b98661e` / `92bb3ae`).  R23 launched on the new protocol — delta scope on Step 1A/1B (saved 6 agents); whole-program on Step 1C + Step 2; cat 1 Agda graduated.
 
-**R23 in-flight**: 51 of 57 findings status:closed (48 FIX + 3 FP-VERIFIED); 6 remaining open-FIX, all big-structural (AGDA-C-5.1 cross-binding ErrorCode; AGDA-D-{10.1, 12.1} Identifier promotion + Complete-results; CPP-D-{15.1, 15.2, 17.1} R19 re-DEFERs + dlopen ordering).  Critical (XDOC-15.1 module count drift) raised AND closed in-round at `66cf92b` cluster A doc-sync; no carry-forward criticals.
+**R23 in-flight**: 56 of 57 findings status:closed (53 FIX + 3 FP-VERIFIED); 1 remaining open-FIX — AGDA-D-10.1 (`SignalPredicate.signalName : List Char → Identifier` promotion; cross-cutting LTL + JSON + Properties + 3 bindings; pairs with the closed AGDA-D-32.1).  Closed since 2026-05-23: AGDA-C-5.1 (`165de76`), CPP-D-15.1/15.2 (`8aff66b` / `e15d7d8`), CPP-D-17.1 (`c348317`), AGDA-D-12.1 (`7dc4fcb`).  Critical (XDOC-15.1 module count drift) raised AND closed in-round at `66cf92b` cluster A doc-sync; no carry-forward criticals.  Full `tools/run_ci.py` REQUIRED before merge (not run since session start).
 
 **Closure narratives**: per-round detail in `memory/project_review_round{18,19,20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py`); historical PROJECT_STATUS narrative paragraphs preserved verbatim in [`docs/archive/PROJECT_STATUS_HISTORY.md`](docs/archive/PROJECT_STATUS_HISTORY.md).
 
