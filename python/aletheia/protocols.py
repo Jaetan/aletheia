@@ -511,14 +511,24 @@ class ViolationEnrichment(TypedDict):
     core_reason: str
 
 
-class PropertyViolationResponse(TypedDict):
-    """Property violation response"""
-    status: Literal["fails"]
-    type: Literal["property"]
-    property_index: RationalNumber
-    timestamp: RationalNumber
-    reason: NotRequired[str]  # Optional reason field from binary
-    enrichment: NotRequired[ViolationEnrichment]  # Auto-derived diagnostic
+class PropertyBatchResponse(TypedDict):
+    """Per-frame batch of property events emitted during streaming.
+
+    R23 — AGDA-D-12.1: replaces the pre-R23 ``PropertyViolationResponse``.
+    Each ``send_frame`` call may now return zero events (``AckResponse``)
+    or one-or-more events in this batch.  Inner ``results`` carries each
+    event in source-order: any satisfactions that completed before a
+    halting violation come first, then the violation itself.  A
+    completion-only frame (one or more properties became Satisfied,
+    none violated) returns a batch of pure satisfactions.
+
+    Inner element schema matches ``PropertyResultEntry`` (fails / holds /
+    unresolved); ``status: "fails"`` carries the violation diagnostics
+    (``timestamp``, ``reason``, optional ``enrichment``); ``status: "holds"``
+    carries only the ``property_index``.
+    """
+    type: Literal["property_batch"]
+    results: list["PropertyResultEntry"]
 
 
 class PropertyResultEntry(TypedDict):
@@ -612,7 +622,7 @@ Response = (
     SuccessResponse |
     ErrorResponse |
     AckResponse |
-    PropertyViolationResponse |
+    PropertyBatchResponse |
     CompleteResponse |
     ExtractSignalsResponse |
     FormatDBCResponse |
@@ -727,7 +737,7 @@ __all__ = [
     "ErrorResponse",
     "AckResponse",
     "ViolationEnrichment",
-    "PropertyViolationResponse",
+    "PropertyBatchResponse",
     "PropertyResultEntry",
     "CompleteResponse",
     "CompleteWarning",

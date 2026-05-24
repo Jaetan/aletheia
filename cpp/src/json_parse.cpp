@@ -805,6 +805,44 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     }
 }
 
+// Parse one inner per-property verdict object — shared between the
+// streaming PropertyBatch path (frame response) and the EndStream
+// StreamResult path (parse_stream_result).  R23 — AGDA-D-12.1.
+static auto parse_property_result_entry(const Json& r) -> PropertyResult {
+    auto entry_status = r.value("status", "");
+    Verdict verdict{};
+    if (entry_status == "holds")
+        verdict = Verdict::Holds;
+    else if (entry_status == "fails")
+        verdict = Verdict::Fails;
+    else if (entry_status == "unresolved")
+        verdict = Verdict::Unresolved;
+    else
+        throw std::runtime_error("Unknown verdict status: " + entry_status);
+    auto idx = parse_rational_as_int(r.at("property_index"));
+    if (idx < 0)
+        throw std::runtime_error("Negative property_index: " + std::to_string(idx));
+
+    std::optional<Timestamp> ts;
+    if (r.contains("timestamp")) {
+        auto ts_val = parse_rational_as_int(r.at("timestamp"));
+        if (ts_val < 0)
+            throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
+        ts = Timestamp{ts_val};
+    }
+
+    std::string reason;
+    if (r.contains("reason") && r.at("reason").is_string())
+        reason = r.at("reason").get<std::string>();
+
+    return PropertyResult{
+        .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
+        .verdict = verdict,
+        .timestamp = ts,
+        .reason = std::move(reason),
+    };
+}
+
 auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
     // Fast path: byte-level check for the common ack response.
     // Avoids full JSON parsing for ~99% of streaming frames.
@@ -820,30 +858,30 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         if (status == "ack")
             return FrameResponse{Ack{}};
 
-        if (status == "fails") {
-            if (j.value("type", "") != "property")
-                throw std::runtime_error("Expected type \"property\" in violation response");
-            auto idx = parse_rational_as_int(j.at("property_index"));
-            if (idx < 0)
-                throw std::runtime_error("Negative property_index: " + std::to_string(idx));
-            auto ts = parse_rational_as_int(j.at("timestamp"));
-            if (ts < 0)
-                throw std::runtime_error("Negative timestamp: " + std::to_string(ts));
-            std::string reason;
-            if (j.contains("reason") && j.at("reason").is_string())
-                reason = j.at("reason").get<std::string>();
-            return FrameResponse{Violation{
-                .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-                .timestamp = Timestamp{ts},
-                .reason = std::move(reason),
-            }};
-        }
-
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
 
+        // R23 — AGDA-D-12.1: streaming PropertyResponse is now a
+        // batch envelope `{"type": "property_batch", "results": [...]}`.
+        // Each results entry is a PropertyResult (holds/fails/unresolved);
+        // violations close the batch in source-order per the Agda
+        // dispatchIterResult invariant.
+        if (j.value("type", "") == "property_batch") {
+            const auto& raw_results = j.at("results");
+            if (!raw_results.is_array() || raw_results.empty())
+                throw std::runtime_error(
+                    "property_batch response 'results' must be a non-empty array "
+                    "(zero-event frames are encoded as ack)");
+            std::vector<PropertyResult> results;
+            results.reserve(raw_results.size());
+            for (const auto& r : raw_results)
+                results.push_back(parse_property_result_entry(r));
+            return FrameResponse{PropertyBatch{.results = std::move(results)}};
+        }
+
         return std::unexpected(
-            make_error(ErrorKind::Protocol, "Unexpected frame status: " + status));
+            make_error(ErrorKind::Protocol, "Unexpected frame response: status=" + status +
+                                                " type=" + j.value("type", "")));
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
     }
@@ -880,40 +918,8 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
             return std::unexpected(make_error(ErrorKind::Protocol, "Expected complete response"));
 
         std::vector<PropertyResult> results;
-        for (const auto& r : j.at("results")) {
-            auto entry_status = r.value("status", "");
-            Verdict verdict{};
-            if (entry_status == "holds")
-                verdict = Verdict::Holds;
-            else if (entry_status == "fails")
-                verdict = Verdict::Fails;
-            else if (entry_status == "unresolved")
-                verdict = Verdict::Unresolved;
-            else
-                throw std::runtime_error("Unknown verdict status: " + entry_status);
-            auto idx = parse_rational_as_int(r.at("property_index"));
-            if (idx < 0)
-                throw std::runtime_error("Negative property_index: " + std::to_string(idx));
-
-            std::optional<Timestamp> ts;
-            if (r.contains("timestamp")) {
-                auto ts_val = parse_rational_as_int(r.at("timestamp"));
-                if (ts_val < 0)
-                    throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
-                ts = Timestamp{ts_val};
-            }
-
-            std::string reason;
-            if (r.contains("reason") && r.at("reason").is_string())
-                reason = r.at("reason").get<std::string>();
-
-            results.push_back({
-                .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-                .verdict = verdict,
-                .timestamp = ts,
-                .reason = std::move(reason),
-            });
-        }
+        for (const auto& r : j.at("results"))
+            results.push_back(parse_property_result_entry(r));
 
         std::vector<StreamWarning> warnings;
         if (j.contains("warnings")) {

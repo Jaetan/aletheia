@@ -113,13 +113,14 @@ class TestCrossBindingIntegration:
         assert _ACK_RESPONSE_KEYS.issubset(set(response.keys()))
 
     def test_send_frame_violation_response_shape(self) -> None:
-        """``send_frame`` on a violating frame returns ``PropertyViolationResponse``.
+        """``send_frame`` on a violating frame returns ``PropertyBatchResponse``.
 
-        Required keys per PROTOCOL.md:
-        ``{status, type, property_index, timestamp}``; ``reason`` and
-        ``enrichment`` are optional but conventionally present when the
-        binding has the DBC + property set loaded (which the canonical
-        scenario does).
+        R23 — AGDA-D-12.1: required wire keys per PROTOCOL.md:
+        ``{type: "property_batch", results: [...]}``; each ``results``
+        entry has ``{type: "property", status: "fails"|"holds"|"unresolved",
+        property_index, [timestamp]}``.  ``reason`` and ``enrichment`` are
+        optional but conventionally present on fails entries when the
+        binding has the DBC + property set loaded.
         """
         prop = Signal("TestSignal").less_than(100).always()
         with AletheiaClient() as client:
@@ -134,10 +135,16 @@ class TestCrossBindingIntegration:
             client.end_stream()
 
         assert isinstance(response, dict)
-        assert response["status"] == "fails"
-        assert response["type"] == "property"
-        assert "property_index" in response
-        assert "timestamp" in response
+        assert response["type"] == "property_batch"
+        assert isinstance(response["results"], list)
+        assert len(response["results"]) >= 1
+        # Violations are always the last entry in source-order per the
+        # Agda dispatchIterResult invariant (satisfactions first, halt last).
+        violation = response["results"][-1]
+        assert violation["status"] == "fails"
+        assert violation["type"] == "property"
+        assert "property_index" in violation
+        assert "timestamp" in violation
 
     def test_send_frame_error_response_shape(self) -> None:
         """Invalid frame input returns ``ErrorResponse`` with required fields."""

@@ -341,7 +341,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
                           std::byte{0}};
         auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
-        if (std::holds_alternative<Violation>(*result))
+        if (std::holds_alternative<PropertyBatch>(*result))
             got_violation = true;
     }
 
@@ -578,7 +578,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
             }
 
             // Check both mid-stream and EOS for the verdict
-            bool mid_violation = std::holds_alternative<Violation>(*send_result);
+            bool mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
             out.verdict = (mid_violation || end->results[0].verdict == Verdict::Fails)
                               ? Verdict::Fails
                               : Verdict::Holds;

@@ -42,20 +42,50 @@ type FrameResponse interface {
 	frameResponse() // sealed
 }
 
-// Ack indicates the frame was processed with no property violation.
+// Ack indicates the frame was processed with no property events at all
+// (no halt, no completion).
 type Ack struct{}
 
 func (Ack) frameResponse() {}
 
-// Violation indicates a property was violated by this frame.
-type Violation struct {
-	PropertyIndex PropertyIndex
-	Timestamp     Timestamp
-	Reason        string               // raw reason from the Agda core; may be empty
-	Enrichment    *ViolationEnrichment // nil when no diagnostic available
+// PropertyBatch is the response to a frame that produced one or more
+// property events: mid-stream Satisfactions (properties that completed
+// at this frame) followed by an optional terminal Violation, in
+// source-order per the Agda dispatchIterResult invariant.  R23 —
+// AGDA-D-12.1: pre-R23 only single Violation frames were surfaced; the
+// silent drop of mid-stream Satisfactions has been lifted to the wire.
+//
+// Empty Results is unreachable — frames with no events return Ack.
+type PropertyBatch struct {
+	Results []PropertyResult
 }
 
-func (Violation) frameResponse() {}
+func (PropertyBatch) frameResponse() {}
+
+// FirstViolation returns the first PropertyResult with Verdict == Fails,
+// or nil if the batch carries only mid-stream Satisfactions.  Per the
+// Agda invariant, a batch contains at most one violation and (if
+// present) it is the last entry, so this is also "the violation".
+func (b PropertyBatch) FirstViolation() *PropertyResult {
+	for i := range b.Results {
+		if b.Results[i].Verdict == Fails {
+			return &b.Results[i]
+		}
+	}
+	return nil
+}
+
+// Satisfactions returns the mid-stream Satisfaction entries (Verdict ==
+// Holds).  Empty when the batch is violation-only or unresolved-only.
+func (b PropertyBatch) Satisfactions() []PropertyResult {
+	var out []PropertyResult
+	for _, r := range b.Results {
+		if r.Verdict == Holds {
+			out = append(out, r)
+		}
+	}
+	return out
+}
 
 // Verdict is the final determination for a property at end-of-stream.
 //

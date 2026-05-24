@@ -25,7 +25,7 @@ from .client import AletheiaClient, AletheiaError, ValidationError
 from .protocols import (
     DBCDefinition,
     PropertyResultEntry,
-    PropertyViolationResponse,
+    PropertyBatchResponse,
     RationalNumber,
 )
 
@@ -95,9 +95,15 @@ def _check_meta(
 
 
 def _build_violation(
-    response: PropertyViolationResponse, checks: list[CheckResult],
+    response: PropertyResultEntry, checks: list[CheckResult],
 ) -> Violation:
-    """Extract violation details from an (already enriched) violation response."""
+    """Extract violation details from one enriched violation entry.
+
+    R23 — AGDA-D-12.1: now takes a single ``PropertyResultEntry`` (a
+    ``status == "fails"`` entry from a ``PropertyBatchResponse.results``)
+    rather than a top-level violation response.  The mid-stream path
+    iterates the batch and calls this once per fails entry.
+    """
     prop_index = rational_to_int(response["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
 
@@ -117,11 +123,18 @@ def _build_violation(
         signal_name = sig
         actual_value = signals[sig]
 
+    # PropertyResultEntry.timestamp is NotRequired (Holds entries omit it),
+    # but a fails entry is required to carry one by the Agda kernel contract.
+    timestamp_rational = response.get("timestamp")
+    if timestamp_rational is None:
+        timestamp_us = 0
+    else:
+        timestamp_us = rational_to_int(timestamp_rational)
     return {
         "check_index": prop_index,
         "check_name": check_name,
         "severity": severity,
-        "timestamp_us": rational_to_int(response["timestamp"]),
+        "timestamp_us": timestamp_us,
         "reason": reason,
         "signal_name": signal_name,
         "actual_value": actual_value,
@@ -199,8 +212,16 @@ def run_checks(  # pylint: disable=too-many-locals
                 frame.timestamp, frame.can_id, frame.dlc, frame.data,
                 extended=frame.extended, brs=frame.brs, esi=frame.esi,
             )
-            if response["status"] == "fails":
-                violations.append(_build_violation(response, all_checks))
+            # R23 — AGDA-D-12.1: streaming responses are now uniformly
+            # PropertyBatchResponse for any property events; iterate
+            # each fails entry.  Mid-stream satisfactions (status="holds")
+            # are not recorded as violations (the user sees them via
+            # PropertyResultEntry.status if they want).
+            if response.get("type") == "property_batch":
+                batch = cast(PropertyBatchResponse, response)
+                for entry in batch["results"]:
+                    if entry.get("status") == "fails":
+                        violations.append(_build_violation(entry, all_checks))
 
         end_resp = client.end_stream()
         if end_resp["status"] == "error":

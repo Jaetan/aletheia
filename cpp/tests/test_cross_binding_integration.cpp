@@ -154,11 +154,59 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
                                   std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
-    REQUIRE(std::holds_alternative<Violation>(resp.value()));
-    const auto& v = std::get<Violation>(resp.value());
-    // Documented Violation members: property_index, timestamp, reason,
-    // optional<enrichment>; assert the timestamp survived round-trip.
-    CHECK(v.timestamp.count() > 0);
+    REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
+    const auto& b = std::get<PropertyBatch>(resp.value());
+    // R23 — AGDA-D-12.1: documented PropertyBatch.results entry members
+    // (PropertyResult): property_index, verdict, optional<timestamp>,
+    // reason, optional<enrichment>; assert the timestamp survived round-
+    // trip through the batch envelope.
+    const auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    REQUIRE(v->timestamp.has_value());
+    CHECK(v->timestamp->count() > 0);
+}
+
+// R23 — AGDA-D-12.1: a single frame can produce both a mid-stream
+// Satisfaction AND a terminal Violation in the same PropertyBatch.
+// Setup: two properties — index 0 is `eventually(TestSignal == 100)`
+// (completes on the first witness), index 1 is `always(TestSignal < 50)`
+// (violates at the same frame because 100 > 50).
+TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_binding]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
+    auto eventually_prop = ltl::eventually(
+        ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{100, 1}})));
+    auto always_prop = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"TestSignal"}, PhysicalValue{Rational{50, 1}})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(eventually_prop));
+    props.push_back(std::move(always_prop));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto sid = StandardId::create(256).value();
+    auto dlc = Dlc::create(8).value();
+    // TestSignal = 100 fires BOTH:
+    //  - property 0 (eventually(== 100)): Satisfied → complete(0)
+    //  - property 1 (always(< 50)):       Violated  → halt(1)
+    auto payload = std::array<std::byte, 8>{
+        std::byte{100}, std::byte{0}, std::byte{0}, std::byte{0},
+        std::byte{0},   std::byte{0}, std::byte{0}, std::byte{0},
+    };
+    auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
+                                  std::span<const std::byte>{payload});
+    REQUIRE(resp.has_value());
+    REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
+    const auto& b = std::get<PropertyBatch>(resp.value());
+    REQUIRE(b.results.size() == 2);
+    // Source-order per dispatchIterResult invariant: satisfaction first, violation last.
+    CHECK(b.results[0].verdict == Verdict::Holds);
+    CHECK(b.results[0].property_index == PropertyIndex{0});
+    CHECK(b.results[1].verdict == Verdict::Fails);
+    CHECK(b.results[1].property_index == PropertyIndex{1});
 }
 
 TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd][cluster18]") {

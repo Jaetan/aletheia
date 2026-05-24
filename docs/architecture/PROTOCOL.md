@@ -471,16 +471,23 @@ send-only wire-symmetry contract.
 {"status": "ack"}
 ```
 
-**Response** (Violation):
+**Response** (Property Batch — R23 — AGDA-D-12.1):
 ```json
 {
-  "status": "fails",
-  "type": "property",
-  "property_index": {"numerator": 0, "denominator": 1},
-  "timestamp": {"numerator": 1000, "denominator": 1},
-  "reason": "Always violated"
+  "type": "property_batch",
+  "results": [
+    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}, "reason": "Always violated"}
+  ]
 }
 ```
+
+A frame may produce zero events (returns `{"status": "ack"}` instead),
+or one-or-more events in `results`.  Mid-stream Satisfactions (a property
+that completes at this frame) come first in source-order, followed by an
+optional terminal Violation that halts iteration.  A frame contains at
+most one Violation; if present it is the last entry.  Empty `results` is
+unreachable — zero-event frames are encoded as Ack.
 
 **State Requirements**: Must be in `Streaming` state (after `startStream`
 command).
@@ -558,25 +565,20 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
 }
 ```
 
-**Response** (Property Violation):
+**Response** (Property Batch — R23 — AGDA-D-12.1):
 ```json
 {
-  "type": "property",
-  "status": "fails",
-  "property_index": {"numerator": 0, "denominator": 1},
-  "timestamp": {"numerator": 1000, "denominator": 1},
-  "reason": "Always violated"
+  "type": "property_batch",
+  "results": [
+    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}, "reason": "Always violated"}
+  ]
 }
 ```
 
-**Response** (Property Satisfaction):
-```json
-{
-  "type": "property",
-  "status": "holds",
-  "property_index": {"numerator": 0, "denominator": 1}
-}
-```
+Mirrors the JSON `sendFrame` shape — see § 7 above for the source-order
+contract (Satisfactions first, optional terminal Violation last) and the
+empty-list-is-unreachable invariant (frames with no events return Ack).
 
 **State Requirements**: Must be in `Streaming` state (after `startStream` command via `aletheia_process()`)
 
@@ -679,22 +681,30 @@ parse the same response types they use for data frames.
 ```
 Used for data frames when no violation is detected.
 
-### Property Response
+### Property Batch Response (R23 — AGDA-D-12.1)
 ```json
 {
-  "type": "property",
-  "status": "fails",
-  "property_index": {"numerator": 0, "denominator": 1},
-  "timestamp": {"numerator": 300, "denominator": 1},
-  "reason": "Always violated"
+  "type": "property_batch",
+  "results": [
+    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
+  ]
 }
 ```
 
-**Fields**:
+A streaming frame may produce zero events (returns `{"status": "ack"}`)
+or one-or-more events in `results` in source-order: mid-stream
+Satisfactions first (a property that completed at this frame and was
+dropped from the active set), optionally followed by a terminal
+Violation (the iteration halt).  A frame contains at most one Violation;
+if present it is the last entry.  Empty `results` is unreachable.
+
+**Inner entry fields** (each `results[i]`):
+- `type`: always `"property"`
 - `status`: `"fails"`, `"holds"`, or `"unresolved"`
-- `property_index`: Index of the property (rational)
-- `timestamp`: Timestamp of the violation (rational, only present when `status` is `"fails"`)
-- `reason`: Human-readable explanation (only present when `status` is `"fails"`)
+- `property_index`: index of the property (rational)
+- `timestamp`: timestamp of the violation (rational, only present when `status == "fails"`)
+- `reason`: human-readable explanation (only present when `status == "fails"`)
 
 ### Complete Response
 ```json
@@ -1088,7 +1098,7 @@ bytes encode absent CAN-FD BRS / ESI metadata):
 <<< {"status": "ack"}
 
 >>> aletheia_send_frame(state, 300, 256, 0, 8, [0x28,0x0A,0,0,0,0,0,0], 8, 0, 0, 0, 0)
-<<< {"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
+<<< {"type": "property_batch", "results": [{"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
 ```
 
 JSON path (ergonomic; same wire response shape, omit `brs` / `esi` for

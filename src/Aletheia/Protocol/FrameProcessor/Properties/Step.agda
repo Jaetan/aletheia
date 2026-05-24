@@ -30,13 +30,14 @@ open import Aletheia.Protocol.StreamState.Internals
            mkPredTable; updateCacheFromFrame)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
-open import Aletheia.Protocol.Iteration using (advance; halt; complete; iterate; iterate-correct; specResult; specHalt)
+open import Aletheia.Protocol.Iteration using (advance; halt; complete; iterate; iterate-correct; specResult; specHalt; specCompletions)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (stepL)
 open import Aletheia.LTL.Simplify using (simplify)
-open import Data.List using (List)
+open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _<_; _%_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
@@ -91,9 +92,12 @@ classifyStepResult-continue : ∀ {n} k newProc (prop : PropertyState n)
                                 (simplify newProc))
 classifyStepResult-continue k newProc prop = refl
 
--- Satisfied → complete (property dropped from active set; AGDA-B-9.2 closure)
+-- Satisfied → complete (property dropped from active set; AGDA-B-9.2
+-- closure).  R23 — AGDA-D-12.1: `complete` now carries the property
+-- index so dispatchIterResult can emit a `PropertyResult.Satisfaction`
+-- at the frame where the property completed.
 classifyStepResult-satisfied : ∀ {n} (prop : PropertyState n)
-  → classifyStepResult Satisfied prop ≡ complete
+  → classifyStepResult Satisfied prop ≡ complete (PropertyState.index prop)
 classifyStepResult-satisfied prop = refl
 
 -- ============================================================================
@@ -122,22 +126,41 @@ stepProperty-halt-implies-violated dbc cache tf prop idx ce eq
 -- PROPERTY 5: dispatchIterResult response characterization
 -- ============================================================================
 
--- When iterate finds no violation (nothing), response is Ack.
+-- When iterate finds no violation AND no completions, response is Ack.
+-- R23 — AGDA-D-12.1: the empty-completion-list precondition is the new
+-- constraint; pre-R23 there was no completion list and a no-violation
+-- frame unconditionally returned Ack.  After the change, a frame with
+-- one-or-more completions returns PropertyResponse (carrying the
+-- satisfaction list) rather than Ack — see dispatchIterResult-completions
+-- below for that case.
 dispatchIterResult-ack : ∀ {n} dbc (ps : List (PropertyState n)) tf cache
-  → proj₂ (dispatchIterResult dbc (ps , nothing) tf cache) ≡ Response.Ack
+  → proj₂ (dispatchIterResult dbc (ps , nothing , []) tf cache) ≡ Response.Ack
 dispatchIterResult-ack dbc ps tf cache = refl
 
--- When iterate finds a violation (just), response is PropertyResponse.
--- `toℕ idx` reflects the `Fin n → ℕ` wire-boundary conversion done by
--- `dispatchIterResult` (R20 cluster R6-B7.4); the internal pipeline
--- carries `Fin n` until this emission point.
-dispatchIterResult-violation : ∀ {n} dbc (ps : List (PropertyState n)) (idx : Fin n) ce tf cache
-  → proj₂ (dispatchIterResult dbc (ps , just (idx , ce)) tf cache)
+-- R23 — AGDA-D-12.1: when iterate finds no violation but one-or-more
+-- completions, response is PropertyResponse carrying the satisfaction
+-- list (no violation appended).  This is the mid-stream-Satisfaction
+-- emission path that did not exist pre-R23.
+dispatchIterResult-completions : ∀ {n} dbc (ps : List (PropertyState n)) (c : Fin n) cs tf cache
+  → proj₂ (dispatchIterResult dbc (ps , nothing , c ∷ cs) tf cache)
     ≡ Response.PropertyResponse
-        (PR.PropertyResult.Violation (toℕ idx)
-          (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
-                                (Counterexample.reason ce)))
-dispatchIterResult-violation dbc ps idx ce tf cache = refl
+        (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) (c ∷ cs))
+dispatchIterResult-completions dbc ps c cs tf cache = refl
+
+-- When iterate finds a violation (just), response is PropertyResponse
+-- carrying any preceding completions followed by the violation, in
+-- source-order.  `toℕ idx` reflects the `Fin n → ℕ` wire-boundary
+-- conversion done by `dispatchIterResult` (R20 cluster R6-B7.4); the
+-- internal pipeline carries `Fin n` until this emission point.
+dispatchIterResult-violation : ∀ {n} dbc (ps : List (PropertyState n)) (idx : Fin n) ce completions tf cache
+  → proj₂ (dispatchIterResult dbc (ps , just (idx , ce) , completions) tf cache)
+    ≡ Response.PropertyResponse
+        (map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions
+         ++ₗ (PR.PropertyResult.Violation (toℕ idx)
+                (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                                      (Counterexample.reason ce))
+              ∷ []))
+dispatchIterResult-violation dbc ps idx ce completions tf cache = refl
 
 -- ============================================================================
 -- PROPERTY 6: handleDataFrame Streaming decomposition
@@ -159,80 +182,106 @@ handleDataFrame-streaming dbc props prev cache tf mono
   rewrite mono = refl
 
 -- ============================================================================
--- PROPERTY 7: Ack soundness — Ack means no property violated
+-- PROPERTY 7: Ack soundness — Ack means no halt AND no completion
 -- ============================================================================
 
--- If handleDataFrame returns Ack, then the frame was monotonic and iterate
--- found no halt evidence. The monotonicity precondition rules out the
--- NonMonotonicTimestamp branch (which never returns Ack).
+-- If handleDataFrame returns Ack, then the frame was monotonic, iterate
+-- found no halt evidence, AND no property completed (no completion
+-- payloads).  R23 — AGDA-D-12.1: pre-R23 only the no-halt conclusion
+-- existed; mid-stream completions are now lifted to the wire, so Ack
+-- additionally implies the completion list is empty.  The monotonicity
+-- precondition rules out the NonMonotonicTimestamp branch (which never
+-- returns Ack).
 handleDataFrame-ack-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.Ack
-  → proj₂ (iterate (stepProperty dbc cache tf) props) ≡ nothing
+  → proj₁ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ nothing
+  × proj₂ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ []
 handleDataFrame-ack-sound dbc props prev cache tf mono resp-eq
   rewrite mono
   with iterate (stepProperty dbc cache tf) props | resp-eq
-... | (ps , nothing)         | _ = refl
-... | (ps , just (idx , ce)) | ()
+... | (ps , nothing , [])         | _  = refl , refl
+... | (ps , nothing , _ ∷ _)      | ()
+... | (ps , just (idx , ce) , _)  | ()
 
 -- ============================================================================
--- PROPERTY 8: Violation soundness — PropertyResponse means some property violated
+-- PROPERTY 8: Batch soundness — PropertyResponse means some event fired
 -- ============================================================================
 
--- If handleDataFrame returns PropertyResponse, then the frame was monotonic
--- and iterate found halt evidence. The monotonicity precondition rules out the
--- NonMonotonicTimestamp branch (which returns Error, not PropertyResponse).
-handleDataFrame-violation-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf pr
+-- If handleDataFrame returns PropertyResponse, then the frame was
+-- monotonic and iterate produced at least one property event (either a
+-- halt evidence, one or more completion payloads, or both).  R23 —
+-- AGDA-D-12.1: pre-R23 PropertyResponse meant "violation"; after the
+-- mid-stream-Satisfaction lift, PropertyResponse means "non-empty
+-- batch" which covers completions-only frames in addition to violations.
+handleDataFrame-events-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf pr
   → checkMonotonic prev tf ≡ nothing
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.PropertyResponse pr
-  → ∃[ e ] proj₂ (iterate (stepProperty dbc cache tf) props) ≡ just e
-handleDataFrame-violation-sound dbc props prev cache tf pr mono resp-eq
+  → (∃[ e ] proj₁ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ just e)
+    ⊎ (∃[ c ] ∃[ cs ] proj₂ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ c ∷ cs)
+handleDataFrame-events-sound dbc props prev cache tf pr mono resp-eq
   rewrite mono
   with iterate (stepProperty dbc cache tf) props | resp-eq
-... | (ps , nothing)    | ()
-... | (ps , just e)     | _ = e , refl
+... | (ps , nothing , [])         | ()
+... | (ps , nothing , c ∷ cs)     | _ = inj₂ (c , cs , refl)
+... | (ps , just e , _)           | _ = inj₁ (e , refl)
 
 -- ============================================================================
--- PROPERTY 14: Ack completeness — no violation ⇒ Ack
+-- PROPERTY 14: Ack completeness — no halt AND no completion ⇒ Ack
 -- ============================================================================
 
--- If the frame is monotonic and no property's stepProperty halts, handleDataFrame
--- returns Ack. Without the monotonicity precondition the result would be a
--- NonMonotonicTimestamp Error instead.
+-- If the frame is monotonic, no property's stepProperty halts, AND no
+-- property completes, handleDataFrame returns Ack.  Without the
+-- monotonicity precondition the result would be a NonMonotonicTimestamp
+-- Error instead; without the empty-completion-list premise the response
+-- would be a PropertyResponse carrying the satisfaction list.
 handleDataFrame-ack-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → specHalt (stepProperty dbc cache tf) props ≡ nothing
+  → specCompletions (stepProperty dbc cache tf) props ≡ []
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.Ack
-handleDataFrame-ack-complete dbc props prev cache tf mono spec-eq
+handleDataFrame-ack-complete dbc props prev cache tf mono spec-halt spec-comp
   rewrite mono =
     cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
   where
     step = stepProperty dbc cache tf
     updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
-    iter-eq : iterate step props ≡ (specResult step props , nothing)
+    iter-eq : iterate step props ≡ (specResult step props , nothing , [])
     iter-eq = trans (iterate-correct step props)
-                    (cong (specResult step props ,_) spec-eq)
+                    (cong₂ (λ h c → (specResult step props , h , c)) spec-halt spec-comp)
+      where
+        cong₂ : ∀ {A B Z : Set} (f : A → B → Z) {a a' : A} {b b' : B}
+              → a ≡ a' → b ≡ b' → f a b ≡ f a' b'
+        cong₂ f refl refl = refl
 
 -- ============================================================================
--- PROPERTY 15: Violation completeness — some violation ⇒ PropertyResponse
+-- PROPERTY 15: Violation completeness — halt ⇒ PropertyResponse (sats ++ violation)
 -- ============================================================================
 
 -- If the frame is monotonic and some property's stepProperty halts,
--- handleDataFrame returns PropertyResponse.
+-- handleDataFrame returns PropertyResponse carrying the preceding
+-- satisfactions followed by the violation in source-order.  R23 —
+-- AGDA-D-12.1: pre-R23 the conclusion was a singleton-Violation
+-- PropertyResponse; after the mid-stream-Satisfaction lift the
+-- violation arrives at the tail of a (possibly empty) satisfaction list.
 handleDataFrame-violation-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf (idx : Fin n) ce
   → checkMonotonic prev tf ≡ nothing
   → specHalt (stepProperty dbc cache tf) props ≡ just (idx , ce)
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)
     ≡ Response.PropertyResponse
-        (PR.PropertyResult.Violation (toℕ idx)
-          (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
-                                (Counterexample.reason ce)))
+        (map (λ i → PR.PropertyResult.Satisfaction (toℕ i))
+             (specCompletions (stepProperty dbc cache tf) props)
+         ++ₗ (PR.PropertyResult.Violation (toℕ idx)
+                (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                                      (Counterexample.reason ce))
+              ∷ []))
 handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq
   rewrite mono =
     cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
   where
     step = stepProperty dbc cache tf
     updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
-    iter-eq : iterate step props ≡ (specResult step props , just (idx , ce))
+    iter-eq : iterate step props ≡
+                (specResult step props , just (idx , ce) , specCompletions step props)
     iter-eq = trans (iterate-correct step props)
-                    (cong (specResult step props ,_) spec-eq)
+                    (cong (λ h → (specResult step props , h , specCompletions step props)) spec-eq)

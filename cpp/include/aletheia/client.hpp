@@ -171,8 +171,19 @@ private:
     };
     auto resolve_signals(CanId id, std::span<const SignalValue> signals) -> Result<ResolvedSignals>;
 
-    void enrich_violation(Violation& v, CanId id, Dlc dlc, std::span<const std::byte> data,
+    // R23 — AGDA-D-12.1: takes a single PropertyResult (one entry from a
+    // PropertyBatch.results) rather than a top-level Violation struct.
+    // The caller iterates the batch and invokes this per fails entry.
+    void enrich_violation(PropertyResult& pr, CanId id, Dlc dlc, std::span<const std::byte> data,
                           std::uint32_t id_value, bool is_extended);
+    // R23 — AGDA-D-12.1: post-parse hook for streaming frame responses.
+    // Iterates a PropertyBatch's results, enriches each fails entry, and
+    // emits the standard `frame.processed` log event.  Extracted from
+    // send_frame to keep that function under clang-tidy's cognitive-
+    // complexity threshold (25).
+    void finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
+                                 std::span<const std::byte> data, std::uint32_t id_value,
+                                 bool is_extended);
     void enrich_property_result(PropertyResult& pr);
     void log_end_stream_summary(const StreamResult& result);
     auto extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,

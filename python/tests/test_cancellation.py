@@ -33,7 +33,7 @@ from aletheia import (
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gated_backend
 from aletheia.protocols import (
-    AckResponse, DBCDefinition, DLCCode, PropertyViolationResponse,
+    AckResponse, DBCDefinition, DLCCode, PropertyBatchResponse,
 )
 
 
@@ -312,7 +312,7 @@ class TestAsyncBatchCancellation:
                     await client.set_properties([prop.to_dict()])
                     await client.start_stream()
 
-                    task: asyncio.Task[list[AckResponse | PropertyViolationResponse]] = (
+                    task: asyncio.Task[list[AckResponse | PropertyBatchResponse]] = (
                         asyncio.create_task(
                             client.send_frames(_make_frames(50)),
                         )
@@ -470,18 +470,28 @@ class TestFrameResultShape:
         assert r.violation is None
 
     def test_fails_response_returns_violation(self) -> None:
-        """FrameResult.violation returns the response when it is a fails verdict."""
-        viol_response: PropertyViolationResponse = {
-            "status": "fails",
+        """FrameResult.violation returns the first fails entry in the batch.
+
+        R23 — AGDA-D-12.1: ``FrameResult.response`` now carries the
+        per-frame ``PropertyBatchResponse``; ``.violation`` extracts
+        the first ``status == "fails"`` entry rather than the response
+        as a whole.
+        """
+        viol_entry = {
             "type": "property",
+            "status": "fails",
             "property_index": {"numerator": 0, "denominator": 1},
             "timestamp": {"numerator": 1000, "denominator": 1},
+        }
+        batch_response: PropertyBatchResponse = {
+            "type": "property_batch",
+            "results": [viol_entry],
         }
         r = FrameResult(
             frame_index=0,
             timestamp=1000,
             can_id=0x100,
             extended=False,
-            response=viol_response,
+            response=batch_response,
         )
-        assert r.violation is viol_response
+        assert r.violation == viol_entry

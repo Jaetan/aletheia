@@ -179,7 +179,7 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({"status": "ack"})");
     mock_ptr->queue_response(
-        R"({"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"})");
+        R"({"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]})");
     mock_ptr->queue_response(
         R"({"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]})");
     mock_ptr->queue_response(R"({

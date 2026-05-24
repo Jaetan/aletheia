@@ -91,8 +91,18 @@ data Response : Set where
   -- Args: successfully extracted values, errors, absent signals
   ExtractionResultsResponse : List (String × ℚ) → List (String × String) → List String → Response
 
-  -- Property violation/satisfaction (for streaming data)
-  PropertyResponse : PropertyResult → Response
+  -- Per-frame batch of property events emitted during streaming.
+  -- Each element is one PropertyResult (Violation / Satisfaction /
+  -- Unresolved); the list is in source-order — satisfactions that
+  -- completed before a halting violation come first, then the violation.
+  -- Empty list is unreachable here — `dispatchIterResult` emits `Ack`
+  -- instead when no events fired on the frame (so a single-event frame
+  -- is encoded as a one-element list, never as `PropertyResponse []`).
+  -- R23 — AGDA-D-12.1: lifted from `PropertyResult → Response` (singular)
+  -- to surface mid-stream Satisfaction events that were previously lost
+  -- (a Satisfied property was dropped from the active set without any
+  -- wire emission, and finalizeL at EndStream only walks the survivors).
+  PropertyResponse : List PropertyResult → Response
 
   -- Acknowledgment (for data frames that don't trigger property results)
   Ack : Response

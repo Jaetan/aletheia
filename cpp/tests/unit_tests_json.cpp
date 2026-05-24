@@ -335,31 +335,43 @@ TEST_CASE("parse_frame_response ack", "[json][parse]") {
 
 TEST_CASE("parse_frame_response violation", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": 0,
-        "timestamp": 5000000,
-        "reason": "Speed exceeded limit"
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": 0,
+            "timestamp": 5000000,
+            "reason": "Speed exceeded limit"
+        }]
     })");
     REQUIRE(result.has_value());
-    REQUIRE(std::holds_alternative<Violation>(*result));
-    auto& v = std::get<Violation>(*result);
-    CHECK(v.property_index == PropertyIndex{0});
-    CHECK(v.timestamp == Timestamp{5'000'000});
-    CHECK(v.reason == "Speed exceeded limit");
+    REQUIRE(std::holds_alternative<PropertyBatch>(*result));
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK(v->property_index == PropertyIndex{0});
+    REQUIRE(v->timestamp.has_value());
+    CHECK(*v->timestamp == Timestamp{5'000'000});
+    CHECK(v->reason == "Speed exceeded limit");
 }
 
 TEST_CASE("parse_frame_response violation with rational index", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": {"numerator": 2, "denominator": 1},
-        "timestamp": {"numerator": 3000000, "denominator": 1}
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": {"numerator": 2, "denominator": 1},
+            "timestamp": {"numerator": 3000000, "denominator": 1}
+        }]
     })");
     REQUIRE(result.has_value());
-    auto& v = std::get<Violation>(*result);
-    CHECK(v.property_index == PropertyIndex{2});
-    CHECK(v.timestamp == Timestamp{3'000'000});
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK(v->property_index == PropertyIndex{2});
+    REQUIRE(v->timestamp.has_value());
+    CHECK(*v->timestamp == Timestamp{3'000'000});
 }
 
 TEST_CASE("parse_stream_result complete", "[json][parse]") {
@@ -478,7 +490,10 @@ TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
 TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({"foo": "bar"})");
     CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected frame status"));
+    // R23 — AGDA-D-12.1: post-batch-shape error message reports both
+    // status= and type= since the discriminator moved.
+    CHECK_THAT(std::string{result.error().message()},
+               ContainsSubstring("Unexpected frame response"));
 }
 
 TEST_CASE("parse_dbc_response rejects missing dbc field", "[json][parse][error]") {
@@ -1159,10 +1174,13 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": 0,
-        "timestamp": {"numerator": 1000, "denominator": 0}
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": 0,
+            "timestamp": {"numerator": 1000, "denominator": 0}
+        }]
     })");
     CHECK_FALSE(result.has_value());
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("denominator"));
@@ -1182,10 +1200,13 @@ TEST_CASE("parse_stream_result rejects missing results field", "[json][parse][er
 
 TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": -1,
-        "timestamp": 100
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": -1,
+            "timestamp": 100
+        }]
     })");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -1202,22 +1223,37 @@ TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
 }
 
-TEST_CASE("parse_frame_response rejects fails with missing timestamp", "[json][parse][error]") {
+// R23 — AGDA-D-12.1: pre-R23 a missing `timestamp` on a single-violation
+// frame was rejected; after the batch-shape migration `timestamp` is
+// optional at the parse layer (the EndStream Holds entries don't have
+// one).  The Agda kernel still always emits `timestamp` on a streaming
+// Fails entry — that contract is enforced upstream, not at the parser.
+// The negative-timestamp / non-integer-timestamp validations remain.
+TEST_CASE("parse_frame_response accepts fails with missing timestamp", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": 0
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": 0
+        }]
     })");
-    CHECK_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
+    REQUIRE(result.has_value());
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK_FALSE(v->timestamp.has_value());
 }
 
 TEST_CASE("parse_frame_response rejects fails with missing property_index",
           "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "timestamp": 100
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "timestamp": 100
+        }]
     })");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -1236,17 +1272,25 @@ TEST_CASE("parse_stream_result rejects entry with missing status", "[json][parse
 TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][error]") {
     // {"numerator": 3, "denominator": 2} → 1.5, not an integer
     auto result = detail::parse_frame_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": {"numerator": 3, "denominator": 2},
-        "timestamp": 100
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": {"numerator": 3, "denominator": 2},
+            "timestamp": 100
+        }]
     })");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Non-exact rational"));
 }
 
-TEST_CASE("parse_frame_response rejects fails without type property", "[json][parse][error]") {
+TEST_CASE("parse_frame_response rejects unrecognised top-level type", "[json][parse][error]") {
+    // R23 — AGDA-D-12.1: pre-R23 a top-level `status: "fails"` + `type:
+    // "property"` was the single-violation shape; that shape is now
+    // unrecognised at the top level (violations live inside
+    // `property_batch.results`).  Any top-level shape that isn't ack /
+    // error / property_batch is a protocol violation.
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
         "property_index": 0,
@@ -1255,7 +1299,7 @@ TEST_CASE("parse_frame_response rejects fails without type property", "[json][pa
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()},
-               ContainsSubstring("Expected type \"property\""));
+               ContainsSubstring("Unexpected frame response"));
 }
 
 TEST_CASE("parse_rational rejects float input", "[json][parse][error]") {

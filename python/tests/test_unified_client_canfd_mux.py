@@ -233,7 +233,9 @@ class TestCANFDFrames:
             resp = client.send_frame(
                 timestamp=5000, can_id=0x200, dlc=DLCCode(9), data=data,
             )
-            assert resp["status"] == "fails"
+            # R23 — AGDA-D-12.1: PropertyBatchResponse carries the violation.
+            assert resp["type"] == "property_batch"
+            assert any(e["status"] == "fails" for e in resp["results"])
 
             client.end_stream()
 

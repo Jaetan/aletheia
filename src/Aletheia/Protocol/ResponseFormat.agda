@@ -183,8 +183,17 @@ formatResponse (ExtractionResultsResponse values errors absent) =
         formatError : String × String → JSON
         formatError (name , msg) =
           JObject (("name" , JStringS name) ∷ ("error" , JStringS msg) ∷ [])
-formatResponse (PropertyResponse result) =
-  formatPropertyResult result
+formatResponse (PropertyResponse results) =
+  -- R23 — AGDA-D-12.1: per-frame batch of property events.  Carries one
+  -- top-level object that bindings parse as a single response, with the
+  -- inner `results` array preserving source order (satisfactions that
+  -- completed before a halting violation come first, then the violation).
+  -- Single-event frames are still wrapped — the wire is uniformly a
+  -- list, so bindings have one code path rather than two.
+  JObject (
+    ("type"    , JStringS "property_batch") ∷
+    ("results" , JArray (map formatPropertyResult results)) ∷
+    [])
 formatResponse Ack =
   JObject (
     ("status" , JStringS "ack") ∷

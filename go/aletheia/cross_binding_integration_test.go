@@ -173,8 +173,9 @@ func TestCrossBinding_SendFrameAck(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_SendFrameViolation asserts the PropertyViolationResponse
-// path: a violating frame returns Violation{PropertyIndex, Timestamp, ...}.
+// TestCrossBinding_SendFrameViolation asserts the PropertyBatchResponse
+// path (R23 — AGDA-D-12.1): a violating frame returns PropertyBatch
+// carrying at least one PropertyResult with Verdict == Fails.
 func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	c := newCrossBindingClient(t)
 	ctx := context.Background()
@@ -199,12 +200,71 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
-	v, ok := resp.(Violation)
+	b, ok := resp.(PropertyBatch)
 	if !ok {
-		t.Fatalf("response: want Violation, got %T (%+v)", resp, resp)
+		t.Fatalf("response: want PropertyBatch, got %T (%+v)", resp, resp)
 	}
-	if v.Timestamp.Microseconds == 0 {
-		t.Error("Violation.Timestamp: want non-zero, got 0")
+	v := b.FirstViolation()
+	if v == nil {
+		t.Fatalf("PropertyBatch.FirstViolation: want non-nil, batch=%+v", b)
+	}
+	if v.Timestamp == nil || v.Timestamp.Microseconds == 0 {
+		t.Error("PropertyResult.Timestamp: want non-zero, got nil/0")
+	}
+}
+
+// TestCrossBinding_SendFrameMultiEvent asserts the R23 — AGDA-D-12.1
+// multi-event batch: a single frame can produce both a mid-stream
+// Satisfaction AND a terminal Violation in source-order.  Setup: two
+// properties — index 0 is `eventually(TestSignal == 100)` (completes
+// on the first witness), index 1 is `always(TestSignal < 50)`
+// (violates at the same frame because 100 > 50).
+func TestCrossBinding_SendFrameMultiEvent(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	if err := c.SetProperties(ctx, []Formula{
+		Eventually{Inner: Atomic{Predicate: Equals{Signal: "TestSignal", Value: RationalFromFloat(100)}}},
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: RationalFromFloat(50)}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	defer func() { _, _ = c.EndStream(ctx) }()
+
+	sid, _ := NewStandardID(256)
+	d, _ := NewDLC(8)
+	// TestSignal = 100 fires BOTH:
+	//  - property 0 (eventually(== 100)): Satisfied → complete(0)
+	//  - property 1 (always(< 50)):       Violated  → halt(1)
+	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
+		FramePayload{100, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
+	if err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+	b, ok := resp.(PropertyBatch)
+	if !ok {
+		t.Fatalf("response: want PropertyBatch, got %T (%+v)", resp, resp)
+	}
+	if len(b.Results) != 2 {
+		t.Fatalf("PropertyBatch.Results: want 2 entries, got %d (%+v)", len(b.Results), b.Results)
+	}
+	// Source-order per dispatchIterResult invariant: satisfaction first, violation last.
+	if b.Results[0].Verdict != Holds {
+		t.Errorf("Results[0].Verdict: want Holds, got %s", b.Results[0].Verdict)
+	}
+	if int(b.Results[0].PropertyIndex) != 0 {
+		t.Errorf("Results[0].PropertyIndex: want 0, got %d", b.Results[0].PropertyIndex)
+	}
+	if b.Results[1].Verdict != Fails {
+		t.Errorf("Results[1].Verdict: want Fails, got %s", b.Results[1].Verdict)
+	}
+	if int(b.Results[1].PropertyIndex) != 1 {
+		t.Errorf("Results[1].PropertyIndex: want 1, got %d", b.Results[1].PropertyIndex)
 	}
 }
 

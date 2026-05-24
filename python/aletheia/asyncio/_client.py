@@ -41,7 +41,7 @@ from ..protocols import (
     ErrorResponse,
     LTLFormula,
     ParsedDBCResponse,
-    PropertyViolationResponse,
+    PropertyBatchResponse,
     SuccessResponse,
     ValidationResponse,
 )
@@ -203,7 +203,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         extended: bool = False,
         brs: bool | None = None,
         esi: bool | None = None,
-    ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
+    ) -> AckResponse | PropertyBatchResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.send_frame`."""
         return await asyncio.to_thread(
             self._sync.send_frame, timestamp, can_id, dlc, data,
@@ -213,7 +213,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     async def send_frames(
         self,
         frames: list[CANFrameTuple],
-    ) -> list[AckResponse | PropertyViolationResponse]:
+    ) -> list[AckResponse | PropertyBatchResponse]:
         """Async batch send; cancels at frame-boundary ``await`` points.
 
         Each frame is one ``asyncio.to_thread`` round-trip, so cancellation
@@ -225,7 +225,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # CancelledError is BaseException since 3.8 → not caught by `except
         # Exception` inside call_send_frame, propagates verbatim. Stream state
         # holds the committed prefix; bundling it would invite swallowing.
-        results: list[AckResponse | PropertyViolationResponse] = []
+        results: list[AckResponse | PropertyBatchResponse] = []
         for i, frame in enumerate(frames):
             results.append(await asyncio.to_thread(
                 call_send_frame, self._sync.send_frame, i, frame, results,

@@ -16,8 +16,8 @@ from ..protocols import (
     AckResponse,
     ErrorResponse,
     ParsedDBCResponse,
+    PropertyBatchResponse,
     PropertyResultEntry,
-    PropertyViolationResponse,
     Response,
     SuccessResponse,
     is_object_list,
@@ -158,36 +158,85 @@ def parse_parsed_dbc_response(
 
 def parse_frame_response(
     response: Response,
-) -> AckResponse | PropertyViolationResponse | ErrorResponse:
-    """Parse a single frame response into a typed result."""
+) -> AckResponse | PropertyBatchResponse | ErrorResponse:
+    """Parse a single frame response into a typed result.
+
+    R23 — AGDA-D-12.1: a single frame may now produce a batch of property
+    events (any satisfactions that completed before a halting violation,
+    in source-order, followed by the violation).  The wire `type` is
+    `"property_batch"`; the `results` list holds one or more
+    `PropertyResultEntry` objects (fails / holds / unresolved).  A
+    no-event frame still returns `AckResponse` ({"status": "ack"});
+    the batch is never empty when present.
+    """
     status = response.get("status")
 
     if status == "ack":
         return {"status": "ack"}
 
-    if status == "fails":
-        prop_type = response.get("type")
-        if prop_type != "property":
-            raise ProtocolError(f"Expected type='property', got {prop_type}")
-        prop_index = validate_integer_rational("property_index", response.get("property_index"))
-        ts_rational = validate_integer_rational("timestamp", response.get("timestamp"))
-        result_violation: PropertyViolationResponse = {
-            "status": "fails",
-            "type": "property",
-            "property_index": prop_index,
-            "timestamp": ts_rational,
-        }
-        reason = response.get("reason")
-        if isinstance(reason, str):
-            result_violation["reason"] = reason
-        return result_violation
-
     if status == "error":
         return build_error_response(response)
 
+    # R23: streaming PropertyResponse is now uniformly a batch with
+    # `type="property_batch"`.  No top-level `status` field on the wire —
+    # the inner results carry per-event status (fails/holds/unresolved).
+    response_type = response.get("type")
+    if response_type == "property_batch":
+        raw_results = response.get("results")
+        if not isinstance(raw_results, list):
+            raise ProtocolError(
+                "property_batch response missing 'results' array"
+            )
+        if not raw_results:
+            raise ProtocolError(
+                "property_batch response 'results' must be non-empty"
+                + " (zero-event frames are encoded as ack)"
+            )
+        parsed_results: list[PropertyResultEntry] = []
+        for raw_item in raw_results:  # type: ignore[reportUnknownVariableType]
+            if not isinstance(raw_item, dict):
+                raise ProtocolError(
+                    "property_batch 'results' entry must be a JSON object"
+                )
+            parsed_results.append(_parse_property_event(cast(dict[str, object], raw_item)))
+        return {"type": "property_batch", "results": parsed_results}
+
     raise ProtocolError(
-        f"Unexpected response status: {status!r} (expected 'ack', 'fails', or 'error')"
+        f"Unexpected response status/type: status={status!r}, type={response_type!r}"
+        + " (expected 'ack', 'error', or type='property_batch')"
     )
+
+
+def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
+    """Parse one inner property event from a property_batch response.
+
+    Inner shape mirrors EndStream's `PropertyResultEntry`:
+        {"type": "property", "status": "fails"|"holds"|"unresolved",
+         "property_index": int, "timestamp": int?, "reason": str?}
+    """
+    inner_type = raw.get("type")
+    if inner_type != "property":
+        raise ProtocolError(
+            f"property_batch event has unexpected type={inner_type!r} (expected 'property')"
+        )
+    inner_status = raw.get("status")
+    if inner_status not in ("fails", "holds", "unresolved"):
+        raise ProtocolError(
+            f"property_batch event has unexpected status={inner_status!r}"
+            + " (expected 'fails', 'holds', or 'unresolved')"
+        )
+    prop_index = validate_integer_rational("property_index", raw.get("property_index"))
+    entry: PropertyResultEntry = {
+        "type": "property",
+        "status": inner_status,
+        "property_index": prop_index,
+    }
+    if inner_status == "fails":
+        entry["timestamp"] = validate_integer_rational("timestamp", raw.get("timestamp"))
+    reason = raw.get("reason")
+    if isinstance(reason, str):
+        entry["reason"] = reason
+    return entry
 
 
 def parse_event_response(

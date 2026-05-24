@@ -20,10 +20,11 @@ from typing import NamedTuple, cast, override
 
 from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
 from ..protocols import (
-    AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyViolationResponse,
+    AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyBatchResponse,
+    PropertyResultEntry,
 )
 
-type FrameResponse = AckResponse | PropertyViolationResponse | ErrorResponse
+type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 
 
 class AletheiaError(Exception):
@@ -147,13 +148,13 @@ class BatchError(AletheiaError):
     """
 
     cause: Exception
-    partial_results: Sequence[AckResponse | PropertyViolationResponse]
+    partial_results: Sequence[AckResponse | PropertyBatchResponse]
     frame_index: int
 
     def __init__(
         self,
         cause: Exception,
-        partial_results: Sequence[AckResponse | PropertyViolationResponse],
+        partial_results: Sequence[AckResponse | PropertyBatchResponse],
         frame_index: int,
     ) -> None:
         super().__init__(f"frame {frame_index}: {cause}")
@@ -164,9 +165,9 @@ class BatchError(AletheiaError):
 
 def raise_on_error_response(
     resp: FrameResponse,
-    partial: Sequence[AckResponse | PropertyViolationResponse],
+    partial: Sequence[AckResponse | PropertyBatchResponse],
     frame_index: int,
-) -> AckResponse | PropertyViolationResponse:
+) -> AckResponse | PropertyBatchResponse:
     """Raise :class:`BatchError` if ``resp`` is an ErrorResponse; else return it narrowed.
 
     Shared between sync ``send_frames`` / ``send_frames_iter`` and the async
@@ -175,28 +176,32 @@ def raise_on_error_response(
     been yielded to the consumer; batch-mode callers pass the live results
     list. See the ``BatchError`` docstring for the per-call contract.
     """
-    if resp["status"] == "error":
+    # R23 — AGDA-D-12.1: PropertyBatchResponse has no top-level "status"
+    # field (it discriminates on `type == "property_batch"`), so use
+    # ``.get()`` to avoid KeyError on non-error batches.
+    if resp.get("status") == "error":
+        err_resp = cast(ErrorResponse, resp)
         err = ProtocolError(
-            f"error code={resp['code']}: {resp['message']}",
-            code=resp["code"],
+            f"error code={err_resp['code']}: {err_resp['message']}",
+            code=err_resp["code"],
         )
         raise BatchError(err, partial, frame_index=frame_index) from err
-    return resp
+    return cast("AckResponse | PropertyBatchResponse", resp)
 
 
 def call_send_frame(
     send_fn: Callable[..., FrameResponse],
     frame_index: int,
     frame: "CANFrameTuple",
-    partial: Sequence[AckResponse | PropertyViolationResponse],
-) -> AckResponse | PropertyViolationResponse:
+    partial: Sequence[AckResponse | PropertyBatchResponse],
+) -> AckResponse | PropertyBatchResponse:
     """Send one frame via ``send_fn`` and return the committed response.
 
     ``send_fn`` is the underlying ``send_frame`` (sync) or sync-via-
     ``asyncio.to_thread`` callable. Raises :class:`BatchError` with
     ``partial`` (committed prefix for batch mode, ``[]`` for iter mode)
     on a Python exception or an ``ErrorResponse`` from the FFI; returns
-    the narrowed AckResponse / PropertyViolationResponse otherwise.
+    the narrowed AckResponse / PropertyBatchResponse otherwise.
     """
     try:
         resp = send_fn(frame.timestamp, frame.can_id, frame.dlc, frame.data,
@@ -245,14 +250,39 @@ class FrameResult:
     timestamp: int
     can_id: int
     extended: bool
-    response: AckResponse | PropertyViolationResponse
+    response: AckResponse | PropertyBatchResponse
 
     @property
-    def violation(self) -> PropertyViolationResponse | None:
-        """The PropertyViolationResponse if this frame violated a property, else None."""
-        if self.response.get("status") == "fails":
-            return cast(PropertyViolationResponse, self.response)
+    def violation(self) -> PropertyResultEntry | None:
+        """The first violating event from the batch, else None.
+
+        R23 — AGDA-D-12.1: a frame's response may now carry multiple
+        property events (any mid-stream satisfactions that completed
+        before a halting violation, in source-order, followed by the
+        violation).  Per the Agda invariant in dispatchIterResult,
+        violations always close a batch — there is at most one
+        violation per frame, and if present it is the last result.
+        """
+        if self.response.get("type") != "property_batch":
+            return None
+        results = cast(PropertyBatchResponse, self.response).get("results", [])
+        for entry in results:
+            if entry.get("status") == "fails":
+                return entry
         return None
+
+    @property
+    def satisfactions(self) -> list[PropertyResultEntry]:
+        """Mid-stream satisfaction events from the batch (R23 — AGDA-D-12.1).
+
+        Properties that completed (became Satisfied) on this frame are
+        surfaced here in source-order.  Empty list for ack-only frames
+        and for violation-only frames.
+        """
+        if self.response.get("type") != "property_batch":
+            return []
+        return [entry for entry in cast(PropertyBatchResponse, self.response).get("results", [])
+                if entry.get("status") == "holds"]
 
 
 class SignalExtractionResult:

@@ -230,11 +230,14 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
 TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({
-        "status": "fails",
-        "type": "property",
-        "property_index": {"numerator": 0, "denominator": 1},
-        "timestamp": {"numerator": 2000000, "denominator": 1},
-        "reason": "Speed limit exceeded"
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": {"numerator": 0, "denominator": 1},
+            "timestamp": {"numerator": 2000000, "denominator": 1},
+            "reason": "Speed limit exceeded"
+        }]
     })");
 
     AletheiaClient client(std::move(mock));
@@ -244,11 +247,14 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
     auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
-    REQUIRE(std::holds_alternative<Violation>(*result));
-    auto& v = std::get<Violation>(*result);
-    CHECK(v.property_index == PropertyIndex{0});
-    CHECK(v.timestamp == Timestamp{2'000'000});
-    CHECK(v.reason == "Speed limit exceeded");
+    REQUIRE(std::holds_alternative<PropertyBatch>(*result));
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK(v->property_index == PropertyIndex{0});
+    REQUIRE(v->timestamp.has_value());
+    CHECK(*v->timestamp == Timestamp{2'000'000});
+    CHECK(v->reason == "Speed limit exceeded");
 }
 
 TEST_CASE("client is movable", "[client]") {
@@ -445,7 +451,7 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     backend->queue_response(R"({"status":"success"})"); // start_stream
     backend->queue_response(R"({"status":"ack"})");     // frame 1
     backend->queue_response(
-        R"({"status":"fails","type":"property","property_index":0,"timestamp":2000,"reason":"test"})"); // frame 2
+        R"({"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000,"reason":"test"}]})"); // frame 2
     // Enrichment triggers extract_signals for the violating frame:
     backend->queue_response(
         R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})");
@@ -470,7 +476,7 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     REQUIRE_FALSE(result.has_error());
     REQUIRE(result.responses.size() == 3);
     CHECK(std::holds_alternative<Ack>(result.responses[0]));
-    CHECK(std::holds_alternative<Violation>(result.responses[1]));
+    CHECK(std::holds_alternative<PropertyBatch>(result.responses[1]));
     CHECK(std::holds_alternative<Ack>(result.responses[2]));
 }
 
