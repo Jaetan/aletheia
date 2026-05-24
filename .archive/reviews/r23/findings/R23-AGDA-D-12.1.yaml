@@ -1,4 +1,7 @@
-# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flipped to FIX,
+# closed 2026-05-24.  User authorized scope expansion at TWO question prompts
+# (option 1 wire shape + option 1 full path) after discovery surfaced the
+# bug was more than the "separate enhancement" the in-source comment claimed.
 id: R23-AGDA-D-12.1
 round: R23
 category:
@@ -8,13 +11,96 @@ category:
   agent: D
 severity: medium
 disposition: FIX
-status: open
+status: closed
 title: Properties dropped via complete silently absent from Complete.results
 description: In-source comment at Internals.agda:259-265 notes this as a 'separate enhancement';
   defer to a property-completeness cluster.
 files:
+- src/Aletheia/Protocol/Iteration.agda
+- src/Aletheia/Protocol/Message.agda
+- src/Aletheia/Protocol/ResponseFormat.agda
+- src/Aletheia/Protocol/ResponseFormat/Properties.agda
 - src/Aletheia/Protocol/StreamState/Internals.agda
+- src/Aletheia/Protocol/FrameProcessor/Properties/Step.agda
+- src/Aletheia/Protocol/FrameProcessor/Properties/Handlers.agda
+- docs/architecture/PROTOCOL.md
+- python/aletheia/protocols.py
+- python/aletheia/client/_client.py
+- python/aletheia/client/_response_parsers.py
+- python/aletheia/client/_types.py
+- python/aletheia/asyncio/_client.py
+- python/aletheia/checks_runner.py
+- go/aletheia/result.go
+- go/aletheia/client.go
+- go/aletheia/json.go
+- cpp/include/aletheia/response.hpp
+- cpp/include/aletheia/client.hpp
+- cpp/src/client.cpp
+- cpp/src/json_parse.cpp
 cluster: D
-resolution: null
+resolution:
+  commit: 7dc4fcb
+  round: R23
+  date: '2026-05-24'
+  notes: 'Pre-R23 a property that became Satisfied mid-stream was dropped
+    from the active iteration set with NO wire emission — silently lost.
+    EndStream finalizeL only walks survivors so dropped properties never
+    got a verdict at all.  Discovered during implementation that the
+    in-source "separate enhancement" framing understated the soundness
+    gap.  Two user-authorized scope decisions: (1) wire shape — chose
+    List<PropertyResult> (PropertyBatch envelope) over additive
+    BatchedPropertyResponse or EndStream-only fix; (2) post-grep scope
+    re-check — chose "full path" over FIX-PARTIAL + commit-boundary or
+    pivot.  Final delta: ~1400 LOC across 41 files.
+
+    Agda kernel: StepOutcome S E → StepOutcome S E C (3-parameter,
+    complete carries C); iterate returns List S × Maybe E × List C with
+    new specCompletions spec mirroring specResult/specHalt; iterate-
+    correct extended; length-specResult-≤ structurally unchanged.
+    classifyStepResult Satisfied yields complete (PropertyState.index
+    prop); dispatchIterResult emits PropertyResponse List<PropertyResult>
+    (satisfactions in source-order, optional terminal violation).  4
+    proof theorems in Step.agda restated (ack-sound + events-sound +
+    ack-complete + violation-complete reason about the new 3-tuple);
+    ResponseFormat/Properties.agda formatResponse-ack-unique collapsed
+    to single _ pattern; Handlers.agda processFrameDirect-ack-sound-json
+    conclusion extended.
+
+    Wire shape: {"type": "property_batch", "results": [...]} envelope.
+    Inner entries match PropertyResultEntry (fails/holds/unresolved).
+    Empty results unreachable — zero-event frames return Ack.
+
+    Cross-binding: Python PropertyViolationResponse →
+    PropertyBatchResponse; FrameResult.violation extracts first fails
+    entry, new .satisfactions accessor; _client.send_frame iterates
+    batch and enriches each fails entry.  Go Violation struct removed,
+    replaced by PropertyBatch{Results []PropertyResult} +
+    FirstViolation()/Satisfactions() methods; new
+    enrichStreamingViolation helper mirrors pre-R23 enrichViolation per-
+    frame FFI extraction (distinct from enrichPropertyResult EndStream
+    last-known-values path).  C++ Violation struct removed, replaced by
+    PropertyBatch{vector<PropertyResult>} + first_violation()
+    overloads; finalize_frame_response extracted from send_frame for
+    clang-tidy cognitive-complexity threshold; new shared
+    parse_property_result_entry helper.
+
+    Cross-binding multi-event tests: new Python
+    test_multi_event_frame_satisfaction_plus_violation, Go
+    TestCrossBinding_SendFrameMultiEvent, C++ "send_frame multi-event
+    batch" TEST_CASE — all set up eventually + always properties and
+    assert a single frame produces [Satisfaction(0), Violation(1)] in
+    source-order.  All existing tests'' fixtures migrated to batch
+    envelope (~55 sites total across Python / Go / C++).
+
+    PROTOCOL.md: § 7 SendFrame, § Binary aletheia_send_frame, §
+    Property Response, and the demo trace all updated to the new wire
+    shape with the source-order + empty-unreachable contract documented.
+
+    Gates: agda build + check-properties (8m25s, all proof modules
+    type-checked) + check-fidelity (1/1) + check-invariants OK +
+    check-ffi-exports unchanged (46 entries).  Python pytest 875p+1s
+    (+3 from new tests).  Pylint 10.00/10 on aletheia/.  Basedpyright
+    0 errors.  Go test -race pass.  C++ ctest 11/11.  clang-format /
+    clang-tidy clean.'
 re_raised_from: null
 in_source_marker: null
