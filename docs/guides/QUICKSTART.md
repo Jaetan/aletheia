@@ -78,20 +78,19 @@ Add `--json` for machine-readable output (CI/CD integration).
 ## 4. Alternatively: Use Python
 
 ```python
-from aletheia import AletheiaClient
-from aletheia.checks import signal
+from aletheia import AletheiaClient, checks
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.can_log import iter_can_log
 
 dbc = dbc_to_json("vehicle.dbc")
-checks = [
-    signal("VehicleSpeed").never_exceeds(220).severity("safety"),
-    signal("BatteryVoltage").stays_between(11.5, 14.5),
+check_list = [
+    checks.signal("VehicleSpeed").never_exceeds(220).severity("safety"),
+    checks.signal("BatteryVoltage").stays_between(11.5, 14.5),
 ]
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.add_checks(checks)
+    client.add_checks(check_list)
     client.start_stream()
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):

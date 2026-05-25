@@ -71,18 +71,17 @@ higher-level interfaces that compile to the same verified core (recommended
 entry point for new users):
 
 ```python
-from aletheia import load_checks, load_checks_from_excel
-from aletheia.checks import signal, when
+from aletheia import checks, load_checks, load_checks_from_excel
 
 # Check API — industry vocabulary
-signal("Speed").never_exceeds(220)
-when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
+checks.signal("Speed").never_exceeds(220)
+checks.when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
 
 # YAML — declarative config files
-checks = load_checks("checks.yaml")
+check_list = load_checks("checks.yaml")
 
 # Excel — spreadsheet templates for technicians
-checks = load_checks_from_excel("checks.xlsx")
+check_list = load_checks_from_excel("checks.xlsx")
 ```
 
 See [Interface Guide](docs/reference/INTERFACES.md) for end-to-end workflows.
