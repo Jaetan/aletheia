@@ -22,15 +22,24 @@ Read until InteractionPoints; absence of `Status{checked:true}` = failed load.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from prune_unused_imports import parse_imports  # noqa: E402  (robust block parser)
+from prune_unused_imports import (  # noqa: E402  (block parser + confirm primitives)
+    _warning_count_for,
+    parse_imports,
+    remove_name_from_raw,
+    remove_rename_from_raw,
+    replace_block_in_lines,
+    typecheck,
+)
 
 AGDA = "/home/nicolas/.cabal/bin/agda"
 SRC = Path("/home/nicolas/dev/agda/aletheia/src")
@@ -185,15 +194,94 @@ def detect_dead(text: str, tokens: list[dict], abspath: str) -> dict:
     }
 
 
+# ---- confirmation: authoritatively classify candidates by removing JUST each
+# ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
+
+_inflight: dict[str, str] = {}  # path -> original content, for crash-safe restore
+
+
+def _restore_inflight(*_: object) -> None:
+    for p, orig in list(_inflight.items()):
+        try:
+            Path(p).write_text(orig)
+        except OSError:
+            pass
+    _inflight.clear()
+
+
+_HANDLERS_INSTALLED = False
+
+
+def _install_restore_handlers() -> None:
+    global _HANDLERS_INSTALLED
+    if _HANDLERS_INSTALLED:
+        return
+    atexit.register(_restore_inflight)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        prev = signal.getsignal(sig)
+        signal.signal(sig, lambda s, f: (_restore_inflight(), sys.exit(128 + s)))
+        _ = prev
+    _HANDLERS_INSTALLED = True
+
+
+def confirm_candidates(
+    rel: str, names: list[str],
+    rts_cores: int = 8, rts_heap_gb: int = 8, timeout: int = 300,
+) -> tuple[list[str], list[str]]:
+    """Classify each warm-flagged candidate by removing JUST it and recompiling.
+
+    Returns (truly_dead, false_positives).  Each candidate is tested in
+    isolation against the original file; the file is ALWAYS restored (finally +
+    atexit/signal handlers cover exception / SIGINT / SIGTERM — the user's
+    cleanup requirement).  `typecheck`'s baseline_warning_count guards the
+    PatternShadowsConstructor silent-breakage class (removing `true`/`false`
+    compiles but flips a constructor pattern into a variable binding)."""
+    _install_restore_handlers()
+    path = SRC / rel
+    original = path.read_text()
+    baseline = _warning_count_for(rel, SRC, rts_cores, rts_heap_gb, timeout)
+    truly_dead: list[str] = []
+    fps: list[str] = []
+    for name in names:
+        new_raw = target = None
+        for b in parse_imports(original):
+            if name in b.using_names:
+                cand = remove_name_from_raw(b.raw, name)
+            elif ("module " + name) in b.using_names:
+                cand = remove_name_from_raw(b.raw, "module " + name)
+            else:
+                pair = next(((s, d) for s, d in b.renaming_pairs if d == name), None)
+                cand = remove_rename_from_raw(b.raw, pair[0], pair[1]) if pair else None
+            if cand is not None and cand != b.raw:
+                new_raw, target = cand, b
+                break
+        if new_raw is None:
+            fps.append(name)  # can't locate the clause entry -> conservatively NOT dead
+            continue
+        new_lines = replace_block_in_lines(original.splitlines(keepends=True), target, new_raw)
+        try:
+            _inflight[str(path)] = original
+            path.write_text("".join(new_lines))
+            ok = typecheck(rel, SRC, rts_cores, rts_heap_gb, timeout, baseline)
+        finally:
+            path.write_text(original)  # ALWAYS restore
+            _inflight.pop(str(path), None)
+        (truly_dead if ok else fps).append(name)
+    return truly_dead, fps
+
+
 def main() -> int:
-    files = sys.argv[1:]
+    args = sys.argv[1:]
+    do_confirm = "--confirm" in args
+    files = [a for a in args if not a.startswith("--")]
     if not files:
-        print("usage: warm_dead_imports.py <relpath.agda> [<relpath2.agda> ...]")
+        print("usage: warm_dead_imports.py [--confirm] <relpath.agda> [...]")
         return 2
 
     agda = WarmAgda()
     t_start = time.time()
     times: list[float] = []
+    candidates: dict[str, list[str]] = {}
     try:
         for i, rel in enumerate(files, 1):
             text = (SRC / rel).read_text()
@@ -206,24 +294,38 @@ def main() -> int:
                       f"(no Status checked:true — agda could not check it)")
                 continue
             r = detect_dead(text, tokens, str(SRC / rel))
+            if r["dead"]:
+                candidates[rel] = r["dead"]
             extra = ""
             if r["public_skipped"]:
                 extra += f"  public-skipped={len(r['public_skipped'])}"
-            if r["dead"] != r["dead_defid_only"]:
-                extra += f"  [def-id-only would add {sorted(set(r['dead_defid_only'])-set(r['dead']))}]"
             if r["unresolved"]:
                 extra += f"  unresolved={r['unresolved']}"
-            dead_s = r["dead"] if r["dead"] else "—"
+            cand_s = r["dead"] if r["dead"] else "—"
             print(f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
-                  f"tokens={len(tokens)} DEAD={dead_s}{extra}")
+                  f"tokens={len(tokens)} CANDIDATES={cand_s}{extra}")
     finally:
         agda.close()
 
     total = time.time() - t_start
-    print(f"--- {len(files)} files in ONE warm process: {total:.1f}s total "
-          f"(file1={times[0]:.1f}s cold, mean files 2..N="
-          f"{(sum(times[1:])/len(times[1:])):.1f}s warm)" if len(times) > 1
-          else f"--- 1 file: {total:.1f}s ---")
+    ncand = sum(len(v) for v in candidates.values())
+    if len(times) > 1:
+        warm = sum(times[1:]) / len(times[1:])
+        print(f"--- warm sweep: {len(files)} files {total:.1f}s "
+              f"(file1={times[0]:.1f}s cold, mean 2..N={warm:.1f}s) — "
+              f"{ncand} candidate(s) in {len(candidates)} file(s) ---")
+    else:
+        print(f"--- 1 file: {total:.1f}s — {ncand} candidate(s) ---")
+
+    if do_confirm and candidates:
+        print(f"=== confirming {ncand} candidate(s): remove-one + recompile (ground truth) ===")
+        tc = time.time()
+        n_dead = 0
+        for rel, cands in candidates.items():
+            td, fp = confirm_candidates(rel, cands)
+            n_dead += len(td)
+            print(f"  {rel}: TRULY-DEAD={td if td else '—'}  fp/used={fp if fp else '—'}")
+        print(f"=== confirm: {n_dead} truly-dead of {ncand} in {time.time() - tc:.1f}s ===")
     return 0
 
 
