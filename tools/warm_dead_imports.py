@@ -103,14 +103,23 @@ class WarmAgda:
             self.proc.kill()
 
 
-def detect_dead(text: str, tokens: list[dict]) -> dict:
+def detect_dead(text: str, tokens: list[dict], abspath: str) -> dict:
     """Return {dead, dead_defid_only, public_skipped, unresolved}.
 
-    `dead` uses def-id OR name match (no-FP bias: a name is alive if either its
-    definition or its exact spelling appears in the body).  `dead_defid_only`
-    drops the name fallback — reported so we can see whether def-id alone already
-    resolves re-export aliases (if dead == dead_defid_only on real files, the
-    name fallback is redundant and can go)."""
+    Identity model (from Agda's highlighting): a body reference's def-id is
+    `(definitionSite.filepath, position)`; an imported name is ALIVE when its
+    import-clause token's def-id reappears among body tokens' def-ids.  Cases
+    this codebase exercises (each verified against real token data):
+      * mixfix (`using (_∷_)` / body `∷`): both share one def-id.
+      * renaming dest (`renaming (_≟_ to _≟ₛ_)`): the DEST token has def==None,
+        but body uses point at `(this-file, dest-offset)` — synthesize that.
+      * qualified use `n.foo` (module/record/type as a qualifier): import def-id
+        is `n`'s, but body `n.foo` carries the FIELD's def-id — detect via the
+        `n.` name prefix (covers `using (module X)` AND record-type qualifiers
+        like `Identifier.name`).
+      * re-export aliases (`[]`): decl/use def-ids differ -> exact-name fallback.
+    No-FP bias: dead only if NONE of these say alive.  `dead_defid_only` drops
+    the name/prefix fallbacks (reported, to show what they catch)."""
     blocks = parse_imports(text)
     offs = line_offsets(text)
 
@@ -121,7 +130,11 @@ def detect_dead(text: str, tokens: list[dict]) -> dict:
         start = offs[b.line_start]
         end = offs[b.line_end + 1] if b.line_end + 1 < len(offs) else offs[-1]
         import_ranges.append((start, end))
-        names = list(b.using_names) + [dst for _src, dst in b.renaming_pairs]
+        names: list[str] = []
+        for n in b.using_names:
+            # `using (module X)` brings X into scope (used qualified as `X.foo`)
+            names.append(n[7:].strip() if n.startswith("module ") else n)
+        names += [dst for _src, dst in b.renaming_pairs]  # renaming DEST is in-scope
         if b.has_public:
             public_skipped += names
         else:
@@ -142,17 +155,24 @@ def detect_dead(text: str, tokens: list[dict]) -> dict:
         ds = t.get("definitionSite")
         defid = (ds["filepath"], ds["position"]) if ds else None
         if in_import(off0):
-            if name in check_names and defid is not None:
-                import_defid.setdefault(name, defid)
+            if name in check_names:
+                # def==None for a renaming dest / local binding: body refs point
+                # at THIS token's position in THIS file -> synthesize that def-id.
+                import_defid.setdefault(name, defid or (abspath, rng[0]))
         else:
             if defid is not None:
                 body_defids.add(defid)
             body_names.add(name)
 
-    dead = sorted(
-        n for n, did in import_defid.items()
-        if did not in body_defids and n not in body_names
-    )
+    def alive(n: str, did: tuple) -> bool:
+        if did in body_defids or n in body_names:
+            return True
+        # qualified use `n.foo`: a record/module/type used as a qualifier is
+        # tokenized as `n.foo` carrying the FIELD's def-id (not n's), so neither
+        # the def-id nor the bare name appears in the body — n is still in scope.
+        return any(bn.startswith(n + ".") for bn in body_names)
+
+    dead = sorted(n for n, did in import_defid.items() if not alive(n, did))
     dead_defid_only = sorted(
         n for n, did in import_defid.items() if did not in body_defids
     )
@@ -185,7 +205,7 @@ def main() -> int:
                 print(f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  ⚠️ LOAD FAILED "
                       f"(no Status checked:true — agda could not check it)")
                 continue
-            r = detect_dead(text, tokens)
+            r = detect_dead(text, tokens, str(SRC / rel))
             extra = ""
             if r["public_skipped"]:
                 extra += f"  public-skipped={len(r['public_skipped'])}"
