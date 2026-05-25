@@ -240,6 +240,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/Protocol/JSON/Properties.agda"
         agdaWithRTS "Aletheia/Protocol/ResponseFormat/Properties.agda"
         agdaWithRTS "Aletheia/Protocol/FrameProcessor/Properties.agda"
+        agdaWithRTS "Aletheia/Protocol/Handlers/Properties.agda"
         agdaWithRTS "Aletheia/Protocol/Adequacy/WarmCache.agda"
         -- CAN
         agdaWithRTS "Aletheia/CAN/Encoding/Properties.agda"

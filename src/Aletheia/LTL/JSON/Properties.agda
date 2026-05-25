@@ -4,8 +4,8 @@
 --
 -- Purpose: Prove roundtrip and soundness for LTL formula serialization.
 -- Properties:
---   Roundtrip: parseLTL (formatLTL φ) ≡ just (resetStart φ)
---   Soundness: parseLTL json ≡ just φ → json is a JObject
+--   Roundtrip: parseLTL (formatLTL φ) ≡ inj₂ (resetStart φ)
+--   Soundness: parseLTL json ≡ inj₂ φ → json is a JObject
 --   Completeness: Corollary of roundtrip
 -- Role: Phase 3 verification of LTL DSL translation correctness.
 --
@@ -15,6 +15,7 @@
 module Aletheia.LTL.JSON.Properties where
 
 open import Data.Maybe using (just)
+open import Data.Sum using (inj₂)
 open import Data.Product using (_,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
@@ -26,6 +27,7 @@ open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
 open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields)
+open import Aletheia.DBC.Identifier using (parseIdentifierField-on-valid)
 
 -- ============================================================================
 -- RESET START TIME (normalize for roundtrip)
@@ -55,15 +57,15 @@ resetStart (LTL.MetricRelease n _ f g) = LTL.MetricRelease n 0 (resetStart f) (r
 -- ============================================================================
 
 predicate-roundtrip : (p : SignalPredicate)
-  → parseSignalPredicate (formatSignalPredicateFields p) ≡ just p
-predicate-roundtrip (ValueP (Equals s v)) = refl
-predicate-roundtrip (ValueP (LessThan s v)) = refl
-predicate-roundtrip (ValueP (GreaterThan s v)) = refl
-predicate-roundtrip (ValueP (LessThanOrEqual s v)) = refl
-predicate-roundtrip (ValueP (GreaterThanOrEqual s v)) = refl
-predicate-roundtrip (ValueP (Between s min max)) = refl
-predicate-roundtrip (DeltaP (ChangedBy s d)) = refl
-predicate-roundtrip (DeltaP (StableWithin s t)) = refl
+  → parseSignalPredicate (formatSignalPredicateFields p) ≡ inj₂ p
+predicate-roundtrip (ValueP (Equals s v)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (ValueP (LessThan s v)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (ValueP (GreaterThan s v)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (ValueP (LessThanOrEqual s v)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (ValueP (GreaterThanOrEqual s v)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (ValueP (Between s min max)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (DeltaP (ChangedBy s d)) rewrite parseIdentifierField-on-valid s = refl
+predicate-roundtrip (DeltaP (StableWithin s t)) rewrite parseIdentifierField-on-valid s = refl
 
 -- ============================================================================
 -- LTL ROUNDTRIP
@@ -73,7 +75,7 @@ predicate-roundtrip (DeltaP (StableWithin s t)) = refl
 -- Each case reduces by computation (string comparisons on concrete operator names)
 -- plus the induction hypothesis on sub-formulas.
 roundtrip : (f : LTL SignalPredicate)
-  → parseLTL (formatLTL f) ≡ just (resetStart f)
+  → parseLTL (formatLTL f) ≡ inj₂ (resetStart f)
 
 -- Atomic: predicate roundtrip
 roundtrip (LTL.Atomic p)
@@ -139,7 +141,7 @@ roundtrip (LTL.MetricRelease n _ f g)
 
 -- Minimal soundness: successful parse implies JSON is an object.
 -- parseLTL only succeeds on JObject values (all other constructors return nothing).
-parseLTL-isObject : ∀ json f → parseLTL json ≡ just f
+parseLTL-isObject : ∀ json f → parseLTL json ≡ inj₂ f
   → ∃[ fields ] (json ≡ JObject fields)
 parseLTL-isObject JNull f ()
 parseLTL-isObject (JBool _) f ()

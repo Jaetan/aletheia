@@ -28,7 +28,6 @@
 module Aletheia.DBC.TextParser.Properties.Primitives where
 
 open import Data.Bool using (Bool; true; false; T; _∧_)
-open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
@@ -56,8 +55,8 @@ open import Aletheia.Parser.Combinators using
    pure; _>>=_; _<|>_; _*>_; _<$>_; satisfy; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; mkIdentFromChars; isIdentStart; isIdentCont;
-   validIdentifierᵇ; allᵇ)
+  (Identifier; mkIdent; mkIdentFromChars; mkIdentFromChars-on-valid;
+   isIdentStart; isIdentCont; validIdentifierᵇ; allᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; buildIdent; fromMaybeIdent;
    parseStringLit; parseStringChar; parseWS; isHSpace)
@@ -118,19 +117,11 @@ decompose-valid (h ∷ t) valid =
 -- Probe 2 — mkIdentFromChars on a valid Identifier's char list
 -- ============================================================================
 --
--- Post-3d.4 + JSON-mirror: `Identifier.name : List Char`, so the parser
--- builds Identifiers via `mkIdentFromChars : List Char → Maybe Identifier`
--- (`Aletheia.DBC.Identifier`).  No `String ↔ List Char` bridging needed.
--- The proof mirrors `validateIdent-roundtrip` in `MetadataRoundtrip`:
--- match the `with T? (validIdentifierᵇ name)` in the function definition
--- by the same `with` here; the `yes w` branch closes via `T-irrelevant`
--- on the witness field, and the `no ¬w` branch is absurd (`¬w valid`).
-mkIdentFromChars-on-valid : ∀ (i : Identifier)
-  → mkIdentFromChars (Identifier.name i) ≡ just i
-mkIdentFromChars-on-valid (mkIdent name valid)
-  with T? (validIdentifierᵇ name)
-... | yes w  = cong (λ v → just (mkIdent name v)) (T-irrelevant w valid)
-... | no  ¬w = ⊥-elim (¬w valid)
+-- `mkIdentFromChars-on-valid` now lives in `Aletheia.DBC.Identifier` (its
+-- single home alongside `mkIdentFromChars` — cat 27 lemma dedup; also consumed
+-- by `LTL.JSON.Properties` for the AGDA-D-10.1 predicate roundtrip) and is
+-- imported above.  Axiom-free: matches the `with T? (validIdentifierᵇ name)`
+-- in the function definition; `yes` closes via `T-irrelevant`, `no` is absurd.
 
 -- ============================================================================
 -- Probe 3 — position alignment (decomposition consistency)
