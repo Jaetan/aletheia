@@ -343,20 +343,15 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 
 	b, ok := resp.(aletheia.PropertyBatch)
 
-
 	if !ok {
 		t.Fatalf("expected PropertyBatch, got %T", resp)
 
-
 	}
-
 
 	v := b.FirstViolation()
 
-
 	if v == nil {
 		t.Fatalf("expected violation in batch, got %+v", b)
-
 
 	}
 	if v.Enrichment == nil {
@@ -414,20 +409,15 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 
 	b, ok := resp.(aletheia.PropertyBatch)
 
-
 	if !ok {
 		t.Fatalf("expected PropertyBatch, got %T", resp)
 
-
 	}
-
 
 	v := b.FirstViolation()
 
-
 	if v == nil {
 		t.Fatalf("expected violation in batch, got %+v", b)
-
 
 	}
 	if v.Enrichment == nil {

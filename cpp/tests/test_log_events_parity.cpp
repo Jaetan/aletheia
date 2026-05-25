@@ -39,9 +39,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <stdexcept>
 #include <memory>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -58,9 +58,8 @@ auto repo_root() -> std::filesystem::path {
     if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
         return std::filesystem::path{env};
     }
-    throw std::runtime_error(
-        "ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
-        "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
+    throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
+                             "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
 }
 
 auto yaml_path() -> std::filesystem::path {
