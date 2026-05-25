@@ -62,6 +62,21 @@ rejectDec-complete : ∀ {P : Set} (dec : Dec P) (i : B) →
 rejectDec-complete (yes p) _ ¬p = ⊥-elim (¬p p)
 rejectDec-complete (no  _) _ _  = refl
 
+-- All-Q witness lifters: given Q i, every element of `requireDec d i` /
+-- `rejectDec d i` satisfies Q.  Used to collapse the 6 per-check `-allE`
+-- proofs in Validity/Composition.agda (R23-AGDA-C-6.1 closure) — when Q
+-- is `λ x → severity x ≡ IsError` and i is `mkIssue IsError ...`, the
+-- witness is `refl` and the proof becomes a one-liner.
+requireDec-allE : ∀ {P : Set} {Q : B → Set} (dec : Dec P) (i : B) →
+  Q i → All Q (requireDec dec i)
+requireDec-allE (yes _) _ _  = All.[]
+requireDec-allE (no  _) _ qi = qi All.∷ All.[]
+
+rejectDec-allE : ∀ {P : Set} {Q : B → Set} (dec : Dec P) (i : B) →
+  Q i → All Q (rejectDec dec i)
+rejectDec-allE (yes _) _ qi = qi All.∷ All.[]
+rejectDec-allE (no  _) _ _  = All.[]
+
 -- ============================================================================
 -- CONCATMAP LIFTING COMBINATORS
 -- ============================================================================

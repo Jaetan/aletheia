@@ -1,0 +1,46 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flipped to FIX,
+# closed 2026-05-24.
+id: R23-CPP-D-15.1
+round: R23
+category:
+  number: 15
+  name: API ergonomics
+  language: cpp
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: 'RE-DEFER R19P2-CL10-4: struct Rational class-promotion'
+description: In-source DEFERRED — TRACKED block at cpp/include/aletheia/types.hpp:76. Trigger
+  conditions ('C++ ergonomics cluster opened; factory bypass') still hold.  RE-DEFER per Step-0
+  carry-over rule.
+files:
+- cpp/include/aletheia/types.hpp
+- cpp/include/aletheia/check.hpp
+- cpp/src/client.cpp
+- cpp/src/enrich.cpp
+- cpp/src/json_serialize.cpp
+- cpp/tests/excel_tests.cpp
+- cpp/tests/unit_tests_property.cpp
+- cpp/tests/unit_tests_validation.cpp
+cluster: G
+resolution:
+  commit: 8aff66b
+  round: R23
+  date: '2026-05-24'
+  notes: '`struct Rational` (public num/den fields) → `class Rational` (private
+    `num_`/`den_` with default member initialisers + public const
+    `numerator()` / `denominator()` accessors).  Method names mirror the old
+    field names so the 21 sweep sites migrate as `r.numerator` →
+    `r.numerator()` mechanically — no cognitive rename.  Ctors / `to_double`
+    / `make` / `from_double` / `operator<=>` / `operator==` unchanged at the
+    surface; their bodies now use the private `num_`/`den_` directly.  The
+    invariant `den_ > 0` is now a type-level guarantee — no callsite can do
+    `r.denominator = 0;` to violate it.  DEFERRED — TRACKED comment block
+    at types.hpp:76 removed.  No designated-init / map<Rational, ...> /
+    associative-container concerns surfaced; the
+    `feedback_newtype_blocks_map_subscript` concern does not apply.  Gates
+    clean: cpp ctest 11/11, clang-format clean, clang-tidy clean.  No Agda
+    / Python / Go touched (C++-only).'
+re_raised_from: null
+in_source_marker: null

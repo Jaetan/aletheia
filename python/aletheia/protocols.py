@@ -9,8 +9,10 @@ re-exports its public names so consumers can keep importing from
 """
 
 from enum import Enum
+import json
 from fractions import Fraction
 from typing import Literal, NotRequired, TypeGuard, TypedDict, cast
+
 
 from ._dbc_types import (
     AttrScope,
@@ -63,6 +65,65 @@ from ._dbc_types import (
     SignalPresence,
 )
 from .issue_codes import ValidationIssue
+
+# ─── Public wire helpers (R23 PY-D-16.2) ────────────────────────────────────
+# Promoted from ``client/_helpers.py`` so non-client modules
+# (``cli.py``, ``dbc_converter.py``, ``excel_loader.py``) can reach a
+# public surface rather than ``aletheia.client._helpers`` (a private
+# implementation module).  ``client/_helpers.py`` re-imports these names
+# for backward-compat with client-internal callers.
+
+class FractionJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles :class:`fractions.Fraction` losslessly.
+
+    Emits an integer when the denominator is 1, and a
+    ``{"numerator": N, "denominator": D}`` dict otherwise.  This is the
+    wire shape Agda's :func:`Aletheia.DBC.Types.rationalToJSON` accepts
+    and the C++/Go bindings emit; pinning it client-side gives byte-
+    identical JSON across the three bindings.
+    """
+
+    def default(self, o: object) -> object:
+        if isinstance(o, Fraction):
+            if o.denominator == 1:
+                return o.numerator
+            return {"numerator": o.numerator, "denominator": o.denominator}
+        return super().default(o)
+
+
+def dump_json(value: object, *, indent: int | None = None) -> str:
+    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
+
+    ``ensure_ascii=False`` is pinned so identifier and string-literal
+    fields with non-ASCII characters (DBC permits non-ASCII in
+    ``CM_`` text bodies, comments, and similar opaque-tail consumers)
+    serialize as their UTF-8 bytes rather than ``\\uXXXX`` escapes.  The
+    Agda-side parser is byte-oriented; the Go and C++ bindings emit
+    UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
+    byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
+    (cross-binding wire-byte parity).
+    """
+    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
+
+
+def to_signal_fraction(value: float | int | Fraction) -> Fraction:
+    """Convert a decimal-intent numeric input to a Fraction for DBCSignal fields.
+
+    Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
+    decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
+    IEEE-754 approximation's monstrous denominator.  Int and existing
+    Fraction inputs flow through unchanged.
+    """
+    if isinstance(value, Fraction):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return Fraction(value)
+    return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN_PROTOCOLS)
+
+
+_DECIMAL_PRECISION_DEN_PROTOCOLS = 1_000_000_000  # mirrors client/_helpers.py
+
+
 
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
@@ -450,14 +511,24 @@ class ViolationEnrichment(TypedDict):
     core_reason: str
 
 
-class PropertyViolationResponse(TypedDict):
-    """Property violation response"""
-    status: Literal["fails"]
-    type: Literal["property"]
-    property_index: RationalNumber
-    timestamp: RationalNumber
-    reason: NotRequired[str]  # Optional reason field from binary
-    enrichment: NotRequired[ViolationEnrichment]  # Auto-derived diagnostic
+class PropertyBatchResponse(TypedDict):
+    """Per-frame batch of property events emitted during streaming.
+
+    R23 — AGDA-D-12.1: replaces the pre-R23 ``PropertyViolationResponse``.
+    Each ``send_frame`` call may now return zero events (``AckResponse``)
+    or one-or-more events in this batch.  Inner ``results`` carries each
+    event in source-order: any satisfactions that completed before a
+    halting violation come first, then the violation itself.  A
+    completion-only frame (one or more properties became Satisfied,
+    none violated) returns a batch of pure satisfactions.
+
+    Inner element schema matches ``PropertyResultEntry`` (fails / holds /
+    unresolved); ``status: "fails"`` carries the violation diagnostics
+    (``timestamp``, ``reason``, optional ``enrichment``); ``status: "holds"``
+    carries only the ``property_index``.
+    """
+    type: Literal["property_batch"]
+    results: list["PropertyResultEntry"]
 
 
 class PropertyResultEntry(TypedDict):
@@ -551,7 +622,7 @@ Response = (
     SuccessResponse |
     ErrorResponse |
     AckResponse |
-    PropertyViolationResponse |
+    PropertyBatchResponse |
     CompleteResponse |
     ExtractSignalsResponse |
     FormatDBCResponse |
@@ -666,7 +737,7 @@ __all__ = [
     "ErrorResponse",
     "AckResponse",
     "ViolationEnrichment",
-    "PropertyViolationResponse",
+    "PropertyBatchResponse",
     "PropertyResultEntry",
     "CompleteResponse",
     "CompleteWarning",

@@ -117,7 +117,10 @@ class TestAletheiaClientStreaming:
                 dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
             )
-            assert response.get("status") == "fails"
+            # R23 — AGDA-D-12.1: send_frame returns PropertyBatchResponse;
+            # the violation is the (typically single) entry in results.
+            assert response.get("type") == "property_batch"
+            assert any(e["status"] == "fails" for e in response["results"])
 
             client.end_stream()
 
@@ -301,7 +304,9 @@ class TestAletheiaClientLifecycle:
                         resp = client.send_frame(
                             timestamp=ts, can_id=cid, dlc=dlc, data=data
                         )
-                        if resp.get("status") == "fails":
+                        if resp.get("type") == "property_batch" and any(
+                            e.get("status") == "fails" for e in resp["results"]
+                        ):
                             violated = True
                             results[name] = "fails"
                             client.end_stream()
@@ -403,7 +408,9 @@ class TestAletheiaClientLifecycle:
                         barrier.wait()
                         for ts, cid, dlc, data in FRAMES:
                             resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
-                            if resp.get("status") == "fails":
+                            if resp.get("type") == "property_batch" and any(
+                            e.get("status") == "fails" for e in resp["results"]
+                        ):
                                 results[name] = "fails"
                                 client.end_stream()
                                 return
@@ -481,7 +488,9 @@ class TestAletheiaClientWithDemoDBC:
             response = client.send_frame(
                 timestamp=500000, can_id=0x100, dlc=DLCCode(8), data=fault_frame,
             )
-            assert response.get("status") == "fails"
+            # R23 — AGDA-D-12.1: PropertyBatchResponse with violation entry.
+            assert response.get("type") == "property_batch"
+            assert any(e.get("status") == "fails" for e in response["results"])
 
             client.end_stream()
 

@@ -64,6 +64,7 @@ enum class ErrorCode {
     ParseInvalidKind,
     ParseNonTerminatingRational,
     ParseInvalidIdentifier,
+    ParseNonIntegerMultiplexValue,
     // DBC text parse errors
     DBCTextParseFailure,
     DBCTextTrailingInput,

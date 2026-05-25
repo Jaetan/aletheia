@@ -1,0 +1,43 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flipped to FIX,
+# closed 2026-05-24 by user-chosen "Migrate Python + C++ to free funcs"
+# (Python+C++ co-migration, Go already free-functions, kept) — not just C++.
+id: R23-CPP-D-15.2
+round: R23
+category:
+  number: 15
+  name: API ergonomics
+  language: cpp
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: 'RE-DEFER R19P2-CL10-5: Check static-method-class idiom'
+description: In-source DEFERRED — TRACKED block at cpp/include/aletheia/check.hpp:309. Trigger
+  ('C++ idiom-conformance cluster opened') still holds.
+files:
+- cpp/include/aletheia/check.hpp
+- python/aletheia/checks.py
+cluster: G
+resolution:
+  commit: e15d7d8
+  round: R23
+  date: '2026-05-24'
+  notes: Migrated Python + C++ together (user-chosen via question prompt before
+    touching the header — avoids widening cross-binding gap that would leave Python
+    alone in the class-with-statics camp).  C++ `class Check` removed; replaced by
+    inline factories in `namespace aletheia::check { signal, when }`.  Python
+    `class Check` removed; replaced by module-level `aletheia.checks.signal` /
+    `aletheia.checks.when`.  Not re-exported at top-level `aletheia.signal` /
+    `aletheia.when` (per advisor's collision warning — both names too generic;
+    would shadow stdlib `signal` module + local `signal` parameters in loader
+    code).  Source files with `signal` parameter use `from . import checks;
+    checks.signal(signal_var)` to avoid local shadow; tests + demos use bare
+    `from aletheia.checks import signal, when` (no shadow).  Go unchanged (already
+    package-level `aletheia.CheckSignal` / `aletheia.CheckWhen`).  DEFERRED-TRACKED
+    in-source block at check.hpp:309-316 deleted.  CHANGELOG breaking-change entry
+    under 2.0.0 § Changed with full migration guidance.  Gates clean — cpp ctest
+    10/10 (incl. doc_example_tests recompile of every cpp fence), pytest 872p+1s,
+    pylint 10.00/10, basedpyright 0 new, clang-format / clang-tidy clean, go test
+    -race pass.
+re_raised_from: null
+in_source_marker: null

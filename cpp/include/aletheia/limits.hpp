@@ -44,6 +44,7 @@ inline constexpr std::string_view bound_kind_identifier_length = "identifier_len
 inline constexpr std::string_view bound_kind_string_length = "string_length";
 inline constexpr std::string_view bound_kind_atom_count = "atom_count";
 inline constexpr std::string_view bound_kind_frame_byte_count = "frame_byte_count";
+inline constexpr std::string_view bound_kind_property_count = "property_count";
 
 // ============================================================================
 // BOUND CONSTANTS
@@ -78,6 +79,7 @@ inline constexpr std::uint64_t max_string_length_bytes = 64ULL * 1024;
 
 // LTL atoms per single property.
 inline constexpr std::uint64_t max_atom_count_per_property = 1024;
+inline constexpr std::uint64_t max_properties_per_stream = 1024;
 
 // CAN frame payload byte count (CAN-FD maximum).
 inline constexpr std::uint64_t max_frame_byte_count = 64;

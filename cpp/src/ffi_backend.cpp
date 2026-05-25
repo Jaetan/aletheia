@@ -10,6 +10,8 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/limits.hpp>
 
+#include "detail/rts_init.hpp"
+
 #include <dlfcn.h>
 
 #include <array>
@@ -93,17 +95,6 @@ auto as_u8(std::byte* p) -> std::uint8_t* {
 auto as_byte(const std::uint8_t* p) -> const std::byte* {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     return reinterpret_cast<const std::byte*>(p);
-}
-
-struct RTSState {
-    std::mutex mu;
-    bool initialized = false;
-    int cores = 0;
-};
-
-auto rts_state() -> RTSState& {
-    static RTSState s;
-    return s;
 }
 
 // Backend wrapping libaletheia-ffi.so via dlopen.  Lifecycle invariant:
@@ -201,7 +192,15 @@ public:
             free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
 
             // Initialize GHC RTS (once per process, never finalized).
-            auto& rts = rts_state();
+            // R23 — CPP-D-17.1: share the init state with the
+            // `rational_renderer.cpp` singleton via
+            // `detail::rts_init_state()` so a renderer-first hs_init is
+            // visible here.  Before this, each TU had a private
+            // `rts_state` and FfiBackend would silently re-attempt
+            // hs_init (idempotent, no-op) after the renderer had already
+            // initialized with cores=1, dropping the user's `rts_cores`
+            // argument without firing the `rts.cores_mismatch` warning.
+            auto& rts = detail::rts_init_state();
             const std::lock_guard lock(rts.mu);
             if (!rts.initialized) {
                 if (rts_cores > 1) {

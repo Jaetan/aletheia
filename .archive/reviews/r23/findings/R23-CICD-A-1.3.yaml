@@ -1,0 +1,22 @@
+id: R23-CICD-A-1.3
+round: R23
+category:
+  number: 1
+  name: Workflow YAML hygiene
+  language: cicd
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: gha-checks.yml audit scripts invoked via explicit python3
+description: 'Was shebang+chmod-dependent `run: tools/check_action_pins.py`.  Now:
+  `run: python3 tools/check_action_pins.py` (chmod-loss-safe).'
+files:
+- .github/workflows/gha-checks.yml
+cluster: H
+resolution:
+  commit: 09e276c
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

@@ -402,8 +402,8 @@ auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> sign
         }
         resolved.indices.push_back(it->second);
         const auto& r = sv.value.get();
-        resolved.numerators.push_back(r.numerator);
-        resolved.denominators.push_back(r.denominator);
+        resolved.numerators.push_back(r.numerator());
+        resolved.denominators.push_back(r.denominator());
     }
     return resolved;
 }
@@ -559,19 +559,12 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
                              .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
             }
         }
-        if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty()) {
-            enrich_violation(*v, id, dlc, data, id_value, is_extended);
-            if (logger_.enabled(LogLevel::Debug))
-                logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
-                                                  {"canId", static_cast<std::uint64_t>(id_value)},
-                                                  {"extended", is_extended},
-                                                  {"response", std::string_view{"violation"}}});
-        } else if (logger_.enabled(LogLevel::Debug)) {
-            logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
-                                              {"canId", static_cast<std::uint64_t>(id_value)},
-                                              {"extended", is_extended},
-                                              {"response", std::string_view{"ack"}}});
-        }
+        // R23 — AGDA-D-12.1: PropertyBatch may carry mid-stream
+        // Satisfactions + a terminal Violation; enrich each fails entry
+        // and emit the standard frame.processed log event.  Extracted
+        // into a helper to keep send_frame under clang-tidy's
+        // cognitive-complexity threshold (25).
+        finalize_frame_response(*result, ts, id, dlc, data, id_value, is_extended);
     }
     return result;
 }
@@ -740,9 +733,38 @@ auto format_enriched_reason(const PropertyDiagnostic& diag,
 
 } // namespace
 
-void AletheiaClient::enrich_violation(Violation& v, CanId id, Dlc dlc,
+void AletheiaClient::finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
+                                             std::span<const std::byte> data,
+                                             std::uint32_t id_value, bool is_extended) {
+    auto* batch = std::get_if<PropertyBatch>(&fr);
+    if (batch != nullptr && !diags_.empty()) {
+        bool has_fail = false;
+        for (auto& entry : batch->results) {
+            if (entry.verdict == Verdict::Fails) {
+                enrich_violation(entry, id, dlc, data, id_value, is_extended);
+                has_fail = true;
+            }
+        }
+        if (logger_.enabled(LogLevel::Debug))
+            logger_.debug(
+                "frame.processed",
+                {{"ts", static_cast<std::int64_t>(ts.count())},
+                 {"canId", static_cast<std::uint64_t>(id_value)},
+                 {"extended", is_extended},
+                 {"response", std::string_view{has_fail ? "violation" : "satisfaction"}}});
+        return;
+    }
+    if (logger_.enabled(LogLevel::Debug))
+        logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
+                                          {"canId", static_cast<std::uint64_t>(id_value)},
+                                          {"extended", is_extended},
+                                          {"response", std::string_view{"ack"}}});
+}
+
+void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
                                       std::span<const std::byte> data, std::uint32_t id_value,
                                       bool is_extended) {
+    auto& v = pr;
     auto idx = v.property_index.get();
     if (idx >= diags_.size()) {
         // Property index out of range — protocol mismatch; skip enrichment.

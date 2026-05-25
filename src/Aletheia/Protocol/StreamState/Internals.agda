@@ -13,7 +13,7 @@
 module Aletheia.Protocol.StreamState.Internals where
 open import Aletheia.DBC.Identifier using (Identifier)
 
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc)
 open import Data.Fin using (Fin; toℕ)
@@ -219,14 +219,26 @@ updateCacheFromFrame dbc cache ts frame =
 -- FRAME PROCESSING HELPERS
 -- ============================================================================
 
--- Classify a single stepL result into a StepOutcome.
-classifyStepResult : ∀ {n} → StepResult LTLProc → PropertyState n → StepOutcome (PropertyState n) (Fin n × Counterexample)
+-- Classify a single stepL result into a StepOutcome.  The third type
+-- parameter `Fin n` is the completion payload: when a property becomes
+-- Satisfied mid-stream it is dropped from the active set (per the
+-- `complete` semantics), and the index flows out via `iterate`'s
+-- completion-list so `dispatchIterResult` can emit a
+-- `PropertyResult.Satisfaction` at the frame where the property
+-- completed.  Pre-R23 (AGDA-D-12.1) `complete` was payload-less and the
+-- index was lost — the completion was wire-silent and the dropped
+-- property never reached EndStream's `finalizeL`, so users missed every
+-- mid-stream Satisfaction verdict.
+classifyStepResult : ∀ {n} → StepResult LTLProc → PropertyState n
+                   → StepOutcome (PropertyState n) (Fin n × Counterexample) (Fin n)
 classifyStepResult (Continue _ newProc) prop =
   advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
 classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
 -- Satisfied: property holds at this step.  The property is dropped from
--- the iteration list (`complete` outcome) so its proc is NOT re-evaluated
--- on subsequent frames.
+-- the iteration list (`complete` outcome carrying its index) so its
+-- proc is NOT re-evaluated on subsequent frames, AND the index flows
+-- through `iterate`'s completion-list to `dispatchIterResult` for
+-- mid-stream `PropertyResult.Satisfaction` emission.
 --
 -- Why drop instead of advance: re-evaluating a Satisfied proc on the
 -- next frame is unsound for top-level `Until`, `Release`, `MetricUntil`,
@@ -255,32 +267,42 @@ classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
 --     Violated ce`, so `Eventually`-wrapped properties (the canonical
 --     liveness pattern) never `halt` — they `complete` cleanly on first
 --     witness or stay `Continue` until EndStream.
---
--- Wire visibility: the drop is silent.  `dispatchIterResult` emits `Ack`
--- (no halt evidence) when the iteration finishes without a violation,
--- regardless of whether one or more properties completed during the
--- step.  `PropertyResult.Satisfaction` is currently emitted only at
--- EndStream via `finalizeL`; lifting Satisfaction emission into the
--- streaming dispatch is a separate enhancement (would require threading
--- per-step completion events through `dispatchIterResult`).
-classifyStepResult Satisfied _ = complete
+classifyStepResult Satisfied prop = complete (PropertyState.index prop)
 
 -- Step one property: build PredTable, call stepL, classify result.
-stepProperty : ∀ {n} → DBC → SignalCache → TimedFrame → PropertyState n → StepOutcome (PropertyState n) (Fin n × Counterexample)
+stepProperty : ∀ {n} → DBC → SignalCache → TimedFrame → PropertyState n
+             → StepOutcome (PropertyState n) (Fin n × Counterexample) (Fin n)
 stepProperty dbc cache tf prop =
   let table = mkPredTable dbc cache (PropertyState.atoms prop)
       result = stepL table (PropertyState.proc prop) tf
   in classifyStepResult result prop
 
--- Dispatch iteration result to StreamState × Response.
--- `Fin n → ℕ` conversion via `toℕ` only at the wire boundary
--- (`PropertyResult.Violation` takes `ℕ`); the internal pipeline keeps the
--- Fin all the way through.
-dispatchIterResult : ∀ {n} → DBC → List (PropertyState n) × Maybe (Fin n × Counterexample) → TimedFrame → SignalCache → StreamState × Response
-dispatchIterResult {n} dbc (updatedProps , nothing) tf cache =
+-- Dispatch iteration result to StreamState × Response.  Iterator returns
+-- `(survivors , Maybe halt , List Fin)` after R23 (AGDA-D-12.1):
+-- completions carry property indices so this dispatcher can emit one
+-- `PropertyResult.Satisfaction` per completion in source-order,
+-- co-emitted with any violation that halted the iteration on the same
+-- frame.  `Fin n → ℕ` conversion via `toℕ` is at the wire boundary only;
+-- the internal pipeline keeps `Fin n` throughout.
+--
+-- Wire shape: `Response.PropertyResponse` carries `List PropertyResult`.
+-- Empty list is unreachable here — when there are no events on a frame
+-- we emit `Response.Ack` instead (so single-event frames remain
+-- single-element lists, never empty).
+dispatchIterResult : ∀ {n} → DBC
+                  → List (PropertyState n) × Maybe (Fin n × Counterexample) × List (Fin n)
+                  → TimedFrame → SignalCache → StreamState × Response
+dispatchIterResult {n} dbc (updatedProps , nothing , []) tf cache =
   (Streaming n dbc updatedProps (just tf) cache , Response.Ack)
-dispatchIterResult {n} dbc (allProps , just (idx , ce)) tf cache =
+dispatchIterResult {n} dbc (updatedProps , nothing , c ∷ cs) tf cache =
+  let satisfactions = map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) (c ∷ cs)
+  in (Streaming n dbc updatedProps (just tf) cache , Response.PropertyResponse satisfactions)
+dispatchIterResult {n} dbc (allProps , just (idx , ce) , completions) tf cache =
   let open Counterexample ce
       ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
+      satisfactions = map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions
       violation = PR.PropertyResult.Violation (toℕ idx) ceData
-  in (Streaming n dbc allProps (just tf) cache , Response.PropertyResponse violation)
+      -- Source-order: completions encountered BEFORE the halt come first;
+      -- the violation closes the batch.
+      results = satisfactions ++ₗ (violation ∷ [])
+  in (Streaming n dbc allProps (just tf) cache , Response.PropertyResponse results)

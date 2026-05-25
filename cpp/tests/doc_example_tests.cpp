@@ -68,8 +68,25 @@ struct CppFence {
     [[nodiscard]] auto display() const -> std::string { return file + ":L" + std::to_string(line); }
 };
 
+// CPP-D-18.1 R23: repo root + include dir via env vars rather than
+// compile-time defines, so the binary is bit-identical across build
+// locations.  See cpp/tests/test_feature_matrix_parity.cpp.
+auto getenv_required(const char* name) -> std::string {
+    if (const char* env = std::getenv(name); env != nullptr && *env != '\0') {
+        return env;
+    }
+    throw std::runtime_error(
+        std::string{name} +
+        " env var not set; expected from ctest set_tests_properties(ENVIRONMENT ...) "
+        "in cpp/CMakeLists.txt");
+}
+
 auto repo_root() -> fs::path {
-    return fs::path{ALETHEIA_REPO_ROOT};
+    return fs::path{getenv_required("ALETHEIA_REPO_ROOT")};
+}
+
+auto doc_include_dir() -> std::string {
+    return getenv_required("ALETHEIA_DOC_INCLUDE");
 }
 
 // findFFILib mirrors the Go harness's findFFILibForDocs.
@@ -430,7 +447,7 @@ TEST_CASE("Track D.1 doc-example harness: every ```cpp fence compiles and runs",
             // sanitizer is active (the common case).
             std::ostringstream cmd;
             cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
-                << sh_quote(ALETHEIA_DOC_INCLUDE) << " -o " << sh_quote(out_path.string()) << " "
+                << sh_quote(doc_include_dir()) << " -o " << sh_quote(out_path.string()) << " "
                 << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE) << " "
                 << sh_quote(ALETHEIA_DOC_YAML_LIB) << " " << sh_quote(ALETHEIA_DOC_OPENXLSX_LIB)
                 << " -ldl -lpthread -lstdc++fs " << ALETHEIA_DOC_SANITIZER_FLAG;

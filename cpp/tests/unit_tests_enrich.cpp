@@ -82,9 +82,12 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     // Verify by triggering enrichment: start_stream, send_frame (violation), extraction
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 2000000,
-        "reason": "Atomic: predicate failed"
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 2000000,
+                    "reason": "Atomic: predicate failed"
+        }]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -99,17 +102,19 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
-    REQUIRE(std::holds_alternative<Violation>(*result));
+    REQUIRE(std::holds_alternative<PropertyBatch>(*result));
 
-    auto& v = std::get<Violation>(*result);
-    REQUIRE(v.enrichment.has_value());
-    CHECK_THAT(v.enrichment->formula_desc, ContainsSubstring("Speed < 220"));
-    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
-    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("formula:"));
-    CHECK(v.enrichment->signals.size() == 1);
-    CHECK(v.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{245, 1}});
-    CHECK(v.enrichment->core_reason == "Atomic: predicate failed");
-    CHECK_THAT(v.enrichment->enriched_reason,
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    REQUIRE(v->enrichment.has_value());
+    CHECK_THAT(v->enrichment->formula_desc, ContainsSubstring("Speed < 220"));
+    CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
+    CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("formula:"));
+    CHECK(v->enrichment->signals.size() == 1);
+    CHECK(v->enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{245, 1}});
+    CHECK(v->enrichment->core_reason == "Atomic: predicate failed");
+    CHECK_THAT(v->enrichment->enriched_reason,
                ContainsSubstring("[core: Atomic: predicate failed]"));
 }
 
@@ -120,8 +125,11 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 2000000
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 2000000
+        }]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -144,11 +152,13 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     FramePayload data(8, std::byte{0});
     auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
-    auto& v = std::get<Violation>(*result);
-    REQUIRE(v.enrichment.has_value());
-    CHECK(v.enrichment->signals.size() == 2);
-    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
-    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("RPM = 3000"));
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    REQUIRE(v->enrichment.has_value());
+    CHECK(v->enrichment->signals.size() == 2);
+    CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
+    CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("RPM = 3000"));
 }
 
 TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
@@ -159,8 +169,11 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     // Two violations, same frame — only one extraction
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 1000000
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 1000000
+        }]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -168,8 +181,11 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
         "errors": [], "absent": []
     })");
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 2000000
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 2000000
+        }]
     })");
     // No second extraction response needed — cached
 
@@ -188,11 +204,11 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
                       std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
     auto r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
-    CHECK(std::get<Violation>(*r1).enrichment.has_value());
+    CHECK(std::get<PropertyBatch>(*r1).first_violation()->enrichment.has_value());
 
     auto r2 = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
-    CHECK(std::get<Violation>(*r2).enrichment.has_value());
+    CHECK(std::get<PropertyBatch>(*r2).first_violation()->enrichment.has_value());
 
     // Count extractAllSignals commands (should be exactly 1)
     std::size_t extract_count = 0;
@@ -301,8 +317,11 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 1000000
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 1000000
+        }]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -317,8 +336,11 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     // second stream
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream (clears cache)
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 1000000
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 1000000
+        }]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -347,7 +369,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto r2 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
-    CHECK(std::get<Violation>(*r2).enrichment.has_value());
+    CHECK(std::get<PropertyBatch>(*r2).first_violation()->enrichment.has_value());
 
     // Should have 2 extractAllSignals calls (cache was cleared)
     std::size_t extract_count = 0;
@@ -362,9 +384,12 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
 TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 2000000,
-        "reason": "Speed limit exceeded"
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 2000000,
+                    "reason": "Speed limit exceeded"
+        }]
     })");
 
     AletheiaClient client(std::move(mock));
@@ -374,8 +399,10 @@ TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
-    auto& v = std::get<Violation>(*result);
-    CHECK_FALSE(v.enrichment.has_value());
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK_FALSE(v->enrichment.has_value());
 }
 
 // ===========================================================================
@@ -387,8 +414,11 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
     mock->queue_response(R"({"status": "success"})"); // set_properties
     mock->queue_response(R"({"status": "success"})"); // start_stream
     mock->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 2000000
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 2000000
+        }]
     })");
     mock->queue_response(R"({
         "status": "success",
@@ -411,11 +441,13 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
     auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
-    auto& v = std::get<Violation>(*result);
-    REQUIRE(v.enrichment.has_value());
-    CHECK(v.enrichment->core_reason.empty());
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    REQUIRE(v->enrichment.has_value());
+    CHECK(v->enrichment->core_reason.empty());
     // enriched_reason should NOT contain "[core:" when reason is empty
-    CHECK_THAT(v.enrichment->enriched_reason, !ContainsSubstring("[core:"));
+    CHECK_THAT(v->enrichment->enriched_reason, !ContainsSubstring("[core:"));
 }
 
 // ===========================================================================
@@ -430,9 +462,12 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     // First frame: violation triggers extraction → populates cache
     mock_ptr->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 0, "timestamp": 1000000,
-        "reason": "Atomic: predicate failed"
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 1000000,
+                    "reason": "Atomic: predicate failed"
+        }]
     })");
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -554,9 +589,12 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
     mock->queue_response(R"({"status": "success"})"); // set_properties
     mock->queue_response(R"({"status": "success"})"); // start_stream
     mock->queue_response(R"({
-        "status": "fails", "type": "property",
-        "property_index": 999, "timestamp": 1000000,
-        "reason": "some reason"
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 999, "timestamp": 1000000,
+                    "reason": "some reason"
+        }]
     })");
 
     AletheiaClient client(std::move(mock));
@@ -575,10 +613,12 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
     auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
-    REQUIRE(std::holds_alternative<Violation>(*result));
-    auto& v = std::get<Violation>(*result);
-    CHECK(v.property_index == PropertyIndex{999});
-    CHECK(v.reason == "some reason");
+    REQUIRE(std::holds_alternative<PropertyBatch>(*result));
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK(v->property_index == PropertyIndex{999});
+    CHECK(v->reason == "some reason");
     // Enrichment skipped due to OOB property index
-    CHECK_FALSE(v.enrichment.has_value());
+    CHECK_FALSE(v->enrichment.has_value());
 }

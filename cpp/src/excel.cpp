@@ -257,7 +257,7 @@ auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
                 PhysicalValue{Rational::from_double(get_number(cells, "Min", row_ctx(row_num)))};
             auto hi =
                 PhysicalValue{Rational::from_double(get_number(cells, "Max", row_ctx(row_num)))};
-            return Check::signal(signal).stays_between(lo, hi);
+            return check::signal(signal).stays_between(lo, hi);
         }
         if (detail::is_simple_settles_condition(condition)) {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
@@ -271,12 +271,12 @@ auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
             auto hi =
                 PhysicalValue{Rational::from_double(get_number(cells, "Max", row_ctx(row_num)))};
             auto ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", row_ctx(row_num))};
-            return Check::signal(signal).settles_between(lo, hi).within(ms);
+            return check::signal(signal).settles_between(lo, hi).within(ms);
         }
         // equals
         auto value =
             PhysicalValue{Rational::from_double(get_number(cells, "Value", row_ctx(row_num)))};
-        return Check::signal(signal).equals(value).always();
+        return check::signal(signal).equals(value).always();
     }();
 
     // Metadata
@@ -301,7 +301,7 @@ auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
     if (!detail::is_when_condition(when_cond))
         throw std::runtime_error(row_ctx(row_num) + ": unknown when condition '" + when_cond + "'");
 
-    auto when_builder = Check::when(when_signal);
+    auto when_builder = check::when(when_signal);
     auto when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
     auto then_signal = get_str(cells, "Then Signal", row_ctx(row_num));

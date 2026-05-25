@@ -53,22 +53,7 @@ struct ExtractionResult {
 };
 
 // ---------------------------------------------------------------------------
-// Streaming frame response
-// ---------------------------------------------------------------------------
-
-struct Ack {};
-
-struct Violation {
-    PropertyIndex property_index;
-    Timestamp timestamp;
-    std::string reason;
-    std::optional<ViolationEnrichment> enrichment;
-};
-
-using FrameResponse = std::variant<Ack, Violation>;
-
-// ---------------------------------------------------------------------------
-// End-of-stream result
+// Per-property verdict (used by both streaming PropertyBatch + EndStream)
 // ---------------------------------------------------------------------------
 
 /// End-of-stream verdict for an LTL property.
@@ -91,6 +76,43 @@ struct PropertyResult {
     std::string reason;
     std::optional<ViolationEnrichment> enrichment;
 };
+
+// ---------------------------------------------------------------------------
+// Streaming frame response
+// ---------------------------------------------------------------------------
+
+struct Ack {};
+
+// Per-frame batch of property events emitted during streaming.  R23 —
+// AGDA-D-12.1: pre-R23 each frame carried at most one Violation (or no
+// event = Ack); after the mid-stream-Satisfaction lift each frame can
+// also produce one-or-more Holds entries that completed at this frame,
+// in source-order, optionally terminated by a Fails entry.  The inner
+// PropertyResult shape mirrors EndStream's per-property verdict.
+//
+// Empty `results` is unreachable — frames with no events return Ack.
+struct PropertyBatch {
+    std::vector<PropertyResult> results;
+
+    /// First PropertyResult with Verdict == Fails, or nullptr if the
+    /// batch carries only mid-stream Satisfactions.  Per the Agda
+    /// invariant, a batch contains at most one violation and (if
+    /// present) it is the last entry.
+    [[nodiscard]] auto first_violation() -> PropertyResult* {
+        for (auto& r : results)
+            if (r.verdict == Verdict::Fails)
+                return &r;
+        return nullptr;
+    }
+    [[nodiscard]] auto first_violation() const -> const PropertyResult* {
+        for (const auto& r : results)
+            if (r.verdict == Verdict::Fails)
+                return &r;
+        return nullptr;
+    }
+};
+
+using FrameResponse = std::variant<Ack, PropertyBatch>;
 
 /// One EndStream diagnostic surfaced by the kernel.
 ///

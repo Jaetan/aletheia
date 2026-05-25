@@ -96,7 +96,7 @@ from .client import (
     bytes_to_dlc,
     dlc_to_bytes,
 )
-from .checks import Check, CheckResult
+from .checks import CheckResult
 from .dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 from .error_codes import ErrorCode
@@ -183,8 +183,10 @@ __all__ = [
     "RTSState",
     "StateError",
     "ValidationError",
-    # Check API
-    "Check",
+    # Check API — entry points live in ``aletheia.checks`` (use
+    # ``from aletheia import checks; checks.signal(...)`` to avoid
+    # shadowing the stdlib ``signal`` module or local ``signal``
+    # parameter names).
     "CheckResult",
     # Protocol types (consumer API for typed message inspection)
     "DBCDefinition",

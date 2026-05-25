@@ -1,0 +1,29 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-CPP-D-18.1
+round: R23
+category:
+  number: 18
+  name: Build system / CMake hygiene
+  language: cpp
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Test binaries bake absolute paths into compile-time defines
+description: Reproducibility violation for test binaries (library itself uses -ffile-prefix-map
+  and is reproducible).  Tests are out of release scope; defer + document the test-only exception.
+files:
+- cpp/CMakeLists.txt
+cluster: F
+resolution:
+  commit: 9543be1
+  round: R23
+  date: '2026-05-23'
+  notes: Replaced compile-time CMAKE_CURRENT_SOURCE_DIR defines with runtime env-var lookup
+    in 3 test binaries (feature_matrix_tests / log_events_tests / doc_example_tests).  ALETHEIA_REPO_ROOT
+    (+ ALETHEIA_DOC_INCLUDE in the doc-harness case) now flow via set_tests_properties(ENVIRONMENT
+    ...), so the binary is bit-identical across build locations (reproducible-build invariant).  TARGET_FILE
+    generator expressions (build-output paths) are out of scope per the finding text — they're
+    not CMAKE_CURRENT_SOURCE_DIR.
+re_raised_from: null
+in_source_marker: null

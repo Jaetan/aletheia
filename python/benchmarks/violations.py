@@ -34,7 +34,7 @@ import can
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient
-from aletheia.checks import Check, CheckResult
+from aletheia.checks import CheckResult, signal
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DBCDefinition, DLCCode
 from aletheia.testing import run_checks
@@ -309,7 +309,7 @@ def main() -> int:
 
     dbc = dbc_to_json(str(_DBC_PATH))
     checks = [
-        Check.signal("VehicleSpeed").never_exceeds(50.0)
+        signal("VehicleSpeed").never_exceeds(50.0)
             .named("Speed limit").severity("critical"),
     ]
 

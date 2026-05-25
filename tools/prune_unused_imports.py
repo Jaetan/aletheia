@@ -1395,7 +1395,7 @@ def main() -> int:
     parser.add_argument("--verbose", action="store_true", help="Per-name decision logging")
     parser.add_argument("--pre-check", action="store_true", help="Verify each file type-checks before pruning")
     parser.add_argument("--no-bisect", action="store_true", help="Disable bisection (pure per-name brute force)")
-    parser.add_argument("--no-topo", action="store_true", help="Disable topological-level batching (process all files in one pool; faster on small subsets but exposes the race condition for inter-dependent files)")
+    parser.add_argument("--no-topo", action="store_true", help="Hint: skip topological-level batching IF the input set has no inter-dependencies (single topo level).  Saves the topo-graph startup cost for small independent subsets.  If inter-deps are detected, the tool auto-enables topo batching (since `--no-topo` + multi-worker on inter-deps reliably races on `.agdai` writes).  Pass `--workers 1` to force pure sequential without topo cost.")
     parser.add_argument("--check-only", action="store_true", help="Lint-mode: implies --dry-run + --quiet; exits 1 if any dead imports would be removed, 0 if clean.  Intended for CI gates / pre-commit / pre-push hooks.")
     parser.add_argument("--restore-backups", action="store_true", help="Restore any *.prune-bak files left by an interrupted run, then exit")
 
@@ -1465,10 +1465,38 @@ def main() -> int:
     # parallel workers process inter-dependent files concurrently (one
     # worker's .agdai mid-write breaks another's elaboration).  Topo
     # batching processes files level by level; within a level, files
-    # have no inter-dependencies so parallel is safe.  Pass `--no-topo`
-    # to disable (faster on small subsets where the graph is shallow).
-    if args.workers <= 1 or args.no_topo:
-        batches: List[List[tuple]] = [worker_args]  # single bucket
+    # have no inter-dependencies so parallel is safe.
+    #
+    # R23: `--no-topo` is treated as a HINT, not a directive.  It allows
+    # skipping the topo-graph startup overhead WHEN the input file set
+    # has no inter-dependencies (single topo level).  If `--no-topo` is
+    # passed but the input has inter-deps, the tool auto-overrides to
+    # topo batching to keep the race-free guarantee; this was the R23
+    # CI failure mode where a 4-file branch diff with shared imports
+    # reliably produced 1 baseline error per run.  Pass `--workers 1`
+    # to truly force single-bucket sequential (no race possible).
+    if args.workers <= 1:
+        batches: List[List[tuple]] = [worker_args]  # serial — no race
+    elif args.no_topo:
+        # Honor --no-topo iff the input set has no inter-dependencies.
+        levels = topological_levels(files, SRC_DIR)
+        if len(levels) <= 1:
+            batches = [worker_args]
+        else:
+            if not args.quiet:
+                print(
+                    f"  --no-topo overridden: input has inter-dependent files "
+                    f"({len(levels)} topo levels); using topo batching to "
+                    f"avoid .agdai race "
+                    f"(feedback_agda_import_pruning_safety.md).  Pass "
+                    f"`--workers 1` for sequential without topo cost.",
+                    flush=True,
+                )
+            wa_by_file = {wa[0]: wa for wa in worker_args}
+            batches = [
+                [wa_by_file[f] for f in level if f in wa_by_file]
+                for level in levels
+            ]
     else:
         levels = topological_levels(files, SRC_DIR)
         wa_by_file = {wa[0]: wa for wa in worker_args}

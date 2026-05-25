@@ -70,8 +70,8 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
     REQUIRE(parsed.value().dbc.messages[0].signals.size() == 1);
     auto round_trip = parsed.value().dbc.messages[0].signals[0].factor.get();
     // Cross-multiplication value equality.
-    CHECK(original.numerator * round_trip.denominator ==
-          round_trip.numerator * original.denominator);
+    CHECK(original.numerator() * round_trip.denominator() ==
+          round_trip.numerator() * original.denominator());
 }
 
 TEST_CASE("Standard CAN ID factory accepts every value in [0, 2048)", "[property]") {

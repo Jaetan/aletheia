@@ -94,11 +94,11 @@ auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<voi
 inline auto dispatch_simple(const std::string& signal, const std::string& condition,
                             PhysicalValue value) -> CheckResult {
     if (condition == "never_exceeds")
-        return Check::signal(signal).never_exceeds(value);
+        return check::signal(signal).never_exceeds(value);
     if (condition == "never_below")
-        return Check::signal(signal).never_below(value);
+        return check::signal(signal).never_below(value);
     if (condition == "never_equals")
-        return Check::signal(signal).never_equals(value);
+        return check::signal(signal).never_equals(value);
     // Caller must validate condition before calling; unreachable in correct usage.
     throw std::invalid_argument("Unknown simple condition: " + condition);
 }

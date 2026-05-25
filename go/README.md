@@ -54,7 +54,7 @@ summary, err := client.EndStream(ctx)
 
 ## Concurrency
 
-`Client` is goroutine-safe via `sync.Mutex`. The Haskell RTS init is
+`Client` is goroutine-safe via a 1-deep channel-token semaphore (`lockCh chan struct{}`), chosen over `sync.Mutex` so that `ctx`-aware `TryLock` cancellation works correctly (see `docs/architecture/CANCELLATION.md` §2.2). The Haskell RTS init is
 thread-pinned (`runtime.LockOSThread`) on first use. See
 [../docs/architecture/CGO_NOTES.md](../docs/architecture/CGO_NOTES.md) for the
 cgo + dlopen rationale and thread-pinning details.

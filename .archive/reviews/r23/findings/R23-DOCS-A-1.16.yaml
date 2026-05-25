@@ -1,0 +1,22 @@
+id: R23-DOCS-A-1.16
+round: R23
+category:
+  number: 1
+  name: Accuracy
+  language: docs
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: PROJECT_STATUS.md 'R22 ready to merge' is historical
+description: R22 merged at 3ebfc37 + ce7bbcc.  Updated to reflect merged state + push-gap
+  closure; added R23 context.
+files:
+- PROJECT_STATUS.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

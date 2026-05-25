@@ -30,7 +30,7 @@ auto format_value(double v) -> std::string {
 // `libaletheia-ffi.so` throws `AletheiaException(Ffi)` rather than
 // silently diverging.
 auto format_value(const Rational& r) -> std::string {
-    return detail::format_rational_ffi(r.numerator, r.denominator);
+    return detail::format_rational_ffi(r.numerator(), r.denominator());
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;

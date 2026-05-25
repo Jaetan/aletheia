@@ -4,7 +4,7 @@ Scope: ALL files in `.github/workflows/`, `.github/actions/`, plus any cron/sche
 
 **Tooling gates (hard requirements):**
 - `actionlint` must produce **zero findings** on every workflow YAML in `.github/workflows/`.
-- Every external action reference uses a 40-character commit SHA, never a tag (`@v3`, `@v4.0.1`) or branch (`@main`); a `dependabot.yml` config raises PRs to bump SHAs and the bump is reviewed like any other dependency change.
+- Every external action reference uses a 40-character commit SHA, never a tag (`@v3`, `@v4.0.1`) or branch (`@main`).  **Carve-out**: GitHub-owned actions (`actions/*`, `github/*`) may use `@v<N>` major-version tags because GitHub maintains the tag-to-SHA mapping integrity for these first-party actions; this carve-out is encoded in `tools/check_action_pins.py` and is the only deviation from the strict-SHA rule.  A `dependabot.yml` config raises PRs to bump SHAs and the bump is reviewed like any other dependency change.
 - **Adding any `continue-on-error: true` or `|| true`-style mask** requires a written rationale comment naming the failure mode and the recovery path — without a rationale, the silent-failure surface is a finding.
 
 ### Hygiene & Hardening (5)
@@ -28,7 +28,7 @@ tools/check_workflow_permissions.py
 tools/check_reproducible_build.py
 ```
 
-All three audit scripts and `.github/dependabot.yml` are in place (added 2026-05-09).  Subsequent rounds maintain them: R20 surfaced regex-hardening and edge-case findings against the scripts themselves (`CICD-1.2`, `CICD-1.3`, `CICD-2.3`, `CICD-3.2`, `CICD-5.1`) — open work, tracked in the round's findings doc.  Action references in `.github/workflows/` are still tag-pinned (`@v4`) rather than 40-char SHA; the SHA-migration is the next reviewable change under cat 1 and remains in the queue until Dependabot raises and lands the migration PRs.
+All three audit scripts and `.github/dependabot.yml` are in place (added 2026-05-09).  Action references in `.github/workflows/` use `@v<N>` major-version tags for GitHub-owned actions (`actions/*`, `github/*`) per the carve-out above; third-party actions must be 40-char SHA pinned.  `tools/check_action_pins.py` enforces this policy and is the canonical specification — when the policy needs to evolve, change the script first, then update this guideline to match.
 
 ---
 

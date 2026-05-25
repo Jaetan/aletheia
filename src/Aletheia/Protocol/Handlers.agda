@@ -34,10 +34,11 @@ open import Aletheia.DBC.BoundWalks using
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
+open import Aletheia.DBC.Identifier using (TooLong; BadChars)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (finalizeL; initProc)
-open import Aletheia.LTL.JSON using (parseProperty)
+open import Aletheia.LTL.JSON using (parseProperty; ParseFail; Shape; BadSignal)
 open import Aletheia.LTL.Syntax using (atomCount)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; SendFrame; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
@@ -48,17 +49,20 @@ open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
-  ( Error; HandlerErr; WithContext
+  ( Error; HandlerErr; WithContext; ParseErr
   ; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
   ; PropertyParseFailed; ValidationFailed
+  ; InvalidIdentifier
   )
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; AtomCount; StringLength
+  ( BoundKind; ArrayCardinality; AtomCount; StringLength; PropertyCount; IdentifierLength
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
   ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
   ; max-value-descriptions-per-file
   ; max-atom-count-per-property
+  ; max-properties-per-stream
+  ; max-identifier-length
   )
 open import Data.Char using (Char)
 
@@ -246,7 +250,7 @@ withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj�
 -- Parse property list (extracted from where-block for proof access).
 --
 -- Distinguishes two rejection paths at the handler boundary:
---   * Shape malformed (`parseProperty` → `nothing`): emit untyped
+--   * Shape malformed (`parseProperty` → `inj₁ Shape`): emit untyped
 --     `HandlerErr (PropertyParseFailed idx)` (code
 --     `handler_property_parse_failed`).
 --   * Shape OK but atom count > `max-atom-count-per-property` (1024):
@@ -260,25 +264,56 @@ withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj�
 -- property identifier; `toℕ` lifts it to `ℕ` only for the wire-side
 -- `PropertyParseFailed` envelope (which still carries `ℕ` because the
 -- error message reaches the user regardless of `n`).
+
+-- AGDA-D-10.1 (R23): signal names are `Identifier`-typed and validated on the
+-- SINGLE parse path — `parseProperty` carries the typed reason out as
+-- `ParseFail`, so there is no second raw-JSON walk to keep in sync.  Map the
+-- verdict directly to the wire error:
+--   * `Shape`                   — malformed JSON shape → untyped
+--                                 `HandlerErr (PropertyParseFailed idx)`.
+--   * `BadSignal (TooLong n)`   — name over `max-identifier-length` →
+--                                 `InputBoundExceeded IdentifierLength`
+--                                 (preserves AGDA-D-32.1; the old post-parse
+--                                 per-atom length check is now unreachable —
+--                                 over-long names fail the single parse first).
+--   * `BadSignal (BadChars cs)` — bad charset / empty →
+--                                 `ParseErr (InvalidIdentifier …)`.
+parseFailResponse : StreamState → ℕ → ParseFail → StreamState × Response
+parseFailResponse state propIdx Shape =
+      (state , Response.Error (WithContext "SetProperties"
+                                (HandlerErr (PropertyParseFailed propIdx))))
+parseFailResponse state _ (BadSignal (TooLong observed)) =
+      (state , Response.Error (WithContext "SetProperties"
+                                (InputBoundExceeded IdentifierLength observed max-identifier-length)))
+parseFailResponse state _ (BadSignal (BadChars cs)) =
+      (state , Response.Error (WithContext "SetProperties"
+                                (ParseErr (InvalidIdentifier (fromList cs)))))
+
 parseAllProperties : (n : ℕ) → StreamState → DBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
 parseAllProperties n _ dbc [] acc =
   (ReadyToStream n dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
 parseAllProperties n state dbc ((idx , json) ∷ rest) acc with parseProperty json
-... | nothing = (state , Response.Error (WithContext "SetProperties" (HandlerErr (PropertyParseFailed (toℕ idx)))))
-... | just prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
+... | inj₁ pf   = parseFailResponse state (toℕ idx) pf
+... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
 ...   | false | observed = (state , Response.Error
                               (WithContext "SetProperties"
                                 (InputBoundExceeded AtomCount observed max-atom-count-per-property)))
-...   | true  | _        = let atoms = collectAtoms prop
-                               proc = initProc (indexFormula prop)
-                               propState = mkPropertyState idx prop atoms proc
-                           in parseAllProperties n state dbc rest (propState ∷ acc)
+...   | true  | _        =
+       let atoms = collectAtoms prop
+           proc = initProc (indexFormula prop)
+           propState = mkPropertyState idx prop atoms proc
+       in parseAllProperties n state dbc rest (propState ∷ acc)
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
-handleSetProperties propJSONs state@(ReadyToStream _ dbc _ _) =
+handleSetProperties propJSONs state@(ReadyToStream _ dbc _ _)
+  with length propJSONs <ᵇ suc max-properties-per-stream | length propJSONs
+... | false | observed = (state , Response.Error
+                            (WithContext "SetProperties"
+                              (InputBoundExceeded PropertyCount observed max-properties-per-stream)))
+... | true  | _        =
   parseAllProperties (length propJSONs) state dbc (withIndices propJSONs) []
 handleSetProperties propJSONs state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))

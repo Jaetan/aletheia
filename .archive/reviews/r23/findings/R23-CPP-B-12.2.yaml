@@ -1,0 +1,29 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-CPP-B-12.2
+round: R23
+category:
+  number: 12
+  name: Parsing robustness
+  language: cpp
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: parse_bounded throws runtime_error (not typed InputBoundExceeded)
+description: Defense-in-depth; the FFI-entry size cap is the canonical InputBoundExceeded
+  enforcer.  Defer + document.
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: '2849371'
+  round: R23
+  date: '2026-05-23'
+  notes: 'Expanded parse_bounded docstring to make explicit WHY runtime_error rather than
+    typed InputBoundExceeded: the nesting-depth cap is a client-side defensive guard against
+    malformed kernel responses, not a kernel-side inbound bound; no kernel BoundKind matches
+    ''json nesting depth'' so the typed shape would be misleading.  The runtime_error gets
+    routed through make_error(ErrorKind::Protocol, ...) which is the right semantic class
+    for malformed/corrupted server replies.'
+re_raised_from: null
+in_source_marker: null

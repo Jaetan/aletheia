@@ -63,7 +63,7 @@ func TestWithLogger_Enrichment(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// SendFrame → violation
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
 		// Extraction for enrichment
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
 		aletheia.Respond(`{
@@ -146,7 +146,7 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// SendFrame → violation
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"test"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"test"}]}`),
 		// Extraction fails with protocol error
 		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
 	)
@@ -172,8 +172,8 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Violation still returned despite extraction failure
-	if _, ok := resp.(aletheia.Violation); !ok {
-		t.Fatalf("expected Violation, got %T", resp)
+	if _, ok := resp.(aletheia.PropertyBatch); !ok {
+		t.Fatalf("expected PropertyBatch, got %T", resp)
 	}
 
 	output := buf.String()

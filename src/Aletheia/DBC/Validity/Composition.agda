@@ -25,6 +25,7 @@ open import Aletheia.DBC.Validator using
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
+open import Aletheia.DBC.Validity.Combinators using (requireDec-allE; rejectDec-allE)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using ([]; _∷_; length) renaming (_++_ to _++ₗ_)
@@ -90,26 +91,31 @@ ei-combine xs ys px py = trans (errorIssues-++ xs ys) (++-≡[]-combine px py)
 -- PER-ELEMENT allE PROOFS
 -- ============================================================================
 
+-- Per-check `-allE` proofs.  Six of the eight (checks 1-3, 8-10) follow
+-- the trivial requireDec/rejectDec pattern and use the corresponding
+-- {require,reject}Dec-allE lemma in Validity.Combinators; the `refl`
+-- witness discharges `severity (mkIssue IsError ...) ≡ IsError` by
+-- record-projection reduction.  Checks 4 + 5 use multi-arm `with`
+-- patterns (mux presence + walkMux Bool) that don't fit the Dec
+-- combinator, so they stay inline.
+
 -- Check 1: DuplicateMessageIds
 checkDuplicateIdPair-allE : ∀ m1 m2 → All E (checkDuplicateIdPair m1 m2)
-checkDuplicateIdPair-allE m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
-... | yes _ = refl ∷ []
-... | no  _ = []
+checkDuplicateIdPair-allE m1 m2 =
+  rejectDec-allE (DBCMessage.id m1 ≟-CANId DBCMessage.id m2) _ refl
 
 -- Check 2: DuplicateSignalNames
 checkDuplicateSignalPair-allE : ∀ msgName s1 s2 → All E (checkDuplicateSignalPair msgName s1 s2)
-checkDuplicateSignalPair-allE msgName s1 s2 with signalNameStr s1 ≟ₛ signalNameStr s2
-... | yes _ = refl ∷ []
-... | no  _ = []
+checkDuplicateSignalPair-allE _ s1 s2 =
+  rejectDec-allE (signalNameStr s1 ≟ₛ signalNameStr s2) _ refl
 
 -- Check 3: FactorZero
 checkFactorZeroSig-allE : ∀ msgName sig → All E (checkFactorZeroSig msgName sig)
-checkFactorZeroSig-allE msgName sig
-  with DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
-... | yes _ = refl ∷ []
-... | no  _ = []
+checkFactorZeroSig-allE _ sig =
+  rejectDec-allE (DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0))
+                 _ refl
 
--- Check 4: MuxFound
+-- Check 4: MuxFound — multi-arm with pattern, stays inline
 checkMuxFoundSig-allE : ∀ msgName sigs sig → All E (checkMuxFoundSig msgName sigs sig)
 checkMuxFoundSig-allE msgName sigs sig with DBCSignal.presence sig
 ... | Always = []
@@ -117,7 +123,7 @@ checkMuxFoundSig-allE msgName sigs sig with DBCSignal.presence sig
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 
--- Check 5: MuxCycle
+-- Check 5: MuxCycle — Bool walkMux, stays inline
 checkMuxCycleSig-allE : ∀ msgName sigs sig →
   All E (checkMuxCycleSig msgName sigs sig)
 checkMuxCycleSig-allE msgName sigs sig
@@ -128,24 +134,20 @@ checkMuxCycleSig-allE msgName sigs sig
 -- Check 8: SignalExceedsDLC
 checkSignalExceedsDLC-allE : ∀ msgName dlc sig →
   All E (checkSignalExceedsDLC msgName dlc sig)
-checkSignalExceedsDLC-allE msgName dlc sig
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes _ = []
-... | no  _ = refl ∷ []
+checkSignalExceedsDLC-allE _ dlc sig =
+  requireDec-allE (SignalDef.startBit (DBCSignal.signalDef sig)
+                  + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8)
+                  _ refl
 
 -- Check 9: SignalOverlap
 checkOverlapPair-allE : ∀ msgName n s1 s2 → All E (checkOverlapPair msgName n s1 s2)
-checkOverlapPair-allE msgName n s1 s2 with signalPairValid? n s1 s2
-... | yes _ = []
-... | no  _ = refl ∷ []
+checkOverlapPair-allE _ n s1 s2 =
+  requireDec-allE (signalPairValid? n s1 s2) _ refl
 
 -- Check 10: BitLengthZero
 checkBitLengthZero-allE : ∀ msgName sig → All E (checkBitLengthZero msgName sig)
-checkBitLengthZero-allE msgName sig
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ 0
-... | yes _ = refl ∷ []
-... | no  _ = []
+checkBitLengthZero-allE _ sig =
+  rejectDec-allE (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ 0) _ refl
 
 -- ============================================================================
 -- LIFTED allE PROOFS

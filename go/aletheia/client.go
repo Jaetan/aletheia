@@ -823,19 +823,36 @@ func (c *Client) sendFrameLocked(
 		copy(dataCopy, data)
 		c.lastFrames[canIDKey(id)] = lastFrameData{id: id, dlc: dlc, data: dataCopy}
 	}
-	if v, ok := fr.(Violation); ok && c.diags != nil {
-		c.enrichViolation(ctx, &v, id, dlc, data)
-		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
-			c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
-				slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
-				slog.Bool("extended", id.IsExtended()), slog.String("response", "violation"))
+	// R23 — AGDA-D-12.1: frame responses are now Ack | PropertyBatch.
+	// PropertyBatch carries mid-stream Satisfactions (Verdict==Holds)
+	// followed by an optional terminal Violation (Verdict==Fails);
+	// enrich every fails entry in source-order so the binding's user
+	// sees signal diagnostics on each violation in the batch.  Use the
+	// per-frame FFI extraction path (with extraction cache) — mirrors
+	// the pre-R23 enrichViolation behaviour, NOT enrichPropertyResult
+	// (which uses last-known frames and is the EndStream pattern).
+	if b, ok := fr.(PropertyBatch); ok && c.diags != nil {
+		for i := range b.Results {
+			if b.Results[i].Verdict == Fails {
+				c.enrichStreamingViolation(ctx, &b.Results[i], id, dlc, data)
+			}
 		}
-		return v, nil
+		fr = b
 	}
 	if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
+		response := "ack"
+		if b, ok := fr.(PropertyBatch); ok {
+			response = "satisfaction"
+			for _, r := range b.Results {
+				if r.Verdict == Fails {
+					response = "violation"
+					break
+				}
+			}
+		}
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
-			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
+			slog.Bool("extended", id.IsExtended()), slog.String("response", response))
 	}
 	return fr, nil
 }
@@ -897,11 +914,15 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 	return sr, nil
 }
 
-// enrichViolation adds a ViolationEnrichment to a Violation. Caller must hold
-// the client lock.  ctx is forwarded to slog so request-scoped attrs propagate
-// into structured-log records.
-func (c *Client) enrichViolation(ctx context.Context, v *Violation, id CANID, dlc DLC, data FramePayload) {
-	idx := int(v.PropertyIndex)
+// enrichStreamingViolation adds a ViolationEnrichment to a streaming
+// violation entry (PropertyResult with Verdict == Fails inside a
+// PropertyBatch).  Uses the per-frame FFI extraction path via
+// extractSignalValues (cached), matching the pre-R23 enrichViolation
+// behaviour.  Distinct from enrichPropertyResult, which is the
+// EndStream path and uses last-known frames rather than the current
+// frame's payload.  Caller must hold the client lock.
+func (c *Client) enrichStreamingViolation(ctx context.Context, pr *PropertyResult, id CANID, dlc DLC, data FramePayload) {
+	idx := int(pr.PropertyIndex)
 	if idx >= len(c.diags) {
 		if c.logger != nil {
 			c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.property_index_oob",
@@ -911,12 +932,12 @@ func (c *Client) enrichViolation(ctx context.Context, v *Violation, id CANID, dl
 	}
 	diag := c.diags[idx]
 	values := c.extractSignalValues(ctx, diag, id, dlc, data)
-	reason := formatEnrichedReason(diag, values, v.Reason)
-	v.Enrichment = &ViolationEnrichment{
+	reason := formatEnrichedReason(diag, values, pr.Reason)
+	pr.Enrichment = &ViolationEnrichment{
 		Signals:        values,
 		FormulaDesc:    diag.FormulaDesc,
 		EnrichedReason: reason,
-		CoreReason:     v.Reason,
+		CoreReason:     pr.Reason,
 	}
 }
 

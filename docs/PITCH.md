@@ -37,10 +37,10 @@ Aletheia provides:
 
 1. **Multi-language APIs**: Familiar interfaces for automotive engineers
    ```python
-   Check.signal("Speed").never_exceeds(220)                          # Python
+   checks.signal("Speed").never_exceeds(220)                   # Python
    ```
    ```cpp
-   Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});  // C++
+   check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});  // C++
    ```
    ```go
    aletheia.CheckSignal("Speed").NeverExceeds(220)                   // Go
@@ -148,7 +148,7 @@ Agda (all logic + proofs, compiled via MAlonzo)
 Python:
 ```python
 from pathlib import Path
-Check.signal("Speed").never_exceeds(220)            # Check API
+checks.signal("Speed").never_exceeds(220)           # Check API
 load_checks(Path("checks.yaml"))                    # YAML (Path → file)
 load_checks_from_excel("tests.xlsx")                # Excel
 Signal("Speed").less_than(220).always()             # Full DSL
@@ -156,7 +156,7 @@ Signal("Speed").less_than(220).always()             # Full DSL
 
 C++:
 ```cpp
-Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
 [[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
 [[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
 // LTL formulas via ltl:: namespace (compositional, not fluent DSL):
@@ -176,16 +176,16 @@ _ = f
 **Streaming workflow** (Python shown; C++ and Go follow the same pattern):
 
 ```python
-from aletheia import AletheiaClient, Check
+from aletheia import AletheiaClient, checks
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.can_log import iter_can_log
 
 dbc = dbc_to_json("vehicle.dbc")
-checks = [Check.signal("Speed").never_exceeds(220)]
+check_list = [checks.signal("Speed").never_exceeds(220)]
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.add_checks(checks)
+    client.add_checks(check_list)
     client.start_stream()
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):

@@ -22,15 +22,13 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-
-#ifndef ALETHEIA_REPO_ROOT
-#error "ALETHEIA_REPO_ROOT must be defined at compile time by CMake"
-#endif
 
 namespace {
 
@@ -39,8 +37,16 @@ constexpr std::array<std::string_view, 3> kValidStatuses = {"implemented", "not_
 
 constexpr std::array<std::string_view, 3> kBindings = {"python", "cpp", "go"};
 
+// CPP-D-18.1 R23: repo root is passed via the ALETHEIA_REPO_ROOT env var
+// by ctest's set_tests_properties(ENVIRONMENT ...) rather than baked
+// into a compile-time define.  Keeps the test binary bit-identical
+// regardless of build location — required for reproducible builds.
 auto repo_root() -> std::filesystem::path {
-    return std::filesystem::path{ALETHEIA_REPO_ROOT};
+    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
+        return std::filesystem::path{env};
+    }
+    throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
+                             "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
 }
 
 auto matrix_path() -> std::filesystem::path {

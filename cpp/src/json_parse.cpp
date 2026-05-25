@@ -27,9 +27,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 58-entry table on a cold parse path.
+// for the 59-entry table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
+constexpr std::array<ErrorCodeEntry, 59> error_code_table{{
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -49,6 +49,7 @@ constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
     {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
+    {"parse_non_integer_multiplex_value", ErrorCode::ParseNonIntegerMultiplexValue},
     // DBC text parse errors
     {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
     {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
@@ -125,9 +126,16 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 // parser via stack overflow without this guard).  See AGENTS.md universal
 // rule "Adversarial-input bounds at parser surfaces" + R18 cluster 2 closure.
 //
-// Throws `std::runtime_error` with a descriptive message on depth exceedance;
-// the existing `catch (const std::exception&)` block at every parse_*
-// callsite converts it to a `Result<>` error via `make_error`.
+// Throws `std::runtime_error` (not typed `InputBoundExceeded`) by design:
+// `InputBoundExceeded` carries the kernel-side `bound_kind / observed / limit`
+// triple where `bound_kind` is one of the kernel's `BoundKind` ADT entries
+// (`MessageCount`, `AtomCount`, `IdentifierLength`, `PropertyCount`, etc.).
+// JSON nesting depth is a client-side guard against malformed *responses*
+// from the kernel — not an inbound kernel input bound — so it doesn't fit
+// any `BoundKind` and the typed shape would be misleading.  The existing
+// `catch (const std::exception&)` block at every parse_* callsite converts
+// the `runtime_error` to a `Result<>` error via `make_error(ErrorKind::Protocol,
+// ...)`, which is the right semantic class (malformed/corrupted server reply).
 static auto parse_bounded(std::string_view input) -> Json {
     auto callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
         if (static_cast<std::uint64_t>(depth) > max_nesting_depth) {
@@ -139,6 +147,17 @@ static auto parse_bounded(std::string_view input) -> Json {
     return Json::parse(input, callback);
 }
 
+// Post-R19P2-cluster-14: routes the response through `ErrorKind::InputBoundExceeded`
+// regardless of the kind the caller guessed from the response section (Protocol /
+// Validation), so the typed bound-info shape is exposed uniformly across the JSON /
+// DBC-text / binary parser surfaces.  Mirrors Python's `InputBoundExceededError`
+// subclassing and Go's typed `*InputBoundExceededError` discriminator.  Originally
+// dispatched over three codes; cluster 14 collapsed Parse/Route/Handler input-bound
+// variants into a single top-level `ErrorCode::InputBoundExceeded`.
+static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
+    return code == ErrorCode::InputBoundExceeded;
+}
+
 /// Extract error from a JSON response with status=="error", parsing the code field.
 ///
 /// Both ``code`` and ``message`` must be non-null strings — a missing or
@@ -148,16 +167,6 @@ static auto parse_bounded(std::string_view input) -> Json {
 /// regression in production logs because the old ``j.value("code", "")``
 /// / ``j.value("message", "Unknown error")`` defaults masked malformed
 /// responses.
-// R19 cluster 8 — CPP-D-21.5: any of these three codes routes the response
-// through `ErrorKind::InputBoundExceeded` regardless of the kind the caller
-// guessed from the response section (Protocol / Validation), so the typed
-// bound-info shape is exposed uniformly across the JSON / DBC-text / binary
-// parser surfaces.  Mirrors Python's `InputBoundExceededError` subclassing
-// and Go's typed `*InputBoundExceededError` discriminator.
-static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
-    return code == ErrorCode::InputBoundExceeded;
-}
-
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     if (!j.contains("code") || !j.at("code").is_string())
         return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
@@ -187,6 +196,24 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
                          std::move(bound_info)};
 }
 
+// Decode a JSON {numerator, denominator} object into a normalized (num, den)
+// pair with den > 0.  Throws on zero denominator or normalization overflow
+// (INT64_MIN cannot be negated).  Caller is responsible for first verifying
+// `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
+static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
+    auto num = j.at("numerator").get<std::int64_t>();
+    auto den = j.at("denominator").get<std::int64_t>();
+    if (den == 0)
+        throw std::runtime_error("Zero denominator in rational: " + j.dump());
+    if (den < 0) {
+        if (num == std::numeric_limits<std::int64_t>::min())
+            throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
+        num = -num;
+        den = -den;
+    }
+    return {num, den};
+}
+
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.
 // Returns Rational for exact precision (no double truncation).
 // Throws on unrecognized formats; callers catch at the public API boundary.
@@ -196,64 +223,43 @@ static auto parse_signal_value(const Json& j) -> Rational {
     if (j.is_number())
         return Rational::from_double(j.get<double>());
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<std::int64_t>();
-        auto den = j.at("denominator").get<std::int64_t>();
-        if (den == 0)
-            throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        if (den < 0) {
-            if (num == std::numeric_limits<std::int64_t>::min())
-                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
-            num = -num;
-            den = -den;
-        }
+        auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
     throw std::runtime_error("Expected number or {numerator, denominator}, got: " + j.dump());
 }
 
-static auto parse_issue_code(const std::string& code) -> IssueCode {
-    if (code == "duplicate_message_id")
-        return IssueCode::DuplicateMessageId;
-    if (code == "duplicate_message_name")
-        return IssueCode::DuplicateMessageName;
-    if (code == "duplicate_signal_name")
-        return IssueCode::DuplicateSignalName;
-    if (code == "factor_zero")
-        return IssueCode::FactorZero;
-    if (code == "multiplexor_not_found")
-        return IssueCode::MultiplexorNotFound;
-    if (code == "multiplexor_cycle")
-        return IssueCode::MultiplexorCycle;
-    if (code == "global_name_collision")
-        return IssueCode::GlobalNameCollision;
-    if (code == "min_exceeds_max")
-        return IssueCode::MinExceedsMax;
-    if (code == "signal_exceeds_dlc")
-        return IssueCode::SignalExceedsDlc;
-    if (code == "signal_overlap")
-        return IssueCode::SignalOverlap;
-    if (code == "bit_length_zero")
-        return IssueCode::BitLengthZero;
-    if (code == "offset_scale_range")
-        return IssueCode::OffsetScaleRange;
-    if (code == "empty_message")
-        return IssueCode::EmptyMessage;
-    if (code == "start_bit_out_of_range")
-        return IssueCode::StartBitOutOfRange;
-    if (code == "bit_length_excessive")
-        return IssueCode::BitLengthExcessive;
-    if (code == "multiplexor_non_unit_scaling")
-        return IssueCode::MultiplexorNonUnitScaling;
-    if (code == "duplicate_attribute_name")
-        return IssueCode::DuplicateAttributeName;
-    if (code == "unknown_comment_target")
-        return IssueCode::UnknownCommentTarget;
-    if (code == "unknown_message_sender")
-        return IssueCode::UnknownMessageSender;
-    if (code == "unknown_signal_receiver")
-        return IssueCode::UnknownSignalReceiver;
-    if (code == "unknown_value_description_target")
-        return IssueCode::UnknownValueDescriptionTarget;
+// String → IssueCode lookup table.  Same shape as `error_code_table` at the
+// top of this file; linear scan is fine on the cold validation path.
+using IssueCodeEntry = std::pair<std::string_view, IssueCode>;
+constexpr std::array<IssueCodeEntry, 21> issue_code_table{{
+    {"duplicate_message_id", IssueCode::DuplicateMessageId},
+    {"duplicate_message_name", IssueCode::DuplicateMessageName},
+    {"duplicate_signal_name", IssueCode::DuplicateSignalName},
+    {"factor_zero", IssueCode::FactorZero},
+    {"multiplexor_not_found", IssueCode::MultiplexorNotFound},
+    {"multiplexor_cycle", IssueCode::MultiplexorCycle},
+    {"global_name_collision", IssueCode::GlobalNameCollision},
+    {"min_exceeds_max", IssueCode::MinExceedsMax},
+    {"signal_exceeds_dlc", IssueCode::SignalExceedsDlc},
+    {"signal_overlap", IssueCode::SignalOverlap},
+    {"bit_length_zero", IssueCode::BitLengthZero},
+    {"offset_scale_range", IssueCode::OffsetScaleRange},
+    {"empty_message", IssueCode::EmptyMessage},
+    {"start_bit_out_of_range", IssueCode::StartBitOutOfRange},
+    {"bit_length_excessive", IssueCode::BitLengthExcessive},
+    {"multiplexor_non_unit_scaling", IssueCode::MultiplexorNonUnitScaling},
+    {"duplicate_attribute_name", IssueCode::DuplicateAttributeName},
+    {"unknown_comment_target", IssueCode::UnknownCommentTarget},
+    {"unknown_message_sender", IssueCode::UnknownMessageSender},
+    {"unknown_signal_receiver", IssueCode::UnknownSignalReceiver},
+    {"unknown_value_description_target", IssueCode::UnknownValueDescriptionTarget},
+}};
+
+static auto parse_issue_code(std::string_view s) -> IssueCode {
+    for (const auto& [name, code] : issue_code_table)
+        if (name == s)
+            return code;
     return IssueCode::Unknown;
 }
 
@@ -263,17 +269,7 @@ static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
         return Rational{j.get<std::int64_t>(), 1};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<std::int64_t>();
-        auto den = j.at("denominator").get<std::int64_t>();
-        if (den == 0)
-            throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        // Normalize: denominator always positive
-        if (den < 0) {
-            if (num == std::numeric_limits<std::int64_t>::min())
-                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
-            num = -num;
-            den = -den;
-        }
+        auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
@@ -283,12 +279,10 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
     if (j.is_number_integer())
         return j.get<std::int64_t>();
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<std::int64_t>();
-        auto den = j.at("denominator").get<std::int64_t>();
-        if (den == 0)
-            throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        if (den == -1 && num == std::numeric_limits<std::int64_t>::min())
-            throw std::runtime_error("Integer overflow in rational: " + j.dump());
+        // parse_rational_dict normalizes den > 0, so the asymmetric INT64_MIN/-1
+        // overflow check from the pre-extraction code is subsumed by the helper's
+        // general (den<0, num==INT64_MIN) check.  After normalization num/den is safe.
+        auto [num, den] = parse_rational_dict(j);
         if (num % den != 0)
             throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
         return num / den;
@@ -357,27 +351,32 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
     };
 }
 
+// Construct a typed `CanId` from a JSON `{id, extended}` pair.  Centralises
+// the 11-bit standard-frame range check (max 2047) and the typed factory
+// failure paths so parse_message_def and parse_raw_value_desc agree on the
+// error wording.
+static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
+    if (extended) {
+        auto result = ExtendedId::create(id_val);
+        if (!result)
+            throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) + ": " +
+                                     result.error());
+        return CanId{*result};
+    }
+    if (id_val > 0x7FFU)
+        throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
+                                 " exceeds 11-bit standard-frame range (max 2047)");
+    auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
+    if (!result)
+        throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
+                                 result.error());
+    return CanId{*result};
+}
+
 static auto parse_message_def(const Json& j) -> DbcMessage {
     auto id_val = j.at("id").get<std::uint32_t>();
     const bool extended = j.value("extended", false);
-
-    const CanId id = [&]() -> CanId {
-        if (extended) {
-            auto result = ExtendedId::create(id_val);
-            if (!result)
-                throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) +
-                                         ": " + result.error());
-            return CanId{*result};
-        }
-        if (id_val > std::numeric_limits<std::uint16_t>::max())
-            throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
-                                     " exceeds uint16 range");
-        auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
-        if (!result)
-            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                     result.error());
-        return CanId{*result};
-    }();
+    const CanId id = json_to_can_id(id_val, extended);
 
     auto dlc_result = bytes_to_dlc(j.at("dlc").get<std::size_t>());
     if (!dlc_result)
@@ -498,22 +497,24 @@ static auto parse_comment(const Json& j) -> DbcComment {
     };
 }
 
-static auto parse_attr_scope(const std::string& s) -> DbcAttrScope {
-    if (s == "network")
-        return DbcAttrScope::Network;
-    if (s == "node")
-        return DbcAttrScope::Node;
-    if (s == "message")
-        return DbcAttrScope::Message;
-    if (s == "signal")
-        return DbcAttrScope::Signal;
-    if (s == "envVar")
-        return DbcAttrScope::EnvVar;
-    if (s == "nodeMsg")
-        return DbcAttrScope::NodeMsg;
-    if (s == "nodeSig")
-        return DbcAttrScope::NodeSig;
-    throw std::runtime_error("Unknown attribute scope: " + s);
+// String → DbcAttrScope lookup table.  Same shape as `error_code_table` /
+// `issue_code_table`; unknown scope is a hard error (unlike issue_code).
+using AttrScopeEntry = std::pair<std::string_view, DbcAttrScope>;
+constexpr std::array<AttrScopeEntry, 7> attr_scope_table{{
+    {"network", DbcAttrScope::Network},
+    {"node", DbcAttrScope::Node},
+    {"message", DbcAttrScope::Message},
+    {"signal", DbcAttrScope::Signal},
+    {"envVar", DbcAttrScope::EnvVar},
+    {"nodeMsg", DbcAttrScope::NodeMsg},
+    {"nodeSig", DbcAttrScope::NodeSig},
+}};
+
+static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
+    for (const auto& [name, scope] : attr_scope_table)
+        if (name == s)
+            return scope;
+    throw std::runtime_error("Unknown attribute scope: " + std::string{s});
 }
 
 static auto parse_attr_type(const Json& j) -> DbcAttrType {
@@ -618,23 +619,7 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
     auto id_val = j.at("id").get<std::uint32_t>();
     const bool extended = j.value("extended", false);
-    const CanId can_id = [&]() -> CanId {
-        if (extended) {
-            auto result = ExtendedId::create(id_val);
-            if (!result)
-                throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) +
-                                         ": " + result.error());
-            return CanId{*result};
-        }
-        if (id_val > std::numeric_limits<std::uint16_t>::max())
-            throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
-                                     " exceeds uint16 range");
-        auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
-        if (!result)
-            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                     result.error());
-        return CanId{*result};
-    }();
+    const CanId can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
     for (const auto& e : j.at("entries"))
         entries.push_back(DbcValueEntry{
@@ -820,6 +805,44 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     }
 }
 
+// Parse one inner per-property verdict object — shared between the
+// streaming PropertyBatch path (frame response) and the EndStream
+// StreamResult path (parse_stream_result).  R23 — AGDA-D-12.1.
+static auto parse_property_result_entry(const Json& r) -> PropertyResult {
+    auto entry_status = r.value("status", "");
+    Verdict verdict{};
+    if (entry_status == "holds")
+        verdict = Verdict::Holds;
+    else if (entry_status == "fails")
+        verdict = Verdict::Fails;
+    else if (entry_status == "unresolved")
+        verdict = Verdict::Unresolved;
+    else
+        throw std::runtime_error("Unknown verdict status: " + entry_status);
+    auto idx = parse_rational_as_int(r.at("property_index"));
+    if (idx < 0)
+        throw std::runtime_error("Negative property_index: " + std::to_string(idx));
+
+    std::optional<Timestamp> ts;
+    if (r.contains("timestamp")) {
+        auto ts_val = parse_rational_as_int(r.at("timestamp"));
+        if (ts_val < 0)
+            throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
+        ts = Timestamp{ts_val};
+    }
+
+    std::string reason;
+    if (r.contains("reason") && r.at("reason").is_string())
+        reason = r.at("reason").get<std::string>();
+
+    return PropertyResult{
+        .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
+        .verdict = verdict,
+        .timestamp = ts,
+        .reason = std::move(reason),
+    };
+}
+
 auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
     // Fast path: byte-level check for the common ack response.
     // Avoids full JSON parsing for ~99% of streaming frames.
@@ -835,33 +858,53 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         if (status == "ack")
             return FrameResponse{Ack{}};
 
-        if (status == "fails") {
-            if (j.value("type", "") != "property")
-                throw std::runtime_error("Expected type \"property\" in violation response");
-            auto idx = parse_rational_as_int(j.at("property_index"));
-            if (idx < 0)
-                throw std::runtime_error("Negative property_index: " + std::to_string(idx));
-            auto ts = parse_rational_as_int(j.at("timestamp"));
-            if (ts < 0)
-                throw std::runtime_error("Negative timestamp: " + std::to_string(ts));
-            std::string reason;
-            if (j.contains("reason") && j.at("reason").is_string())
-                reason = j.at("reason").get<std::string>();
-            return FrameResponse{Violation{
-                .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-                .timestamp = Timestamp{ts},
-                .reason = std::move(reason),
-            }};
-        }
-
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
 
+        // R23 — AGDA-D-12.1: streaming PropertyResponse is now a
+        // batch envelope `{"type": "property_batch", "results": [...]}`.
+        // Each results entry is a PropertyResult (holds/fails/unresolved);
+        // violations close the batch in source-order per the Agda
+        // dispatchIterResult invariant.
+        if (j.value("type", "") == "property_batch") {
+            const auto& raw_results = j.at("results");
+            if (!raw_results.is_array() || raw_results.empty())
+                throw std::runtime_error(
+                    "property_batch response 'results' must be a non-empty array "
+                    "(zero-event frames are encoded as ack)");
+            std::vector<PropertyResult> results;
+            results.reserve(raw_results.size());
+            for (const auto& r : raw_results)
+                results.push_back(parse_property_result_entry(r));
+            return FrameResponse{PropertyBatch{.results = std::move(results)}};
+        }
+
         return std::unexpected(
-            make_error(ErrorKind::Protocol, "Unexpected frame status: " + status));
+            make_error(ErrorKind::Protocol, "Unexpected frame response: status=" + status +
+                                                " type=" + j.value("type", "")));
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
     }
+}
+
+// Parse one entry in the `warnings` array.  Extracted from
+// `parse_stream_result` so the outer function stays under clang-tidy's
+// readability-function-cognitive-complexity threshold (25).  R23 cluster C
+// added the `contains("property_index")` guard, which bumped the outer
+// function above the threshold.
+static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
+    if (!w.contains("property_index"))
+        throw std::runtime_error("Warning entry missing required 'property_index' field");
+    auto kind = w.value("kind", "");
+    auto idx = parse_rational_as_int(w.at("property_index"));
+    if (idx < 0)
+        throw std::runtime_error("Negative warning property_index: " + std::to_string(idx));
+    auto detail = w.value("detail", "");
+    return StreamWarning{
+        .kind = std::move(kind),
+        .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
+        .detail = std::move(detail),
+    };
 }
 
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
@@ -875,56 +918,13 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
             return std::unexpected(make_error(ErrorKind::Protocol, "Expected complete response"));
 
         std::vector<PropertyResult> results;
-        for (const auto& r : j.at("results")) {
-            auto entry_status = r.value("status", "");
-            Verdict verdict{};
-            if (entry_status == "holds")
-                verdict = Verdict::Holds;
-            else if (entry_status == "fails")
-                verdict = Verdict::Fails;
-            else if (entry_status == "unresolved")
-                verdict = Verdict::Unresolved;
-            else
-                throw std::runtime_error("Unknown verdict status: " + entry_status);
-            auto idx = parse_rational_as_int(r.at("property_index"));
-            if (idx < 0)
-                throw std::runtime_error("Negative property_index: " + std::to_string(idx));
-
-            std::optional<Timestamp> ts;
-            if (r.contains("timestamp")) {
-                auto ts_val = parse_rational_as_int(r.at("timestamp"));
-                if (ts_val < 0)
-                    throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
-                ts = Timestamp{ts_val};
-            }
-
-            std::string reason;
-            if (r.contains("reason") && r.at("reason").is_string())
-                reason = r.at("reason").get<std::string>();
-
-            results.push_back({
-                .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-                .verdict = verdict,
-                .timestamp = ts,
-                .reason = std::move(reason),
-            });
-        }
+        for (const auto& r : j.at("results"))
+            results.push_back(parse_property_result_entry(r));
 
         std::vector<StreamWarning> warnings;
         if (j.contains("warnings")) {
-            for (const auto& w : j.at("warnings")) {
-                auto kind = w.value("kind", "");
-                auto idx = parse_rational_as_int(w.at("property_index"));
-                if (idx < 0)
-                    throw std::runtime_error("Negative warning property_index: " +
-                                             std::to_string(idx));
-                auto detail = w.value("detail", "");
-                warnings.push_back({
-                    .kind = std::move(kind),
-                    .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-                    .detail = std::move(detail),
-                });
-            }
+            for (const auto& w : j.at("warnings"))
+                warnings.push_back(parse_stream_warning_entry(w));
         }
         return StreamResult{.results = std::move(results), .warnings = std::move(warnings)};
     } catch (const std::exception& e) {

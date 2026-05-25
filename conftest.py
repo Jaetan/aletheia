@@ -34,6 +34,7 @@ from typing import Any, Iterator
 import pytest
 
 import aletheia
+import aletheia.checks
 import aletheia.can_log
 import aletheia.dbc_converter
 import aletheia.excel_loader
@@ -43,7 +44,6 @@ from aletheia import (
     AletheiaError,
     BatchError,
     CANFrameTuple,
-    Check,
     FrameResponse,
     ProtocolError,
     Signal,
@@ -191,7 +191,6 @@ def _make_globals() -> dict[str, Any]:
         "Signal": Signal,
         "Predicate": Predicate,
         "Property": Property,
-        "Check": Check,
         "AletheiaError": AletheiaError,
         "ProtocolError": ProtocolError,
         "ValidationError": ValidationError,
@@ -213,7 +212,8 @@ def _make_globals() -> dict[str, Any]:
         "client": client,
         "frames": [],
         "trace": [],
-        "checks": [],
+        "checks": aletheia.checks,
+        "check_list": [],
         "properties": [],
         "safety_checks": [],
         "session_checks": [],

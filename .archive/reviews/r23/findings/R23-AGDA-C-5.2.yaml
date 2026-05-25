@@ -1,0 +1,30 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-AGDA-C-5.2
+round: R23
+category:
+  number: 5
+  name: Error message consistency
+  language: agda
+  agent: C
+severity: low
+disposition: FIX
+status: closed
+title: Drop String payload from AttributeRefinementFailed
+description: Single-call-site String payload; could be inlined in formatter.  Touches wire
+  shape; defer.
+files:
+- src/Aletheia/DBC/TextParser.agda
+- src/Aletheia/Error.agda
+cluster: B
+resolution:
+  commit: '7922851'
+  round: R23
+  date: '2026-05-23'
+  notes: 'Dropped String payload from AttributeRefinementFailed ctor: the single construction
+    site at TextParser.agda:238 always passed the same string (''BA_DEF_DEF_ / BA_ / BA_REL_
+    references unknown AttrDef or OOB ENUM index''); baked it into formatDBCTextParseError
+    instead.  Wire-shape preserved — the JSON error message text is unchanged (same final
+    formatted string), the error code ''dbc_text_attribute_refinement_failed'' unchanged.  No
+    binding-side changes needed.'
+re_raised_from: null
+in_source_marker: null

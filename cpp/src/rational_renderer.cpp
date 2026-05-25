@@ -15,6 +15,8 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
+#include "detail/rts_init.hpp"
+
 #include <dlfcn.h>
 
 #include <cstdint>
@@ -146,10 +148,27 @@ void init_renderer() {
     // hs_init is idempotent in GHC; if `FfiBackend` has already
     // initialised the RTS (with `+RTS -N<cores>` flags maybe), this
     // no-op call doesn't disturb that.  If we win the race, FfiBackend
-    // observes `rts.initialized == true` and skips its own hs_init.
+    // observes `rts.initialized == true` via the shared `rts_init_state`
+    // (R23 — CPP-D-17.1) and routes through its cores-mismatch warning
+    // path instead of attempting a second `hs_init` whose argv would
+    // be silently dropped.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto hs_init = reinterpret_cast<HsInitFn>(hs_init_sym);
-    hs_init(nullptr, nullptr);
+    {
+        auto& rts = detail::rts_init_state();
+        const std::lock_guard lk{rts.mu};
+        if (!rts.initialized) {
+            hs_init(nullptr, nullptr);
+            rts.initialized = true;
+            // Renderer always calls hs_init with nullptr argv, so the RTS
+            // takes its default -N (typically 1 unless GHCRTS env var
+            // overrides).  Record `1` so FfiBackend's mismatch detection
+            // can surface the user's `rts_cores > 1` request as a downgrade.
+            rts.cores = 1;
+        }
+        // If `rts.initialized` was already true (FfiBackend ran first),
+        // hs_init is intentionally not called — the RTS is up.
+    }
 
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     s.format_fn = reinterpret_cast<FormatRationalFn>(fmt_sym);

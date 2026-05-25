@@ -115,6 +115,15 @@ client. If the warning fires from a third-party library that also
 uses GHC, this is a host-application coordination issue and the
 warning is informational only.
 
+**Cross-binding wiring asymmetry — wire the logger early:** The event
+fires from different sites depending on the binding (Go: `NewFFIBackend`
+before any client; Python: `LibraryHandle.acquire` during first client
+construction; C++: `AletheiaClient` constructor). An operator who has
+wired the logger only at one point may silently miss the warning.
+The safe pattern: wire the structured logger to the FFI Backend (Go /
+C++ / Python alike) at the earliest construction step in the host
+program, then pass that backend to every Client.
+
 ### Frame processing
 
 #### `frame.processed`
@@ -179,9 +188,20 @@ exists in the DBC but its bits do not fit the frame's payload (DLC
 mismatch).
 
 **Action:** Cross-check the violating predicate against the DBC's
-message and signal definitions for the violating CAN ID. If the
-predicate is correct, the frame is malformed; if the predicate is
-wrong, fix the property.
+message and signal definitions for the violating CAN ID. Operator
+workflow:
+
+```bash
+# Python (or via the unified CLI):
+python3 -m aletheia signals --dbc <file>.dbc | grep -i <signal_name>
+# Inspect the CAN ID:
+python3 -m aletheia messages --dbc <file>.dbc | grep -i <can_id_hex>
+```
+
+If the predicate is correct, the frame is malformed (check the producer's
+DLC + payload bits against the signal's start_bit + bit_length); if
+the predicate references a signal that does not exist on the violating
+frame's CAN ID, fix the property.
 
 ### Extraction cache
 
@@ -345,7 +365,7 @@ exports.
 `strings libaletheia-ffi.so | grep aletheia-ffi-`. Reinstall the
 matching pair: `cabal run shake -- build && pip install -e python`.
 
-#### MAlonzo symbol not found at FFI load time
+#### MAlonzo name mismatch (`d_<fn>_<NN>` rename drift)
 
 **Symptom:** The library loads, but the first call crashes with
 `Prelude.undefined` or a missing symbol like `_d_processJSONLine_*`.
@@ -423,14 +443,34 @@ or the binding raises `aletheia.InputBoundExceededError` (Python) /
   DLC values `0..15`).
 
 **Action:** Read the `bound_kind` / `observed` / `limit` fields on
-the typed error to identify which bound was crossed. If the input is
-legitimately oversize, see
-[PROTOCOL.md § Updating bounds](../architecture/PROTOCOL.md#updating-bounds)
-— bounds are intentionally generous (~6× headroom for commercial
-DBCs; commercial automotive DBCs are typically 1-10 MiB) and
-adjustments are a kernel + per-binding mirror change. If the input
-is a synthetic stress test or unexpected user data, this is the
-correct rejection.
+the typed error to identify which bound was crossed. Action then
+splits by bound-kind family:
+
+- **`nesting_depth`** — almost always a synthetic adversarial input
+  (no production JSON exceeds 64-level nesting).  Reject upstream; do
+  not raise the bound.
+- **`input_length_bytes`** / **`max_dbc_text_bytes`** / **`max_json_bytes`**
+  — a legitimate commercial DBC can exceed the 64 MiB cap if it carries
+  large value-table glossaries; see PROTOCOL.md § Updating bounds for
+  the kernel+binding mirror procedure.
+- **`array_cardinality`** on `max_messages_per_file` /
+  `max_signals_per_message` / `max_attributes_per_file` /
+  `max_value_descriptions_per_file` — most commonly hit by very large
+  commercial DBCs; the per-section caps have ~6× headroom but a single
+  oversize ECU bundle can exceed them.  Raising the bound requires
+  benchmarking the parser's O(N²) sub-paths (see
+  `feedback_parsedbc_quadratic_scaling.md`) before flipping the
+  constant.
+- **`identifier_length`** / **`string_length`** — legitimate DBCs do
+  not have 128-char identifiers; this is almost always input
+  corruption or a fuzz input.  Reject.
+- **`atom_count`** — an LTL property exceeded 1024 atoms.  The
+  property is likely the wrong shape (a real-world property should
+  fit in a few atoms); restructure rather than raising the cap.
+- **`frame_byte_count`** — structurally impossible for a valid CAN /
+  CAN-FD frame.  Indicates a binding-side encoding bug; check the
+  producer's DLC-to-bytes mapping (valid table:
+  `{0..8, 12, 16, 20, 24, 32, 48, 64}` for DLC values `0..15`).
 
 ### Runtime — OOM / heap pressure
 
@@ -503,6 +543,71 @@ equivalent) to enumerate issues. Each issue carries a stable
 `go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.
+
+**Binding-specific exception types** (when wiring a programmatic
+handler):
+
+- **Python**: `aletheia.ValidationError` (subclass of `AletheiaError`).
+  Catch via `except aletheia.ValidationError as e: ...` and inspect
+  `e.issues` for the list.
+- **Go**: a `*aletheia.ValidationError` returned from `ParseDBC` /
+  `ParseDBCText`.  Type-assert via
+  `if vErr := (*aletheia.ValidationError)(nil); errors.As(err, &vErr) {
+  ... vErr.Issues ... }`.
+- **C++**: `aletheia::ValidationError` (subclass of
+  `aletheia::AletheiaException`).  Catch via
+  `catch (const aletheia::ValidationError& e) { ... e.issues() ... }`.
+
+#### `handler_non_monotonic_timestamp` on `send_frame` / `send_error` / `send_remote`
+
+**Symptom:** A streaming operation returns
+`{"status": "error", "code": "handler_non_monotonic_timestamp", ...}`
+mid-stream.  The committed prefix is preserved; the offending frame
+and all subsequent frames in the batch are rejected.
+
+**Cause:** The current frame's timestamp is below the previous accepted
+frame's.  Metric LTL operators (`MetricEventually`, `MetricAlways`,
+`MetricUntil`, `MetricRelease`) require a monotonic time axis and the
+streaming runtime enforces this at every event-kind boundary —
+mixing `send_frame`, `send_error`, and `send_remote` does NOT reset
+the monotonic anchor.  A backwards timestamp on ANY of the three
+event kinds rejects.
+
+**Action:** Sort frames by timestamp before streaming.  If the source
+is a CAN log file (CSV / BLF / asc), pre-sort once with
+`sort -k1,1n` (CSV with ts in col 1) or use the binding's
+`iter_can_log` helper which yields in source order — verify your
+source produces a monotonic stream.  If your source intentionally
+interleaves out-of-order events, batch into monotonic sub-streams
+and `end_stream()` + `start_stream()` between batches to reset.
+
+**Cross-event-kind monotonicity (subtle):** This error fires across
+`send_frame` AND `send_error` AND `send_remote` — they all consume
+the same `prev` anchor in `Protocol.StreamState`.  An operator who
+interleaves real Data frames with Error / Remote frames (e.g., to
+inject bus-fault events into a replay) must order ALL three kinds
+together by timestamp, not just within each kind.
+
+#### `dbc_text_parse_error` on `parse_dbc_text`
+
+**Symptom:** `parse_dbc_text` returns
+`{"status": "error", "code": "dbc_text_parse_error", ...}`.
+
+**Cause:** The DBC source text failed the Agda-verified grammar
+parser (`Aletheia.DBC.TextParser`).  Causes: malformed `BO_` / `SG_` /
+`VAL_` lines, unbalanced quotes, invalid identifier characters,
+out-of-range numeric literals, or constructs the parser doesn't yet
+cover (the parser implements full cantools equivalence; if a
+construct is rejected, the source likely has a syntax error rather
+than a cantools-only extension).
+
+**Action:** The error message carries the line offset and a
+`DBCTextParseError` constructor identifying the parse stage.  Compare
+the rejected line against the `cantools` reference parser
+(`python3 -c 'import cantools; cantools.db.load_string(open("...").read())'`);
+if cantools also rejects, the DBC is malformed at source.  If cantools
+accepts but Aletheia rejects, the construct may be an Aletheia-side
+parser gap — file a GitHub issue with the minimal failing DBC.
 
 ### Runtime — cancellation
 

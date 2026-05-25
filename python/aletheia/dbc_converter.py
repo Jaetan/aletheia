@@ -16,7 +16,7 @@ shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 from pathlib import Path
 
 from .client import AletheiaClient, ValidationError, check_dbc_text_size_bound
-from .client._helpers import dump_json
+from .protocols import dump_json
 from .protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
 
 

@@ -37,17 +37,15 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#ifndef ALETHEIA_REPO_ROOT
-#error "ALETHEIA_REPO_ROOT must be defined at compile time by CMake"
-#endif
 
 using namespace aletheia;
 
@@ -55,8 +53,13 @@ namespace {
 
 constexpr std::array<std::string_view, 3> kValidLevels = {"debug", "info", "warn"};
 
+// CPP-D-18.1 R23: repo root via env var, see test_feature_matrix_parity.cpp.
 auto repo_root() -> std::filesystem::path {
-    return std::filesystem::path{ALETHEIA_REPO_ROOT};
+    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
+        return std::filesystem::path{env};
+    }
+    throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
+                             "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
 }
 
 auto yaml_path() -> std::filesystem::path {
@@ -175,7 +178,7 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({"status": "ack"})");
     mock_ptr->queue_response(
-        R"({"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"})");
+        R"({"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]})");
     mock_ptr->queue_response(
         R"({"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]})");
     mock_ptr->queue_response(R"({

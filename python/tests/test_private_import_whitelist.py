@@ -60,19 +60,21 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
     # API takes ``Fraction`` directly; the helpers convert user-supplied
     # floats/strings for the loader paths and don't need to be called
     # from user code.
+    # PY-D-16.1 (R23): _helpers.py split into a package; the test paths
+    # below pin to the new submodule layout.
     (
         "test_types_and_conditions.py",
-        "aletheia.client._helpers",
+        "aletheia.client._helpers.rational",
         "float_to_rational",
     ),
     (
         "test_types_and_conditions.py",
-        "aletheia.client._helpers",
+        "aletheia.client._helpers.rational",
         "parse_rational",
     ),
     (
         "test_property_hypothesis.py",
-        "aletheia.client._helpers",
+        "aletheia.client._helpers.rational",
         "parse_rational",
     ),
     (
@@ -102,12 +104,8 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._response_parsers",
         "parse_event_response",
     ),
-    # Hypothesis property test (R18 cluster 5 — Cat 34b) exercises the
-    # internal JSON dumper directly.  ``dump_json`` is a binding-internal
-    # helper (canonical-form serializer used at the FFI boundary); the
-    # property test asserts round-trip identity, which is a wire-form
-    # invariant test that shouldn't go through public API.
-    ("test_property_hypothesis.py", "aletheia.client._helpers", "dump_json"),
+    # ``dump_json`` was promoted to ``aletheia.protocols`` in R23 PY-D-16.2
+    # so it's no longer a private-import; whitelist entry removed.
     # Strict-contract guard for the shared error-response builder —
     # exercised directly because the surface-level tests all go through
     # ``parse_frame_response`` / ``parse_event_response`` and only hit
@@ -118,14 +116,9 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._response_parsers",
         "build_error_response",
     ),
-    # B.3.j cross-binding parity gate — Python is the oracle that Go and
-    # C++ canonical output is diffed against. Same justification as the
-    # baseline test above; user code never round-trips DBCDefinition.
-    (
-        "test_dbc_corpus_parity.py",
-        "aletheia.client._helpers",
-        "FractionJSONEncoder",
-    ),
+    # ``FractionJSONEncoder`` was promoted to ``aletheia.protocols`` in
+    # R23 PY-D-16.2 so it's no longer a private-import; whitelist entry
+    # removed.
     # Enrichment helpers — pure functions used by the client to attach
     # ``enrichment`` metadata to violation results; kept internal because
     # they depend on ``_diags``/``_caches`` state that is client-owned.

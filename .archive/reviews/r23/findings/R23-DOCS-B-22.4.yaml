@@ -1,0 +1,25 @@
+id: R23-DOCS-B-22.4
+round: R23
+category:
+  number: 22
+  name: Operational runbook
+  language: docs
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: input_bound_exceeded action split by bound_kind family
+description: 'Old action was a single ''check observed vs limit, raise if legitimate''.  Now
+  split by bound_kind family: nesting_depth = almost always synthetic (reject); input_length_bytes
+  / max_dbc_text_bytes = legitimate commercial; array_cardinality on messages/signals/attributes/value-descs
+  = ~6x headroom but raising requires perf bench; identifier/string_length = corruption;
+  atom_count = restructure property; frame_byte_count = binding encoding bug.'
+files:
+- docs/operations/RUNBOOK.md
+cluster: I-polish
+resolution:
+  commit: 8e50b86
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

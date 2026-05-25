@@ -80,6 +80,7 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-string-length-bytes":     ("MaxStringLengthBytes",     "REQUIRED"),
     "max-atom-count-per-property": ("MaxAtomCountPerProperty",  "REQUIRED"),
     "max-frame-byte-count":        ("MaxFrameByteCount",        "REQUIRED"),
+    "max-properties-per-stream":   ("MaxPropertiesPerStream",   "REQUIRED"),
     # List-cardinality bounds — kernel-only; OPTIONAL for Go (header says
     # "mirrored verbatim" but per-list cap is enforced after JSON parsing,
     # so cgo-boundary rejection isn't beneficial).
@@ -107,6 +108,7 @@ PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-string-length-bytes":         ("MAX_STRING_LENGTH_BYTES",         "REQUIRED"),
     "max-atom-count-per-property":     ("MAX_ATOM_COUNT_PER_PROPERTY",     "REQUIRED"),
     "max-frame-byte-count":            ("MAX_FRAME_BYTE_COUNT",            "REQUIRED"),
+    "max-properties-per-stream":       ("MAX_PROPERTIES_PER_STREAM",       "REQUIRED"),
     "max-messages-per-file":           ("MAX_MESSAGES_PER_FILE",           "REQUIRED"),
     "max-signals-per-message":         ("MAX_SIGNALS_PER_MESSAGE",         "REQUIRED"),
     "max-attributes-per-file":         ("MAX_ATTRIBUTES_PER_FILE",         "REQUIRED"),
@@ -127,6 +129,7 @@ PYTHON_BOUND_KIND_MAPPING: dict[str, str] = {
     "StringLength":      "BOUND_KIND_STRING_LENGTH",
     "AtomCount":         "BOUND_KIND_ATOM_COUNT",
     "FrameByteCount":    "BOUND_KIND_FRAME_BYTE_COUNT",
+    "PropertyCount":     "BOUND_KIND_PROPERTY_COUNT",
 }
 
 # BoundKind enum: every entry's wire-code string must match between Agda
@@ -140,6 +143,7 @@ BOUND_KIND_MAPPING: dict[str, str] = {
     "StringLength":      "BoundKindStringLength",
     "AtomCount":         "BoundKindAtomCount",
     "FrameByteCount":    "BoundKindFrameByteCount",
+    "PropertyCount":     "BoundKindPropertyCount",
 }
 
 

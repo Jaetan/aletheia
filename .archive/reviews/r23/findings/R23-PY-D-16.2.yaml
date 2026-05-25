@@ -1,0 +1,31 @@
+id: R23-PY-D-16.2
+round: R23
+category:
+  number: 16
+  name: Package boundaries
+  language: python
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: _helpers private-module reach across 4 non-client consumers
+description: Promote `dump_json`, `to_predicate_fraction`, `to_signal_fraction` to
+  public surfaces (`protocols.py`, `dsl.py`, `_dbc_types.py`).  Touches imports across
+  dsl.py / cli.py / excel_loader.py / dbc_converter.py.  Defer to a dedicated Python-API-hygiene
+  cluster.
+files:
+- python/aletheia/dsl.py
+- python/aletheia/cli.py
+- python/aletheia/excel_loader.py
+- python/aletheia/dbc_converter.py
+- python/aletheia/client/_helpers.py
+cluster: F
+resolution:
+  commit: 6c9c202
+  round: R23
+  date: '2026-05-22'
+  notes: Promoted dump_json + to_signal_fraction + FractionJSONEncoder to aletheia.protocols;
+    to_predicate_fraction local to aletheia.dsl.  client/_helpers.py no longer carries
+    these cross-cutting helpers.  pytest 872p+1s, basedpyright 0/0/0, pylint 10.00/10.
+re_raised_from: null
+in_source_marker: null

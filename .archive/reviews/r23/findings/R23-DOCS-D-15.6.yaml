@@ -1,0 +1,22 @@
+id: R23-DOCS-D-15.6
+round: R23
+category:
+  number: 17
+  name: Cross-doc consistency
+  language: docs
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: C++ Check namespace casing inconsistency in INTERFACES.md
+description: INTERFACES.md L38 said `aletheia::check::signal` (lowercase); actual
+  C++ class is `Check` (uppercase).  Fixed.
+files:
+- docs/reference/INTERFACES.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

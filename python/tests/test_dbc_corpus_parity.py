@@ -42,7 +42,7 @@ from pathlib import Path
 import pytest
 
 from aletheia import AletheiaClient
-from aletheia.client._helpers import FractionJSONEncoder
+from aletheia.protocols import FractionJSONEncoder
 
 CORPUS_DIR = Path(__file__).parent / "fixtures" / "dbc_corpus"
 PARITY_SNAPSHOT_DIR = CORPUS_DIR / "parity_snapshots"

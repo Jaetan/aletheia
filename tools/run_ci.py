@@ -433,9 +433,11 @@ def main(argv: list[str] | None = None) -> int:
     # sweep, not this per-branch gate.  See
     # memory/feedback_agda_import_pruning_safety.md for the trade-off.
     #
-    # `--no-topo` because we're running on a small subset; the topological
-    # batching has fixed startup overhead that doesn't pay off below ~20
-    # files.
+    # `--no-topo` is a hint here: skip the topo-graph startup overhead
+    # IF the modified file set has no inter-dependencies (single topo
+    # level).  Per R23, the tool auto-overrides to topo batching when
+    # inter-deps are detected (e.g., a branch that touches Universal.agda +
+    # its imports), keeping the race-free guarantee.
     prune_cmd = (
         "files=$(git diff --name-only main...HEAD -- 'src/' "
         "| grep '\\.agda$' || true); "
@@ -456,7 +458,13 @@ def main(argv: list[str] | None = None) -> int:
         "  exit 0; "
         "fi; "
         "printf 'checking %s modified file(s) for dead imports...\\n' \"$n\"; "
-        "tools/prune_unused_imports.py --check-only --no-topo $files"
+        # --rts-heap 16 / --timeout 900: heavy proof modules (e.g. TextParser,
+        # Aggregator/Refine/ValueDescriptions) need check-properties' -M16G to
+        # baseline-type-check; the tool's 3G/300s defaults FP-fail their baseline
+        # ("file does not type-check") even though they pass check-properties.
+        # -j 1 (serial) is REQUIRED alongside -M16G: the tool's default 4 workers
+        # × 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
+        "tools/prune_unused_imports.py --check-only --no-topo -j 1 --rts-heap 16 --timeout 900 $files"
     )
     r.step("prune-unused-imports", prune_cmd, shell=True)
 

@@ -24,7 +24,8 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from _canonical_dbc import CANONICAL_SIGNAL
-from aletheia.client._helpers import dump_json, parse_rational
+from aletheia.client._helpers.rational import parse_rational
+from aletheia.protocols import dump_json
 from aletheia.protocols import DBCDefinition
 
 hypothesis.settings.register_profile("ci", max_examples=200)

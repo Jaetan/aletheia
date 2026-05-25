@@ -1,0 +1,24 @@
+id: R23-DOCS-B-22.6
+round: R23
+category:
+  number: 22
+  name: Operational runbook
+  language: docs
+  agent: B
+severity: low
+disposition: FIX
+status: closed
+title: enrichment.extraction_failed self-contained cross-check command
+description: 'Old action said ''cross-check predicate against DBC'' without telling
+  operator HOW.  Added concrete CLI invocations: python3 -m aletheia signals --dbc
+  <file>.dbc | grep -i <signal_name> + messages equivalent.  Includes the next-step
+  diagnostic distinction (producer DLC + payload-bits mismatch vs property-side error).'
+files:
+- docs/operations/RUNBOOK.md
+cluster: I-polish
+resolution:
+  commit: 8e50b86
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

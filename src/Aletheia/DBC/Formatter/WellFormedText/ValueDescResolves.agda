@@ -24,7 +24,7 @@
 --                  → IdentHeadNonHSpace (DBCSignal.name sig)
 --                  → RawValueDescNameStop rvd.signalName
 --
--- so E.9's `tvd-WF` arm derives `All RawValueDescStop (collectFromMessages
+-- so E.9's `tvd-wf` arm derives `All RawValueDescStop (collectFromMessages
 -- msgs)` directly from existing `MessageWF` data — `ValueDescResolves` is
 -- NOT needed for the universal proof.  This module is purely for the
 -- validator side (E.11 CHECK 23).

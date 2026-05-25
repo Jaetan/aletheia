@@ -1,0 +1,23 @@
+id: R23-CPP-B-12.1
+round: R23
+category:
+  number: 12
+  name: Parsing robustness
+  language: cpp
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: Warnings loop missing property_index guard
+description: '`w.at("property_index")` had no `contains()` check; malformed entry
+  would throw json::out_of_range and re-wrap as generic Protocol error.  Added explicit
+  `if (!w.contains("property_index")) throw ...` guard.'
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

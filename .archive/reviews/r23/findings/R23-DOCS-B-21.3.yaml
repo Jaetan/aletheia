@@ -1,0 +1,22 @@
+id: R23-DOCS-B-21.3
+round: R23
+category:
+  number: 21
+  name: Missing content
+  language: docs
+  agent: B
+severity: medium
+disposition: FIX
+status: closed
+title: Cross-event-kind monotonicity (subtle) not documented in RUNBOOK
+description: send_frame/send_error/send_remote share the prev anchor; non-obvious
+  to operators interleaving event kinds.  Added sub-block.
+files:
+- docs/operations/RUNBOOK.md
+cluster: I
+resolution:
+  commit: 425b99a
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

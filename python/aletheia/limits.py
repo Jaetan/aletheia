@@ -35,6 +35,7 @@ BOUND_KIND_IDENTIFIER_LENGTH:  Final[str] = "identifier_length"
 BOUND_KIND_STRING_LENGTH:      Final[str] = "string_length"
 BOUND_KIND_ATOM_COUNT:         Final[str] = "atom_count"
 BOUND_KIND_FRAME_BYTE_COUNT:   Final[str] = "frame_byte_count"
+BOUND_KIND_PROPERTY_COUNT:     Final[str] = "property_count"
 
 # ============================================================================
 # BOUND CONSTANTS
@@ -70,6 +71,10 @@ MAX_STRING_LENGTH_BYTES: Final[int] = 64 * 1024
 # LTL atoms per single property.
 MAX_ATOM_COUNT_PER_PROPERTY: Final[int] = 1024
 
+# LTL properties submittable in one setProperties call.  Mirrors
+# src/Aletheia/Limits.agda.
+MAX_PROPERTIES_PER_STREAM: Final[int] = 1024
+
 # CAN frame payload byte count (CAN-FD maximum).
 MAX_FRAME_BYTE_COUNT: Final[int] = 64
 
@@ -92,5 +97,7 @@ __all__ = [
     "MAX_IDENTIFIER_LENGTH",
     "MAX_STRING_LENGTH_BYTES",
     "MAX_ATOM_COUNT_PER_PROPERTY",
+    "MAX_PROPERTIES_PER_STREAM",
+    "BOUND_KIND_PROPERTY_COUNT",
     "MAX_FRAME_BYTE_COUNT",
 ]

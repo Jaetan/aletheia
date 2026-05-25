@@ -1280,8 +1280,12 @@ const (
 	ackSpaced  = `{"status": "ack"}`
 )
 
-// parseFrameResponse decodes the per-frame LTL verdict returned by
-// sendFrame: Ack (no violation) or Violation (with property index).
+// parseFrameResponse decodes the per-frame LTL response: Ack (no events),
+// PropertyBatch (one or more events), or a typed error.  R23 — AGDA-D-12.1:
+// the wire shape for property events was lifted from a singular violation
+// object to a `{"type": "property_batch", "results": [...]}` envelope so
+// mid-stream Satisfaction events (previously dropped silently) reach the
+// caller alongside any terminal violation.
 func parseFrameResponse(raw string) (FrameResponse, error) {
 	// Fast path: byte-level check before JSON parsing.
 	if raw == ackCompact || raw == ackSpaced {
@@ -1293,44 +1297,41 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 		return nil, err
 	}
 
-	status := getString(m, "status")
-	switch status {
-	case "ack":
+	if status := getString(m, "status"); status == "ack" {
 		return Ack{}, nil
-	case "fails":
-		if propType := getString(m, "type"); propType != "property" {
-			return nil, protocolError(fmt.Sprintf("expected type \"property\" in violation response, got %q", propType))
-		}
-		idx, err := parseNumberAsInt64(m["property_index"])
-		if err != nil {
-			return nil, wrapProtocolError("invalid property_index", err)
-		}
-		if idx < 0 {
-			return nil, protocolError(fmt.Sprintf("negative property_index: %d", idx))
-		}
-		ts, err := parseNumberAsInt64(m["timestamp"])
-		if err != nil {
-			return nil, wrapProtocolError("invalid timestamp", err)
-		}
-		if ts < 0 {
-			return nil, protocolError(fmt.Sprintf("negative timestamp: %d", ts))
-		}
-		reason := getString(m, "reason")
-		return Violation{
-			PropertyIndex: PropertyIndex(idx),
-			Timestamp:     Timestamp{Microseconds: ts},
-			Reason:        reason,
-		}, nil
-	case "error":
+	} else if status == "error" {
 		code := getString(m, "code")
 		msg := getString(m, "message")
 		if code != "" {
 			return nil, newCodedError(ErrProtocol, code, msg)
 		}
 		return nil, protocolError(msg)
-	default:
-		return nil, protocolError(fmt.Sprintf("unexpected frame status: %q", status))
 	}
+
+	if respType := getString(m, "type"); respType == "property_batch" {
+		rawResults := getArray(m, "results")
+		if len(rawResults) == 0 {
+			return nil, protocolError("property_batch response 'results' must be non-empty (zero-event frames are encoded as ack)")
+		}
+		results := make([]PropertyResult, 0, len(rawResults))
+		for _, item := range rawResults {
+			r, ok := item.(map[string]any)
+			if !ok {
+				return nil, protocolError("expected object in property_batch results array")
+			}
+			pr, err := parsePropertyResult(r)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, pr)
+		}
+		return PropertyBatch{Results: results}, nil
+	}
+
+	return nil, protocolError(fmt.Sprintf(
+		"unexpected frame response: status=%q, type=%q",
+		getString(m, "status"), getString(m, "type"),
+	))
 }
 
 // parseStreamResponse decodes an endStream response — a list of final

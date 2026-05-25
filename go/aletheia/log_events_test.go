@@ -187,7 +187,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 		// 5. SendFrame ack (frame.processed @ debug)
 		aletheia.Respond(`{"status":"ack"}`),
 		// 6. SendFrame violation triggers enrichment extraction
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
 		// 7. Enrichment extraction returns success (cache.miss + value)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
 		// 8. EndStream (stream.ended + endstream.uncached_atom per warning)

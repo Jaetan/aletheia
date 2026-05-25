@@ -1,0 +1,55 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flipped to FIX,
+# closed 2026-05-24.  User-authorized scope expansion mid-fix to also close
+# the Python `validate_dbc` / `format_dbc` / `format_dbc_text` code-propagation
+# gap surfaced while wiring the cross-binding test through `validate_dbc`.
+id: R23-AGDA-C-5.1
+round: R23
+category:
+  number: 5
+  name: Error message consistency
+  language: agda
+  agent: C
+severity: medium
+disposition: FIX
+status: closed
+title: Dedupe 'non-integer in multiplex_values' literal in JSONParser
+description: Requires typed sub-ctor extension (NonIntegerMultiplexValue) touching the wire
+  ParseError ADT; cross-binding ripples.  Defer.
+files:
+- src/Aletheia/DBC/JSONParser.agda
+- src/Aletheia/Error.agda
+- python/aletheia/error_codes.py
+- python/aletheia/client/_client.py
+- go/aletheia/error.go
+- cpp/include/aletheia/error.hpp
+- cpp/src/json_parse.cpp
+- docs/architecture/PROTOCOL.md
+cluster: B
+resolution:
+  commit: 165de76
+  round: R23
+  date: '2026-05-24'
+  notes: 'New `NonIntegerMultiplexValue : ParseError` ctor in Aletheia.Error with
+    wire code `parse_non_integer_multiplex_value`.  Replaces 2 emit sites in
+    `JSONParser.parseNatList[⁺]` that previously shared the
+    `InvalidPresence "non-integer in multiplex_values"` literal, collapsing
+    two failure classes onto a single wire code.  Cross-binding ErrorCode
+    mirrors: Python `PARSE_NON_INTEGER_MULTIPLEX_VALUE` (sync test
+    auto-validates via `test_error_code_sync.py`), Go
+    `CodeParseNonIntegerMultiplexValue`, C++ enum +
+    `error_code_from_string` map entry (table 58 → 59).  PROTOCOL.md error
+    code reference table updated.  Also-in-scope (user-authorized addition
+    after surfacing the gap during cross-binding test wiring): Python
+    `client.validate_dbc` / `client.format_dbc` / `client.format_dbc_text`
+    now pass `code=response.get("code")` on their `ProtocolError` raises,
+    closing a pre-existing wire-code-propagation gap that had previously
+    masked any per-command error code in those three paths (parallel to the
+    existing propagation in `parse_dbc` via `parse_parsed_dbc_response`).
+    Per-binding tests: Python `TestNonIntegerMultiplexValue` (validate_dbc-
+    based now that the code propagation works), Go mock decode-path + table
+    row, C++ wire-code-to-enum parity test in unit_tests.  Gates clean:
+    agda build / check-properties / check-fidelity / check-invariants /
+    check-ffi-exports + pytest 874p+1s (was 872+1) + pylint 10.00/10 +
+    basedpyright 0 new + go -race + cpp ctest 11/11 + clang-format/tidy.'
+re_raised_from: null
+in_source_marker: null

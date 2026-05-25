@@ -121,7 +121,7 @@ agda test.agda
 
 #### 5. Python
 
-**Minimum version: 3.12** (required by package dependencies)
+**Minimum version: 3.13** (required by `python/pyproject.toml` — `requires-python = ">=3.13"`)
 **Recommended: 3.13+** (Docker images use 3.13; 3.14 works but is not in the Dockerfile base images yet)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
@@ -459,7 +459,7 @@ deactivate
 
 **Error**: `pip: command not found` after activating venv
 
-**Solution**: Ensure venv was created with a supported Python version (3.12+):
+**Solution**: Ensure venv was created with a supported Python version (3.13+):
 ```bash
 rm -rf .venv
 python3 -m venv .venv

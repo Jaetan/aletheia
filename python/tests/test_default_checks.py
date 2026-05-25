@@ -6,7 +6,8 @@ and that property indices are consistent across defaults + session checks.
 
 import pytest
 
-from aletheia import AletheiaClient, Check
+from aletheia import AletheiaClient
+from aletheia.checks import signal
 from aletheia.protocols import DLCCode
 
 
@@ -66,7 +67,7 @@ class TestAddChecks:
 
     def test_no_defaults_session_only(self) -> None:
         """add_checks() with no defaults works like set_properties()."""
-        check = Check.signal("Speed").never_exceeds(200)
+        check = signal("Speed").never_exceeds(200)
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
             resp = client.add_checks([check])
@@ -80,7 +81,7 @@ class TestAddChecks:
 
     def test_defaults_only(self) -> None:
         """add_checks() with only defaults (empty session list)."""
-        default = Check.signal("Speed").never_exceeds(200).named("Speed limit")
+        default = signal("Speed").never_exceeds(200).named("Speed limit")
         with AletheiaClient(default_checks=[default]) as client:
             client.parse_dbc(SIMPLE_DBC)
             resp = client.add_checks([])
@@ -94,8 +95,8 @@ class TestAddChecks:
 
     def test_defaults_plus_session(self) -> None:
         """add_checks() merges defaults + session checks."""
-        default = Check.signal("Speed").never_exceeds(200).named("Speed limit")
-        session = Check.signal("Voltage").never_exceeds(15).named("Overvoltage")
+        default = signal("Speed").never_exceeds(200).named("Speed limit")
+        session = signal("Voltage").never_exceeds(15).named("Overvoltage")
 
         with AletheiaClient(default_checks=[default]) as client:
             client.parse_dbc(SIMPLE_DBC)
@@ -110,8 +111,8 @@ class TestAddChecks:
 
     def test_default_violation_correct_index(self) -> None:
         """Violation from a default check reports the correct property index."""
-        default = Check.signal("Speed").never_exceeds(5).named("Speed limit")
-        session = Check.signal("Voltage").never_exceeds(15).named("Overvoltage")
+        default = signal("Speed").never_exceeds(5).named("Speed limit")
+        session = signal("Voltage").never_exceeds(15).named("Overvoltage")
 
         with AletheiaClient(default_checks=[default]) as client:
             client.parse_dbc(SIMPLE_DBC)
@@ -120,16 +121,20 @@ class TestAddChecks:
 
             # Speed = 100 raw * 0.1 = 10.0 kph — exceeds limit of 5
             result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
-            assert result["status"] == "fails"
+            # R23 — AGDA-D-12.1: send_frame returns PropertyBatchResponse;
+            # extract the (single) violation entry.
+            assert result["type"] == "property_batch"
+            violation = result["results"][-1]
+            assert violation["status"] == "fails"
             # Default is property 0
-            prop_index = result["property_index"]
+            prop_index = violation["property_index"]
             assert prop_index["numerator"] // prop_index["denominator"] == 0
             client.end_stream()
 
     def test_session_violation_correct_index(self) -> None:
         """Violation from a session check reports correct index (offset by defaults)."""
-        default = Check.signal("Speed").never_exceeds(200).named("Speed limit")
-        session = Check.signal("Voltage").never_exceeds(5).named("Overvoltage")
+        default = signal("Speed").never_exceeds(200).named("Speed limit")
+        session = signal("Voltage").never_exceeds(5).named("Overvoltage")
 
         with AletheiaClient(default_checks=[default]) as client:
             client.parse_dbc(SIMPLE_DBC)
@@ -138,15 +143,17 @@ class TestAddChecks:
 
             # Voltage = 1200 raw * 0.01 = 12.0 V — exceeds limit of 5
             result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
-            assert result["status"] == "fails"
+            assert result["type"] == "property_batch"
+            violation = result["results"][-1]
+            assert violation["status"] == "fails"
             # Session check is property 1 (after 1 default)
-            prop_index = result["property_index"]
+            prop_index = violation["property_index"]
             assert prop_index["numerator"] // prop_index["denominator"] == 1
             client.end_stream()
 
     def test_enrichment_with_defaults(self) -> None:
         """Violation enrichment works correctly with default checks."""
-        default = Check.signal("Speed").never_exceeds(5).named("Speed limit")
+        default = signal("Speed").never_exceeds(5).named("Speed limit")
 
         with AletheiaClient(default_checks=[default]) as client:
             client.parse_dbc(SIMPLE_DBC)
@@ -155,8 +162,10 @@ class TestAddChecks:
 
             # Speed = 100 raw * 0.1 = 10.0 kph — violation
             result = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
-            assert result["status"] == "fails"
-            enrichment = result.get("enrichment")
+            assert result["type"] == "property_batch"
+            violation = result["results"][-1]
+            assert violation["status"] == "fails"
+            enrichment = violation.get("enrichment")
             assert enrichment is not None
             assert enrichment["formula_desc"] == "always(Speed < 5)"
             signals = enrichment["signals"]
@@ -184,11 +193,11 @@ class TestDefaultChecksConstructor:
 
     def test_defaults_not_modified(self) -> None:
         """add_checks() does not modify the original defaults list."""
-        defaults = [Check.signal("Speed").never_exceeds(200)]
+        defaults = [signal("Speed").never_exceeds(200)]
         original_len = len(defaults)
 
         with AletheiaClient(default_checks=defaults) as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.add_checks([Check.signal("Voltage").never_exceeds(15)])
+            client.add_checks([signal("Voltage").never_exceeds(15)])
 
         assert len(defaults) == original_len

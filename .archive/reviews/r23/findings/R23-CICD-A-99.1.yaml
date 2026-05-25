@@ -1,0 +1,23 @@
+id: R23-CICD-A-99.1
+round: R23
+category:
+  number: 1
+  name: Workflow YAML hygiene
+  language: cicd
+  agent: A
+severity: low
+disposition: FP-VERIFIED
+status: closed
+title: SSH keepalive for long pre-push hook
+description: User-side `~/.ssh/config` is the canonical fix and was added in R22 merge
+  session (`ServerAliveInterval 60`).  install_hooks.py could document the recommendation
+  but the keepalive is per-user state.
+files:
+- tools/install_hooks.py
+cluster: H
+resolution:
+  commit: 09e276c
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

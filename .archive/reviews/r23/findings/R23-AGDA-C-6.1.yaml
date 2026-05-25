@@ -1,0 +1,29 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-AGDA-C-6.1
+round: R23
+category:
+  number: 6
+  name: Redundant patterns
+  language: agda
+  agent: C
+severity: medium
+disposition: FIX
+status: closed
+title: Add requireDec-allE / rejectDec-allE combinators
+description: 6 pairs of boilerplate in Validity/Composition.agda match existing combinator
+  family; defer new lemmas + refactor.
+files:
+- src/Aletheia/DBC/Validity/Combinators.agda
+- src/Aletheia/DBC/Validity/Composition.agda
+cluster: B
+resolution:
+  commit: 9543be1
+  round: R23
+  date: '2026-05-23'
+  notes: 'Added requireDec-allE / rejectDec-allE lemmas to Validity/Combinators.agda parameterised
+    on a generic Q : B → Set; rewrote 6 of 8 -allE proofs in Validity/Composition.agda as
+    one-liners (checks 1, 2, 3, 8, 9, 10).  Checks 4 (MuxFound 3-arm with) and 5 (MuxCycle
+    Bool walkMux) keep their inline patterns — they don''t fit the Dec combinator.  ~30 LOC
+    of mechanical boilerplate removed.  Proof tree clean through Validity.Theorem.'
+re_raised_from: null
+in_source_marker: null

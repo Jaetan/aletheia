@@ -195,19 +195,19 @@ Use the fluent Check API for programmatic verification.
 ### Step 1: Import and Define Checks
 
 ```python
-from aletheia import AletheiaClient, Check
+from aletheia import AletheiaClient, checks
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.can_log import iter_can_log
 
 # Define checks using industry vocabulary
-checks = [
-    Check.signal("VehicleSpeed").never_exceeds(220)
+check_list = [
+    checks.signal("VehicleSpeed").never_exceeds(220)
         .named("Speed limit").severity("safety"),
 
-    Check.signal("BatteryVoltage").stays_between(11.5, 14.5)
+    checks.signal("BatteryVoltage").stays_between(11.5, 14.5)
         .named("Battery range").severity("warning"),
 
-    Check.signal("FaultCode").never_equals(255)
+    checks.signal("FaultCode").never_equals(255)
         .named("No critical faults").severity("safety"),
 ]
 ```
@@ -216,31 +216,31 @@ checks = [
 
 ```python
 # Upper bound
-Check.signal("Speed").never_exceeds(220)        # G(speed < 220)
+checks.signal("Speed").never_exceeds(220)        # G(speed < 220)
 
 # Lower bound
-Check.signal("Voltage").never_below(11.0)       # G(voltage >= 11.0)
+checks.signal("Voltage").never_below(11.0)       # G(voltage >= 11.0)
 
 # Range
-Check.signal("Temp").stays_between(80, 100)     # G(80 <= temp <= 100)
+checks.signal("Temp").stays_between(80, 100)     # G(80 <= temp <= 100)
 
 # Equality
-Check.signal("Fault").never_equals(255)         # G(not(fault == 255))
+checks.signal("Fault").never_equals(255)         # G(not(fault == 255))
 
 # Settling (time-bounded range)
-Check.signal("Temp").settles_between(80, 100).within(5000)
+checks.signal("Temp").settles_between(80, 100).within(5000)
 ```
 
 ### Step 3: When/Then Causal Checks
 
 ```python
 # Brake light must activate within 100ms of pedal press
-Check.when("BrakePedal").exceeds(50) \
+checks.when("BrakePedal").exceeds(50) \
      .then("BrakeLight").equals(1) \
      .within(100)
 
 # Engine must start within 2s of ignition
-Check.when("Ignition").equals(1) \
+checks.when("Ignition").equals(1) \
      .then("EngineRPM").exceeds(500) \
      .within(2000)
 ```
@@ -252,7 +252,7 @@ dbc = dbc_to_json("vehicle.dbc")
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.add_checks(checks)
+    client.add_checks(check_list)
     client.start_stream()
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
@@ -387,21 +387,21 @@ All tiers compile to the same LTL formulas. Mix freely:
 ```python
 from pathlib import Path
 
-from aletheia import Check, load_checks, Signal
+from aletheia import checks, load_checks, Signal
 
 # Load base checks from YAML
-checks = load_checks(Path("checks.yaml"))
+check_list = load_checks(Path("checks.yaml"))
 
 # Add a Check API check
-checks.append(Check.signal("Speed").never_exceeds(220))
+check_list.append(checks.signal("Speed").never_exceeds(220))
 
 # Add a raw DSL property (wrap in CheckResult for metadata)
 from aletheia import CheckResult
 prop = Signal("Temp").between(-40, 215).always()
-checks.append(CheckResult(prop).named("Temp range"))
+check_list.append(CheckResult(prop).named("Temp range"))
 
 # All used the same way
-client.add_checks(checks)
+client.add_checks(check_list)
 ```
 
 ---

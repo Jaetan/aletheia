@@ -1,27 +1,14 @@
-"""Pure helper functions for response parsing and type conversion."""
+"""Outbound (Python TypedDict → wire JSON) and inbound (Agda formatDBC JSON
+→ DBCDefinition) DBC normalisation."""
 
-# DEFERRED — TRACKED (R19P2-CL16-6 — DEFER, REGRESSED).
-# Finding: This file is 798 LOC (was 732 at the R19 Phase 2 finding time;
-#   has since grown by 66 LOC adding cross-cutting helpers).  Original ~700-line
-#   guideline overshoot now ~98 LOC over.
-# Why DEFER: Splitting requires identifying coherent sub-modules (currently:
-#   DBC normalisation + signal-value coercion + frame-builder helpers +
-#   presence-discriminator helpers).  Cluster 17 added cross-cutting helpers
-#   that increased rather than decreased the file's role count.
-# Revisit when: This file exceeds 1000 LOC (pylint C0302 default threshold),
-#   OR a coherent sub-module emerges from another refactor.
+from collections.abc import Callable
+from typing import cast
 
-import json
-import math
-from collections.abc import Callable, Sequence
-from fractions import Fraction
-from typing import cast, override
-
-from ..protocols import (
+from ...protocols import (
     AttrScope,
+    DBCAttrAssign,
     DBCAttrDef,
     DBCAttrDefault,
-    DBCAttrAssign,
     DBCAttribute,
     DBCAttrTarget,
     DBCAttrType,
@@ -38,54 +25,18 @@ from ..protocols import (
     DBCValueEntry,
     DBCValueTable,
     DBCVarType,
-    RationalNumber,
-    is_str_dict,
     is_object_list,
+    is_str_dict,
 )
-from ._types import ProtocolError, ValidationError
-from .._loader_utils import is_pure_int
+from ..._loader_utils import is_pure_int
+from .._types import ProtocolError
+from .rational import parse_rational
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
 
 # Fields in a DBCEnvironmentVar that carry ℚ on the Agda wire.
 _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
-
-
-class FractionJSONEncoder(json.JSONEncoder):
-    """JSONEncoder that serializes Fraction in Agda's canonical rational form.
-
-    Mirrors ``Aletheia.Format.Rational.formatRational``: emit a bare integer
-    when the denominator is 1, otherwise the ``{"numerator": n,
-    "denominator": d}`` dict. Agda's ``parseRational`` accepts integer
-    literals, rational dicts, and decimal floats, so this preserves exact
-    precision on any DBCDefinition round-trip path while staying
-    byte-identical to Go's ``serializeRational`` and C++'s
-    ``serialize_rational`` — the cross-binding canonical form B.3.j gates on.
-    """
-
-    @override
-    def default(self, o: object) -> object:
-        if isinstance(o, Fraction):
-            if o.denominator == 1:
-                return o.numerator
-            return {"numerator": o.numerator, "denominator": o.denominator}
-        return super().default(o)
-
-
-def dump_json(value: object, *, indent: int | None = None) -> str:
-    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
-
-    ``ensure_ascii=False`` is pinned so identifier and string-literal
-    fields with non-ASCII characters (DBC permits non-ASCII in
-    ``CM_`` text bodies, comments, and similar opaque-tail consumers)
-    serialize as their UTF-8 bytes rather than ``\\uXXXX`` escapes.  The
-    Agda-side parser is byte-oriented; the Go and C++ bindings emit
-    UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
-    byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
-    (cross-binding wire-byte parity).
-    """
-    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
 
 
 # Outgoing-DBC normalization: C++/Go always emit these list keys (their
@@ -139,226 +90,6 @@ def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
         if key not in result:
             result[key] = []
     return cast(DBCDefinition, result)
-
-
-# Shared bounds and scaling factors for the binary FFI rational encoding.
-# int64 bounds match the Haskell ``Int64`` numerator/denominator that the
-# Agda core consumes; the decimal precision denominator mirrors the 10^9
-# scaling that Agda's ``formatRational`` emits on the JSON path so the two
-# wire formats stay bit-identical on round-trip.
-_INT64_MAX = (1 << 63) - 1
-_INT64_MIN = -(1 << 63)
-_DECIMAL_PRECISION_DEN = 1_000_000_000
-
-
-def float_to_rational(value: float) -> tuple[int, int]:
-    """Convert a float to (numerator, denominator) for binary FFI.
-
-    Uses 10^9 scaling to match JSON decimal precision.
-    The Haskell side normalizes to coprime form via GCD.
-
-    Raises:
-        ValidationError: If *value* is NaN, infinite, or too large for int64.
-    """
-    if math.isnan(value) or math.isinf(value):
-        raise ValidationError(f"Cannot convert {value!r} to rational")
-    numerator = round(value * _DECIMAL_PRECISION_DEN)
-    # Guard against values that would overflow int64 in the binary FFI.
-    # Use the full int64 range, not the 53-bit float mantissa bound — the
-    # denominator is a compile-time constant ≤ int64 so any numerator that
-    # fits int64 is safe to pack as ``<q`` little-endian.
-    if not _INT64_MIN <= numerator <= _INT64_MAX:
-        raise ValidationError(
-            f"signal value {value!r} too large for rational representation"
-        )
-    return (numerator, _DECIMAL_PRECISION_DEN)
-
-
-def fraction_to_rational(value: Fraction) -> tuple[int, int]:
-    """Convert a Fraction to (numerator, denominator) for binary FFI, lossless.
-
-    Unlike float_to_rational this preserves exact precision — the Agda core
-    works in ℚ and the wire format carries int64 numerator/denominator pairs,
-    so Fractions flow through without the 10^9 quantization step.
-
-    Raises:
-        ValidationError: If either component overflows int64.
-    """
-    n, d = value.numerator, value.denominator
-    if not _INT64_MIN <= n <= _INT64_MAX or not _INT64_MIN <= d <= _INT64_MAX:
-        raise ValidationError(
-            f"Fraction {value!r} components exceed int64 range"
-        )
-    return (n, d)
-
-
-def coerce_to_rational(value: float | Fraction) -> tuple[int, int]:
-    """Convert a numeric signal input to (numerator, denominator).
-
-    Uses Fraction's exact representation when the caller already has one;
-    falls back to float_to_rational's 10^9 scaling for float inputs.
-    """
-    if isinstance(value, Fraction):
-        return fraction_to_rational(value)
-    return float_to_rational(value)
-
-
-def to_signal_fraction(value: float | int | Fraction) -> Fraction:
-    """Convert a decimal-intent numeric input to a Fraction for DBCSignal fields.
-
-    Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
-    decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
-    IEEE-754 approximation's monstrous denominator.  Int and existing
-    Fraction inputs flow through unchanged.
-    """
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
-    return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN)
-
-
-def to_predicate_fraction(value: float | int | Fraction) -> Fraction:
-    """Convert a numeric predicate input to a Fraction matching Go/C++ from_double.
-
-    Mirrors Go ``floatToRational`` (``client.go``) and C++ ``Rational::from_double``
-    (``types.cpp``) exactly: float inputs go through ``round(value * 10^9), 10^9``
-    so the user-side construction produces structurally identical Rationals across
-    all three bindings.  Without this, ``Signal.equals(0.1)`` in Python would
-    produce ``Fraction(0.1)`` = the exact IEEE 754 binary fraction
-    (3602879701896397/36028797018963968), which the predicate pretty-printer
-    would then render as a 56-character exact decimal — while Go and C++ render
-    the same call as ``"0.1"``.
-
-    Differs from :func:`to_signal_fraction` (which uses ``limit_denominator``):
-    ``Fraction(0.333333).limit_denominator(10**9)`` finds the closest fraction
-    with denominator <= 10^9 (returns ``Fraction(1, 3)``); ``round-and-scale``
-    produces ``Fraction(333333, 10**6)``.  For predicate inputs Go-parity
-    matters more than continued-fraction simplification.
-
-    Raises:
-        ValidationError: When *value* is NaN, infinite, or overflows int64
-        when scaled (delegated to :func:`float_to_rational`).
-    """
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
-    n, d = float_to_rational(value)
-    return Fraction(n, d)
-
-
-def extract_rational_from_dict(
-    d: dict[str, object], context: str,
-) -> tuple[int, int]:
-    """Extract (numerator, denominator) from a rational dict.
-
-    Raises ProtocolError if the dict is malformed or denominator is non-positive.
-    Mirrors Go ``validateRational`` (rejects ``<= 0``) and the Agda kernel
-    invariant that the denominator is a ``ℕ⁺``.  A negative denominator on
-    the wire would otherwise be silently sign-flipped by ``Fraction(n, d)``,
-    hiding the wire-format violation.
-    """
-    numerator = d.get("numerator")
-    denominator = d.get("denominator")
-    # PY-B-8.1 (R21): is_pure_int rejects bool subclass so a malicious
-    # response {"numerator": true, "denominator": false} cannot coerce
-    # to Fraction(1, 0).  Mirrors the Go encoding/json + C++
-    # nlohmann/json bool→int rejection contract.
-    if not is_pure_int(numerator):
-        raise ProtocolError(f"Expected {context}.numerator to be int")
-    if not is_pure_int(denominator):
-        raise ProtocolError(f"Expected {context}.denominator to be int")
-    if denominator <= 0:
-        raise ProtocolError(
-            f"Expected {context}.denominator to be positive, got {denominator}"
-        )
-    return numerator, denominator
-
-
-def validate_rational(field_name: str, raw_value: object) -> RationalNumber:
-    """Validate and extract RationalNumber from response field."""
-    # PY-B-8.1 (R21): is_pure_int over isinstance(raw_value, int) so a
-    # `true` on the wire (json deserialised as Python bool) is rejected
-    # rather than silently treated as numerator=1.
-    if is_pure_int(raw_value):
-        return {"numerator": raw_value, "denominator": 1}
-    if not is_str_dict(raw_value):
-        raise ProtocolError(
-            f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
-        )
-    n, d = extract_rational_from_dict(raw_value, field_name)
-    return {"numerator": n, "denominator": d}
-
-
-def validate_integer_rational(field_name: str, raw_value: object) -> RationalNumber:
-    """Validate a RationalNumber response field that must be integer-valued.
-
-    Same as :func:`validate_rational` plus a post-parse assertion that the
-    denominator is exactly ``1``.  Used for fields whose Agda-side type is
-    ``ℕ`` or ``ℤ`` (timestamps in microseconds, property indices) — they
-    arrive on the wire as a plain int or as ``{"numerator": N,
-    "denominator": 1}``, never with a fractional component.  A non-unit
-    denominator indicates a wire-format violation by the kernel.
-    """
-    rational = validate_rational(field_name, raw_value)
-    if rational["denominator"] != 1:
-        raise ProtocolError(
-            f"Expected {field_name} to be an integer (denominator == 1), "
-            + f"got {rational['numerator']}/{rational['denominator']}"
-        )
-    return rational
-
-
-def parse_rational(value_raw: object) -> Fraction:
-    """Parse a value that may be a number, rational dict, or rational string.
-
-    Returns a Fraction to preserve the Agda core's exact rational precision
-    end-to-end — JSON rational dicts {"numerator": n, "denominator": d}
-    become Fraction(n, d) with no float quantization.
-
-    For legacy float inputs (rare — Agda's formatRational emits integers as
-    ints and non-integers as rational dicts) we still go through Fraction,
-    using its float-from-string heuristic to avoid binary float artifacts.
-    """
-    if isinstance(value_raw, bool):
-        # bool is a subclass of int; reject explicitly to avoid True → Fraction(1)
-        raise ProtocolError(
-            "Expected signal value to be number, rational dict, "
-            + "or rational string, got bool"
-        )
-    if isinstance(value_raw, int):
-        return Fraction(value_raw)
-    if isinstance(value_raw, float):
-        if math.isnan(value_raw) or math.isinf(value_raw):
-            raise ProtocolError(f"Cannot convert {value_raw!r} to rational")
-        return Fraction(value_raw).limit_denominator(_DECIMAL_PRECISION_DEN)
-    if is_str_dict(value_raw):
-        n, d = extract_rational_from_dict(value_raw, "rational")
-        return Fraction(n, d)
-    if isinstance(value_raw, str):
-        if "/" in value_raw:
-            parts = value_raw.split("/")
-            if len(parts) == 2:
-                try:
-                    numerator_s = int(parts[0])
-                    denominator_s = int(parts[1])
-                except ValueError:
-                    pass
-                else:
-                    if denominator_s <= 0:
-                        raise ProtocolError(
-                            f"Expected positive denominator in rational string, got {value_raw!r}"
-                        )
-                    return Fraction(numerator_s, denominator_s)
-        try:
-            return Fraction(value_raw)
-        except (ValueError, ZeroDivisionError):
-            pass
-    raise ProtocolError(
-        "Expected signal value to be number, rational dict, "
-        + f"or rational string, got {type(value_raw).__name__}"
-    )
 
 
 # DEFERRED — TRACKED (R19P2-CL16-4 — DEFER).
@@ -780,43 +511,3 @@ def _normalize_optional_list[T](
             raise ProtocolError(f"Expected each {key!r} entry to be a dict")
         parsed.append(item_parser(item))
     return parsed
-
-
-def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:
-    """Parse signal values list from response."""
-    values: dict[str, Fraction] = {}
-    for item in values_data:
-        if not is_str_dict(item):
-            raise ProtocolError(f"Expected signal value to be dict, got {type(item)}")
-        name_raw = item.get("name")
-        if not isinstance(name_raw, str):
-            raise ProtocolError(f"Expected signal name to be str, got {type(name_raw)}")
-        value_raw = item.get("value")
-        values[name_raw] = parse_rational(value_raw)
-    return values
-
-
-def parse_errors_list(errors_data: Sequence[object]) -> dict[str, str]:
-    """Parse signal errors list from response."""
-    errors: dict[str, str] = {}
-    for item in errors_data:
-        if not is_str_dict(item):
-            raise ProtocolError(f"Expected error item to be dict, got {type(item)}")
-        name_raw = item.get("name")
-        if not isinstance(name_raw, str):
-            raise ProtocolError(f"Expected error signal name to be str, got {type(name_raw)}")
-        error_raw = item.get("error")
-        if not isinstance(error_raw, str):
-            raise ProtocolError(f"Expected error message to be str, got {type(error_raw)}")
-        errors[name_raw] = error_raw
-    return errors
-
-
-def parse_absent_list(absent_data: Sequence[object]) -> list[str]:
-    """Parse absent signals list from response."""
-    absent: list[str] = []
-    for item in absent_data:
-        if not isinstance(item, str):
-            raise ProtocolError(f"Expected absent signal name to be str, got {type(item)}")
-        absent.append(item)
-    return absent

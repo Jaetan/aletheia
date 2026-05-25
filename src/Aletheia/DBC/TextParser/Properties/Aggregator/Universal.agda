@@ -23,6 +23,7 @@ open import Data.List  using (List; []; _∷_; foldr; map)
 open import Data.List.Properties using ()
   renaming (++-identityʳ to ++ₗ-identityʳ)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
+open import Data.List.Relation.Unary.All.Properties using (map⁺; ++⁺)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_,_)
 open import Data.Sum using (inj₂)
@@ -122,44 +123,23 @@ open import Aletheia.DBC.TextFormatter.Topology using
 -- relaxes this and replaces the vacuous arm with a derivation of
 -- `All RawValueDescStop` from signal-name validity.
 
-private
-  -- All P (map f xs) iff All (P ∘ f) xs.  Standard.
-  all-map :
-      ∀ {A B : Set} {P : B → Set} (f : A → B) (xs : List A)
-    → All (λ a → P (f a)) xs
-    → All P (map f xs)
-  all-map _ []        []        = []
-  all-map f (x ∷ xs) (px ∷ pxs) = px ∷ all-map f xs pxs
-
-  all-++ :
-      ∀ {A : Set} {P : A → Set} (xs ys : List A)
-    → All P xs → All P ys → All P (xs ++ₗ ys)
-  all-++ []       _ []        ays = ays
-  all-++ (x ∷ xs) ys (px ∷ axs) ays = px ∷ all-++ xs ys axs ays
-
-toTopStmtsTyped-WF :
+toTopStmtsTyped-wf :
     ∀ (d : DBC) → WellFormedTextDBCAgg d
   → All (TopStmtTypedWF (collectDefs (DBC.attributes d))) (toTopStmtsTyped d)
-toTopStmtsTyped-WF d wf =
-  all-++ _ _ (all-map TVT (DBC.valueTables d)
-               (lift-stops TVT (TopStmtTypedWF defs) (DBC.valueTables d)
-                           (WellFormedTextDBCAgg.vt-stops wf) wfTVT))
-            (all-++ _ _ (all-map TM (DBC.messages d)
-                          (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
-                                      (WellFormedTextDBCAgg.msg-wfs wf) wfTM))
-                       (all-++ _ _ tvd-WF
-                                  (all-++ _ _ (all-map TEV (DBC.environmentVars d)
-                                                (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
-                                                            (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
-                                             (all-++ _ _ (all-map TCM (DBC.comments d)
-                                                           (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
-                                                                       (WellFormedTextDBCAgg.cm-stops wf) wfTCM))
-                                                        (all-++ _ _ (all-map TAT (DBC.attributes d)
-                                                                      (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
-                                                                                  (WellFormedTextDBCAgg.attr-wfs wf) wfTAT))
-                                                                   (all-map TSG (DBC.signalGroups d)
-                                                                     (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
-                                                                                 (WellFormedTextDBCAgg.sg-wfs wf) wfTSG)))))))
+toTopStmtsTyped-wf d wf =
+  ++⁺ (map⁺ (lift-stops TVT (TopStmtTypedWF defs) (DBC.valueTables d)
+                         (WellFormedTextDBCAgg.vt-stops wf) wfTVT))
+      (++⁺ (map⁺ (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
+                              (WellFormedTextDBCAgg.msg-wfs wf) wfTM))
+           (++⁺ tvd-wf
+                (++⁺ (map⁺ (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
+                                        (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
+                     (++⁺ (map⁺ (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
+                                             (WellFormedTextDBCAgg.cm-stops wf) wfTCM))
+                          (++⁺ (map⁺ (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
+                                                  (WellFormedTextDBCAgg.attr-wfs wf) wfTAT))
+                               (map⁺ (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
+                                                  (WellFormedTextDBCAgg.sg-wfs wf) wfTSG)))))))
   where
     open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
       (TVT; TM; TVD; TEV; TCM; TAT; TSG)
@@ -186,13 +166,12 @@ toTopStmtsTyped-WF d wf =
     -- comes from some `s.name : Identifier`, whose `valid` witness
     -- decomposes to a head non-isHSpace).  No `vds-empty` precondition
     -- needed.  `lift-stops` then routes through `wfTVD`.
-    tvd-WF : All (TopStmtTypedWF defs) (map TVD (collectFromMessages (DBC.messages d)))
-    tvd-WF =
-      all-map TVD (collectFromMessages (DBC.messages d))
-        (lift-stops TVD (TopStmtTypedWF defs)
-                    (collectFromMessages (DBC.messages d))
-                    (collectFromMessages-stops (DBC.messages d))
-                    wfTVD)
+    tvd-wf : All (TopStmtTypedWF defs) (map TVD (collectFromMessages (DBC.messages d)))
+    tvd-wf =
+      map⁺ (lift-stops TVD (TopStmtTypedWF defs)
+                       (collectFromMessages (DBC.messages d))
+                       (collectFromMessages-stops (DBC.messages d))
+                       wfTVD)
 
 -- ============================================================================
 -- BRIDGE — `parseTopStmt pos [] ≡ nothing`  (terminator obligation for `many`)
@@ -243,7 +222,7 @@ parseTopStmts-on-formatChars-body d pos wf =
                 [])
     body-eq =
       parseTopStmts-roundtrip defs pos (toTopStmtsTyped d) []
-        (toTopStmtsTyped-WF d wf)
+        (toTopStmtsTyped-wf d wf)
         []-stop
         parseTopStmt-on-empty
       where

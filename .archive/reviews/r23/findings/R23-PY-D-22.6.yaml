@@ -1,0 +1,24 @@
+id: R23-PY-D-22.6
+round: R23
+category:
+  number: 22
+  name: Cross-layer alignment
+  language: python
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: Python lazy-load lacked threading.Lock
+description: _get_or_load_renderer_lib was module-global with no lock; two concurrent
+  first-callers both attempted dlopen.  Benign in practice but inconsistent with Go
+  sync.Once / C++ std::call_once.  Added `_renderer_lib_lock = threading.Lock()` and
+  wrapped lazy-load.
+files:
+- python/aletheia/client/_enrichment.py
+cluster: D-E-easy
+resolution:
+  commit: 580b337
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,31 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-CICD-A-5.4
+round: R23
+category:
+  number: 5
+  name: Artifact and release surface
+  language: cicd
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Docker image lacks dedicated SBOM
+description: dist tarball has SBOM; docker image consumers should mount/extract.  Defer to
+  release-docs update.
+files:
+- Shakefile.hs
+cluster: H
+resolution:
+  commit: '7922851'
+  round: R23
+  date: '2026-05-23'
+  notes: 'Extended tools/sbom_generate.py with --image-id / --image-base / --image-libgmp
+    args and wired the docker Shake rule to call it after image build.  Image SBOM lands at
+    build/docker/aletheia-image-sbom.cdx.json and records: image SHA-256 (from `docker images
+    --no-trunc --format {{.ID}}`), base image digest (parsed from Dockerfile.runtime FROM
+    line via parseFromBase), libgmp10 version (parsed via parseLibgmpVersion).  Same CycloneDX
+    1.5 schema as the dist SBOM (UR-3.2 / CICD-5.3); main component type flipped to ''container''
+    when --image-id is passed.  Distinct serial-UUID namespace so dist + image SBOMs from
+    the same commit don''t collide.'
+re_raised_from: null
+in_source_marker: null

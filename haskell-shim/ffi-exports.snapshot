@@ -43,6 +43,7 @@ F: Aletheia/CAN/DLC:d_dlcToBytes_6
 F: Aletheia/CAN/BatchExtraction:d_values_22
 F: Aletheia/CAN/BatchExtraction:d_errors_24
 F: Aletheia/CAN/BatchExtraction:d_absent_26
+F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_148
 F: Data/Rational/Base:d_numerator_14
 F: Data/Rational/Base:d_denominatorℕ_20
 F: Agda/Builtin/Sigma:d_fst_28

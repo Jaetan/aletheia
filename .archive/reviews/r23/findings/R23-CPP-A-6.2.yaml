@@ -1,0 +1,29 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-CPP-A-6.2
+round: R23
+category:
+  number: 6
+  name: Redundant patterns
+  language: cpp
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: parse_rational_dict helper extraction
+description: Three parsers share {numerator, denominator} decoding.  Refactor scope; deferred
+  to a dedicated polish pass.
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: '2849371'
+  round: R23
+  date: '2026-05-23'
+  notes: Extracted parse_rational_dict(const Json& j) -> pair<int64_t, int64_t> returning
+    normalized (num, den) with den>0; collapsed three byte-identical dict-decoding paths in
+    parse_signal_value / parse_rational / parse_rational_as_int into helper + 3-line callers.  Helper's
+    general (den<0, num==INT64_MIN) overflow check subsumes the asymmetric (den==-1, num==INT64_MIN)
+    check formerly in parse_rational_as_int.  92→98 LOC net change in the file (helper +11;
+    deletions -19).
+re_raised_from: null
+in_source_marker: null

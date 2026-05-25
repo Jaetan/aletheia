@@ -59,7 +59,8 @@ from pathlib import Path
 
 import yaml
 
-from .checks import Check, CheckResult
+from . import checks
+from .checks import CheckResult
 from .client import ValidationError, check_dbc_text_size_bound
 from .protocols import is_object_list, is_str_dict
 from ._check_conditions import (
@@ -211,7 +212,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             raise ValidationError(
                 f"Check '{name}': condition '{condition}' requires 'min' and 'max'"
             )
-        return Check.signal(signal).stays_between(
+        return checks.signal(signal).stays_between(
             get_number(entry, "min", _ctx(name)),
             get_number(entry, "max", _ctx(name)),
         )
@@ -225,7 +226,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             raise ValidationError(
                 f"Check '{name}': condition 'settles_between' requires 'within_ms'"
             )
-        return Check.signal(signal).settles_between(
+        return checks.signal(signal).settles_between(
             get_number(entry, "min", _ctx(name)),
             get_number(entry, "max", _ctx(name)),
         ).within(get_int(entry, "within_ms", _ctx(name)))
@@ -235,7 +236,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             raise ValidationError(
                 f"Check '{name}': condition 'equals' requires 'value'"
             )
-        return Check.signal(signal).equals(get_number(entry, "value", _ctx(name))).always()
+        return checks.signal(signal).equals(get_number(entry, "value", _ctx(name))).always()
 
     raise ValidationError(f"Check '{name}': unknown condition '{condition}'")
 
@@ -265,7 +266,7 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
     when_signal = get_str(when, "signal", _ctx(name))
     when_value = get_number(when, "value", _ctx(name))
 
-    when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
+    when_result = dispatch_when(checks.when(when_signal), when_cond, when_value)
 
     # Validate then clause
     then_cond = get_str(then, "condition", _ctx(name))

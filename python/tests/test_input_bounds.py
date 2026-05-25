@@ -95,6 +95,7 @@ class TestLimitsConstants:
         assert limits.BOUND_KIND_STRING_LENGTH      == "string_length"
         assert limits.BOUND_KIND_ATOM_COUNT         == "atom_count"
         assert limits.BOUND_KIND_FRAME_BYTE_COUNT   == "frame_byte_count"
+        assert limits.BOUND_KIND_PROPERTY_COUNT     == "property_count"
 
     def test_per_section_cardinalities(self) -> None:
         """Cardinality bounds for messages / signals / attributes / VAL_."""
@@ -106,6 +107,7 @@ class TestLimitsConstants:
         assert limits.MAX_STRING_LENGTH_BYTES           == 64 * 1024
         assert limits.MAX_ATOM_COUNT_PER_PROPERTY       == 1024
         assert limits.MAX_FRAME_BYTE_COUNT              == 64
+        assert limits.MAX_PROPERTIES_PER_STREAM         == 1024
 
 
 class TestInputBoundEnforcedAtFFIEntry:

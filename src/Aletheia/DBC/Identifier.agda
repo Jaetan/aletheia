@@ -27,11 +27,13 @@ open import Data.List using (List; []; _∷_; length)
 import Data.List.Properties as ListProps
 open import Data.List.Relation.Unary.All as All using ()
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (suc; _<ᵇ_)
+open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ)
 open import Data.Product using (_×_; _,_)
+open import Data.Sum using (_⊎_; inj₁; inj₂; [_,_]′)
 open import Data.String as String using (String; fromList; toList)
 open import Data.Unit using (tt)
+open import Data.Empty using (⊥-elim)
 open import Function using (_∘_)
 open import Relation.Nullary using (Dec; yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; cong₂)
@@ -95,18 +97,45 @@ record Identifier : Set where
     valid : T (validIdentifierᵇ name)
 
 -- ============================================================================
--- Construction from a concrete String (JSON parser path — axiom-free)
+-- Construction from a `List Char` — the single identifier-parse interface
 -- ============================================================================
 
--- Build an Identifier from a `List Char` by checking the bool predicate
--- directly.  Used by `Lexer.parseIdentifier` to construct an Identifier from
--- the chars consumed by `satisfy isIdentStart >>= many (satisfy isIdentCont)`.
--- Axiom-free; the witness type matches the Identifier's `valid` field type
--- exactly, no `toList∘fromList` bridge is needed.
+-- The reason an identifier char list fails the DBC grammar.  Carried out of
+-- the ONE validity decision (`parseIdentifierField`) so a caller that needs a
+-- typed rejection (the LTL-property JSON parser, AGDA-D-10.1) gets the reason
+-- from the parse itself, with no second validity walk to keep in sync:
+--   * `TooLong  n`  — `n` chars, over `max-identifier-length` (the length
+--                     conjunct of `validIdentifierᵇ` failed).  Surfaced as
+--                     `InputBoundExceeded IdentifierLength` (preserves D-32.1).
+--   * `BadChars cs` — within the length bound but not the
+--                     `(letter|_)(letter|digit|_)*` grammar (incl. empty).
+--                     Surfaced as `ParseErr (InvalidIdentifier …)`.
+data IdentifierError : Set where
+  TooLong  : ℕ → IdentifierError
+  BadChars : List Char → IdentifierError
+
+-- THE identifier-parse interface: decide `validIdentifierᵇ` once, returning the
+-- validated `Identifier` or the typed reason.  Used by `Lexer.parseIdentifier`
+-- (via the `mkIdentFromChars` erasure below) and the LTL-property JSON parser
+-- (directly, for the typed error).  Axiom-free; the witness type matches the
+-- `Identifier.valid` field exactly.  `T? (validIdentifierᵇ cs)` is decided
+-- FIRST so the erasure keeps its original reduction shape — the length split
+-- only refines the (already-rejected) failure branch into TooLong vs BadChars.
+parseIdentifierField : List Char → IdentifierError ⊎ Identifier
+parseIdentifierField cs with T? (validIdentifierᵇ cs)
+... | yes w = inj₂ (mkIdent cs w)
+... | no  _ with length cs <ᵇ suc max-identifier-length
+...   | false = inj₁ (TooLong (length cs))
+...   | true  = inj₁ (BadChars cs)
+
+-- `Maybe` erasure of the typed parse — the historical interface, now DERIVED
+-- from the single `parseIdentifierField` decision (one interface, one path).
+-- `Lexer.parseIdentifier` and `mkIdentFromString` consume this.
+toMaybeIdent : IdentifierError ⊎ Identifier → Maybe Identifier
+toMaybeIdent = [ (λ _ → nothing) , just ]′
+
 mkIdentFromChars : List Char → Maybe Identifier
-mkIdentFromChars cs with T? (validIdentifierᵇ cs)
-... | yes w = just (mkIdent cs w)
-... | no  _ = nothing
+mkIdentFromChars cs = toMaybeIdent (parseIdentifierField cs)
 
 -- Build an Identifier from a String.  Used by JSON ingestion (where every
 -- field arrives as a String).  The Identifier's name is stored as `toList s`,
@@ -114,6 +143,25 @@ mkIdentFromChars cs with T? (validIdentifierᵇ cs)
 -- `T?` decision returns.  Axiom-free.
 mkIdentFromString : String → Maybe Identifier
 mkIdentFromString = mkIdentFromChars ∘ toList
+
+-- Constructing an Identifier from its own `name` round-trips — primitive form
+-- on `parseIdentifierField` (the `yes` branch closes via `T-irrelevant` on the
+-- witness; `no` is absurd against the stored `valid`), with the `Maybe` form as
+-- its image under the `toMaybeIdent` erasure.  Axiom-free.  Single home for
+-- this fact (cat 27 dedup): `parseIdentifierField-on-valid` feeds the LTL-JSON
+-- predicate roundtrip (`LTL.JSON.Properties`, AGDA-D-10.1);
+-- `mkIdentFromChars-on-valid` the DBC text-parser roundtrip
+-- (`TextParser.Properties.Primitives`).
+parseIdentifierField-on-valid : ∀ (i : Identifier)
+  → parseIdentifierField (Identifier.name i) ≡ inj₂ i
+parseIdentifierField-on-valid (mkIdent name valid)
+  with T? (validIdentifierᵇ name)
+... | yes w  = cong (λ v → inj₂ (mkIdent name v)) (T-irrelevant w valid)
+... | no  ¬w = ⊥-elim (¬w valid)
+
+mkIdentFromChars-on-valid : ∀ (i : Identifier)
+  → mkIdentFromChars (Identifier.name i) ≡ just i
+mkIdentFromChars-on-valid i = cong toMaybeIdent (parseIdentifierField-on-valid i)
 
 -- ============================================================================
 -- String view (`fromList ∘ Identifier.name`)

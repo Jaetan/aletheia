@@ -56,11 +56,14 @@ func TestSendFrames_WithViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{"status":"ack"}`),     // Frame 1
 		aletheia.Respond(`{
-			"status":"fails",
-			"type":"property",
-			"property_index":0,
-			"timestamp":2000,
-			"reason":"Speed >= 220"
+			"type":"property_batch",
+			"results":[{
+				"type":"property",
+				"status":"fails",
+				"property_index":0,
+				"timestamp":2000,
+				"reason":"Speed >= 220"
+			}]
 		}`), // Frame 2 — violation
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`), // extraction for enrichment
 		aletheia.Respond(`{"status":"ack"}`), // Frame 3
@@ -97,9 +100,13 @@ func TestSendFrames_WithViolation(t *testing.T) {
 	if _, ok := results[0].(aletheia.Ack); !ok {
 		t.Errorf("result[0]: expected Ack, got %T", results[0])
 	}
-	v, ok := results[1].(aletheia.Violation)
+	b, ok := results[1].(aletheia.PropertyBatch)
 	if !ok {
-		t.Fatalf("result[1]: expected Violation, got %T", results[1])
+		t.Fatalf("result[1]: expected PropertyBatch, got %T", results[1])
+	}
+	v := b.FirstViolation()
+	if v == nil {
+		t.Fatalf("expected violation in batch, got %+v", b)
 	}
 	if v.PropertyIndex != 0 {
 		t.Errorf("violation property index: got %d, want 0", v.PropertyIndex)

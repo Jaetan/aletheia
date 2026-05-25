@@ -313,7 +313,7 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// SendFrame violation response (consumed first by processLocked)
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}]}`),
 		// Extraction response (consumed by enrichment's extractSignalsLocked)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245}],"errors":[],"absent":[]}`),
 	)
@@ -341,9 +341,18 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
-	v, ok := resp.(aletheia.Violation)
+	b, ok := resp.(aletheia.PropertyBatch)
+
 	if !ok {
-		t.Fatalf("expected Violation, got %T", resp)
+		t.Fatalf("expected PropertyBatch, got %T", resp)
+
+	}
+
+	v := b.FirstViolation()
+
+	if v == nil {
+		t.Fatalf("expected violation in batch, got %+v", b)
+
 	}
 	if v.Enrichment == nil {
 		t.Fatal("expected non-nil Enrichment")
@@ -367,7 +376,7 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// Violation response (consumed first by processLocked)
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}]}`),
 		// Extraction response (consumed by enrichment)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245},{"name":"RPM","value":3000}],"errors":[],"absent":[]}`),
 	)
@@ -398,9 +407,18 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 		t.Fatalf("SendFrame: %v", err)
 	}
 
-	v, ok := resp.(aletheia.Violation)
+	b, ok := resp.(aletheia.PropertyBatch)
+
 	if !ok {
-		t.Fatalf("expected Violation, got %T", resp)
+		t.Fatalf("expected PropertyBatch, got %T", resp)
+
+	}
+
+	v := b.FirstViolation()
+
+	if v == nil {
+		t.Fatalf("expected violation in batch, got %+v", b)
+
 	}
 	if v.Enrichment == nil {
 		t.Fatal("expected non-nil Enrichment")
@@ -421,10 +439,10 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// First violation, then extraction (cached)
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000000,"reason":"test"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000000,"reason":"test"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245}],"errors":[],"absent":[]}`),
 		// Second violation with same frame — no new extraction (cache hit)
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000000,"reason":"test"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000000,"reason":"test"}]}`),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -450,8 +468,12 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v1, ok := resp1.(aletheia.Violation)
-	if !ok || v1.Enrichment == nil {
+	b1, ok := resp1.(aletheia.PropertyBatch)
+	if !ok {
+		t.Fatalf("expected PropertyBatch, got %T", resp1)
+	}
+	v1 := b1.FirstViolation()
+	if v1 == nil || v1.Enrichment == nil {
 		t.Fatal("expected enriched violation 1")
 	}
 
@@ -459,8 +481,12 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v2, ok := resp2.(aletheia.Violation)
-	if !ok || v2.Enrichment == nil {
+	b2, ok := resp2.(aletheia.PropertyBatch)
+	if !ok {
+		t.Fatalf("expected PropertyBatch, got %T", resp2)
+	}
+	v2 := b2.FirstViolation()
+	if v2 == nil || v2.Enrichment == nil {
 		t.Fatal("expected enriched violation 2")
 	}
 
@@ -484,11 +510,11 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 
 	// First 256 frames: violation then extraction (cached)
 	for i := 0; i < 256; i++ {
-		responses = append(responses, aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
+		responses = append(responses, aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`))
 		responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
 	}
 	// 257th frame: violation, then extraction (extracted but not cached — cache full)
-	responses = append(responses, aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
+	responses = append(responses, aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`))
 	responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
 
 	mock := aletheia.NewMockBackend(responses...)
@@ -516,9 +542,18 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
-		v, ok := resp.(aletheia.Violation)
+		b, ok := resp.(aletheia.PropertyBatch)
+
 		if !ok {
-			t.Fatalf("frame %d: expected Violation, got %T", i, resp)
+			t.Fatalf("expected PropertyBatch, got %T", resp)
+
+		}
+
+		v := b.FirstViolation()
+
+		if v == nil {
+			t.Fatalf("expected violation in batch, got %+v", b)
+
 		}
 		// All frames enriched (extraction happens regardless, just not cached after 256)
 		if v.Enrichment == nil {
@@ -595,13 +630,13 @@ func TestStartStream_ClearsCache(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream (1st)
 		// Violation then extraction for first stream
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`),
 		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":1000,"reason":"test"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`), // EOS extraction
 		aletheia.Respond(`{"status":"success"}`), // StartStream (2nd)
 		// Violation then new extraction for same frame (cache was cleared)
-		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000,"reason":"test"}`),
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000,"reason":"test"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":200}],"errors":[],"absent":[]}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -628,9 +663,13 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v1 := resp.(aletheia.Violation)
-	if v1.Enrichment == nil || v1.Enrichment.Signals["Speed"] != 100 {
-		t.Fatalf("stream 1: expected Speed=100, got %v", v1.Enrichment)
+	b1, ok := resp.(aletheia.PropertyBatch)
+	if !ok {
+		t.Fatalf("stream 1: expected PropertyBatch, got %T", resp)
+	}
+	v1 := b1.FirstViolation()
+	if v1 == nil || v1.Enrichment == nil || v1.Enrichment.Signals["Speed"] != 100 {
+		t.Fatalf("stream 1: expected Speed=100, got %+v", v1)
 	}
 	_, err = c.EndStream(ctx)
 	if err != nil {
@@ -646,9 +685,13 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v2 := resp.(aletheia.Violation)
-	if v2.Enrichment == nil || v2.Enrichment.Signals["Speed"] != 200 {
-		t.Fatalf("stream 2: expected Speed=200, got %v", v2.Enrichment)
+	b2, ok := resp.(aletheia.PropertyBatch)
+	if !ok {
+		t.Fatalf("stream 2: expected PropertyBatch, got %T", resp)
+	}
+	v2 := b2.FirstViolation()
+	if v2 == nil || v2.Enrichment == nil || v2.Enrichment.Signals["Speed"] != 200 {
+		t.Fatalf("stream 2: expected Speed=200, got %+v", v2)
 	}
 }
 
@@ -739,7 +782,7 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // SetProperties
 	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // StartStream
 	for i := 0; i < n; i++ {
-		responses = append(responses, aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
+		responses = append(responses, aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`))
 		responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
 	}
 	mock := aletheia.NewMockBackend(responses...)

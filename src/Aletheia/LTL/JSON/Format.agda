@@ -17,6 +17,7 @@ open import Aletheia.JSON using (JSON; JNumber; JString; JObject)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.LTL.Syntax using (LTL)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 
 -- ============================================================================
@@ -26,17 +27,17 @@ open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP;
 -- Format a ValuePredicate as a list of JSON fields (canonical order).
 formatValuePredicateFields : ValuePredicate → List (String × JSON)
 formatValuePredicateFields (Equals s v) =
-  ("predicate" , JString (toList "equals")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "equals")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (LessThan s v) =
-  ("predicate" , JString (toList "lessThan")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "lessThan")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (GreaterThan s v) =
-  ("predicate" , JString (toList "greaterThan")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "greaterThan")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (LessThanOrEqual s v) =
-  ("predicate" , JString (toList "lessThanOrEqual")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "lessThanOrEqual")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (GreaterThanOrEqual s v) =
-  ("predicate" , JString (toList "greaterThanOrEqual")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "greaterThanOrEqual")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (Between s min max) =
-  ("predicate" , JString (toList "between")) ∷ ("signal" , JString s) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
+  ("predicate" , JString (toList "between")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
 
 -- ============================================================================
 -- DELTA PREDICATE FORMATTER
@@ -45,9 +46,9 @@ formatValuePredicateFields (Between s min max) =
 -- Format a DeltaPredicate as a list of JSON fields (canonical order).
 formatDeltaPredicateFields : DeltaPredicate → List (String × JSON)
 formatDeltaPredicateFields (ChangedBy s d) =
-  ("predicate" , JString (toList "changedBy")) ∷ ("signal" , JString s) ∷ ("delta" , JNumber d) ∷ []
+  ("predicate" , JString (toList "changedBy")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("delta" , JNumber d) ∷ []
 formatDeltaPredicateFields (StableWithin s t) =
-  ("predicate" , JString (toList "stableWithin")) ∷ ("signal" , JString s) ∷ ("tolerance" , JNumber t) ∷ []
+  ("predicate" , JString (toList "stableWithin")) ∷ ("signal" , JString (Identifier.name s)) ∷ ("tolerance" , JNumber t) ∷ []
 
 -- ============================================================================
 -- SIGNAL PREDICATE FORMATTER

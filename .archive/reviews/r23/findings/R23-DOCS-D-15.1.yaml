@@ -1,0 +1,24 @@
+id: R23-DOCS-D-15.1
+round: R23
+category:
+  number: 15
+  name: Cross-document drift
+  language: docs
+  agent: D
+severity: critical
+disposition: FIX
+status: closed
+title: Agda module count drift (250 vs 263)
+description: 'PROJECT_STATUS.md L68 said ''Agda modules: **250**'' and L107 said ''All
+  249 of 250''; actual is 263 per `find src -name ''*.agda'' | wc -l`.  Fixed: module
+  count + safe-flag bullet + replaced the multi-line evolution chain with a one-line
+  current-state + pointer to memory archive.'
+files:
+- PROJECT_STATUS.md
+cluster: A
+resolution:
+  commit: 66cf92b
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

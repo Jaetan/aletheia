@@ -1,0 +1,22 @@
+id: R23-CPP-A-5.1
+round: R23
+category:
+  number: 5
+  name: Error message consistency
+  language: cpp
+  agent: A
+severity: low
+disposition: FIX
+status: closed
+title: Error message 'exceeds uint16 range' → '11-bit standard-frame range (max 2047)'
+description: Old message leaked C++ impl type and was wider than the protocol allows.  Fixed
+  via extracted helper (Finding CPP-A-6.1).
+files:
+- cpp/src/json_parse.cpp
+cluster: C
+resolution:
+  commit: d11e1a3
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

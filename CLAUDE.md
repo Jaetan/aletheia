@@ -88,12 +88,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-263 total modules (`cabal run shake -- count-modules`):
-- **258**: `--safe --without-K`
+264 total modules (`cabal run shake -- count-modules`):
+- **259**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) AND the B.3.d outer-wrap `parseText-on-formatText` consumer — co-located here to keep the trusted-axiom-consuming surface at one allowlisted module (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-262 of 263 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, R18 cluster 14 extraction, R18 cluster 2 `Aletheia.Limits` extraction, R19 Phase 2 cluster 8 `Aletheia.DBC.Formatter.Bounded` extraction, R20 cluster V `Aletheia.DBC.BoundWalks` extraction, R20 cluster Y stage 2 `Aletheia.DBC.RationalRenderer` (+`.Properties`) lift, R21 cluster 9 `DecRatParse/Properties` split into 5 phase submodules, R21 cluster 9 follow-up `Properties/Primitives` split into MuxMarker + Bools sibling submodules at `543acee`, R21 cluster 9 follow-up `Format` split into `Format/RegressionTests` sibling at `000761b`, R21 cluster 9 follow-up `Format/AttrDef` split into `Format/AttrDef/HeadHelpers` at `9421604`, R21 cluster 9 follow-up `Aggregator/Dispatcher/Attribute/Assign` split into `Assign/Bridges` at `9c7740d`, R21 cluster 9 follow-up `Refine/ValueDescriptions` split into `ValueDescriptions/UnresolvedRVDs` at `627ad25`, R21 cluster 9 follow-up `Properties/Attributes/Line` split into `Line/Alt5` at `5b48948`, R22 AGDA-D-15.1 final closure `Format/AttrLine` split into `Format/AttrLine/Builders` at `0b360fd`, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md` / `memory/project_review_round18.md` / `memory/project_smart_rational_renderer.md` / `memory/project_review_round21.md`.
+263 of 264 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, R18 cluster 14 extraction, R18 cluster 2 `Aletheia.Limits` extraction, R19 Phase 2 cluster 8 `Aletheia.DBC.Formatter.Bounded` extraction, R20 cluster V `Aletheia.DBC.BoundWalks` extraction, R20 cluster Y stage 2 `Aletheia.DBC.RationalRenderer` (+`.Properties`) lift, R21 cluster 9 `DecRatParse/Properties` split into 5 phase submodules, R21 cluster 9 follow-up `Properties/Primitives` split into MuxMarker + Bools sibling submodules at `543acee`, R21 cluster 9 follow-up `Format` split into `Format/RegressionTests` sibling at `000761b`, R21 cluster 9 follow-up `Format/AttrDef` split into `Format/AttrDef/HeadHelpers` at `9421604`, R21 cluster 9 follow-up `Aggregator/Dispatcher/Attribute/Assign` split into `Assign/Bridges` at `9c7740d`, R21 cluster 9 follow-up `Refine/ValueDescriptions` split into `ValueDescriptions/UnresolvedRVDs` at `627ad25`, R21 cluster 9 follow-up `Properties/Attributes/Line` split into `Line/Alt5` at `5b48948`, R22 AGDA-D-15.1 final closure `Format/AttrLine` split into `Format/AttrLine/Builders` at `0b360fd`, R23 AGDA-D-10.1 `Protocol/Handlers/Properties` routing-proof addition at `050ba2f`, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md` / `memory/project_review_round18.md` / `memory/project_smart_rational_renderer.md` / `memory/project_review_round21.md`.
 
 ## Common Commands
 
@@ -164,11 +164,11 @@ State managed via `StablePtr (IORef StreamState)`. All bindings load `.so` via c
 
 ### C++ Binding (`cpp/`)
 
-Wraps `libaletheia-ffi.so` via `dlopen`. `IBackend` interface; `MockBackend` for tests. Strong types (`std::byte`, validated newtypes, `std::expected`). Custom `Logger` (~90L, callback-based, 15 event types matching Go's slog, zero-cost when null). RTS cores via `make_ffi_backend(path, rts_cores)` (default 1, once-per-process with mismatch warning). C++23, targets g++>=14 / clang>=21. Style: `.clang-format` + `.clang-tidy`. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
+Wraps `libaletheia-ffi.so` via `dlopen`. `IBackend` interface; `MockBackend` for tests. Strong types (`std::byte`, validated newtypes, `std::expected`). Custom `Logger` (~90L, callback-based, 16 event types matching Go's slog, zero-cost when null). RTS cores via `make_ffi_backend(path, rts_cores)` (default 1, once-per-process with mismatch warning). C++23, targets g++>=14 / clang>=21. Style: `.clang-format` + `.clang-tidy`. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
 
 ### Go Binding (`go/`)
 
-Wraps `libaletheia-ffi.so` via cgo + dlopen. `Backend` / `MockBackend` / `FFIBackend` (with C trampolines). Strong types (`[]byte` payload + DLC validation, validated CAN ID / DLC newtypes, sealed CanID/Predicate/Formula interfaces). `slog` via `WithLogger` option (15 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings. RTS cores via `WithRTSCores` functional option. `Client` is goroutine-safe (`sync.Mutex`), double-close safe, GHC RTS init thread-pinned (`LockOSThread`). Optional `go/excel/` is a separate Go module pulling `xuri/excelize`; depend on it only for the Excel loader. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
+Wraps `libaletheia-ffi.so` via cgo + dlopen. `Backend` / `MockBackend` / `FFIBackend` (with C trampolines). Strong types (`[]byte` payload + DLC validation, validated CAN ID / DLC newtypes, sealed CanID/Predicate/Formula interfaces). `slog` via `WithLogger` option (16 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings. RTS cores via `WithRTSCores` functional option. `Client` is goroutine-safe via a 1-deep channel-token semaphore (`lockCh chan struct{}`) chosen over `sync.Mutex` so that `ctx`-aware `TryLock` cancellation works correctly (see `docs/architecture/CANCELLATION.md`); double-close safe; GHC RTS init thread-pinned (`LockOSThread`). Optional `go/excel/` is a separate Go module pulling `xuri/excelize`; depend on it only for the Excel loader. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
 
 ### Module Organization
 
@@ -251,19 +251,34 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 ## Current Session Progress
 
-**Active branch: `review-r22`** — forked from `main` post-R21 merge at `315c1a3` (2026-05-18).  Module count **263**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
+**Active branch: `review-r23`** — forked from `main` post-R22 merge at `ce7bbcc` (2026-05-22).  Module count **264**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
 
-**R22 closed work** (all R21 carry-overs resolved; ready to merge to main):
-- **AGDA-A-1.1** dead-import campaign ✅ via tool-driven sweep #4 (`56ac3d6`, 90 files / 532 dead names removed, race-free) + two-tier sanity gates (`403555b`).  Combined with manual b25 series: ~1100+ dead names removed.  Cat 1 graduated post-R22 per `feedback_graduated_categories.md`.
-- **AGDA-D-12.1** end-of-stream uncached-atom warnings ✅ closed at `d51cdb1` (3 REQUIRED follow-ups: new `LogEvent.endstream.uncached_atom` per binding + RUNBOOK § entry + PROTOCOL § wire-shape spec).  Parity tests 15 → 16.
-- **Assign.agda b15 marker** ✅ retired at `57ad862` (already cleared by later A-1.1 sweeps; comment-only removal).
-- **Review-process meta-review** ✅ shipped at `80e3d2a` / `36fc47b` / `9f7d38e` / `b98661e` (this commit series): archive infrastructure + graduation + delta scope + AGENTS split + UPD frequency rule + PROJECT_STATUS compression + CLAUDE/MEMORY compression.
+**R23 closed work** (57 of 57 findings closed: 54 FIX + 3 FP-VERIFIED):
+- **Cluster A** (`66cf92b`) — closed XDOC-15.1 critical + 11 doc drifts.
+- **Cluster C** (`d11e1a3` + `3bb26b3` + `2849371`) — all 10 C++ delta cleanup findings closed.
+- **Cluster H** (`09e276c` + `7922851`) — CI/CD + docker SBOM (5 closed).
+- **Cluster I** (`425b99a` + `8e50b86` / `03f6111`) — runbook gaps (4 closed).
+- **Cluster B** (`8e7400d` + `7922851`) — Agda hygiene (6 closed: C-3.1/5.2/6.2/6.3/27.1 + lowercase `-wf` rename + stdlib lift).
+- **D + E easy wins** (`580b337`) — FFI snapshot gap + Python lazy-load lock.
+- **PY-D-16.2 / 16.1** (`6c9c202` / `ce39687` / `46b9b11` / `9543be1`) — `_helpers` private-surface promotion + 742-LOC file split into `_helpers/{rational, dbc_normalize, json_codec}.py`.
+- **AGDA-D-11.2 / 32.1** (`3694a58` / `aacc970`) — max-properties bound + IdentifierLength bound check.
+- **AGDA-C-6.1** (`9543be1`) — `requireDec-allE` / `rejectDec-allE` lemmas in `Validity.Combinators`; 6 of 8 proofs collapse to one-liners.
+- **CPP-D-18.1** (`9543be1`) — reproducible-build invariant restored: `CMAKE_CURRENT_SOURCE_DIR` defines moved to runtime env vars via `set_tests_properties(ENVIRONMENT ...)`.
+- **DEFER reversal** (`5367334`, 2026-05-23) — user reversed all 18 in-flight DEFERs to FIX; DB-only commit (audit trail preserved as top-of-file YAML comment).
+- **AGDA-C-5.1** (`165de76`) — typed `NonIntegerMultiplexValue` ParseError ctor + cross-binding ErrorCode addition + Python `ProtocolError` code propagation.
+- **CPP-D-15.1 / 15.2** (`8aff66b` / `e15d7d8`) — `struct Rational` → class with private fields + accessors; `Check` class dropped for free-function namespace (Python + C++).
+- **CPP-D-17.1** (`c348317`) — shared GHC RTS init state across rational_renderer + FfiBackend singletons (renderer-first construction no longer drops `rts_cores`).
+- **AGDA-D-12.1** (`7dc4fcb`) — mid-stream `Satisfied` properties lifted to wire via PropertyBatch; `Complete.results` no longer silently drops them.
 
-**Earlier rounds**: R20 ✅ merged `2477d5c` 2026-05-17, R21 ✅ merged `315c1a3` 2026-05-18.  Per-round detail in `memory/project_review_round{20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22}/findings/` (queryable via `tools/review_db.py --report ...`); pre-R22 PROJECT_STATUS narrative archived at `docs/archive/PROJECT_STATUS_HISTORY.md`.
+- **AGDA-D-10.1** (fix `050ba2f`; YAML `0f101be`) — `SignalPredicate.signalName : List Char → Identifier`.  JSON parser made reason-carrying (`ParseFail ⊎ _`) — the forked second validity walk removed; signal-name validity decided once (`signalField → parseIdentifierField`).  Over-long → `InputBoundExceeded IdentifierLength`; bad charset/empty → `ParseErr InvalidIdentifier`.  Handler verdict→wire-error routing PROVEN in new `Protocol/Handlers/Properties.agda` (wired into check-properties); redundant per-binding behavior tests dropped (routing is binding-independent — proven once kernel-side).  Hot path unchanged (benchmark-neutral).
 
-**Gates posture** at most recent commit: build clean ~2m, check-properties clean ~10m, pytest 872p+1s, basedpyright/pylint clean, Go test -race PASS, C++ ctest 10/10, clang-format clean.
+**R23 open work**: ✅ NONE — all 57 findings closed.  Merge gated on full `tools/run_ci.py`.
 
-**Push gap**: local `main` 162+ commits ahead of `origin/main` — R20+R21 merges + R22 work held local per `feedback_review_branch_workflow.md`.
+**Earlier rounds**: R20 ✅ merged `2477d5c` 2026-05-17, R21 ✅ merged `315c1a3` 2026-05-18, R22 ✅ merged `3ebfc37` + clang-format follow-up `ce7bbcc` 2026-05-22.  Per-round detail in `memory/project_review_round{20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py --report ...`); pre-R22 PROJECT_STATUS narrative archived at `docs/archive/PROJECT_STATUS_HISTORY.md`.
+
+**Gates posture**: ✅ all 57 findings closed.  AGDA-D-10.1 validated this session (2026-05-25): agda type-check + `check-properties` (incl. the new routing proof) + `build` (.so rebuilt; peak 3.1 GB at `-j4` — the `-j16` MAlonzo recompile was the OOM cause, now mitigated) + `check-{invariants,no-properties-in-runtime,erasure,fidelity,ffi-exports,bound-enforcement}` + throughput benchmark (Stream-LTL within ±10% session-distant band) — all green.  The 5 earlier big-structural closures (AGDA-C-5.1, CPP-D-15.1/15.2/17.1, AGDA-D-12.1) landed in prior pre-crash sessions without captured per-finding gate evidence; the full `tools/run_ci.py` (REQUIRED before R23 → main merge, running now) re-validates the entire committed round state.
+
+**Push gap**: ✅ CLOSED.  `main` is in sync with `origin/main` after R22 merge push.
 
 **Standard gates passed at every closure** — `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, check-bound-enforcement, count-modules, check-runbook, check-changelog, check-limits-parity}` + Python `pytest tests/` + Go `go test ./aletheia/ -race` + C++ `ctest --test-dir cpp/build` + lint gates.
 

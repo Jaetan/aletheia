@@ -28,7 +28,7 @@ from pathlib import Path
 # Allow importing from the demo directory
 sys.path.insert(0, str(Path(__file__).parent))
 
-from aletheia import AletheiaClient, Check, Signal
+from aletheia import AletheiaClient, checks, Signal
 from engine_ecu_sim import (
     ENGINE_DBC,
     ENGINE_STATUS_ID,

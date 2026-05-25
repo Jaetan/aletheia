@@ -1,0 +1,28 @@
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+id: R23-AGDA-C-27.1
+round: R23
+category:
+  number: 27
+  name: Stdlib coverage & lemma deduplication
+  language: agda
+  agent: C
+severity: medium
+disposition: FIX
+status: closed
+title: Replace hand-rolled all-map/all-++ with stdlib
+description: Data.List.Relation.Unary.All.Properties.{map⁻,++⁺} are stdlib equivalents; need
+  argument-order verification.  Defer.
+files:
+- src/Aletheia/DBC/TextParser/Properties/Aggregator/Universal.agda
+cluster: B
+resolution:
+  commit: '7922851'
+  round: R23
+  date: '2026-05-23'
+  notes: Replaced local helpers all-map (4 LOC) + all-++ (3 LOC) in Aggregator/Universal.agda
+    with stdlib map⁺ / ++⁺ from Data.List.Relation.Unary.All.Properties.  Finding said 'map⁻'
+    but the stdlib name for the direction we need (preimage → image) is map⁺; both exist.  Call-site
+    signatures dropped explicit (f, xs) / (xs, ys) args — stdlib infers them from the goal's
+    `map f xs` shape.
+re_raised_from: null
+in_source_marker: null

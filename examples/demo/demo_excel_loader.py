@@ -13,7 +13,8 @@ No FFI or Agda build required — this demo only generates formulas.
 import tempfile
 from pathlib import Path
 
-from aletheia import Check, load_checks_from_excel, load_dbc_from_excel, create_template
+from aletheia import load_checks_from_excel, load_dbc_from_excel, create_template
+from aletheia.checks import signal, when
 
 
 WORKBOOK = Path(__file__).parent / "demo_workbook.xlsx"
@@ -88,12 +89,12 @@ print("SECTION 4: Equivalence with Check API")
 print("=" * 60)
 
 excel_speed = checks[0].to_dict()
-api_speed = Check.signal("VehicleSpeed").never_exceeds(220).to_dict()
+api_speed = signal("VehicleSpeed").never_exceeds(220).to_dict()
 print(f"\n  Excel 'Speed limit' == Check API: {excel_speed == api_speed}")
 
 excel_brake = checks[6].to_dict()
 api_brake = (
-    Check.when("BrakePedal").exceeds(50)
+    when("BrakePedal").exceeds(50)
     .then("BrakeLight").equals(1)
     .within(100)
     .to_dict()

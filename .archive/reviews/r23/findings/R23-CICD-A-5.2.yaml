@@ -1,0 +1,22 @@
+id: R23-CICD-A-5.2
+round: R23
+category:
+  number: 5
+  name: Artifact and release surface
+  language: cicd
+  agent: A
+severity: medium
+disposition: FIX
+status: closed
+title: Shakefile dist rule chains proof-side gates
+description: 'Was `need [build/libaletheia-ffi.so]` only.  Now: full proof-side gate
+  dependency.  Defense-in-depth at the release-cut path.'
+files:
+- Shakefile.hs
+cluster: H
+resolution:
+  commit: 09e276c
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

@@ -13,6 +13,7 @@ module Aletheia.LTL.SignalPredicate.Types where
 open import Aletheia.Prelude
 open import Data.Char using (Char)
 open import Data.Rational using ()
+open import Aletheia.DBC.Identifier using (Identifier)
 
 -- ============================================================================
 -- SIGNAL EVALUATION VALUES (Extended Kleene logic)
@@ -66,31 +67,34 @@ fromBool false = False
 
 -- Single-value predicates: evaluated given one signal value (ℚ → Bool)
 data ValuePredicate : Set where
-  Equals             : (signalName : List Char) → (value : ℚ) → ValuePredicate
-  LessThan           : (signalName : List Char) → (value : ℚ) → ValuePredicate
-  GreaterThan        : (signalName : List Char) → (value : ℚ) → ValuePredicate
-  LessThanOrEqual    : (signalName : List Char) → (value : ℚ) → ValuePredicate
-  GreaterThanOrEqual : (signalName : List Char) → (value : ℚ) → ValuePredicate
-  Between            : (signalName : List Char) → (min : ℚ) → (max : ℚ) → ValuePredicate
+  Equals             : (signalName : Identifier) → (value : ℚ) → ValuePredicate
+  LessThan           : (signalName : Identifier) → (value : ℚ) → ValuePredicate
+  GreaterThan        : (signalName : Identifier) → (value : ℚ) → ValuePredicate
+  LessThanOrEqual    : (signalName : Identifier) → (value : ℚ) → ValuePredicate
+  GreaterThanOrEqual : (signalName : Identifier) → (value : ℚ) → ValuePredicate
+  Between            : (signalName : Identifier) → (min : ℚ) → (max : ℚ) → ValuePredicate
 
--- Extract signal name from a value predicate
+-- Extract signal name from a value predicate.  Projects the underlying
+-- `Identifier.name` (a `List Char`) so the streaming evaluation + cache
+-- hot path keeps comparing char lists via `_≡csᵇ_` — the Identifier
+-- witness rides along in the stored field but is not re-examined per frame.
 valuePredicateSignal : ValuePredicate → List Char
-valuePredicateSignal (Equals n _)             = n
-valuePredicateSignal (LessThan n _)           = n
-valuePredicateSignal (GreaterThan n _)        = n
-valuePredicateSignal (LessThanOrEqual n _)    = n
-valuePredicateSignal (GreaterThanOrEqual n _) = n
-valuePredicateSignal (Between n _ _)          = n
+valuePredicateSignal (Equals n _)             = Identifier.name n
+valuePredicateSignal (LessThan n _)           = Identifier.name n
+valuePredicateSignal (GreaterThan n _)        = Identifier.name n
+valuePredicateSignal (LessThanOrEqual n _)    = Identifier.name n
+valuePredicateSignal (GreaterThanOrEqual n _) = Identifier.name n
+valuePredicateSignal (Between n _ _)          = Identifier.name n
 
 -- Delta predicates: require two values (previous and current)
 data DeltaPredicate : Set where
-  ChangedBy    : (signalName : List Char) → (delta : ℚ) → DeltaPredicate
-  StableWithin : (signalName : List Char) → (tolerance : ℚ) → DeltaPredicate
+  ChangedBy    : (signalName : Identifier) → (delta : ℚ) → DeltaPredicate
+  StableWithin : (signalName : Identifier) → (tolerance : ℚ) → DeltaPredicate
 
 -- Extract signal name from a delta predicate
 deltaPredicateSignal : DeltaPredicate → List Char
-deltaPredicateSignal (ChangedBy n _)    = n
-deltaPredicateSignal (StableWithin n _) = n
+deltaPredicateSignal (ChangedBy n _)    = Identifier.name n
+deltaPredicateSignal (StableWithin n _) = Identifier.name n
 
 -- Combined signal predicate type
 data SignalPredicate : Set where

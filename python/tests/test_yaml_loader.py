@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from aletheia import ValidationError
-from aletheia.checks import Check
+from aletheia.checks import signal, when
 from aletheia.yaml_loader import load_checks
 
 
@@ -35,7 +35,7 @@ class TestLoadSimpleChecks:
                 value: 220
         """))
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
 
     def test_never_below(self) -> None:
         """Verify never below."""
@@ -46,7 +46,7 @@ class TestLoadSimpleChecks:
                 value: 11.5
         """))
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Voltage").never_below(11.5).to_dict()
+        assert checks[0].to_dict() == signal("Voltage").never_below(11.5).to_dict()
 
     def test_stays_between(self) -> None:
         """Verify stays between."""
@@ -59,7 +59,7 @@ class TestLoadSimpleChecks:
         """))
         assert len(checks) == 1
         assert checks[0].to_dict() == (
-            Check.signal("Voltage").stays_between(11.5, 14.5).to_dict()
+            signal("Voltage").stays_between(11.5, 14.5).to_dict()
         )
 
     def test_never_equals(self) -> None:
@@ -71,7 +71,7 @@ class TestLoadSimpleChecks:
                 value: 255
         """))
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("ErrorCode").never_equals(255).to_dict()
+        assert checks[0].to_dict() == signal("ErrorCode").never_equals(255).to_dict()
 
     def test_equals_always(self) -> None:
         """Verify equals always."""
@@ -82,7 +82,7 @@ class TestLoadSimpleChecks:
                 value: 0
         """))
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Gear").equals(0).always().to_dict()
+        assert checks[0].to_dict() == signal("Gear").equals(0).always().to_dict()
 
     def test_settles_between(self) -> None:
         """Verify settles between."""
@@ -96,7 +96,7 @@ class TestLoadSimpleChecks:
         """))
         assert len(checks) == 1
         assert checks[0].to_dict() == (
-            Check.signal("CoolantTemp").settles_between(80, 100).within(5000).to_dict()
+            signal("CoolantTemp").settles_between(80, 100).within(5000).to_dict()
         )
 
     def test_multiple_checks(self) -> None:
@@ -112,9 +112,9 @@ class TestLoadSimpleChecks:
                 max: 14.5
         """))
         assert len(checks) == 2
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
         assert checks[1].to_dict() == (
-            Check.signal("Voltage").stays_between(11.5, 14.5).to_dict()
+            signal("Voltage").stays_between(11.5, 14.5).to_dict()
         )
 
 
@@ -142,7 +142,7 @@ class TestLoadWhenThenChecks:
         """))
         assert len(checks) == 1
         expected = (
-            Check.when("BrakePedal").exceeds(50)
+            when("BrakePedal").exceeds(50)
             .then("BrakeLight").equals(1)
             .within(100)
             .to_dict()
@@ -164,7 +164,7 @@ class TestLoadWhenThenChecks:
                 within_ms: 2000
         """))
         expected = (
-            Check.when("Ignition").equals(1)
+            when("Ignition").equals(1)
             .then("RPM").exceeds(500)
             .within(2000)
             .to_dict()
@@ -187,7 +187,7 @@ class TestLoadWhenThenChecks:
                 within_ms: 50
         """))
         expected = (
-            Check.when("FuelLevel").drops_below(10)
+            when("FuelLevel").drops_below(10)
             .then("FuelWarning").stays_between(1, 1)
             .within(50)
             .to_dict()
@@ -286,7 +286,7 @@ class TestLoadFromFile:
         """), encoding="utf-8")
         checks = load_checks(yaml_file)
         assert len(checks) == 1
-        assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
 
     def test_string_path_now_treated_as_inline_yaml(self, tmp_path: Path) -> None:
         """A bare string is parsed as inline YAML — never auto-promoted to a file path.

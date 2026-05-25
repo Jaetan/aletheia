@@ -391,6 +391,45 @@ class TestBitLengthZero:
         assert zero_issues == []
 
 
+class TestNonIntegerMultiplexValue:
+    """R23 — AGDA-C-5.1: non-integer in `multiplex_values` is rejected with
+    the typed `parse_non_integer_multiplex_value` wire code.
+
+    Before R23 both `InvalidPresence "non-integer in multiplex_values"`
+    sites at `JSONParser.parseNatList[⁺]` collapsed onto the
+    `parse_invalid_presence` wire code, conflating "presence string not
+    'always'" with "non-natural element in multiplex_values".
+
+    Goes through `validate_dbc` (which in this round was fixed to
+    propagate the wire `code` field onto the raised `ProtocolError` —
+    previously dropped, parallel to `format_dbc` / `format_dbc_text`).
+    """
+
+    def test_float_in_multiplex_values_rejected(self) -> None:
+        """Float in multiplex_values surfaces parse_non_integer_multiplex_value."""
+        sig: dict[str, Any] = {**_make_signal("Mode", start_bit=0, length=8, maximum=255.0)}
+        sig.pop("presence", None)
+        sig["multiplexor"] = "Mux"
+        sig["multiplex_values"] = [1.5]  # float — every element must be a JSON natural
+        dbc = _make_dbc([_make_message(0x100, "Msg1", [sig])])
+        with AletheiaClient() as client:
+            with pytest.raises(ProtocolError) as excinfo:
+                client.validate_dbc(dbc)
+        assert excinfo.value.code == "parse_non_integer_multiplex_value"
+
+    def test_string_in_multiplex_values_rejected(self) -> None:
+        """Non-numeric in multiplex_values also surfaces the same typed code."""
+        sig: dict[str, Any] = {**_make_signal("Mode", start_bit=0, length=8, maximum=255.0)}
+        sig.pop("presence", None)
+        sig["multiplexor"] = "Mux"
+        sig["multiplex_values"] = ["not_a_number"]
+        dbc = _make_dbc([_make_message(0x100, "Msg1", [sig])])
+        with AletheiaClient() as client:
+            with pytest.raises(ProtocolError) as excinfo:
+                client.validate_dbc(dbc)
+        assert excinfo.value.code == "parse_non_integer_multiplex_value"
+
+
 class TestDuplicateMessageName:
     """Check 11: Duplicate message names across the DBC."""
 

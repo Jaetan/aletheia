@@ -1,0 +1,23 @@
+id: R23-AGDA-D-17.1
+round: R23
+category:
+  number: 17
+  name: Cross-layer (Agda ↔ Haskell ↔ binding)
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: FFI snapshot missing d_extractionErrorCodeToℕ_148
+description: 'haskell-shim/src/AletheiaFFI/BinaryOutput.hs:93 referenced the MAlonzo-mangled
+  accessor but it was missing from the snapshot''s ''Indirect helper accessors'' section.  Added
+  `F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_148`.'
+files:
+- haskell-shim/ffi-exports.snapshot
+cluster: D-E-easy
+resolution:
+  commit: 580b337
+  round: R23
+  date: '2026-05-22'
+re_raised_from: null
+in_source_marker: null

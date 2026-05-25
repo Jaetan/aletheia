@@ -21,7 +21,7 @@ from ..protocols import (
     ValidateDBCCommand,
     SuccessResponse,
     AckResponse,
-    PropertyViolationResponse,
+    PropertyBatchResponse,
     PropertyResultEntry,
     CompleteResponse,
     CompleteWarning,
@@ -34,12 +34,9 @@ from ._backend import Backend, FFIBackend
 from ._client_bin import FrameIdentity
 from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import parse_json_object
-from ._helpers import (
-    coerce_to_rational,
-    dump_json,
-    normalize_dbc,
-    normalize_dbc_for_wire,
-)
+from ..protocols import dump_json
+from ._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
+from ._helpers.rational import coerce_to_rational
 from ._log import LogEvent, log_event
 from ._response_parsers import (
     build_error_response,
@@ -378,7 +375,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
         if status == "error":
             message = response.get("message", "Unknown error")
-            raise ProtocolError(f"validateDBC failed: {message}")
+            code = response.get("code")
+            raise ProtocolError(
+                f"validateDBC failed: {message}",
+                code=code if isinstance(code, str) else None,
+            )
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'validation' or 'error')"
@@ -411,7 +412,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
         if status == "error":
             message = response.get("message", "Unknown error")
-            raise ProtocolError(f"formatDBC failed: {message}")
+            code = response.get("code")
+            raise ProtocolError(
+                f"formatDBC failed: {message}",
+                code=code if isinstance(code, str) else None,
+            )
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'success' or 'error')"
@@ -452,7 +457,11 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
         if status == "error":
             message = response.get("message", "Unknown error")
-            raise ProtocolError(f"formatDBCText failed: {message}")
+            code = response.get("code")
+            raise ProtocolError(
+                f"formatDBCText failed: {message}",
+                code=code if isinstance(code, str) else None,
+            )
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'success' or 'error')"
@@ -551,11 +560,15 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
 
     def _enrich_violation(
         self,
-        result: PropertyViolationResponse,
+        result: PropertyResultEntry,
         frame_id: FrameIdentity,
         data: bytes | bytearray,
     ) -> None:
-        """Enrich a violation response with signal diagnostics (in-place)."""
+        """Enrich one violation entry with signal diagnostics (in-place).
+
+        R23 — AGDA-D-12.1: takes one inner ``PropertyResultEntry`` from
+        ``PropertyBatchResponse.results``; caller filters to fails entries.
+        """
         if not self._diags:
             return
         idx = _rational_index(result["property_index"], "violation")
@@ -634,7 +647,7 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
         extended: bool = False,
         brs: bool | None = None,
         esi: bool | None = None,
-    ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
+    ) -> AckResponse | PropertyBatchResponse | ErrorResponse:
         """Send a CAN frame for incremental LTL checking.
 
         If properties have been set via ``set_properties()``, violation
@@ -655,7 +668,7 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
                 same semantics and pass-through status as ``brs``.
 
         Returns:
-            AckResponse, PropertyViolationResponse, or ErrorResponse
+            AckResponse, PropertyBatchResponse, or ErrorResponse
         """
         if self._backend is None or self._state is None:
             raise StateError("Client not initialized — use 'with' statement")
@@ -689,34 +702,32 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
                 )
             return {"status": "ack"}
 
-        # Slow path: violations/errors — full JSON parse
+        # Slow path: batched events / errors — full JSON parse.  R23 —
+        # AGDA-D-12.1: streaming PropertyResponse is now a batch envelope
+        # (type=property_batch + results[]); enrich each fails entry.
         response = cast(Response, parse_json_object(result_bytes.decode("utf-8")))
         result = parse_frame_response(response)
-
-        if result["status"] == "fails":
-            self._enrich_violation(
-                result, FrameIdentity(can_id, extended, dlc), data,
-            )
+        if result.get("type") == "property_batch":
+            batch = cast(PropertyBatchResponse, result)
+            frame_id = FrameIdentity(can_id, extended, dlc)
+            for entry in batch["results"]:
+                if entry.get("status") == "fails":
+                    self._enrich_violation(entry, frame_id, data)
             if _logger.isEnabledFor(logging.DEBUG):
-                log_event(
-                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
-                    ts=timestamp, canId=can_id, extended=extended,
-                    response="violation",
-                )
-        else:
-            if _logger.isEnabledFor(logging.DEBUG):
-                log_event(
-                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
-                    ts=timestamp, canId=can_id, extended=extended,
-                    response=result.get("status", "unknown"),
-                )
-
+                has_fail = any(e.get("status") == "fails" for e in batch["results"])
+                log_event(_logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                          ts=timestamp, canId=can_id, extended=extended,
+                          response="violation" if has_fail else "satisfaction")
+        elif _logger.isEnabledFor(logging.DEBUG):
+            log_event(_logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                      ts=timestamp, canId=can_id, extended=extended,
+                      response=result.get("status", "unknown"))
         return result
 
     def send_frames(
         self,
         frames: list[CANFrameTuple],
-    ) -> list[AckResponse | PropertyViolationResponse]:
+    ) -> list[AckResponse | PropertyBatchResponse]:
         """Send multiple CAN frames in a batch.
 
         Processing stops when ``send_frame`` returns an ``ErrorResponse``
@@ -731,14 +742,14 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
             frames: List of CANFrameTuple (timestamp, can_id, dlc, data, extended).
 
         Returns:
-            List of AckResponse or PropertyViolationResponse (no ErrorResponse
+            List of AckResponse or PropertyBatchResponse (no ErrorResponse
             entries; those stop the batch and raise BatchError).
 
         Raises:
             BatchError: Wraps the underlying exception (or an ErrorResponse)
                 and carries ``partial_results`` and ``frame_index``.
         """
-        results: list[AckResponse | PropertyViolationResponse] = []
+        results: list[AckResponse | PropertyBatchResponse] = []
         for i, frame in enumerate(frames):
             results.append(call_send_frame(self.send_frame, i, frame, results))
         return results
@@ -761,7 +772,7 @@ class AletheiaClient(SignalOpsMixin):  # pylint: disable=too-many-instance-attri
         docs/architecture/CANCELLATION.md §3.1.
 
         Violations are normal yielded results (``result.violation is not
-        None`` exposes the underlying ``PropertyViolationResponse``) and do
+        None`` exposes the underlying ``PropertyBatchResponse``) and do
         not stop the iteration. ``send_frame`` errors raise ``BatchError``
         with ``partial_results=[]`` (the committed prefix was already
         yielded; duplicating would invite double-handling) and

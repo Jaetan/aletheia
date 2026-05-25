@@ -11,6 +11,7 @@ from collections.abc import Callable
 from fractions import Fraction
 from typing import cast
 import ctypes
+import threading
 
 from .._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
 from ..limits import MAX_NESTING_DEPTH
@@ -90,6 +91,7 @@ def _coerce_to_float(v: object) -> float:
 # :func:`_get_or_load_renderer_lib` lazily loads ``libaletheia-ffi.so``
 # and initialises the GHC RTS on first call.
 _renderer_lib: ctypes.CDLL | None = None
+_renderer_lib_lock = threading.Lock()
 
 
 def set_renderer_lib(lib: ctypes.CDLL) -> None:
@@ -112,26 +114,32 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
     :func:`format_formula` / :func:`build_diagnostic` (typically tests
     or scripts) trigger the lazy load on first Rational render.
     """
+    # Thread-safe lazy-load (R23 PY-D-22.6).  Mirrors Go's sync.Once and
+    # C++'s std::call_once — without the lock, two concurrent first-callers
+    # both see _renderer_lib is None, both dlopen the .so, last-write wins.
+    # GHC RTS init is idempotent per the renderer.cpp comment, so the race
+    # is benign in practice; the lock is defensive thread-safety hygiene.
     global _renderer_lib  # pylint: disable=global-statement
-    if _renderer_lib is None:
-        # Local import avoids a runtime circular dependency: ``_ffi``
-        # has no upward dependencies, but importing at module load
-        # would chain through ``configure_ffi_signatures`` which
-        # references ctypes types that the renderer doesn't need
-        # unless it actually has to lazy-load.
-        from ._ffi import (  # pylint: disable=import-outside-toplevel
-            configure_ffi_signatures,
-            find_ffi_library,
-        )
-        path = find_ffi_library()
-        lib = ctypes.CDLL(str(path))
-        # ``hs_init`` initialises the GHC RTS; it is idempotent across
-        # multiple ``CDLL`` handles to the same ``.so`` (the runtime
-        # tracks initialisation state internally), so re-calling here
-        # when an FFIBackend later instantiates does no harm.
-        lib.hs_init(None, None)
-        configure_ffi_signatures(lib)
-        _renderer_lib = lib
+    with _renderer_lib_lock:
+        if _renderer_lib is None:
+            # Local import avoids a runtime circular dependency: ``_ffi``
+            # has no upward dependencies, but importing at module load
+            # would chain through ``configure_ffi_signatures`` which
+            # references ctypes types that the renderer doesn't need
+            # unless it actually has to lazy-load.
+            from ._ffi import (  # pylint: disable=import-outside-toplevel
+                configure_ffi_signatures,
+                find_ffi_library,
+            )
+            path = find_ffi_library()
+            lib = ctypes.CDLL(str(path))
+            # ``hs_init`` initialises the GHC RTS; it is idempotent across
+            # multiple ``CDLL`` handles to the same ``.so`` (the runtime
+            # tracks initialisation state internally), so re-calling here
+            # when an FFIBackend later instantiates does no harm.
+            lib.hs_init(None, None)
+            configure_ffi_signatures(lib)
+            _renderer_lib = lib
     return _renderer_lib
 
 

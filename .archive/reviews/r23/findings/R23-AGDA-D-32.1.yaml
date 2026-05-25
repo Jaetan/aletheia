@@ -1,0 +1,29 @@
+id: R23-AGDA-D-32.1
+round: R23
+category:
+  number: 32
+  name: Parser resource bounds
+  language: agda
+  agent: D
+severity: high
+disposition: FIX
+status: closed
+title: parseSignalPredicate accepts unbounded signal names
+description: Pairs with AGDA-D-10.1 — closing both via Identifier promotion is the
+  cleanest path.  Defer to the same cluster.
+files:
+- src/Aletheia/LTL/JSON.agda
+cluster: D
+resolution:
+  commit: aacc970
+  round: R23
+  date: '2026-05-22'
+  notes: 'Handler-boundary IdentifierLength bound check at parseAllProperties matches
+    existing AtomCount pattern.  firstOverLongSignalName helper + checkSignalNamesThenContinue
+    where-clause; over-long name → typed InputBoundExceeded IdentifierLength.  check-bound-enforcement:
+    IdentifierLength=2 emit sites (was 1); check-properties 8m19s clean. Paired finding
+    D-10.1 (Identifier structural witness) is a separate refactor with proof-tree
+    cascade through JSON/Properties.agda predicate-roundtrip — to be handled in a
+    follow-up commit.'
+re_raised_from: null
+in_source_marker: null

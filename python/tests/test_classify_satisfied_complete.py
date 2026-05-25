@@ -48,19 +48,26 @@ def test_raw_until_satisfied_drops_from_active_set(simple_dbc: DBCDefinition) ->
 
         # Frame y₁ — TestSignal = 100 — `right` atom holds; Until is Satisfied.
         # The property is dropped from the active iteration set (`complete`).
+        # R23 — AGDA-D-12.1: mid-stream Satisfaction is now surfaced in a
+        # PropertyBatchResponse (was previously wire-silent Ack); the
+        # holds entry carries the property index.
         response_y1 = client.send_frame(
             timestamp=1000,
             can_id=256,
             dlc=DLCCode(8),
             data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
         )
-        assert response_y1.get("status") == "ack", (
-            f"Expected ack at y₁ when Until's right atom holds; got {response_y1!r}"
+        assert response_y1.get("type") == "property_batch", (
+            f"Expected property_batch at y₁ (mid-stream Satisfaction); got {response_y1!r}"
         )
+        assert len(response_y1["results"]) == 1
+        assert response_y1["results"][0]["status"] == "holds"
 
         # Frame y₂ — TestSignal = 50 — both atoms False.  Pre-fix this would
         # re-evaluate the Until proc and emit a false counterexample; post-fix
-        # the proc is no longer in the active set, so the response is Ack.
+        # the proc is no longer in the active set, so the response is Ack
+        # (no further events — the property already emitted its Satisfaction
+        # at y₁).
         response_y2 = client.send_frame(
             timestamp=2000,
             can_id=256,
@@ -144,13 +151,16 @@ def test_eventually_completes_cleanly_on_first_witness(simple_dbc: DBCDefinition
         assert response_y1.get("status") == "ack"
 
         # y₂: TestSignal == 42 — Satisfied; prop drops from active set.
+        # R23 — AGDA-D-12.1: emits PropertyBatchResponse with the Satisfaction.
         response_y2 = client.send_frame(
             timestamp=2000,
             can_id=256,
             dlc=DLCCode(8),
             data=bytearray([42, 0, 0, 0, 0, 0, 0, 0]),
         )
-        assert response_y2.get("status") == "ack"
+        assert response_y2.get("type") == "property_batch"
+        assert len(response_y2["results"]) == 1
+        assert response_y2["results"][0]["status"] == "holds"
 
         # y₃, y₄: TestSignal arbitrary — proc is no longer in active set, so
         # response is unconditionally Ack regardless of predicate value.
@@ -165,5 +175,51 @@ def test_eventually_completes_cleanly_on_first_witness(simple_dbc: DBCDefinition
                 f"y@{ts}: Eventually proc dropped after y₂ — response should "
                 f"be Ack regardless of TestSignal value; got {response!r}"
             )
+
+        client.end_stream()
+
+
+def test_multi_event_frame_satisfaction_plus_violation(simple_dbc: DBCDefinition) -> None:
+    """R23 — AGDA-D-12.1: a single frame can produce both a mid-stream
+    Satisfaction AND a terminal Violation in the same PropertyBatch.
+
+    Setup: two properties — index 0 is `eventually(TestSignal == 100)`
+    (completes on first witness), index 1 is `always(TestSignal < 50)`
+    (violates at the same frame because TestSignal = 100 > 50).
+    The frame TestSignal = 100 fires BOTH events in source-order: a
+    Satisfaction on property 0, then a Violation on property 1.
+
+    Pre-R23 the Satisfaction would have been wire-silent (the property
+    was just dropped from the active set); the Violation alone reached
+    the user.  Post-R23 both events surface in `results` with
+    `[Satisfaction, Violation]` source-order per the Agda
+    dispatchIterResult invariant.
+    """
+    eventually_prop = Signal("TestSignal").equals(100).eventually()
+    always_prop = Signal("TestSignal").less_than(50).always()
+
+    with AletheiaClient() as client:
+        client.parse_dbc(simple_dbc)
+        client.set_properties([eventually_prop.to_dict(), always_prop.to_dict()])
+        client.start_stream()
+
+        # TestSignal = 100 fires BOTH:
+        #  - property 0 (eventually(== 100)): Satisfied → complete(0)
+        #  - property 1 (always(< 50)):       Violated  → halt(1)
+        response = client.send_frame(
+            timestamp=1000,
+            can_id=256,
+            dlc=DLCCode(8),
+            data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+        )
+
+        assert response.get("type") == "property_batch", response
+        assert len(response["results"]) == 2, response["results"]
+        # Source-order: satisfaction first, violation last.
+        sat, viol = response["results"]
+        assert sat["status"] == "holds"
+        assert sat["property_index"] == {"numerator": 0, "denominator": 1}
+        assert viol["status"] == "fails"
+        assert viol["property_index"] == {"numerator": 1, "denominator": 1}
 
         client.end_stream()

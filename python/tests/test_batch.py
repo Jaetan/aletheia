@@ -96,15 +96,23 @@ class TestSendFramesBatch:
         assert exc_info.value.frame_index == 0
 
     def test_violation_does_not_stop_batch(self) -> None:
-        """Verify violation does not stop batch."""
+        """Verify violation does not stop batch.
+
+        R23 — AGDA-D-12.1: violation frames return a PropertyBatchResponse
+        carrying one or more events; the batch continues regardless.
+        """
         client = _make_client()
-        violation = {
-            "status": "fails", "type": "property",
-            "property_index": {"numerator": 0, "denominator": 1},
-            "timestamp": {"numerator": 2000, "denominator": 1},
+        violation_batch = {
+            "type": "property_batch",
+            "results": [{
+                "type": "property",
+                "status": "fails",
+                "property_index": {"numerator": 0, "denominator": 1},
+                "timestamp": {"numerator": 2000, "denominator": 1},
+            }],
         }
         client.send_frame = MagicMock(
-            side_effect=[{"status": "ack"}, violation, {"status": "ack"}]
+            side_effect=[{"status": "ack"}, violation_batch, {"status": "ack"}]
         )
 
         frames = [
@@ -115,7 +123,8 @@ class TestSendFramesBatch:
         result = client.send_frames(frames)
         assert len(result) == 3
         assert result[0]["status"] == "ack"
-        assert result[1]["status"] == "fails"
+        assert result[1]["type"] == "property_batch"
+        assert result[1]["results"][0]["status"] == "fails"
         assert result[2]["status"] == "ack"
 
     def test_cause_chaining(self) -> None:

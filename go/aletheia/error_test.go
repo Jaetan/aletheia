@@ -247,6 +247,7 @@ func TestParseError_CodeConstantsExported(t *testing.T) {
 		{"SignalOverflowsFrame", aletheia.CodeParseSignalOverflowsFrame, "parse_signal_overflows_frame"},
 		{"SignalMSBBelowBitLength", aletheia.CodeParseSignalMSBBelowBitLength, "parse_signal_msb_below_bit_length"},
 		{"NonTerminatingRational", aletheia.CodeParseNonTerminatingRational, "parse_non_terminating_rational"},
+		{"NonIntegerMultiplexValue", aletheia.CodeParseNonIntegerMultiplexValue, "parse_non_integer_multiplex_value"},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {
@@ -285,6 +286,42 @@ func TestParseError_NonTerminatingRational(t *testing.T) {
 	}
 	if aErr.Code != aletheia.CodeParseNonTerminatingRational {
 		t.Errorf("expected code %q, got %q", aletheia.CodeParseNonTerminatingRational, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+}
+
+func TestParseError_NonIntegerMultiplexValue(t *testing.T) {
+	// R23 — AGDA-C-5.1: non-integer in `multiplex_values` JSON array.
+	// Pre-R23, the Agda parser emitted `parse_invalid_presence` with
+	// the literal `"non-integer in multiplex_values"`, conflating two
+	// failure modes on a single wire code.  This regression guard
+	// asserts the typed `parse_non_integer_multiplex_value` code reaches
+	// the Go decode path intact.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status": "error",
+			"code": "parse_non_integer_multiplex_value",
+			"message": "non-integer value in 'multiplex_values' array (every element must be a JSON natural number)"
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.ParseDBC(ctx, testDBC())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeParseNonIntegerMultiplexValue {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseNonIntegerMultiplexValue, aErr.Code)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)

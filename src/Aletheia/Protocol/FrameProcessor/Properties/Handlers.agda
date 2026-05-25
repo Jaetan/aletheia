@@ -34,9 +34,9 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Step
 open import Aletheia.Trace.CANTrace using ()
 open import Aletheia.CAN.DLC using (DLC)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
-open import Data.List using (List)
+open import Data.List using (List; [])
 open import Data.Sum using (inj₁; inj₂)
-open import Data.Product using (_,_; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Maybe using (just; nothing)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
@@ -64,10 +64,15 @@ processFrameDirect-response state tf with handleDataFrame state tf
 
 -- If the frame is monotonic and formatResponse maps the handler response to
 -- the Ack JSON tree, no property was violated.
+-- R23 — AGDA-D-12.1: the conclusion now ALSO surfaces the empty-
+-- completion-list witness, since after the mid-stream-Satisfaction lift
+-- Ack additionally implies no property completed (a completion-only
+-- frame returns PropertyResponse, not Ack).
 processFrameDirect-ack-sound-json : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → formatResponse (proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)) ≡ formatResponse Ack
-  → proj₂ (iterate (stepProperty dbc cache tf) props) ≡ nothing
+  → proj₁ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ nothing
+  × proj₂ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ []
 processFrameDirect-ack-sound-json dbc props prev cache tf mono fmt-eq =
   handleDataFrame-ack-sound dbc props prev cache tf mono
     (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming _ dbc props prev cache) tf)) fmt-eq)

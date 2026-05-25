@@ -272,7 +272,7 @@ static_assert(std::is_same_v<std::variant_alternative_t<1, SignalPresence>, Mult
 
 static_assert(std::variant_size_v<FrameResponse> == 2);
 static_assert(std::is_same_v<std::variant_alternative_t<0, FrameResponse>, Ack>);
-static_assert(std::is_same_v<std::variant_alternative_t<1, FrameResponse>, Violation>);
+static_assert(std::is_same_v<std::variant_alternative_t<1, FrameResponse>, PropertyBatch>);
 
 // ===========================================================================
 // CheckResult — move-only (holds formula)
