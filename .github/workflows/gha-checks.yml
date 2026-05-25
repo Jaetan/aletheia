@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install actionlint
         env:
@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run check_action_pins.py
         run: python3 tools/check_action_pins.py
@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run check_workflow_permissions.py
         run: python3 tools/check_workflow_permissions.py
