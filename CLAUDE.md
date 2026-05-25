@@ -88,12 +88,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-263 total modules (`cabal run shake -- count-modules`):
-- **258**: `--safe --without-K`
+264 total modules (`cabal run shake -- count-modules`):
+- **259**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) AND the B.3.d outer-wrap `parseText-on-formatText` consumer — co-located here to keep the trusted-axiom-consuming surface at one allowlisted module (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-262 of 263 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, R18 cluster 14 extraction, R18 cluster 2 `Aletheia.Limits` extraction, R19 Phase 2 cluster 8 `Aletheia.DBC.Formatter.Bounded` extraction, R20 cluster V `Aletheia.DBC.BoundWalks` extraction, R20 cluster Y stage 2 `Aletheia.DBC.RationalRenderer` (+`.Properties`) lift, R21 cluster 9 `DecRatParse/Properties` split into 5 phase submodules, R21 cluster 9 follow-up `Properties/Primitives` split into MuxMarker + Bools sibling submodules at `543acee`, R21 cluster 9 follow-up `Format` split into `Format/RegressionTests` sibling at `000761b`, R21 cluster 9 follow-up `Format/AttrDef` split into `Format/AttrDef/HeadHelpers` at `9421604`, R21 cluster 9 follow-up `Aggregator/Dispatcher/Attribute/Assign` split into `Assign/Bridges` at `9c7740d`, R21 cluster 9 follow-up `Refine/ValueDescriptions` split into `ValueDescriptions/UnresolvedRVDs` at `627ad25`, R21 cluster 9 follow-up `Properties/Attributes/Line` split into `Line/Alt5` at `5b48948`, R22 AGDA-D-15.1 final closure `Format/AttrLine` split into `Format/AttrLine/Builders` at `0b360fd`, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md` / `memory/project_review_round18.md` / `memory/project_smart_rational_renderer.md` / `memory/project_review_round21.md`.
+263 of 264 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, R18 cluster 14 extraction, R18 cluster 2 `Aletheia.Limits` extraction, R19 Phase 2 cluster 8 `Aletheia.DBC.Formatter.Bounded` extraction, R20 cluster V `Aletheia.DBC.BoundWalks` extraction, R20 cluster Y stage 2 `Aletheia.DBC.RationalRenderer` (+`.Properties`) lift, R21 cluster 9 `DecRatParse/Properties` split into 5 phase submodules, R21 cluster 9 follow-up `Properties/Primitives` split into MuxMarker + Bools sibling submodules at `543acee`, R21 cluster 9 follow-up `Format` split into `Format/RegressionTests` sibling at `000761b`, R21 cluster 9 follow-up `Format/AttrDef` split into `Format/AttrDef/HeadHelpers` at `9421604`, R21 cluster 9 follow-up `Aggregator/Dispatcher/Attribute/Assign` split into `Assign/Bridges` at `9c7740d`, R21 cluster 9 follow-up `Refine/ValueDescriptions` split into `ValueDescriptions/UnresolvedRVDs` at `627ad25`, R21 cluster 9 follow-up `Properties/Attributes/Line` split into `Line/Alt5` at `5b48948`, R22 AGDA-D-15.1 final closure `Format/AttrLine` split into `Format/AttrLine/Builders` at `0b360fd`, R23 AGDA-D-10.1 `Protocol/Handlers/Properties` routing-proof addition at `050ba2f`, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md` / `memory/project_review_round18.md` / `memory/project_smart_rational_renderer.md` / `memory/project_review_round21.md`.
 
 ## Common Commands
 
@@ -251,9 +251,9 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 ## Current Session Progress
 
-**Active branch: `review-r23`** — forked from `main` post-R22 merge at `ce7bbcc` (2026-05-22).  Module count **263**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
+**Active branch: `review-r23`** — forked from `main` post-R22 merge at `ce7bbcc` (2026-05-22).  Module count **264**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
 
-**R23 closed work** (56 of 57 findings closed: 53 FIX + 3 FP-VERIFIED):
+**R23 closed work** (57 of 57 findings closed: 54 FIX + 3 FP-VERIFIED):
 - **Cluster A** (`66cf92b`) — closed XDOC-15.1 critical + 11 doc drifts.
 - **Cluster C** (`d11e1a3` + `3bb26b3` + `2849371`) — all 10 C++ delta cleanup findings closed.
 - **Cluster H** (`09e276c` + `7922851`) — CI/CD + docker SBOM (5 closed).
@@ -270,12 +270,13 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 - **CPP-D-17.1** (`c348317`) — shared GHC RTS init state across rational_renderer + FfiBackend singletons (renderer-first construction no longer drops `rts_cores`).
 - **AGDA-D-12.1** (`7dc4fcb`) — mid-stream `Satisfied` properties lifted to wire via PropertyBatch; `Complete.results` no longer silently drops them.
 
-**R23 open work** (1 FIX status:open — last item before merge gate):
-- **AGDA-D-10.1** — promote `SignalPredicate.signalName : List Char → Identifier`; cross-cutting LTL constructors + JSON parsers + Properties + 3 bindings' SignalPredicate type.  Pairs with the closed AGDA-D-32.1 (IdentifierLength bound).  Largest remaining R23 refactor.
+- **AGDA-D-10.1** (fix `050ba2f`; YAML `0f101be`) — `SignalPredicate.signalName : List Char → Identifier`.  JSON parser made reason-carrying (`ParseFail ⊎ _`) — the forked second validity walk removed; signal-name validity decided once (`signalField → parseIdentifierField`).  Over-long → `InputBoundExceeded IdentifierLength`; bad charset/empty → `ParseErr InvalidIdentifier`.  Handler verdict→wire-error routing PROVEN in new `Protocol/Handlers/Properties.agda` (wired into check-properties); redundant per-binding behavior tests dropped (routing is binding-independent — proven once kernel-side).  Hot path unchanged (benchmark-neutral).
+
+**R23 open work**: ✅ NONE — all 57 findings closed.  Merge gated on full `tools/run_ci.py`.
 
 **Earlier rounds**: R20 ✅ merged `2477d5c` 2026-05-17, R21 ✅ merged `315c1a3` 2026-05-18, R22 ✅ merged `3ebfc37` + clang-format follow-up `ce7bbcc` 2026-05-22.  Per-round detail in `memory/project_review_round{20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py --report ...`); pre-R22 PROJECT_STATUS narrative archived at `docs/archive/PROJECT_STATUS_HISTORY.md`.
 
-**Gates posture**: AGDA-D-10.1 still open → round not yet at the merge gate.  The 5 big-structural closures (AGDA-C-5.1, CPP-D-15.1/15.2/17.1, AGDA-D-12.1) landed across prior pre-crash sessions through `7dc4fcb`, touching Agda core + C++/Python bindings; per-finding gate-run evidence for them is NOT captured in recovered session notes (treat as unvalidated per `feedback_gate_claim_integrity.md`).  Full `tools/run_ci.py` NOT run since session start `5367334` — REQUIRED before R23 → main merge, and re-run after AGDA-D-10.1 lands.  HEAD `2eb6305` is `.archive/`-only.
+**Gates posture**: ✅ all 57 findings closed.  AGDA-D-10.1 validated this session (2026-05-25): agda type-check + `check-properties` (incl. the new routing proof) + `build` (.so rebuilt; peak 3.1 GB at `-j4` — the `-j16` MAlonzo recompile was the OOM cause, now mitigated) + `check-{invariants,no-properties-in-runtime,erasure,fidelity,ffi-exports,bound-enforcement}` + throughput benchmark (Stream-LTL within ±10% session-distant band) — all green.  The 5 earlier big-structural closures (AGDA-C-5.1, CPP-D-15.1/15.2/17.1, AGDA-D-12.1) landed in prior pre-crash sessions without captured per-finding gate evidence; the full `tools/run_ci.py` (REQUIRED before R23 → main merge, running now) re-validates the entire committed round state.
 
 **Push gap**: ✅ CLOSED.  `main` is in sync with `origin/main` after R22 merge push.
 
