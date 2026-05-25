@@ -12,7 +12,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Aletheia.Protocol.Message using (Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
   ParsedDBCResponse; DBCTextResponse)
-open import Aletheia.Protocol.Response using (PropertyResult)
+open import Aletheia.Protocol.Response using ()
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 
 -- ============================================================================

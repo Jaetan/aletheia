@@ -458,7 +458,13 @@ def main(argv: list[str] | None = None) -> int:
         "  exit 0; "
         "fi; "
         "printf 'checking %s modified file(s) for dead imports...\\n' \"$n\"; "
-        "tools/prune_unused_imports.py --check-only --no-topo $files"
+        # --rts-heap 16 / --timeout 900: heavy proof modules (e.g. TextParser,
+        # Aggregator/Refine/ValueDescriptions) need check-properties' -M16G to
+        # baseline-type-check; the tool's 3G/300s defaults FP-fail their baseline
+        # ("file does not type-check") even though they pass check-properties.
+        # -j 1 (serial) is REQUIRED alongside -M16G: the tool's default 4 workers
+        # × 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
+        "tools/prune_unused_imports.py --check-only --no-topo -j 1 --rts-heap 16 --timeout 900 $files"
     )
     r.step("prune-unused-imports", prune_cmd, shell=True)
 

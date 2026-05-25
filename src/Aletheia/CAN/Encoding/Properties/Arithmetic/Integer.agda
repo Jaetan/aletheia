@@ -12,7 +12,7 @@
 module Aletheia.CAN.Encoding.Properties.Arithmetic.Integer where
 
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s; _≤ᵇ_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s; _≤ᵇ_)
 open import Data.Nat.Properties using
   ( m∸[m∸n]≡n; <⇒≤; m>n⇒m∸n≢0; <⇒≱; ≤ᵇ⇒≤; m+n≤o⇒m≤o∸n; +-monoʳ-≤
   ; +-identityʳ; *-zeroˡ; ≤⇒≤ᵇ; ≤-<-trans; ^-monoʳ-<; n<1+n; *-monoʳ-<
