@@ -1,9 +1,9 @@
 id: R23
 fork_point: ce7bbcc
 fork_date: "2026-05-22"
-merge_commit: null
-merge_date: null
-status: open
+merge_commit: 4cb5220
+merge_date: "2026-05-26"
+status: merged
 raw_findings_count: 219
 closed_findings_count: 57
 agent_fleet:
