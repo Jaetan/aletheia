@@ -54,10 +54,12 @@ processed successfully; 1 if any failures.
 from __future__ import annotations
 
 import argparse
+import atexit
 import concurrent.futures
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -947,6 +949,29 @@ def restore_backups(paths: List[Path]) -> int:
     return restored
 
 
+# --- Crash-safe cleanup (user request 2026-05-26) ---------------------------
+# The per-file `finally` restores on normal completion/exception, but a
+# SIGTERM/SIGINT (e.g. `timeout`, Ctrl-C) bypasses it, leaving the source
+# modified + a stray `.prune-bak` (this corrupted a working tree once).  These
+# handlers restore any stray backup under SRC_DIR on exit/signal;
+# restore_backups() scans the filesystem, so a single main-process handler also
+# recovers backups left by ProcessPool workers.  SIGKILL can't be caught — the
+# start-of-run sweep (in main) catches its leftovers on the next invocation.
+def _cleanup_stray_backups() -> int:
+    return restore_backups([SRC_DIR])
+
+
+def _signal_cleanup(signum: int, _frame: object) -> None:
+    _cleanup_stray_backups()
+    sys.exit(128 + signum)
+
+
+def _install_cleanup_handlers() -> None:
+    atexit.register(_cleanup_stray_backups)
+    for _sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(_sig, _signal_cleanup)
+
+
 def _find_live_block(
     current_lines: List[str], module_path: str, original_idx: int
 ) -> Optional[ImportBlock]:
@@ -1413,6 +1438,15 @@ def main() -> int:
         args.quiet = True
 
     paths = args.paths if args.paths else [SRC_DIR]
+
+    # Crash-safe cleanup: sweep any leftovers from a prior interrupted run
+    # (e.g. a SIGKILL that bypassed the signal handler), then arm exit/signal
+    # restore for THIS run so an interruption never leaves the tree corrupted.
+    _swept = _cleanup_stray_backups()
+    if _swept and not args.quiet:
+        print(f"start sweep: restored {_swept} file(s) left modified by a prior "
+              f"interrupted run", flush=True)
+    _install_cleanup_handlers()
     files = gather_agda_files(paths)
     if not files:
         print("error: no .agda files found", file=sys.stderr)
