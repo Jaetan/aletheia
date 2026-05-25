@@ -1,4 +1,4 @@
-# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX, no resolution yet.
+# audit: R23 attempted to DEFER; user reversed 2026-05-23 — flip to FIX; resolved 2026-05-25 (050ba2f).
 id: R23-AGDA-D-10.1
 round: R23
 category:
@@ -8,14 +8,37 @@ category:
   agent: D
 severity: medium
 disposition: FIX
-status: open
+status: closed
 title: Unify SignalPredicate signal-name field with Identifier
 description: 'Cross-cutting refactor — promoting `signalName : List Char` to `Identifier`
   requires changing every LTL constructor + every JSON parser + every binding''s SignalPredicate
   type.  Defer to a dedicated Identifier-promotion cluster; pairs with AGDA-D-32.1.'
 files:
 - src/Aletheia/LTL/SignalPredicate/Types.agda
+- src/Aletheia/LTL/JSON.agda
+- src/Aletheia/LTL/JSON/Format.agda
+- src/Aletheia/LTL/JSON/Properties.agda
+- src/Aletheia/DBC/Identifier.agda
+- src/Aletheia/DBC/TextParser/Properties/Primitives.agda
+- src/Aletheia/Protocol/Handlers.agda
+- src/Aletheia/Protocol/Handlers/Properties.agda
+- Shakefile.hs
 cluster: D
-resolution: null
+resolution: |-
+  Fixed in 050ba2f.  Promoted SignalPredicate signal names from List Char to the
+  DBC Identifier record; the LTL-property JSON parser is now reason-carrying
+  (parseProperty : JSON → ParseFail ⊎ _), deciding signal-name validity in ONE
+  place (signalField → parseIdentifierField) — the forked second validity walk
+  is removed.  Over-long → InputBoundExceeded IdentifierLength (preserves
+  AGDA-D-32.1); bad charset / empty → ParseErr InvalidIdentifier.  The handler
+  verdict→wire-error routing is proven in the new
+  Protocol/Handlers/Properties.agda (constructor-pinning + wire-code lemmas,
+  refl), wired into check-properties.  No per-binding behavior tests: the
+  routing is binding-independent (kernel emits the same JSON for every caller),
+  proven once kernel-side; the FFI error-envelope round-trip is already covered
+  generically per binding.  Extractors still project .name, so the streaming hot
+  path is unchanged — benchmark-neutral (Stream-LTL within ±10% session-distant
+  band).  Validated: agda type-check + check-properties + build + check-{invariants,
+  no-properties-in-runtime,erasure,fidelity,ffi-exports,bound-enforcement} all green.
 re_raised_from: null
 in_source_marker: null
