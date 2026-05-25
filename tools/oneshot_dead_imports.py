@@ -42,26 +42,27 @@ def module_name(relpath: str) -> str:
     return relpath[:-5].replace("/", ".")
 
 
-def parse_imports(text: str) -> tuple[set[str], int]:
-    """`using`-imported names + char offset just past the last import line."""
+def parse_imports(text: str) -> tuple[set[str], list[tuple[int, int]]]:
+    """`using`-imported names + the char-offset ranges of each `using (...)`
+    clause.  Handles MULTI-LINE clauses (`[^)]*` spans newlines).  Clause ranges
+    (not a single import-block threshold) distinguish an import-clause name
+    occurrence from a body use, robust to imports placed anywhere.  `renaming`
+    is deferred."""
     names: set[str] = set()
-    import_end = 0
-    off = 0
-    for line in text.splitlines(keepends=True):
-        s = line.lstrip()
-        if s.startswith("open import ") or s.startswith("import "):
-            import_end = off + len(line)
-            m = re.search(r"using \(([^)]*)\)", line)
-            if m:
-                names |= {n.strip() for n in m.group(1).split(";") if n.strip()}
-        off += len(line)
-    return names, import_end
+    ranges: list[tuple[int, int]] = []
+    for m in re.finditer(r"using\s*\(([^)]*)\)", text):
+        ranges.append((m.start(1), m.end(1)))
+        for nm in re.split(r"[;\n]", m.group(1)):
+            nm = nm.strip()
+            if nm and not nm.startswith("--"):
+                names.add(nm)
+    return names, ranges
 
 
 def main() -> int:
     relpath = sys.argv[1]
     text = (SRC / relpath).read_text()
-    using_names, import_end = parse_imports(text)
+    using_names, using_ranges = parse_imports(text)
 
     t0 = time.time()
     with tempfile.TemporaryDirectory() as td:
@@ -77,15 +78,24 @@ def main() -> int:
     # block); collect the set of hrefs referenced in the BODY.
     href_of_import: dict[str, str] = {}
     body_hrefs: set[str] = set()
+    body_names: set[str] = set()
     for m in _LINK.finditer(html_text):
         off, href, name = int(m.group(1)), m.group(2), html.unescape(m.group(3))
-        if off <= import_end:
+        if any(s <= off <= e for s, e in using_ranges):
             if name in using_names:
                 href_of_import.setdefault(name, href)
         else:
             body_hrefs.add(href)
+            body_names.add(name)
 
-    dead = sorted(n for n, href in href_of_import.items() if href not in body_hrefs)
+    # An import is USED if its definition href appears in the body (handles
+    # mixfix: `using (_∷_)` decl vs `∷` use share an href) OR its exact name
+    # does (handles re-export aliases where decl/use hrefs differ — e.g. `[]`
+    # decl links to Data.List.Base but uses link to Agda.Builtin.List).  Bias to
+    # no-false-positive: missing a dead import is benign; wrongly pruning a used
+    # one breaks the build.
+    dead = sorted(n for n, href in href_of_import.items()
+                  if href not in body_hrefs and n not in body_names)
     unresolved = sorted(using_names - set(href_of_import))  # no import-block link found
 
     print(f"file:                  {relpath}")
