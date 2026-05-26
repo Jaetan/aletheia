@@ -83,6 +83,7 @@ class WarmAgda:
         self.proc.stdin.flush()
         tokens: list[dict] = []
         ok = False
+        saw_error = False
         while True:
             line = self.proc.stdout.readline()
             if not line:
@@ -97,10 +98,18 @@ class WarmAgda:
             kind = d.get("kind")
             if kind == "HighlightingInfo":
                 tokens += d.get("info", {}).get("payload", [])
-            elif kind == "Status" and d.get("status", {}).get("checked"):
-                ok = True
-            elif kind == "InteractionPoints":  # terminal marker for a load
-                break
+            elif kind == "JumpToError":
+                # a load that FAILS (scope/type error) emits JumpToError and ends
+                # on Status{checked:false} — it never emits InteractionPoints, so
+                # waiting only for InteractionPoints would hang on a broken file.
+                saw_error = True
+            elif kind == "Status":
+                if d.get("status", {}).get("checked"):
+                    ok = True
+                elif saw_error:
+                    break  # failure terminal: Status{checked:false} after the error
+            elif kind == "InteractionPoints":
+                break  # success terminal
         return tokens, ok
 
     def close(self) -> None:
@@ -154,7 +163,15 @@ def detect_dead(text: str, tokens: list[dict], abspath: str) -> dict:
 
     import_defid: dict[str, tuple] = {}
     body_defids: set[tuple] = set()
-    body_names: set[str] = set()
+    # The name fallback (re-export aliases like `[]`) is restricted to names whose
+    # body token resolves to a def OUTSIDE this file: a LOCAL def of the same name
+    # is a shadow, NOT a use of the import, so it must not keep the import alive
+    # (guards FN scenario 1 — `import foo` dead + local `foo`).
+    body_names_external: set[str] = set()
+    # Qualified uses `q.field` -> the files `field` is defined in.  A qualifier is
+    # kept alive only if the IMPORT's own def lives in one of those files (guards
+    # FN scenario 2 — a LOCAL module `q` masking a dead import `q`).
+    qualified_use_files: dict[str, set[str]] = {}
     for t in tokens:
         rng = t.get("range")
         if not rng:
@@ -168,18 +185,20 @@ def detect_dead(text: str, tokens: list[dict], abspath: str) -> dict:
                 # def==None for a renaming dest / local binding: body refs point
                 # at THIS token's position in THIS file -> synthesize that def-id.
                 import_defid.setdefault(name, defid or (abspath, rng[0]))
-        else:
-            if defid is not None:
-                body_defids.add(defid)
-            body_names.add(name)
+        elif defid is not None:  # def-less body tokens (pattern vars, keywords) can't be import-uses
+            body_defids.add(defid)
+            if defid[0] != abspath:
+                body_names_external.add(name)
+            if "." in name:  # qualified use `q.field`
+                qualified_use_files.setdefault(name.split(".", 1)[0], set()).add(defid[0])
 
     def alive(n: str, did: tuple) -> bool:
-        if did in body_defids or n in body_names:
+        if did in body_defids:  # precise: the import's OWN def is used in the body
             return True
-        # qualified use `n.foo`: a record/module/type used as a qualifier is
-        # tokenized as `n.foo` carrying the FIELD's def-id (not n's), so neither
-        # the def-id nor the bare name appears in the body — n is still in scope.
-        return any(bn.startswith(n + ".") for bn in body_names)
+        if n in body_names_external:  # re-export alias (decl/use def-ids differ across files)
+            return True
+        # qualified use `n.field` whose field is defined in the import's OWN module
+        return did is not None and did[0] in qualified_use_files.get(n, ())
 
     dead = sorted(n for n, did in import_defid.items() if not alive(n, did))
     dead_defid_only = sorted(
