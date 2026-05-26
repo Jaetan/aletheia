@@ -251,36 +251,18 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 ## Current Session Progress
 
-**Active branch: `review-r23`** — forked from `main` post-R22 merge at `ce7bbcc` (2026-05-22).  Module count **264**.  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
+**Active branch: `ci-speed`** — forked from `main` at `f6025e8` (post-R23 merge, 2026-05-26).  Module count **264** (CI-speed work is tooling — Python/Shakefile — not Agda modules).  Live commit count: `git rev-list --count main..HEAD` per `feedback_self_referential_count_drift.md`.
 
-**R23 closed work** (57 of 57 findings closed: 54 FIX + 3 FP-VERIFIED):
-- **Cluster A** (`66cf92b`) — closed XDOC-15.1 critical + 11 doc drifts.
-- **Cluster C** (`d11e1a3` + `3bb26b3` + `2849371`) — all 10 C++ delta cleanup findings closed.
-- **Cluster H** (`09e276c` + `7922851`) — CI/CD + docker SBOM (5 closed).
-- **Cluster I** (`425b99a` + `8e50b86` / `03f6111`) — runbook gaps (4 closed).
-- **Cluster B** (`8e7400d` + `7922851`) — Agda hygiene (6 closed: C-3.1/5.2/6.2/6.3/27.1 + lowercase `-wf` rename + stdlib lift).
-- **D + E easy wins** (`580b337`) — FFI snapshot gap + Python lazy-load lock.
-- **PY-D-16.2 / 16.1** (`6c9c202` / `ce39687` / `46b9b11` / `9543be1`) — `_helpers` private-surface promotion + 742-LOC file split into `_helpers/{rational, dbc_normalize, json_codec}.py`.
-- **AGDA-D-11.2 / 32.1** (`3694a58` / `aacc970`) — max-properties bound + IdentifierLength bound check.
-- **AGDA-C-6.1** (`9543be1`) — `requireDec-allE` / `rejectDec-allE` lemmas in `Validity.Combinators`; 6 of 8 proofs collapse to one-liners.
-- **CPP-D-18.1** (`9543be1`) — reproducible-build invariant restored: `CMAKE_CURRENT_SOURCE_DIR` defines moved to runtime env vars via `set_tests_properties(ENVIRONMENT ...)`.
-- **DEFER reversal** (`5367334`, 2026-05-23) — user reversed all 18 in-flight DEFERs to FIX; DB-only commit (audit trail preserved as top-of-file YAML comment).
-- **AGDA-C-5.1** (`165de76`) — typed `NonIntegerMultiplexValue` ParseError ctor + cross-binding ErrorCode addition + Python `ProtocolError` code propagation.
-- **CPP-D-15.1 / 15.2** (`8aff66b` / `e15d7d8`) — `struct Rational` → class with private fields + accessors; `Check` class dropped for free-function namespace (Python + C++).
-- **CPP-D-17.1** (`c348317`) — shared GHC RTS init state across rational_renderer + FfiBackend singletons (renderer-first construction no longer drops `rts_cores`).
-- **AGDA-D-12.1** (`7dc4fcb`) — mid-stream `Satisfied` properties lifted to wire via PropertyBatch; `Complete.results` no longer silently drops them.
+**R23 ✅ MERGED to main** (merge `4cb5220` + finalize `f6025e8`, 2026-05-26; 57/57 findings: 54 FIX + 3 FP-VERIFIED).  Headline AGDA-D-10.1 (`SignalPredicate.signalName : List Char → Identifier`; reason-carrying JSON parser, forked validity walk removed; handler verdict→wire-error routing PROVEN in `Protocol/Handlers/Properties.agda`).  Per-round detail in `memory/project_review_round*.md`; per-finding YAML at `.archive/reviews/r23/findings/`.
 
-- **AGDA-D-10.1** (fix `050ba2f`; YAML `0f101be`) — `SignalPredicate.signalName : List Char → Identifier`.  JSON parser made reason-carrying (`ParseFail ⊎ _`) — the forked second validity walk removed; signal-name validity decided once (`signalField → parseIdentifierField`).  Over-long → `InputBoundExceeded IdentifierLength`; bad charset/empty → `ParseErr InvalidIdentifier`.  Handler verdict→wire-error routing PROVEN in new `Protocol/Handlers/Properties.agda` (wired into check-properties); redundant per-binding behavior tests dropped (routing is binding-independent — proven once kernel-side).  Hot path unchanged (benchmark-neutral).
+**CI-speed gate optimization** (post-R23 user directive — *gates must be fast so every prospective contributor runs them, manually + often*; full detail + roadmap in `memory/project_ci_speed_optimization.md`).  10 commits on `ci-speed`; **NOT yet wired into `run_ci`** (the gate-flip is the one deferred decision).
+- **Core insight**: ONE warm `agda --interaction-json` process loads stdlib + shared interfaces ONCE (vs ~14s per-invocation reload × N) — directly attacks the user's "calling Agda too often" hypothesis.
+- **Step 9 (dead-import gate, was ~hours)** — `tools/warm_dead_imports.py`: warm candidate-sieve + brute-force-confirm-*only the flagged candidates* (filters the inferred-type-use FP class — e.g. `BitVec` in `Maybe (BitVec _)`). ~64× for a batch; FN shapes Agda-prevented; no-hang on broken files; crash-safe confirm.
+- **Steps 1-8 (check-properties, was 629s)** — `tools/warm_check_properties.py` + Shakefile `check-properties-warm` target: all 45 proof modules in one process, **~13×** (629s → 47.6s). Batch-equivalence verified (catches proof-obligation failures; writes `.agdai`; single-source `proofModules :: [String]`).
+- **#1 production-usability ✅** (`1312115`): portable (no hardcoded paths — reuses prune's repo-root `SRC_DIR`/env `AGDA_BIN`; `tools/` is now a package, invoked `python -m tools.X`); pylint 10.00 + basedpyright 0/0/0 (no disables).
+- **Roadmap**: #2 wire `run_ci` (warm = inner-loop default; batch stays authoritative until weeks of warm/batch agreement, then flip), #3 land 5 confirmed dead imports (`++ₗ-assoc`/`concatMap`/`-_`/`sj`/`suc-injective`), #4 steps 10-30 (test suites — parallelize pytest lanes, cache UBSan), #5 merge `ci-speed`→main.
 
-**R23 open work**: ✅ NONE — all 57 findings closed.  Merge gated on full `tools/run_ci.py`.
-
-**Earlier rounds**: R20 ✅ merged `2477d5c` 2026-05-17, R21 ✅ merged `315c1a3` 2026-05-18, R22 ✅ merged `3ebfc37` + clang-format follow-up `ce7bbcc` 2026-05-22.  Per-round detail in `memory/project_review_round{20,21}.md`; structured per-finding YAML at `.archive/reviews/r{20,21,22,23}/findings/` (queryable via `tools/review_db.py --report ...`); pre-R22 PROJECT_STATUS narrative archived at `docs/archive/PROJECT_STATUS_HISTORY.md`.
-
-**Gates posture**: ✅ all 57 findings closed.  AGDA-D-10.1 validated this session (2026-05-25): agda type-check + `check-properties` (incl. the new routing proof) + `build` (.so rebuilt; peak 3.1 GB at `-j4` — the `-j16` MAlonzo recompile was the OOM cause, now mitigated) + `check-{invariants,no-properties-in-runtime,erasure,fidelity,ffi-exports,bound-enforcement}` + throughput benchmark (Stream-LTL within ±10% session-distant band) — all green.  The 5 earlier big-structural closures (AGDA-C-5.1, CPP-D-15.1/15.2/17.1, AGDA-D-12.1) landed in prior pre-crash sessions without captured per-finding gate evidence; the full `tools/run_ci.py` (REQUIRED before R23 → main merge, running now) re-validates the entire committed round state.
-
-**Push gap**: ✅ CLOSED.  `main` is in sync with `origin/main` after R22 merge push.
-
-**Standard gates passed at every closure** — `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, check-bound-enforcement, count-modules, check-runbook, check-changelog, check-limits-parity}` + Python `pytest tests/` + Go `go test ./aletheia/ -race` + C++ `ctest --test-dir cpp/build` + lint gates.
+**Standard gates** (unchanged — ci-speed is ADDITIVE: a new Shakefile `check-properties-warm` target + the `tools/` package + tool-internal edits; no Agda/runtime change): `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, check-bound-enforcement, count-modules, check-runbook, check-changelog, check-limits-parity}` + Python `pytest tests/` + Go `go test ./aletheia/ -race` + C++ `ctest --test-dir cpp/build` + lint gates.
 
 ## Prior Tracks (closed) — see PROJECT_STATUS.md for narratives
 

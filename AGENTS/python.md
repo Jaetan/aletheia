@@ -1,11 +1,12 @@
 ## Python (34 categories)
 
-Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, and benchmark scripts in `python/benchmarks/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
+Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, benchmark scripts in `python/benchmarks/`, the repo-root `conftest.py`, and developer tooling in `tools/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
 
 **Tooling gates (hard requirements):**
 - `pylint` score must stay **10.00/10**. Any score drop is a blocking finding.
 - `basedpyright` must produce **zero errors and zero warnings**. Any new diagnostic is a blocking finding.
 - **Adding any suppression annotation** (`# type: ignore`, `# pylint: disable`, `# noqa`, `# pyright: ignore`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
+- **`tools/` is in scope, same bar, no exceptions** (user directive 2026-05-26): every `tools/*.py` gate/helper script must reach pylint 10.00 / basedpyright 0/0/0 **by FIXING the code, never by suppressing or ignoring what the linters report**. The suppression rule above applies in full; for `tools/` the standing answer is fix-don't-suppress. Existing debt is NOT grandfathered: `prune_unused_imports.py` (~8.83 pylint) and `run_ci.py` (module-level `# pylint: disable=...`) predate this scope and must be brought to 10.00/0/0/0 by fixing (removing the disables + the underlying issues), then `tools/` joined to the lint gate. Worked example already compliant: `warm_dead_imports.py` / `warm_check_properties.py` (10.00 / 0/0/0, zero suppressions).
 
 ### Hygiene/Style (6)
 
@@ -97,6 +98,7 @@ cd python && basedpyright aletheia/ benchmarks/  # benchmarks/ joined the gate 2
 cd python && pylint aletheia/
 cd python && pylint tests/ ../conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
 cd python && pylint benchmarks/  # same 10.00/10 gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
+pylint tools/ && basedpyright tools/  # tools/*.py — same 10.00 / 0/0/0 gate, fix-don't-suppress (user directive 2026-05-26); run from repo root. NOTE: prune_unused_imports.py + run_ci.py are pre-existing debt, not yet compliant
 # Cat 32 doc-example harness — runs every ``python`` fence across the
 # user-facing docs against the real FFI. Must be run from the repo root
 # so pytest picks up the repo-root ``conftest.py`` (which provides the
