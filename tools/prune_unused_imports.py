@@ -523,7 +523,7 @@ def typecheck(
 
     The second condition catches the silent-semantic-change bug where a
     removal turns constructor patterns into pattern-variable bindings.
-    Caller should compute the baseline via `_warning_count_for(file_path)`
+    Caller should compute the baseline via `warning_count_for(file_path)`
     before the first removal attempt.
     """
     cmd = [
@@ -550,7 +550,7 @@ def typecheck(
         return False
 
 
-def _warning_count_for(
+def warning_count_for(
     rel_path: str,
     src_dir: Path,
     rts_cores: int,
@@ -676,7 +676,7 @@ def prefill_consumer_baselines(
         except ValueError:
             consumer_baselines[c] = 0
             continue
-        count = _warning_count_for(
+        count = warning_count_for(
             rel_c, src_dir, rts_cores, rts_heap_gb, timeout
         )
         consumer_baselines[c] = max(count, 0)
@@ -788,7 +788,7 @@ def prune_file(
         # Compute baseline count of semantic-change warnings (always — even
         # without --pre-check, we need it to detect when a removal silently
         # changes pattern matches into pattern-variable bindings).
-        baseline_warnings = _warning_count_for(
+        baseline_warnings = warning_count_for(
             rel_path, src_dir, rts_cores, rts_heap_gb, timeout
         )
         if baseline_warnings < 0:

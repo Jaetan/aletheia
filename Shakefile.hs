@@ -314,7 +314,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- batch `check-properties` stays authoritative until warm and batch are
         -- seen to agree across many commits.  Same `proofModules` single source.
         putInfo "Type-checking proof-only modules (one warm agda process)..."
-        cmd_ "python3" ("tools/warm_check_properties.py" : proofModules)
+        cmd_ "python3" ("-m" : "tools.warm_check_properties" : proofModules)
 
     phony "check-invariants" $ do
         -- Enforce "postulates and Unsafe modules are limited to the
