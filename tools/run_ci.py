@@ -116,7 +116,6 @@ rather than silently skipping.
   - memory/feedback_gate_claim_integrity.md
   - memory/feedback_orchestrator_end_to_end_validation.md
 """
-# pylint: disable=too-many-instance-attributes,too-many-locals,too-many-statements
 
 from __future__ import annotations
 
@@ -129,25 +128,60 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, TextIO
+
+from tools._common import emit, find_executable, git_toplevel
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# ``shell=True`` runs the command through ``/bin/sh -c`` on POSIX; we invoke
+# that interpreter explicitly so the call site shows exactly which process is
+# spawned (ruff S602/S604 warn about the opaque ``shell=True`` form).  The path
+# is absolute, matching what CPython's ``shell=True`` uses verbatim.
+POSIX_SHELL = "/bin/sh"
+
+# Number of trailing log lines echoed to stderr when a step fails.
+FAILURE_TAIL_LINES = 50
+
+# Always-on step count (UBSan promoted R21 CPP-SYS-32.2 + prune-unused-imports
+# gate).
+BASE_STEPS = 30
+
+_INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def _open_log(path: Path) -> TextIO:
+    """Open ``path`` for UTF-8 writing as the run's long-lived log handle.
+
+    The handle outlives any single step — it is teed to throughout the sweep
+    and closed explicitly in ``Runner.finalize`` — so a ``with`` block does not
+    fit; ownership lives with the ``Runner`` instance.
+    """
+    return path.open("w", encoding="utf-8")
 
 
 def _git_root() -> Path:
-    rc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+    """Return the enclosing git work-tree root, exiting 2 if outside one."""
+    try:
+        return git_toplevel(Path.cwd())
+    except RuntimeError:
+        _ = sys.stderr.write("run-ci: not inside a git repo\n")
+        sys.exit(2)
+
+
+def _git_value(repo_root: Path, *args: str) -> str:
+    """Return the stripped stdout of ``git <args>`` run in ``repo_root``."""
+    result = subprocess.run(
+        [find_executable("git"), *args],
         capture_output=True,
         text=True,
-        check=False,
+        cwd=repo_root,
+        check=True,
     )
-    if rc.returncode != 0:
-        sys.stderr.write("run-ci: not inside a git repo\n")
-        sys.exit(2)
-    return Path(rc.stdout.strip())
-
-
-_INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
+    return result.stdout.strip()
 
 
 @dataclass
@@ -160,15 +194,19 @@ class OptInOptions:
 
     @property
     def any_enabled(self) -> bool:
+        """Report whether at least one opt-in lane is enabled."""
         return self.repro or self.stability or self.mutation
 
     def enabled_count(self) -> int:
+        """Count how many opt-in lanes are enabled."""
         return sum([self.repro, self.stability, self.mutation])
 
 
-def _resolve_flag(cli_value: bool | None, env_var: str) -> bool:
-    """Resolve a tri-state CLI flag (--lane / --no-lane / unset) against an
-    env-var fallback.  Returns True iff the lane should run.
+def _resolve_flag(*, cli_value: bool | None, env_var: str) -> bool:
+    """Resolve a tri-state CLI flag against an env-var fallback.
+
+    The flag is ``--lane`` / ``--no-lane`` / unset; returns True iff the lane
+    should run.
     """
     if cli_value is not None:
         return cli_value
@@ -176,6 +214,7 @@ def _resolve_flag(cli_value: bool | None, env_var: str) -> bool:
 
 
 def parse_args(argv: list[str] | None = None) -> OptInOptions:
+    """Parse argv into resolved opt-in lane state (CLI > env > default-off)."""
     parser = argparse.ArgumentParser(
         prog="tools/run_ci.py",
         description="Offline CI orchestrator (R18 cluster 1 + 7).",
@@ -185,7 +224,8 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             "CLI flags override env vars; env vars override the default (off).\n"
             "\n"
             "Examples:\n"
-            "  tools/run_ci.py                       # always-on steps only (incl. UBSan; ~22-27 min)\n"
+            "  tools/run_ci.py                       # always-on steps only "
+            "(incl. UBSan; ~22-27 min)\n"
             "  tools/run_ci.py --full                # everything (45-85 min)\n"
             "  tools/run_ci.py --stability --repro   # two specific opt-in lanes\n"
             "  tools/run_ci.py --full --no-mutation  # all opt-ins except mutation\n"
@@ -243,55 +283,85 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
                 setattr(args, lane, True)
 
     return OptInOptions(
-        repro=_resolve_flag(args.repro, "ALETHEIA_REPRO_CHECK"),
-        stability=_resolve_flag(args.stability, "ALETHEIA_STABILITY_CHECK"),
-        mutation=_resolve_flag(args.mutation, "ALETHEIA_MUTATION_CHECK"),
+        repro=_resolve_flag(cli_value=args.repro, env_var="ALETHEIA_REPRO_CHECK"),
+        stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
+        mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
     )
 
 
-class Runner:
-    BASE_STEPS = 30  # always-on (UBSan promoted R21 CPP-SYS-32.2 + prune-unused-imports gate)
+def _now_utc() -> datetime.datetime:
+    """Return the current timezone-aware UTC moment."""
+    return datetime.datetime.now(datetime.UTC)
 
-    def __init__(self, opts: OptInOptions) -> None:
-        self.opts = opts
-        self.repo_root = _git_root()
-        os.chdir(self.repo_root)
 
-        log_dir = self.repo_root / "tools" / "ci-output"
+@dataclass(frozen=True)
+class RunContext:
+    """Immutable per-run metadata: git identity, log artifact, python interpreter."""
+
+    repo_root: Path
+    branch: str
+    commit: str
+    log_path: Path
+    python: str
+
+    @classmethod
+    def discover(cls, repo_root: Path) -> RunContext:
+        """Gather git identity, the timestamped log path, and the python interpreter."""
+        log_dir = repo_root / "tools" / "ci-output"
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        branch = _git_value(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
+        commit = _git_value(repo_root, "rev-parse", "HEAD")
         branch_safe = _INVALID_BRANCH_CHAR.sub("_", branch)
-        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
+        timestamp = _now_utc().strftime("%Y-%m-%dT%H-%M-%SZ")
 
-        self.branch = branch
-        self.commit = commit
-        self.log_path = log_dir / f"ci-{branch_safe}-{timestamp}.log"
-        self.log_fh = self.log_path.open("w", encoding="utf-8")
-        self.step_num = 0
-        self.total_steps = self.BASE_STEPS + self.opts.enabled_count()
-        self.failed_step: str | None = None
-        self.start = time.time()
         # Prefer the project's venv if present so dev-extras (markdown-docs,
         # random-order, hypothesis, mutmut) resolve.  Falls back to system
         # python3 for systems where the lanes are intentionally exercised
         # against the global env (e.g. release builds).
-        venv_python = self.repo_root / "python" / ".venv" / "bin" / "python3"
-        self.python = str(venv_python) if venv_python.exists() else "python3"
+        venv_python = repo_root / "python" / ".venv" / "bin" / "python3"
+        python = str(venv_python) if venv_python.exists() else "python3"
+
+        return cls(
+            repo_root=repo_root,
+            branch=branch,
+            commit=commit,
+            log_path=log_dir / f"ci-{branch_safe}-{timestamp}.log",
+            python=python,
+        )
+
+
+@dataclass
+class Runner:
+    """Drive the ordered step sweep, tee output to a log, and tally pass/fail."""
+
+    opts: OptInOptions
+    ctx: RunContext
+    total_steps: int = field(init=False)
+    step_num: int = field(init=False, default=0)
+    failed_step: str | None = field(init=False, default=None)
+    start: float = field(init=False, default=0.0)
+    log_fh: TextIO = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Open the log file handle and initialise counters."""
+        self.total_steps = BASE_STEPS + self.opts.enabled_count()
+        self.start = time.time()
+        self.log_fh = _open_log(self.ctx.log_path)
+
+    @property
+    def repo_root(self) -> Path:
+        """Return the repository root for this run (proxy onto the context)."""
+        return self.ctx.repo_root
+
+    @property
+    def python(self) -> str:
+        """Return the python interpreter for the binding lanes (context proxy)."""
+        return self.ctx.python
 
     def header(self) -> None:
-        opt_in_summary = []
+        """Tee the run banner (branch, commit, step plan, opt-in summary)."""
+        opt_in_summary: list[str] = []
         for name, enabled in (
             ("repro", self.opts.repro),
             ("stability", self.opts.stability),
@@ -303,27 +373,26 @@ class Runner:
                 opt_in_summary.append(f"-{name}")
         lines = [
             "═══ Aletheia offline CI sweep ═══",
-            f"Started:  {datetime.datetime.now(datetime.UTC):%Y-%m-%d %H:%M:%S UTC}",
-            f"Branch:   {self.branch}",
-            f"Commit:   {self.commit}",
-            f"Steps:    {self.total_steps} ({self.BASE_STEPS} always-on + "
-            f"{self.opts.enabled_count()} opt-in)",
+            f"Started:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
+            f"Branch:   {self.ctx.branch}",
+            f"Commit:   {self.ctx.commit}",
+            f"Steps:    {self.total_steps} ({BASE_STEPS} always-on + "
+            + f"{self.opts.enabled_count()} opt-in)",
             f"Opt-ins:  {' '.join(opt_in_summary)}",
-            f"Log:      {self.log_path}",
+            f"Log:      {self.ctx.log_path}",
             "",
         ]
         self._tee("\n".join(lines))
 
     def _tee(self, text: str) -> None:
-        sys.stdout.write(text + "\n")
-        sys.stdout.flush()
-        self.log_fh.write(text + "\n")
+        emit(text)
+        _ = self.log_fh.write(text + "\n")
         self.log_fh.flush()
 
     def _tee_err(self, text: str) -> None:
-        sys.stderr.write(text + "\n")
+        _ = sys.stderr.write(text + "\n")
         sys.stderr.flush()
-        self.log_fh.write(text + "\n")
+        _ = self.log_fh.write(text + "\n")
         self.log_fh.flush()
 
     def _step_header(self, name: str, cmd: Sequence[str] | str) -> None:
@@ -332,7 +401,7 @@ class Runner:
             "",
             f"─── Step {self.step_num}/{self.total_steps}: {name} ───",
             f"Cmd:    {cmd_str}",
-            f"Start:  {datetime.datetime.now(datetime.UTC):%Y-%m-%d %H:%M:%S UTC}",
+            f"Start:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
         ]
         self._tee("\n".join(lines))
 
@@ -341,13 +410,15 @@ class Runner:
         self._tee_err("")
         self._tee_err("─── Tail of failed step output ───")
         self.log_fh.flush()
-        log_text = self.log_path.read_text(encoding="utf-8", errors="replace")
-        for line in log_text.splitlines()[-50:]:
-            sys.stderr.write(line + "\n")
+        log_text = self.ctx.log_path.read_text(encoding="utf-8", errors="replace")
+        for line in log_text.splitlines()[-FAILURE_TAIL_LINES:]:
+            _ = sys.stderr.write(line + "\n")
         sys.stderr.flush()
         self._tee_err("")
-        self._tee_err(f"═══ CI FAILED at step {self.step_num}/{self.total_steps}: {name} ═══")
-        self._tee_err(f"Full log: {self.log_path}")
+        self._tee_err(
+            f"═══ CI FAILED at step {self.step_num}/{self.total_steps}: {name} ═══",
+        )
+        self._tee_err(f"Full log: {self.ctx.log_path}")
 
     def step(
         self,
@@ -355,50 +426,47 @@ class Runner:
         cmd: Sequence[str] | str,
         *,
         cwd: Path | None = None,
-        shell: bool = False,
     ) -> None:
+        """Run one named step, teeing its header and recording the first failure.
+
+        ``cmd`` is either an argv list run directly, or a string forwarded to
+        ``/bin/sh -c`` for the lanes that need pipes, redirection, or globs.
+        Once a step fails, subsequent calls are no-ops.
+        """
         if self.failed_step is not None:
             return
         self.step_num += 1
         self._step_header(name, cmd)
         step_start = time.time()
-        if shell:
-            assert isinstance(cmd, str)
-            proc = subprocess.run(
-                cmd,
-                shell=True,
-                stdout=self.log_fh,
-                stderr=subprocess.STDOUT,
-                cwd=cwd,
-                check=False,
-            )
-        else:
-            proc = subprocess.run(
-                list(cmd),
-                stdout=self.log_fh,
-                stderr=subprocess.STDOUT,
-                cwd=cwd,
-                check=False,
-            )
+        argv = [POSIX_SHELL, "-c", cmd] if isinstance(cmd, str) else list(cmd)
+        proc = subprocess.run(
+            argv,
+            stdout=self.log_fh,
+            stderr=subprocess.STDOUT,
+            cwd=cwd,
+            check=False,
+        )
         duration = int(time.time() - step_start)
         if proc.returncode != 0:
             self.failed_step = name
             self._print_tail_on_failure(name, proc.returncode, duration)
             return
-        sys.stderr.write(f"  ✓ {name} ({duration}s)\n")
-        self.log_fh.write(f"  ✓ {name} ({duration}s)\n")
+        _ = sys.stderr.write(f"  ✓ {name} ({duration}s)\n")
+        _ = self.log_fh.write(f"  ✓ {name} ({duration}s)\n")
         self.log_fh.flush()
 
     def announce_skip(self, name: str, reason: str) -> None:
+        """Log a skipped lane without bumping the step counter."""
         # Skipped steps don't bump the step counter — they're not part of
         # total_steps in the first place (only enabled lanes are counted).
         # We still log the skip line so the log is complete.
         msg = f"  ⊘ {name} skipped ({reason})"
-        sys.stderr.write(msg + "\n")
-        self.log_fh.write(msg + "\n")
+        _ = sys.stderr.write(msg + "\n")
+        _ = self.log_fh.write(msg + "\n")
         self.log_fh.flush()
 
     def finalize(self) -> int:
+        """Tee the summary, close the log, and return the process exit code."""
         total = int(time.time() - self.start)
         if self.failed_step is None:
             lines = [
@@ -406,10 +474,10 @@ class Runner:
                 "═══ CI summary ═══",
                 f"Result:   ALL {self.total_steps} STEPS PASSED",
                 f"Duration: {total}s ({total // 60}m{total % 60:02d}s)",
-                f"Log:      {self.log_path}",
+                f"Log:      {self.ctx.log_path}",
                 "Use this log file as the falsifiable evidence behind any 'all "
-                "gates' claim in commit messages "
-                "(see memory/feedback_gate_claim_integrity.md).",
+                + "gates' claim in commit messages "
+                + "(see memory/feedback_gate_claim_integrity.md).",
             ]
             self._tee("\n".join(lines))
             self.log_fh.close()
@@ -418,42 +486,28 @@ class Runner:
         return 1
 
 
-def main(argv: list[str] | None = None) -> int:
-    opts = parse_args(argv)
-    r = Runner(opts)
-    r.header()
+def _build_prune_command() -> str:
+    """Return the shell snippet for the branch-scoped dead-import gate (step 9).
 
-    cabal = ["cabal", "run", "shake", "--"]
+    Agda-driven precise check via ``tools/prune_unused_imports.py
+    --check-only``.  Runs on the set of .agda files modified vs main —
+    not the whole tree — to keep the gate's runtime proportional to
+    the size of the work.  Empty change-set ⇒ no-op.
 
-    # ─── Steps 1-8: Agda gates ─────────────────────────────────────────────
-    r.step("build", [*cabal, "build"])
-    r.step("check-properties", [*cabal, "check-properties"])
-    r.step("check-invariants", [*cabal, "check-invariants"])
-    r.step("check-no-properties-in-runtime", [*cabal, "check-no-properties-in-runtime"])
-    r.step("check-erasure", [*cabal, "check-erasure"])
-    r.step("check-fidelity", [*cabal, "check-fidelity"])
-    r.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
-    r.step("count-modules", [*cabal, "count-modules"])
+    We deliberately OMIT --include-public here: that mode invokes agda
+    on every direct consumer of each modified file, which can multiply
+    runtime by 5-30x when a public-heavy file (e.g. Prelude.agda) is
+    touched.  Public-line dead imports are caught by the full periodic
+    sweep, not this per-branch gate.  See
+    memory/feedback_agda_import_pruning_safety.md for the trade-off.
 
-    # ─── Step 9: dead-import gate on branch-modified files ─────────────────
-    # Agda-driven precise check via `tools/prune_unused_imports.py
-    # --check-only`.  Runs on the set of .agda files modified vs main —
-    # not the whole tree — to keep the gate's runtime proportional to
-    # the size of the work.  Empty change-set ⇒ no-op.
-    #
-    # We deliberately OMIT --include-public here: that mode invokes agda
-    # on every direct consumer of each modified file, which can multiply
-    # runtime by 5-30× when a public-heavy file (e.g. Prelude.agda) is
-    # touched.  Public-line dead imports are caught by the full periodic
-    # sweep, not this per-branch gate.  See
-    # memory/feedback_agda_import_pruning_safety.md for the trade-off.
-    #
-    # `--no-topo` is a hint here: skip the topo-graph startup overhead
-    # IF the modified file set has no inter-dependencies (single topo
-    # level).  Per R23, the tool auto-overrides to topo batching when
-    # inter-deps are detected (e.g., a branch that touches Universal.agda +
-    # its imports), keeping the race-free guarantee.
-    prune_cmd = (
+    ``--no-topo`` is a hint here: skip the topo-graph startup overhead
+    IF the modified file set has no inter-dependencies (single topo
+    level).  Per R23, the tool auto-overrides to topo batching when
+    inter-deps are detected (e.g., a branch that touches Universal.agda +
+    its imports), keeping the race-free guarantee.
+    """
+    return (
         "files=$(git diff --name-only main...HEAD -- 'src/' "
         "| grep '\\.agda$' || true); "
         'if [ -z "$files" ]; then '
@@ -478,78 +532,104 @@ def main(argv: list[str] | None = None) -> int:
         # baseline-type-check; the tool's 3G/300s defaults FP-fail their baseline
         # ("file does not type-check") even though they pass check-properties.
         # -j 1 (serial) is REQUIRED alongside -M16G: the tool's default 4 workers
-        # × 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
-        "python3 -m tools.prune_unused_imports --check-only --no-topo -j 1 --rts-heap 16 --timeout 900 $files"
+        # x 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
+        "python3 -m tools.prune_unused_imports --check-only --no-topo -j 1 "
+        "--rts-heap 16 --timeout 900 $files"
     )
-    r.step("prune-unused-imports", prune_cmd, shell=True)
 
+
+def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
+    """Run steps 1-9: the Agda gate sweep plus the branch-scoped dead-import gate."""
+    # ─── Steps 1-8: Agda gates ─────────────────────────────────────────────
+    runner.step("build", [*cabal, "build"])
+    runner.step("check-properties", [*cabal, "check-properties"])
+    runner.step("check-invariants", [*cabal, "check-invariants"])
+    runner.step("check-no-properties-in-runtime", [*cabal, "check-no-properties-in-runtime"])
+    runner.step("check-erasure", [*cabal, "check-erasure"])
+    runner.step("check-fidelity", [*cabal, "check-fidelity"])
+    runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
+    runner.step("count-modules", [*cabal, "count-modules"])
+
+    # ─── Step 9: dead-import gate on branch-modified files ─────────────────
+    runner.step("prune-unused-imports", _build_prune_command())
+
+
+def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:
+    """Run steps 10-15: the offline enforcer Shake targets."""
     # ─── Steps 10-14: Offline enforcers ────────────────────────────────────
-    r.step("check-changelog", [*cabal, "check-changelog"])
-    r.step("check-gate-claim", [*cabal, "check-gate-claim"])
-    r.step("check-runbook", [*cabal, "check-runbook"])
-    r.step("check-limits-parity", [*cabal, "check-limits-parity"])
-    r.step("check-stability-bench", [*cabal, "check-stability-bench"])
-    r.step("check-mutation-setup", [*cabal, "check-mutation-setup"])
+    runner.step("check-changelog", [*cabal, "check-changelog"])
+    runner.step("check-gate-claim", [*cabal, "check-gate-claim"])
+    runner.step("check-runbook", [*cabal, "check-runbook"])
+    runner.step("check-limits-parity", [*cabal, "check-limits-parity"])
+    runner.step("check-stability-bench", [*cabal, "check-stability-bench"])
+    runner.step("check-mutation-setup", [*cabal, "check-mutation-setup"])
 
+
+def _run_binding_tests(runner: Runner) -> None:
+    """Run steps 16-21: the Python / Go / C++ binding test lanes."""
     # ─── Steps 14-19: Binding tests ────────────────────────────────────────
     # Step 14: deterministic pytest lane.
-    r.step("pytest", [r.python, "-m", "pytest", "tests/"], cwd=r.repo_root / "python")
+    runner.step(
+        "pytest", [runner.python, "-m", "pytest", "tests/"], cwd=runner.repo_root / "python",
+    )
     # Step 15: doc-example fence harness (R18 cluster 5).
-    r.step(
+    runner.step(
         "pytest --markdown-docs",
         [
-            r.python,
+            runner.python,
             "-m",
             "pytest",
             "--markdown-docs",
             "--rootdir",
-            str(r.repo_root),
+            str(runner.repo_root),
             "README.md",
             "docs/",
             "python/README.md",
             "examples/README.md",
         ],
-        cwd=r.repo_root,
+        cwd=runner.repo_root,
     )
     # Step 16: Python -X dev mode (R18 cluster 5 — Cat 34a).
-    r.step(
+    runner.step(
         "pytest -X dev",
-        [r.python, "-X", "dev", "-m", "pytest", "tests/"],
-        cwd=r.repo_root / "python",
+        [runner.python, "-X", "dev", "-m", "pytest", "tests/"],
+        cwd=runner.repo_root / "python",
     )
     # Step 17: random-order test isolation (R18 cluster 5 — Cat 14f).
-    r.step(
+    runner.step(
         "pytest --random-order",
         [
-            r.python,
+            runner.python,
             "-m",
             "pytest",
             "--random-order",
             "--random-order-bucket=package",
             "tests/",
         ],
-        cwd=r.repo_root / "python",
+        cwd=runner.repo_root / "python",
     )
-    r.step(
+    runner.step(
         "go test -race",
         ["go", "test", "./aletheia/", "-count=1", "-race"],
-        cwd=r.repo_root / "go",
+        cwd=runner.repo_root / "go",
     )
-    r.step(
+    runner.step(
         "ctest",
         "cmake -B build > /dev/null && cmake --build build && ctest --test-dir build",
-        cwd=r.repo_root / "cpp",
-        shell=True,
+        cwd=runner.repo_root / "cpp",
     )
 
+
+def _run_lints(runner: Runner) -> None:
+    """Run steps 22-27: the Python / Go / C++ lint gates plus the UBSan ctest lane."""
     # ─── Steps 20-24: Lints ────────────────────────────────────────────────
     # ``benchmarks/`` joined the basedpyright gate 2026-05-09 (R18 end-of-round
     # follow-up); the asymmetry against pylint's coverage was the same one
     # ``feedback_no_subsumption_asymmetry.md`` flagged on the pylint side.
-    r.step(
+    runner.step(
         "basedpyright",
         ["basedpyright", "aletheia/", "benchmarks/"],
-        cwd=r.repo_root / "python",
+        cwd=runner.repo_root / "python",
     )
 
     # pylint SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
@@ -558,12 +638,12 @@ def main(argv: list[str] | None = None) -> int:
     # ``tests/`` per the original 2026-04-12 ``[tool.pylint.main].ignore`` rule
     # that ``feedback_pylint_10_mandatory`` later dropped only for ``tests/``.
     pylint_cmd = (
-        f"{shlex.quote(r.python)} -m pylint aletheia/ tests/ benchmarks/ "
+        f"{shlex.quote(runner.python)} -m pylint aletheia/ tests/ benchmarks/ "
         "> /tmp/aletheia-pylint.out 2>&1; "
         "rc=$?; cat /tmp/aletheia-pylint.out; "
         "grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
     )
-    r.step("pylint", pylint_cmd, cwd=r.repo_root / "python", shell=True)
+    runner.step("pylint", pylint_cmd, cwd=runner.repo_root / "python")
 
     # gofmt -l (LIST mode): stdout non-empty == files need reformatting.
     gofmt_cmd = (
@@ -571,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
         "cat /tmp/aletheia-gofmt.out; "
         "test $rc -eq 0 && test ! -s /tmp/aletheia-gofmt.out && go vet ./aletheia/"
     )
-    r.step("gofmt + go vet", gofmt_cmd, cwd=r.repo_root / "go", shell=True)
+    runner.step("gofmt + go vet", gofmt_cmd, cwd=runner.repo_root / "go")
 
     # clang-format: exclude generated / third-party trees + sanitizer/mutation
     # build trees.
@@ -583,40 +663,44 @@ def main(argv: list[str] | None = None) -> int:
         "\\( -name '*.cpp' -o -name '*.hpp' \\) -print | "
         "xargs clang-format --dry-run --Werror"
     )
-    r.step("clang-format", clang_format_cmd, cwd=r.repo_root / "cpp", shell=True)
+    runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
 
     # clang-tidy: AGENTS.md L580 canonical scope (src/*.cpp).
-    r.step(
+    runner.step(
         "clang-tidy",
         "clang-tidy -p build src/*.cpp",
-        cwd=r.repo_root / "cpp",
-        shell=True,
+        cwd=runner.repo_root / "cpp",
     )
 
-    # ─── Steps 25-27: GHA meta-checks ──────────────────────────────────────
 
+def _run_gha_checks(runner: Runner) -> None:
+    """Run steps 28-30: the GitHub-Actions workflow meta-checks."""
+    # ─── Steps 25-27: GHA meta-checks ──────────────────────────────────────
     if shutil.which("actionlint"):
-        if (r.repo_root / ".github" / "workflows").is_dir():
-            r.step("actionlint", ["actionlint", "-color"])
+        if (runner.repo_root / ".github" / "workflows").is_dir():
+            runner.step("actionlint", ["actionlint", "-color"])
         else:
-            r.announce_skip("actionlint", "no .github/workflows/ directory")
+            runner.announce_skip("actionlint", "no .github/workflows/ directory")
     else:
-        r.announce_skip(
+        runner.announce_skip(
             "actionlint",
             "binary not installed; see docs/development/CI_LOCAL.md",
         )
 
-    r.step(
+    runner.step(
         "check-action-pins",
         [sys.executable, "-m", "tools.check_action_pins"],
-        cwd=r.repo_root,
+        cwd=runner.repo_root,
     )
-    r.step(
+    runner.step(
         "check-workflow-permissions",
         [sys.executable, "-m", "tools.check_workflow_permissions"],
-        cwd=r.repo_root,
+        cwd=runner.repo_root,
     )
 
+
+def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
+    """Run the always-on UBSan lane then the enabled repro / stability / mutation lanes."""
     # ─── Opt-in lanes (numbered 28+ when enabled) ──────────────────────────
     # Each lane is appended to total_steps in __init__ via opts.enabled_count();
     # they share the same step counter as always-on steps so the "ALL N STEPS
@@ -628,24 +712,23 @@ def main(argv: list[str] | None = None) -> int:
     # Builds the full ctest battery against -DALETHEIA_SANITIZER=undefined and
     # asserts every test passes.  Vendored zippy.hpp UB filtered via
     # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
-    r.step(
+    runner.step(
         "ubsan ctest",
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
-        "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null"
-        " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
-        cwd=r.repo_root / "cpp",
-        shell=True,
+        + "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null"
+        + " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
+        cwd=runner.repo_root / "cpp",
     )
 
     # Step 29 (opt-in): reproducible-build gate ────────────────────────────
     if opts.repro:
-        r.step(
+        runner.step(
             "check-reproducible-build",
             [sys.executable, "-m", "tools.check_reproducible_build"],
-            cwd=r.repo_root,
+            cwd=runner.repo_root,
         )
     else:
-        r.announce_skip(
+        runner.announce_skip(
             "check-reproducible-build",
             "set ALETHEIA_REPRO_CHECK=1 or pass --repro to enable",
         )
@@ -653,13 +736,13 @@ def main(argv: list[str] | None = None) -> int:
     # Step 30 (opt-in): long-run stability bench ───────────────────────────
     # R18 cluster 6 (Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27).
     if opts.stability:
-        r.step(
+        runner.step(
             "stability bench",
             [sys.executable, "-m", "tools.stability_run"],
-            cwd=r.repo_root,
+            cwd=runner.repo_root,
         )
     else:
-        r.announce_skip(
+        runner.announce_skip(
             "stability bench",
             "set ALETHEIA_STABILITY_CHECK=1 or pass --stability to enable",
         )
@@ -669,18 +752,36 @@ def main(argv: list[str] | None = None) -> int:
     # separate CI lane (cost is high) — once per PR is sufficient; per-commit
     # is overkill."  Default OFF.  See docs/operations/MUTATION.md.
     if opts.mutation:
-        r.step(
+        runner.step(
             "mutation testing",
             [sys.executable, "-m", "tools.mutation_run"],
-            cwd=r.repo_root,
+            cwd=runner.repo_root,
         )
     else:
-        r.announce_skip(
+        runner.announce_skip(
             "mutation testing",
             "set ALETHEIA_MUTATION_CHECK=1 or pass --mutation to enable",
         )
 
-    return r.finalize()
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the full offline CI sweep, returning the process exit code."""
+    opts = parse_args(argv)
+    repo_root = _git_root()
+    os.chdir(repo_root)
+    runner = Runner(opts, RunContext.discover(repo_root))
+    runner.header()
+
+    cabal = ["cabal", "run", "shake", "--"]
+
+    _run_agda_gates(runner, cabal)
+    _run_offline_enforcers(runner, cabal)
+    _run_binding_tests(runner)
+    _run_lints(runner)
+    _run_gha_checks(runner)
+    _run_opt_in_lanes(runner, opts)
+
+    return runner.finalize()
 
 
 if __name__ == "__main__":
