@@ -1,0 +1,48 @@
+# ruff.toml — repository-root single source of truth for ruff (lint + format).
+#
+# Policy (user directive 2026-05-27): run the strongest practical static
+# ruleset and EARN a clean pass by fixing the code, never by suppressing.
+# `select = ["ALL"]` turns on every stable ruff rule.  The `ignore` list is
+# deliberately minimal: an entry exists only when a rule is physically
+# impossible to satisfy alongside another enabled rule / authoritative gate,
+# or encodes a policy this repository has deliberately not adopted.  Every
+# entry carries its rationale inline.
+#
+# Scope: the whole Python tree — tools/ (repo-root gate scripts), python/ (the
+# package + tests + benchmarks), benchmarks/, examples/, conftest.py.  pylint
+# and basedpyright configuration live in python/pyproject.toml; this file is
+# ruff-only (lint + format).
+
+target-version = "py313"  # matches python/pyproject.toml requires-python >=3.13
+line-length = 100         # matches [tool.pylint.format] max-line-length
+
+[lint]
+select = ["ALL"]
+ignore = [
+    # ── Mutually-exclusive pairs inside ALL (cannot satisfy both members) ──
+    "D203",    # one-blank-line-before-class — we keep its opposite D211 (no blank line before the class docstring)
+    "D213",    # multi-line-summary-second-line — we keep its opposite D212 (summary starts on the first physical line)
+    # ── Conflicts with an authoritative gate / the formatter ──
+    "ISC003",  # explicit-string-concatenation — basedpyright reportImplicitStringConcatenation=error REQUIRES the explicit '+' form; that gate is authoritative
+    "COM812",  # missing-trailing-comma — conflicts with `ruff format` (ruff's own documented recommendation)
+    # ── Policy this repository has deliberately not adopted ──
+    "CPY001",  # missing-copyright-notice — no per-file copyright/SPDX header convention exists; adopting one across the tree is a licensing decision, not a lint fix
+]
+
+[lint.per-file-ignores]
+# pytest's bare `assert` is the only idiom for test assertions; rewriting to
+# unittest-style asserts would be a readability regression.  Tests also
+# intentionally carry no __init__.py — pytest discovers by path (see the
+# init-hook comment in python/pyproject.toml) — so the implicit-namespace
+# check cannot be satisfied without breaking discovery.
+"python/tests/**" = ["S101", "INP001"]
+"conftest.py" = ["S101", "INP001"]
+# A demo / benchmark script exists to print its results for a human reader:
+# stdout is the deliverable, so the no-print rule does not apply.  These are
+# runnable scripts, not importable packages, hence INP001 too.
+"examples/**" = ["T201", "INP001"]
+"benchmarks/**" = ["T201", "INP001"]
+"python/benchmarks/**" = ["T201", "INP001"]
+
+[format]
+quote-style = "double"  # matches the existing double-quote convention (basedpyright/Black-ish)
