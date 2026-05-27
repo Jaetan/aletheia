@@ -28,7 +28,11 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tools._common import match_paren_content, split_top_level_semicolons
+from tools._common import (
+    find_executable,
+    match_paren_content,
+    split_top_level_semicolons,
+)
 
 
 def _find_repo_root() -> Path:
@@ -58,7 +62,10 @@ def _find_repo_root() -> Path:
 REPO_ROOT = _find_repo_root()
 SRC_DIR = REPO_ROOT / "src"
 
-AGDA_BIN = Path(os.environ.get("AGDA_BIN", "/home/nicolas/.cabal/bin/agda"))
+# Resolve agda from PATH (via shutil.which, S607-clean) rather than hardcoding
+# an absolute path; the AGDA_BIN env var overrides for non-standard installs.
+# An agda-driving module that cannot find agda should fail loud at import.
+AGDA_BIN = Path(os.environ.get("AGDA_BIN") or find_executable("agda"))
 
 # Character class for Agda identifier continuation: letters, digits, _, ', -.
 # Used in word-boundary lookarounds.
