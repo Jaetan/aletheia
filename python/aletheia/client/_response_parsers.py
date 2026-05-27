@@ -12,7 +12,7 @@ import logging
 from collections.abc import Callable
 from typing import cast
 
-from ..protocols import (
+from aletheia.protocols import (
     AckResponse,
     ErrorResponse,
     ParsedDBCResponse,
@@ -23,11 +23,11 @@ from ..protocols import (
     is_object_list,
     is_str_dict,
 )
-from ..issue_codes import ValidationIssue
-from ._helpers.dbc_normalize import normalize_dbc
-from ._helpers.rational import validate_integer_rational
-from ._log import LogEvent, log_event
-from ._types import ProtocolError
+from aletheia.issue_codes import ValidationIssue
+from aletheia.client._helpers.dbc_normalize import normalize_dbc
+from aletheia.client._helpers.rational import validate_integer_rational
+from aletheia.client._log import LogEvent, log_event
+from aletheia.client._types import ProtocolError
 
 _logger = logging.getLogger("aletheia")
 

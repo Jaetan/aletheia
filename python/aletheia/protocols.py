@@ -14,7 +14,7 @@ from fractions import Fraction
 from typing import Literal, NotRequired, TypeGuard, TypedDict, cast
 
 
-from ._dbc_types import (
+from aletheia._dbc_types import (
     AttrScope,
     ByteOrder,
     DBCAttrAssign,
@@ -64,7 +64,7 @@ from ._dbc_types import (
     DLCCode,
     SignalPresence,
 )
-from .issue_codes import ValidationIssue
+from aletheia.issue_codes import ValidationIssue
 
 # ─── Public wire helpers (R23 PY-D-16.2) ────────────────────────────────────
 # Promoted from ``client/_helpers.py`` so non-client modules

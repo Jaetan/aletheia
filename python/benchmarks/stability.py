@@ -44,7 +44,7 @@ from aletheia import AletheiaClient
 from aletheia.client._ffi import RTSState
 from aletheia.protocols import DBCDefinition
 
-from ._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc
+from benchmarks._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc
 
 # Soft-threshold caps (empirically established 2026-05-08, WSL2 quiet host;
 # revise inline if a future reviewer runs the harness on a host that rejects

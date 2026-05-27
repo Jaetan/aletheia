@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from fractions import Fraction
 
-from ..protocols import DLCCode
-from ._types import ProtocolError, SignalExtractionResult
+from aletheia.protocols import DLCCode
+from aletheia.client._types import ProtocolError, SignalExtractionResult
 
 
 class ExtractionErrorCode(IntEnum):

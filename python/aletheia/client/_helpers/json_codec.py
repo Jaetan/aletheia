@@ -3,9 +3,9 @@
 from collections.abc import Sequence
 from fractions import Fraction
 
-from ...protocols import is_str_dict
-from .._types import ProtocolError
-from .rational import parse_rational
+from aletheia.protocols import is_str_dict
+from aletheia.client._types import ProtocolError
+from aletheia.client._helpers.rational import parse_rational
 
 
 def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:

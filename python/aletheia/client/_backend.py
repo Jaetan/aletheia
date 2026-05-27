@@ -28,8 +28,8 @@ from collections import deque
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from ._ffi import RTSState, configure_ffi_signatures, find_ffi_library
-from ._types import AletheiaError, FFIError, ProtocolError, encode_maybe_bool
+from aletheia.client._ffi import RTSState, configure_ffi_signatures, find_ffi_library
+from aletheia.client._types import AletheiaError, FFIError, ProtocolError, encode_maybe_bool
 
 
 class BinaryPathUnsupportedError(AletheiaError):
@@ -244,7 +244,10 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         # stage 2).  The renderer module also lazy-loads on demand for
         # callers that bypass FFIBackend, so this registration is an
         # eager optimisation rather than a strict requirement.
-        from ._enrichment import set_renderer_lib  # pylint: disable=import-outside-toplevel
+        from aletheia.client._enrichment import (  # pylint: disable=import-outside-toplevel
+            set_renderer_lib,
+        )
+
         set_renderer_lib(self._lib)
 
     @property

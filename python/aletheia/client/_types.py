@@ -18,8 +18,8 @@ from fractions import Fraction
 from types import MappingProxyType
 from typing import NamedTuple, cast, override
 
-from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
-from ..protocols import (
+from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
+from aletheia.protocols import (
     AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyBatchResponse,
     PropertyResultEntry,
 )

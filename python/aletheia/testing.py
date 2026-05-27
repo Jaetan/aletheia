@@ -22,6 +22,6 @@ benchmark / engine re-export surface and does NOT re-host
 """
 from __future__ import annotations
 
-from .checks_runner import CheckRunResult, Violation, run_checks
+from aletheia.checks_runner import CheckRunResult, Violation, run_checks
 
 __all__ = ["CheckRunResult", "Violation", "run_checks"]

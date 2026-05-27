@@ -24,8 +24,8 @@ from typing import TypeGuard
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
-from .client._types import ValidationError
-from .protocols import is_str_dict
+from aletheia.client._types import ValidationError
+from aletheia.protocols import is_str_dict
 
 
 def is_str(val: object) -> TypeGuard[str]:

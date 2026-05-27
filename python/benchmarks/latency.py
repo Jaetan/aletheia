@@ -24,7 +24,7 @@ from aletheia import AletheiaClient
 from aletheia.protocols import DBCDefinition, LTLFormula
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from ._common import (
+from benchmarks._common import (
     CAN20_SPEC, CANFD_SPEC,
     DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,
     FrameSpec,

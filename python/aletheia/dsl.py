@@ -22,10 +22,10 @@ from __future__ import annotations
 
 from fractions import Fraction
 
-from ._time_units import MICROSECONDS_PER_MILLISECOND
-from .client import ValidationError
-from .client._helpers.rational import float_to_rational
-from .protocols import (
+from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
+from aletheia.client import ValidationError
+from aletheia.client._helpers.rational import float_to_rational
+from aletheia.protocols import (
     PredicateType,
     LTLFormula,
     AtomicFormula,

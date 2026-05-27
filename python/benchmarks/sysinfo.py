@@ -21,7 +21,7 @@ from multiprocessing import cpu_count
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from ._common import (
+from benchmarks._common import (
     CAN20_SPEC,
     FrameSpec,
     get_rss_mb, load_dbc,

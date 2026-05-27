@@ -25,15 +25,15 @@ from collections.abc import AsyncGenerator, Iterable, Mapping
 from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override
 
-from ..client._backend import Backend
-from ..client._client import AletheiaClient as _SyncClient
-from ..client._types import (
+from aletheia.client._backend import Backend
+from aletheia.client._client import AletheiaClient as _SyncClient
+from aletheia.client._types import (
     CANFrameTuple,
     FrameResult,
     SignalExtractionResult,
     call_send_frame,
 )
-from ..protocols import (
+from aletheia.protocols import (
     AckResponse,
     CompleteResponse,
     DBCDefinition,
@@ -47,7 +47,7 @@ from ..protocols import (
 )
 
 if TYPE_CHECKING:
-    from ..checks import CheckResult
+    from aletheia.checks import CheckResult
 
 
 class AletheiaClient:  # pylint: disable=too-many-public-methods

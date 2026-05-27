@@ -19,8 +19,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
-from .client import ValidationError
-
 # python-can is an optional extra (`pip install aletheia[can]`).  Surface a
 # clear, narrow ImportError naming the optional install rather than letting
 # a bare `ModuleNotFoundError: No module named 'can'` bubble up.  R19
@@ -33,8 +31,8 @@ except ImportError as exc:
         "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
     ) from exc
 
-from .client import CANFrameTuple, bytes_to_dlc
-from .protocols import DLCByteCount, DLCCode
+from aletheia.client import CANFrameTuple, ValidationError, bytes_to_dlc
+from aletheia.protocols import DLCByteCount, DLCCode
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
     ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",

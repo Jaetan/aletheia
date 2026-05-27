@@ -39,7 +39,7 @@ from aletheia.protocols import (
 )
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from ._common import (
+from benchmarks._common import (
     CAN20_SPEC,
     emit_json_report, get_rss_mb, load_dbc,
 )

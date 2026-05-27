@@ -59,11 +59,11 @@ from pathlib import Path
 
 import yaml
 
-from . import checks
-from .checks import CheckResult
-from .client import ValidationError, check_dbc_text_size_bound
-from .protocols import is_object_list, is_str_dict
-from ._check_conditions import (
+from aletheia import checks
+from aletheia.checks import CheckResult
+from aletheia.client import ValidationError, check_dbc_text_size_bound
+from aletheia.protocols import is_object_list, is_str_dict
+from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
     SIMPLE_RANGE_CONDITIONS,
@@ -74,7 +74,13 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
-from ._loader_utils import get_str, get_number, get_int, get_dict, reject_symlink_loader_path
+from aletheia._loader_utils import (
+    get_str,
+    get_number,
+    get_int,
+    get_dict,
+    reject_symlink_loader_path,
+)
 
 
 def _ctx(name: str) -> str:

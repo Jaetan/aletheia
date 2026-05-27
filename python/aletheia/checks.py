@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .client import ValidationError
-from .dsl import Signal, Predicate, Property, require_non_negative_time_ms
-from .protocols import LTLFormula
+from aletheia.client import ValidationError
+from aletheia.dsl import Signal, Predicate, Property, require_non_negative_time_ms
+from aletheia.protocols import LTLFormula
 
 
 def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:

@@ -41,7 +41,7 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from ..client import Backend
+from aletheia.client import Backend
 
 
 class _CountingGateBackend:

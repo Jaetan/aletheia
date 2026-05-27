@@ -25,19 +25,19 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast
 
-from . import __version__
-from ._time_units import MICROSECONDS_PER_MILLISECOND
-from .checks import CheckResult
-from .checks_runner import CheckRunResult, Violation, run_checks
-from .client import (
+from aletheia import __version__
+from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
+from aletheia.checks import CheckResult
+from aletheia.checks_runner import CheckRunResult, Violation, run_checks
+from aletheia.client import (
     AletheiaClient,
     AletheiaError,
     SignalExtractionResult,
     ValidationError,
     bytes_to_dlc,
 )
-from .protocols import dump_json
-from .dbc_queries import (
+from aletheia.protocols import dump_json
+from aletheia.dbc_queries import (
     is_multiplexed,
     message_by_id,
     message_by_name,
@@ -45,8 +45,8 @@ from .dbc_queries import (
     mux_values,
     signals_for_mux_value,
 )
-from .issue_codes import IssueSeverity, ValidationIssue
-from .protocols import (
+from aletheia.issue_codes import IssueSeverity, ValidationIssue
+from aletheia.protocols import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,

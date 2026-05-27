@@ -13,10 +13,10 @@ from typing import cast
 import ctypes
 import threading
 
-from .._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
-from ..limits import MAX_NESTING_DEPTH
-from ..protocols import LTLFormula
-from ._types import PropertyDiagnostic, ValidationError
+from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
+from aletheia.limits import MAX_NESTING_DEPTH
+from aletheia.protocols import LTLFormula
+from aletheia.client._types import PropertyDiagnostic, ValidationError
 
 # Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
 # exposed as `aletheia.limits.MAX_NESTING_DEPTH`): a deeper formula would
@@ -90,8 +90,11 @@ def _coerce_to_float(v: object) -> float:
 # calling ``format_formula`` directly without instantiating a client),
 # :func:`_get_or_load_renderer_lib` lazily loads ``libaletheia-ffi.so``
 # and initialises the GHC RTS on first call.
-_renderer_lib: ctypes.CDLL | None = None
-_renderer_lib_lock = threading.Lock()
+# A one-element cell behind a module constant: the binding is never rebound,
+# so set_renderer_lib / _get_or_load_renderer_lib mutate the cell contents
+# rather than declaring ``global`` (which would rebind a lowercase module var).
+_RENDERER_LIB: list[ctypes.CDLL | None] = [None]
+_RENDERER_LOCK = threading.Lock()
 
 
 def set_renderer_lib(lib: ctypes.CDLL) -> None:
@@ -102,8 +105,7 @@ def set_renderer_lib(lib: ctypes.CDLL) -> None:
     safe because the underlying ``.so`` is loaded once per process and
     every backend instance holds a reference to the same library.
     """
-    global _renderer_lib  # pylint: disable=global-statement
-    _renderer_lib = lib
+    _RENDERER_LIB[0] = lib
 
 
 def _get_or_load_renderer_lib() -> ctypes.CDLL:
@@ -119,15 +121,15 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
     # both see _renderer_lib is None, both dlopen the .so, last-write wins.
     # GHC RTS init is idempotent per the renderer.cpp comment, so the race
     # is benign in practice; the lock is defensive thread-safety hygiene.
-    global _renderer_lib  # pylint: disable=global-statement
-    with _renderer_lib_lock:
-        if _renderer_lib is None:
+    with _RENDERER_LOCK:
+        lib = _RENDERER_LIB[0]
+        if lib is None:
             # Local import avoids a runtime circular dependency: ``_ffi``
             # has no upward dependencies, but importing at module load
             # would chain through ``configure_ffi_signatures`` which
             # references ctypes types that the renderer doesn't need
             # unless it actually has to lazy-load.
-            from ._ffi import (  # pylint: disable=import-outside-toplevel
+            from aletheia.client._ffi import (  # pylint: disable=import-outside-toplevel
                 configure_ffi_signatures,
                 find_ffi_library,
             )
@@ -139,8 +141,8 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
             # when an FFIBackend later instantiates does no harm.
             lib.hs_init(None, None)
             configure_ffi_signatures(lib)
-            _renderer_lib = lib
-    return _renderer_lib
+            _RENDERER_LIB[0] = lib
+    return lib
 
 
 def _format_rational(v: object) -> str:

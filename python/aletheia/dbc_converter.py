@@ -15,9 +15,9 @@ shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 
 from pathlib import Path
 
-from .client import AletheiaClient, ValidationError, check_dbc_text_size_bound
-from .protocols import dump_json
-from .protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
+from aletheia.client import AletheiaClient, ValidationError, check_dbc_text_size_bound
+from aletheia.protocols import dump_json
+from aletheia.protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
 
 
 def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:

@@ -4,7 +4,7 @@
 from collections.abc import Callable
 from typing import cast
 
-from ...protocols import (
+from aletheia.protocols import (
     AttrScope,
     DBCAttrAssign,
     DBCAttrDef,
@@ -28,9 +28,9 @@ from ...protocols import (
     is_object_list,
     is_str_dict,
 )
-from ..._loader_utils import is_pure_int
-from .._types import ProtocolError
-from .rational import parse_rational
+from aletheia._loader_utils import is_pure_int
+from aletheia.client._types import ProtocolError
+from aletheia.client._helpers.rational import parse_rational
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")

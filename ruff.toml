@@ -37,13 +37,24 @@ ignore = [
     "S603",    # subprocess-without-shell-equals-true — fires on EVERY subprocess.run([...]) call regardless of arg safety; the tooling necessarily orchestrates git/agda/cabal/clang/go with hardcoded, trusted argument lists (never shell=True, never untrusted interpolation), so it carries no signal here. Its fixable sibling S607 (partial executable path) is NOT ignored — paths are resolved via shutil.which.
 ]
 
+[lint.flake8-tidy-imports]
+# Ban every relative import, not just parent-relative (the rule's default).
+# The package uses fully-qualified absolute imports throughout (`from aletheia.x
+# import ...`), so a stray `from .x` / `from ..x` is the inconsistency TID252
+# should catch.  Earning this across the tree is the relative-imports cleanup.
+ban-relative-imports = "all"
+
 [lint.per-file-ignores]
 # pytest's bare `assert` is the only idiom for test assertions; rewriting to
 # unittest-style asserts would be a readability regression.  Tests also
 # intentionally carry no __init__.py — pytest discovers by path (see the
 # init-hook comment in python/pyproject.toml) — so the implicit-namespace
-# check cannot be satisfied without breaking discovery.
-"python/tests/**" = ["S101", "INP001"]
+# check cannot be satisfied without breaking discovery.  PLR2004 (magic-value
+# comparison) is the same category: `assert result.dlc == 8` compares against
+# the literal expected value, which is the assertion idiom — naming every test
+# literal as a constant is a readability regression.  PLR2004 stays active in
+# production code (aletheia/), where literal comparisons get named constants.
+"python/tests/**" = ["S101", "INP001", "PLR2004"]
 "conftest.py" = ["S101", "INP001"]
 # A demo / benchmark script exists to print its results for a human reader:
 # stdout is the deliverable, so the no-print rule does not apply.  These are

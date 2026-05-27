@@ -74,7 +74,7 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 #   is unnecessary, but the canonical-path decision is mostly cosmetic.
 # Revisit when: First external user lands, OR a documentation sweep clarifies
 #   the canonical import paths.
-from .client import (
+from aletheia.client import (
     AletheiaClient,
     AletheiaError,
     Backend,
@@ -96,16 +96,16 @@ from .client import (
     bytes_to_dlc,
     dlc_to_bytes,
 )
-from .checks import CheckResult
-from .dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
-from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
-from .error_codes import ErrorCode
-from .protocols import (
+from aletheia.checks import CheckResult
+from aletheia.dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
+from aletheia.dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from aletheia.error_codes import ErrorCode
+from aletheia.protocols import (
     DBCDefinition,
     PropertyResultEntry,
 )
-from .issue_codes import IssueCode, ValidationIssue
-from .dbc_queries import (
+from aletheia.issue_codes import IssueCode, ValidationIssue
+from aletheia.dbc_queries import (
     is_multiplexed,
     always_present_signals,
     multiplexed_signals,
@@ -131,19 +131,19 @@ def _missing_pkg(exc: ImportError, pkg: str) -> bool:
 
 
 try:
-    from .can_log import load_can_log, iter_can_log
+    from aletheia.can_log import load_can_log, iter_can_log
 except ImportError as _e:
     if not _missing_pkg(_e, "can"):
         raise
 
 try:
-    from .yaml_loader import load_checks
+    from aletheia.yaml_loader import load_checks
 except ImportError as _e:
     if not _missing_pkg(_e, "yaml"):
         raise
 
 try:
-    from .excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
+    from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
 except ImportError as _e:
     if not _missing_pkg(_e, "openpyxl"):
         raise

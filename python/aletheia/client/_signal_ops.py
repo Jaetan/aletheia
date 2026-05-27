@@ -16,17 +16,17 @@ from collections.abc import Mapping
 from fractions import Fraction
 from typing import cast
 
-from ..protocols import DLCCode, Response, is_object_list
-from ._backend import Backend, BinaryPathUnsupportedError
-from ._client_bin import parse_extraction_buffer
-from ._ffi import parse_json_object
-from ._helpers.json_codec import (
+from aletheia.protocols import DLCCode, Response, is_object_list
+from aletheia.client._backend import Backend, BinaryPathUnsupportedError
+from aletheia.client._client_bin import parse_extraction_buffer
+from aletheia.client._ffi import parse_json_object
+from aletheia.client._helpers.json_codec import (
     parse_absent_list,
     parse_errors_list,
     parse_values_list,
 )
-from ._log import LogEvent, log_event
-from ._types import (
+from aletheia.client._log import LogEvent, log_event
+from aletheia.client._types import (
     ProtocolError,
     SignalExtractionResult,
     SignalLookup,

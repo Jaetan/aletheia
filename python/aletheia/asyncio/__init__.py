@@ -32,6 +32,6 @@ underlying ``StablePtr``. Mirrors the ``httpx.Client`` /
 patterns Python users already know.
 """
 
-from ._client import AletheiaClient
+from aletheia.asyncio._client import AletheiaClient
 
 __all__ = ["AletheiaClient"]

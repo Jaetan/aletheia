@@ -10,6 +10,6 @@ in some IDEs even though semantically they are equivalent.
 
 import sys
 
-from .cli import main
+from aletheia.cli import main
 
 sys.exit(main())

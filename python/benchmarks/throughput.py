@@ -28,7 +28,7 @@ from aletheia.protocols import DBCDefinition, LTLFormula
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
 # files thin; see PY-31-1.
-from ._common import (
+from benchmarks._common import (
     CAN20_SPEC, CANFD_SPEC,
     BenchmarkConfig,
     DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,

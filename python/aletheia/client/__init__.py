@@ -40,10 +40,10 @@ Example:
         client.end_stream()
 """
 
-from ._backend import Backend, BinaryPathUnsupportedError, FFIBackend, MockBackend
-from ._client import AletheiaClient
-from ._ffi import RTSState
-from ._types import (
+from aletheia.client._backend import Backend, BinaryPathUnsupportedError, FFIBackend, MockBackend
+from aletheia.client._client import AletheiaClient
+from aletheia.client._ffi import RTSState
+from aletheia.client._types import (
     AletheiaError,
     BatchError,
     CANFrameTuple,

@@ -5,9 +5,9 @@ through the same Check API builders.  This module defines the keyword sets
 and dispatch helpers so that the two loaders stay in sync.
 """
 
-from . import checks
-from .checks import CheckResult, WhenCondition, WhenSignal
-from .client import ValidationError
+from aletheia import checks
+from aletheia.checks import CheckResult, WhenCondition, WhenSignal
+from aletheia.client import ValidationError
 
 
 # ============================================================================

@@ -55,10 +55,10 @@ from openpyxl.styles import Font
 from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from . import checks
-from .checks import CheckResult
-from .client import AletheiaError, check_dbc_text_size_bound
-from ._check_conditions import (
+from aletheia import checks
+from aletheia.checks import CheckResult
+from aletheia.client import AletheiaError, check_dbc_text_size_bound
+from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
     SIMPLE_RANGE_CONDITIONS,
@@ -69,9 +69,9 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
-from ._dbc_types import empty_dbc_tier2
-from .client import ValidationError
-from .protocols import (
+from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.client import ValidationError
+from aletheia.protocols import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
@@ -79,7 +79,7 @@ from .protocols import (
     DBCSignalMultiplexed,
     DLCByteCount,
 )
-from ._loader_utils import (
+from aletheia._loader_utils import (
     is_str,
     get_str,
     get_number,
@@ -87,7 +87,7 @@ from ._loader_utils import (
     get_bool,
     reject_symlink_loader_path,
 )
-from .protocols import to_signal_fraction
+from aletheia.protocols import to_signal_fraction
 
 
 def _check_xlsx_uncompressed_bound(path: Path) -> None:

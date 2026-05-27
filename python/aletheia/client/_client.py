@@ -7,7 +7,7 @@ from collections.abc import Callable, Generator, Iterable, Mapping
 from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override, cast
 
-from ..protocols import (
+from aletheia.protocols import (
     DBCDefinition,
     DLCCode,
     LTLFormula,
@@ -30,15 +30,15 @@ from ..protocols import (
     ParsedDBCResponse,
     is_str_dict,
 )
-from ._backend import Backend, FFIBackend
-from ._client_bin import FrameIdentity
-from ._enrichment import build_diagnostic, format_enriched_reason
-from ._ffi import parse_json_object
-from ..protocols import dump_json
-from ._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
-from ._helpers.rational import coerce_to_rational
-from ._log import LogEvent, log_event
-from ._response_parsers import (
+from aletheia.client._backend import Backend, FFIBackend
+from aletheia.client._client_bin import FrameIdentity
+from aletheia.client._enrichment import build_diagnostic, format_enriched_reason
+from aletheia.client._ffi import parse_json_object
+from aletheia.protocols import dump_json
+from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
+from aletheia.client._helpers.rational import coerce_to_rational
+from aletheia.client._log import LogEvent, log_event
+from aletheia.client._response_parsers import (
     build_error_response,
     parse_event_response,
     parse_finalization_results,
@@ -47,8 +47,8 @@ from ._response_parsers import (
     parse_success_or_error,
     validate_issue_severities,
 )
-from ._signal_ops import SignalOpsMixin
-from ._types import (
+from aletheia.client._signal_ops import SignalOpsMixin
+from aletheia.client._types import (
     AletheiaError,
     CANFrameTuple,
     FFIError,
@@ -66,10 +66,10 @@ from ._types import (
     validate_can_id,
     validate_payload_length,
 )
-from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
+from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
 
 if TYPE_CHECKING:
-    from ..checks import CheckResult
+    from aletheia.checks import CheckResult
 
 _logger = logging.getLogger("aletheia")
 
