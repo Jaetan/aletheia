@@ -21,13 +21,13 @@ Cross-references to AGENTS.md § Universal Rules → "Reproducible build
 verification" and PROTOCOL.md § Limits live in the bom.metadata.notes
 field for downstream verifiers.
 """
+
 from __future__ import annotations
 
 import argparse
 import datetime
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -108,31 +108,36 @@ def _ghc_dep_components(deps: list[Path]) -> list[dict]:
 
     The hash field carries the post-strip + post-patchelf SHA-256 because
     those are the bytes shipped in the tarball.  Path is recorded as the
-    in-tarball relative path under ``aletheia/lib/``."""
+    in-tarball relative path under ``aletheia/lib/``.
+    """
     components: list[dict] = []
     for so in deps:
         if not so.is_file():
             continue
         version = "unknown"
         # Pattern: libHSbase-4.18.2.1-...-ghc9.6.7.so → 4.18.2.1
-        m = re.match(r"libHS([A-Za-z0-9_-]+?)-(\d[\w.-]*?)(?:-[a-z0-9]{8,})?-ghc[\d.]+\.so", so.name)
+        m = re.match(
+            r"libHS([A-Za-z0-9_-]+?)-(\d[\w.-]*?)(?:-[a-z0-9]{8,})?-ghc[\d.]+\.so", so.name
+        )
         package = so.stem
         if m:
             package = m.group(1)
             version = m.group(2)
-        components.append({
-            "type": "library",
-            "name": f"haskell-runtime/{package}",
-            "version": version,
-            "scope": "required",
-            "purl": f"pkg:generic/haskell/{package}@{version}",
-            "properties": [
-                {"name": "aletheia:source-file", "value": so.name},
-            ],
-            "hashes": [
-                {"alg": "SHA-256", "content": _sha256(so)},
-            ],
-        })
+        components.append(
+            {
+                "type": "library",
+                "name": f"haskell-runtime/{package}",
+                "version": version,
+                "scope": "required",
+                "purl": f"pkg:generic/haskell/{package}@{version}",
+                "properties": [
+                    {"name": "aletheia:source-file", "value": so.name},
+                ],
+                "hashes": [
+                    {"alg": "SHA-256", "content": _sha256(so)},
+                ],
+            }
+        )
     return components
 
 
@@ -203,8 +208,8 @@ def build_sbom(
     serial_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, serial_seed))
 
     if source_epoch is None:
-        source_epoch = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    timestamp = datetime.datetime.fromtimestamp(source_epoch, datetime.timezone.utc).isoformat(
+        source_epoch = int(datetime.datetime.now(datetime.UTC).timestamp())
+    timestamp = datetime.datetime.fromtimestamp(source_epoch, datetime.UTC).isoformat(
         timespec="seconds"
     )
 

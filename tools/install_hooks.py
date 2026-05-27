@@ -25,6 +25,7 @@ Skip via::
 
 Reference: R18 cluster 1 phase 3 / memory/feedback_gate_claim_integrity.md.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -38,9 +39,9 @@ from pathlib import Path
 PRE_PUSH_MARKER = "# aletheia-pre-push-marker (R18 cluster 1 phase 3)"
 PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (dead-import scanner)"
 
-PRE_PUSH_BODY = '''\
+PRE_PUSH_BODY = f'''\
 #!/usr/bin/env python3
-{marker}
+{PRE_PUSH_MARKER}
 """Aletheia pre-push hook.
 
 Runs the full offline CI sweep before allowing push.  Skip with
@@ -73,7 +74,9 @@ def main() -> int:
     sys.stderr.write("pre-push: running offline CI sweep (~12-15 min)...\\n")
     sys.stderr.write("pre-push: skip with `git push --no-verify` if needed\\n\\n")
 
-    rc = subprocess.run([sys.executable, str(runner)], check=False).returncode
+    rc = subprocess.run(
+        [sys.executable, "-m", "tools.run_ci"], cwd=repo_root, check=False
+    ).returncode
     if rc != 0:
         sys.stderr.write(
             "\\npre-push: CI sweep failed — push refused.\\n"
@@ -89,12 +92,12 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-'''.format(marker=PRE_PUSH_MARKER)
+'''
 
 
-PRE_COMMIT_BODY = '''\
+PRE_COMMIT_BODY = f'''\
 #!/usr/bin/env python3
-{marker}
+{PRE_COMMIT_MARKER}
 """Aletheia pre-commit hook — fast dead-import scanner (advisory).
 
 For each staged .agda file, runs the regex scanner and prints findings
@@ -150,8 +153,9 @@ def main() -> int:
 
     # Run the scanner.  Exit code is always 0; we only care about output.
     result = subprocess.run(
-        [sys.executable, str(scanner), "--summary"] + [str(f) for f in files],
-        capture_output=True, text=True, check=False,
+        [sys.executable, "-m", "tools.scan_dead_imports", "--summary"]
+        + [str(f) for f in files],
+        capture_output=True, text=True, check=False, cwd=repo_root,
     )
     out = result.stdout.strip()
     # If nothing was flagged, the scanner prints only its totals line
@@ -174,7 +178,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-'''.format(marker=PRE_COMMIT_MARKER)
+'''
 
 
 def _install_hook(
@@ -185,7 +189,8 @@ def _install_hook(
     description: str,
 ) -> bool:
     """Install the named hook.  Returns True if newly installed (or
-    re-installed because the marker was missing), False if already current."""
+    re-installed because the marker was missing), False if already current.
+    """
     path = hooks_dir / name
     if path.is_file() and marker in path.read_text(encoding="utf-8"):
         print(f"install-hooks: {name} already installed (marker found at {path})")
@@ -193,9 +198,7 @@ def _install_hook(
     if path.is_file():
         ts = int(datetime.datetime.now().timestamp())
         backup = path.with_suffix(f".aletheia-backup-{ts}")
-        sys.stderr.write(
-            f"install-hooks: existing {name} hook backed up to {backup}\n"
-        )
+        sys.stderr.write(f"install-hooks: existing {name} hook backed up to {backup}\n")
         shutil.copy2(path, backup)
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -227,11 +230,17 @@ def main() -> int:
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
     _install_hook(
-        hooks_dir, "pre-commit", PRE_COMMIT_BODY, PRE_COMMIT_MARKER,
+        hooks_dir,
+        "pre-commit",
+        PRE_COMMIT_BODY,
+        PRE_COMMIT_MARKER,
         "every `git commit` will run `tools/scan_dead_imports.py` on staged .agda files (advisory only — never blocks)",
     )
     _install_hook(
-        hooks_dir, "pre-push", PRE_PUSH_BODY, PRE_PUSH_MARKER,
+        hooks_dir,
+        "pre-push",
+        PRE_PUSH_BODY,
+        PRE_PUSH_MARKER,
         "every `git push` will run `tools/run_ci.py` first; bypass with `--no-verify`",
     )
     return 0

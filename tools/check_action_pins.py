@@ -21,6 +21,7 @@ Exit codes:
   1 — at least one ``uses:`` reference violates the policy.
   2 — no ``.github/workflows/`` directory (skips silently with exit 0).
 """
+
 from __future__ import annotations
 
 import re
@@ -98,10 +99,7 @@ def main() -> int:
         )
         return 1
 
-    print(
-        f"check-action-pins: ok ({checked} refs checked, "
-        "all comply with pin policy)"
-    )
+    print(f"check-action-pins: ok ({checked} refs checked, all comply with pin policy)")
     return 0
 
 

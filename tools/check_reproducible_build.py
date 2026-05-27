@@ -21,6 +21,7 @@ Exit codes:
 
 Reference: AGENTS.md § Universal Rules → "Reproducible build verification".
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,7 +45,7 @@ def _sha256(path: Path) -> str:
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    return datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
 
 
 def _git_root() -> Path:
@@ -95,9 +96,7 @@ def _run_clean_build(label: int, work_dir: Path, copy_to: Path) -> str:
         sys.exit(2)
 
     if not ARTIFACT.is_file():
-        sys.stderr.write(
-            f"check-reproducible-build: {ARTIFACT} missing after build {label}\n"
-        )
+        sys.stderr.write(f"check-reproducible-build: {ARTIFACT} missing after build {label}\n")
         sys.exit(2)
 
     shutil.copy2(ARTIFACT, copy_to)
@@ -150,12 +149,8 @@ def _emit_failure(hash1: str, hash2: str, work_dir: Path, keep: bool) -> None:
     if keep:
         sys.stderr.write(f"Artifacts retained at {work_dir} (--keep-artifacts).\n")
     else:
-        sys.stderr.write(
-            f"Re-run with --keep-artifacts to retain {work_dir} for forensic diff.\n"
-        )
-    sys.stderr.write(
-        "Reference: AGENTS.md § Universal Rules → Reproducible build verification.\n"
-    )
+        sys.stderr.write(f"Re-run with --keep-artifacts to retain {work_dir} for forensic diff.\n")
+    sys.stderr.write("Reference: AGENTS.md § Universal Rules → Reproducible build verification.\n")
 
 
 def main() -> int:
@@ -188,6 +183,7 @@ def main() -> int:
 
     # Run from repo root so cabal/shake/git invocations all see the right tree.
     import os
+
     os.chdir(repo_root)
 
     work_dir = Path(tempfile.mkdtemp(prefix="aletheia-repro-"))

@@ -42,7 +42,7 @@ def main() -> int:
         return 2
     bindings = spec["bindings"]
     if not isinstance(bindings, dict):
-        print(f"ERROR: spec.bindings must be a mapping", file=sys.stderr)
+        print("ERROR: spec.bindings must be a mapping", file=sys.stderr)
         return 2
 
     failures: list[str] = []

@@ -55,6 +55,7 @@ rejection is strictly preferable to letting a pathological buffer cross.
 Forward-revert verified: changing ``MaxMessagesPerFile = 10000`` to ``9999``
 in ``go/aletheia/limits.go`` fires this script; reverting returns to exit 0.
 """
+
 from __future__ import annotations
 
 import re
@@ -73,24 +74,24 @@ PYTHON_LIMITS = REPO_ROOT / "python" / "aletheia" / "limits.py"
 # When adding a new Agda constant, decide its category and add it here.
 NAME_MAPPING: dict[str, tuple[str, str]] = {
     # Input-size bounds — REQUIRED at cgo boundary
-    "max-dbc-text-bytes":          ("MaxDBCTextBytes",          "REQUIRED"),
-    "max-json-bytes":              ("MaxJSONBytes",             "REQUIRED"),
-    "max-nesting-depth":           ("MaxNestingDepth",          "REQUIRED"),
-    "max-identifier-length":       ("MaxIdentifierLength",      "REQUIRED"),
-    "max-string-length-bytes":     ("MaxStringLengthBytes",     "REQUIRED"),
-    "max-atom-count-per-property": ("MaxAtomCountPerProperty",  "REQUIRED"),
-    "max-frame-byte-count":        ("MaxFrameByteCount",        "REQUIRED"),
-    "max-properties-per-stream":   ("MaxPropertiesPerStream",   "REQUIRED"),
+    "max-dbc-text-bytes": ("MaxDBCTextBytes", "REQUIRED"),
+    "max-json-bytes": ("MaxJSONBytes", "REQUIRED"),
+    "max-nesting-depth": ("MaxNestingDepth", "REQUIRED"),
+    "max-identifier-length": ("MaxIdentifierLength", "REQUIRED"),
+    "max-string-length-bytes": ("MaxStringLengthBytes", "REQUIRED"),
+    "max-atom-count-per-property": ("MaxAtomCountPerProperty", "REQUIRED"),
+    "max-frame-byte-count": ("MaxFrameByteCount", "REQUIRED"),
+    "max-properties-per-stream": ("MaxPropertiesPerStream", "REQUIRED"),
     # List-cardinality bounds — kernel-only; OPTIONAL for Go (header says
     # "mirrored verbatim" but per-list cap is enforced after JSON parsing,
     # so cgo-boundary rejection isn't beneficial).
-    "max-messages-per-file":           ("MaxMessagesPerFile",           "REQUIRED"),
-    "max-signals-per-message":         ("MaxSignalsPerMessage",         "REQUIRED"),
-    "max-attributes-per-file":         ("MaxAttributesPerFile",         "REQUIRED"),
-    "max-value-descriptions-per-file": ("MaxValueDescriptionsPerFile",  "REQUIRED"),
-    "max-comments-per-file":           ("MaxCommentsPerFile",           "OPTIONAL"),
-    "max-nodes-per-file":              ("MaxNodesPerFile",              "OPTIONAL"),
-    "max-value-tables-per-file":       ("MaxValueTablesPerFile",        "OPTIONAL"),
+    "max-messages-per-file": ("MaxMessagesPerFile", "REQUIRED"),
+    "max-signals-per-message": ("MaxSignalsPerMessage", "REQUIRED"),
+    "max-attributes-per-file": ("MaxAttributesPerFile", "REQUIRED"),
+    "max-value-descriptions-per-file": ("MaxValueDescriptionsPerFile", "REQUIRED"),
+    "max-comments-per-file": ("MaxCommentsPerFile", "OPTIONAL"),
+    "max-nodes-per-file": ("MaxNodesPerFile", "OPTIONAL"),
+    "max-value-tables-per-file": ("MaxValueTablesPerFile", "OPTIONAL"),
 }
 
 
@@ -101,49 +102,49 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
 # Python's ctypes boundary has the same characteristic as Go's cgo
 # boundary — every REQUIRED Agda constant should have a Python peer.
 PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
-    "max-dbc-text-bytes":              ("MAX_DBC_TEXT_BYTES",              "REQUIRED"),
-    "max-json-bytes":                  ("MAX_JSON_BYTES",                  "REQUIRED"),
-    "max-nesting-depth":               ("MAX_NESTING_DEPTH",               "REQUIRED"),
-    "max-identifier-length":           ("MAX_IDENTIFIER_LENGTH",           "REQUIRED"),
-    "max-string-length-bytes":         ("MAX_STRING_LENGTH_BYTES",         "REQUIRED"),
-    "max-atom-count-per-property":     ("MAX_ATOM_COUNT_PER_PROPERTY",     "REQUIRED"),
-    "max-frame-byte-count":            ("MAX_FRAME_BYTE_COUNT",            "REQUIRED"),
-    "max-properties-per-stream":       ("MAX_PROPERTIES_PER_STREAM",       "REQUIRED"),
-    "max-messages-per-file":           ("MAX_MESSAGES_PER_FILE",           "REQUIRED"),
-    "max-signals-per-message":         ("MAX_SIGNALS_PER_MESSAGE",         "REQUIRED"),
-    "max-attributes-per-file":         ("MAX_ATTRIBUTES_PER_FILE",         "REQUIRED"),
+    "max-dbc-text-bytes": ("MAX_DBC_TEXT_BYTES", "REQUIRED"),
+    "max-json-bytes": ("MAX_JSON_BYTES", "REQUIRED"),
+    "max-nesting-depth": ("MAX_NESTING_DEPTH", "REQUIRED"),
+    "max-identifier-length": ("MAX_IDENTIFIER_LENGTH", "REQUIRED"),
+    "max-string-length-bytes": ("MAX_STRING_LENGTH_BYTES", "REQUIRED"),
+    "max-atom-count-per-property": ("MAX_ATOM_COUNT_PER_PROPERTY", "REQUIRED"),
+    "max-frame-byte-count": ("MAX_FRAME_BYTE_COUNT", "REQUIRED"),
+    "max-properties-per-stream": ("MAX_PROPERTIES_PER_STREAM", "REQUIRED"),
+    "max-messages-per-file": ("MAX_MESSAGES_PER_FILE", "REQUIRED"),
+    "max-signals-per-message": ("MAX_SIGNALS_PER_MESSAGE", "REQUIRED"),
+    "max-attributes-per-file": ("MAX_ATTRIBUTES_PER_FILE", "REQUIRED"),
     "max-value-descriptions-per-file": ("MAX_VALUE_DESCRIPTIONS_PER_FILE", "REQUIRED"),
-    "max-comments-per-file":           ("MAX_COMMENTS_PER_FILE",           "OPTIONAL"),
-    "max-nodes-per-file":              ("MAX_NODES_PER_FILE",              "OPTIONAL"),
-    "max-value-tables-per-file":       ("MAX_VALUE_TABLES_PER_FILE",       "OPTIONAL"),
+    "max-comments-per-file": ("MAX_COMMENTS_PER_FILE", "OPTIONAL"),
+    "max-nodes-per-file": ("MAX_NODES_PER_FILE", "OPTIONAL"),
+    "max-value-tables-per-file": ("MAX_VALUE_TABLES_PER_FILE", "OPTIONAL"),
 }
 
 
 # Python BoundKind enum: every entry's wire-code string must match between
 # Agda and Python (`BOUND_KIND_*` consts in `python/aletheia/limits.py`).
 PYTHON_BOUND_KIND_MAPPING: dict[str, str] = {
-    "InputLengthBytes":  "BOUND_KIND_INPUT_LENGTH_BYTES",
-    "NestingDepth":      "BOUND_KIND_NESTING_DEPTH",
-    "ArrayCardinality":  "BOUND_KIND_ARRAY_CARDINALITY",
-    "IdentifierLength":  "BOUND_KIND_IDENTIFIER_LENGTH",
-    "StringLength":      "BOUND_KIND_STRING_LENGTH",
-    "AtomCount":         "BOUND_KIND_ATOM_COUNT",
-    "FrameByteCount":    "BOUND_KIND_FRAME_BYTE_COUNT",
-    "PropertyCount":     "BOUND_KIND_PROPERTY_COUNT",
+    "InputLengthBytes": "BOUND_KIND_INPUT_LENGTH_BYTES",
+    "NestingDepth": "BOUND_KIND_NESTING_DEPTH",
+    "ArrayCardinality": "BOUND_KIND_ARRAY_CARDINALITY",
+    "IdentifierLength": "BOUND_KIND_IDENTIFIER_LENGTH",
+    "StringLength": "BOUND_KIND_STRING_LENGTH",
+    "AtomCount": "BOUND_KIND_ATOM_COUNT",
+    "FrameByteCount": "BOUND_KIND_FRAME_BYTE_COUNT",
+    "PropertyCount": "BOUND_KIND_PROPERTY_COUNT",
 }
 
 # BoundKind enum: every entry's wire-code string must match between Agda
 # (`boundKindCode`) and Go (`BoundKind*` consts).  Mapping below pairs the
 # Agda ADT tag with the Go const name.
 BOUND_KIND_MAPPING: dict[str, str] = {
-    "InputLengthBytes":  "BoundKindInputLengthBytes",
-    "NestingDepth":      "BoundKindNestingDepth",
-    "ArrayCardinality":  "BoundKindArrayCardinality",
-    "IdentifierLength":  "BoundKindIdentifierLength",
-    "StringLength":      "BoundKindStringLength",
-    "AtomCount":         "BoundKindAtomCount",
-    "FrameByteCount":    "BoundKindFrameByteCount",
-    "PropertyCount":     "BoundKindPropertyCount",
+    "InputLengthBytes": "BoundKindInputLengthBytes",
+    "NestingDepth": "BoundKindNestingDepth",
+    "ArrayCardinality": "BoundKindArrayCardinality",
+    "IdentifierLength": "BoundKindIdentifierLength",
+    "StringLength": "BoundKindStringLength",
+    "AtomCount": "BoundKindAtomCount",
+    "FrameByteCount": "BoundKindFrameByteCount",
+    "PropertyCount": "BoundKindPropertyCount",
 }
 
 

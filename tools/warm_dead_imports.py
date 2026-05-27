@@ -18,6 +18,7 @@ recompile) filters those against agda ground truth.
 
 Invoke as `python -m tools.warm_dead_imports [--confirm] <relpath.agda> ...`.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -33,12 +34,12 @@ from typing import TypedDict, cast
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
-    warning_count_for,
     parse_imports,
     remove_name_from_raw,
     remove_rename_from_raw,
     replace_block_in_lines,
     typecheck,
+    warning_count_for,
 )
 
 AGDA = str(AGDA_BIN)
@@ -104,7 +105,7 @@ def line_offsets(text: str) -> list[int]:
     return offs
 
 
-def _spawn_agda() -> "subprocess.Popen[str]":
+def _spawn_agda() -> subprocess.Popen[str]:
     """Spawn a warm `agda --interaction-json` process; ownership returns to caller."""
     return subprocess.Popen(
         [AGDA, "--interaction-json"],
@@ -124,12 +125,13 @@ class WarmAgda:
     Use as a context manager (`with WarmAgda() as agda: agda.load(...)`).  Pipe
     discipline (deadlock-critical): line-buffered text pipes, flush after every
     command, and drain a command's responses fully (to the terminal marker)
-    before sending the next."""
+    before sending the next.
+    """
 
     def __init__(self) -> None:
         self.proc: subprocess.Popen[str] = _spawn_agda()
 
-    def __enter__(self) -> "WarmAgda":
+    def __enter__(self) -> WarmAgda:
         return self
 
     def __exit__(self, *_exc: object) -> None:
@@ -141,7 +143,8 @@ class WarmAgda:
         Returns (tokens, ok) where ok == saw `Status{checked:true}`.  A FAILED
         load emits `JumpToError` and ends on `Status{checked:false}` (no
         `InteractionPoints`), so both terminals are handled — a broken file is
-        reported, not hung on."""
+        reported, not hung on.
+        """
         assert self.proc.stdin is not None and self.proc.stdout is not None
         cmd = f'IOTCM "{abspath}" NonInteractive Direct (Cmd_load "{abspath}" [])\n'
         _ = self.proc.stdin.write(cmd)
@@ -194,7 +197,8 @@ def _import_structure(
 
     `using (module X)` contributes `X` (used qualified); renaming dests are
     in-scope; `public` re-export blocks are skipped (their only uses are
-    downstream — flagging them would let a prune break the consumer's build)."""
+    downstream — flagging them would let a prune break the consumer's build).
+    """
     blocks = parse_imports(text)
     offs = line_offsets(text)
     import_ranges: list[tuple[int, int]] = []
@@ -222,7 +226,8 @@ def _body_index(
 ) -> tuple[dict[str, DefId], set[DefId], set[str], dict[str, set[str]]]:
     """Index tokens → (import-name→def-id, body def-ids, body names with an
     EXTERNAL def, qualifier→field-def-files).  The external / qualified-file
-    distinctions are the no-false-positive guards described in `detect_dead`."""
+    distinctions are the no-false-positive guards described in `detect_dead`.
+    """
     import_defid: dict[str, DefId] = {}
     body_defids: set[DefId] = set()
     body_names_external: set[str] = set()
@@ -266,7 +271,8 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
         restricted to body tokens defined OUTSIDE this file (a local shadow of
         the same name must not keep the import alive).
     No-FP bias: dead only if NONE of these say alive.  `dead_defid_only` drops
-    the name/prefix fallbacks (reported, to show what they catch)."""
+    the name/prefix fallbacks (reported, to show what they catch).
+    """
     import_ranges, check_names, public_skipped = _import_structure(text)
     import_defid, body_defids, body_names_external, qualified_use_files = _body_index(
         text, tokens, abspath, import_ranges, check_names
@@ -326,7 +332,8 @@ def _install_restore_handlers() -> None:
 
 def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
     """Remove just `name` from its import clause, recompile, restore.  True iff
-    the file still type-checks without it (⇒ truly dead).  ALWAYS restores."""
+    the file still type-checks without it (⇒ truly dead).  ALWAYS restores.
+    """
     path = SRC / rel
     new_raw: str | None = None
     target = None
@@ -358,7 +365,8 @@ def confirm_candidates(rel: str, names: list[str]) -> tuple[list[str], list[str]
 
     Returns (truly_dead, false_positives).  Crash-safe: per-candidate finally +
     atexit/SIGINT/SIGTERM handlers restore the file.  `typecheck`'s baseline
-    guards the PatternShadowsConstructor silent-breakage class."""
+    guards the PatternShadowsConstructor silent-breakage class.
+    """
     _install_restore_handlers()
     original = (SRC / rel).read_text(encoding="utf-8")
     baseline = warning_count_for(rel, SRC, _RTS_CORES, _RTS_HEAP_GB, _CONFIRM_TIMEOUT)
@@ -380,8 +388,10 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
         dt = time.time() - start
         times.append(dt)
         if not ok:
-            print(f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  ⚠️ LOAD FAILED "
-                  + "(no Status checked:true — agda could not check it)")
+            print(
+                f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  ⚠️ LOAD FAILED "
+                + "(no Status checked:true — agda could not check it)"
+            )
             continue
         result = detect_dead(text, tokens, str(SRC / rel))
         if result["dead"]:
@@ -392,8 +402,10 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
         if result["unresolved"]:
             extra += f"  unresolved={result['unresolved']}"
         shown = result["dead"] if result["dead"] else "—"
-        print(f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
-              + f"tokens={len(tokens)} CANDIDATES={shown}{extra}")
+        print(
+            f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
+            + f"tokens={len(tokens)} CANDIDATES={shown}{extra}"
+        )
     return candidates, times
 
 
@@ -404,9 +416,11 @@ def _print_summary(
     ncand = sum(len(v) for v in candidates.values())
     if len(times) > 1:
         warm = sum(times[1:]) / len(times[1:])
-        print(f"--- warm sweep: {len(files)} files {total:.1f}s "
-              + f"(file1={times[0]:.1f}s cold, mean 2..N={warm:.1f}s) — "
-              + f"{ncand} candidate(s) in {len(candidates)} file(s) ---")
+        print(
+            f"--- warm sweep: {len(files)} files {total:.1f}s "
+            + f"(file1={times[0]:.1f}s cold, mean 2..N={warm:.1f}s) — "
+            + f"{ncand} candidate(s) in {len(candidates)} file(s) ---"
+        )
     else:
         print(f"--- 1 file: {total:.1f}s — {ncand} candidate(s) ---")
 

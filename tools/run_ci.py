@@ -153,6 +153,7 @@ _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 @dataclass
 class OptInOptions:
     """Resolved opt-in lane state.  CLI > env > default-off precedence."""
+
     repro: bool
     stability: bool
     mutation: bool
@@ -204,12 +205,21 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             help=f"{help_msg} (env: {env}=1)",
         )
 
-    _add_lane("repro", "ALETHEIA_REPRO_CHECK",
-              "reproducible-build hash gate (R18 cluster 3; ~10 min cold)")
-    _add_lane("stability", "ALETHEIA_STABILITY_CHECK",
-              "long-run stability bench (R18 cluster 6; ~5 min cold)")
-    _add_lane("mutation", "ALETHEIA_MUTATION_CHECK",
-              "mutation testing across 3 bindings (R18 cluster 7; ~30 min+)")
+    _add_lane(
+        "repro",
+        "ALETHEIA_REPRO_CHECK",
+        "reproducible-build hash gate (R18 cluster 3; ~10 min cold)",
+    )
+    _add_lane(
+        "stability",
+        "ALETHEIA_STABILITY_CHECK",
+        "long-run stability bench (R18 cluster 6; ~5 min cold)",
+    )
+    _add_lane(
+        "mutation",
+        "ALETHEIA_MUTATION_CHECK",
+        "mutation testing across 3 bindings (R18 cluster 7; ~30 min+)",
+    )
 
     parser.add_argument(
         "--full",
@@ -252,16 +262,18 @@ class Runner:
 
         branch = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         commit = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         branch_safe = _INVALID_BRANCH_CHAR.sub("_", branch)
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%dT%H-%M-%SZ"
-        )
+        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
 
         self.branch = branch
         self.commit = commit
@@ -291,7 +303,7 @@ class Runner:
                 opt_in_summary.append(f"-{name}")
         lines = [
             "═══ Aletheia offline CI sweep ═══",
-            f"Started:  {datetime.datetime.now(datetime.timezone.utc):%Y-%m-%d %H:%M:%S UTC}",
+            f"Started:  {datetime.datetime.now(datetime.UTC):%Y-%m-%d %H:%M:%S UTC}",
             f"Branch:   {self.branch}",
             f"Commit:   {self.commit}",
             f"Steps:    {self.total_steps} ({self.BASE_STEPS} always-on + "
@@ -320,7 +332,7 @@ class Runner:
             "",
             f"─── Step {self.step_num}/{self.total_steps}: {name} ───",
             f"Cmd:    {cmd_str}",
-            f"Start:  {datetime.datetime.now(datetime.timezone.utc):%Y-%m-%d %H:%M:%S UTC}",
+            f"Start:  {datetime.datetime.now(datetime.UTC):%Y-%m-%d %H:%M:%S UTC}",
         ]
         self._tee("\n".join(lines))
 
@@ -334,9 +346,7 @@ class Runner:
             sys.stderr.write(line + "\n")
         sys.stderr.flush()
         self._tee_err("")
-        self._tee_err(
-            f"═══ CI FAILED at step {self.step_num}/{self.total_steps}: {name} ═══"
-        )
+        self._tee_err(f"═══ CI FAILED at step {self.step_num}/{self.total_steps}: {name} ═══")
         self._tee_err(f"Full log: {self.log_path}")
 
     def step(
@@ -355,15 +365,20 @@ class Runner:
         if shell:
             assert isinstance(cmd, str)
             proc = subprocess.run(
-                cmd, shell=True,
-                stdout=self.log_fh, stderr=subprocess.STDOUT,
-                cwd=cwd, check=False,
+                cmd,
+                shell=True,
+                stdout=self.log_fh,
+                stderr=subprocess.STDOUT,
+                cwd=cwd,
+                check=False,
             )
         else:
             proc = subprocess.run(
                 list(cmd),
-                stdout=self.log_fh, stderr=subprocess.STDOUT,
-                cwd=cwd, check=False,
+                stdout=self.log_fh,
+                stderr=subprocess.STDOUT,
+                cwd=cwd,
+                check=False,
             )
         duration = int(time.time() - step_start)
         if proc.returncode != 0:
@@ -441,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     prune_cmd = (
         "files=$(git diff --name-only main...HEAD -- 'src/' "
         "| grep '\\.agda$' || true); "
-        "if [ -z \"$files\" ]; then "
+        'if [ -z "$files" ]; then '
         "  echo 'no .agda files modified vs main; skipping'; "
         "  exit 0; "
         "fi; "
@@ -449,9 +464,9 @@ def main(argv: list[str] | None = None) -> int:
         # ~30 files the gate runtime becomes hostile for a per-push CI.
         # Long-running review branches should rely on the periodic full
         # sweep instead.  Override with ALETHEIA_PRUNE_GATE_NOLIMIT=1.
-        "n=$(echo \"$files\" | wc -l); "
-        "if [ \"$n\" -gt 30 ] && [ -z \"$ALETHEIA_PRUNE_GATE_NOLIMIT\" ]; then "
-        "  echo \"$n modified .agda files exceeds the gate's 30-file threshold.\"; "
+        'n=$(echo "$files" | wc -l); '
+        'if [ "$n" -gt 30 ] && [ -z "$ALETHEIA_PRUNE_GATE_NOLIMIT" ]; then '
+        '  echo "$n modified .agda files exceeds the gate\'s 30-file threshold."; '
         "  echo 'Branches this large should rely on the periodic full sweep'; "
         "  echo '(tools/prune_unused_imports.py -j 4 --include-public --final-check).'; "
         "  echo 'Override with ALETHEIA_PRUNE_GATE_NOLIMIT=1 to force the gate to run.'; "
@@ -464,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
         # ("file does not type-check") even though they pass check-properties.
         # -j 1 (serial) is REQUIRED alongside -M16G: the tool's default 4 workers
         # × 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
-        "tools/prune_unused_imports.py --check-only --no-topo -j 1 --rts-heap 16 --timeout 900 $files"
+        "python3 -m tools.prune_unused_imports --check-only --no-topo -j 1 --rts-heap 16 --timeout 900 $files"
     )
     r.step("prune-unused-imports", prune_cmd, shell=True)
 
@@ -482,9 +497,18 @@ def main(argv: list[str] | None = None) -> int:
     # Step 15: doc-example fence harness (R18 cluster 5).
     r.step(
         "pytest --markdown-docs",
-        [r.python, "-m", "pytest", "--markdown-docs",
-         "--rootdir", str(r.repo_root),
-         "README.md", "docs/", "python/README.md", "examples/README.md"],
+        [
+            r.python,
+            "-m",
+            "pytest",
+            "--markdown-docs",
+            "--rootdir",
+            str(r.repo_root),
+            "README.md",
+            "docs/",
+            "python/README.md",
+            "examples/README.md",
+        ],
         cwd=r.repo_root,
     )
     # Step 16: Python -X dev mode (R18 cluster 5 — Cat 34a).
@@ -497,8 +521,12 @@ def main(argv: list[str] | None = None) -> int:
     r.step(
         "pytest --random-order",
         [
-            r.python, "-m", "pytest", "--random-order",
-            "--random-order-bucket=package", "tests/",
+            r.python,
+            "-m",
+            "pytest",
+            "--random-order",
+            "--random-order-bucket=package",
+            "tests/",
         ],
         cwd=r.repo_root / "python",
     )
@@ -510,7 +538,8 @@ def main(argv: list[str] | None = None) -> int:
     r.step(
         "ctest",
         "cmake -B build > /dev/null && cmake --build build && ctest --test-dir build",
-        cwd=r.repo_root / "cpp", shell=True,
+        cwd=r.repo_root / "cpp",
+        shell=True,
     )
 
     # ─── Steps 20-24: Lints ────────────────────────────────────────────────
@@ -560,7 +589,8 @@ def main(argv: list[str] | None = None) -> int:
     r.step(
         "clang-tidy",
         "clang-tidy -p build src/*.cpp",
-        cwd=r.repo_root / "cpp", shell=True,
+        cwd=r.repo_root / "cpp",
+        shell=True,
     )
 
     # ─── Steps 25-27: GHA meta-checks ──────────────────────────────────────
@@ -578,14 +608,13 @@ def main(argv: list[str] | None = None) -> int:
 
     r.step(
         "check-action-pins",
-        [sys.executable, str(r.repo_root / "tools" / "check_action_pins.py")],
+        [sys.executable, "-m", "tools.check_action_pins"],
+        cwd=r.repo_root,
     )
     r.step(
         "check-workflow-permissions",
-        [
-            sys.executable,
-            str(r.repo_root / "tools" / "check_workflow_permissions.py"),
-        ],
+        [sys.executable, "-m", "tools.check_workflow_permissions"],
+        cwd=r.repo_root,
     )
 
     # ─── Opt-in lanes (numbered 28+ when enabled) ──────────────────────────
@@ -604,17 +633,16 @@ def main(argv: list[str] | None = None) -> int:
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
         "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null"
         " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
-        cwd=r.repo_root / "cpp", shell=True,
+        cwd=r.repo_root / "cpp",
+        shell=True,
     )
 
     # Step 29 (opt-in): reproducible-build gate ────────────────────────────
     if opts.repro:
         r.step(
             "check-reproducible-build",
-            [
-                sys.executable,
-                str(r.repo_root / "tools" / "check_reproducible_build.py"),
-            ],
+            [sys.executable, "-m", "tools.check_reproducible_build"],
+            cwd=r.repo_root,
         )
     else:
         r.announce_skip(
@@ -627,7 +655,8 @@ def main(argv: list[str] | None = None) -> int:
     if opts.stability:
         r.step(
             "stability bench",
-            [sys.executable, str(r.repo_root / "tools" / "stability_run.py")],
+            [sys.executable, "-m", "tools.stability_run"],
+            cwd=r.repo_root,
         )
     else:
         r.announce_skip(
@@ -642,7 +671,8 @@ def main(argv: list[str] | None = None) -> int:
     if opts.mutation:
         r.step(
             "mutation testing",
-            [sys.executable, str(r.repo_root / "tools" / "mutation_run.py")],
+            [sys.executable, "-m", "tools.mutation_run"],
+            cwd=r.repo_root,
         )
     else:
         r.announce_skip(

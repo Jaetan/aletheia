@@ -23,12 +23,12 @@ Exit codes:
   1 — at least one ctor has zero emit sites.
   2 — parse / I/O error.
 """
+
 from __future__ import annotations
 
 import re
 import sys
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIMITS_PATH = REPO_ROOT / "src" / "Aletheia" / "Limits.agda"
@@ -76,7 +76,7 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
     # (e.g., the `boundKindCode` definition).
     ctor_line_re = re.compile(r"^\s+([A-Z][A-Za-z0-9_-]*)\s*:\s*BoundKind\s*$")
     ctors: list[str] = []
-    for line in text[match.end():].splitlines():
+    for line in text[match.end() :].splitlines():
         if not line.strip():
             continue
         if line.lstrip().startswith("--"):
@@ -88,9 +88,7 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
         # First non-blank, non-comment, non-ctor line ends the block.
         break
     if not ctors:
-        sys.stderr.write(
-            f"check-bound-enforcement: no BoundKind ctors parsed from {limits_path}\n"
-        )
+        sys.stderr.write(f"check-bound-enforcement: no BoundKind ctors parsed from {limits_path}\n")
         sys.exit(2)
     return ctors
 
@@ -147,16 +145,13 @@ def main() -> int:
             sys.stderr.write(f"  - {c}\n")
         sys.stderr.write(
             "\nEvery ctor in `data BoundKind` must be emitted at least once at a parser\n"
-            "or handler boundary.  AGENTS.md universal rule \"Adversarial-input bounds\n"
-            "at parser surfaces\" requires typed `Error.InputBoundExceeded` rejection;\n"
+            'or handler boundary.  AGENTS.md universal rule "Adversarial-input bounds\n'
+            'at parser surfaces" requires typed `Error.InputBoundExceeded` rejection;\n'
             "a ctor with no emit site has an unreachable wire code.\n"
         )
         return 1
     summary_pairs = ", ".join(f"{c}={per_ctor_counts[c]}" for c in ctors)
-    print(
-        f"check-bound-enforcement: all {len(ctors)} BoundKind ctors emitted "
-        f"({summary_pairs})"
-    )
+    print(f"check-bound-enforcement: all {len(ctors)} BoundKind ctors emitted ({summary_pairs})")
     return 0
 
 

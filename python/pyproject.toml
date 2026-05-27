@@ -124,6 +124,15 @@ reportPrivateUsage = "error"  # Disallow accessing private members
 reportMissingModuleSource = false  # _install_config.py is generated at install time
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation
 
+# tools/ lives at the repository root (one level up from this config) and its
+# scripts import siblings as ``from tools.X import ...`` -- the package is run
+# as ``python -m tools.X`` (see tools/__init__.py).  Add the repo root to the
+# import search path for files under ../tools so basedpyright resolves those
+# intra-package imports; the strict typeCheckingMode above is inherited.
+[[tool.basedpyright.executionEnvironments]]
+root = "../tools"
+extraPaths = [".."]
+
 [tool.pylint.main]
 # Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` /
 # ``tests/`` / ``benchmarks/`` packages (orchestrator runs all three).

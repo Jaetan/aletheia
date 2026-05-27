@@ -757,7 +757,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- without rebuilding the Shake binary.  Branch-level granularity
         -- (one CHANGELOG commit covers any number of public-API commits
         -- on the same branch).
-        cmd_ "python3" "tools/check_changelog.py"
+        cmd_ "python3" "-m" "tools.check_changelog"
 
     phony "check-gate-claim" $ do
         -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
@@ -768,7 +768,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         --
         -- Defaults to HEAD-mode when invoked via Shake (pre-commit mode is
         -- only meaningful inside the actual pre-commit hook context).
-        cmd_ "python3" "tools/check_gate_claim.py" "HEAD"
+        cmd_ "python3" "-m" "tools.check_gate_claim" "HEAD"
 
     phony "check-runbook" $ do
         -- Runbook coverage gate (R18 cluster 4).  AGENTS.md cat 22 mandates
@@ -777,7 +777,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- docs/LOG_EVENTS.yaml and verifies every event name appears as a
         -- `#### `<name>`` heading in the runbook.  Missing entries fail the
         -- gate — operators must not be left blind on an event the code emits.
-        cmd_ "python3" "tools/check_runbook_coverage.py"
+        cmd_ "python3" "-m" "tools.check_runbook_coverage"
 
     phony "check-limits-parity" $ do
         -- Limits SSOT parity gate (post-R20 DEFERRALS sweep).  The Agda
@@ -792,7 +792,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- mirror, numeric value mismatch, BoundKind wire-string mismatch,
         -- or any side having an entry the other side lacks (with explicit
         -- categorisation in NAME_MAPPING).
-        cmd_ "python3" "tools/check_limits_parity.py"
+        cmd_ "python3" "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
@@ -804,7 +804,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- without running the harnesses.  The dynamic counterpart that
         -- actually runs the bench is `tools/stability_run.py`, gated
         -- behind ALETHEIA_STABILITY_CHECK=1 in `tools/run_ci.py`.
-        cmd_ "python3" "tools/check_stability_bench.py"
+        cmd_ "python3" "-m" "tools.check_stability_bench"
 
     phony "check-mutation-setup" $ do
         -- Mutation-setup coverage gate (R18 cluster 7).  AGENTS.md cat 14(g)
@@ -817,7 +817,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Dynamic counterpart that actually runs mutmut / go-mutesting /
         -- Mull is `tools/mutation_run.py`, gated behind
         -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.
-        cmd_ "python3" "tools/check_mutation_setup.py"
+        cmd_ "python3" "-m" "tools.check_mutation_setup"
 
     phony "check-bound-enforcement" $ do
         -- Adversarial-input bound enforcement gate (R20 cluster I /
@@ -829,7 +829,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- ADT and greps for `InputBoundExceeded <Ctor>` emit sites under
         -- `src/`; a ctor with zero sites is dead metadata (the wire code
         -- is unreachable) and fails the gate.
-        cmd_ "python3" "tools/check_bound_enforcement.py"
+        cmd_ "python3" "-m" "tools.check_bound_enforcement"
 
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.
@@ -1022,7 +1022,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- source state, not wall-clock — required for artifact-level repro.
         putInfo "Generating SBOM..."
         let distGhcDeps = map (\dep -> distLib </> takeFileName dep) ghcDeps
-        cmd_ "python3" "tools/sbom_generate.py"
+        cmd_ "python3" "-m" "tools.sbom_generate"
             "--repo" "."
             "--main-so" mainSoDist
             "--out" sbomFile
@@ -1164,7 +1164,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             distGhcDepsDocker = map (\dep -> distLibDocker </> takeFileName dep) ghcDepsDocker
         liftIO $ createDirectoryIfMissing True (takeDirectory imageSbomFile)
         putInfo $ "Generating image SBOM (" ++ imageSbomFile ++ ")..."
-        cmd_ "python3" "tools/sbom_generate.py"
+        cmd_ "python3" "-m" "tools.sbom_generate"
             "--repo" "."
             "--main-so" (distLibDocker </> "libaletheia-ffi.so")
             "--out" imageSbomFile

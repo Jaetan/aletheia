@@ -77,11 +77,9 @@ serve as a strict gate.  For a strict gate, use
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
-from collections.abc import Iterable
 
 IDENT_CHARS = r"A-Za-z0-9_'\-"
 
@@ -122,7 +120,8 @@ def load_ignore_file(path: Path) -> dict[str, set[str]]:
     Names are stored verbatim and matched against scanner output exactly.
     Trailing whitespace stripped.  Empty sections (header followed by no
     names) are tolerated.  An entry with no preceding section header is
-    silently dropped (with no warning, to keep the scanner quiet)."""
+    silently dropped (with no warning, to keep the scanner quiet).
+    """
     ignore: dict[str, set[str]] = {}
     if not path.is_file():
         return ignore
@@ -148,7 +147,8 @@ def write_ignore_file(
 
     Returns the number of (file, name) entries written.  Sorted alphabetically
     by file path; within a file, sorted alphabetically by name.  Removes
-    duplicates within a file."""
+    duplicates within a file.
+    """
     entries = 0
     with path.open("w", encoding="utf-8") as f:
         f.write("# tools/scan_dead_imports.ignore — known scanner false positives\n")
@@ -199,7 +199,8 @@ def _find_using_clauses(content: str) -> list[tuple[int, str]]:
     """Return list of (start_line_1indexed, names_blob) for every
     `using (...)` clause that is NOT on a `public` re-export line.
 
-    Multi-line `using\n(...)` clauses are joined."""
+    Multi-line `using\n(...)` clauses are joined.
+    """
     out: list[tuple[int, str]] = []
     pat = re.compile(r"\busing\s*\(", flags=re.MULTILINE)
     text = _strip_comments(content)
@@ -316,13 +317,25 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("paths", nargs="*", type=Path, help="Files or directories to scan (default: src/)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "paths", nargs="*", type=Path, help="Files or directories to scan (default: src/)"
+    )
     parser.add_argument("--top", type=int, default=0, help="Report only the top-N dirtiest files")
     parser.add_argument("--summary", action="store_true", help="One-line summary per file")
     parser.add_argument("--quiet", action="store_true", help="Only print the totals line")
-    parser.add_argument("--no-ignore", action="store_true", help="Don't load tools/scan_dead_imports.ignore (show raw findings)")
-    parser.add_argument("--write-ignore", action="store_true", help="Write current findings to tools/scan_dead_imports.ignore and exit (overwrites)")
+    parser.add_argument(
+        "--no-ignore",
+        action="store_true",
+        help="Don't load tools/scan_dead_imports.ignore (show raw findings)",
+    )
+    parser.add_argument(
+        "--write-ignore",
+        action="store_true",
+        help="Write current findings to tools/scan_dead_imports.ignore and exit (overwrites)",
+    )
     args = parser.parse_args()
 
     paths = args.paths if args.paths else [SRC_DIR]
@@ -346,9 +359,7 @@ def main() -> int:
     if args.write_ignore:
         IGNORE_PATH.parent.mkdir(parents=True, exist_ok=True)
         n = write_ignore_file(IGNORE_PATH, per_file_raw, SRC_DIR)
-        print(
-            f"wrote {n} entries across {len(per_file_raw)} files to {IGNORE_PATH}"
-        )
+        print(f"wrote {n} entries across {len(per_file_raw)} files to {IGNORE_PATH}")
         return 0
 
     # Apply ignore file (unless --no-ignore).

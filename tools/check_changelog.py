@@ -30,13 +30,13 @@ v0 limitations (deliberate; see PROJECT_STATUS.md cluster 1 for v1+ plan):
     surface still trigger the gate.  Workaround: add a CHANGELOG entry
     under ``### Changed`` describing the internal refactor.
 """
+
 from __future__ import annotations
 
 import argparse
 import re
 import subprocess
 import sys
-
 
 API_PATTERNS = [
     re.compile(r"^python/aletheia/"),
@@ -45,17 +45,13 @@ API_PATTERNS = [
     re.compile(r"^haskell-shim/ffi-exports\.snapshot$"),
 ]
 
-TEST_EXCLUSIONS = re.compile(
-    r"_test\.go$|/tests/|^python/aletheia/.*/test_|^cpp/tests/"
-)
+TEST_EXCLUSIONS = re.compile(r"_test\.go$|/tests/|^python/aletheia/.*/test_|^cpp/tests/")
 
 CHANGELOG_RE = re.compile(r"^CHANGELOG\.md$")
 
 
 def _git(*args: str) -> str:
-    out = subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=False
-    )
+    out = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
     if out.returncode != 0:
         sys.stderr.write(f"check-changelog: git {' '.join(args)} failed\n")
         sys.stderr.write(out.stderr)
@@ -81,25 +77,19 @@ def main() -> int:
         ).returncode
         != 0
     ):
-        sys.stderr.write(
-            f"check-changelog: comparison ref '{args.base}' not found\n"
-        )
+        sys.stderr.write(f"check-changelog: comparison ref '{args.base}' not found\n")
         return 2
 
     merge_base = _git("merge-base", "HEAD", args.base).strip()
     if not merge_base:
-        sys.stderr.write(
-            f"check-changelog: failed to compute merge-base with '{args.base}'\n"
-        )
+        sys.stderr.write(f"check-changelog: failed to compute merge-base with '{args.base}'\n")
         return 2
 
     changed_text = _git("diff", "--name-only", f"{merge_base}..HEAD")
     changed_files = [line for line in changed_text.splitlines() if line]
 
     if not changed_files:
-        print(
-            f"check-changelog: ok (no changes since merge-base with {args.base})"
-        )
+        print(f"check-changelog: ok (no changes since merge-base with {args.base})")
         return 0
 
     api_changed = []
@@ -110,16 +100,11 @@ def main() -> int:
             api_changed.append(f)
 
     if not api_changed:
-        print(
-            "check-changelog: ok "
-            f"(no public-API changes since merge-base with {args.base})"
-        )
+        print(f"check-changelog: ok (no public-API changes since merge-base with {args.base})")
         return 0
 
     if any(CHANGELOG_RE.match(f) for f in changed_files):
-        print(
-            "check-changelog: ok (public-API changes accompanied by CHANGELOG.md edit)"
-        )
+        print("check-changelog: ok (public-API changes accompanied by CHANGELOG.md edit)")
         return 0
 
     sys.stderr.write(
@@ -139,7 +124,7 @@ def main() -> int:
         "  ### Fixed       — behavior fix on existing surface\n\n"
         "If the diff is an internal-only refactor (no observable surface change),\n"
         "add a note under '### Changed' explaining \"internal refactor — no behavior\n"
-        "change\" so reviewers can verify by inspection.\n\n"
+        'change" so reviewers can verify by inspection.\n\n'
         "Reference: R18 Universal Rule UR-1 (Public API stability and "
         "CHANGELOG discipline).\n"
     )

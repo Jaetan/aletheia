@@ -40,6 +40,7 @@ v0 limitations (deliberate; documented for the v1+ artifact-based design):
     "check-properties ✓" don't match; only broader "all gates" / "gates
     green" / "All N gates" assertions trigger the freshness check.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -67,9 +68,7 @@ SO_PATH = Path("build/libaletheia-ffi.so")
 
 
 def _git(*args: str) -> tuple[int, str]:
-    out = subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=False
-    )
+    out = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
     return out.returncode, out.stdout
 
 
@@ -163,9 +162,7 @@ def main() -> int:
                 stale.append((f, f_mtime))
 
     if stale:
-        so_mtime_str = datetime.datetime.fromtimestamp(so_mtime).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        so_mtime_str = datetime.datetime.fromtimestamp(so_mtime).strftime("%Y-%m-%d %H:%M:%S")
         sys.stderr.write(
             "check-gate-claim: FAIL — gate-clean claim made without fresh "
             "build artifact.\n\n"

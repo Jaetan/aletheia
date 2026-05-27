@@ -64,7 +64,10 @@ class Run:
 def short_sha() -> str:
     out = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return out.stdout.strip()
 
@@ -73,8 +76,7 @@ def find_lib() -> Path:
     p = REPO_ROOT / "build" / "libaletheia-ffi.so"
     if not p.is_file():
         raise SystemExit(
-            f"libaletheia-ffi.so not found at {p}; "
-            "run `cabal run shake -- build` first"
+            f"libaletheia-ffi.so not found at {p}; run `cabal run shake -- build` first"
         )
     return p
 
@@ -89,7 +91,11 @@ def run_python(artifact_dir: Path, env: dict[str, str]) -> Run:
     cmd = [python_exe, "-m", "benchmarks.stability"]
     out_path = artifact_dir / "python.json"
     proc = subprocess.run(
-        cmd, cwd=REPO_ROOT / "python", env=env, capture_output=True, text=True,
+        cmd,
+        cwd=REPO_ROOT / "python",
+        env=env,
+        capture_output=True,
+        text=True,
         check=False,
     )
     out_path.write_text(proc.stdout if proc.stdout else "{}\n")
@@ -102,8 +108,12 @@ def run_python(artifact_dir: Path, env: dict[str, str]) -> Run:
             return Run("python", out_path, False, "Python harness emitted invalid JSON")
         return Run("python", out_path, passed)
     if proc.returncode != 0:
-        return Run("python", out_path, False,
-                   f"Python harness exited {proc.returncode}: {proc.stderr.strip()[:300]}")
+        return Run(
+            "python",
+            out_path,
+            False,
+            f"Python harness exited {proc.returncode}: {proc.stderr.strip()[:300]}",
+        )
     # Successful exit; report MUST exist and pass.
     try:
         report = json.loads(proc.stdout)
@@ -117,7 +127,11 @@ def run_go(artifact_dir: Path, env: dict[str, str]) -> Run:
     cmd = ["go", "run", "./benchmarks/stability/"]
     out_path = artifact_dir / "go.json"
     proc = subprocess.run(
-        cmd, cwd=REPO_ROOT / "go", env=env, capture_output=True, text=True,
+        cmd,
+        cwd=REPO_ROOT / "go",
+        env=env,
+        capture_output=True,
+        text=True,
         check=False,
     )
     out_path.write_text(proc.stdout if proc.stdout else "{}\n")
@@ -127,18 +141,27 @@ def run_go(artifact_dir: Path, env: dict[str, str]) -> Run:
             return Run("go", out_path, bool(report.get("passed", False)))
         except json.JSONDecodeError:
             return Run("go", out_path, False, "Go harness emitted invalid JSON")
-    return Run("go", out_path, False,
-               f"Go harness exited {proc.returncode}: {proc.stderr.strip()[:300]}")
+    return Run(
+        "go", out_path, False, f"Go harness exited {proc.returncode}: {proc.stderr.strip()[:300]}"
+    )
 
 
 def run_cpp(artifact_dir: Path, env: dict[str, str]) -> Run:
     binary = REPO_ROOT / "cpp" / "build" / "stability_bench"
     if not binary.is_file():
-        return Run("cpp", artifact_dir / "cpp.json", False,
-                   f"{binary} not built; run `cmake --build cpp/build --target stability_bench`")
+        return Run(
+            "cpp",
+            artifact_dir / "cpp.json",
+            False,
+            f"{binary} not built; run `cmake --build cpp/build --target stability_bench`",
+        )
     out_path = artifact_dir / "cpp.json"
     proc = subprocess.run(
-        [str(binary)], cwd=REPO_ROOT, env=env, capture_output=True, text=True,
+        [str(binary)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
         check=False,
     )
     out_path.write_text(proc.stdout if proc.stdout else "{}\n")
@@ -148,8 +171,9 @@ def run_cpp(artifact_dir: Path, env: dict[str, str]) -> Run:
             return Run("cpp", out_path, bool(report.get("passed", False)))
         except json.JSONDecodeError:
             return Run("cpp", out_path, False, "C++ harness emitted invalid JSON")
-    return Run("cpp", out_path, False,
-               f"C++ harness exited {proc.returncode}: {proc.stderr.strip()[:300]}")
+    return Run(
+        "cpp", out_path, False, f"C++ harness exited {proc.returncode}: {proc.stderr.strip()[:300]}"
+    )
 
 
 def main() -> int:
@@ -181,7 +205,11 @@ def main() -> int:
     python_exe = str(venv_python) if venv_python.is_file() else sys.executable
     py_proc = subprocess.run(
         [python_exe, "-m", "benchmarks.stability"],
-        cwd=artifact_dir, env=py_env, capture_output=True, text=True, check=False,
+        cwd=artifact_dir,
+        env=py_env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     py_out = artifact_dir / "python.json"
     py_out.write_text(py_proc.stdout if py_proc.stdout else "{}\n")
@@ -193,8 +221,7 @@ def main() -> int:
         except json.JSONDecodeError:
             py_error = "Python harness emitted invalid JSON"
     else:
-        py_error = (f"Python harness exited {py_proc.returncode}: "
-                    f"{py_proc.stderr.strip()[:300]}")
+        py_error = f"Python harness exited {py_proc.returncode}: {py_proc.stderr.strip()[:300]}"
     runs: list[Run] = [Run("python", py_out, py_passed, py_error)]
 
     # Rename the GHC RTS heap profile to the cat 16 spec filename.  argv[0]

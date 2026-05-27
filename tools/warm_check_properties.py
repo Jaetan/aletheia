@@ -18,6 +18,7 @@ failures) otherwise.  The module list is passed as argv by the Shakefile's
 Run as a script so the script's own directory is on sys.path for the sibling
 `warm_dead_imports` import.
 """
+
 from __future__ import annotations
 
 import sys
@@ -29,7 +30,8 @@ from tools.warm_dead_imports import SRC, WarmAgda
 def main() -> int:
     """Type-check every proof module given as argv in one warm agda process.
 
-    Exit 0 iff all reach Status{checked:true}; else 1, listing the failures."""
+    Exit 0 iff all reach Status{checked:true}; else 1, listing the failures.
+    """
     mods = sys.argv[1:]
     if not mods:
         print("usage: python -m tools.warm_check_properties <Module.agda> ...", file=sys.stderr)
@@ -48,13 +50,16 @@ def main() -> int:
 
     elapsed = time.time() - t0
     if failures:
-        print(f"\ncheck-properties-warm: FAILED {len(failures)}/{len(mods)} "
-              + f"in {elapsed:.0f}s:", file=sys.stderr)
+        print(
+            f"\ncheck-properties-warm: FAILED {len(failures)}/{len(mods)} " + f"in {elapsed:.0f}s:",
+            file=sys.stderr,
+        )
         for mod in failures:
             print(f"  {mod}", file=sys.stderr)
         return 1
-    print(f"\nAll {len(mods)} proof modules type-checked in {elapsed:.0f}s "
-          + "(one warm process).")
+    print(
+        f"\nAll {len(mods)} proof modules type-checked in {elapsed:.0f}s " + "(one warm process)."
+    )
     return 0
 
 

@@ -56,7 +56,6 @@ from __future__ import annotations
 import argparse
 import atexit
 import concurrent.futures
-import logging
 import os
 import re
 import signal
@@ -65,11 +64,11 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Iterable
 
 # ----------------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------------
+
 
 def _find_repo_root() -> Path:
     """Locate the Aletheia repo root.
@@ -112,7 +111,8 @@ IDENT_CHARS = r"A-Za-z0-9_'\-"
 @dataclass
 class ImportBlock:
     """One `open import M ... [using (...)] [renaming (...)] [public]` block,
-    possibly spanning multiple lines."""
+    possibly spanning multiple lines.
+    """
 
     line_start: int  # 0-indexed, inclusive
     line_end: int  # 0-indexed, inclusive (last line of the block)
@@ -165,9 +165,7 @@ def parse_imports(content: str) -> list[ImportBlock]:
     return blocks
 
 
-def _parse_one_block(
-    lines: list[str], start: int
-) -> tuple[ImportBlock | None, int]:
+def _parse_one_block(lines: list[str], start: int) -> tuple[ImportBlock | None, int]:
     """Collect lines belonging to one import block.
 
     A block extends until paren depth returns to 0 AND the next line is not
@@ -200,7 +198,8 @@ def _parse_one_block(
 def _strip_comments(line: str) -> str:
     """Remove `{- ... -}` and `-- ...` comments from a single line.
 
-    Multi-line block comments are not handled (uncommon in imports)."""
+    Multi-line block comments are not handled (uncommon in imports).
+    """
     line = re.sub(r"\{-.*?-\}", "", line)
     idx = line.find("--")
     if idx >= 0:
@@ -215,9 +214,7 @@ def _strip_comments_all(text: str) -> str:
     return text
 
 
-def _parse_block_content(
-    line_start: int, line_end: int, raw: str
-) -> ImportBlock:
+def _parse_block_content(line_start: int, line_end: int, raw: str) -> ImportBlock:
     """Parse one import block's raw text into an ImportBlock."""
     text = _strip_comments_all(raw)
 
@@ -238,9 +235,7 @@ def _parse_block_content(
         for pair_str in _split_top_level(renaming_clause):
             pm = re.match(r"^(.+?)\s+to\s+(.+)$", pair_str)
             if pm:
-                renaming_pairs.append(
-                    (pm.group(1).strip(), pm.group(2).strip())
-                )
+                renaming_pairs.append((pm.group(1).strip(), pm.group(2).strip()))
 
     return ImportBlock(
         line_start=line_start,
@@ -256,7 +251,8 @@ def _parse_block_content(
 def _extract_paren_after(text: str, keyword: str) -> str | None:
     """Find `keyword (...)` and return the parenthesized content.
 
-    Returns None if not found.  Handles nested parens (rare in imports)."""
+    Returns None if not found.  Handles nested parens (rare in imports).
+    """
     pat = re.compile(rf"\b{re.escape(keyword)}\s*\(")
     m = pat.search(text)
     if not m:
@@ -358,9 +354,7 @@ def remove_rename_from_raw(raw: str, src: str, dst: str) -> str | None:
     return None
 
 
-def replace_block_in_lines(
-    lines: list[str], block: ImportBlock, new_raw: str
-) -> list[str]:
+def replace_block_in_lines(lines: list[str], block: ImportBlock, new_raw: str) -> list[str]:
     """Splice `new_raw` in place of the original block lines."""
     new_block_lines = new_raw.splitlines(keepends=True)
     # Ensure block ends with newline (matches original convention).
@@ -391,9 +385,7 @@ def path_to_module(file_path: Path, src_dir: Path) -> str:
     return str(rel.with_suffix("")).replace("/", ".")
 
 
-def topological_levels(
-    files: list[Path], src_dir: Path
-) -> list[list[Path]]:
+def topological_levels(files: list[Path], src_dir: Path) -> list[list[Path]]:
     """Group `files` into topological levels.
 
     Level 0 = files with no Aletheia.* dependencies on other files IN
@@ -413,7 +405,8 @@ def topological_levels(
     the whole run, so they don't constrain the order.
 
     Returns: `list[list[Path]]` ordered from level 0 (leaves) upward.
-    Within a level, files are sorted alphabetically for determinism."""
+    Within a level, files are sorted alphabetically for determinism.
+    """
     files_set = set(files)
     module_to_file: dict[str, Path] = {}
     for f in files:
@@ -461,9 +454,7 @@ def topological_levels(
     return levels
 
 
-def build_reverse_dep_graph(
-    all_agda_files: list[Path], src_dir: Path
-) -> dict[str, list[Path]]:
+def build_reverse_dep_graph(all_agda_files: list[Path], src_dir: Path) -> dict[str, list[Path]]:
     """Scan every .agda file's imports; return module-name → list-of-importers.
 
     Used to compute the direct-consumer set when a removal touches a
@@ -473,7 +464,8 @@ def build_reverse_dep_graph(
 
     A file appears in its own consumers list iff it imports itself (which
     is illegal in Agda — so never), so duplicate-skip isn't strictly
-    required, but we deduplicate anyway for cleanliness."""
+    required, but we deduplicate anyway for cleanliness.
+    """
     consumers: dict[str, list[Path]] = {}
     pat = re.compile(r"^(?:open\s+)?import\s+([\w.]+)", flags=re.MULTILINE)
     for f in all_agda_files:
@@ -499,7 +491,8 @@ def _count_semantic_warnings(stdout: bytes, stderr: bytes) -> int:
 
     Agda emits warnings to stdout (not stderr), so the stdout stream is the
     primary source; stderr is checked as a fallback in case future Agda
-    versions change the routing."""
+    versions change the routing.
+    """
     s_out = stdout.decode("utf-8", errors="replace")
     s_err = stderr.decode("utf-8", errors="replace")
     combined = s_out + "\n" + s_err
@@ -537,6 +530,7 @@ def typecheck(
     try:
         result = subprocess.run(
             cmd,
+            check=False,
             cwd=str(src_dir),
             capture_output=True,
             timeout=timeout,
@@ -572,7 +566,8 @@ def warning_count_for(
     consistent `.agdai`.  Retry up to `retries` times with `retry_sleep_s`
     backoff between attempts.  R22 full-sweep #2 (2026-05-21) showed this
     on the `CAN/Encoding/*` cluster: 7 of 16 files failed baseline without
-    retries; retry+sleep would have let those settle."""
+    retries; retry+sleep would have let those settle.
+    """
     cmd = [
         str(AGDA_BIN),
         "+RTS",
@@ -586,6 +581,7 @@ def warning_count_for(
         try:
             result = subprocess.run(
                 cmd,
+                check=False,
                 cwd=str(src_dir),
                 capture_output=True,
                 timeout=timeout,
@@ -630,10 +626,15 @@ def typecheck_with_consumers(
 
     Returns True iff:
       1. `file_path` itself type-checks with no new semantic-change warnings.
-      2. Every consumer type-checks with no new semantic-change warnings."""
+      2. Every consumer type-checks with no new semantic-change warnings.
+    """
     rel_file = str(file_path.relative_to(src_dir))
     if not typecheck(
-        rel_file, src_dir, rts_cores, rts_heap_gb, timeout,
+        rel_file,
+        src_dir,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
         baseline_warning_count=file_baseline_warnings,
     ):
         return False
@@ -648,7 +649,11 @@ def typecheck_with_consumers(
             # (Best-effort; prefill_consumer_baselines is the recommended path.)
             baseline = 0
         if not typecheck(
-            rel_c, src_dir, rts_cores, rts_heap_gb, timeout,
+            rel_c,
+            src_dir,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
             baseline_warning_count=baseline,
         ):
             return False
@@ -667,7 +672,8 @@ def prefill_consumer_baselines(
 
     Called BEFORE any removal attempt that might affect these consumers,
     so the post-modification check has a true baseline to compare against.
-    Skips consumers already cached."""
+    Skips consumers already cached.
+    """
     for c in consumers:
         if c in consumer_baselines:
             continue
@@ -676,9 +682,7 @@ def prefill_consumer_baselines(
         except ValueError:
             consumer_baselines[c] = 0
             continue
-        count = warning_count_for(
-            rel_c, src_dir, rts_cores, rts_heap_gb, timeout
-        )
+        count = warning_count_for(rel_c, src_dir, rts_cores, rts_heap_gb, timeout)
         consumer_baselines[c] = max(count, 0)
 
 
@@ -692,13 +696,12 @@ _BLOCK_CONSUMERS: list[Path] = []
 _BLOCK_CONSUMER_BASELINES: dict[Path, int] = {}
 
 
-def _set_block_check_context(
-    consumers: list[Path], consumer_baselines: dict[Path, int]
-) -> None:
+def _set_block_check_context(consumers: list[Path], consumer_baselines: dict[Path, int]) -> None:
     """Update process-local consumer-check state.
 
     Called by `prune_file` before processing each block.  Pass an empty
-    `consumers` list to disable consumer checks for the current block."""
+    `consumers` list to disable consumer checks for the current block.
+    """
     global _BLOCK_CONSUMERS, _BLOCK_CONSUMER_BASELINES
     _BLOCK_CONSUMERS = consumers
     _BLOCK_CONSUMER_BASELINES = consumer_baselines
@@ -716,7 +719,8 @@ def _check_modified(
 
     Drop-in replacement for the prior `typecheck(...)` calls in bisect
     helpers.  When `_BLOCK_CONSUMERS` is empty (non-public blocks or when
-    --include-public is off), behaves identically to `typecheck`."""
+    --include-public is off), behaves identically to `typecheck`.
+    """
     return typecheck_with_consumers(
         file_path,
         _BLOCK_CONSUMERS,
@@ -734,9 +738,12 @@ def project_typecheck(timeout: int = 1200) -> bool:
     cmd = ["cabal", "run", "shake", "--", "check-properties"]
     try:
         result = subprocess.run(
-            cmd, cwd=str(REPO_ROOT), capture_output=True, timeout=timeout
+            cmd, check=False, cwd=str(REPO_ROOT), capture_output=True, timeout=timeout
         )
-        return result.returncode == 0 and b"All proof modules type-checked successfully!" in result.stdout
+        return (
+            result.returncode == 0
+            and b"All proof modules type-checked successfully!" in result.stdout
+        )
     except subprocess.TimeoutExpired:
         return False
 
@@ -788,9 +795,7 @@ def prune_file(
         # Compute baseline count of semantic-change warnings (always — even
         # without --pre-check, we need it to detect when a removal silently
         # changes pattern matches into pattern-variable bindings).
-        baseline_warnings = warning_count_for(
-            rel_path, src_dir, rts_cores, rts_heap_gb, timeout
-        )
+        baseline_warnings = warning_count_for(rel_path, src_dir, rts_cores, rts_heap_gb, timeout)
         if baseline_warnings < 0:
             stats.error = "baseline type-check failed; file does not type-check"
             return stats
@@ -803,9 +808,7 @@ def prune_file(
         file_consumers: list[Path] = []
         if include_public and consumers_map is not None:
             file_module = path_to_module(file_path, src_dir)
-            file_consumers = [
-                c for c in consumers_map.get(file_module, []) if c != file_path
-            ]
+            file_consumers = [c for c in consumers_map.get(file_module, []) if c != file_path]
 
         blocks = parse_imports(original_content)
         if not blocks:
@@ -822,9 +825,7 @@ def prune_file(
 
             # Re-parse the block from current_lines, because earlier blocks
             # may have shifted line numbers.  Find by module_path.
-            live_block = _find_live_block(
-                current_lines, block.module_path, block_idx
-            )
+            live_block = _find_live_block(current_lines, block.module_path, block_idx)
             if live_block is None:
                 continue
 
@@ -876,9 +877,7 @@ def prune_file(
 
             # Re-parse for renaming pairs (block may have changed after using-removal).
             if live_block.renaming_pairs:
-                live_block = _find_live_block(
-                    current_lines, block.module_path, block_idx
-                )
+                live_block = _find_live_block(current_lines, block.module_path, block_idx)
                 if live_block is not None and live_block.renaming_pairs:
                     if use_bisect and len(live_block.renaming_pairs) > 1:
                         _bisect_renaming(
@@ -925,7 +924,8 @@ def restore_backups(paths: list[Path]) -> int:
     """Restore any `*.prune-bak` files found under `paths`.
 
     Useful after an interrupted run that left files in a modified state.
-    Returns: number of files restored."""
+    Returns: number of files restored.
+    """
     restored = 0
     for p in paths:
         candidates: list[Path]
@@ -978,7 +978,8 @@ def _find_live_block(
     """After mutations, re-parse and find the block matching `module_path`.
 
     Use original_idx to disambiguate if multiple blocks share a module_path
-    (rare).  Pick the original_idx-th matching block."""
+    (rare).  Pick the original_idx-th matching block.
+    """
     fresh_blocks = parse_imports("".join(current_lines))
     matching = [b for b in fresh_blocks if b.module_path == module_path]
     if not matching:
@@ -1003,7 +1004,8 @@ def _per_name_using(
     """Test each using-name in `block` one at a time.
 
     Mutates `current_lines` in-place when a removal succeeds.
-    Returns indices of removed names (informational)."""
+    Returns indices of removed names (informational).
+    """
     removed_indices = []
     # Iterate over names by NAME, not index — after each successful removal
     # the block's name list shrinks (we re-parse).
@@ -1013,8 +1015,16 @@ def _per_name_using(
         if fresh is None or name not in fresh.using_names:
             continue
         if _try_remove_using(
-            file_path, src_dir, fresh, current_lines, name,
-            rts_cores, rts_heap_gb, timeout, stats, verbose
+            file_path,
+            src_dir,
+            fresh,
+            current_lines,
+            name,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
+            stats,
+            verbose,
         ):
             removed_indices.append(0)  # informational only
     return removed_indices
@@ -1038,8 +1048,17 @@ def _per_name_renaming(
         if fresh is None or (src, dst) not in fresh.renaming_pairs:
             continue
         if _try_remove_renaming(
-            file_path, src_dir, fresh, current_lines, src, dst,
-            rts_cores, rts_heap_gb, timeout, stats, verbose
+            file_path,
+            src_dir,
+            fresh,
+            current_lines,
+            src,
+            dst,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
+            stats,
+            verbose,
         ):
             removed.append(0)
     return removed
@@ -1062,10 +1081,19 @@ def _bisect_using(
     Falls back to per-name if bisection finds the bulk dead — i.e. when the
     fast path triggers, we save N-1 type-checks compared to per-name.
 
-    Returns the set of names that were removed."""
+    Returns the set of names that were removed.
+    """
     return _bisect_helper_using(
-        file_path, src_dir, block.module_path, list(block.using_names),
-        current_lines, rts_cores, rts_heap_gb, timeout, stats, verbose
+        file_path,
+        src_dir,
+        block.module_path,
+        list(block.using_names),
+        current_lines,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        stats,
+        verbose,
     )
 
 
@@ -1109,21 +1137,34 @@ def _bisect_helper_using(
     if new_raw is None:
         # Couldn't construct the bulk-removal block; bail to per-name on this segment.
         return _bisect_per_name_fallback(
-            file_path, src_dir, module_path, candidates, current_lines,
-            rts_cores, rts_heap_gb, timeout, stats, verbose,
+            file_path,
+            src_dir,
+            module_path,
+            candidates,
+            current_lines,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
+            stats,
+            verbose,
         )
 
     new_lines = replace_block_in_lines(current_lines, fresh, new_raw)
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.using_tested += len(candidates)
-    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(
+        file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings
+    ):
         # All candidates are dead.
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.using_removed += len(candidates)
         if verbose:
-            print(f"    -- bulk-removed {len(candidates)} using-names: {', '.join(candidates)}", flush=True)
+            print(
+                f"    -- bulk-removed {len(candidates)} using-names: {', '.join(candidates)}",
+                flush=True,
+            )
         return candidates
 
     # Restore.
@@ -1138,12 +1179,28 @@ def _bisect_helper_using(
     left = candidates[:mid]
     right = candidates[mid:]
     left_dead = _bisect_helper_using(
-        file_path, src_dir, module_path, left, current_lines,
-        rts_cores, rts_heap_gb, timeout, stats, verbose,
+        file_path,
+        src_dir,
+        module_path,
+        left,
+        current_lines,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        stats,
+        verbose,
     )
     right_dead = _bisect_helper_using(
-        file_path, src_dir, module_path, right, current_lines,
-        rts_cores, rts_heap_gb, timeout, stats, verbose,
+        file_path,
+        src_dir,
+        module_path,
+        right,
+        current_lines,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        stats,
+        verbose,
     )
     return left_dead + right_dead
 
@@ -1167,8 +1224,16 @@ def _bisect_per_name_fallback(
         if fresh is None or name not in fresh.using_names:
             continue
         if _try_remove_using(
-            file_path, src_dir, fresh, current_lines, name,
-            rts_cores, rts_heap_gb, timeout, stats, verbose,
+            file_path,
+            src_dir,
+            fresh,
+            current_lines,
+            name,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
+            stats,
+            verbose,
         ):
             removed.append(name)
     return removed
@@ -1195,7 +1260,9 @@ def _try_remove_using(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.using_tested += 1
-    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(
+        file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings
+    ):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.using_removed += 1
@@ -1221,8 +1288,16 @@ def _bisect_renaming(
 ) -> list[tuple[str, str]]:
     """Bisect on renaming pairs.  Symmetric to _bisect_using."""
     return _bisect_helper_renaming(
-        file_path, src_dir, block.module_path, list(block.renaming_pairs),
-        current_lines, rts_cores, rts_heap_gb, timeout, stats, verbose,
+        file_path,
+        src_dir,
+        block.module_path,
+        list(block.renaming_pairs),
+        current_lines,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        stats,
+        verbose,
     )
 
 
@@ -1260,15 +1335,25 @@ def _bisect_helper_renaming(
 
     if new_raw is None:
         return _bisect_per_pair_fallback(
-            file_path, src_dir, module_path, candidates, current_lines,
-            rts_cores, rts_heap_gb, timeout, stats, verbose,
+            file_path,
+            src_dir,
+            module_path,
+            candidates,
+            current_lines,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
+            stats,
+            verbose,
         )
 
     new_lines = replace_block_in_lines(current_lines, fresh, new_raw)
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.renaming_tested += len(candidates)
-    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(
+        file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings
+    ):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.renaming_removed += len(candidates)
@@ -1284,15 +1369,28 @@ def _bisect_helper_renaming(
     mid = len(candidates) // 2
     left = candidates[:mid]
     right = candidates[mid:]
-    return (
-        _bisect_helper_renaming(
-            file_path, src_dir, module_path, left, current_lines,
-            rts_cores, rts_heap_gb, timeout, stats, verbose,
-        )
-        + _bisect_helper_renaming(
-            file_path, src_dir, module_path, right, current_lines,
-            rts_cores, rts_heap_gb, timeout, stats, verbose,
-        )
+    return _bisect_helper_renaming(
+        file_path,
+        src_dir,
+        module_path,
+        left,
+        current_lines,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        stats,
+        verbose,
+    ) + _bisect_helper_renaming(
+        file_path,
+        src_dir,
+        module_path,
+        right,
+        current_lines,
+        rts_cores,
+        rts_heap_gb,
+        timeout,
+        stats,
+        verbose,
     )
 
 
@@ -1314,8 +1412,17 @@ def _bisect_per_pair_fallback(
         if fresh is None or (src, dst) not in fresh.renaming_pairs:
             continue
         if _try_remove_renaming(
-            file_path, src_dir, fresh, current_lines, src, dst,
-            rts_cores, rts_heap_gb, timeout, stats, verbose,
+            file_path,
+            src_dir,
+            fresh,
+            current_lines,
+            src,
+            dst,
+            rts_cores,
+            rts_heap_gb,
+            timeout,
+            stats,
+            verbose,
         ):
             removed.append((src, dst))
     return removed
@@ -1342,12 +1449,17 @@ def _try_remove_renaming(
     file_path.write_text("".join(new_lines), encoding="utf-8")
     stats.type_checks += 1
     stats.renaming_tested += 1
-    if _check_modified(file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings):
+    if _check_modified(
+        file_path, src_dir, rts_cores, rts_heap_gb, timeout, stats.baseline_warnings
+    ):
         current_lines.clear()
         current_lines.extend(new_lines)
         stats.renaming_removed += 1
         if verbose:
-            print(f"    -- removed renaming-pair `{src} to {dst}` from `{block.module_path}`", flush=True)
+            print(
+                f"    -- removed renaming-pair `{src} to {dst}` from `{block.module_path}`",
+                flush=True,
+            )
         return True
     file_path.write_text("".join(snapshot), encoding="utf-8")
     if verbose:
@@ -1408,21 +1520,55 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=__doc__,
     )
-    parser.add_argument("paths", nargs="*", type=Path, help="Files or directories to prune (default: src/)")
-    parser.add_argument("-j", "--workers", type=int, default=4, help="Parallel file workers (default: 4)")
-    parser.add_argument("--rts-cores", type=int, default=8, help="GHC RTS cores per agda call (default: 8)")
-    parser.add_argument("--rts-heap", type=int, default=3, help="GHC RTS heap per agda call in GB (default: 3)")
-    parser.add_argument("--timeout", type=int, default=300, help="Per-agda-call timeout seconds (default: 300)")
-    parser.add_argument("--include-public", action="store_true", help="Test `public` re-export lines too")
-    parser.add_argument("--final-check", action="store_true", help="Run cabal run shake -- check-properties after pruning")
-    parser.add_argument("--dry-run", action="store_true", help="Don't write changes; report what would be removed")
+    parser.add_argument(
+        "paths", nargs="*", type=Path, help="Files or directories to prune (default: src/)"
+    )
+    parser.add_argument(
+        "-j", "--workers", type=int, default=4, help="Parallel file workers (default: 4)"
+    )
+    parser.add_argument(
+        "--rts-cores", type=int, default=8, help="GHC RTS cores per agda call (default: 8)"
+    )
+    parser.add_argument(
+        "--rts-heap", type=int, default=3, help="GHC RTS heap per agda call in GB (default: 3)"
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=300, help="Per-agda-call timeout seconds (default: 300)"
+    )
+    parser.add_argument(
+        "--include-public", action="store_true", help="Test `public` re-export lines too"
+    )
+    parser.add_argument(
+        "--final-check",
+        action="store_true",
+        help="Run cabal run shake -- check-properties after pruning",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Don't write changes; report what would be removed"
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress per-file output")
     parser.add_argument("--verbose", action="store_true", help="Per-name decision logging")
-    parser.add_argument("--pre-check", action="store_true", help="Verify each file type-checks before pruning")
-    parser.add_argument("--no-bisect", action="store_true", help="Disable bisection (pure per-name brute force)")
-    parser.add_argument("--no-topo", action="store_true", help="Hint: skip topological-level batching IF the input set has no inter-dependencies (single topo level).  Saves the topo-graph startup cost for small independent subsets.  If inter-deps are detected, the tool auto-enables topo batching (since `--no-topo` + multi-worker on inter-deps reliably races on `.agdai` writes).  Pass `--workers 1` to force pure sequential without topo cost.")
-    parser.add_argument("--check-only", action="store_true", help="Lint-mode: implies --dry-run + --quiet; exits 1 if any dead imports would be removed, 0 if clean.  Intended for CI gates / pre-commit / pre-push hooks.")
-    parser.add_argument("--restore-backups", action="store_true", help="Restore any *.prune-bak files left by an interrupted run, then exit")
+    parser.add_argument(
+        "--pre-check", action="store_true", help="Verify each file type-checks before pruning"
+    )
+    parser.add_argument(
+        "--no-bisect", action="store_true", help="Disable bisection (pure per-name brute force)"
+    )
+    parser.add_argument(
+        "--no-topo",
+        action="store_true",
+        help="Hint: skip topological-level batching IF the input set has no inter-dependencies (single topo level).  Saves the topo-graph startup cost for small independent subsets.  If inter-deps are detected, the tool auto-enables topo batching (since `--no-topo` + multi-worker on inter-deps reliably races on `.agdai` writes).  Pass `--workers 1` to force pure sequential without topo cost.",
+    )
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Lint-mode: implies --dry-run + --quiet; exits 1 if any dead imports would be removed, 0 if clean.  Intended for CI gates / pre-commit / pre-push hooks.",
+    )
+    parser.add_argument(
+        "--restore-backups",
+        action="store_true",
+        help="Restore any *.prune-bak files left by an interrupted run, then exit",
+    )
 
     args = parser.parse_args()
 
@@ -1444,8 +1590,10 @@ def main() -> int:
     # restore for THIS run so an interruption never leaves the tree corrupted.
     _swept = _cleanup_stray_backups()
     if _swept and not args.quiet:
-        print(f"start sweep: restored {_swept} file(s) left modified by a prior "
-              f"interrupted run", flush=True)
+        print(
+            f"start sweep: restored {_swept} file(s) left modified by a prior interrupted run",
+            flush=True,
+        )
     _install_cleanup_handlers()
     files = gather_agda_files(paths)
     if not files:
@@ -1463,15 +1611,20 @@ def main() -> int:
         all_files = gather_agda_files([SRC_DIR])
         consumers_map = build_reverse_dep_graph(all_files, SRC_DIR)
         if not args.quiet:
-            print(f"  reverse graph: {len(consumers_map)} modules indexed, "
-                  f"{sum(len(v) for v in consumers_map.values())} consumer edges",
-                  flush=True)
+            print(
+                f"  reverse graph: {len(consumers_map)} modules indexed, "
+                f"{sum(len(v) for v in consumers_map.values())} consumer edges",
+                flush=True,
+            )
 
     if not args.quiet:
         print(f"prune_unused_imports: processing {len(files)} files with {args.workers} workers")
-        print(f"  src_dir={SRC_DIR}, rts={args.rts_cores}c/{args.rts_heap}G, "
-              f"timeout={args.timeout}s, include_public={args.include_public}, "
-              f"dry_run={args.dry_run}, bisect={not args.no_bisect}", flush=True)
+        print(
+            f"  src_dir={SRC_DIR}, rts={args.rts_cores}c/{args.rts_heap}G, "
+            f"timeout={args.timeout}s, include_public={args.include_public}, "
+            f"dry_run={args.dry_run}, bisect={not args.no_bisect}",
+            flush=True,
+        )
 
     t_start = time.monotonic()
     worker_args = [
@@ -1527,21 +1680,17 @@ def main() -> int:
                     flush=True,
                 )
             wa_by_file = {wa[0]: wa for wa in worker_args}
-            batches = [
-                [wa_by_file[f] for f in level if f in wa_by_file]
-                for level in levels
-            ]
+            batches = [[wa_by_file[f] for f in level if f in wa_by_file] for level in levels]
     else:
         levels = topological_levels(files, SRC_DIR)
         wa_by_file = {wa[0]: wa for wa in worker_args}
-        batches = [
-            [wa_by_file[f] for f in level if f in wa_by_file]
-            for level in levels
-        ]
+        batches = [[wa_by_file[f] for f in level if f in wa_by_file] for level in levels]
         if not args.quiet:
-            print(f"  topological-level batching: {len(batches)} levels "
-                  f"(sizes: {[len(b) for b in batches[:10]]}{'...' if len(batches) > 10 else ''})",
-                  flush=True)
+            print(
+                f"  topological-level batching: {len(batches)} levels "
+                f"(sizes: {[len(b) for b in batches[:10]]}{'...' if len(batches) > 10 else ''})",
+                flush=True,
+            )
 
     def _consume(stats: FileStats) -> None:
         nonlocal errors
@@ -1572,16 +1721,18 @@ def main() -> int:
     total_tcs = sum(s.type_checks for s in all_stats)
     files_changed = sum(1 for s in all_stats if s.removed_total > 0)
     print()
-    print(f"=== summary ===")
+    print("=== summary ===")
     print(f"  files processed: {len(all_stats)}")
     print(f"  files modified : {files_changed}")
-    print(f"  dead names removed: {total_removed} (using: {sum(s.using_removed for s in all_stats)}, renaming: {sum(s.renaming_removed for s in all_stats)})")
+    print(
+        f"  dead names removed: {total_removed} (using: {sum(s.using_removed for s in all_stats)}, renaming: {sum(s.renaming_removed for s in all_stats)})"
+    )
     print(f"  public blocks skipped: {sum(s.public_blocks_skipped for s in all_stats)}")
     print(f"  type-checks run: {total_tcs}")
     print(f"  errors: {errors}")
     print(f"  wall time: {elapsed:.1f}s")
     if args.dry_run:
-        print(f"  (dry-run: no files modified)")
+        print("  (dry-run: no files modified)")
 
     if args.final_check and not args.dry_run:
         print()
@@ -1630,7 +1781,7 @@ def _print_stats(stats: FileStats, quiet: bool) -> None:
             f"(using {stats.using_removed}/{stats.using_tested}, "
             f"renaming {stats.renaming_removed}/{stats.renaming_tested}) "
             f"tcs={stats.type_checks} t={stats.seconds:.1f}s "
-            f"{'public-skipped='+str(stats.public_blocks_skipped) if stats.public_blocks_skipped else ''}",
+            f"{'public-skipped=' + str(stats.public_blocks_skipped) if stats.public_blocks_skipped else ''}",
             flush=True,
         )
 

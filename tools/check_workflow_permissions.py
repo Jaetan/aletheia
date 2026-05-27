@@ -26,6 +26,7 @@ Exit codes:
   1 — at least one workflow lacks ``permissions:`` or uses a permissive default.
   2 — no ``.github/workflows/`` directory (skips silently with exit 0).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -71,10 +72,7 @@ def _check_workflow(path: Path) -> str | None:
         if isinstance(job, dict) and job.get("permissions") is None
     ]
     if missing:
-        return (
-            "no top-level `permissions:` and these jobs lack their own: "
-            + ", ".join(missing)
-        )
+        return "no top-level `permissions:` and these jobs lack their own: " + ", ".join(missing)
 
     return None
 
@@ -93,9 +91,7 @@ def main() -> int:
 
     workflows_dir = repo_root / ".github" / "workflows"
     if not workflows_dir.is_dir():
-        print(
-            f"check-workflow-permissions: {workflows_dir} does not exist; skipping"
-        )
+        print(f"check-workflow-permissions: {workflows_dir} does not exist; skipping")
         return 0
 
     violations: list[str] = []
@@ -127,7 +123,7 @@ def main() -> int:
             "  permissions:\n"
             "    contents: read\n\n"
             "Reference: GitHub Security Hardening for GitHub Actions § "
-            "\"Use the least privilege principle\".\n"
+            '"Use the least privilege principle".\n'
         )
         return 1
 
