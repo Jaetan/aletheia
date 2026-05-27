@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""PROTOTYPE (ci-speed branch): warm-process dead-import detection via
-`agda --interaction-json`.
+"""PROTOTYPE (ci-speed branch): warm-process dead-import detection via `agda --interaction-json`.
 
 Supersedes a per-file `agda --html` pass:
   * ONE warm agda process loads many files (`Cmd_load` each) -> per-file agda
@@ -22,15 +21,18 @@ Invoke as `python -m tools.warm_dead_imports [--confirm] <relpath.agda> ...`.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import Self, TypedDict, cast
 
+from tools._common import emit
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
@@ -125,6 +127,35 @@ def _spawn_agda() -> subprocess.Popen[str]:
     )
 
 
+@dataclass
+class _LoadState:
+    """Mutable accumulator for one `Cmd_load` response stream.
+
+    Tracks the tokens seen so far, whether `Status{checked:true}` arrived, and
+    whether a `JumpToError` was observed (so the failure terminal can be told
+    apart from an ordinary `Status{checked:false}`).
+    """
+
+    tokens: list[Token] = field(default_factory=list)
+    ok: bool = False
+    saw_error: bool = False
+
+
+def _parse_response(line: str) -> _Response | None:
+    """Parse one agda output line into a response, or None if it is not JSON.
+
+    Non-`{`-prefixed lines and malformed JSON both yield None so the read loop
+    can simply skip them.
+    """
+    line = line.strip()
+    if not line.startswith("{"):
+        return None
+    try:
+        return cast("_Response", json.loads(line))
+    except json.JSONDecodeError:
+        return None
+
+
 class WarmAgda:
     """One long-lived `agda --interaction-json` process driven over pipes.
 
@@ -135,13 +166,42 @@ class WarmAgda:
     """
 
     def __init__(self) -> None:
+        """Spawn the warm `agda --interaction-json` process."""
         self.proc: subprocess.Popen[str] = _spawn_agda()
 
-    def __enter__(self) -> WarmAgda:
+    def __enter__(self) -> Self:
+        """Enter the context manager, returning this live process wrapper."""
         return self
 
     def __exit__(self, *_exc: object) -> None:
+        """Exit the context manager, closing the underlying process."""
         self.close()
+
+    @staticmethod
+    def _apply_response(payload: _Response, state: _LoadState) -> bool:
+        """Fold one parsed response into `state`; return True at a terminal.
+
+        Accumulates `HighlightingInfo` tokens, records `JumpToError`, and reads
+        `Status`.  Returns True on either terminal — the success
+        `InteractionPoints`, or the `Status{checked:false}` that follows an
+        error — and False otherwise.
+        """
+        kind = payload.get("kind")
+        if kind == "HighlightingInfo":
+            info = payload.get("info")
+            if info is not None:
+                state.tokens += info["payload"]
+        elif kind == "JumpToError":
+            state.saw_error = True
+        elif kind == "Status":
+            status = payload.get("status")
+            if status is not None and status.get("checked"):
+                state.ok = True
+            elif state.saw_error:
+                return True  # failure terminal: Status{checked:false} after the error
+        elif kind == "InteractionPoints":
+            return True  # success terminal
+        return False
 
     def load(self, abspath: str) -> tuple[list[Token], bool]:
         """Send Cmd_load; collect HighlightingInfo tokens until the load ends.
@@ -151,45 +211,29 @@ class WarmAgda:
         `InteractionPoints`), so both terminals are handled — a broken file is
         reported, not hung on.
         """
-        assert self.proc.stdin is not None and self.proc.stdout is not None
+        if self.proc.stdin is None or self.proc.stdout is None:
+            message = "agda --interaction-json process has no stdin/stdout pipe"
+            raise RuntimeError(message)
         cmd = f'IOTCM "{abspath}" NonInteractive Direct (Cmd_load "{abspath}" [])\n'
         _ = self.proc.stdin.write(cmd)
         self.proc.stdin.flush()
-        tokens: list[Token] = []
-        ok = False
-        saw_error = False
+        state = _LoadState()
         while True:
             line = self.proc.stdout.readline()
             if not line:
-                raise RuntimeError("agda --interaction-json exited unexpectedly")
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                payload = cast("_Response", json.loads(line))
-            except json.JSONDecodeError:
-                continue
-            kind = payload.get("kind")
-            if kind == "HighlightingInfo":
-                info = payload.get("info")
-                if info is not None:
-                    tokens += info["payload"]
-            elif kind == "JumpToError":
-                saw_error = True
-            elif kind == "Status":
-                status = payload.get("status")
-                if status is not None and status.get("checked"):
-                    ok = True
-                elif saw_error:
-                    break  # failure terminal: Status{checked:false} after the error
-            elif kind == "InteractionPoints":
-                break  # success terminal
-        return tokens, ok
+                message = "agda --interaction-json exited unexpectedly"
+                raise RuntimeError(message)
+            payload = _parse_response(line)
+            if payload is not None and self._apply_response(payload, state):
+                break
+        return state.tokens, state.ok
 
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
+        if self.proc.stdin is None:
+            self.proc.kill()
+            return
         try:
-            assert self.proc.stdin is not None
             self.proc.stdin.close()
             _ = self.proc.wait(timeout=10)
         except (OSError, subprocess.TimeoutExpired):
@@ -230,9 +274,11 @@ def _body_index(
     import_ranges: list[tuple[int, int]],
     check_names: set[str],
 ) -> tuple[dict[str, DefId], set[DefId], set[str], dict[str, set[str]]]:
-    """Index tokens → (import-name→def-id, body def-ids, body names with an
-    EXTERNAL def, qualifier→field-def-files).  The external / qualified-file
-    distinctions are the no-false-positive guards described in `detect_dead`.
+    """Index tokens into the four lookups `detect_dead` consumes.
+
+    Returns (import-name→def-id, body def-ids, body names with an EXTERNAL def,
+    qualifier→field-def-files).  The external / qualified-file distinctions are
+    the no-false-positive guards described in `detect_dead`.
     """
     import_defid: dict[str, DefId] = {}
     body_defids: set[DefId] = set()
@@ -247,11 +293,10 @@ def _body_index(
         site = tok.get("definitionSite")
         defid: DefId | None = (site["filepath"], site["position"]) if site else None
         if any(s <= off0 < e for s, e in import_ranges):  # token in an import clause
-            if name in check_names:
-                # def==None for a renaming dest / local binding: body refs point
-                # at THIS token's position in THIS file -> synthesize that def-id.
-                if name not in import_defid:
-                    import_defid[name] = defid or (abspath, rng[0])
+            # def==None for a renaming dest / local binding: body refs point at
+            # THIS token's position in THIS file -> synthesize that def-id.
+            if name in check_names and name not in import_defid:
+                import_defid[name] = defid or (abspath, rng[0])
         elif defid is not None:  # def-less body tokens can't be import-uses
             body_defids.add(defid)
             if defid[0] != abspath:
@@ -313,10 +358,8 @@ _handlers_installed: list[bool] = []  # sentinel (mutated, not rebound → no `g
 def _restore_inflight() -> None:
     """Restore any file left modified by an interrupted confirmation."""
     for path_str, original in list(_inflight.items()):
-        try:
+        with contextlib.suppress(OSError):
             _ = Path(path_str).write_text(original, encoding="utf-8")
-        except OSError:
-            pass
     _inflight.clear()
 
 
@@ -337,8 +380,10 @@ def _install_restore_handlers() -> None:
 
 
 def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
-    """Remove just `name` from its import clause, recompile, restore.  True iff
-    the file still type-checks without it (⇒ truly dead).  ALWAYS restores.
+    """Remove just `name` from its import clause, recompile, then restore.
+
+    Returns True iff the file still type-checks without it (⇒ truly dead).
+    ALWAYS restores the original content, even on failure.
     """
     path = SRC / rel
     new_raw: str | None = None
@@ -394,7 +439,7 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
         dt = time.time() - start
         times.append(dt)
         if not ok:
-            print(
+            emit(
                 f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  ⚠️ LOAD FAILED "
                 + "(no Status checked:true — agda could not check it)"
             )
@@ -408,7 +453,7 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
         if result["unresolved"]:
             extra += f"  unresolved={result['unresolved']}"
         shown = result["dead"] if result["dead"] else "—"
-        print(
+        emit(
             f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
             + f"tokens={len(tokens)} CANDIDATES={shown}{extra}"
         )
@@ -422,26 +467,26 @@ def _print_summary(
     ncand = sum(len(v) for v in candidates.values())
     if len(times) > 1:
         warm = sum(times[1:]) / len(times[1:])
-        print(
+        emit(
             f"--- warm sweep: {len(files)} files {total:.1f}s "
             + f"(file1={times[0]:.1f}s cold, mean 2..N={warm:.1f}s) — "
             + f"{ncand} candidate(s) in {len(candidates)} file(s) ---"
         )
     else:
-        print(f"--- 1 file: {total:.1f}s — {ncand} candidate(s) ---")
+        emit(f"--- 1 file: {total:.1f}s — {ncand} candidate(s) ---")
 
 
 def _confirm_all(candidates: dict[str, list[str]]) -> None:
     """Confirm every candidate (remove-one + recompile) and print the verdict."""
     ncand = sum(len(v) for v in candidates.values())
-    print(f"=== confirming {ncand} candidate(s): remove-one + recompile (ground truth) ===")
+    emit(f"=== confirming {ncand} candidate(s): remove-one + recompile (ground truth) ===")
     start = time.time()
     n_dead = 0
     for rel, cands in candidates.items():
         truly_dead, fps = confirm_candidates(rel, cands)
         n_dead += len(truly_dead)
-        print(f"  {rel}: TRULY-DEAD={truly_dead or '—'}  fp/used={fps or '—'}")
-    print(f"=== confirm: {n_dead} truly-dead of {ncand} in {time.time() - start:.1f}s ===")
+        emit(f"  {rel}: TRULY-DEAD={truly_dead or '—'}  fp/used={fps or '—'}")
+    emit(f"=== confirm: {n_dead} truly-dead of {ncand} in {time.time() - start:.1f}s ===")
 
 
 def main() -> int:
@@ -450,7 +495,7 @@ def main() -> int:
     do_confirm = "--confirm" in args
     files = [a for a in args if not a.startswith("--")]
     if not files:
-        print("usage: python -m tools.warm_dead_imports [--confirm] <relpath.agda> [...]")
+        emit("usage: python -m tools.warm_dead_imports [--confirm] <relpath.agda> [...]")
         return 2
     start = time.time()
     with WarmAgda() as agda:

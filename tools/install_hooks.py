@@ -28,13 +28,15 @@ Reference: R18 cluster 1 phase 3 / memory/feedback_gate_claim_integrity.md.
 
 from __future__ import annotations
 
-import datetime
 import os
 import shutil
 import stat
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+
+from tools._common import emit, find_executable
 
 PRE_PUSH_MARKER = "# aletheia-pre-push-marker (R18 cluster 1 phase 3)"
 PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (dead-import scanner)"
@@ -188,28 +190,32 @@ def _install_hook(
     marker: str,
     description: str,
 ) -> bool:
-    """Install the named hook.  Returns True if newly installed (or
-    re-installed because the marker was missing), False if already current.
+    """Install the named hook, returning whether it was (re)written.
+
+    Returns True if newly installed (or re-installed because the marker was
+    missing), False if the hook is already current.
     """
     path = hooks_dir / name
     if path.is_file() and marker in path.read_text(encoding="utf-8"):
-        print(f"install-hooks: {name} already installed (marker found at {path})")
+        emit(f"install-hooks: {name} already installed (marker found at {path})")
         return False
     if path.is_file():
-        ts = int(datetime.datetime.now().timestamp())
+        ts = int(datetime.now(UTC).timestamp())
         backup = path.with_suffix(f".aletheia-backup-{ts}")
         sys.stderr.write(f"install-hooks: existing {name} hook backed up to {backup}\n")
         shutil.copy2(path, backup)
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    print(f"install-hooks: {name} hook installed at {path}")
-    print(f"install-hooks:   {description}")
+    emit(f"install-hooks: {name} hook installed at {path}")
+    emit(f"install-hooks:   {description}")
     return True
 
 
 def main() -> int:
+    """Install the pre-commit and pre-push hooks, returning a process exit code."""
+    git = find_executable("git")
     rc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        [git, "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
@@ -221,7 +227,7 @@ def main() -> int:
     os.chdir(repo_root)
 
     hooks_dir_str = subprocess.run(
-        ["git", "rev-parse", "--git-path", "hooks"],
+        [git, "rev-parse", "--git-path", "hooks"],
         capture_output=True,
         text=True,
         check=True,
@@ -234,7 +240,8 @@ def main() -> int:
         "pre-commit",
         PRE_COMMIT_BODY,
         PRE_COMMIT_MARKER,
-        "every `git commit` will run `tools/scan_dead_imports.py` on staged .agda files (advisory only — never blocks)",
+        "every `git commit` will run `tools/scan_dead_imports.py` on staged "
+        + ".agda files (advisory only — never blocks)",
     )
     _install_hook(
         hooks_dir,
