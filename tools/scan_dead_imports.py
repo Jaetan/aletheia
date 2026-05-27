@@ -77,11 +77,17 @@ serve as a strict gate.  For a strict gate, use
 from __future__ import annotations
 
 import argparse
+import bisect
 import re
 import sys
 from pathlib import Path
 
+from tools._common import emit, match_paren_content, split_top_level_semicolons
+
 IDENT_CHARS = r"A-Za-z0-9_'\-"
+
+# Shortest mixfix operator handled as `_X_` (two underscores + one inner char).
+_MIN_MIXFIX_LEN = 3
 
 # Skip lines that re-export.  Their consumers depend on the re-exported
 # names, so flagging a name as dead just because the file itself doesn't
@@ -91,9 +97,9 @@ PUBLIC_RE = re.compile(r"\bpublic\b")
 
 
 def _find_repo_root() -> Path:
-    """Walk up looking for `aletheia.agda-lib`; fall back to script location."""
+    """Walk up looking for ``aletheia.agda-lib``; fall back to script location."""
     for base in (Path.cwd().resolve(), Path(__file__).resolve()):
-        for p in [base] + list(base.parents):
+        for p in [base, *base.parents]:
             if (p / "aletheia.agda-lib").exists():
                 return p
     return Path(__file__).resolve().parent.parent
@@ -178,7 +184,7 @@ def write_ignore_file(
                 rel = str(file_path.relative_to(src_dir))
             except ValueError:
                 rel = str(file_path)
-            names = sorted(set(n for _, n in flagged))
+            names = sorted({n for _, n in flagged})
             if not names:
                 continue
             f.write(f"[{rel}]\n")
@@ -189,96 +195,65 @@ def write_ignore_file(
     return entries
 
 
+# Characters scanned after a `using (` while looking for a `public` keyword in
+# the same block (a heuristic window — public re-exports are short).
+_PUBLIC_LOOKAHEAD = 200
+
+
 def _strip_comments(text: str) -> str:
-    text = re.sub(r"\{-.*?-\}", "", text, flags=re.DOTALL)
-    text = re.sub(r"--[^\n]*", "", text)
-    return text
+    without_block = re.sub(r"\{-.*?-\}", "", text, flags=re.DOTALL)
+    return re.sub(r"--[^\n]*", "", without_block)
+
+
+def _enclosing_import_start(text: str, using_pos: int) -> int | None:
+    """Return the offset of the import keyword enclosing the ``using`` at ``using_pos``.
+
+    Walks backwards to the nearest ``import`` / ``open import``; returns None when
+    the ``using`` is not inside an import statement (so the caller skips it).
+    """
+    before = text[:using_pos]
+    last_import = max(before.rfind("\nimport "), before.rfind("\nopen import "))
+    if last_import >= 0:
+        return last_import
+    # `open import` could be at the very start of the file (line 1).
+    if before.startswith(("import ", "open import ")):
+        return 0
+    return None
 
 
 def _find_using_clauses(content: str) -> list[tuple[int, str]]:
-    """Return list of (start_line_1indexed, names_blob) for every
-    `using (...)` clause that is NOT on a `public` re-export line.
+    """Find every ``using (...)`` clause that is not on a ``public`` re-export line.
 
-    Multi-line `using\n(...)` clauses are joined.
+    Returns a list of ``(start_line_1indexed, names_blob)``.  Multi-line clauses
+    where the ``(`` follows ``using`` on the next line are joined.
     """
     out: list[tuple[int, str]] = []
     pat = re.compile(r"\busing\s*\(", flags=re.MULTILINE)
     text = _strip_comments(content)
-    # Get line offsets for converting char-pos to line-num.
+    # Cumulative offset of each line start, for char-pos → 1-indexed line lookup.
     line_starts = [0]
     for i, ch in enumerate(text):
         if ch == "\n":
             line_starts.append(i + 1)
 
-    def char_to_line(pos: int) -> int:
-        # Binary search.
-        lo, hi = 0, len(line_starts) - 1
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            if line_starts[mid] <= pos:
-                lo = mid
-            else:
-                hi = mid - 1
-        return lo + 1  # 1-indexed
-
     for m in pat.finditer(text):
-        # Determine the import block this `using` belongs to.  Walk
-        # backwards to find the enclosing `import ` / `open import `.
-        before = text[: m.start()]
-        last_import = max(before.rfind("\nimport "), before.rfind("\nopen import "))
-        if last_import < 0:
-            # `open import` could be at start of file (line 1).
-            if before.startswith("import ") or before.startswith("open import "):
-                last_import = 0
-            else:
-                continue
-        # Skip if this block is a public re-export.
-        block_tail = text[last_import : m.end() + 200]  # heuristic window
-        if PUBLIC_RE.search(block_tail):
+        last_import = _enclosing_import_start(text, m.start())
+        if last_import is None:
             continue
-        # Extract the parenthesized content of this using(...).
-        start = m.end()
-        depth = 1
-        i = start
-        while i < len(text) and depth > 0:
-            if text[i] == "(":
-                depth += 1
-            elif text[i] == ")":
-                depth -= 1
-                if depth == 0:
-                    break
-            i += 1
-        if depth != 0:
+        # Skip public re-export blocks (their uses are downstream only).
+        if PUBLIC_RE.search(text[last_import : m.end() + _PUBLIC_LOOKAHEAD]):
             continue
-        names_blob = text[start:i]
-        line = char_to_line(m.start())
+        names_blob = match_paren_content(text, m.end())
+        if names_blob is None:
+            continue
+        line = bisect.bisect_right(line_starts, m.start())
         out.append((line, names_blob))
     return out
 
 
 def _split_names(blob: str) -> list[str]:
-    """Split a using-clause body on top-level `;` separators."""
-    parts: list[str] = []
-    depth = 0
-    buf: list[str] = []
-    for ch in blob:
-        if ch == "(":
-            depth += 1
-            buf.append(ch)
-        elif ch == ")":
-            depth -= 1
-            buf.append(ch)
-        elif ch == ";" and depth == 0:
-            item = "".join(buf).strip()
-            if item:
-                parts.append(item)
-            buf = []
-        else:
-            buf.append(ch)
-    item = "".join(buf).strip()
-    if item:
-        parts.append(item)
-    return parts
+    """Split a using-clause body on top-level ``;`` separators."""
+    return split_top_level_semicolons(blob)
 
 
 def _count_body_refs(content: str, name: str) -> int:
@@ -286,7 +261,7 @@ def _count_body_refs(content: str, name: str) -> int:
     # Mixfix `_X_` — search for `X` (without underscores) not surrounded
     # by ident chars.  This catches infix `a X b` body uses but NOT
     # sections `(_X y)` (leading `_` defeats the lookbehind — known FN).
-    if name.startswith("_") and name.endswith("_") and len(name) >= 3:
+    if name.startswith("_") and name.endswith("_") and len(name) >= _MIN_MIXFIX_LEN:
         inner = name[1:-1]
         if not inner:
             return 0
@@ -316,7 +291,11 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
     return flagged
 
 
-def main() -> int:
+FileFindings = tuple[Path, list[tuple[int, str]]]
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the argument parser for the scan CLI."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -336,9 +315,11 @@ def main() -> int:
         action="store_true",
         help="Write current findings to tools/scan_dead_imports.ignore and exit (overwrites)",
     )
-    args = parser.parse_args()
+    return parser
 
-    paths = args.paths if args.paths else [SRC_DIR]
+
+def _gather_files(paths: list[Path]) -> list[Path]:
+    """Collect .agda files from the given paths (directories scanned recursively)."""
     files: list[Path] = []
     for p in paths:
         if p.is_file() and p.suffix == ".agda":
@@ -346,29 +327,15 @@ def main() -> int:
         elif p.is_dir():
             files.extend(sorted(p.rglob("*.agda")))
         else:
-            print(f"warning: {p} not a file or directory", file=sys.stderr)
+            _ = sys.stderr.write(f"warning: {p} not a file or directory\n")
+    return files
 
-    # Scan first (without applying ignore — we need raw findings for
-    # --write-ignore).
-    per_file_raw: list[tuple[Path, list[tuple[int, str]]]] = []
-    for f in files:
-        flagged = scan_file(f)
-        if flagged:
-            per_file_raw.append((f, flagged))
 
-    if args.write_ignore:
-        IGNORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        n = write_ignore_file(IGNORE_PATH, per_file_raw, SRC_DIR)
-        print(f"wrote {n} entries across {len(per_file_raw)} files to {IGNORE_PATH}")
-        return 0
-
-    # Apply ignore file (unless --no-ignore).
-    if args.no_ignore:
-        ignore_map: dict[str, set[str]] = {}
-    else:
-        ignore_map = load_ignore_file(IGNORE_PATH)
-
-    per_file: list[tuple[Path, list[tuple[int, str]]]] = []
+def _apply_ignore(
+    per_file_raw: list[FileFindings], ignore_map: dict[str, set[str]]
+) -> tuple[list[FileFindings], int]:
+    """Drop ignored names from each file's findings; return (kept, suppressed_count)."""
+    per_file: list[FileFindings] = []
     suppressed_total = 0
     for f, flagged in per_file_raw:
         try:
@@ -380,40 +347,70 @@ def main() -> int:
         suppressed_total += len(flagged) - len(kept)
         if kept:
             per_file.append((f, kept))
+    return per_file, suppressed_total
+
+
+def _print_findings(per_file: list[FileFindings], *, summary: bool, top: int) -> None:
+    """Print per-file findings, either as one-line summaries or grouped by line."""
+    for f, flagged in per_file:
+        if summary or top > 0:
+            emit(f"  {len(flagged):3d}  {f}")
+            continue
+        emit(f"{f}  ({len(flagged)} dead candidates)")
+        lines_grouped: dict[int, list[str]] = {}
+        for line, name in flagged:
+            lines_grouped.setdefault(line, []).append(name)
+        for line in sorted(lines_grouped):
+            names = lines_grouped[line]
+            emit(f"  L{line}  ({len(names)} dead):")
+            for n in names:
+                emit(f"    {n}")
+
+
+def _print_total(per_file: list[FileFindings], n_scanned: int, suppressed_total: int) -> None:
+    """Print the trailing totals line, noting any ignore-file suppressions."""
+    total = sum(len(f) for _, f in per_file)
+    flagged_files = len(per_file)
+    emit()
+    suffix = (
+        f"; {suppressed_total} known-FP suppressed via {IGNORE_PATH.name}"
+        if suppressed_total > 0
+        else ""
+    )
+    emit(
+        f"Total: {total} dead candidates across {flagged_files} flagged files "
+        + f"(of {n_scanned} scanned{suffix})"
+    )
+
+
+def main() -> int:
+    """Scan the requested .agda files for dead-import candidates (always exits 0)."""
+    args = _build_arg_parser().parse_args()
+
+    paths = args.paths if args.paths else [SRC_DIR]
+    files = _gather_files(paths)
+
+    # Scan first (without applying ignore — we need raw findings for --write-ignore).
+    per_file_raw: list[FileFindings] = [
+        (f, flagged) for f in files if (flagged := scan_file(f))
+    ]
+
+    if args.write_ignore:
+        IGNORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        n = write_ignore_file(IGNORE_PATH, per_file_raw, SRC_DIR)
+        emit(f"wrote {n} entries across {len(per_file_raw)} files to {IGNORE_PATH}")
+        return 0
+
+    ignore_map = {} if args.no_ignore else load_ignore_file(IGNORE_PATH)
+    per_file, suppressed_total = _apply_ignore(per_file_raw, ignore_map)
 
     if args.top > 0:
         per_file.sort(key=lambda t: -len(t[1]))
         per_file = per_file[: args.top]
 
     if not args.quiet:
-        for f, flagged in per_file:
-            if args.summary or args.top > 0:
-                print(f"  {len(flagged):3d}  {f}")
-            else:
-                print(f"{f}  ({len(flagged)} dead candidates)")
-                lines_grouped: dict = {}
-                for line, name in flagged:
-                    lines_grouped.setdefault(line, []).append(name)
-                for line in sorted(lines_grouped):
-                    names = lines_grouped[line]
-                    print(f"  L{line}  ({len(names)} dead):")
-                    for n in names:
-                        print(f"    {n}")
-
-    total = sum(len(f) for _, f in per_file)
-    flagged_files = len(per_file)
-    print()
-    if suppressed_total > 0:
-        print(
-            f"Total: {total} dead candidates across {flagged_files} flagged files "
-            f"(of {len(files)} scanned; {suppressed_total} known-FP suppressed via "
-            f"{IGNORE_PATH.name})"
-        )
-    else:
-        print(
-            f"Total: {total} dead candidates across {flagged_files} flagged files "
-            f"(of {len(files)} scanned)"
-        )
+        _print_findings(per_file, summary=args.summary, top=args.top)
+    _print_total(per_file, len(files), suppressed_total)
     return 0
 
 

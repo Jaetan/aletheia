@@ -34,6 +34,7 @@ from typing import TypedDict, cast
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
+    TypecheckCtx,
     parse_imports,
     remove_name_from_raw,
     remove_rename_from_raw,
@@ -49,6 +50,11 @@ SRC = SRC_DIR
 _RTS_CORES = 8
 _RTS_HEAP_GB = 8
 _CONFIRM_TIMEOUT = 300
+
+# Bundled agda invocation context for the confirmation type-checks.
+_CONFIRM_CTX = TypecheckCtx(
+    src_dir=SRC, rts_cores=_RTS_CORES, rts_heap_gb=_RTS_HEAP_GB, timeout=_CONFIRM_TIMEOUT
+)
 
 # A definition identity: (definitionSite.filepath, definitionSite.position).
 DefId = tuple[str, int]
@@ -354,7 +360,7 @@ def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
     try:
         _inflight[str(path)] = original
         _ = path.write_text("".join(new_lines), encoding="utf-8")
-        return typecheck(rel, SRC, _RTS_CORES, _RTS_HEAP_GB, _CONFIRM_TIMEOUT, baseline)
+        return typecheck(rel, _CONFIRM_CTX, baseline_warning_count=baseline)
     finally:
         _ = path.write_text(original, encoding="utf-8")  # ALWAYS restore
         _ = _inflight.pop(str(path), None)
@@ -369,7 +375,7 @@ def confirm_candidates(rel: str, names: list[str]) -> tuple[list[str], list[str]
     """
     _install_restore_handlers()
     original = (SRC / rel).read_text(encoding="utf-8")
-    baseline = warning_count_for(rel, SRC, _RTS_CORES, _RTS_HEAP_GB, _CONFIRM_TIMEOUT)
+    baseline = warning_count_for(rel, _CONFIRM_CTX)
     truly_dead: list[str] = []
     fps: list[str] = []
     for name in names:

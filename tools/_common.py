@@ -17,6 +17,62 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
+def match_paren_content(text: str, start: int) -> str | None:
+    """Return the content from ``start`` up to its matching close parenthesis.
+
+    ``start`` is the index just past an opening ``(`` (depth already 1).  Scans
+    forward tracking nested parentheses and returns the substring up to (but not
+    including) the ``)`` that closes the opener.  Returns None when the parens
+    are unbalanced (the run reaches the end of ``text`` first).  Shared by the
+    Agda import parser and scanner to locate ``using``/``renaming`` clause bodies.
+    """
+    depth = 1
+    i = start
+    while i < len(text) and depth > 0:
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:i]
+        i += 1
+    return None
+
+
+def split_top_level_semicolons(content: str) -> list[str]:
+    """Split an Agda ``using``/``renaming`` clause body on top-level ``;``.
+
+    Walks ``content`` character by character, tracking parenthesis depth, and
+    cuts on every ``;`` seen at depth 0 (so a ``;`` nested inside ``(...)`` --
+    e.g. a mixfix argument grouping -- never splits a name).  Each resulting
+    segment is stripped; empty segments are dropped.  Shared verbatim by the
+    dead-import parser (``prune_unused_imports``) and the regex scanner
+    (``scan_dead_imports``) so the two agree on name boundaries.
+    """
+    parts: list[str] = []
+    depth = 0
+    buf: list[str] = []
+    for ch in content:
+        if ch == "(":
+            depth += 1
+            buf.append(ch)
+        elif ch == ")":
+            depth -= 1
+            buf.append(ch)
+        elif ch == ";" and depth == 0:
+            item = "".join(buf).strip()
+            if item:
+                parts.append(item)
+            buf = []
+        else:
+            buf.append(ch)
+    item = "".join(buf).strip()
+    if item:
+        parts.append(item)
+    return parts
+
+
 def emit(message: str = "") -> None:
     """Write one line to stdout, the gate scripts' human-readable result channel.
 
