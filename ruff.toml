@@ -27,6 +27,8 @@ ignore = [
     "COM812",  # missing-trailing-comma — conflicts with `ruff format` (ruff's own documented recommendation)
     # ── Policy this repository has deliberately not adopted ──
     "CPY001",  # missing-copyright-notice — no per-file copyright/SPDX header convention exists; adopting one across the tree is a licensing decision, not a lint fix
+    # ── No structural fix exists; the rule fires on every legitimate use ──
+    "S603",    # subprocess-without-shell-equals-true — fires on EVERY subprocess.run([...]) call regardless of arg safety; the tooling necessarily orchestrates git/agda/cabal/clang/go with hardcoded, trusted argument lists (never shell=True, never untrusted interpolation), so it carries no signal here. Its fixable sibling S607 (partial executable path) is NOT ignored — paths are resolved via shutil.which.
 ]
 
 [lint.per-file-ignores]

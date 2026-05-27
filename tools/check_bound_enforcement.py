@@ -30,6 +30,8 @@ import re
 import sys
 from pathlib import Path
 
+from tools._common import emit
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIMITS_PATH = REPO_ROOT / "src" / "Aletheia" / "Limits.agda"
 SRC_ROOT = REPO_ROOT / "src"
@@ -67,7 +69,8 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
     match = decl_re.search(text)
     if not match:
         sys.stderr.write(
-            f"check-bound-enforcement: could not locate `data BoundKind : Set where` in {limits_path}\n"
+            "check-bound-enforcement: could not locate "
+            + f"`data BoundKind : Set where` in {limits_path}\n"
         )
         sys.exit(2)
     # Walk subsequent lines.  A ctor line looks like:
@@ -94,9 +97,9 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
 
 
 def _count_emit_sites(ctor: str, files: list[Path]) -> dict[Path, int]:
-    """For one ctor, return a dict of file → emit-site count.
+    r"""For one ctor, return a dict of file → emit-site count.
 
-    An emit site is the regex ``\\bInputBoundExceeded\\s+<Ctor>\\b``.
+    An emit site is the regex ``\bInputBoundExceeded\s+<Ctor>\b``.
     Comments are not stripped — a commented-out emit site would have the
     same shape and should be flagged either way (a commented-out emit
     site is not an emit site).
@@ -139,19 +142,20 @@ def main() -> int:
             missing.append(ctor)
     if missing:
         sys.stderr.write(
-            "check-bound-enforcement: BoundKind ctors with zero `InputBoundExceeded <Ctor>` emit sites:\n"
+            "check-bound-enforcement: BoundKind ctors with zero "
+            + "`InputBoundExceeded <Ctor>` emit sites:\n"
         )
         for c in missing:
             sys.stderr.write(f"  - {c}\n")
         sys.stderr.write(
             "\nEvery ctor in `data BoundKind` must be emitted at least once at a parser\n"
-            'or handler boundary.  AGENTS.md universal rule "Adversarial-input bounds\n'
-            'at parser surfaces" requires typed `Error.InputBoundExceeded` rejection;\n'
-            "a ctor with no emit site has an unreachable wire code.\n"
+            + 'or handler boundary.  AGENTS.md universal rule "Adversarial-input bounds\n'
+            + 'at parser surfaces" requires typed `Error.InputBoundExceeded` rejection;\n'
+            + "a ctor with no emit site has an unreachable wire code.\n"
         )
         return 1
     summary_pairs = ", ".join(f"{c}={per_ctor_counts[c]}" for c in ctors)
-    print(f"check-bound-enforcement: all {len(ctors)} BoundKind ctors emitted ({summary_pairs})")
+    emit(f"check-bound-enforcement: all {len(ctors)} BoundKind ctors emitted ({summary_pairs})")
     return 0
 
 
