@@ -81,7 +81,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Set, Tuple
+from collections.abc import Iterable
 
 IDENT_CHARS = r"A-Za-z0-9_'\-"
 
@@ -106,7 +106,7 @@ SRC_DIR = REPO_ROOT / "src"
 IGNORE_PATH = REPO_ROOT / "tools" / "scan_dead_imports.ignore"
 
 
-def load_ignore_file(path: Path) -> Dict[str, Set[str]]:
+def load_ignore_file(path: Path) -> dict[str, set[str]]:
     """Parse an ignore file: returns {rel_path: set(names_to_suppress)}.
 
     Format:
@@ -123,7 +123,7 @@ def load_ignore_file(path: Path) -> Dict[str, Set[str]]:
     Trailing whitespace stripped.  Empty sections (header followed by no
     names) are tolerated.  An entry with no preceding section header is
     silently dropped (with no warning, to keep the scanner quiet)."""
-    ignore: Dict[str, Set[str]] = {}
+    ignore: dict[str, set[str]] = {}
     if not path.is_file():
         return ignore
     current: str | None = None
@@ -141,7 +141,7 @@ def load_ignore_file(path: Path) -> Dict[str, Set[str]]:
 
 def write_ignore_file(
     path: Path,
-    per_file: List[Tuple[Path, List[Tuple[int, str]]]],
+    per_file: list[tuple[Path, list[tuple[int, str]]]],
     src_dir: Path,
 ) -> int:
     """Write the current findings as a fresh ignore file.
@@ -195,12 +195,12 @@ def _strip_comments(text: str) -> str:
     return text
 
 
-def _find_using_clauses(content: str) -> List[Tuple[int, str]]:
+def _find_using_clauses(content: str) -> list[tuple[int, str]]:
     """Return list of (start_line_1indexed, names_blob) for every
     `using (...)` clause that is NOT on a `public` re-export line.
 
     Multi-line `using\n(...)` clauses are joined."""
-    out: List[Tuple[int, str]] = []
+    out: list[tuple[int, str]] = []
     pat = re.compile(r"\busing\s*\(", flags=re.MULTILINE)
     text = _strip_comments(content)
     # Get line offsets for converting char-pos to line-num.
@@ -255,11 +255,11 @@ def _find_using_clauses(content: str) -> List[Tuple[int, str]]:
     return out
 
 
-def _split_names(blob: str) -> List[str]:
+def _split_names(blob: str) -> list[str]:
     """Split a using-clause body on top-level `;` separators."""
-    parts: List[str] = []
+    parts: list[str] = []
     depth = 0
-    buf: List[str] = []
+    buf: list[str] = []
     for ch in blob:
         if ch == "(":
             depth += 1
@@ -299,13 +299,13 @@ def _count_body_refs(content: str, name: str) -> int:
     return len(pat.findall(content))
 
 
-def scan_file(path: Path) -> List[Tuple[int, str]]:
+def scan_file(path: Path) -> list[tuple[int, str]]:
     """Return list of (line, name) for every flagged-dead candidate."""
     try:
         content = path.read_text(encoding="utf-8")
     except OSError:
         return []
-    flagged: List[Tuple[int, str]] = []
+    flagged: list[tuple[int, str]] = []
     for line, blob in _find_using_clauses(content):
         for name in _split_names(blob):
             refs = _count_body_refs(content, name)
@@ -326,7 +326,7 @@ def main() -> int:
     args = parser.parse_args()
 
     paths = args.paths if args.paths else [SRC_DIR]
-    files: List[Path] = []
+    files: list[Path] = []
     for p in paths:
         if p.is_file() and p.suffix == ".agda":
             files.append(p)
@@ -337,7 +337,7 @@ def main() -> int:
 
     # Scan first (without applying ignore — we need raw findings for
     # --write-ignore).
-    per_file_raw: List[Tuple[Path, List[Tuple[int, str]]]] = []
+    per_file_raw: list[tuple[Path, list[tuple[int, str]]]] = []
     for f in files:
         flagged = scan_file(f)
         if flagged:
@@ -353,11 +353,11 @@ def main() -> int:
 
     # Apply ignore file (unless --no-ignore).
     if args.no_ignore:
-        ignore_map: Dict[str, Set[str]] = {}
+        ignore_map: dict[str, set[str]] = {}
     else:
         ignore_map = load_ignore_file(IGNORE_PATH)
 
-    per_file: List[Tuple[Path, List[Tuple[int, str]]]] = []
+    per_file: list[tuple[Path, list[tuple[int, str]]]] = []
     suppressed_total = 0
     for f, flagged in per_file_raw:
         try:

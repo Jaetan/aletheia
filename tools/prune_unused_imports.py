@@ -65,7 +65,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from collections.abc import Iterable
 
 # ----------------------------------------------------------------------------
 # Constants
@@ -119,10 +119,10 @@ class ImportBlock:
     raw: str  # original block text (including trailing newline of last line)
     module_path: str
     has_public: bool
-    using_names: List[str] = field(default_factory=list)
+    using_names: list[str] = field(default_factory=list)
     # renaming_pairs[i] = (source, destination); the destination is the
     # in-scope name in the body.
-    renaming_pairs: List[Tuple[str, str]] = field(default_factory=list)
+    renaming_pairs: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -136,7 +136,7 @@ class FileStats:
     type_checks: int = 0
     seconds: float = 0.0
     baseline_warnings: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
     @property
     def removed_total(self) -> int:
@@ -148,10 +148,10 @@ class FileStats:
 # ----------------------------------------------------------------------------
 
 
-def parse_imports(content: str) -> List[ImportBlock]:
+def parse_imports(content: str) -> list[ImportBlock]:
     """Parse all import blocks in the file content."""
     lines = content.splitlines(keepends=True)
-    blocks: List[ImportBlock] = []
+    blocks: list[ImportBlock] = []
     i = 0
     while i < len(lines):
         stripped = lines[i].lstrip()
@@ -166,8 +166,8 @@ def parse_imports(content: str) -> List[ImportBlock]:
 
 
 def _parse_one_block(
-    lines: List[str], start: int
-) -> Tuple[Optional[ImportBlock], int]:
+    lines: list[str], start: int
+) -> tuple[ImportBlock | None, int]:
     """Collect lines belonging to one import block.
 
     A block extends until paren depth returns to 0 AND the next line is not
@@ -226,8 +226,8 @@ def _parse_block_content(
     mod_m = re.search(r"(?:open\s+)?import\s+([\w.]+)", text)
     module_path = mod_m.group(1) if mod_m else "?"
 
-    using_names: List[str] = []
-    renaming_pairs: List[Tuple[str, str]] = []
+    using_names: list[str] = []
+    renaming_pairs: list[tuple[str, str]] = []
 
     using_clause = _extract_paren_after(text, "using")
     if using_clause is not None:
@@ -253,7 +253,7 @@ def _parse_block_content(
     )
 
 
-def _extract_paren_after(text: str, keyword: str) -> Optional[str]:
+def _extract_paren_after(text: str, keyword: str) -> str | None:
     """Find `keyword (...)` and return the parenthesized content.
 
     Returns None if not found.  Handles nested parens (rare in imports)."""
@@ -276,11 +276,11 @@ def _extract_paren_after(text: str, keyword: str) -> Optional[str]:
     return None
 
 
-def _split_top_level(content: str) -> List[str]:
+def _split_top_level(content: str) -> list[str]:
     """Split a using/renaming clause on `;` at paren depth 0."""
-    parts: List[str] = []
+    parts: list[str] = []
     depth = 0
-    buf: List[str] = []
+    buf: list[str] = []
     for ch in content:
         if ch == "(":
             depth += 1
@@ -306,7 +306,7 @@ def _split_top_level(content: str) -> List[str]:
 # ----------------------------------------------------------------------------
 
 
-def remove_name_from_raw(raw: str, name: str) -> Optional[str]:
+def remove_name_from_raw(raw: str, name: str) -> str | None:
     """Remove `name` from a `using (...)` clause in `raw`.
 
     Returns new raw text, or None if the name wasn't found.
@@ -340,7 +340,7 @@ def remove_name_from_raw(raw: str, name: str) -> Optional[str]:
     return None
 
 
-def remove_rename_from_raw(raw: str, src: str, dst: str) -> Optional[str]:
+def remove_rename_from_raw(raw: str, src: str, dst: str) -> str | None:
     """Remove `src to dst` pair from a `renaming (...)` clause."""
     src_esc = re.escape(src)
     dst_esc = re.escape(dst)
@@ -359,8 +359,8 @@ def remove_rename_from_raw(raw: str, src: str, dst: str) -> Optional[str]:
 
 
 def replace_block_in_lines(
-    lines: List[str], block: ImportBlock, new_raw: str
-) -> List[str]:
+    lines: list[str], block: ImportBlock, new_raw: str
+) -> list[str]:
     """Splice `new_raw` in place of the original block lines."""
     new_block_lines = new_raw.splitlines(keepends=True)
     # Ensure block ends with newline (matches original convention).
@@ -392,8 +392,8 @@ def path_to_module(file_path: Path, src_dir: Path) -> str:
 
 
 def topological_levels(
-    files: List[Path], src_dir: Path
-) -> List[List[Path]]:
+    files: list[Path], src_dir: Path
+) -> list[list[Path]]:
     """Group `files` into topological levels.
 
     Level 0 = files with no Aletheia.* dependencies on other files IN
@@ -412,10 +412,10 @@ def topological_levels(
     excluded from this run) are ignored — those interfaces are stable for
     the whole run, so they don't constrain the order.
 
-    Returns: `List[List[Path]]` ordered from level 0 (leaves) upward.
+    Returns: `list[list[Path]]` ordered from level 0 (leaves) upward.
     Within a level, files are sorted alphabetically for determinism."""
     files_set = set(files)
-    module_to_file: Dict[str, Path] = {}
+    module_to_file: dict[str, Path] = {}
     for f in files:
         try:
             module_to_file[path_to_module(f, src_dir)] = f
@@ -423,7 +423,7 @@ def topological_levels(
             continue
 
     # Forward dependencies: f → set of files (also in `files`) that f imports.
-    deps: Dict[Path, Set[Path]] = {f: set() for f in files}
+    deps: dict[Path, set[Path]] = {f: set() for f in files}
     pat = re.compile(r"^(?:open\s+)?import\s+([\w.]+)", flags=re.MULTILINE)
     for f in files:
         try:
@@ -437,14 +437,14 @@ def topological_levels(
                 deps[f].add(dep_file)
 
     # Kahn's algorithm: in-degree = number of unprocessed dependencies.
-    in_degree: Dict[Path, int] = {f: len(deps[f]) for f in files}
+    in_degree: dict[Path, int] = {f: len(deps[f]) for f in files}
     # Reverse graph: f → set of files that depend on f (its dependents).
-    dependents: Dict[Path, List[Path]] = {f: [] for f in files}
+    dependents: dict[Path, list[Path]] = {f: [] for f in files}
     for f in files:
         for d in deps[f]:
             dependents[d].append(f)
 
-    levels: List[List[Path]] = []
+    levels: list[list[Path]] = []
     remaining = set(files)
     while remaining:
         level = [f for f in remaining if in_degree[f] == 0]
@@ -462,8 +462,8 @@ def topological_levels(
 
 
 def build_reverse_dep_graph(
-    all_agda_files: List[Path], src_dir: Path
-) -> Dict[str, List[Path]]:
+    all_agda_files: list[Path], src_dir: Path
+) -> dict[str, list[Path]]:
     """Scan every .agda file's imports; return module-name → list-of-importers.
 
     Used to compute the direct-consumer set when a removal touches a
@@ -474,14 +474,14 @@ def build_reverse_dep_graph(
     A file appears in its own consumers list iff it imports itself (which
     is illegal in Agda — so never), so duplicate-skip isn't strictly
     required, but we deduplicate anyway for cleanliness."""
-    consumers: Dict[str, List[Path]] = {}
+    consumers: dict[str, list[Path]] = {}
     pat = re.compile(r"^(?:open\s+)?import\s+([\w.]+)", flags=re.MULTILINE)
     for f in all_agda_files:
         try:
             content = f.read_text(encoding="utf-8")
         except OSError:
             continue
-        seen_modules: Set[str] = set()
+        seen_modules: set[str] = set()
         for m in pat.finditer(content):
             module = m.group(1)
             if module in seen_modules:
@@ -581,7 +581,7 @@ def warning_count_for(
         "-RTS",
         rel_path,
     ]
-    last_failure: Optional[str] = None
+    last_failure: str | None = None
     for attempt in range(retries):
         try:
             result = subprocess.run(
@@ -603,8 +603,8 @@ def warning_count_for(
 
 def typecheck_with_consumers(
     file_path: Path,
-    consumers: List[Path],
-    consumer_baselines: Dict[Path, int],
+    consumers: list[Path],
+    consumer_baselines: dict[Path, int],
     src_dir: Path,
     rts_cores: int,
     rts_heap_gb: int,
@@ -656,8 +656,8 @@ def typecheck_with_consumers(
 
 
 def prefill_consumer_baselines(
-    consumers: List[Path],
-    consumer_baselines: Dict[Path, int],
+    consumers: list[Path],
+    consumer_baselines: dict[Path, int],
     src_dir: Path,
     rts_cores: int,
     rts_heap_gb: int,
@@ -688,12 +688,12 @@ def prefill_consumer_baselines(
 # additional parameters through the half-dozen helper signatures (which
 # would have made every call site noisier).  Each `ProcessPoolExecutor`
 # worker has its own copy of these globals, so the state is isolated.
-_BLOCK_CONSUMERS: List[Path] = []
-_BLOCK_CONSUMER_BASELINES: Dict[Path, int] = {}
+_BLOCK_CONSUMERS: list[Path] = []
+_BLOCK_CONSUMER_BASELINES: dict[Path, int] = {}
 
 
 def _set_block_check_context(
-    consumers: List[Path], consumer_baselines: Dict[Path, int]
+    consumers: list[Path], consumer_baselines: dict[Path, int]
 ) -> None:
     """Update process-local consumer-check state.
 
@@ -758,7 +758,7 @@ def prune_file(
     pre_check: bool,
     use_bisect: bool,
     verbose: bool,
-    consumers_map: Optional[Dict[str, List[Path]]] = None,
+    consumers_map: dict[str, list[Path]] | None = None,
 ) -> FileStats:
     """Prune one file.  Returns FileStats.
 
@@ -782,7 +782,7 @@ def prune_file(
     backup_path.write_text(original_content, encoding="utf-8")
 
     final_content = original_content  # default if anything goes wrong
-    consumer_baselines: Dict[Path, int] = {}
+    consumer_baselines: dict[Path, int] = {}
 
     try:
         # Compute baseline count of semantic-change warnings (always — even
@@ -800,7 +800,7 @@ def prune_file(
         # precompute the consumer set + their warning baselines once.
         # We use the file's OWN module path (Aletheia.X.Y.Z) to find its
         # consumers in the global graph.
-        file_consumers: List[Path] = []
+        file_consumers: list[Path] = []
         if include_public and consumers_map is not None:
             file_module = path_to_module(file_path, src_dir)
             file_consumers = [
@@ -921,14 +921,14 @@ def prune_file(
     return stats
 
 
-def restore_backups(paths: List[Path]) -> int:
+def restore_backups(paths: list[Path]) -> int:
     """Restore any `*.prune-bak` files found under `paths`.
 
     Useful after an interrupted run that left files in a modified state.
     Returns: number of files restored."""
     restored = 0
     for p in paths:
-        candidates: List[Path]
+        candidates: list[Path]
         if p.is_file() and p.name.endswith(".prune-bak"):
             candidates = [p]
         elif p.is_dir():
@@ -973,8 +973,8 @@ def _install_cleanup_handlers() -> None:
 
 
 def _find_live_block(
-    current_lines: List[str], module_path: str, original_idx: int
-) -> Optional[ImportBlock]:
+    current_lines: list[str], module_path: str, original_idx: int
+) -> ImportBlock | None:
     """After mutations, re-parse and find the block matching `module_path`.
 
     Use original_idx to disambiguate if multiple blocks share a module_path
@@ -993,13 +993,13 @@ def _per_name_using(
     file_path: Path,
     src_dir: Path,
     block: ImportBlock,
-    current_lines: List[str],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[int]:
+) -> list[int]:
     """Test each using-name in `block` one at a time.
 
     Mutates `current_lines` in-place when a removal succeeds.
@@ -1024,13 +1024,13 @@ def _per_name_renaming(
     file_path: Path,
     src_dir: Path,
     block: ImportBlock,
-    current_lines: List[str],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[int]:
+) -> list[int]:
     """Same as _per_name_using but for renaming pairs."""
     removed = []
     for src, dst in list(block.renaming_pairs):
@@ -1049,13 +1049,13 @@ def _bisect_using(
     file_path: Path,
     src_dir: Path,
     block: ImportBlock,
-    current_lines: List[str],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[int]:
+) -> list[int]:
     """Bisect: try removing all using-names at once.  If pass, all dead.
     If fail with len==1, the one is live.  Else split and recurse.
 
@@ -1073,14 +1073,14 @@ def _bisect_helper_using(
     file_path: Path,
     src_dir: Path,
     module_path: str,
-    candidates: List[str],
-    current_lines: List[str],
+    candidates: list[str],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[str]:
+) -> list[str]:
     """Recursive bisection on `candidates` (names in module_path's using clause)."""
     if not candidates:
         return []
@@ -1152,14 +1152,14 @@ def _bisect_per_name_fallback(
     file_path: Path,
     src_dir: Path,
     module_path: str,
-    candidates: List[str],
-    current_lines: List[str],
+    candidates: list[str],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[str]:
+) -> list[str]:
     """Per-name removal for a list of using names in module_path."""
     removed = []
     for name in candidates:
@@ -1178,7 +1178,7 @@ def _try_remove_using(
     file_path: Path,
     src_dir: Path,
     block: ImportBlock,
-    current_lines: List[str],
+    current_lines: list[str],
     name: str,
     rts_cores: int,
     rts_heap_gb: int,
@@ -1212,13 +1212,13 @@ def _bisect_renaming(
     file_path: Path,
     src_dir: Path,
     block: ImportBlock,
-    current_lines: List[str],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """Bisect on renaming pairs.  Symmetric to _bisect_using."""
     return _bisect_helper_renaming(
         file_path, src_dir, block.module_path, list(block.renaming_pairs),
@@ -1230,14 +1230,14 @@ def _bisect_helper_renaming(
     file_path: Path,
     src_dir: Path,
     module_path: str,
-    candidates: List[Tuple[str, str]],
-    current_lines: List[str],
+    candidates: list[tuple[str, str]],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     if not candidates:
         return []
 
@@ -1300,14 +1300,14 @@ def _bisect_per_pair_fallback(
     file_path: Path,
     src_dir: Path,
     module_path: str,
-    candidates: List[Tuple[str, str]],
-    current_lines: List[str],
+    candidates: list[tuple[str, str]],
+    current_lines: list[str],
     rts_cores: int,
     rts_heap_gb: int,
     timeout: int,
     stats: FileStats,
     verbose: bool,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     removed = []
     for src, dst in candidates:
         fresh = _find_live_block(current_lines, module_path, 0)
@@ -1325,7 +1325,7 @@ def _try_remove_renaming(
     file_path: Path,
     src_dir: Path,
     block: ImportBlock,
-    current_lines: List[str],
+    current_lines: list[str],
     src: str,
     dst: str,
     rts_cores: int,
@@ -1360,9 +1360,9 @@ def _try_remove_renaming(
 # ----------------------------------------------------------------------------
 
 
-def gather_agda_files(paths: List[Path]) -> List[Path]:
+def gather_agda_files(paths: list[Path]) -> list[Path]:
     """Recursively collect *.agda files from the given paths."""
-    files: List[Path] = []
+    files: list[Path] = []
     for p in paths:
         if p.is_file() and p.suffix == ".agda":
             files.append(p.resolve())
@@ -1456,7 +1456,7 @@ def main() -> int:
     # no consumer checks are needed and the graph is wasted work).  Always
     # scan the full src/ tree (not just `paths`) — a file in `paths` may
     # have consumers outside `paths`.
-    consumers_map: Dict[str, List[Path]] = {}
+    consumers_map: dict[str, list[Path]] = {}
     if args.include_public:
         if not args.quiet:
             print("  building reverse dependency graph (full src/ tree)...", flush=True)
@@ -1491,7 +1491,7 @@ def main() -> int:
         for f in files
     ]
 
-    all_stats: List[FileStats] = []
+    all_stats: list[FileStats] = []
     errors = 0
 
     # Decide whether to use topological-level batching.  Default is ON
@@ -1510,7 +1510,7 @@ def main() -> int:
     # reliably produced 1 baseline error per run.  Pass `--workers 1`
     # to truly force single-bucket sequential (no race possible).
     if args.workers <= 1:
-        batches: List[List[tuple]] = [worker_args]  # serial — no race
+        batches: list[list[tuple]] = [worker_args]  # serial — no race
     elif args.no_topo:
         # Honor --no-topo iff the input set has no inter-dependencies.
         levels = topological_levels(files, SRC_DIR)
