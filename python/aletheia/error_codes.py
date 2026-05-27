@@ -20,6 +20,7 @@ class ErrorCode(str, Enum):
 
     Each code maps 1:1 to an Agda error constructor via errorCode.
     """
+
     # Parse errors
     PARSE_MISSING_FIELD = "parse_missing_field"
     PARSE_INVALID_BYTE_ORDER = "parse_invalid_byte_order"

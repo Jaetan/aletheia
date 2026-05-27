@@ -12,13 +12,15 @@ from typing import TypedDict
 
 
 class IssueSeverity(str, Enum):
-    """Validation issue severity"""
+    """Validation issue severity."""
+
     ERROR = "error"
     WARNING = "warning"
 
 
 class IssueCode(str, Enum):
-    """Validation issue codes matching Agda IssueCode enum"""
+    """Validation issue codes matching Agda IssueCode enum."""
+
     DUPLICATE_MESSAGE_ID = "duplicate_message_id"
     DUPLICATE_SIGNAL_NAME = "duplicate_signal_name"
     FACTOR_ZERO = "factor_zero"
@@ -43,14 +45,15 @@ class IssueCode(str, Enum):
 
 
 class ValidationIssue(TypedDict):
-    """A single DBC validation issue"""
+    """A single DBC validation issue."""
+
     severity: IssueSeverity
     code: IssueCode
     detail: str
 
 
 __all__ = [
-    "IssueSeverity",
     "IssueCode",
+    "IssueSeverity",
     "ValidationIssue",
 ]

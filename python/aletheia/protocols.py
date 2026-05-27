@@ -1,4 +1,4 @@
-"""Type definitions for structured data
+"""Type definitions for structured data.
 
 Defines TypedDict classes, Literal types, and Enums for well-known structures.
 This provides better type safety and IDE support.
@@ -8,11 +8,10 @@ re-exports its public names so consumers can keep importing from
 ``aletheia.protocols`` directly (R19 cluster 17 follow-up split, 2026-05-12).
 """
 
-from enum import Enum
 import json
+from enum import Enum
 from fractions import Fraction
-from typing import Literal, NotRequired, TypeGuard, TypedDict, cast
-
+from typing import Literal, NotRequired, TypedDict, TypeGuard, cast
 
 from aletheia._dbc_types import (
     AttrScope,
@@ -92,12 +91,12 @@ class FractionJSONEncoder(json.JSONEncoder):
 
 
 def dump_json(value: object, *, indent: int | None = None) -> str:
-    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
+    r"""Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
 
     ``ensure_ascii=False`` is pinned so identifier and string-literal
     fields with non-ASCII characters (DBC permits non-ASCII in
     ``CM_`` text bodies, comments, and similar opaque-tail consumers)
-    serialize as their UTF-8 bytes rather than ``\\uXXXX`` escapes.  The
+    serialize as their UTF-8 bytes rather than ``\uXXXX`` escapes.  The
     Agda-side parser is byte-oriented; the Go and C++ bindings emit
     UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
     byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
@@ -106,7 +105,7 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
 
 
-def to_signal_fraction(value: float | int | Fraction) -> Fraction:
+def to_signal_fraction(value: float | Fraction) -> Fraction:
     """Convert a decimal-intent numeric input to a Fraction for DBCSignal fields.
 
     Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
@@ -135,9 +134,10 @@ def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
         ``object`` keys.  The check is one ``isinstance`` plus a key
         scan; not free for large dicts but the values are O(1) to
         access afterwards under the narrowed type.
+
     """
     return isinstance(val, dict) and all(
-        isinstance(k, str) for k in cast(dict[object, object], val)
+        isinstance(k, str) for k in cast("dict[object, object]", val)
     )
 
 
@@ -149,12 +149,14 @@ def is_object_list(val: object) -> TypeGuard[list[object]]:
         ``object``; the caller is responsible for per-element narrowing
         before accessing them.  Used to dispatch on "is this a JSON
         array" before iterating.
+
     """
     return isinstance(val, list)
 
 
 class PredicateType(str, Enum):
-    """Signal predicate types matching Agda JSON schema"""
+    """Signal predicate types matching Agda JSON schema."""
+
     EQUALS = "equals"
     LESS_THAN = "lessThan"
     GREATER_THAN = "greaterThan"
@@ -184,42 +186,48 @@ class PredicateType(str, Enum):
 # C++'s ``rational_to_json`` (cluster 17 / PY-D-19.1).
 
 class EqualsPredicate(TypedDict):
-    """Equals predicate: signal == value"""
+    """Equals predicate: signal == value."""
+
     predicate: Literal["equals"]
     signal: str
     value: Fraction
 
 
 class LessThanPredicate(TypedDict):
-    """LessThan predicate: signal < value"""
+    """LessThan predicate: signal < value."""
+
     predicate: Literal["lessThan"]
     signal: str
     value: Fraction
 
 
 class GreaterThanPredicate(TypedDict):
-    """GreaterThan predicate: signal > value"""
+    """GreaterThan predicate: signal > value."""
+
     predicate: Literal["greaterThan"]
     signal: str
     value: Fraction
 
 
 class LessThanOrEqualPredicate(TypedDict):
-    """LessThanOrEqual predicate: signal <= value"""
+    """LessThanOrEqual predicate: signal <= value."""
+
     predicate: Literal["lessThanOrEqual"]
     signal: str
     value: Fraction
 
 
 class GreaterThanOrEqualPredicate(TypedDict):
-    """GreaterThanOrEqual predicate: signal >= value"""
+    """GreaterThanOrEqual predicate: signal >= value."""
+
     predicate: Literal["greaterThanOrEqual"]
     signal: str
     value: Fraction
 
 
 class BetweenPredicate(TypedDict):
-    """Between predicate: min <= signal <= max"""
+    """Between predicate: min <= signal <= max."""
+
     predicate: Literal["between"]
     signal: str
     min: Fraction
@@ -232,13 +240,15 @@ class ChangedByPredicate(TypedDict):
     Positive delta: curr - prev >= delta (increased by at least delta)
     Negative delta: curr - prev <= delta (decreased by at least |delta|)
     """
+
     predicate: Literal["changedBy"]
     signal: str
     delta: Fraction
 
 
 class StableWithinPredicate(TypedDict):
-    """StableWithin predicate: |signal_now - signal_prev| <= tolerance"""
+    """StableWithin predicate: |signal_now - signal_prev| <= tolerance."""
+
     predicate: Literal["stableWithin"]
     signal: str
     tolerance: Fraction
@@ -259,41 +269,47 @@ SignalPredicate = (
 # -- LTL Formula Types (using "operator" key) --
 
 class AtomicFormula(TypedDict):
-    """Atomic formula wrapping a signal predicate"""
+    """Atomic formula wrapping a signal predicate."""
+
     operator: Literal["atomic"]
     predicate: SignalPredicate
 
 
 class AndFormula(TypedDict):
-    """Logical AND: left && right"""
+    """Logical AND: left && right."""
+
     operator: Literal["and"]
-    left: 'LTLFormula'
-    right: 'LTLFormula'
+    left: "LTLFormula"
+    right: "LTLFormula"
 
 
 class OrFormula(TypedDict):
-    """Logical OR: left || right"""
+    """Logical OR: left || right."""
+
     operator: Literal["or"]
-    left: 'LTLFormula'
-    right: 'LTLFormula'
+    left: "LTLFormula"
+    right: "LTLFormula"
 
 
 class NotFormula(TypedDict):
-    """Logical NOT: !formula"""
+    """Logical NOT: !formula."""
+
     operator: Literal["not"]
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class AlwaysFormula(TypedDict):
-    """Always (globally): G(formula)"""
+    """Always (globally): G(formula)."""
+
     operator: Literal["always"]
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class EventuallyFormula(TypedDict):
-    """Eventually (finally): F(formula)"""
+    """Eventually (finally): F(formula)."""
+
     operator: Literal["eventually"]
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class NextFormula(TypedDict):
@@ -303,8 +319,9 @@ class NextFormula(TypedDict):
     ``metric_until``. CAN timing jitter makes frame-exact semantics
     unreliable; kept for standard-LTLf completeness.
     """
+
     operator: Literal["next"]
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class WeakNextFormula(TypedDict):
@@ -314,52 +331,59 @@ class WeakNextFormula(TypedDict):
     ``metric_until``. CAN timing jitter makes frame-exact semantics
     unreliable; kept for standard-LTLf completeness.
     """
+
     operator: Literal["weakNext"]
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class MetricEventuallyFormula(TypedDict):
-    """Metric Eventually: F_{<=t}(formula)"""
+    """Metric Eventually: F_{<=t}(formula)."""
+
     operator: Literal["metricEventually"]
     timebound: int
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class MetricAlwaysFormula(TypedDict):
-    """Metric Always: G_{<=t}(formula)"""
+    """Metric Always: G_{<=t}(formula)."""
+
     operator: Literal["metricAlways"]
     timebound: int
-    formula: 'LTLFormula'
+    formula: "LTLFormula"
 
 
 class UntilFormula(TypedDict):
-    """Temporal until: left U right"""
+    """Temporal until: left U right."""
+
     operator: Literal["until"]
-    left: 'LTLFormula'
-    right: 'LTLFormula'
+    left: "LTLFormula"
+    right: "LTLFormula"
 
 
 class ReleaseFormula(TypedDict):
-    """Temporal release: left R right (dual of until)"""
+    """Temporal release: left R right (dual of until)."""
+
     operator: Literal["release"]
-    left: 'LTLFormula'
-    right: 'LTLFormula'
+    left: "LTLFormula"
+    right: "LTLFormula"
 
 
 class MetricUntilFormula(TypedDict):
-    """Metric Until: left U_{<=t} right"""
+    """Metric Until: left U_{<=t} right."""
+
     operator: Literal["metricUntil"]
     timebound: int
-    left: 'LTLFormula'
-    right: 'LTLFormula'
+    left: "LTLFormula"
+    right: "LTLFormula"
 
 
 class MetricReleaseFormula(TypedDict):
-    """Metric Release: left R_{<=t} right"""
+    """Metric Release: left R_{<=t} right."""
+
     operator: Literal["metricRelease"]
     timebound: int
-    left: 'LTLFormula'
-    right: 'LTLFormula'
+    left: "LTLFormula"
+    right: "LTLFormula"
 
 
 # Union type for all LTL formulas
@@ -386,7 +410,8 @@ LTLFormula = (
 # ============================================================================
 
 class RationalNumber(TypedDict):
-    """Rational number representation from Agda"""
+    """Rational number representation from Agda."""
+
     numerator: int
     denominator: int
 
@@ -398,6 +423,7 @@ class SignalValue(TypedDict):
     representation — extraction responses encode non-integer values as
     ``{"numerator": n, "denominator": d}`` on the wire.
     """
+
     name: str
     value: Fraction
 
@@ -411,6 +437,7 @@ class SignalError(TypedDict):
     string from the core; pair with :class:`SignalValue` in extraction
     responses, where successful and failed signals share one envelope.
     """
+
     name: str
     error: str
 
@@ -420,28 +447,32 @@ class SignalError(TypedDict):
 # ============================================================================
 
 class ParseDBCCommand(TypedDict):
-    """Parse DBC file command"""
+    """Parse DBC file command."""
+
     type: Literal["command"]
     command: Literal["parseDBC"]
     dbc: DBCDefinition
 
 
 class SetPropertiesCommand(TypedDict):
-    """Set LTL properties command"""
+    """Set LTL properties command."""
+
     type: Literal["command"]
     command: Literal["setProperties"]
     properties: list[LTLFormula]
 
 
 class ValidateDBCCommand(TypedDict):
-    """Validate a parsed DBC definition"""
+    """Validate a parsed DBC definition."""
+
     type: Literal["command"]
     command: Literal["validateDBC"]
     dbc: DBCDefinition
 
 
 class ParseDBCTextCommand(TypedDict):
-    """Parse DBC from raw DBC text using the verified Agda text parser"""
+    """Parse DBC from raw DBC text using the verified Agda text parser."""
+
     type: Literal["command"]
     command: Literal["parseDBCText"]
     text: str
@@ -453,6 +484,7 @@ class FormatDBCTextCommand(TypedDict):
     The inverse of ``ParseDBCTextCommand`` at the wire level: text → JSON → text
     closes byte-identical for any well-formed DBC (post-Phase-E.9a).
     """
+
     type: Literal["command"]
     command: Literal["formatDBCText"]
     dbc: DBCDefinition
@@ -469,7 +501,8 @@ Command = (
 
 
 class SuccessResponse(TypedDict):
-    """Success response"""
+    """Success response."""
+
     status: Literal["success"]
     message: NotRequired[str]
 
@@ -484,6 +517,7 @@ class ErrorResponse(TypedDict):
     on all other error codes; the Agda kernel emits the typed payload
     via ``Protocol/ResponseFormat.errorExtras`` (AGDA-D-13.4 phase 2a).
     """
+
     status: Literal["error"]
     code: str
     message: str
@@ -493,7 +527,8 @@ class ErrorResponse(TypedDict):
 
 
 class AckResponse(TypedDict):
-    """Acknowledgment response"""
+    """Acknowledgment response."""
+
     status: Literal["ack"]
 
 
@@ -505,6 +540,7 @@ class ViolationEnrichment(TypedDict):
     from signal values and formula structure; ``core_reason`` is the raw
     reason from the Agda core (may be empty).
     """
+
     signals: dict[str, Fraction | None]
     formula_desc: str
     enriched_reason: str
@@ -527,6 +563,7 @@ class PropertyBatchResponse(TypedDict):
     (``timestamp``, ``reason``, optional ``enrichment``); ``status: "holds"``
     carries only the ``property_index``.
     """
+
     type: Literal["property_batch"]
     results: list["PropertyResultEntry"]
 
@@ -543,6 +580,7 @@ class PropertyResultEntry(TypedDict):
     denotational semantics agrees this is Unknown, so it is reported as a
     distinct verdict rather than collapsed to a failure.
     """
+
     type: Literal["property"]
     status: Literal["fails", "holds", "unresolved"]
     property_index: RationalNumber
@@ -560,20 +598,23 @@ class CompleteWarning(TypedDict):
     additive on the wire (future kinds appear here and the binding
     surfaces them under a string-typed ``kind`` field).
     """
+
     kind: str
     property_index: int
     detail: str
 
 
 class CompleteResponse(TypedDict):
-    """Stream complete response with per-property finalization results"""
+    """Stream complete response with per-property finalization results."""
+
     status: Literal["complete"]
     results: list[PropertyResultEntry]
     warnings: list[CompleteWarning]
 
 
 class ExtractSignalsResponse(TypedDict):
-    """Response from extractAllSignals command"""
+    """Response from extractAllSignals command."""
+
     status: Literal["success"]
     values: list[SignalValue]
     errors: list[SignalError]
@@ -581,13 +622,15 @@ class ExtractSignalsResponse(TypedDict):
 
 
 class FormatDBCResponse(TypedDict):
-    """Response from formatDBC command"""
+    """Response from formatDBC command."""
+
     status: Literal["success"]
     dbc: DBCDefinition
 
 
 class ValidationResponse(TypedDict):
-    """Response from validateDBC command"""
+    """Response from validateDBC command."""
+
     status: Literal["validation"]
     has_errors: bool
     issues: list[ValidationIssue]
@@ -601,6 +644,7 @@ class ParsedDBCResponse(TypedDict):
     ``ErrorResponse``; this shape is only emitted when the parsed DBC passes
     every error-severity check.
     """
+
     status: Literal["success"]
     dbc: DBCDefinition
     warnings: list[ValidationIssue]
@@ -613,6 +657,7 @@ class DBCTextResponse(TypedDict):
     input.  Errors (JSON parse failure on the input) short-circuit to
     ``ErrorResponse``.
     """
+
     status: Literal["success"]
     text: str
 
@@ -638,112 +683,112 @@ Response = (
 # added below does not accidentally leak into the binding API surface, and
 # consumers get a stable grep target for the cross-binding protocol vocabulary.
 __all__ = [
-    # Type guards
-    "is_str_dict",
-    "is_object_list",
+    "AckResponse",
+    "AlwaysFormula",
+    "AndFormula",
+    "AtomicFormula",
+    "AttrScope",
+    "BetweenPredicate",
     # Literals
     "ByteOrder",
-    "SignalPresence",
-    "DLCByteCount",
-    "DLCCode",
-    # Enums
-    "PredicateType",
+    "ChangedByPredicate",
+    # Commands
+    "Command",
+    "CompleteResponse",
+    "CompleteWarning",
+    "DBCAttrAssign",
+    "DBCAttrDef",
+    "DBCAttrDefault",
+    "DBCAttrTarget",
+    "DBCAttrTargetEnvVar",
+    "DBCAttrTargetMessage",
+    "DBCAttrTargetNetwork",
+    "DBCAttrTargetNode",
+    "DBCAttrTargetNodeMsg",
+    "DBCAttrTargetNodeSig",
+    "DBCAttrTargetSignal",
+    "DBCAttrType",
+    "DBCAttrTypeEnum",
+    "DBCAttrTypeFloat",
+    "DBCAttrTypeHex",
+    "DBCAttrTypeInt",
+    "DBCAttrTypeString",
+    "DBCAttrValue",
+    "DBCAttrValueEnum",
+    "DBCAttrValueFloat",
+    "DBCAttrValueHex",
+    "DBCAttrValueInt",
+    "DBCAttrValueString",
+    "DBCAttribute",
+    "DBCComment",
+    "DBCCommentTarget",
+    "DBCCommentTargetEnvVar",
+    "DBCCommentTargetMessage",
+    "DBCCommentTargetNetwork",
+    "DBCCommentTargetNode",
+    "DBCCommentTargetSignal",
+    "DBCDefinition",
+    "DBCEnvironmentVar",
+    "DBCMessage",
+    # Tier 2 DBC metadata
+    "DBCNode",
+    "DBCRawValueDesc",
     # DBC types
     "DBCSignal",
     "DBCSignalAlways",
-    "DBCSignalMultiplexed",
-    "DBCMessage",
-    "DBCDefinition",
     "DBCSignalGroup",
-    "DBCVarType",
-    "DBCEnvironmentVar",
+    "DBCSignalMultiplexed",
+    "DBCTextResponse",
     "DBCValueEntry",
     "DBCValueTable",
-    "DBCRawValueDesc",
-    # Tier 2 DBC metadata
-    "DBCNode",
-    "DBCComment",
-    "DBCCommentTarget",
-    "DBCCommentTargetNetwork",
-    "DBCCommentTargetNode",
-    "DBCCommentTargetMessage",
-    "DBCCommentTargetSignal",
-    "DBCCommentTargetEnvVar",
-    "AttrScope",
-    "DBCAttrType",
-    "DBCAttrTypeInt",
-    "DBCAttrTypeFloat",
-    "DBCAttrTypeString",
-    "DBCAttrTypeEnum",
-    "DBCAttrTypeHex",
-    "DBCAttrValue",
-    "DBCAttrValueInt",
-    "DBCAttrValueFloat",
-    "DBCAttrValueString",
-    "DBCAttrValueEnum",
-    "DBCAttrValueHex",
-    "DBCAttrTarget",
-    "DBCAttrTargetNetwork",
-    "DBCAttrTargetNode",
-    "DBCAttrTargetMessage",
-    "DBCAttrTargetSignal",
-    "DBCAttrTargetEnvVar",
-    "DBCAttrTargetNodeMsg",
-    "DBCAttrTargetNodeSig",
-    "DBCAttribute",
-    "DBCAttrDef",
-    "DBCAttrDefault",
-    "DBCAttrAssign",
-    # Signal predicates
-    "SignalPredicate",
+    "DBCVarType",
+    "DLCByteCount",
+    "DLCCode",
     "EqualsPredicate",
-    "LessThanPredicate",
-    "GreaterThanPredicate",
-    "LessThanOrEqualPredicate",
-    "GreaterThanOrEqualPredicate",
-    "BetweenPredicate",
-    "ChangedByPredicate",
-    "StableWithinPredicate",
-    # LTL formulas
-    "LTLFormula",
-    "AtomicFormula",
-    "AndFormula",
-    "OrFormula",
-    "NotFormula",
-    "AlwaysFormula",
-    "EventuallyFormula",
-    "NextFormula",
-    "WeakNextFormula",
-    "MetricEventuallyFormula",
-    "MetricAlwaysFormula",
-    "UntilFormula",
-    "ReleaseFormula",
-    "MetricUntilFormula",
-    "MetricReleaseFormula",
-    # Rational / signal values
-    "RationalNumber",
-    "SignalValue",
-    "SignalError",
-    # Commands
-    "Command",
-    "ParseDBCCommand",
-    "SetPropertiesCommand",
-    "ValidateDBCCommand",
-    "ParseDBCTextCommand",
-    "FormatDBCTextCommand",
-    # Responses
-    "Response",
-    "SuccessResponse",
     "ErrorResponse",
-    "AckResponse",
-    "ViolationEnrichment",
-    "PropertyBatchResponse",
-    "PropertyResultEntry",
-    "CompleteResponse",
-    "CompleteWarning",
+    "EventuallyFormula",
     "ExtractSignalsResponse",
     "FormatDBCResponse",
-    "ValidationResponse",
+    "FormatDBCTextCommand",
+    "GreaterThanOrEqualPredicate",
+    "GreaterThanPredicate",
+    # LTL formulas
+    "LTLFormula",
+    "LessThanOrEqualPredicate",
+    "LessThanPredicate",
+    "MetricAlwaysFormula",
+    "MetricEventuallyFormula",
+    "MetricReleaseFormula",
+    "MetricUntilFormula",
+    "NextFormula",
+    "NotFormula",
+    "OrFormula",
+    "ParseDBCCommand",
+    "ParseDBCTextCommand",
     "ParsedDBCResponse",
-    "DBCTextResponse",
+    # Enums
+    "PredicateType",
+    "PropertyBatchResponse",
+    "PropertyResultEntry",
+    # Rational / signal values
+    "RationalNumber",
+    "ReleaseFormula",
+    # Responses
+    "Response",
+    "SetPropertiesCommand",
+    "SignalError",
+    # Signal predicates
+    "SignalPredicate",
+    "SignalPresence",
+    "SignalValue",
+    "StableWithinPredicate",
+    "SuccessResponse",
+    "UntilFormula",
+    "ValidateDBCCommand",
+    "ValidationResponse",
+    "ViolationEnrichment",
+    "WeakNextFormula",
+    "is_object_list",
+    # Type guards
+    "is_str_dict",
 ]

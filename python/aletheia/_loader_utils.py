@@ -1,5 +1,4 @@
-"""Shared field accessors and path-hardening helpers for the YAML and
-Excel check loaders.
+"""Shared field accessors and path-hardening helpers for the YAML and Excel loaders.
 
 Both loaders need to (a) extract typed fields from untyped dicts with
 helpful error messages, and (b) reject adversarial loader inputs
@@ -20,7 +19,6 @@ from typing import TypeGuard
 #   gain is small (linter/dev-tooling clarity).
 # Revisit when: First external user lands, OR a `python -m aletheia._loader_utils`
 #   discovery surfaces the helpers as confusing public API.
-
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
@@ -52,7 +50,8 @@ def get_str(d: dict[str, object], key: str, ctx: str) -> str:
     """
     val = d.get(key)
     if not isinstance(val, str):
-        raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected string)")
+        msg = f"{ctx}: missing or invalid '{key}' (expected string)"
+        raise ValidationError(msg)
     return val
 
 
@@ -65,7 +64,8 @@ def get_number(d: dict[str, object], key: str, ctx: str) -> float:
     val = d.get(key)
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return float(val)
-    raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected number)")
+    msg = f"{ctx}: missing or invalid '{key}' (expected number)"
+    raise ValidationError(msg)
 
 
 def get_int(d: dict[str, object], key: str, ctx: str) -> int:
@@ -73,7 +73,8 @@ def get_int(d: dict[str, object], key: str, ctx: str) -> int:
     val = d.get(key)
     if is_pure_int(val):
         return val
-    raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected integer)")
+    msg = f"{ctx}: missing or invalid '{key}' (expected integer)"
+    raise ValidationError(msg)
 
 
 def get_bool(d: dict[str, object], key: str, ctx: str) -> bool:
@@ -96,14 +97,16 @@ def get_bool(d: dict[str, object], key: str, ctx: str) -> bool:
             return True
         if upper == "FALSE":
             return False
-    raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected TRUE/FALSE)")
+    msg = f"{ctx}: missing or invalid '{key}' (expected TRUE/FALSE)"
+    raise ValidationError(msg)
 
 
 def get_dict(d: dict[str, object], key: str, ctx: str) -> dict[str, object]:
     """Extract a required dict field from *d*."""
     val = d.get(key)
     if not is_str_dict(val):
-        raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected mapping)")
+        msg = f"{ctx}: missing or invalid '{key}' (expected mapping)"
+        raise ValidationError(msg)
     return val
 
 
@@ -128,6 +131,7 @@ def reject_symlink_loader_path(p: Path, kind: str) -> None:
 
     Raises:
         ValidationError: *p* exists but is a symbolic link.
+
     """
     link_st = os.lstat(p)
     if stat.S_ISLNK(link_st.st_mode):

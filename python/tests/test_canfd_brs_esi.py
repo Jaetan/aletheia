@@ -28,15 +28,15 @@ class TestEncodeMaybeBool:
 
     def test_none_encodes_to_zero_zero(self) -> None:
         """``None`` lifts to the absent (present=0, value=0) byte pair."""
-        assert encode_maybe_bool(None) == (0, 0)
+        assert encode_maybe_bool(b=None) == (0, 0)
 
     def test_true_encodes_to_one_one(self) -> None:
         """``True`` lifts to present=1, value=1."""
-        assert encode_maybe_bool(True) == (1, 1)
+        assert encode_maybe_bool(b=True) == (1, 1)
 
     def test_false_encodes_to_one_zero(self) -> None:
         """``False`` lifts to present=1, value=0."""
-        assert encode_maybe_bool(False) == (1, 0)
+        assert encode_maybe_bool(b=False) == (1, 0)
 
 
 class TestCANFrameTupleBrsEsi:

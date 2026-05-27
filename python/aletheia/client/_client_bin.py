@@ -21,8 +21,12 @@ from dataclasses import dataclass
 from enum import IntEnum
 from fractions import Fraction
 
-from aletheia.protocols import DLCCode
 from aletheia.client._types import ProtocolError, SignalExtractionResult
+from aletheia.protocols import DLCCode
+
+# The binary extraction response opens with a three-``u16`` count header
+# (values / errors / absent); ``<HHH`` is 6 bytes.
+_HEADER_BYTES = struct.calcsize("<HHH")
 
 
 class ExtractionErrorCode(IntEnum):
@@ -70,6 +74,7 @@ EXTRACTION_ERROR_MESSAGES: tuple[str, ...] = tuple(
 @dataclass(frozen=True, slots=True)
 class FrameIdentity:
     """CAN frame identity (ID + ID width + DLC) used by all binary calls."""
+
     can_id: int
     extended: bool
     dlc: DLCCode
@@ -78,6 +83,7 @@ class FrameIdentity:
 @dataclass(frozen=True, slots=True)
 class SignalValues:
     """Parallel tuples of signal indices and rational values (num/den)."""
+
     indices: tuple[int, ...]
     numerators: tuple[int, ...]
     denominators: tuple[int, ...]
@@ -94,18 +100,16 @@ def _parse_values_segment(
     """
     needed = off + count * 18
     if len(buf) < needed:
-        raise ProtocolError(
-            f"Truncated values segment: need {needed} bytes, have {len(buf)}"
-        )
+        msg = f"Truncated values segment: need {needed} bytes, have {len(buf)}"
+        raise ProtocolError(msg)
     values: dict[str, Fraction] = {}
     for _ in range(count):
         idx, num, den = map(int, struct.unpack_from("<Hqq", buf, off))
         off += 18
         name = names[idx] if idx < len(names) else f"signal_{idx}"
         if den == 0:
-            raise ProtocolError(
-                f"Zero denominator in extraction value for {name!r}"
-            )
+            msg = f"Zero denominator in extraction value for {name!r}"
+            raise ProtocolError(msg)
         values[name] = Fraction(num, den)
     return values, off
 
@@ -116,9 +120,8 @@ def _parse_errors_segment(
     """Parse the errors segment: ``count`` × ``<HB`` (3 bytes each)."""
     needed = off + count * 3
     if len(buf) < needed:
-        raise ProtocolError(
-            f"Truncated errors segment: need {needed} bytes, have {len(buf)}"
-        )
+        msg = f"Truncated errors segment: need {needed} bytes, have {len(buf)}"
+        raise ProtocolError(msg)
     errors: dict[str, str] = {}
     for _ in range(count):
         idx, code = map(int, struct.unpack_from("<HB", buf, off))
@@ -140,9 +143,8 @@ def _parse_absent_segment(
     """Parse the absent segment: ``count`` × ``<H`` (2 bytes each)."""
     needed = off + count * 2
     if len(buf) < needed:
-        raise ProtocolError(
-            f"Truncated absent segment: need {needed} bytes, have {len(buf)}"
-        )
+        msg = f"Truncated absent segment: need {needed} bytes, have {len(buf)}"
+        raise ProtocolError(msg)
     absent: list[str] = []
     for _ in range(count):
         (idx,) = map(int, struct.unpack_from("<H", buf, off))
@@ -159,12 +161,11 @@ def parse_extraction_buffer(
     Layout: 6-byte header (three ``u16`` counts: values / errors / absent)
     followed by each segment in that order.
     """
-    if len(buf) < 6:
-        raise ProtocolError(
-            f"Binary extraction buffer too short: {len(buf)} bytes (need >= 6)"
-        )
+    if len(buf) < _HEADER_BYTES:
+        msg = f"Binary extraction buffer too short: {len(buf)} bytes (need >= {_HEADER_BYTES})"
+        raise ProtocolError(msg)
     nvals, nerrs, nabss = map(int, struct.unpack_from("<HHH", buf, 0))
-    values, off = _parse_values_segment(buf, 6, nvals, names)
+    values, off = _parse_values_segment(buf, _HEADER_BYTES, nvals, names)
     errors, off = _parse_errors_segment(buf, off, nerrs, names)
     absent, _ = _parse_absent_segment(buf, off, nabss, names)
     return SignalExtractionResult(values=values, errors=errors, absent=tuple(absent))

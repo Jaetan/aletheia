@@ -20,7 +20,11 @@ from typing import NamedTuple, cast, override
 
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
 from aletheia.protocols import (
-    AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyBatchResponse,
+    AckResponse,
+    DLCByteCount,
+    DLCCode,
+    ErrorResponse,
+    PropertyBatchResponse,
     PropertyResultEntry,
 )
 
@@ -36,6 +40,7 @@ class AletheiaError(Exception):
             purely client-side (e.g. "library not loaded", "null pointer
             from FFI") — those surface as a plain Python exception without
             an Agda wire value.
+
     """
 
     code: str | None
@@ -79,9 +84,10 @@ class ProtocolError(AletheiaError):
 
 
 class ValidationError(AletheiaError):
-    """Caller-supplied argument failed a Python-side validity check
-    (e.g. negative timestamp, malformed CAN ID, unknown signal name,
-    payload length mismatch).
+    """Caller-supplied argument failed a Python-side validity check.
+
+    Examples: negative timestamp, malformed CAN ID, unknown signal name,
+    payload length mismatch.
 
     Mirrors Go ``ErrValidation`` and C++ ``ErrorKind::Validation`` —
     cross-binding parity for argument-rejection paths.  Replaces ad-hoc
@@ -145,6 +151,7 @@ class BatchError(AletheiaError):
             because every committed result was already yielded to the consumer
             — duplicating them here would invite double-handling.
         frame_index: Zero-based index of the frame that caused the error.
+
     """
 
     cause: Exception
@@ -180,7 +187,7 @@ def raise_on_error_response(
     # field (it discriminates on `type == "property_batch"`), so use
     # ``.get()`` to avoid KeyError on non-error batches.
     if resp.get("status") == "error":
-        err_resp = cast(ErrorResponse, resp)
+        err_resp = cast("ErrorResponse", resp)
         err = ProtocolError(
             f"error code={err_resp['code']}: {err_resp['message']}",
             code=err_resp["code"],
@@ -246,6 +253,7 @@ class FrameResult:
             if result.violation is not None:
                 handle(result.violation)
     """
+
     frame_index: int
     timestamp: int
     can_id: int
@@ -265,7 +273,7 @@ class FrameResult:
         """
         if self.response.get("type") != "property_batch":
             return None
-        results = cast(PropertyBatchResponse, self.response).get("results", [])
+        results = cast("PropertyBatchResponse", self.response).get("results", [])
         for entry in results:
             if entry.get("status") == "fails":
                 return entry
@@ -281,7 +289,7 @@ class FrameResult:
         """
         if self.response.get("type") != "property_batch":
             return []
-        return [entry for entry in cast(PropertyBatchResponse, self.response).get("results", [])
+        return [entry for entry in cast("PropertyBatchResponse", self.response).get("results", [])
                 if entry.get("status") == "holds"]
 
 
@@ -341,6 +349,7 @@ MAX_EXTRACT_CACHE: int = 256
 @dataclass(slots=True)
 class StreamCaches:
     """Per-stream mutable caches, cleared together on start_stream/parse_dbc."""
+
     extraction: ExtractionCache = dataclasses.field(default_factory=dict)
     last_frames: dict[LastFrameKey, LastFrameData] = dataclasses.field(default_factory=dict)
 
@@ -367,6 +376,7 @@ class CANFrameTuple(NamedTuple):
             if the transmitter is in error-passive state, ``False`` if
             error-active, ``None`` for CAN 2.0B frames.
     """
+
     timestamp: int
     can_id: int
     dlc: DLCCode
@@ -388,13 +398,13 @@ def validate_can_id(can_id: int, *, extended: bool) -> None:
 
     Raises:
         ValidationError: If can_id is outside the valid range.
+
     """
     max_id = _MAX_EXTENDED_ID if extended else _MAX_STANDARD_ID
     kind = "extended" if extended else "standard"
     if can_id < 0 or can_id > max_id:
-        raise ValidationError(
-            f"Invalid {kind} CAN ID: {can_id} (must be 0-{max_id})"
-        )
+        msg = f"Invalid {kind} CAN ID: {can_id} (must be 0-{max_id})"
+        raise ValidationError(msg)
 
 
 _DLC_TO_BYTES: dict[int, int] = {
@@ -411,19 +421,22 @@ def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
 
     Raises:
         ValidationError: If dlc is outside 0-15.
+
     """
     try:
         return DLCByteCount(_DLC_TO_BYTES[dlc])
     except KeyError:
-        raise ValidationError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
+        msg = f"Invalid DLC code: {dlc} (must be 0-15)"
+        raise ValidationError(msg) from None
 
 
 _BYTES_TO_DLC: dict[int, int] = {v: k for k, v in _DLC_TO_BYTES.items()}
 
 
-def encode_maybe_bool(b: bool | None) -> tuple[int, int]:
-    """Encode an Optional[bool] as the (present, value) byte pair used by
-    the binary FFI for CAN-FD BRS / ESI metadata.
+def encode_maybe_bool(*, b: bool | None) -> tuple[int, int]:
+    """Encode an Optional[bool] as the (present, value) byte pair.
+
+    Used by the binary FFI for CAN-FD BRS / ESI metadata.
 
     ``None`` → ``(0, 0)`` (the bit is absent on the wire);
     ``False`` → ``(1, 0)``; ``True`` → ``(1, 1)``.
@@ -444,6 +457,7 @@ def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
 
     Raises:
         ValidationError: If byte_count is not one of the valid lengths above.
+
     """
     try:
         return DLCCode(_BYTES_TO_DLC[byte_count])
@@ -457,6 +471,7 @@ def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
 @dataclass(slots=True, frozen=True)
 class PropertyDiagnostic:
     """Per-property diagnostic metadata for violation enrichment."""
+
     signals: tuple[str, ...]
     formula_desc: str
 
@@ -469,5 +484,6 @@ class SignalLookup:
     signal list; ``names`` is the parallel array used to resolve indices
     back to names when decoding the binary extraction response.
     """
+
     names: tuple[str, ...]
     indices: dict[str, int]

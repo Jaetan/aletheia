@@ -103,6 +103,7 @@ def log_event(
         level:   A standard ``logging`` level (``logging.INFO`` etc.).
         event:   A member of :class:`LogEvent` — the event name.
         **fields: Key/value pairs to attach to the record.
+
     """
     # Short-circuit before any allocation when the target level is disabled
     # (the default at DEBUG on the streaming hot path). Mirrors the stdlib
@@ -115,8 +116,5 @@ def log_event(
     # Go's ``slog`` attribute name so cross-binding log pipelines can parse
     # both streams with the same code.
     extra: dict[str, object] = {"event": event.value, **fields}
-    if fields:
-        msg = f"{event.value} {_format_fields(fields)}"
-    else:
-        msg = event.value
+    msg = f"{event.value} {_format_fields(fields)}" if fields else event.value
     logger.log(level, msg, extra=extra)

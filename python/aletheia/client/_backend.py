@@ -285,8 +285,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         # `from_buffer_copy` is a single C-level memcpy; the varargs form
         # `(c_uint8 * N)(*data)` does O(N) Python-level per-byte coercion.
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
-        brs_pres, brs_val = encode_maybe_bool(brs)
-        esi_pres, esi_val = encode_maybe_bool(esi)
+        brs_pres, brs_val = encode_maybe_bool(b=brs)
+        esi_pres, esi_val = encode_maybe_bool(b=esi)
         result_ptr = self._lib.aletheia_send_frame(
             ctypes.c_void_p(state),
             ctypes.c_uint64(timestamp),
