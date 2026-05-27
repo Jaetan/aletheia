@@ -50,10 +50,10 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from tools._common import (
-    emit,
     find_executable,
     prepare_artifact_dir,
     short_sha,
+    write_and_report_summary,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -238,12 +238,7 @@ def main() -> int:
     runs.append(run_cpp(artifact_dir, base_env))
 
     summary = _build_summary(sha, artifact_dir, runs, hp_target)
-    (artifact_dir / "summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n",
-    )
-
-    emit(json.dumps(summary, indent=2))
-    return 0 if summary["passed"] else 1
+    return write_and_report_summary(artifact_dir, summary)
 
 
 if __name__ == "__main__":

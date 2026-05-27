@@ -10,11 +10,16 @@ as ``python -m tools.X`` (see ``tools/__init__.py``).
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 def match_paren_content(text: str, start: int) -> str | None:
@@ -156,3 +161,15 @@ def prepare_artifact_dir(base: Path, sha: str) -> Path:
         shutil.rmtree(artifact_dir)
     artifact_dir.mkdir(parents=True)
     return artifact_dir
+
+
+def write_and_report_summary(artifact_dir: Path, summary: Mapping[str, object]) -> int:
+    """Write ``summary.json`` under ``artifact_dir``, echo it, return the exit code.
+
+    The exit code is 0 when ``summary["passed"]`` is truthy, else 1 -- the gate
+    convention shared by the mutation and stability runners.
+    """
+    rendered = json.dumps(summary, indent=2)
+    _ = (artifact_dir / "summary.json").write_text(rendered + "\n")
+    emit(rendered)
+    return 0 if summary["passed"] else 1

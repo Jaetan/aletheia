@@ -53,7 +53,12 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 import yaml
 
-from tools._common import emit, prepare_artifact_dir, run_capture, short_sha
+from tools._common import (
+    prepare_artifact_dir,
+    run_capture,
+    short_sha,
+    write_and_report_summary,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -515,12 +520,7 @@ def main() -> int:
         "drift": drift,
         "passed": not any_drift,
     }
-    (artifact_dir / "summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n",
-    )
-
-    emit(json.dumps(summary, indent=2))
-    return 0 if summary["passed"] else 1
+    return write_and_report_summary(artifact_dir, summary)
 
 
 if __name__ == "__main__":
