@@ -43,89 +43,94 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict, cast
+
+from tools._common import (
+    emit,
+    find_executable,
+    prepare_artifact_dir,
+    short_sha,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "stability"
 
+# A harness exits 0 (gate passed) or 1 (drift gate failed, verdict in JSON);
+# any other code is an environment failure that did not produce a verdict.
+_VERDICT_EXIT_CODES = (0, 1)
+# Cap on harness stderr echoed into an error string, to keep summaries small.
+_STDERR_SNIPPET_LEN = 300
+
+
+class _HarnessReport(TypedDict, total=False):
+    """The single field this runner reads from a harness's JSON verdict."""
+
+    passed: bool
+
 
 @dataclass
 class Run:
+    """Outcome of one binding's stability harness, archived into ``summary.json``."""
+
     binding: str
     artifact_path: Path
     passed: bool
     error: str | None = None
 
 
-def short_sha() -> str:
-    out = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return out.stdout.strip()
-
-
 def find_lib() -> Path:
-    p = REPO_ROOT / "build" / "libaletheia-ffi.so"
-    if not p.is_file():
-        raise SystemExit(
-            f"libaletheia-ffi.so not found at {p}; run `cabal run shake -- build` first"
+    """Return the path to the built FFI shared library, raising if it is absent."""
+    lib_path = REPO_ROOT / "build" / "libaletheia-ffi.so"
+    if not lib_path.is_file():
+        message = (
+            f"libaletheia-ffi.so not found at {lib_path}; "
+            "run `cabal run shake -- build` first"
         )
-    return p
+        raise SystemExit(message)
+    return lib_path
 
 
-def run_python(artifact_dir: Path, env: dict[str, str]) -> Run:
-    """Run the Python stability harness.  Optionally enables -hT RTS profiling
-    via the env passed in, in which case the runner expects ``aletheia.hp``
-    in cwd and renames it to ``aletheia-ffi.hp`` in the artifact dir.
+def _verdict_from_report(stdout: str) -> bool:
+    """Return the harness's ``passed`` verdict from its JSON stdout (False if absent)."""
+    report = cast("_HarnessReport", json.loads(stdout))
+    return bool(report.get("passed", False))
+
+
+def _finalize_lane(binding: str, proc: subprocess.CompletedProcess[str], out_path: Path) -> Run:
+    """Archive a harness's stdout and turn its exit code into a :class:`Run`.
+
+    Shared tail for every lane: writes the JSON verdict to ``out_path`` (or an
+    empty object if the harness was silent), treats exit codes 0/1 as a verdict
+    to parse, and any other code as an environment failure.
     """
-    venv_python = REPO_ROOT / "python" / ".venv" / "bin" / "python3"
-    python_exe = str(venv_python) if venv_python.is_file() else sys.executable
-    cmd = [python_exe, "-m", "benchmarks.stability"]
-    out_path = artifact_dir / "python.json"
-    proc = subprocess.run(
-        cmd,
-        cwd=REPO_ROOT / "python",
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
     out_path.write_text(proc.stdout if proc.stdout else "{}\n")
-    if proc.returncode == 1:
-        # Stability harness exited 1 = drift gate failure (verdict in JSON).
+    if proc.returncode in _VERDICT_EXIT_CODES:
         try:
-            report = json.loads(proc.stdout)
-            passed = bool(report.get("passed", False))
+            passed = _verdict_from_report(proc.stdout)
         except json.JSONDecodeError:
-            return Run("python", out_path, False, "Python harness emitted invalid JSON")
-        return Run("python", out_path, passed)
-    if proc.returncode != 0:
-        return Run(
-            "python",
-            out_path,
-            False,
-            f"Python harness exited {proc.returncode}: {proc.stderr.strip()[:300]}",
-        )
-    # Successful exit; report MUST exist and pass.
-    try:
-        report = json.loads(proc.stdout)
-        passed = bool(report.get("passed", False))
-    except json.JSONDecodeError:
-        return Run("python", out_path, False, "Python harness emitted invalid JSON")
-    return Run("python", out_path, passed)
+            return Run(
+                binding=binding,
+                artifact_path=out_path,
+                passed=False,
+                error=f"{binding} harness emitted invalid JSON",
+            )
+        return Run(binding=binding, artifact_path=out_path, passed=passed)
+    stderr_tail = proc.stderr.strip()[:_STDERR_SNIPPET_LEN]
+    return Run(
+        binding=binding,
+        artifact_path=out_path,
+        passed=False,
+        error=f"{binding} harness exited {proc.returncode}: {stderr_tail}",
+    )
 
 
 def run_go(artifact_dir: Path, env: dict[str, str]) -> Run:
-    cmd = ["go", "run", "./benchmarks/stability/"]
-    out_path = artifact_dir / "go.json"
+    """Run the Go stability harness and capture its verdict."""
+    cmd = [find_executable("go"), "run", "./benchmarks/stability/"]
     proc = subprocess.run(
         cmd,
         cwd=REPO_ROOT / "go",
@@ -134,28 +139,20 @@ def run_go(artifact_dir: Path, env: dict[str, str]) -> Run:
         text=True,
         check=False,
     )
-    out_path.write_text(proc.stdout if proc.stdout else "{}\n")
-    if proc.returncode in (0, 1):
-        try:
-            report = json.loads(proc.stdout)
-            return Run("go", out_path, bool(report.get("passed", False)))
-        except json.JSONDecodeError:
-            return Run("go", out_path, False, "Go harness emitted invalid JSON")
-    return Run(
-        "go", out_path, False, f"Go harness exited {proc.returncode}: {proc.stderr.strip()[:300]}"
-    )
+    return _finalize_lane("go", proc, artifact_dir / "go.json")
 
 
 def run_cpp(artifact_dir: Path, env: dict[str, str]) -> Run:
+    """Run the C++ stability harness and capture its verdict."""
+    out_path = artifact_dir / "cpp.json"
     binary = REPO_ROOT / "cpp" / "build" / "stability_bench"
     if not binary.is_file():
         return Run(
-            "cpp",
-            artifact_dir / "cpp.json",
-            False,
-            f"{binary} not built; run `cmake --build cpp/build --target stability_bench`",
+            binding="cpp",
+            artifact_path=out_path,
+            passed=False,
+            error=f"{binary} not built; run `cmake --build cpp/build --target stability_bench`",
         )
-    out_path = artifact_dir / "cpp.json"
     proc = subprocess.run(
         [str(binary)],
         cwd=REPO_ROOT,
@@ -164,68 +161,71 @@ def run_cpp(artifact_dir: Path, env: dict[str, str]) -> Run:
         text=True,
         check=False,
     )
-    out_path.write_text(proc.stdout if proc.stdout else "{}\n")
-    if proc.returncode in (0, 1):
-        try:
-            report = json.loads(proc.stdout)
-            return Run("cpp", out_path, bool(report.get("passed", False)))
-        except json.JSONDecodeError:
-            return Run("cpp", out_path, False, "C++ harness emitted invalid JSON")
-    return Run(
-        "cpp", out_path, False, f"C++ harness exited {proc.returncode}: {proc.stderr.strip()[:300]}"
+    return _finalize_lane("cpp", proc, out_path)
+
+
+def run_python_with_heap_profile(artifact_dir: Path, base_env: dict[str, str]) -> Run:
+    """Run the Python harness from ``artifact_dir`` with ``-hT`` RTS profiling.
+
+    The Python lane drives the GHC RTS heap profile.  Running with cwd set to
+    ``artifact_dir`` lands the emitted ``aletheia.hp`` (named after the RTS
+    ``argv[0]`` ``b"aletheia"``) directly in the artifact tree; ``PYTHONPATH``
+    keeps the ``benchmarks`` package importable from that cwd.  The caller
+    renames ``aletheia.hp`` to the cat 16 spec filename afterwards.
+    """
+    env = dict(base_env)
+    env["ALETHEIA_RTS_OPTS"] = "-hT"
+    env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    venv_python = REPO_ROOT / "python" / ".venv" / "bin" / "python3"
+    python_exe = str(venv_python) if venv_python.is_file() else sys.executable
+    proc = subprocess.run(
+        [python_exe, "-m", "benchmarks.stability"],
+        cwd=artifact_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
+    return _finalize_lane("python", proc, artifact_dir / "python.json")
+
+
+def _build_summary(
+    sha: str,
+    artifact_dir: Path,
+    runs: list[Run],
+    hp_target: Path,
+) -> dict[str, object]:
+    """Assemble the ``summary.json`` payload from the per-lane runs."""
+    heap_present = hp_target.is_file()
+    return {
+        "commit": sha,
+        "artifact_dir": str(artifact_dir.relative_to(REPO_ROOT)),
+        "heap_profile": str(hp_target.relative_to(REPO_ROOT)) if heap_present else None,
+        "runs": [
+            {
+                "binding": r.binding,
+                "artifact": str(r.artifact_path.relative_to(REPO_ROOT)),
+                "passed": r.passed,
+                "error": r.error,
+            }
+            for r in runs
+        ],
+        "passed": all(r.passed for r in runs) and heap_present,
+    }
 
 
 def main() -> int:
-    sha = short_sha()
-    artifact_dir = ARTIFACT_BASE / sha
-    if artifact_dir.exists():
-        # Avoid stale-merge across re-runs of the same commit.
-        shutil.rmtree(artifact_dir)
-    artifact_dir.mkdir(parents=True)
+    """Run every binding's stability harness, archive verdicts, gate on drift."""
+    sha = short_sha(REPO_ROOT)
+    artifact_dir = prepare_artifact_dir(ARTIFACT_BASE, sha)
 
     lib = find_lib()
     base_env = dict(os.environ)
     base_env["ALETHEIA_LIB"] = str(lib)
 
-    # Python lane drives the GHC RTS heap profile (-hT).  Cwd = artifact_dir
-    # so the .hp lands in the right place; we rename it to the cat 16 spec
-    # filename after the run.
-    py_env = dict(base_env)
-    py_env["ALETHEIA_RTS_OPTS"] = "-hT"
-    # The Python harness chdir's away from REPO_ROOT/python via cwd argument
-    # below, so the .hp cwd is artifact_dir.
-    # ↑ actually the harness is run with cwd=REPO_ROOT/python so the .hp lands
-    #   there.  We want it in artifact_dir; tweak by tee'ing the cwd via env
-    #   instead — simplest: run from artifact_dir and use PYTHONPATH.
-    py_env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    runs: list[Run] = [run_python_with_heap_profile(artifact_dir, base_env)]
 
-    # Override run_python's cwd by issuing the call inline here.
-    venv_python = REPO_ROOT / "python" / ".venv" / "bin" / "python3"
-    python_exe = str(venv_python) if venv_python.is_file() else sys.executable
-    py_proc = subprocess.run(
-        [python_exe, "-m", "benchmarks.stability"],
-        cwd=artifact_dir,
-        env=py_env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    py_out = artifact_dir / "python.json"
-    py_out.write_text(py_proc.stdout if py_proc.stdout else "{}\n")
-    py_passed = False
-    py_error: str | None = None
-    if py_proc.returncode in (0, 1):
-        try:
-            py_passed = bool(json.loads(py_proc.stdout).get("passed", False))
-        except json.JSONDecodeError:
-            py_error = "Python harness emitted invalid JSON"
-    else:
-        py_error = f"Python harness exited {py_proc.returncode}: {py_proc.stderr.strip()[:300]}"
-    runs: list[Run] = [Run("python", py_out, py_passed, py_error)]
-
-    # Rename the GHC RTS heap profile to the cat 16 spec filename.  argv[0]
-    # in _ffi.RTSState is set to b"aletheia" so the file lands as aletheia.hp.
+    # Rename the GHC RTS heap profile to the cat 16 spec filename.
     hp_emitted = artifact_dir / "aletheia.hp"
     hp_target = artifact_dir / "aletheia-ffi.hp"
     if hp_emitted.is_file():
@@ -237,26 +237,12 @@ def main() -> int:
     runs.append(run_go(artifact_dir, base_env))
     runs.append(run_cpp(artifact_dir, base_env))
 
-    summary = {
-        "commit": sha,
-        "artifact_dir": str(artifact_dir.relative_to(REPO_ROOT)),
-        "heap_profile": str(hp_target.relative_to(REPO_ROOT)) if hp_target.is_file() else None,
-        "runs": [
-            {
-                "binding": r.binding,
-                "artifact": str(r.artifact_path.relative_to(REPO_ROOT)),
-                "passed": r.passed,
-                "error": r.error,
-            }
-            for r in runs
-        ],
-        "passed": all(r.passed for r in runs) and hp_target.is_file(),
-    }
+    summary = _build_summary(sha, artifact_dir, runs, hp_target)
     (artifact_dir / "summary.json").write_text(
         json.dumps(summary, indent=2) + "\n",
     )
 
-    print(json.dumps(summary, indent=2))
+    emit(json.dumps(summary, indent=2))
     return 0 if summary["passed"] else 1
 
 
