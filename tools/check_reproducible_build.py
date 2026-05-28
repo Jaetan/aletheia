@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """tools/check_reproducible_build.py — Reproducible-build hash gate.
 
-Implements R18 Universal Rule UR-3 (Reproducible build verification).
-Runs two clean ``cabal run shake -- build`` invocations, compares
-sha256 of ``build/libaletheia-ffi.so``, fails on drift.
+Implements reproducible build verification.  Runs two clean
+``cabal run shake -- build`` invocations, compares sha256 of
+``build/libaletheia-ffi.so``, fails on drift.
 
 Drift indicates build-time non-determinism (timestamp embedding via
 ``__DATE__``/``__TIME__``, build-path leakage into binaries, cabal-store

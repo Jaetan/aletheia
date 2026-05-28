@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dynamic stability-bench runner (R18 cluster 6).
+"""Dynamic stability-bench runner.
 
 Invokes each binding's stability harness in turn (Python, Go, C++), captures
 per-sub-check verdicts as JSON in ``benchmarks/stability/<commit>/<binding>.json``,
@@ -87,8 +87,7 @@ def find_lib() -> Path:
     lib_path = REPO_ROOT / "build" / "libaletheia-ffi.so"
     if not lib_path.is_file():
         message = (
-            f"libaletheia-ffi.so not found at {lib_path}; "
-            "run `cabal run shake -- build` first"
+            f"libaletheia-ffi.so not found at {lib_path}; run `cabal run shake -- build` first"
         )
         raise SystemExit(message)
     return lib_path

@@ -10,9 +10,9 @@ rejection (so pathological inputs are rejected before being marshalled
 across the language boundary):
 
 * ``go/aletheia/limits.go`` — cgo-boundary mirror.
-* ``python/aletheia/limits.py`` — ctypes-boundary mirror (PY-S-22.1 R21:
-  the file IS a verbatim mirror per its header, so the same drift
-  hazard applies as for the Go mirror; this gate covers both).
+* ``python/aletheia/limits.py`` — ctypes-boundary mirror (the file IS
+  a verbatim mirror per its header, so the same drift hazard applies as
+  for the Go mirror; this gate covers both).
 
 Each mirror's header explicitly says "Single source of truth:
 src/Aletheia/Limits.agda; numeric values are mirrored here verbatim" —
@@ -22,8 +22,8 @@ The C++ binding does NOT mirror these constants locally; it consumes
 the typed ``InputBoundExceeded`` error returned from the kernel.  Local
 guards present in C++ (e.g. ``json_serialize.cpp`` depth cap) are
 defense-in-depth using the kernel constant directly via
-``aletheia::max_nesting_depth`` (closed by R21 cluster 3) and do not
-form a separate mirror surface.
+``aletheia::max_nesting_depth`` and do not form a separate mirror
+surface.
 
 Strategy:
 
@@ -103,12 +103,12 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
 }
 
 
-# Python mirror — kebab-case → SCREAMING_SNAKE.  PY-S-22.1 (R21) closure:
-# Python mirrors a subset of the Go-mirrored constants today; the
-# REQUIRED / OPTIONAL category is binding-independent (it's about whether
-# the bound benefits from pre-FFI rejection on the input-side path).
-# Python's ctypes boundary has the same characteristic as Go's cgo
-# boundary — every REQUIRED Agda constant should have a Python peer.
+# Python mirror — kebab-case → SCREAMING_SNAKE.  Python mirrors a subset
+# of the Go-mirrored constants today; the REQUIRED / OPTIONAL category is
+# binding-independent (it's about whether the bound benefits from pre-FFI
+# rejection on the input-side path).  Python's ctypes boundary has the
+# same characteristic as Go's cgo boundary — every REQUIRED Agda constant
+# should have a Python peer.
 PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-dbc-text-bytes": ("MAX_DBC_TEXT_BYTES", "REQUIRED"),
     "max-json-bytes": ("MAX_JSON_BYTES", "REQUIRED"),
@@ -450,9 +450,7 @@ def _check_numeric_parity(
     return diffs
 
 
-def _check_agda_drift(
-    agda_consts: dict[str, int], agda_boundkind: dict[str, str]
-) -> list[str]:
+def _check_agda_drift(agda_consts: dict[str, int], agda_boundkind: dict[str, str]) -> list[str]:
     """Return divergences for Agda entries absent from the cross-check tables.
 
     The mapping tables are keyed by Agda name, so an Agda ``boundKindCode`` tag

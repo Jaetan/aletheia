@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/check_gate_claim.py — Enforce gate-claim integrity (R18 cluster 1 phase 2).
+"""tools/check_gate_claim.py — Enforce gate-claim integrity.
 
 Mechanical enforcer for ``memory/feedback_gate_claim_integrity.md``.  When
 a commit message contains a gate-clean assertion ("all gates clean",
@@ -128,8 +128,7 @@ def _resolve_mode(mode: str) -> tuple[str, list[str]]:
 def main() -> int:
     """Run the gate-claim freshness check and return the process exit code."""
     ap = argparse.ArgumentParser(
-        description="tools/check_gate_claim.py — Enforce gate-claim integrity "
-        + "(R18 cluster 1 phase 2).",
+        description="tools/check_gate_claim.py — Enforce gate-claim integrity.",
     )
     ap.add_argument(
         "mode",

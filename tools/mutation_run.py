@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dynamic mutation-testing runner (R18 cluster 7).
+"""Dynamic mutation-testing runner.
 
 Drives each binding's mutation tool in turn (mutmut for Python, go-mutesting
 for Go, Mull for C++), parses tool-specific output into a normalized
@@ -205,8 +205,7 @@ def _check_python_tools() -> tuple[Path, Path] | str:
     mutmut_bin = REPO_ROOT / "python" / ".venv" / "bin" / "mutmut"
     if not mutmut_bin.is_file():
         return (
-            "mutmut not installed in venv; run "
-            + "`python/.venv/bin/pip install 'mutmut>=3.5,<4'`"
+            "mutmut not installed in venv; run " + "`python/.venv/bin/pip install 'mutmut>=3.5,<4'`"
         )
     lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
     if not lib.is_file():

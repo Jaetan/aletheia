@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """tools/check_bound_enforcement.py — every BoundKind ctor must have at least one emit site.
 
-R20 cluster I — AGDA-D-32.5.  AGENTS.md universal rule "Adversarial-input
-bounds at parser surfaces" requires every adversarial bound to be rejected
-as a typed ``Error.InputBoundExceeded <BoundKind> observed limit``.  The
+AGENTS.md universal rule "Adversarial-input bounds at parser surfaces"
+requires every adversarial bound to be rejected as a typed
+``Error.InputBoundExceeded <BoundKind> observed limit``.  The
 ``BoundKind`` ADT in ``src/Aletheia/Limits.agda`` enumerates the supported
 kinds; each ctor must appear in at least one ``InputBoundExceeded <Ctor>``
 emit site under ``src/``.  A ctor declared but never emitted is dead

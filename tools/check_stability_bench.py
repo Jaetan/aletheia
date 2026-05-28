@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static stability-bench coverage gate (R18 cluster 6).
+"""Static stability-bench coverage gate.
 
 Parses ``docs/STABILITY_BENCH.yaml`` and verifies, for every
 ``(binding, sub_check)`` pair, that the binding's harness source file

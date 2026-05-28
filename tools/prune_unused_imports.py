@@ -133,12 +133,6 @@ class FileStats:
         return self.tally.using.removed + self.tally.renaming.removed
 
 
-
-
-
-
-
-
 @dataclass(frozen=True)
 class PruneConfig:
     """The per-run pruning configuration shared by every file worker.
@@ -175,12 +169,6 @@ class BisectState:
     verbose: bool
 
 
-
-
-
-
-
-
 def project_typecheck(timeout: int = 1200) -> bool:
     """Run ``cabal run shake -- check-properties`` from repo root."""
     cmd = [find_executable("cabal"), "run", "shake", "--", "check-properties"]
@@ -191,8 +179,7 @@ def project_typecheck(timeout: int = 1200) -> bool:
     except subprocess.TimeoutExpired:
         return False
     return (
-        result.returncode == 0
-        and b"All proof modules type-checked successfully!" in result.stdout
+        result.returncode == 0 and b"All proof modules type-checked successfully!" in result.stdout
     )
 
 
@@ -450,9 +437,7 @@ def _try_bulk_remove_using(
     _ = state.file_path.write_text("".join(new_lines), encoding="utf-8")
     state.stats.tally.type_checks += 1
     state.stats.tally.using.tested += len(candidates)
-    if check_modified(
-        state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings
-    ):
+    if check_modified(state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings):
         state.current_lines.clear()
         state.current_lines.extend(new_lines)
         state.stats.tally.using.removed += len(candidates)
@@ -541,9 +526,7 @@ def _try_remove_using(
     _ = state.file_path.write_text("".join(new_lines), encoding="utf-8")
     state.stats.tally.type_checks += 1
     state.stats.tally.using.tested += 1
-    if check_modified(
-        state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings
-    ):
+    if check_modified(state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings):
         state.current_lines.clear()
         state.current_lines.extend(new_lines)
         state.stats.tally.using.removed += 1
@@ -587,9 +570,7 @@ def _try_bulk_remove_renaming(
     _ = state.file_path.write_text("".join(new_lines), encoding="utf-8")
     state.stats.tally.type_checks += 1
     state.stats.tally.renaming.tested += len(candidates)
-    if check_modified(
-        state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings
-    ):
+    if check_modified(state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings):
         state.current_lines.clear()
         state.current_lines.extend(new_lines)
         state.stats.tally.renaming.removed += len(candidates)
@@ -676,9 +657,7 @@ def _try_remove_renaming(
     _ = state.file_path.write_text("".join(new_lines), encoding="utf-8")
     state.stats.tally.type_checks += 1
     state.stats.tally.renaming.tested += 1
-    if check_modified(
-        state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings
-    ):
+    if check_modified(state.file_path, ctx, file_baseline_warnings=state.stats.baseline_warnings):
         state.current_lines.clear()
         state.current_lines.extend(new_lines)
         state.stats.tally.renaming.removed += 1
@@ -792,11 +771,11 @@ def _build_consumers_map(*, include_public: bool, quiet: bool) -> dict[str, list
 def _plan_batches(files: list[Path], config: PruneConfig, args: argparse.Namespace) -> list[Batch]:
     """Group ``(file, config)`` work items into race-free execution batches.
 
-    Topo batching is ON by default: R22 sweeps #2/#3 showed parallel workers on
-    inter-dependent files race on ``.agdai`` writes.  ``--no-topo`` is a HINT
-    honoured only when the input has no inter-dependencies (a single topo level);
-    otherwise the tool auto-overrides to topo batching to keep the race-free
-    guarantee.  ``--workers 1`` forces a single sequential bucket (no race).
+    Topo batching is ON by default: parallel workers on inter-dependent files
+    race on ``.agdai`` writes.  ``--no-topo`` is a HINT honoured only when the
+    input has no inter-dependencies (a single topo level); otherwise the tool
+    auto-overrides to topo batching to keep the race-free guarantee.
+    ``--workers 1`` forces a single sequential bucket (no race).
     """
     worker_args: Batch = [(f, config) for f in files]
     if args.workers <= 1:

@@ -23,7 +23,7 @@ Skip via::
     git commit --no-verify  # bypass pre-commit
     git push --no-verify    # bypass pre-push
 
-Reference: R18 cluster 1 phase 3 / memory/feedback_gate_claim_integrity.md.
+Reference: memory/feedback_gate_claim_integrity.md.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from pathlib import Path
 
 from tools._common import emit, find_executable
 
-PRE_PUSH_MARKER = "# aletheia-pre-push-marker (R18 cluster 1 phase 3)"
+PRE_PUSH_MARKER = "# aletheia-pre-push-marker (offline CI sweep)"
 PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (dead-import scanner)"
 
 PRE_PUSH_BODY = f'''\

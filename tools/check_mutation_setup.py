@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static mutation-setup coverage gate (R18 cluster 7).
+"""Static mutation-setup coverage gate.
 
 Parses ``docs/MUTATION_BENCH.yaml`` and verifies, for every binding, that the
 declared hot-path source files exist on disk.  Lightweight static gate —

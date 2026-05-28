@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """tools/check_changelog.py — Enforce CHANGELOG entries on public-API changes.
 
-Offline enforcer for R18 Universal Rule UR-1 (Public API stability and
-CHANGELOG discipline).  Invoked as a Shake phony (``shake check-changelog``)
-and as a pre-push hook step.
+Offline enforcer for Public API stability and CHANGELOG discipline.
+Invoked as a Shake phony (``shake check-changelog``) and as a pre-push
+hook step.
 
 Strategy: branch-level granularity.
 
@@ -21,7 +21,7 @@ Exit codes:
   1 — public-API changed but CHANGELOG.md not changed.
   2 — usage error / git failure.
 
-v0 limitations (deliberate; see PROJECT_STATUS.md cluster 1 for v1+ plan):
+v0 limitations (deliberate; see PROJECT_STATUS.md for v1+ plan):
   * Presence-of-CHANGELOG-modification is sufficient; the script does NOT
     verify the change appears under ``## [X.Y.Z] — Unreleased``.
   * Branch-level (not per-commit); a branch with one CHANGELOG commit
@@ -127,8 +127,7 @@ def main() -> int:
         + "If the diff is an internal-only refactor (no observable surface change),\n"
         + "add a note under '### Changed' explaining \"internal refactor — no behavior\n"
         + 'change" so reviewers can verify by inspection.\n\n'
-        + "Reference: R18 Universal Rule UR-1 (Public API stability and "
-        + "CHANGELOG discipline).\n"
+        + "Reference: Public API stability and CHANGELOG discipline.\n"
     )
     return 1
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""tools/run_ci.py — Offline CI orchestrator (R18 cluster 1 phase 3 + cluster 7).
+"""tools/run_ci.py — Offline CI orchestrator.
 
 Chains the full gate sweep that commit messages have historically asserted
-"all gates clean / green" against, plus the cluster 1 phase 1+2 enforcers
+"all gates clean / green" against, plus the offline enforcers
 (check-changelog, check-gate-claim).  Captures all output to a timestamped log
 under ``tools/ci-output/`` so the gate-claim-integrity enforcer can point at
 it as falsifiable evidence (v1+ artifact-based design).
@@ -38,19 +38,18 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
   Offline enforcers (6):
     10. check-changelog
     11. check-gate-claim
-    12. check-runbook            (R18 cluster 4)
-    13. check-limits-parity      (R20-GO-A-4.10 closure — Agda Limits SSOT
-                                  vs go/aletheia/limits.go mirror)
-    14. check-stability-bench    (R18 cluster 6 static gate)
-    15. check-mutation-setup     (R18 cluster 7 static gate)
+    12. check-runbook
+    13. check-limits-parity      (Agda Limits SSOT vs go/aletheia/limits.go
+                                  mirror)
+    14. check-stability-bench    (static gate)
+    15. check-mutation-setup     (static gate)
   Binding tests (6):
     16. Python pytest (deterministic lane)
-    17. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
-        harness; was silently absent from the orchestrator before C5)
-    18. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
-        ResourceWarning, debug asyncio, deprecation noise)
-    19. Python pytest --random-order (R18 cluster 5 — Cat 14f
-        test-isolation; AGENTS.md "both lanes must stay green")
+    17. Python pytest --markdown-docs (Cat 32 doc-example harness)
+    18. Python pytest -X dev (Cat 34a; surfaces ResourceWarning, debug
+        asyncio, deprecation noise)
+    19. Python pytest --random-order (Cat 14f test-isolation; AGENTS.md
+        "both lanes must stay green")
     20. Go test -race
     21. C++ ctest
   Lints (5):
@@ -60,9 +59,8 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
     25. clang-format --dry-run --Werror (C++)
     26. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
     27. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
-        R21 CPP-SYS-32.2 promotion from opt-in to always-on after CPP-B-8.1
-        UB in Rational::from_double shipped undetected exactly because the
-        lane was opt-in)
+        always-on after UB in Rational::from_double shipped undetected
+        exactly because the lane was opt-in)
   GHA meta-checks (3):
     28. actionlint (workflow YAML lint, skipped if not installed)
     29. check-action-pins
@@ -146,7 +144,7 @@ POSIX_SHELL = "/bin/sh"
 # Number of trailing log lines echoed to stderr when a step fails.
 FAILURE_TAIL_LINES = 50
 
-# Always-on step count (UBSan promoted R21 CPP-SYS-32.2 + prune-unused-imports
+# Always-on step count (includes promoted UBSan lane + prune-unused-imports
 # gate).
 BASE_STEPS = 30
 
@@ -217,7 +215,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
     """Parse argv into resolved opt-in lane state (CLI > env > default-off)."""
     parser = argparse.ArgumentParser(
         prog="tools/run_ci.py",
-        description="Offline CI orchestrator (R18 cluster 1 + 7).",
+        description="Offline CI orchestrator.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Opt-in lanes can be enabled via CLI flags, env vars, or `--full`.\n"
@@ -248,17 +246,17 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
     _add_lane(
         "repro",
         "ALETHEIA_REPRO_CHECK",
-        "reproducible-build hash gate (R18 cluster 3; ~10 min cold)",
+        "reproducible-build hash gate (~10 min cold)",
     )
     _add_lane(
         "stability",
         "ALETHEIA_STABILITY_CHECK",
-        "long-run stability bench (R18 cluster 6; ~5 min cold)",
+        "long-run stability bench (~5 min cold)",
     )
     _add_lane(
         "mutation",
         "ALETHEIA_MUTATION_CHECK",
-        "mutation testing across 3 bindings (R18 cluster 7; ~30 min+)",
+        "mutation testing across 3 bindings (~30 min+)",
     )
 
     parser.add_argument(
@@ -503,9 +501,9 @@ def _build_prune_command() -> str:
 
     ``--no-topo`` is a hint here: skip the topo-graph startup overhead
     IF the modified file set has no inter-dependencies (single topo
-    level).  Per R23, the tool auto-overrides to topo batching when
-    inter-deps are detected (e.g., a branch that touches Universal.agda +
-    its imports), keeping the race-free guarantee.
+    level).  The tool auto-overrides to topo batching when inter-deps
+    are detected (e.g., a branch that touches Universal.agda + its
+    imports), keeping the race-free guarantee.
     """
     return (
         "files=$(git diff --name-only main...HEAD -- 'src/' "
@@ -570,9 +568,11 @@ def _run_binding_tests(runner: Runner) -> None:
     # ─── Steps 14-19: Binding tests ────────────────────────────────────────
     # Step 14: deterministic pytest lane.
     runner.step(
-        "pytest", [runner.python, "-m", "pytest", "tests/"], cwd=runner.repo_root / "python",
+        "pytest",
+        [runner.python, "-m", "pytest", "tests/"],
+        cwd=runner.repo_root / "python",
     )
-    # Step 15: doc-example fence harness (R18 cluster 5).
+    # Step 15: doc-example fence harness.
     runner.step(
         "pytest --markdown-docs",
         [
@@ -589,13 +589,13 @@ def _run_binding_tests(runner: Runner) -> None:
         ],
         cwd=runner.repo_root,
     )
-    # Step 16: Python -X dev mode (R18 cluster 5 — Cat 34a).
+    # Step 16: Python -X dev mode (Cat 34a).
     runner.step(
         "pytest -X dev",
         [runner.python, "-X", "dev", "-m", "pytest", "tests/"],
         cwd=runner.repo_root / "python",
     )
-    # Step 17: random-order test isolation (R18 cluster 5 — Cat 14f).
+    # Step 17: random-order test isolation (Cat 14f).
     runner.step(
         "pytest --random-order",
         [
@@ -623,8 +623,8 @@ def _run_binding_tests(runner: Runner) -> None:
 def _run_lints(runner: Runner) -> None:
     """Run steps 22-27: the Python / Go / C++ lint gates plus the UBSan ctest lane."""
     # ─── Steps 20-24: Lints ────────────────────────────────────────────────
-    # ``benchmarks/`` joined the basedpyright gate 2026-05-09 (R18 end-of-round
-    # follow-up); the asymmetry against pylint's coverage was the same one
+    # ``benchmarks/`` joined the basedpyright gate 2026-05-09; the asymmetry
+    # against pylint's coverage was the same one
     # ``feedback_no_subsumption_asymmetry.md`` flagged on the pylint side.
     runner.step(
         "basedpyright",
@@ -706,11 +706,11 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     # they share the same step counter as always-on steps so the "ALL N STEPS
     # PASSED" line in finalize() matches the actual count.
 
-    # Step 26 (always-on): UBSan lane (R18 cluster 5 — Cat 33a; promoted from
-    # opt-in to always-on R21 CPP-SYS-32.2 — UB in Rational::from_double had
-    # previously shipped undetected exactly because the lane was opt-in).
-    # Builds the full ctest battery against -DALETHEIA_SANITIZER=undefined and
-    # asserts every test passes.  Vendored zippy.hpp UB filtered via
+    # Step 26 (always-on): UBSan lane (Cat 33a; promoted from opt-in to
+    # always-on after UB in Rational::from_double had previously shipped
+    # undetected exactly because the lane was opt-in).  Builds the full
+    # ctest battery against -DALETHEIA_SANITIZER=undefined and asserts
+    # every test passes.  Vendored zippy.hpp UB filtered via
     # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
     runner.step(
         "ubsan ctest",
@@ -734,7 +734,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         )
 
     # Step 30 (opt-in): long-run stability bench ───────────────────────────
-    # R18 cluster 6 (Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27).
+    # Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27.
     if opts.stability:
         runner.step(
             "stability bench",
@@ -748,9 +748,9 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         )
 
     # Step 31 (opt-in): mutation testing across all 3 bindings ─────────────
-    # R18 cluster 7 (Cat 14g).  AGENTS.md: "Mutation testing runs as a
-    # separate CI lane (cost is high) — once per PR is sufficient; per-commit
-    # is overkill."  Default OFF.  See docs/operations/MUTATION.md.
+    # Cat 14g.  AGENTS.md: "Mutation testing runs as a separate CI lane
+    # (cost is high) — once per PR is sufficient; per-commit is overkill."
+    # Default OFF.  See docs/operations/MUTATION.md.
     if opts.mutation:
         runner.step(
             "mutation testing",

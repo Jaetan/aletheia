@@ -304,7 +304,6 @@ class TypecheckCtx:
 #   PatternShadowsConstructor: a pattern like `... | True = X` reinterpreted as
 #     a pattern-variable binding when `True` is no longer in scope as a
 #     constructor.  The file type-checks but its semantics silently change.
-#     Discovered by R22 sweep against Coalgebra/stepL's TruthVal pattern matches.
 #   UnreachableClauses: typically the downstream consequence of
 #     PatternShadowsConstructor (the catch-all swallows later clauses).
 _SEMANTIC_WARNING_TAGS = ("PatternShadowsConstructor", "UnreachableClauses")
@@ -493,9 +492,7 @@ def warning_count_for(
     can fail because F's ``.agdai`` is mid-flight.  This typically resolves
     itself once the first worker's agda invocation completes and writes a
     consistent ``.agdai``.  Retry up to ``retries`` times with ``retry_sleep_s``
-    backoff between attempts.  R22 full-sweep #2 (2026-05-21) showed this
-    on the ``CAN/Encoding/*`` cluster: 7 of 16 files failed baseline without
-    retries; retry+sleep would have let those settle.
+    backoff between attempts.
     """
     cmd = _agda_cmd(rel_path, ctx)
     for attempt in range(retries):
@@ -635,7 +632,6 @@ def gather_agda_files(paths: list[Path]) -> list[Path]:
         else:
             _ = sys.stderr.write(f"warning: {p} is not a file or directory; skipping\n")
     return [f.resolve() for f in files]
-
 
 
 def find_live_block(

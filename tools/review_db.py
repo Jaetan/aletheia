@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/review_db.py -- Review findings database (R22 review-process meta-review).
+"""tools/review_db.py -- Review findings database.
 
 Loads structured YAML findings under .archive/reviews/r*/ into an in-memory
 SQLite database, then runs canned reports answering the three questions
@@ -42,7 +42,7 @@ as ctags / sphinx-search.
                     regressions; flat-zero confirms scope decrease).
   disposition-mix : per-round disposition distribution (FIX / FP / DEFER
                     / DROP) -- FP rate trending up is the scanner-limit
-                    signal we hit in R22 A-1.1 b25 series.
+                    signal.
   graduation      : categories with zero real findings in the most-recent
                     N rounds (default 2).  These are graduation candidates
                     per AGENTS.md.

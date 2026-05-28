@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Emit a CycloneDX 1.5 SBOM for a dist artifact.
 
-Closes UR-3 (Reproducible build verification) sub-item "no SBOM per release"
-and CICD-5.3.
+Provides the "SBOM per release" deliverable for the Reproducible build
+verification rule.
 
 The SBOM enumerates the toolchain pin (Agda + stdlib version, GHC + cabal
 version, Python pin) plus the GHC runtime .so dependencies that ship with
@@ -81,10 +81,10 @@ class Sbom(TypedDict):
 
 @dataclass(frozen=True)
 class ImageInfo:
-    """OCI-image-layer pins for the docker SBOM variant (CICD-A-5.4).
+    """OCI-image-layer pins for the docker SBOM variant.
 
     Present only for the docker variant; when ``None`` is passed to
-    ``build_sbom`` the dist variant (UR-3.2 / CICD-5.3) is emitted instead.
+    ``build_sbom`` the dist variant is emitted instead.
     """
 
     image_id: str
@@ -248,9 +248,7 @@ def _main_component(repo: Path, git_commit: str, image: ImageInfo | None) -> Com
         if image.base is not None:
             main_properties.append({"name": "aletheia:image-base", "value": image.base})
         if image.libgmp is not None:
-            main_properties.append(
-                {"name": "aletheia:image-libgmp-version", "value": image.libgmp}
-            )
+            main_properties.append({"name": "aletheia:image-libgmp-version", "value": image.libgmp})
 
     return {
         "type": "container" if is_image else "library",
@@ -279,8 +277,8 @@ def build_sbom(
 
     When ``image`` is passed the SBOM additionally records OCI-image-layer
     pins as properties on the main component plus a top-level metadata
-    property — this is the docker variant (CICD-A-5.4 R23 closure).  Without
-    ``image`` the SBOM is the dist-variant (UR-3.2 / CICD-5.3).
+    property — this is the docker variant.  Without ``image`` the SBOM
+    is the dist-variant.
     """
     aletheia_version = _aletheia_version(repo)
     git_commit = _git_commit(repo)
@@ -356,7 +354,7 @@ def main() -> int:
     ap.add_argument(
         "--image-id",
         default=None,
-        help="OCI image SHA-256 digest (docker variant; CICD-A-5.4)",
+        help="OCI image SHA-256 digest (docker variant)",
     )
     ap.add_argument(
         "--image-base",
