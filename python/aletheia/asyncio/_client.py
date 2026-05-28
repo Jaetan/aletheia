@@ -21,11 +21,8 @@ use case, not as a faster path.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Iterable, Mapping
-from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override
 
-from aletheia.client._backend import Backend
 from aletheia.client._client import AletheiaClient as _SyncClient
 from aletheia.client._types import (
     CANFrameTuple,
@@ -33,21 +30,25 @@ from aletheia.client._types import (
     SignalExtractionResult,
     call_send_frame,
 )
-from aletheia.protocols import (
-    AckResponse,
-    CompleteResponse,
-    DBCDefinition,
-    DLCCode,
-    ErrorResponse,
-    LTLFormula,
-    ParsedDBCResponse,
-    PropertyBatchResponse,
-    SuccessResponse,
-    ValidationResponse,
-)
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Iterable, Mapping
+    from fractions import Fraction
+
     from aletheia.checks import CheckResult
+    from aletheia.client._backend import Backend
+    from aletheia.protocols import (
+        AckResponse,
+        CompleteResponse,
+        DBCDefinition,
+        DLCCode,
+        ErrorResponse,
+        LTLFormula,
+        ParsedDBCResponse,
+        PropertyBatchResponse,
+        SuccessResponse,
+        ValidationResponse,
+    )
 
 
 class AletheiaClient:  # pylint: disable=too-many-public-methods
@@ -139,9 +140,10 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
 
     @property
     def is_closed(self) -> bool:
-        """Whether :meth:`close` has been called.  Cross-binding parity
-        with sync :class:`aletheia.AletheiaClient.is_closed` and Go
-        ``Client.IsClosed()``; R19 cluster 10 — PY-D-15.1.
+        """Whether :meth:`close` has been called.
+
+        Cross-binding parity with sync :class:`aletheia.AletheiaClient.is_closed`
+        and Go ``Client.IsClosed()``; R19 cluster 10 — PY-D-15.1.
         """
         return self._sync.is_closed
 
@@ -150,13 +152,15 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     # =========================================================================
 
     async def parse_dbc(
-        self, dbc: DBCDefinition,
+        self,
+        dbc: DBCDefinition,
     ) -> ParsedDBCResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.parse_dbc`."""
         return await asyncio.to_thread(self._sync.parse_dbc, dbc)
 
     async def parse_dbc_text(
-        self, text: str,
+        self,
+        text: str,
     ) -> ParsedDBCResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.parse_dbc_text`."""
         return await asyncio.to_thread(self._sync.parse_dbc_text, text)
@@ -174,13 +178,15 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         return await asyncio.to_thread(self._sync.format_dbc_text, dbc)
 
     async def set_properties(
-        self, properties: list[LTLFormula],
+        self,
+        properties: list[LTLFormula],
     ) -> SuccessResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.set_properties`."""
         return await asyncio.to_thread(self._sync.set_properties, properties)
 
     async def add_checks(
-        self, checks: list[CheckResult],
+        self,
+        checks: list[CheckResult],
     ) -> SuccessResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.add_checks`."""
         return await asyncio.to_thread(self._sync.add_checks, checks)
@@ -193,7 +199,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         """Async mirror of :meth:`aletheia.AletheiaClient.start_stream`."""
         return await asyncio.to_thread(self._sync.start_stream)
 
-    async def send_frame(  # pylint: disable=too-many-arguments
+    async def send_frame(  # noqa: PLR0913  # pylint: disable=too-many-arguments
         self,
         timestamp: int,
         can_id: int,
@@ -206,8 +212,14 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     ) -> AckResponse | PropertyBatchResponse | ErrorResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.send_frame`."""
         return await asyncio.to_thread(
-            self._sync.send_frame, timestamp, can_id, dlc, data,
-            extended=extended, brs=brs, esi=esi,
+            self._sync.send_frame,
+            timestamp,
+            can_id,
+            dlc,
+            data,
+            extended=extended,
+            brs=brs,
+            esi=esi,
         )
 
     async def send_frames(
@@ -227,15 +239,21 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # holds the committed prefix; bundling it would invite swallowing.
         results: list[AckResponse | PropertyBatchResponse] = []
         for i, frame in enumerate(frames):
-            results.append(await asyncio.to_thread(
-                call_send_frame, self._sync.send_frame, i, frame, results,
-            ))
+            results.append(
+                await asyncio.to_thread(
+                    call_send_frame,
+                    self._sync.send_frame,
+                    i,
+                    frame,
+                    results,
+                )
+            )
         return results
 
     async def send_frames_iter(
         self,
         frames: Iterable[CANFrameTuple],
-    ) -> AsyncGenerator[FrameResult, None]:
+    ) -> AsyncGenerator[FrameResult]:
         """Async iter analog of :meth:`aletheia.AletheiaClient.send_frames_iter`.
 
         Cancels via ``asyncio.CancelledError`` at the per-frame ``await``
@@ -248,11 +266,17 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         # yielded results are durable in the consumer's hands.
         for i, frame in enumerate(frames):
             resp = await asyncio.to_thread(
-                call_send_frame, self._sync.send_frame, i, frame, [],
+                call_send_frame,
+                self._sync.send_frame,
+                i,
+                frame,
+                [],
             )
             yield FrameResult(
-                frame_index=i, timestamp=frame.timestamp,
-                can_id=frame.can_id, extended=frame.extended,
+                frame_index=i,
+                timestamp=frame.timestamp,
+                can_id=frame.can_id,
+                extended=frame.extended,
                 response=resp,
             )
 
@@ -261,11 +285,18 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         return await asyncio.to_thread(self._sync.send_error, timestamp)
 
     async def send_remote(
-        self, timestamp: int, can_id: int, *, extended: bool = False,
+        self,
+        timestamp: int,
+        can_id: int,
+        *,
+        extended: bool = False,
     ) -> AckResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.send_remote`."""
         return await asyncio.to_thread(
-            self._sync.send_remote, timestamp, can_id, extended=extended,
+            self._sync.send_remote,
+            timestamp,
+            can_id,
+            extended=extended,
         )
 
     async def end_stream(self) -> CompleteResponse | ErrorResponse:
@@ -277,12 +308,20 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     # =========================================================================
 
     async def extract_signals(
-        self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
-        *, extended: bool = False,
+        self,
+        can_id: int,
+        dlc: DLCCode,
+        data: bytes | bytearray,
+        *,
+        extended: bool = False,
     ) -> SignalExtractionResult:
         """Async mirror of :meth:`aletheia.AletheiaClient.extract_signals`."""
         return await asyncio.to_thread(
-            self._sync.extract_signals, can_id, dlc, data, extended=extended,
+            self._sync.extract_signals,
+            can_id,
+            dlc,
+            data,
+            extended=extended,
         )
 
     async def update_frame(  # pylint: disable=too-many-arguments
@@ -296,7 +335,12 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     ) -> bytearray:
         """Async mirror of :meth:`aletheia.AletheiaClient.update_frame`."""
         return await asyncio.to_thread(
-            self._sync.update_frame, can_id, dlc, frame, signals, extended=extended,
+            self._sync.update_frame,
+            can_id,
+            dlc,
+            frame,
+            signals,
+            extended=extended,
         )
 
     async def build_frame(
@@ -309,7 +353,11 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     ) -> bytearray:
         """Async mirror of :meth:`aletheia.AletheiaClient.build_frame`."""
         return await asyncio.to_thread(
-            self._sync.build_frame, can_id, dlc, signals, extended=extended,
+            self._sync.build_frame,
+            can_id,
+            dlc,
+            signals,
+            extended=extended,
         )
 
     @override
