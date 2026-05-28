@@ -12,6 +12,11 @@ import logging
 from collections.abc import Callable
 from typing import cast
 
+from aletheia.client._helpers.dbc_normalize import normalize_dbc
+from aletheia.client._helpers.rational import validate_integer_rational
+from aletheia.client._log import LogEvent, log_event
+from aletheia.client._types import ProtocolError
+from aletheia.issue_codes import ValidationIssue
 from aletheia.protocols import (
     AckResponse,
     ErrorResponse,
@@ -23,11 +28,6 @@ from aletheia.protocols import (
     is_object_list,
     is_str_dict,
 )
-from aletheia.issue_codes import ValidationIssue
-from aletheia.client._helpers.dbc_normalize import normalize_dbc
-from aletheia.client._helpers.rational import validate_integer_rational
-from aletheia.client._log import LogEvent, log_event
-from aletheia.client._types import ProtocolError
 
 _logger = logging.getLogger("aletheia")
 
@@ -42,7 +42,8 @@ def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationI
     for issue in issues:
         sev = issue.get("severity")
         if sev not in ("error", "warning"):
-            raise ProtocolError(f"Unknown validation severity: {sev!r}")
+            msg = f"Unknown validation severity: {sev!r}"
+            raise ProtocolError(msg)
     return issues
 
 
@@ -68,8 +69,7 @@ def build_error_response(response: Response) -> ErrorResponse:
     code = response.get("code")
     if not isinstance(code, str):
         raise ProtocolError(
-            "Error response missing or non-string 'code' field;"
-            + f" got {type(code).__name__}"
+            "Error response missing or non-string 'code' field;" + f" got {type(code).__name__}"
         )
     message = response.get("message")
     if not isinstance(message, str):
@@ -79,14 +79,18 @@ def build_error_response(response: Response) -> ErrorResponse:
         )
     out: ErrorResponse = {"status": "error", "code": code, "message": message}
     bound_kind = response.get("bound_kind")
-    observed   = response.get("observed")
-    limit      = response.get("limit")
-    if (isinstance(bound_kind, str)
-            and isinstance(observed, int) and not isinstance(observed, bool)
-            and isinstance(limit, int)    and not isinstance(limit, bool)):
+    observed = response.get("observed")
+    limit = response.get("limit")
+    if (
+        isinstance(bound_kind, str)
+        and isinstance(observed, int)
+        and not isinstance(observed, bool)
+        and isinstance(limit, int)
+        and not isinstance(limit, bool)
+    ):
         out["bound_kind"] = bound_kind
-        out["observed"]   = observed
-        out["limit"]      = limit
+        out["observed"] = observed
+        out["limit"] = limit
     return out
 
 
@@ -106,9 +110,8 @@ def parse_success_or_error(
     if status == "error":
         return build_error_response(response)
 
-    raise ProtocolError(
-        f"Unexpected response status: {status!r} (expected 'success' or 'error')"
-    )
+    msg = f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+    raise ProtocolError(msg)
 
 
 def parse_parsed_dbc_response(
@@ -126,14 +129,12 @@ def parse_parsed_dbc_response(
         dbc_field = response.get("dbc")
         warnings_field = response.get("warnings", [])
         if not is_str_dict(dbc_field):
-            raise ProtocolError(
-                "parseDBC success response missing 'dbc' object"
-            )
+            msg = "parseDBC success response missing 'dbc' object"
+            raise ProtocolError(msg)
         if not is_object_list(warnings_field):
-            raise ProtocolError(
-                "parseDBC success response 'warnings' must be a list of objects"
-            )
-        warnings = cast(list[ValidationIssue], list(warnings_field))
+            msg = "parseDBC success response 'warnings' must be a list of objects"
+            raise ProtocolError(msg)
+        warnings = cast("list[ValidationIssue]", list(warnings_field))
         # Agda emits non-integer rationals on the wire as
         # ``{"numerator": n, "denominator": d}`` dicts; ``normalize_dbc``
         # converts those back to ``Fraction`` so callers see a real
@@ -151,9 +152,8 @@ def parse_parsed_dbc_response(
     if status == "error":
         return build_error_response(response)
 
-    raise ProtocolError(
-        f"Unexpected response status: {status!r} (expected 'success' or 'error')"
-    )
+    msg = f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+    raise ProtocolError(msg)
 
 
 def parse_frame_response(
@@ -184,27 +184,27 @@ def parse_frame_response(
     if response_type == "property_batch":
         raw_results = response.get("results")
         if not isinstance(raw_results, list):
-            raise ProtocolError(
-                "property_batch response missing 'results' array"
-            )
+            msg = "property_batch response missing 'results' array"
+            raise ProtocolError(msg)
         if not raw_results:
-            raise ProtocolError(
+            msg = (
                 "property_batch response 'results' must be non-empty"
-                + " (zero-event frames are encoded as ack)"
+                " (zero-event frames are encoded as ack)"
             )
+            raise ProtocolError(msg)
         parsed_results: list[PropertyResultEntry] = []
         for raw_item in raw_results:  # type: ignore[reportUnknownVariableType]
             if not isinstance(raw_item, dict):
-                raise ProtocolError(
-                    "property_batch 'results' entry must be a JSON object"
-                )
-            parsed_results.append(_parse_property_event(cast(dict[str, object], raw_item)))
+                msg = "property_batch 'results' entry must be a JSON object"
+                raise ProtocolError(msg)
+            parsed_results.append(_parse_property_event(cast("dict[str, object]", raw_item)))
         return {"type": "property_batch", "results": parsed_results}
 
-    raise ProtocolError(
+    msg = (
         f"Unexpected response status/type: status={status!r}, type={response_type!r}"
-        + " (expected 'ack', 'error', or type='property_batch')"
+        " (expected 'ack', 'error', or type='property_batch')"
     )
+    raise ProtocolError(msg)
 
 
 def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
@@ -216,15 +216,15 @@ def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
     """
     inner_type = raw.get("type")
     if inner_type != "property":
-        raise ProtocolError(
-            f"property_batch event has unexpected type={inner_type!r} (expected 'property')"
-        )
+        msg = f"property_batch event has unexpected type={inner_type!r} (expected 'property')"
+        raise ProtocolError(msg)
     inner_status = raw.get("status")
     if inner_status not in ("fails", "holds", "unresolved"):
-        raise ProtocolError(
+        msg = (
             f"property_batch event has unexpected status={inner_status!r}"
-            + " (expected 'fails', 'holds', or 'unresolved')"
+            " (expected 'fails', 'holds', or 'unresolved')"
         )
+        raise ProtocolError(msg)
     prop_index = validate_integer_rational("property_index", raw.get("property_index"))
     entry: PropertyResultEntry = {
         "type": "property",
@@ -240,7 +240,9 @@ def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
 
 
 def parse_event_response(
-    response: Response, event_kind: str, timestamp: int,
+    response: Response,
+    event_kind: str,
+    timestamp: int,
 ) -> AckResponse:
     """Parse a non-data-frame event response (error/remote frames).
 
@@ -259,7 +261,8 @@ def parse_event_response(
     }
     event = event_map.get(event_kind)
     if event is None:
-        raise ProtocolError(f"Unknown event_kind {event_kind!r}")
+        msg = f"Unknown event_kind {event_kind!r}"
+        raise ProtocolError(msg)
 
     status = response.get("status")
     # Trace events (Error/Remote) always resolve to `Response.Ack` in Agda
@@ -268,24 +271,27 @@ def parse_event_response(
     # parseEventAck and C++ parse_event_ack enforce the same.
     if status == "ack":
         log_event(
-            _logger, logging.DEBUG, event,
-            ts=timestamp, response="ack",
+            _logger,
+            logging.DEBUG,
+            event,
+            ts=timestamp,
+            response="ack",
         )
         return {"status": "ack"}
     if status == "error":
         result_error = build_error_response(response)
         log_event(
-            _logger, logging.DEBUG, event,
-            ts=timestamp, response="error", code=result_error["code"],
-        )
-        raise ProtocolError(
-            f"{event_kind} failed: {result_error['message']}",
+            _logger,
+            logging.DEBUG,
+            event,
+            ts=timestamp,
+            response="error",
             code=result_error["code"],
         )
-    raise ProtocolError(
-        f"Unexpected {event_kind} response status: {status!r}"
-        + " (expected 'ack' or 'error')"
-    )
+        msg = f"{event_kind} failed: {result_error['message']}"
+        raise ProtocolError(msg, code=result_error["code"])
+    msg = f"Unexpected {event_kind} response status: {status!r} (expected 'ack' or 'error')"
+    raise ProtocolError(msg)
 
 
 def parse_finalization_results(
@@ -300,24 +306,21 @@ def parse_finalization_results(
     """
     results_raw = response.get("results")
     if not isinstance(results_raw, list):
-        raise ProtocolError(
-            "Missing or invalid 'results' in finalization response"
-        )
+        msg = "Missing or invalid 'results' in finalization response"
+        raise ProtocolError(msg)
     # Treat results as raw dicts for defensive parsing — the FFI
     # JSON is untrusted and may omit required keys.
-    raw_results = cast(list[dict[str, object]], results_raw)
+    raw_results = cast("list[dict[str, object]]", results_raw)
     entries: list[PropertyResultEntry] = []
     for raw in raw_results:
         entry_status = raw.get("status")
         if entry_status not in ("fails", "holds", "unresolved"):
-            raise ProtocolError(
-                f"Invalid 'status' in finalization result entry: {entry_status!r}"
-            )
+            msg = f"Invalid 'status' in finalization result entry: {entry_status!r}"
+            raise ProtocolError(msg)
         raw_prop_index = raw.get("property_index")
         if raw_prop_index is None:
-            raise ProtocolError(
-                "Missing 'property_index' in finalization result entry"
-            )
+            msg = "Missing 'property_index' in finalization result entry"
+            raise ProtocolError(msg)
         prop_index = validate_integer_rational("property_index", raw_prop_index)
         # entry_status is now narrowed to Literal["fails","holds","unresolved"]
         result_entry: PropertyResultEntry = {

@@ -12,11 +12,8 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from fractions import Fraction
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from aletheia.protocols import DLCCode, Response, is_object_list
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError
 from aletheia.client._client_bin import parse_extraction_buffer
 from aletheia.client._ffi import parse_json_object
@@ -35,7 +32,13 @@ from aletheia.client._types import (
     validate_can_id,
     validate_payload_length,
 )
+from aletheia.protocols import DLCCode, is_object_list
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from fractions import Fraction
+
+    from aletheia.protocols import Response
 
 _logger = logging.getLogger("aletheia")
 
@@ -58,14 +61,22 @@ class SignalOpsMixin(ABC):
 
     @abstractmethod
     def _resolve_signal_indices(
-        self, signals: Mapping[str, float | Fraction],
-        can_id: int, extended: bool, cmd_name: str,
+        self,
+        signals: Mapping[str, float | Fraction],
+        can_id: int,
+        cmd_name: str,
+        *,
+        extended: bool,
     ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
         """Resolve signal name → (indices, numerators, denominators)."""
 
     def extract_signals(
-        self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
-        *, extended: bool = False,
+        self,
+        can_id: int,
+        dlc: DLCCode,
+        data: bytes | bytearray,
+        *,
+        extended: bool = False,
     ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
 
@@ -81,9 +92,11 @@ class SignalOpsMixin(ABC):
         Raises:
             ProtocolError: If the kernel rejects the extraction request
             ValidationError: If dlc is outside 0-15
+
         """
         if self._backend is None or self._state is None:
-            raise StateError("Client not initialized — use 'with' statement")
+            msg = "Client not initialized — use 'with' statement"
+            raise StateError(msg)
         validate_payload_length(dlc, data)
         validate_can_id(can_id, extended=extended)
 
@@ -96,7 +109,10 @@ class SignalOpsMixin(ABC):
             try:
                 buf = self._backend.extract_signals_bin(
                     self._state,
-                    can_id=can_id, extended=extended, dlc=dlc, data=data,
+                    can_id=can_id,
+                    extended=extended,
+                    dlc=dlc,
+                    data=data,
                 )
             except BinaryPathUnsupportedError:
                 pass
@@ -107,13 +123,19 @@ class SignalOpsMixin(ABC):
         try:
             response_bytes = self._backend.extract_signals_binary(
                 self._state,
-                can_id=can_id, extended=extended, dlc=dlc, data=data,
+                can_id=can_id,
+                extended=extended,
+                dlc=dlc,
+                data=data,
             )
-            response = cast(Response, parse_json_object(response_bytes.decode("utf-8")))
+            response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
         except ProtocolError as exc:
             log_event(
-                _logger, logging.WARNING, LogEvent.EXTRACTION_PROCESS_FAILED,
-                canId=can_id, error=str(exc),
+                _logger,
+                logging.WARNING,
+                LogEvent.EXTRACTION_PROCESS_FAILED,
+                canId=can_id,
+                error=str(exc),
             )
             raise
 
@@ -122,21 +144,25 @@ class SignalOpsMixin(ABC):
             error_code_raw = response.get("code")
             error_code = error_code_raw if isinstance(error_code_raw, str) else None
             log_event(
-                _logger, logging.WARNING, LogEvent.EXTRACTION_PARSE_FAILED,
-                canId=can_id, error=cast(str, error_msg),
+                _logger,
+                logging.WARNING,
+                LogEvent.EXTRACTION_PARSE_FAILED,
+                canId=can_id,
+                error=cast("str", error_msg),
             )
             # Forward the Agda wire ``code`` so callers can branch on e.g.
             # ``extraction_bit_extraction_failed`` vs ``frame_signal_not_found``
             # without parsing the message string (matches Go / C++ bindings).
-            raise ProtocolError(
-                f"extract_signals failed: {error_msg}", code=error_code,
-            )
+            msg = f"extract_signals failed: {error_msg}"
+            raise ProtocolError(msg, code=error_code)
         if response.get("status") != "success":
-            raise ProtocolError(f"Unexpected status: {response.get('status')}")
+            msg = f"Unexpected status: {response.get('status')}"
+            raise ProtocolError(msg)
 
         for key in ("values", "errors", "absent"):
             if not is_object_list(response.get(key, [])):
-                raise ProtocolError(f"Expected '{key}' to be a list")
+                msg = f"Expected '{key}' to be a list"
+                raise ProtocolError(msg)
         return SignalExtractionResult(
             values=parse_values_list(response.get("values", [])),
             errors=parse_errors_list(response.get("errors", [])),
@@ -165,20 +191,32 @@ class SignalOpsMixin(ABC):
 
         Returns:
             New frame with updated signals
+
         """
         if self._backend is None or self._state is None:
-            raise StateError("Client not initialized — use 'with' statement")
+            msg = "Client not initialized — use 'with' statement"
+            raise StateError(msg)
         expected_bytes = validate_payload_length(dlc, frame)
         validate_can_id(can_id, extended=extended)
         indices, nums, dens = self._resolve_signal_indices(
-            signals, can_id, extended, "update_frame",
+            signals,
+            can_id,
+            "update_frame",
+            extended=extended,
         )
-        return bytearray(self._backend.update_frame_bin(
-            self._state,
-            can_id=can_id, extended=extended, dlc=dlc, data=frame,
-            indices=indices, numerators=nums, denominators=dens,
-            expected_bytes=expected_bytes,
-        ))
+        return bytearray(
+            self._backend.update_frame_bin(
+                self._state,
+                can_id=can_id,
+                extended=extended,
+                dlc=dlc,
+                data=frame,
+                indices=indices,
+                numerators=nums,
+                denominators=dens,
+                expected_bytes=expected_bytes,
+            )
+        )
 
     def build_frame(
         self,
@@ -198,16 +236,27 @@ class SignalOpsMixin(ABC):
 
         Returns:
             CAN frame payload (length = dlc_to_bytes(dlc))
+
         """
         if self._backend is None or self._state is None:
-            raise StateError("Client not initialized — use 'with' statement")
+            msg = "Client not initialized — use 'with' statement"
+            raise StateError(msg)
         validate_can_id(can_id, extended=extended)
         indices, nums, dens = self._resolve_signal_indices(
-            signals, can_id, extended, "build_frame",
+            signals,
+            can_id,
+            "build_frame",
+            extended=extended,
         )
-        return bytearray(self._backend.build_frame_bin(
-            self._state,
-            can_id=can_id, extended=extended, dlc=dlc,
-            indices=indices, numerators=nums, denominators=dens,
-            expected_bytes=dlc_to_bytes(dlc),
-        ))
+        return bytearray(
+            self._backend.build_frame_bin(
+                self._state,
+                can_id=can_id,
+                extended=extended,
+                dlc=dlc,
+                indices=indices,
+                numerators=nums,
+                denominators=dens,
+                expected_bytes=dlc_to_bytes(dlc),
+            )
+        )

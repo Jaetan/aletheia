@@ -7,16 +7,17 @@ loaded otherwise so direct callers like ``format_formula(my_dict)`` keep
 working without an explicit backend.
 """
 
+import ctypes
+import threading
 from collections.abc import Callable
 from fractions import Fraction
 from typing import cast
-import ctypes
-import threading
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
+from aletheia.client._ffi import configure_ffi_signatures, find_ffi_library
+from aletheia.client._types import PropertyDiagnostic, ValidationError
 from aletheia.limits import MAX_NESTING_DEPTH
 from aletheia.protocols import LTLFormula
-from aletheia.client._types import PropertyDiagnostic, ValidationError
 
 # Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
 # exposed as `aletheia.limits.MAX_NESTING_DEPTH`): a deeper formula would
@@ -25,12 +26,26 @@ from aletheia.client._types import PropertyDiagnostic, ValidationError
 # rejection immediately as `ValidationError` instead of as a wire round-trip
 # error.  R21 PY-A-2.3 / AGDA-D-17.1 cross-binding SSOT fix.
 
-_UNARY_OPS = frozenset({
-    "not", "next", "always", "eventually", "metricAlways", "metricEventually",
-})
-_BINARY_OPS = frozenset({
-    "and", "or", "until", "release", "metricUntil", "metricRelease",
-})
+_UNARY_OPS = frozenset(
+    {
+        "not",
+        "next",
+        "always",
+        "eventually",
+        "metricAlways",
+        "metricEventually",
+    }
+)
+_BINARY_OPS = frozenset(
+    {
+        "and",
+        "or",
+        "until",
+        "release",
+        "metricUntil",
+        "metricRelease",
+    }
+)
 
 
 def _walk_formula(
@@ -43,31 +58,36 @@ def _walk_formula(
     Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
     if depth > MAX_NESTING_DEPTH:
-        raise ValidationError(
-            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
-        )
+        msg = f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
+        raise ValidationError(msg)
     op = formula.get("operator")
     if op == "atomic":
-        on_atomic(cast(dict[str, object], formula["predicate"]))
+        on_atomic(cast("dict[str, object]", formula["predicate"]))
     elif op in _UNARY_OPS:
         _walk_formula(
-            cast(dict[str, object], formula["formula"]),
-            on_atomic, depth + 1,
+            cast("dict[str, object]", formula["formula"]),
+            on_atomic,
+            depth + 1,
         )
     elif op in _BINARY_OPS:
         _walk_formula(
-            cast(dict[str, object], formula["left"]),
-            on_atomic, depth + 1,
+            cast("dict[str, object]", formula["left"]),
+            on_atomic,
+            depth + 1,
         )
         _walk_formula(
-            cast(dict[str, object], formula["right"]),
-            on_atomic, depth + 1,
+            cast("dict[str, object]", formula["right"]),
+            on_atomic,
+            depth + 1,
         )
 
 
 _COMPARISON_OPS: dict[str, str] = {
-    "equals": "=", "lessThan": "<", "greaterThan": ">",
-    "lessThanOrEqual": "<=", "greaterThanOrEqual": ">=",
+    "equals": "=",
+    "lessThan": "<",
+    "greaterThan": ">",
+    "lessThanOrEqual": "<=",
+    "greaterThanOrEqual": ">=",
 }
 
 
@@ -124,15 +144,6 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
     with _RENDERER_LOCK:
         lib = _RENDERER_LIB[0]
         if lib is None:
-            # Local import avoids a runtime circular dependency: ``_ffi``
-            # has no upward dependencies, but importing at module load
-            # would chain through ``configure_ffi_signatures`` which
-            # references ctypes types that the renderer doesn't need
-            # unless it actually has to lazy-load.
-            from aletheia.client._ffi import (  # pylint: disable=import-outside-toplevel
-                configure_ffi_signatures,
-                find_ffi_library,
-            )
             path = find_ffi_library()
             lib = ctypes.CDLL(str(path))
             # ``hs_init`` initialises the GHC RTS; it is idempotent across
@@ -179,15 +190,20 @@ def _format_rational(v: object) -> str:
         d = cast("dict[str, object]", v)
         num = d.get("numerator")
         den = d.get("denominator")
-        if not (isinstance(num, int) and isinstance(den, int)
-                and not isinstance(num, bool) and not isinstance(den, bool)):
+        if not (
+            isinstance(num, int)
+            and isinstance(den, int)
+            and not isinstance(num, bool)
+            and not isinstance(den, bool)
+        ):
             msg = (
                 f"_format_rational rational dict requires int numerator/denominator; "
                 f"got numerator={type(num).__name__} denominator={type(den).__name__}"
             )
             raise ValidationError(msg)
         if den == 0:
-            raise ValidationError("_format_rational rational dict denominator must be non-zero")
+            msg = "_format_rational rational dict denominator must be non-zero"
+            raise ValidationError(msg)
         frac = Fraction(num, den)
     else:
         msg = (
@@ -249,106 +265,123 @@ def _get_timebound(formula: dict[str, object]) -> str:
     return ""
 
 
-def format_formula(  # pylint: disable=too-many-return-statements,too-many-branches
-    formula: dict[str, object], depth: int = 0,
-    *, _parenthesize_binary: bool = False,
+# Token tables for the formula pretty-printer — one handler per operator
+# family (see _format_unary / _format_binary); the operator-specific text
+# lives here so the dispatch in _format_formula_inner stays flat.
+_UNARY_WRAP: dict[str, str] = {
+    "not": "not(",
+    "next": "next(",
+    "eventually": "eventually(",
+    "always": "always(",
+}
+_METRIC_UNARY_PREFIX: dict[str, str] = {
+    "metricAlways": "always within ",
+    "metricEventually": "eventually within ",
+}
+_BINARY_INFIX: dict[str, str] = {
+    "and": " and ",
+    "or": " or ",
+    "until": " until ",
+    "release": " release ",
+}
+_METRIC_BINARY_INFIX: dict[str, str] = {
+    "metricUntil": " until within ",
+    "metricRelease": " release within ",
+}
+
+
+def format_formula(
+    formula: dict[str, object],
+    depth: int = 0,
+    *,
+    _parenthesize_binary: bool = False,
 ) -> str:
     """Format an LTL formula dict as a human-readable string.
 
     Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
     if depth > MAX_NESTING_DEPTH:
-        raise ValidationError(
-            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
-        )
-    inner = _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
-    return inner
+        msg = f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
+        raise ValidationError(msg)
+    return _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
 
 
-def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-many-branches
-    formula: dict[str, object], depth: int,
-    *, parenthesize_binary: bool,
+def _format_never(inner: dict[str, object]) -> str | None:
+    """Render ``always(not(atomic(p)))`` as ``never <p>``; else ``None``.
+
+    The ``never`` shorthand is reserved for the safety pattern where an
+    atomic predicate must hold globally; any other ``always`` body falls
+    through to the generic ``always(...)`` rendering.
+    """
+    if inner.get("operator") != "not":
+        return None
+    inner_not = cast("dict[str, object]", inner["formula"])
+    if inner_not.get("operator") != "atomic":
+        return None
+    pred = cast("dict[str, object]", inner_not["predicate"])
+    return "never " + _format_predicate(pred)
+
+
+def _format_unary(formula: dict[str, object], depth: int, op: str) -> str:
+    """Render a unary operator (not/next/eventually/always/metric-*)."""
+    inner = cast("dict[str, object]", formula["formula"])
+    if op == "always":
+        never = _format_never(inner)
+        if never is not None:
+            return never
+    body = _format_formula_inner(inner, depth + 1, parenthesize_binary=False)
+    if op in _METRIC_UNARY_PREFIX:
+        return _METRIC_UNARY_PREFIX[op] + _get_timebound(formula) + "(" + body + ")"
+    return _UNARY_WRAP[op] + body + ")"
+
+
+def _format_binary(
+    formula: dict[str, object],
+    depth: int,
+    op: str,
+    *,
+    parenthesize_binary: bool,
+) -> str:
+    """Render a binary operator (and/or/until/release/metric-*)."""
+    left = _format_formula_inner(
+        cast("dict[str, object]", formula["left"]),
+        depth + 1,
+        parenthesize_binary=True,
+    )
+    right = _format_formula_inner(
+        cast("dict[str, object]", formula["right"]),
+        depth + 1,
+        parenthesize_binary=True,
+    )
+    if op in _METRIC_BINARY_INFIX:
+        s = left + _METRIC_BINARY_INFIX[op] + _get_timebound(formula) + right
+    else:
+        s = left + _BINARY_INFIX[op] + right
+    return "(" + s + ")" if parenthesize_binary else s
+
+
+def _format_formula_inner(
+    formula: dict[str, object],
+    depth: int,
+    *,
+    parenthesize_binary: bool,
 ) -> str:
     """Inner formatter with parenthesization for binary operators."""
     if depth > MAX_NESTING_DEPTH:
-        raise ValidationError(
-            f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
-        )
-    recur = _format_formula_inner
+        msg = f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
+        raise ValidationError(msg)
     op = formula.get("operator")
     if op == "atomic":
-        return _format_predicate(cast(dict[str, object], formula["predicate"]))
-    if op == "not":
-        return "not(" + recur(cast(dict[str, object], formula["formula"]),
-                              depth + 1, parenthesize_binary=False) + ")"
-    if op == "and":
-        s = (recur(cast(dict[str, object], formula["left"]),
-                   depth + 1, parenthesize_binary=True)
-             + " and "
-             + recur(cast(dict[str, object], formula["right"]),
-                     depth + 1, parenthesize_binary=True))
-        return "(" + s + ")" if parenthesize_binary else s
-    if op == "or":
-        s = (recur(cast(dict[str, object], formula["left"]),
-                   depth + 1, parenthesize_binary=True)
-             + " or "
-             + recur(cast(dict[str, object], formula["right"]),
-                     depth + 1, parenthesize_binary=True))
-        return "(" + s + ")" if parenthesize_binary else s
-    if op == "next":
-        inner = cast(dict[str, object], formula["formula"])
-        return "next(" + recur(inner, depth + 1, parenthesize_binary=False) + ")"
-    if op == "always":
-        inner = cast(dict[str, object], formula["formula"])
-        # Detect Never pattern: always(not(atomic(p)))
-        if inner.get("operator") == "not":
-            inner_not = cast(dict[str, object], inner["formula"])
-            if inner_not.get("operator") == "atomic":
-                return "never " + _format_predicate(cast(dict[str, object], inner_not["predicate"]))
-        return "always(" + recur(inner, depth + 1, parenthesize_binary=False) + ")"
-    if op == "eventually":
-        inner = cast(dict[str, object], formula["formula"])
-        return "eventually(" + recur(inner, depth + 1, parenthesize_binary=False) + ")"
-    if op == "until":
-        s = (recur(cast(dict[str, object], formula["left"]),
-                   depth + 1, parenthesize_binary=True)
-             + " until "
-             + recur(cast(dict[str, object], formula["right"]),
-                     depth + 1, parenthesize_binary=True))
-        return "(" + s + ")" if parenthesize_binary else s
-    if op == "release":
-        s = (recur(cast(dict[str, object], formula["left"]),
-                   depth + 1, parenthesize_binary=True)
-             + " release "
-             + recur(cast(dict[str, object], formula["right"]),
-                     depth + 1, parenthesize_binary=True))
-        return "(" + s + ")" if parenthesize_binary else s
-    if op == "metricAlways":
-        tb = _get_timebound(formula)
-        return ("always within " + tb + "("
-                + recur(cast(dict[str, object], formula["formula"]),
-                        depth + 1, parenthesize_binary=False) + ")")
-    if op == "metricEventually":
-        tb = _get_timebound(formula)
-        return ("eventually within " + tb + "("
-                + recur(cast(dict[str, object], formula["formula"]),
-                        depth + 1, parenthesize_binary=False) + ")")
-    if op == "metricUntil":
-        tb = _get_timebound(formula)
-        s = (recur(cast(dict[str, object], formula["left"]),
-                   depth + 1, parenthesize_binary=True)
-             + " until within " + tb
-             + recur(cast(dict[str, object], formula["right"]),
-                     depth + 1, parenthesize_binary=True))
-        return "(" + s + ")" if parenthesize_binary else s
-    if op == "metricRelease":
-        tb = _get_timebound(formula)
-        s = (recur(cast(dict[str, object], formula["left"]),
-                   depth + 1, parenthesize_binary=True)
-             + " release within " + tb
-             + recur(cast(dict[str, object], formula["right"]),
-                     depth + 1, parenthesize_binary=True))
-        return "(" + s + ")" if parenthesize_binary else s
+        return _format_predicate(cast("dict[str, object]", formula["predicate"]))
+    if op in _UNARY_OPS:
+        return _format_unary(formula, depth, cast("str", op))
+    if op in _BINARY_OPS:
+        return _format_binary(
+            formula,
+            depth,
+            cast("str", op),
+            parenthesize_binary=parenthesize_binary,
+        )
     return "<unknown>"
 
 
@@ -372,7 +405,7 @@ def collect_signals(formula: dict[str, object]) -> list[str]:
 
 def build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
     """Build a PropertyDiagnostic from a formula. Always succeeds."""
-    f = cast(dict[str, object], formula)
+    f = cast("dict[str, object]", formula)
     return PropertyDiagnostic(
         signals=tuple(collect_signals(f)),
         formula_desc=format_formula(f),
@@ -380,7 +413,8 @@ def build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
 
 
 def format_enriched_reason(
-    diag: PropertyDiagnostic, values: dict[str, Fraction | None],
+    diag: PropertyDiagnostic,
+    values: dict[str, Fraction | None],
     core_reason: str = "",
 ) -> str:
     """Build the enriched reason string.

@@ -90,7 +90,10 @@ class SignalValues:
 
 
 def _parse_values_segment(
-    buf: bytes, off: int, count: int, names: Sequence[str],
+    buf: bytes,
+    off: int,
+    count: int,
+    names: Sequence[str],
 ) -> tuple[dict[str, Fraction], int]:
     """Parse the values segment: ``count`` × ``<Hqq`` (18 bytes each).
 
@@ -115,7 +118,10 @@ def _parse_values_segment(
 
 
 def _parse_errors_segment(
-    buf: bytes, off: int, count: int, names: Sequence[str],
+    buf: bytes,
+    off: int,
+    count: int,
+    names: Sequence[str],
 ) -> tuple[dict[str, str], int]:
     """Parse the errors segment: ``count`` × ``<HB`` (3 bytes each)."""
     needed = off + count * 3
@@ -138,7 +144,10 @@ def _parse_errors_segment(
 
 
 def _parse_absent_segment(
-    buf: bytes, off: int, count: int, names: Sequence[str],
+    buf: bytes,
+    off: int,
+    count: int,
+    names: Sequence[str],
 ) -> tuple[list[str], int]:
     """Parse the absent segment: ``count`` × ``<H`` (2 bytes each)."""
     needed = off + count * 2
@@ -154,7 +163,8 @@ def _parse_absent_segment(
 
 
 def parse_extraction_buffer(
-    buf: bytes, names: Sequence[str],
+    buf: bytes,
+    names: Sequence[str],
 ) -> SignalExtractionResult:
     """Parse the packed binary extraction response.
 

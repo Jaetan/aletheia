@@ -109,12 +109,11 @@ class InputBoundExceededError(AletheiaError):
     keep the three surfaces in sync.
     """
 
-    kind:     str
+    kind: str
     observed: int
-    limit:    int
+    limit: int
 
-    def __init__(self, kind: str, observed: int, limit: int,
-                 code: str | None = None) -> None:
+    def __init__(self, kind: str, observed: int, limit: int, code: str | None = None) -> None:
         message = f"{kind} {observed} exceeds limit {limit}"
         super().__init__(message, code=code)
         self.kind = kind
@@ -137,7 +136,6 @@ def check_dbc_text_size_bound(observed: int) -> None:
             observed,
             MAX_DBC_TEXT_BYTES,
         )
-
 
 
 class BatchError(AletheiaError):
@@ -211,8 +209,15 @@ def call_send_frame(
     the narrowed AckResponse / PropertyBatchResponse otherwise.
     """
     try:
-        resp = send_fn(frame.timestamp, frame.can_id, frame.dlc, frame.data,
-                       extended=frame.extended, brs=frame.brs, esi=frame.esi)
+        resp = send_fn(
+            frame.timestamp,
+            frame.can_id,
+            frame.dlc,
+            frame.data,
+            extended=frame.extended,
+            brs=frame.brs,
+            esi=frame.esi,
+        )
     except Exception as exc:
         raise BatchError(exc, partial, frame_index=frame_index) from exc
     return raise_on_error_response(resp, partial, frame_index)
@@ -289,8 +294,11 @@ class FrameResult:
         """
         if self.response.get("type") != "property_batch":
             return []
-        return [entry for entry in cast("PropertyBatchResponse", self.response).get("results", [])
-                if entry.get("status") == "holds"]
+        return [
+            entry
+            for entry in cast("PropertyBatchResponse", self.response).get("results", [])
+            if entry.get("status") == "holds"
+        ]
 
 
 class SignalExtractionResult:
@@ -389,6 +397,7 @@ class CANFrameTuple(NamedTuple):
     brs: bool | None = None
     esi: bool | None = None
 
+
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID
 _MAX_EXTENDED_ID = (1 << 29) - 1  # 29-bit CAN ID
 
@@ -408,8 +417,22 @@ def validate_can_id(can_id: int, *, extended: bool) -> None:
 
 
 _DLC_TO_BYTES: dict[int, int] = {
-    0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
-    9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64,
+    0: 0,
+    1: 1,
+    2: 2,
+    3: 3,
+    4: 4,
+    5: 5,
+    6: 6,
+    7: 7,
+    8: 8,
+    9: 12,
+    10: 16,
+    11: 20,
+    12: 24,
+    13: 32,
+    14: 48,
+    15: 64,
 }
 
 
@@ -463,8 +486,7 @@ def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
         return DLCCode(_BYTES_TO_DLC[byte_count])
     except KeyError:
         raise ValidationError(
-            f"Invalid byte count: {byte_count}"
-            + " (must be 0-8, 12, 16, 20, 24, 32, 48, or 64)"
+            f"Invalid byte count: {byte_count}" + " (must be 0-8, 12, 16, 20, 24, 32, 48, or 64)"
         ) from None
 
 

@@ -1,9 +1,12 @@
-"""Outbound (Python TypedDict → wire JSON) and inbound (Agda formatDBC JSON
-→ DBCDefinition) DBC normalisation."""
+"""Outbound (TypedDict → wire JSON) and inbound (Agda formatDBC → DBCDefinition) normalisation."""
 
-from collections.abc import Callable
-from typing import cast
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+from aletheia._loader_utils import is_pure_int
+from aletheia.client._helpers.rational import parse_rational
+from aletheia.client._types import ProtocolError
 from aletheia.protocols import (
     AttrScope,
     DBCAttrAssign,
@@ -28,9 +31,9 @@ from aletheia.protocols import (
     is_object_list,
     is_str_dict,
 )
-from aletheia._loader_utils import is_pure_int
-from aletheia.client._types import ProtocolError
-from aletheia.client._helpers.rational import parse_rational
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
@@ -46,8 +49,13 @@ _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
 # binding's FFI dispatcher sees the same JSON envelope.  Per
 # `feedback_cross_binding_wire_symmetry`.
 _DBC_TIER2_LIST_KEYS = (
-    "signalGroups", "environmentVars", "valueTables",
-    "nodes", "comments", "attributes", "unresolvedValueDescs",
+    "signalGroups",
+    "environmentVars",
+    "valueTables",
+    "nodes",
+    "comments",
+    "attributes",
+    "unresolvedValueDescs",
 )
 
 
@@ -89,7 +97,7 @@ def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
     for key in _DBC_TIER2_LIST_KEYS:
         if key not in result:
             result[key] = []
-    return cast(DBCDefinition, result)
+    return cast("DBCDefinition", result)
 
 
 # DEFERRED — TRACKED (R19P2-CL16-4 — DEFER).
@@ -104,21 +112,24 @@ def normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
     for field in _NUMERIC_SIGNAL_FIELDS:
         if field in sig:
             sig[field] = parse_rational(sig[field])
-    return cast(DBCSignal, sig)
+    return cast("DBCSignal", sig)
 
 
 def _normalize_signal_group(raw: dict[str, object]) -> DBCSignalGroup:
     """Normalize one ``signalGroups`` entry from Agda formatDBC output."""
     name = raw.get("name")
     if not isinstance(name, str):
-        raise ProtocolError("Expected signal group 'name' to be str")
+        msg = "Expected signal group 'name' to be str"
+        raise ProtocolError(msg)
     raw_signals = raw.get("signals")
     if not is_object_list(raw_signals):
-        raise ProtocolError("Expected signal group 'signals' to be a list")
+        msg = "Expected signal group 'signals' to be a list"
+        raise ProtocolError(msg)
     signals: list[str] = []
     for s in raw_signals:
         if not isinstance(s, str):
-            raise ProtocolError("Expected signal group member to be str")
+            msg = "Expected signal group member to be str"
+            raise ProtocolError(msg)
         signals.append(s)
     return {"name": name, "signals": signals}
 
@@ -126,9 +137,8 @@ def _normalize_signal_group(raw: dict[str, object]) -> DBCSignalGroup:
 def _normalize_var_type(raw: object) -> DBCVarType:
     """Narrow an Agda ``varType`` (ℕ 0/1/2) to the ``DBCVarType`` Literal."""
     if not is_pure_int(raw) or raw not in (0, 1, 2):
-        raise ProtocolError(
-            f"Expected environment var 'varType' to be 0, 1, or 2, got {raw!r}"
-        )
+        msg = f"Expected environment var 'varType' to be 0, 1, or 2, got {raw!r}"
+        raise ProtocolError(msg)
     return raw
 
 
@@ -136,28 +146,30 @@ def _normalize_environment_var(raw: dict[str, object]) -> DBCEnvironmentVar:
     """Normalize one ``environmentVars`` entry from Agda formatDBC output."""
     name = raw.get("name")
     if not isinstance(name, str):
-        raise ProtocolError("Expected environment var 'name' to be str")
+        msg = "Expected environment var 'name' to be str"
+        raise ProtocolError(msg)
     ev: dict[str, object] = {
         "name": name,
         "varType": _normalize_var_type(raw.get("varType")),
     }
     for field in _NUMERIC_ENV_VAR_FIELDS:
         if field not in raw:
-            raise ProtocolError(f"Expected environment var field {field!r}")
+            msg = f"Expected environment var field {field!r}"
+            raise ProtocolError(msg)
         ev[field] = parse_rational(raw[field])
-    return cast(DBCEnvironmentVar, ev)
+    return cast("DBCEnvironmentVar", ev)
 
 
 def _normalize_value_entry(raw: dict[str, object]) -> DBCValueEntry:
     """Normalize one ``entries`` item from a ``valueTables`` entry."""
     value_raw = raw.get("value")
     if not is_pure_int(value_raw) or value_raw < 0:
-        raise ProtocolError(
-            f"Expected value table entry 'value' to be non-negative int, got {value_raw!r}"
-        )
+        msg = f"Expected value table entry 'value' to be non-negative int, got {value_raw!r}"
+        raise ProtocolError(msg)
     desc = raw.get("description")
     if not isinstance(desc, str):
-        raise ProtocolError("Expected value table entry 'description' to be str")
+        msg = "Expected value table entry 'description' to be str"
+        raise ProtocolError(msg)
     return {"value": value_raw, "description": desc}
 
 
@@ -165,19 +177,22 @@ def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
     """Normalize one ``valueTables`` entry from Agda formatDBC output."""
     name = raw.get("name")
     if not isinstance(name, str):
-        raise ProtocolError("Expected value table 'name' to be str")
+        msg = "Expected value table 'name' to be str"
+        raise ProtocolError(msg)
     raw_entries = raw.get("entries")
     if not is_object_list(raw_entries):
-        raise ProtocolError("Expected value table 'entries' to be a list")
+        msg = "Expected value table 'entries' to be a list"
+        raise ProtocolError(msg)
     entries: list[DBCValueEntry] = []
     for e in raw_entries:
         if not is_str_dict(e):
-            raise ProtocolError("Expected value table entry to be a dict")
+            msg = "Expected value table entry to be a dict"
+            raise ProtocolError(msg)
         entries.append(_normalize_value_entry(e))
     return {"name": name, "entries": entries}
 
 
-def _normalize_raw_value_desc(raw: dict[str, object]) -> "DBCRawValueDesc":
+def _normalize_raw_value_desc(raw: dict[str, object]) -> DBCRawValueDesc:
     """Normalize one ``unresolvedValueDescs`` entry from Agda formatDBC output.
 
     Track E.8 (Plan B): wire shape is ``{id, [extended], signalName, entries}``,
@@ -185,21 +200,17 @@ def _normalize_raw_value_desc(raw: dict[str, object]) -> "DBCRawValueDesc":
     """
     raw_entries = raw.get("entries")
     if not is_object_list(raw_entries):
-        raise ProtocolError(
-            "Expected unresolvedValueDescs 'entries' to be a list"
-        )
+        msg = "Expected unresolvedValueDescs 'entries' to be a list"
+        raise ProtocolError(msg)
     entries: list[DBCValueEntry] = []
     for e in raw_entries:
         if not is_str_dict(e):
-            raise ProtocolError(
-                "Expected unresolvedValueDescs entry to be a dict"
-            )
+            msg = "Expected unresolvedValueDescs entry to be a dict"
+            raise ProtocolError(msg)
         entries.append(_normalize_value_entry(e))
     out: dict[str, object] = {
         "id": _require_int_field(raw, "id", "unresolvedValueDesc"),
-        "signalName": _require_str_field(
-            raw, "signalName", "unresolvedValueDesc"
-        ),
+        "signalName": _require_str_field(raw, "signalName", "unresolvedValueDesc"),
         "entries": entries,
     }
     if _optional_extended(raw):
@@ -215,26 +226,31 @@ def _normalize_raw_value_desc(raw: dict[str, object]) -> "DBCRawValueDesc":
 def _require_str_field(raw: dict[str, object], field: str, context: str) -> str:
     v = raw.get(field)
     if not isinstance(v, str):
-        raise ProtocolError(f"Expected {context} {field!r} to be str, got {type(v).__name__}")
+        msg = f"Expected {context} {field!r} to be str, got {type(v).__name__}"
+        raise ProtocolError(msg)
     return v
 
 
 def _require_int_field(raw: dict[str, object], field: str, context: str) -> int:
     v = raw.get(field)
     if not is_pure_int(v):
-        raise ProtocolError(f"Expected {context} {field!r} to be int, got {type(v).__name__}")
+        msg = f"Expected {context} {field!r} to be int, got {type(v).__name__}"
+        raise ProtocolError(msg)
     return v
 
 
 def _optional_extended(raw: dict[str, object]) -> bool:
-    """Accept an optional ``extended`` flag (default ``False``) — Agda emits
-    it only for 29-bit IDs, but the Python side always passes it through to
-    preserve round-trip wire shape."""
+    """Accept an optional ``extended`` flag (default ``False``).
+
+    Agda emits it only for 29-bit IDs, but the Python side always passes it
+    through to preserve round-trip wire shape.
+    """
     v = raw.get("extended")
     if v is None:
         return False
     if not isinstance(v, bool):
-        raise ProtocolError(f"Expected 'extended' to be bool, got {type(v).__name__}")
+        msg = f"Expected 'extended' to be bool, got {type(v).__name__}"
+        raise ProtocolError(msg)
     return v
 
 
@@ -255,7 +271,7 @@ def _normalize_comment_target(raw: dict[str, object]) -> DBCCommentTarget:
         }
         if _optional_extended(raw):
             out["extended"] = True
-        return cast(DBCCommentTarget, out)
+        return cast("DBCCommentTarget", out)
     if kind == "signal":
         out2: dict[str, object] = {
             "kind": "signal",
@@ -264,31 +280,42 @@ def _normalize_comment_target(raw: dict[str, object]) -> DBCCommentTarget:
         }
         if _optional_extended(raw):
             out2["extended"] = True
-        return cast(DBCCommentTarget, out2)
+        return cast("DBCCommentTarget", out2)
     if kind == "envVar":
         return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", "comment target")}
-    raise ProtocolError(f"Unknown comment target kind {kind!r}")
+    msg = f"Unknown comment target kind {kind!r}"
+    raise ProtocolError(msg)
 
 
 def _normalize_comment(raw: dict[str, object]) -> DBCComment:
     target_raw = raw.get("target")
     if not is_str_dict(target_raw):
-        raise ProtocolError("Expected comment 'target' to be a dict")
+        msg = "Expected comment 'target' to be a dict"
+        raise ProtocolError(msg)
     return {
         "target": _normalize_comment_target(target_raw),
         "text": _require_str_field(raw, "text", "comment"),
     }
 
 
-_ATTR_SCOPE_WIRE: frozenset[str] = frozenset({
-    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
-})
+_ATTR_SCOPE_WIRE: frozenset[str] = frozenset(
+    {
+        "network",
+        "node",
+        "message",
+        "signal",
+        "envVar",
+        "nodeMsg",
+        "nodeSig",
+    }
+)
 
 
 def _normalize_attr_scope(value: object) -> AttrScope:
     if isinstance(value, str) and value in _ATTR_SCOPE_WIRE:
-        return cast(AttrScope, value)
-    raise ProtocolError(f"Unknown attribute scope {value!r}")
+        return cast("AttrScope", value)
+    msg = f"Unknown attribute scope {value!r}"
+    raise ProtocolError(msg)
 
 
 def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
@@ -301,7 +328,8 @@ def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
         }
     if kind == "float":
         if "min" not in raw or "max" not in raw:
-            raise ProtocolError("Expected attribute type float 'min' and 'max'")
+            msg = "Expected attribute type float 'min' and 'max'"
+            raise ProtocolError(msg)
         return {
             "kind": "float",
             "min": parse_rational(raw["min"]),
@@ -312,11 +340,13 @@ def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
     if kind == "enum":
         raw_values = raw.get("values")
         if not is_object_list(raw_values):
-            raise ProtocolError("Expected attribute type enum 'values' to be a list")
+            msg = "Expected attribute type enum 'values' to be a list"
+            raise ProtocolError(msg)
         labels: list[str] = []
         for v in raw_values:
             if not isinstance(v, str):
-                raise ProtocolError("Expected attribute type enum 'values' entry to be str")
+                msg = "Expected attribute type enum 'values' entry to be str"
+                raise ProtocolError(msg)
             labels.append(v)
         return {"kind": "enum", "values": labels}
     if kind == "hex":
@@ -325,7 +355,8 @@ def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
             "min": _require_int_field(raw, "min", "attribute type hex"),
             "max": _require_int_field(raw, "max", "attribute type hex"),
         }
-    raise ProtocolError(f"Unknown attribute type kind {kind!r}")
+    msg = f"Unknown attribute type kind {kind!r}"
+    raise ProtocolError(msg)
 
 
 def _normalize_attr_value(raw: dict[str, object]) -> DBCAttrValue:
@@ -334,7 +365,8 @@ def _normalize_attr_value(raw: dict[str, object]) -> DBCAttrValue:
         return {"kind": "int", "value": _require_int_field(raw, "value", "attribute value int")}
     if kind == "float":
         if "value" not in raw:
-            raise ProtocolError("Expected attribute value float 'value'")
+            msg = "Expected attribute value float 'value'"
+            raise ProtocolError(msg)
         return {"kind": "float", "value": parse_rational(raw["value"])}
     if kind == "string":
         value = _require_str_field(raw, "value", "attribute value string")
@@ -343,11 +375,13 @@ def _normalize_attr_value(raw: dict[str, object]) -> DBCAttrValue:
         return {"kind": "enum", "value": _require_int_field(raw, "value", "attribute value enum")}
     if kind == "hex":
         return {"kind": "hex", "value": _require_int_field(raw, "value", "attribute value hex")}
-    raise ProtocolError(f"Unknown attribute value kind {kind!r}")
+    msg = f"Unknown attribute value kind {kind!r}"
+    raise ProtocolError(msg)
 
 
 def _with_optional_extended(
-    raw: dict[str, object], base: dict[str, object],
+    raw: dict[str, object],
+    base: dict[str, object],
 ) -> dict[str, object]:
     if _optional_extended(raw):
         base["extended"] = True
@@ -355,12 +389,16 @@ def _with_optional_extended(
 
 
 def _normalize_attr_target_msg_id(
-    raw: dict[str, object], kind: str,
+    raw: dict[str, object],
+    kind: str,
 ) -> dict[str, object]:
-    return _with_optional_extended(raw, {
-        "kind": kind,
-        "id": _require_int_field(raw, "id", "attribute target"),
-    })
+    return _with_optional_extended(
+        raw,
+        {
+            "kind": kind,
+            "id": _require_int_field(raw, "id", "attribute target"),
+        },
+    )
 
 
 _ATTR_TARGET_SIMPLE_KINDS = frozenset({"network", "node", "envVar"})
@@ -368,7 +406,8 @@ _ATTR_TARGET_MSG_KINDS = frozenset({"message", "signal", "nodeMsg", "nodeSig"})
 
 
 def _normalize_attr_target_simple(
-    kind: str, raw: dict[str, object],
+    kind: str,
+    raw: dict[str, object],
 ) -> dict[str, object]:
     ctx = "attribute target"
     if kind == "network":
@@ -379,7 +418,8 @@ def _normalize_attr_target_simple(
 
 
 def _normalize_attr_target_msg(
-    kind: str, raw: dict[str, object],
+    kind: str,
+    raw: dict[str, object],
 ) -> dict[str, object]:
     ctx = "attribute target"
     base = _normalize_attr_target_msg_id(raw, kind)
@@ -393,10 +433,11 @@ def _normalize_attr_target_msg(
 def _normalize_attr_target(raw: dict[str, object]) -> DBCAttrTarget:
     kind = _require_str_field(raw, "kind", "attribute target")
     if kind in _ATTR_TARGET_SIMPLE_KINDS:
-        return cast(DBCAttrTarget, _normalize_attr_target_simple(kind, raw))
+        return cast("DBCAttrTarget", _normalize_attr_target_simple(kind, raw))
     if kind in _ATTR_TARGET_MSG_KINDS:
-        return cast(DBCAttrTarget, _normalize_attr_target_msg(kind, raw))
-    raise ProtocolError(f"Unknown attribute target kind {kind!r}")
+        return cast("DBCAttrTarget", _normalize_attr_target_msg(kind, raw))
+    msg = f"Unknown attribute target kind {kind!r}"
+    raise ProtocolError(msg)
 
 
 def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
@@ -406,7 +447,8 @@ def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
         scope = _normalize_attr_scope(raw.get("scope"))
         attr_type_raw = raw.get("attrType")
         if not is_str_dict(attr_type_raw):
-            raise ProtocolError("Expected attribute 'attrType' to be a dict")
+            msg = "Expected attribute 'attrType' to be a dict"
+            raise ProtocolError(msg)
         result_def: DBCAttrDef = {
             "kind": "definition",
             "name": name,
@@ -417,7 +459,8 @@ def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
     if kind == "default":
         value_raw = raw.get("value")
         if not is_str_dict(value_raw):
-            raise ProtocolError("Expected attribute default 'value' to be a dict")
+            msg = "Expected attribute default 'value' to be a dict"
+            raise ProtocolError(msg)
         result_default: DBCAttrDefault = {
             "kind": "default",
             "name": name,
@@ -427,10 +470,12 @@ def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
     if kind == "assignment":
         target_raw = raw.get("target")
         if not is_str_dict(target_raw):
-            raise ProtocolError("Expected attribute assignment 'target' to be a dict")
+            msg = "Expected attribute assignment 'target' to be a dict"
+            raise ProtocolError(msg)
         value_raw = raw.get("value")
         if not is_str_dict(value_raw):
-            raise ProtocolError("Expected attribute assignment 'value' to be a dict")
+            msg = "Expected attribute assignment 'value' to be a dict"
+            raise ProtocolError(msg)
         result_assign: DBCAttrAssign = {
             "kind": "assignment",
             "name": name,
@@ -438,7 +483,8 @@ def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
             "value": _normalize_attr_value(value_raw),
         }
         return result_assign
-    raise ProtocolError(f"Unknown attribute kind {kind!r}")
+    msg = f"Unknown attribute kind {kind!r}"
+    raise ProtocolError(msg)
 
 
 def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
@@ -456,39 +502,51 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     """
     raw_messages = raw.get("messages")
     if not is_object_list(raw_messages):
-        raise ProtocolError("Expected 'messages' to be a list")
+        msg = "Expected 'messages' to be a list"
+        raise ProtocolError(msg)
     messages: list[DBCMessage] = []
     for m in raw_messages:
         if not is_str_dict(m):
-            raise ProtocolError("Expected each message to be a dict")
+            msg = "Expected each message to be a dict"
+            raise ProtocolError(msg)
         raw_signals = m.get("signals")
         if not is_object_list(raw_signals):
-            raise ProtocolError("Expected 'signals' to be a list")
+            msg = "Expected 'signals' to be a list"
+            raise ProtocolError(msg)
         signals: list[DBCSignal] = []
         for s in raw_signals:
             if not is_str_dict(s):
-                raise ProtocolError("Expected each signal to be a dict")
+                msg = "Expected each signal to be a dict"
+                raise ProtocolError(msg)
             signals.append(normalize_signal(s))
-        msg: dict[str, object] = dict(m)
-        msg["signals"] = signals
-        messages.append(cast(DBCMessage, msg))
+        msg_dict: dict[str, object] = dict(m)
+        msg_dict["signals"] = signals
+        messages.append(cast("DBCMessage", msg_dict))
     result: DBCDefinition = {
         "version": str(raw.get("version", "")),
         "messages": messages,
         "signalGroups": _normalize_optional_list(
-            raw, "signalGroups", _normalize_signal_group,
+            raw,
+            "signalGroups",
+            _normalize_signal_group,
         ),
         "environmentVars": _normalize_optional_list(
-            raw, "environmentVars", _normalize_environment_var,
+            raw,
+            "environmentVars",
+            _normalize_environment_var,
         ),
         "valueTables": _normalize_optional_list(
-            raw, "valueTables", _normalize_value_table,
+            raw,
+            "valueTables",
+            _normalize_value_table,
         ),
         "nodes": _normalize_optional_list(raw, "nodes", _normalize_node),
         "comments": _normalize_optional_list(raw, "comments", _normalize_comment),
         "attributes": _normalize_optional_list(raw, "attributes", _normalize_attribute),
         "unresolvedValueDescs": _normalize_optional_list(
-            raw, "unresolvedValueDescs", _normalize_raw_value_desc,
+            raw,
+            "unresolvedValueDescs",
+            _normalize_raw_value_desc,
         ),
     }
     return result
@@ -497,17 +555,19 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
 def _normalize_optional_list[T](
     raw: dict[str, object],
     key: str,
-    item_parser: "Callable[[dict[str, object]], T]",
+    item_parser: Callable[[dict[str, object]], T],
 ) -> list[T]:
     """Normalize a NotRequired metadata array: treat missing as empty."""
     if key not in raw:
         return []
     items = raw.get(key)
     if not is_object_list(items):
-        raise ProtocolError(f"Expected {key!r} to be a list")
+        msg = f"Expected {key!r} to be a list"
+        raise ProtocolError(msg)
     parsed: list[T] = []
     for item in items:
         if not is_str_dict(item):
-            raise ProtocolError(f"Expected each {key!r} entry to be a dict")
+            msg = f"Expected each {key!r} entry to be a dict"
+            raise ProtocolError(msg)
         parsed.append(item_parser(item))
     return parsed

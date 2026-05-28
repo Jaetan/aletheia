@@ -1,6 +1,7 @@
 """FFI infrastructure for loading and initializing the Aletheia shared library."""
 
 import ctypes
+import importlib
 import json
 import logging
 import os
@@ -8,9 +9,9 @@ import stat
 import threading
 from pathlib import Path
 
-from aletheia.protocols import is_str_dict
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
+from aletheia.protocols import is_str_dict
 
 
 def parse_json_object(s: str) -> dict[str, object]:
@@ -22,9 +23,11 @@ def parse_json_object(s: str) -> dict[str, object]:
     try:
         parsed: object = json.loads(s)
     except json.JSONDecodeError as exc:
-        raise ProtocolError(f"FFI returned invalid JSON: {exc}") from exc
+        msg = f"FFI returned invalid JSON: {exc}"
+        raise ProtocolError(msg) from exc
     if not is_str_dict(parsed):
-        raise ProtocolError(f"Expected JSON object, got {type(parsed).__name__}")
+        msg = f"Expected JSON object, got {type(parsed).__name__}"
+        raise ProtocolError(msg)
     return parsed
 
 
@@ -54,6 +57,7 @@ class RTSState:
                 number of CAN buses for multi-bus monitoring from
                 separate Python threads.  Only takes effect on the first
                 ``AletheiaClient`` created in a process.
+
         """
         with cls._lock:
             if not cls.initialized:
@@ -73,8 +77,7 @@ class RTSState:
                     args: list[bytes] = [b"aletheia", b"+RTS"]
                     if rts_cores > 1:
                         args.append(b"-N" + str(rts_cores).encode())
-                    for flag in extra_rts:
-                        args.append(flag.encode("ascii"))
+                    args.extend(flag.encode("ascii") for flag in extra_rts)
                     args.append(b"-RTS")
                 else:
                     args = [b"aletheia"]
@@ -87,9 +90,11 @@ class RTSState:
                 cls.initialized = True
             elif rts_cores != cls.cores:
                 log_event(
-                    logging.getLogger("aletheia"), logging.WARNING,
+                    logging.getLogger("aletheia"),
+                    logging.WARNING,
                     LogEvent.RTS_CORES_MISMATCH,
-                    active_cores=cls.cores, requested_cores=rts_cores,
+                    active_cores=cls.cores,
+                    requested_cores=rts_cores,
                 )
             cls.refcount += 1
 
@@ -124,17 +129,17 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # frame), `present!=0` means present with `value!=0` for True.  See
     # `Aletheia.Trace.CANTrace.TimedFrame` + ISO 11898-1:2015 §10.4.2 / §10.4.3.
     lib.aletheia_send_frame.argtypes = [
-        ctypes.c_void_p,                 # state
-        ctypes.c_uint64,                 # timestamp
-        ctypes.c_uint32,                 # can_id
-        ctypes.c_uint8,                  # extended (0 or 1)
-        ctypes.c_uint8,                  # dlc
+        ctypes.c_void_p,  # state
+        ctypes.c_uint64,  # timestamp
+        ctypes.c_uint32,  # can_id
+        ctypes.c_uint8,  # extended (0 or 1)
+        ctypes.c_uint8,  # dlc
         ctypes.POINTER(ctypes.c_uint8),  # data pointer
-        ctypes.c_uint8,                  # data_len
-        ctypes.c_uint8,                  # brs_present (0 or 1)
-        ctypes.c_uint8,                  # brs_value   (0 or 1)
-        ctypes.c_uint8,                  # esi_present (0 or 1)
-        ctypes.c_uint8,                  # esi_value   (0 or 1)
+        ctypes.c_uint8,  # data_len
+        ctypes.c_uint8,  # brs_present (0 or 1)
+        ctypes.c_uint8,  # brs_value   (0 or 1)
+        ctypes.c_uint8,  # esi_present (0 or 1)
+        ctypes.c_uint8,  # esi_value   (0 or 1)
     ]
     lib.aletheia_send_frame.restype = ctypes.c_void_p
 
@@ -146,68 +151,68 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     lib.aletheia_format_dbc.argtypes = [ctypes.c_void_p]
     lib.aletheia_format_dbc.restype = ctypes.c_void_p
     lib.aletheia_extract_signals.argtypes = [
-        ctypes.c_void_p,                 # state
-        ctypes.c_uint32,                 # can_id
-        ctypes.c_uint8,                  # extended
-        ctypes.c_uint8,                  # dlc
+        ctypes.c_void_p,  # state
+        ctypes.c_uint32,  # can_id
+        ctypes.c_uint8,  # extended
+        ctypes.c_uint8,  # dlc
         ctypes.POINTER(ctypes.c_uint8),  # data pointer
-        ctypes.c_uint8,                  # data_len
+        ctypes.c_uint8,  # data_len
     ]
     lib.aletheia_extract_signals.restype = ctypes.c_void_p
 
     # CAN error/remote event endpoints (acknowledged without LTL evaluation)
     lib.aletheia_send_error.argtypes = [
-        ctypes.c_void_p,   # state
-        ctypes.c_uint64,   # timestamp
+        ctypes.c_void_p,  # state
+        ctypes.c_uint64,  # timestamp
     ]
     lib.aletheia_send_error.restype = ctypes.c_void_p
     lib.aletheia_send_remote.argtypes = [
-        ctypes.c_void_p,   # state
-        ctypes.c_uint64,   # timestamp
-        ctypes.c_uint32,   # can_id
-        ctypes.c_uint8,    # extended (0 or 1)
+        ctypes.c_void_p,  # state
+        ctypes.c_uint64,  # timestamp
+        ctypes.c_uint32,  # can_id
+        ctypes.c_uint8,  # extended (0 or 1)
     ]
     lib.aletheia_send_remote.restype = ctypes.c_void_p
 
     # Binary output entry points (no JSON on output either)
     lib.aletheia_build_frame_bin.argtypes = [
-        ctypes.c_void_p,                  # state
-        ctypes.c_uint32,                  # can_id
-        ctypes.c_uint8,                   # extended
-        ctypes.c_uint8,                   # dlc
-        ctypes.c_uint32,                  # numSignals
+        ctypes.c_void_p,  # state
+        ctypes.c_uint32,  # can_id
+        ctypes.c_uint8,  # extended
+        ctypes.c_uint8,  # dlc
+        ctypes.c_uint32,  # numSignals
         ctypes.POINTER(ctypes.c_uint32),  # indices
-        ctypes.POINTER(ctypes.c_int64),   # numerators
-        ctypes.POINTER(ctypes.c_int64),   # denominators
-        ctypes.POINTER(ctypes.c_uint8),   # out_buf
+        ctypes.POINTER(ctypes.c_int64),  # numerators
+        ctypes.POINTER(ctypes.c_int64),  # denominators
+        ctypes.POINTER(ctypes.c_uint8),  # out_buf
         ctypes.POINTER(ctypes.c_char_p),  # out_err
     ]
     lib.aletheia_build_frame_bin.restype = ctypes.c_int8
     lib.aletheia_update_frame_bin.argtypes = [
-        ctypes.c_void_p,                  # state
-        ctypes.c_uint32,                  # can_id
-        ctypes.c_uint8,                   # extended
-        ctypes.c_uint8,                   # dlc
-        ctypes.POINTER(ctypes.c_uint8),   # data pointer
-        ctypes.c_uint8,                   # data_len
-        ctypes.c_uint32,                  # numSignals
+        ctypes.c_void_p,  # state
+        ctypes.c_uint32,  # can_id
+        ctypes.c_uint8,  # extended
+        ctypes.c_uint8,  # dlc
+        ctypes.POINTER(ctypes.c_uint8),  # data pointer
+        ctypes.c_uint8,  # data_len
+        ctypes.c_uint32,  # numSignals
         ctypes.POINTER(ctypes.c_uint32),  # indices
-        ctypes.POINTER(ctypes.c_int64),   # numerators
-        ctypes.POINTER(ctypes.c_int64),   # denominators
-        ctypes.POINTER(ctypes.c_uint8),   # out_buf
+        ctypes.POINTER(ctypes.c_int64),  # numerators
+        ctypes.POINTER(ctypes.c_int64),  # denominators
+        ctypes.POINTER(ctypes.c_uint8),  # out_buf
         ctypes.POINTER(ctypes.c_char_p),  # out_err
     ]
     lib.aletheia_update_frame_bin.restype = ctypes.c_int8
     lib.aletheia_extract_signals_bin.argtypes = [
-        ctypes.c_void_p,                          # state
-        ctypes.c_uint32,                           # can_id
-        ctypes.c_uint8,                            # extended
-        ctypes.c_uint8,                            # dlc
-        ctypes.POINTER(ctypes.c_uint8),            # data pointer
-        ctypes.c_uint8,                            # data_len
+        ctypes.c_void_p,  # state
+        ctypes.c_uint32,  # can_id
+        ctypes.c_uint8,  # extended
+        ctypes.c_uint8,  # dlc
+        ctypes.POINTER(ctypes.c_uint8),  # data pointer
+        ctypes.c_uint8,  # data_len
         ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),  # out_buf
-        ctypes.POINTER(ctypes.c_uint32),           # out_size
-        ctypes.POINTER(ctypes.c_char_p),           # out_err
+        ctypes.POINTER(ctypes.c_uint32),  # out_size
+        ctypes.POINTER(ctypes.c_char_p),  # out_err
     ]
     lib.aletheia_extract_signals_bin.restype = ctypes.c_int8
     lib.aletheia_free_buf.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
@@ -218,8 +223,8 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # Display path only — bindings call this to render predicate values for
     # human-readable diagnostics.
     lib.aletheia_format_rational.argtypes = [
-        ctypes.c_int64,   # numerator
-        ctypes.c_int64,   # denominator (sign normalisation handled in shim)
+        ctypes.c_int64,  # numerator
+        ctypes.c_int64,  # denominator (sign normalisation handled in shim)
     ]
     lib.aletheia_format_rational.restype = ctypes.c_void_p
 
@@ -240,6 +245,7 @@ def _validate_lib_path(p: Path, source: str) -> None:
 
     Raises:
         PermissionError: Path is a symlink, or group/world-writable.
+
     """
     # Reject symlinks before stat() — `Path.stat()` follows symlinks, so a
     # symlink-to-world-writable target would slip past the mode check.
@@ -282,6 +288,7 @@ def find_ffi_library() -> Path:
     Raises:
         FileNotFoundError: If library not found
         PermissionError: A resolved path is a symlink or group/world-writable
+
     """
     # Check ALETHEIA_LIB environment variable (Docker, custom deployments).
     # Permission hardening (R19 cluster B / PY-B-26.11): refuse a path
@@ -296,19 +303,20 @@ def find_ffi_library() -> Path:
     if env_path:
         p = Path(env_path)
         if not p.exists():
-            raise FileNotFoundError(
-                f"ALETHEIA_LIB={env_path} does not exist"
-            )
+            msg = f"ALETHEIA_LIB={env_path} does not exist"
+            raise FileNotFoundError(msg)
         _validate_lib_path(p, f"ALETHEIA_LIB={env_path}")
         return p
 
     # Check install config (generated by 'cabal run shake -- install').
-    # Lazy import: _install_config.py is generated at install time and may not exist.
+    # _install_config.py is generated at install time and may not exist;
+    # importlib.import_module lets us handle that without a top-level import.
     try:
-        from aletheia import _install_config  # pylint: disable=import-outside-toplevel
-        if _install_config.LIBRARY_PATH.exists():
-            _validate_lib_path(_install_config.LIBRARY_PATH, "install config")
-            return _install_config.LIBRARY_PATH
+        _install_config = importlib.import_module("aletheia._install_config")
+        lib_path: Path = _install_config.LIBRARY_PATH
+        if lib_path.exists():
+            _validate_lib_path(lib_path, "install config")
+            return lib_path
     except ImportError:
         pass
 
@@ -329,6 +337,5 @@ def find_ffi_library() -> Path:
             return so_file
 
     raise FileNotFoundError(
-        "libaletheia-ffi.so not found. Build with: " +
-        "cabal run shake -- build"
+        "libaletheia-ffi.so not found. Build with: " + "cabal run shake -- build"
     )

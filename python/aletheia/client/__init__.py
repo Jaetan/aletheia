@@ -38,6 +38,7 @@ Example:
             response = client.send_frame(ts, can_id, dlc, modified, extended=ext)
 
         client.end_stream()
+
 """
 
 from aletheia.client._backend import Backend, BinaryPathUnsupportedError, FFIBackend, MockBackend
@@ -65,11 +66,25 @@ from aletheia.client._types import (
 # level. User-facing API is ``AletheiaClient``, the exception hierarchy, the
 # response TypedDicts, and the byte/DLC converters.
 __all__ = [
-    "AletheiaClient", "AletheiaError", "Backend", "BatchError",
-    "BinaryPathUnsupportedError", "bytes_to_dlc",
-    "CANFrameTuple", "check_dbc_text_size_bound", "dlc_to_bytes",
-    "FFIBackend", "FFIError", "FrameResponse", "FrameResult",
-    "InputBoundExceededError", "MockBackend",
-    "PropertyDiagnostic", "ProtocolError",
-    "RTSState", "SignalExtractionResult", "StateError", "ValidationError",
+    "AletheiaClient",
+    "AletheiaError",
+    "Backend",
+    "BatchError",
+    "BinaryPathUnsupportedError",
+    "CANFrameTuple",
+    "FFIBackend",
+    "FFIError",
+    "FrameResponse",
+    "FrameResult",
+    "InputBoundExceededError",
+    "MockBackend",
+    "PropertyDiagnostic",
+    "ProtocolError",
+    "RTSState",
+    "SignalExtractionResult",
+    "StateError",
+    "ValidationError",
+    "bytes_to_dlc",
+    "check_dbc_text_size_bound",
+    "dlc_to_bytes",
 ]
