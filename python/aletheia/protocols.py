@@ -5,7 +5,7 @@ This provides better type safety and IDE support.
 
 The DBC sub-schema lives in :mod:`aletheia._dbc_types`; this module
 re-exports its public names so consumers can keep importing from
-``aletheia.protocols`` directly (R19 cluster 17 follow-up split, 2026-05-12).
+``aletheia.protocols`` directly.
 """
 
 import json
@@ -65,12 +65,13 @@ from aletheia._dbc_types import (
 )
 from aletheia.issue_codes import ValidationIssue
 
-# ─── Public wire helpers (R23 PY-D-16.2) ────────────────────────────────────
+# ─── Public wire helpers ───────────────────────────────────────────────────
 # Promoted from ``client/_helpers.py`` so non-client modules
 # (``cli.py``, ``dbc_converter.py``, ``excel_loader.py``) can reach a
 # public surface rather than ``aletheia.client._helpers`` (a private
 # implementation module).  ``client/_helpers.py`` re-imports these names
 # for backward-compat with client-internal callers.
+
 
 class FractionJSONEncoder(json.JSONEncoder):
     """JSON encoder that handles :class:`fractions.Fraction` losslessly.
@@ -99,8 +100,7 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     serialize as their UTF-8 bytes rather than ``\uXXXX`` escapes.  The
     Agda-side parser is byte-oriented; the Go and C++ bindings emit
     UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
-    byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
-    (cross-binding wire-byte parity).
+    byte-identical with them (cross-binding wire-byte parity).
     """
     return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
 
@@ -121,8 +121,6 @@ def to_signal_fraction(value: float | Fraction) -> Fraction:
 
 
 _DECIMAL_PRECISION_DEN_PROTOCOLS = 1_000_000_000  # mirrors client/_helpers.py
-
-
 
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
@@ -183,7 +181,8 @@ class PredicateType(str, Enum):
 # rational dicts (``{"numerator": n, "denominator": d}``); the
 # :class:`FractionJSONEncoder` emits the latter shape via the
 # canonical numerator/denominator pair so cross-binding wire bytes match
-# C++'s ``rational_to_json`` (cluster 17 / PY-D-19.1).
+# C++'s ``rational_to_json``.
+
 
 class EqualsPredicate(TypedDict):
     """Equals predicate: signal == value."""
@@ -255,18 +254,19 @@ class StableWithinPredicate(TypedDict):
 
 
 SignalPredicate = (
-    EqualsPredicate |
-    LessThanPredicate |
-    GreaterThanPredicate |
-    LessThanOrEqualPredicate |
-    GreaterThanOrEqualPredicate |
-    BetweenPredicate |
-    ChangedByPredicate |
-    StableWithinPredicate
+    EqualsPredicate
+    | LessThanPredicate
+    | GreaterThanPredicate
+    | LessThanOrEqualPredicate
+    | GreaterThanOrEqualPredicate
+    | BetweenPredicate
+    | ChangedByPredicate
+    | StableWithinPredicate
 )
 
 
 # -- LTL Formula Types (using "operator" key) --
+
 
 class AtomicFormula(TypedDict):
     """Atomic formula wrapping a signal predicate."""
@@ -388,26 +388,27 @@ class MetricReleaseFormula(TypedDict):
 
 # Union type for all LTL formulas
 LTLFormula = (
-    AtomicFormula |
-    AndFormula |
-    OrFormula |
-    NotFormula |
-    AlwaysFormula |
-    EventuallyFormula |
-    NextFormula |
-    WeakNextFormula |
-    MetricEventuallyFormula |
-    MetricAlwaysFormula |
-    UntilFormula |
-    ReleaseFormula |
-    MetricUntilFormula |
-    MetricReleaseFormula
+    AtomicFormula
+    | AndFormula
+    | OrFormula
+    | NotFormula
+    | AlwaysFormula
+    | EventuallyFormula
+    | NextFormula
+    | WeakNextFormula
+    | MetricEventuallyFormula
+    | MetricAlwaysFormula
+    | UntilFormula
+    | ReleaseFormula
+    | MetricUntilFormula
+    | MetricReleaseFormula
 )
 
 
 # ============================================================================
 # Signal Operation Types
 # ============================================================================
+
 
 class RationalNumber(TypedDict):
     """Rational number representation from Agda."""
@@ -445,6 +446,7 @@ class SignalError(TypedDict):
 # ============================================================================
 # Command and Response Types
 # ============================================================================
+
 
 class ParseDBCCommand(TypedDict):
     """Parse DBC file command."""
@@ -511,19 +513,18 @@ class ErrorResponse(TypedDict):
     """Error response with machine-readable code.
 
     The ``bound_kind`` / ``observed`` / ``limit`` triple is present on
-    InputBoundExceeded errors (``code == "input_bound_exceeded"`` post
-    R19 cluster 14 / AGDA-C-6.2 consolidation; previously the three
-    per-ADT codes ``parse_*`` / ``frame_*`` / ``dbc_text_*``) and absent
-    on all other error codes; the Agda kernel emits the typed payload
-    via ``Protocol/ResponseFormat.errorExtras`` (AGDA-D-13.4 phase 2a).
+    InputBoundExceeded errors (``code == "input_bound_exceeded"``;
+    previously the three per-ADT codes ``parse_*`` / ``frame_*`` /
+    ``dbc_text_*``) and absent on all other error codes; the Agda kernel
+    emits the typed payload via ``Protocol/ResponseFormat.errorExtras``.
     """
 
     status: Literal["error"]
     code: str
     message: str
     bound_kind: NotRequired[str]
-    observed:   NotRequired[int]
-    limit:      NotRequired[int]
+    observed: NotRequired[int]
+    limit: NotRequired[int]
 
 
 class AckResponse(TypedDict):
@@ -550,8 +551,8 @@ class ViolationEnrichment(TypedDict):
 class PropertyBatchResponse(TypedDict):
     """Per-frame batch of property events emitted during streaming.
 
-    R23 — AGDA-D-12.1: replaces the pre-R23 ``PropertyViolationResponse``.
-    Each ``send_frame`` call may now return zero events (``AckResponse``)
+    Replaces the prior ``PropertyViolationResponse``.  Each
+    ``send_frame`` call may now return zero events (``AckResponse``)
     or one-or-more events in this batch.  Inner ``results`` carries each
     event in source-order: any satisfactions that completed before a
     halting violation come first, then the violation itself.  A
@@ -592,8 +593,8 @@ class PropertyResultEntry(TypedDict):
 class CompleteWarning(TypedDict):
     """One EndStream warning surfaced by the kernel.
 
-    R21 cluster 1 — AGDA-D-12.1 closure: emitted by the Agda walker when a
-    property's atom references a signal that never appeared in trace.
+    Emitted by the Agda walker when a property's atom references a
+    signal that never appeared in trace.
     ``kind == "uncached_atom"`` is the only kind today; new kinds are
     additive on the wire (future kinds appear here and the binding
     surfaces them under a string-typed ``kind`` field).
@@ -664,16 +665,16 @@ class DBCTextResponse(TypedDict):
 
 # Union type for all responses
 Response = (
-    SuccessResponse |
-    ErrorResponse |
-    AckResponse |
-    PropertyBatchResponse |
-    CompleteResponse |
-    ExtractSignalsResponse |
-    FormatDBCResponse |
-    ValidationResponse |
-    ParsedDBCResponse |
-    DBCTextResponse
+    SuccessResponse
+    | ErrorResponse
+    | AckResponse
+    | PropertyBatchResponse
+    | CompleteResponse
+    | ExtractSignalsResponse
+    | FormatDBCResponse
+    | ValidationResponse
+    | ParsedDBCResponse
+    | DBCTextResponse
 )
 
 

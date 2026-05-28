@@ -11,11 +11,11 @@ import stat
 from pathlib import Path
 from typing import TypeGuard
 
-# DEFERRED — TRACKED (R19P2-CL16-3 — DEFER).
+# DEFERRED:
 # Finding: `is_str_dict` (in protocols/_dbc_types.py) and `is_object_list`
 #   (in this module, definition below) are internal TypeGuard helpers exposed
 #   publicly via no-underscore naming.  Project-internal usage only.
-# Why DEFER: Mechanical rename + import-site update across ~10 call sites;
+# Why: Mechanical rename + import-site update across ~10 call sites;
 #   gain is small (linter/dev-tooling clarity).
 # Revisit when: First external user lands, OR a `python -m aletheia._loader_utils`
 #   discovery surfaces the helpers as confusing public API.
@@ -111,8 +111,9 @@ def get_dict(d: dict[str, object], key: str, ctx: str) -> dict[str, object]:
 
 
 # ===========================================================================
-# Path-hardening helper (R20 cluster N — PY-B-26.2 cross-binding mirror)
+# Path-hardening helper (cross-binding mirror)
 # ===========================================================================
+
 
 def reject_symlink_loader_path(p: Path, kind: str) -> None:
     """Reject *p* if it is a symbolic link.

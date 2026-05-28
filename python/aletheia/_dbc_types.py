@@ -3,9 +3,9 @@
 Holds the cross-binding DBC wire schema: the leaf type aliases
 (:data:`ByteOrder`, :data:`SignalPresence`, :data:`DLCByteCount`,
 :data:`DLCCode`) plus every ``DBC*`` TypedDict.  Split out of
-``protocols.py`` (R19 cluster 17 follow-up, 2026-05-12) once the latter
-crossed the 1000-line pylint C0302 threshold; ``aletheia.protocols``
-remains the canonical public surface via re-export.
+``protocols.py`` once the latter crossed the 1000-line pylint C0302
+threshold; ``aletheia.protocols`` remains the canonical public surface
+via re-export.
 """
 
 from fractions import Fraction
@@ -16,12 +16,12 @@ ByteOrder = Literal["little_endian", "big_endian"]
 SignalPresence = Literal["always", "multiplexed"]
 
 
-# R19 cluster 17 / PY-D-19.4: distinguish DLC byte count from DLC code at
-# the type level.  Both wrap ``int`` at runtime; JSON wire shape unchanged.
+# Distinguish DLC byte count from DLC code at the type level.
+# Both wrap ``int`` at runtime; JSON wire shape unchanged.
 # Go's ``aletheia.DLC`` + C++'s ``aletheia::DLC`` are the cross-binding
 # equivalents.  ``dlc_to_bytes`` / ``bytes_to_dlc`` mediate between them.
 DLCByteCount = NewType("DLCByteCount", int)  # bytes, {0..8, 12, 16, 20, 24, 32, 48, 64}
-DLCCode = NewType("DLCCode", int)            # 4-bit wire field, 0..15
+DLCCode = NewType("DLCCode", int)  # 4-bit wire field, 0..15
 
 
 class DBCSignalAlways(TypedDict):
@@ -164,6 +164,7 @@ class DBCValueTable(TypedDict):
 # the Agda formatter exactly (see ``Formatter.agda`` ``formatCommentTarget`` /
 # ``formatAttribute``), so pyright narrows via ``Literal["kind"]``.
 
+
 class DBCNode(TypedDict):
     """DBC network node (``BU_`` keyword).
 
@@ -216,11 +217,11 @@ class DBCCommentTargetEnvVar(TypedDict):
 
 
 DBCCommentTarget = (
-    DBCCommentTargetNetwork |
-    DBCCommentTargetNode |
-    DBCCommentTargetMessage |
-    DBCCommentTargetSignal |
-    DBCCommentTargetEnvVar
+    DBCCommentTargetNetwork
+    | DBCCommentTargetNode
+    | DBCCommentTargetMessage
+    | DBCCommentTargetSignal
+    | DBCCommentTargetEnvVar
 )
 
 
@@ -234,9 +235,7 @@ class DBCComment(TypedDict):
 # Attribute scope matches Agda ``AttrScope``. ``nodeMsg`` / ``nodeSig`` are
 # the relational scopes introduced by ``BA_DEF_REL_`` (``BU_BO_REL_`` /
 # ``BU_SG_REL_`` in DBC text).
-AttrScope = Literal[
-    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"
-]
+AttrScope = Literal["network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"]
 
 
 class DBCAttrTypeInt(TypedDict):
@@ -287,11 +286,7 @@ class DBCAttrTypeHex(TypedDict):
 
 
 DBCAttrType = (
-    DBCAttrTypeInt |
-    DBCAttrTypeFloat |
-    DBCAttrTypeString |
-    DBCAttrTypeEnum |
-    DBCAttrTypeHex
+    DBCAttrTypeInt | DBCAttrTypeFloat | DBCAttrTypeString | DBCAttrTypeEnum | DBCAttrTypeHex
 )
 
 
@@ -338,11 +333,7 @@ class DBCAttrValueHex(TypedDict):
 
 
 DBCAttrValue = (
-    DBCAttrValueInt |
-    DBCAttrValueFloat |
-    DBCAttrValueString |
-    DBCAttrValueEnum |
-    DBCAttrValueHex
+    DBCAttrValueInt | DBCAttrValueFloat | DBCAttrValueString | DBCAttrValueEnum | DBCAttrValueHex
 )
 
 
@@ -403,13 +394,13 @@ class DBCAttrTargetNodeSig(TypedDict):
 
 
 DBCAttrTarget = (
-    DBCAttrTargetNetwork |
-    DBCAttrTargetNode |
-    DBCAttrTargetMessage |
-    DBCAttrTargetSignal |
-    DBCAttrTargetEnvVar |
-    DBCAttrTargetNodeMsg |
-    DBCAttrTargetNodeSig
+    DBCAttrTargetNetwork
+    | DBCAttrTargetNode
+    | DBCAttrTargetMessage
+    | DBCAttrTargetSignal
+    | DBCAttrTargetEnvVar
+    | DBCAttrTargetNodeMsg
+    | DBCAttrTargetNodeSig
 )
 
 
@@ -465,10 +456,10 @@ class DBCRawValueDesc(TypedDict):
 class DBCDefinition(TypedDict):
     """Complete DBC file structure.
 
-    R19 cluster 17 / PY-D-19.6 (2026-05-12): every metadata array is
-    REQUIRED to match Go/C++ struct shape (where fields are non-optional
-    by language idiom).  Use ``[]`` for sections the file has no entries
-    for; hand-written fixtures must enumerate all keys.
+    Every metadata array is REQUIRED to match Go/C++ struct shape
+    (where fields are non-optional by language idiom).  Use ``[]`` for
+    sections the file has no entries for; hand-written fixtures must
+    enumerate all keys.
     """
 
     version: str
@@ -489,7 +480,7 @@ class _DBCTier2Empty(TypedDict):
     ``DBCDefinition`` literal that supplies only ``version`` and
     ``messages``.  Exists to dedupe the ``[]``-default boilerplate that
     every hand-written fixture or normalisation site otherwise repeats
-    verbatim (pylint R0801 follow-up to PY-D-19.6 closure).
+    verbatim (pylint R0801 follow-up).
     """
 
     signalGroups: list[DBCSignalGroup]
