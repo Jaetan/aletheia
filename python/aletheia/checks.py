@@ -1,4 +1,4 @@
-"""Industry-vocabulary Check API for CAN signal verification
+"""Industry-vocabulary Check API for CAN signal verification.
 
 Provides fluent, domain-specific wrappers over the LTL DSL so that
 automotive technicians can define signal checks without knowing
@@ -20,10 +20,13 @@ Every check compiles to the same LTL Property used by the DSL layer.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from aletheia.client import ValidationError
-from aletheia.dsl import Signal, Predicate, Property, require_non_negative_time_ms
-from aletheia.protocols import LTLFormula
+from aletheia.dsl import Predicate, Property, Signal, require_non_negative_time_ms
+
+if TYPE_CHECKING:
+    from aletheia.protocols import LTLFormula
 
 
 def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:
@@ -31,9 +34,11 @@ def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:
 
     Raises:
         ValidationError: When *lo* exceeds *hi*.
+
     """
     if lo > hi:
-        raise ValidationError(f"{method_name}: lo must be <= hi")
+        msg = f"{method_name}: lo must be <= hi"
+        raise ValidationError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,20 +85,23 @@ class CheckResult:
 # Simple signal checks
 # ============================================================================
 
+
 class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
     """Intermediate holding a predicate that needs a temporal quantifier."""
 
     def __init__(
-        self, prop: Property,
+        self,
+        prop: Property,
         signal_name: str = "",
         condition_desc: str = "",
     ) -> None:
+        """Capture the predicate and the signal/condition metadata."""
         self._property = prop
         self._signal_name = signal_name
         self._condition_desc = condition_desc
 
     def always(self) -> CheckResult:
-        """The predicate must hold at every time step."""
+        """Require the predicate to hold at every time step."""
         return CheckResult(
             _property=self._property,
             signal_name=self._signal_name,
@@ -105,6 +113,7 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
     """Intermediate for ``settles_between(lo, hi).within(ms)``."""
 
     def __init__(self, signal_name: str, lo: float, hi: float) -> None:
+        """Capture the signal name and the (lo, hi) bound pair."""
         self._signal_name = signal_name
         self._lo = lo
         self._hi = hi
@@ -116,6 +125,7 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
 
         Raises:
             ValidationError: ``time_ms`` is negative.
+
         """
         require_non_negative_time_ms(time_ms)
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)
@@ -130,12 +140,13 @@ class CheckSignal:
     """Builder for single-signal checks (returned by ``checks.signal()``)."""
 
     def __init__(self, signal_name: str) -> None:
+        """Capture the signal name the check chain is being built on."""
         self._name = signal_name
 
     # -- one-shot convenience methods ----------------------------------------
 
     def never_exceeds(self, value: float) -> CheckResult:
-        """``Signal(s).less_than(value).always()`` — G(s < v)"""
+        """``Signal(s).less_than(value).always()`` — G(s < v)."""
         prop = Signal(self._name).less_than(value).always()
         return CheckResult(
             _property=prop,
@@ -144,7 +155,7 @@ class CheckSignal:
         )
 
     def never_below(self, value: float) -> CheckResult:
-        """``Signal(s).greater_than_or_equal(value).always()`` — G(s >= v)"""
+        """``Signal(s).greater_than_or_equal(value).always()`` — G(s >= v)."""
         prop = Signal(self._name).greater_than_or_equal(value).always()
         return CheckResult(
             _property=prop,
@@ -153,7 +164,7 @@ class CheckSignal:
         )
 
     def stays_between(self, lo: float, hi: float) -> CheckResult:
-        """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)"""
+        """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)."""
         _require_lo_le_hi(lo, hi, "stays_between")
         prop = Signal(self._name).between(lo, hi).always()
         return CheckResult(
@@ -163,7 +174,7 @@ class CheckSignal:
         )
 
     def never_equals(self, value: float) -> CheckResult:
-        """``Signal(s).equals(value).never()`` — G(not(s == v))"""
+        """``Signal(s).equals(value).never()`` — G(not(s == v))."""
         prop = Signal(self._name).equals(value).never()
         return CheckResult(
             _property=prop,
@@ -188,24 +199,27 @@ class CheckSignal:
 # When / Then causal checks
 # ============================================================================
 
+
 class ThenCondition:  # pylint: disable=too-few-public-methods
     """Holds trigger + then predicates; needs ``.within(ms)`` to finish."""
 
     def __init__(
-        self, trigger: Predicate, then_pred: Predicate,
-        then_signal: str = "", then_desc: str = "",
+        self,
+        trigger: Predicate,
+        then_pred: Predicate,
+        then_signal: str = "",
+        then_desc: str = "",
     ) -> None:
+        """Capture the trigger / then predicates and the response metadata."""
         self._trigger = trigger
         self._then_pred = then_pred
         self._then_signal = then_signal
         self._then_desc = then_desc
 
     def within(self, time_ms: int) -> CheckResult:
-        """``G(trigger → F≤t(then_predicate))``"""
+        """``G(trigger → F≤t(then_predicate))``."""
         require_non_negative_time_ms(time_ms)
-        prop = self._trigger.implies(
-            self._then_pred.within(time_ms)
-        ).always()
+        prop = self._trigger.implies(self._then_pred.within(time_ms)).always()
         desc = f"{self._then_desc} within {time_ms}ms" if self._then_desc else ""
         return CheckResult(
             _property=prop,
@@ -218,6 +232,7 @@ class ThenSignal:
     """Builder for the then-clause of a when/then check."""
 
     def __init__(self, trigger: Predicate, then_signal_name: str) -> None:
+        """Capture the trigger predicate and the responding signal name."""
         self._trigger = trigger
         self._then_name = then_signal_name
 
@@ -236,7 +251,10 @@ class ThenSignal:
         _require_lo_le_hi(lo, hi, "stays_between")
         pred = Signal(self._then_name).between(lo, hi)
         return ThenCondition(
-            self._trigger, pred, self._then_name, f"between {lo} and {hi}",
+            self._trigger,
+            pred,
+            self._then_name,
+            f"between {lo} and {hi}",
         )
 
 
@@ -244,6 +262,7 @@ class WhenCondition:  # pylint: disable=too-few-public-methods
     """Holds the trigger predicate; needs ``.then(signal)`` to continue."""
 
     def __init__(self, trigger: Predicate) -> None:
+        """Capture the trigger predicate; awaits a ``.then(signal)`` call."""
         self._trigger = trigger
 
     def then(self, signal_name: str) -> ThenSignal:
@@ -255,6 +274,7 @@ class WhenSignal:
     """Builder for the when-clause (returned by ``checks.when()``)."""
 
     def __init__(self, signal_name: str) -> None:
+        """Capture the trigger signal name the when-clause is being built on."""
         self._name = signal_name
 
     def exceeds(self, value: float) -> WhenCondition:
@@ -276,6 +296,7 @@ class WhenSignal:
 # ============================================================================
 # Top-level entry point
 # ============================================================================
+
 
 def signal(name: str) -> CheckSignal:
     """Start a single-signal check.
