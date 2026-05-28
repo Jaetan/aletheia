@@ -16,23 +16,23 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
-from aletheia.checks import CheckResult
 from aletheia.client import AletheiaClient, AletheiaError, ValidationError
-from aletheia.protocols import (
-    DBCDefinition,
-    PropertyResultEntry,
-    PropertyBatchResponse,
-    RationalNumber,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from fractions import Fraction
 
+    from aletheia.checks import CheckResult
     from aletheia.client import CANFrameTuple
+    from aletheia.protocols import (
+        DBCDefinition,
+        PropertyBatchResponse,
+        PropertyResultEntry,
+        RationalNumber,
+    )
 
 
 class Violation(TypedDict):
@@ -63,8 +63,9 @@ class CheckRunResult:
     where ``p``'s signal was never observed — distinct from ``violations``,
     where the property was proved to fail.
     """
-    violations:   list[Violation]
-    unresolved:   list[Violation]
+
+    violations: list[Violation]
+    unresolved: list[Violation]
     total_frames: int
 
 
@@ -72,19 +73,19 @@ def rational_to_int(r: RationalNumber) -> int:
     """Convert a RationalNumber {numerator, denominator} to int."""
     denom = r["denominator"]
     if denom == 0:
-        raise ValidationError(f"Invalid rational: denominator is zero ({r!r})")
+        msg = f"Invalid rational: denominator is zero ({r!r})"
+        raise ValidationError(msg)
     return r["numerator"] // denom
 
 
 def _lazy_iter_can_log() -> Callable[[str | Path], Iterator[CANFrameTuple]]:
     mod = importlib.import_module(".can_log", __package__)
-    return cast(
-        "Callable[[str | Path], Iterator[CANFrameTuple]]", mod.iter_can_log
-    )
+    return cast("Callable[[str | Path], Iterator[CANFrameTuple]]", mod.iter_can_log)
 
 
 def _check_meta(
-    prop_index: int, checks: list[CheckResult],
+    prop_index: int,
+    checks: list[CheckResult],
 ) -> tuple[str, str]:
     """Look up check name and severity by property index."""
     if 0 <= prop_index < len(checks):
@@ -95,14 +96,15 @@ def _check_meta(
 
 
 def _build_violation(
-    response: PropertyResultEntry, checks: list[CheckResult],
+    response: PropertyResultEntry,
+    checks: list[CheckResult],
 ) -> Violation:
     """Extract violation details from one enriched violation entry.
 
-    R23 — AGDA-D-12.1: now takes a single ``PropertyResultEntry`` (a
-    ``status == "fails"`` entry from a ``PropertyBatchResponse.results``)
-    rather than a top-level violation response.  The mid-stream path
-    iterates the batch and calls this once per fails entry.
+    Takes a single ``PropertyResultEntry`` (a ``status == "fails"`` entry
+    from a ``PropertyBatchResponse.results``) rather than a top-level
+    violation response.  The mid-stream path iterates the batch and calls
+    this once per fails entry.
     """
     prop_index = rational_to_int(response["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
@@ -126,10 +128,7 @@ def _build_violation(
     # PropertyResultEntry.timestamp is NotRequired (Holds entries omit it),
     # but a fails entry is required to carry one by the Agda kernel contract.
     timestamp_rational = response.get("timestamp")
-    if timestamp_rational is None:
-        timestamp_us = 0
-    else:
-        timestamp_us = rational_to_int(timestamp_rational)
+    timestamp_us = 0 if timestamp_rational is None else rational_to_int(timestamp_rational)
     return {
         "check_index": prop_index,
         "check_name": check_name,
@@ -143,7 +142,8 @@ def _build_violation(
 
 
 def _build_eos_violation(
-    result: PropertyResultEntry, checks: list[CheckResult],
+    result: PropertyResultEntry,
+    checks: list[CheckResult],
 ) -> Violation:
     """Extract violation details from an end-of-stream finalization result."""
     prop_index = rational_to_int(result["property_index"])
@@ -169,7 +169,60 @@ def _build_eos_violation(
     }
 
 
-def run_checks(  # pylint: disable=too-many-locals
+def _process_frames(
+    client: AletheiaClient,
+    logfile: str,
+    all_checks: list[CheckResult],
+) -> tuple[list[Violation], int]:
+    """Stream the log through ``client``; collect mid-stream fails violations.
+
+    Streaming responses are uniformly ``PropertyBatchResponse`` for any
+    property events; this iterates each fails entry.  Mid-stream
+    satisfactions (status="holds") are not recorded as violations.
+    """
+    violations: list[Violation] = []
+    total_frames = 0
+    for can_frame in _lazy_iter_can_log()(logfile):
+        total_frames += 1
+        response = client.send_frame(
+            can_frame.timestamp,
+            can_frame.can_id,
+            can_frame.dlc,
+            can_frame.data,
+            extended=can_frame.extended,
+            brs=can_frame.brs,
+            esi=can_frame.esi,
+        )
+        if response.get("type") == "property_batch":
+            batch = cast("PropertyBatchResponse", response)
+            violations.extend(
+                _build_violation(entry, all_checks)
+                for entry in batch["results"]
+                if entry.get("status") == "fails"
+            )
+    return violations, total_frames
+
+
+def _process_end_stream(
+    end_resp: object,
+    all_checks: list[CheckResult],
+) -> tuple[list[Violation], list[Violation]]:
+    """Split the end-stream finalization results into fails + unresolved."""
+    end = cast("dict[str, object]", end_resp)
+    if end["status"] == "error":
+        msg = f"end stream failed: {end['message']}"
+        raise AletheiaError(msg)
+    violations: list[Violation] = []
+    unresolved: list[Violation] = []
+    for result in cast("list[PropertyResultEntry]", end["results"]):
+        if result["status"] == "fails":
+            violations.append(_build_eos_violation(result, all_checks))
+        elif result["status"] == "unresolved":
+            unresolved.append(_build_eos_violation(result, all_checks))
+    return violations, unresolved
+
+
+def run_checks(
     dbc: DBCDefinition,
     checks: list[CheckResult],
     logfile: str,
@@ -185,52 +238,34 @@ def run_checks(  # pylint: disable=too-many-locals
         FileNotFoundError: ``logfile`` does not exist.
         AletheiaError:     DBC parse, add-checks, start-stream, or
             end-stream failed at the FFI boundary.
+
     """
     all_checks = (default_checks or []) + checks
     if not Path(logfile).exists():
-        raise FileNotFoundError(f"log file not found: {logfile}")
+        msg = f"log file not found: {logfile}"
+        raise FileNotFoundError(msg)
     with AletheiaClient(default_checks=default_checks) as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
-            raise AletheiaError(f"DBC parse failed: {resp['message']}")
+            msg = f"DBC parse failed: {resp['message']}"
+            raise AletheiaError(msg)
 
         resp = client.add_checks(checks)
         if resp["status"] != "success":
-            raise AletheiaError(f"set properties failed: {resp['message']}")
+            msg = f"set properties failed: {resp['message']}"
+            raise AletheiaError(msg)
 
         resp = client.start_stream()
         if resp["status"] != "success":
-            raise AletheiaError(f"start stream failed: {resp['message']}")
+            msg = f"start stream failed: {resp['message']}"
+            raise AletheiaError(msg)
 
-        violations:   list[Violation] = []
-        unresolved:   list[Violation] = []
-        total_frames = 0
-
-        for frame in _lazy_iter_can_log()(logfile):
-            total_frames += 1
-            response = client.send_frame(
-                frame.timestamp, frame.can_id, frame.dlc, frame.data,
-                extended=frame.extended, brs=frame.brs, esi=frame.esi,
-            )
-            # R23 — AGDA-D-12.1: streaming responses are now uniformly
-            # PropertyBatchResponse for any property events; iterate
-            # each fails entry.  Mid-stream satisfactions (status="holds")
-            # are not recorded as violations (the user sees them via
-            # PropertyResultEntry.status if they want).
-            if response.get("type") == "property_batch":
-                batch = cast(PropertyBatchResponse, response)
-                for entry in batch["results"]:
-                    if entry.get("status") == "fails":
-                        violations.append(_build_violation(entry, all_checks))
-
-        end_resp = client.end_stream()
-        if end_resp["status"] == "error":
-            raise AletheiaError(f"end stream failed: {end_resp['message']}")
-        for result in end_resp["results"]:
-            if result["status"] == "fails":
-                violations.append(_build_eos_violation(result, all_checks))
-            elif result["status"] == "unresolved":
-                unresolved.append(_build_eos_violation(result, all_checks))
+        violations, total_frames = _process_frames(client, logfile, all_checks)
+        end_violations, unresolved = _process_end_stream(
+            client.end_stream(),
+            all_checks,
+        )
+        violations.extend(end_violations)
 
     return CheckRunResult(violations, unresolved, total_frames)
 
