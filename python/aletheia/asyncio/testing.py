@@ -9,12 +9,11 @@ under ``tests/``) because:
    primitive (covered by its native ``context.WithCancel`` pattern); C++
    has ``std::stop_token`` directly.  Python's equivalent must be
    discoverable at the same level.
-2. Post-R20 cluster P: the gate wraps a public :class:`aletheia.Backend`
-   implementation (the DI seam) and is injected through
+2. The gate wraps a public :class:`aletheia.Backend` implementation
+   (the DI seam) and is injected through
    :class:`aletheia.AletheiaClient.__init__`'s ``backend=`` kwarg.  No
    ``setattr`` monkey-patching, no protected-attribute access, no
-   bound-method swap — closes PY-D-24.2 (asyncio.testing.gate_send_frame
-   ``setattr`` patch) by routing through the public Backend DI seam.
+   bound-method swap — instead, routes through the public Backend DI seam.
 
 Usage::
 

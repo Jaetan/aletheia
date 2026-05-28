@@ -76,7 +76,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         The constructor itself is synchronous — DBC + property setup
         happens later via ``await client.parse_dbc(...)`` and friends.
 
-        ``sync_client`` is an injection seam for tests (R18 cluster 5):
+        ``sync_client`` is an injection seam for tests:
         when provided, the AsyncClient wraps that pre-built sync client
         instead of constructing one internally.  Callers passing
         ``sync_client=...`` are responsible for ``default_checks`` /
@@ -84,9 +84,9 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         kwargs of the same names (and ``backend=``) are ignored when
         ``sync_client`` is non-None.  See ``aletheia.asyncio.testing.gated_backend``
         for the canonical use case (deterministic cancellation tests
-        via the public Backend DI seam — R20 cluster P).
+        via the public Backend DI seam).
 
-        ``backend`` (PY-S-16.1 closure — R21) mirrors the sync
+        ``backend`` mirrors the sync
         constructor's keyword-only ``backend=`` kwarg, restoring
         symmetry promised in this module's docstring header ("user
         code can switch sync↔async by changing the import without
@@ -143,7 +143,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         """Whether :meth:`close` has been called.
 
         Cross-binding parity with sync :class:`aletheia.AletheiaClient.is_closed`
-        and Go ``Client.IsClosed()``; R19 cluster 10 — PY-D-15.1.
+        and Go ``Client.IsClosed()``.
         """
         return self._sync.is_closed
 
