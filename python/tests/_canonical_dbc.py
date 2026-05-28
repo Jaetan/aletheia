@@ -6,12 +6,15 @@ integration test, the hypothesis property tests, and the conftest
 module lets each test site reference the same DBC content without
 copy-pasting the TypedDict literal (pylint cat 6 R0801 — duplicate-code).
 """
+
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignalAlways
+
+if TYPE_CHECKING:
+    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignalAlways
 
 CANONICAL_SIGNAL: DBCSignalAlways = {
     "name": "TestSignal",
@@ -36,13 +39,16 @@ def make_dbc(*, msg_id: int = 256, sender: str = "ECU") -> DBCDefinition:
     ``sample_dbc`` uses ``id=0x100, sender="TestECU"`` (legacy fixture).
     Both pull the same signal body from ``CANONICAL_SIGNAL``.
     """
-    msg = cast(DBCMessage, {
-        "id": msg_id,
-        "name": "TestMessage",
-        "dlc": 8,
-        "sender": sender,
-        "signals": [CANONICAL_SIGNAL],
-    })
+    msg = cast(
+        "DBCMessage",
+        {
+            "id": msg_id,
+            "name": "TestMessage",
+            "dlc": 8,
+            "sender": sender,
+            "signals": [CANONICAL_SIGNAL],
+        },
+    )
     return {
         "version": "1.0",
         "messages": [msg],

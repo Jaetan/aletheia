@@ -9,13 +9,15 @@ overrides without changing the wire format.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from aletheia import AletheiaClient
-from aletheia.protocols import DBCDefinition
+
+if TYPE_CHECKING:
+    from aletheia.protocols import DBCDefinition
 
 
-def signal(name: str, **overrides: Any) -> dict:
+def signal(name: str, **overrides: object) -> dict:
     """Build a DBC signal dict with sensible defaults; kwargs override."""
     return {
         "name": name,
@@ -33,7 +35,7 @@ def signal(name: str, **overrides: Any) -> dict:
     }
 
 
-def message(msg_id: int, name: str, signals: list[dict], **overrides: Any) -> dict:
+def message(msg_id: int, name: str, signals: list[dict], **overrides: object) -> dict:
     """Build a DBC message dict wrapping the given signals."""
     msg: dict = {
         "id": msg_id,
