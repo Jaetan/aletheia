@@ -21,22 +21,22 @@ to ``float``.  DBC attribute bounds are stored as ``DecRat`` (Commit
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import pytest
-
 from _dbc_helpers import assert_non_terminating_rational, message, signal
-
 from aletheia import AletheiaClient
-from aletheia.protocols import (
-    DBCAttrAssign,
-    DBCAttrDef,
-    DBCAttrDefault,
-    DBCAttribute,
-    DBCComment,
-    DBCDefinition,
-    DBCNode,
-)
 
+if TYPE_CHECKING:
+    from aletheia.protocols import (
+        DBCAttrAssign,
+        DBCAttrDef,
+        DBCAttrDefault,
+        DBCAttribute,
+        DBCComment,
+        DBCDefinition,
+        DBCNode,
+    )
 
 # ---------------------------------------------------------------------------
 # Fixture builders
@@ -80,11 +80,15 @@ def _all_attributes() -> list[DBCAttribute]:
     defs: list[DBCAttribute] = [
         # 5 attrType variants — scopes chosen to cover the simple ones.
         {
-            "kind": "definition", "name": "IntAttr", "scope": "network",
+            "kind": "definition",
+            "name": "IntAttr",
+            "scope": "network",
             "attrType": {"kind": "int", "min": 0, "max": 100},
         },
         {
-            "kind": "definition", "name": "FloatAttr", "scope": "message",
+            "kind": "definition",
+            "name": "FloatAttr",
+            "scope": "message",
             "attrType": {
                 "kind": "float",
                 "min": Fraction(-1, 2),
@@ -92,24 +96,34 @@ def _all_attributes() -> list[DBCAttribute]:
             },
         },
         {
-            "kind": "definition", "name": "StringAttr", "scope": "signal",
+            "kind": "definition",
+            "name": "StringAttr",
+            "scope": "signal",
             "attrType": {"kind": "string"},
         },
         {
-            "kind": "definition", "name": "EnumAttr", "scope": "node",
+            "kind": "definition",
+            "name": "EnumAttr",
+            "scope": "node",
             "attrType": {"kind": "enum", "values": ["low", "medium", "high"]},
         },
         {
-            "kind": "definition", "name": "HexAttr", "scope": "envVar",
+            "kind": "definition",
+            "name": "HexAttr",
+            "scope": "envVar",
             "attrType": {"kind": "hex", "min": 0, "max": 255},
         },
         # Relational definition scopes cover the remaining two AttrScope values.
         {
-            "kind": "definition", "name": "RelMsgAttr", "scope": "nodeMsg",
+            "kind": "definition",
+            "name": "RelMsgAttr",
+            "scope": "nodeMsg",
             "attrType": {"kind": "int", "min": 0, "max": 10},
         },
         {
-            "kind": "definition", "name": "RelSigAttr", "scope": "nodeSig",
+            "kind": "definition",
+            "name": "RelSigAttr",
+            "scope": "nodeSig",
             "attrType": {"kind": "int", "min": 0, "max": 5},
         },
     ]
@@ -117,11 +131,13 @@ def _all_attributes() -> list[DBCAttribute]:
         # 5 attrValue variants.
         {"kind": "default", "name": "IntAttr", "value": {"kind": "int", "value": 42}},
         {
-            "kind": "default", "name": "FloatAttr",
+            "kind": "default",
+            "name": "FloatAttr",
             "value": {"kind": "float", "value": Fraction(1, 8)},
         },
         {
-            "kind": "default", "name": "StringAttr",
+            "kind": "default",
+            "name": "StringAttr",
             "value": {"kind": "string", "value": "hello"},
         },
         {"kind": "default", "name": "EnumAttr", "value": {"kind": "enum", "value": 1}},
@@ -131,37 +147,44 @@ def _all_attributes() -> list[DBCAttribute]:
         # 7 attrTarget variants. Value kinds are reused — the target is the
         # axis under test here, not the value.
         {
-            "kind": "assignment", "name": "IntAttr",
+            "kind": "assignment",
+            "name": "IntAttr",
             "target": {"kind": "network"},
             "value": {"kind": "int", "value": 1},
         },
         {
-            "kind": "assignment", "name": "IntAttr",
+            "kind": "assignment",
+            "name": "IntAttr",
             "target": {"kind": "node", "node": "ECU_A"},
             "value": {"kind": "int", "value": 2},
         },
         {
-            "kind": "assignment", "name": "IntAttr",
+            "kind": "assignment",
+            "name": "IntAttr",
             "target": {"kind": "message", "id": _MSG_ID},
             "value": {"kind": "int", "value": 3},
         },
         {
-            "kind": "assignment", "name": "IntAttr",
+            "kind": "assignment",
+            "name": "IntAttr",
             "target": {"kind": "signal", "id": _MSG_ID, "signal": _SIG_NAME},
             "value": {"kind": "int", "value": 4},
         },
         {
-            "kind": "assignment", "name": "IntAttr",
+            "kind": "assignment",
+            "name": "IntAttr",
             "target": {"kind": "envVar", "envVar": "AmbientTemp"},
             "value": {"kind": "int", "value": 5},
         },
         {
-            "kind": "assignment", "name": "RelMsgAttr",
+            "kind": "assignment",
+            "name": "RelMsgAttr",
             "target": {"kind": "nodeMsg", "node": "ECU_A", "id": _MSG_ID},
             "value": {"kind": "int", "value": 6},
         },
         {
-            "kind": "assignment", "name": "RelSigAttr",
+            "kind": "assignment",
+            "name": "RelSigAttr",
             "target": {
                 "kind": "nodeSig",
                 "node": "ECU_A",
@@ -198,8 +221,10 @@ def _empty_metadata_dbc() -> DBCDefinition:
 
 
 def _no_tier2_keys_dbc() -> DBCDefinition:
-    """Pre-Tier-2 shape — no NotRequired Tier 2 keys. Parser treats absent as
-    empty; formatter still emits the arrays."""
+    """Pre-Tier-2 shape — no NotRequired Tier 2 keys.
+
+    Parser treats absent as empty; formatter still emits the arrays.
+    """
     return {"version": "1.0", "messages": [_msg_one_signal()]}
 
 
@@ -236,8 +261,10 @@ class TestDBCMetadataTier2Roundtrip:
         assert len(formatted["attributes"]) == 0
 
     def test_absent_tier2_keys_default_to_empty(self) -> None:
-        """Pre-Tier-2 input (no NotRequired keys) is accepted; formatter emits
-        empty arrays. Hand-written fixtures remain valid."""
+        """Pre-Tier-2 input (no NotRequired keys) is accepted.
+
+        Formatter emits empty arrays. Hand-written fixtures remain valid.
+        """
         original = _no_tier2_keys_dbc()
         with AletheiaClient() as client:
             result = client.parse_dbc(original)
@@ -249,19 +276,19 @@ class TestDBCMetadataTier2Roundtrip:
         assert len(formatted["attributes"]) == 0
 
     def test_float_attr_bounds_are_exact_rationals(self) -> None:
-        """Float ``min`` / ``max`` / ``value`` survive as ``Fraction`` — the
-        ℚ-precision guarantee that keeps the wire lossless (R14-A7)."""
+        """Float ``min`` / ``max`` / ``value`` survive as ``Fraction``.
+
+        The ℚ-precision guarantee keeps the wire lossless.
+        """
         original = _full_dbc()
         with AletheiaClient() as client:
             client.parse_dbc(original)
             formatted = client.format_dbc()
 
         attrs = formatted["attributes"]
-        float_def = next(
-            a for a in attrs
-            if a["kind"] == "definition" and a["name"] == "FloatAttr"
-        )
-        assert isinstance(float_def, dict) and float_def["kind"] == "definition"
+        float_def = next(a for a in attrs if a["kind"] == "definition" and a["name"] == "FloatAttr")
+        assert isinstance(float_def, dict)
+        assert float_def["kind"] == "definition"
         float_def_typed: DBCAttrDef = float_def
         ftype = float_def_typed["attrType"]
         assert ftype["kind"] == "float"
@@ -271,8 +298,7 @@ class TestDBCMetadataTier2Roundtrip:
         assert isinstance(ftype["max"], Fraction)
 
         float_default = next(
-            a for a in attrs
-            if a["kind"] == "default" and a["name"] == "FloatAttr"
+            a for a in attrs if a["kind"] == "default" and a["name"] == "FloatAttr"
         )
         float_default_typed: DBCAttrDefault = float_default  # type: ignore[assignment]
         fval = float_default_typed["value"]
@@ -300,13 +326,21 @@ class TestDBCMetadataTier2Roundtrip:
         assignments = [a for a in formatted["attributes"] if a["kind"] == "assignment"]
         kinds = [cast_assign(a)["target"]["kind"] for a in assignments]
         assert kinds == [
-            "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
+            "network",
+            "node",
+            "message",
+            "signal",
+            "envVar",
+            "nodeMsg",
+            "nodeSig",
         ]
 
 
 def cast_assign(a: DBCAttribute) -> DBCAttrAssign:
-    """Narrow a ``DBCAttribute`` to ``DBCAttrAssign`` for field access; raises
-    if the ``kind`` discriminator disagrees."""
+    """Narrow a ``DBCAttribute`` to ``DBCAttrAssign`` for field access.
+
+    Raises if the ``kind`` discriminator disagrees.
+    """
     assert a["kind"] == "assignment"
     return a  # type: ignore[return-value]
 
@@ -353,9 +387,11 @@ class TestDBCMetadataTier2Rejects:
 
     @pytest.mark.parametrize("field", ["min", "max"])
     def test_float_attr_bound_non_terminating_rejected(self, field: str) -> None:
-        """``ATFloat`` min / max must have terminating decimal expansions
-        (Commit 5/6).  ``Fraction(22, 7)`` — 3.142857… repeating — gets
-        rejected by ``fromℚ?`` with ``parse_non_terminating_rational``."""
+        """``ATFloat`` min / max must have terminating decimal expansions.
+
+        ``Fraction(22, 7)`` — 3.142857… repeating — gets rejected by
+        ``fromℚ?`` with ``parse_non_terminating_rational``.
+        """
         attr_type: dict = {
             "kind": "float",
             "min": Fraction(0),
@@ -377,8 +413,10 @@ class TestDBCMetadataTier2Rejects:
         assert_non_terminating_rational(bad, field)
 
     def test_float_attr_value_non_terminating_rejected(self) -> None:
-        """``AVFloat`` default value must also have a terminating decimal
-        expansion (mirrors ATFloat min/max at the value layer)."""
+        """``AVFloat`` default value must also have a terminating decimal expansion.
+
+        Mirrors ATFloat min/max at the value layer.
+        """
         bad: DBCDefinition = {
             "version": "1.0",
             "messages": [_msg_one_signal()],
@@ -413,8 +451,10 @@ class TestDBCMetadataTier2Rejects:
 
 
 def test_comment_text_with_special_chars() -> None:
-    """Embedded spaces, quotes, and punctuation survive the round-trip
-    untouched — the parser doesn't re-interpret comment bodies."""
+    """Embedded spaces, quotes, and punctuation survive the round-trip untouched.
+
+    The parser doesn't re-interpret comment bodies.
+    """
     spacey: DBCDefinition = {
         "version": "1.0",
         "messages": [_msg_one_signal()],
@@ -443,8 +483,7 @@ def _msg_with_signal_receivers(receivers: list[str]) -> dict:
     return message(
         _MSG_ID,
         _MSG_NAME,
-        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm",
-                receivers=receivers)],
+        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm", receivers=receivers)],
     )
 
 
@@ -467,8 +506,10 @@ class TestDBCSignalReceivers:
         assert sig["receivers"] == ["ECU_A", "ECU_B"]
 
     def test_empty_receivers_default(self) -> None:
-        """Absent receivers default to an empty list — no receiver node
-        referenced, the field still round-trips as present."""
+        """Absent receivers default to an empty list.
+
+        No receiver node referenced, the field still round-trips as present.
+        """
         original: DBCDefinition = {
             "version": "1.0",
             "messages": [_msg_with_signal_receivers([])],
@@ -559,10 +600,10 @@ class TestDBCMessageSenders:
         assert msg["senders"] == []
 
     def test_unknown_additional_sender_reported_as_warning(self) -> None:
-        """An additional sender not in BU_ surfaces an ``unknown_message_sender``
-        warning, disambiguated by the "additional sender" phrasing.
+        """Additional sender not in BU_ surfaces an ``unknown_message_sender`` warning.
 
-        The Agda validator reuses ``UnknownMessageSender`` for both the primary
+        Disambiguated by the "additional sender" phrasing.  The Agda
+        validator reuses ``UnknownMessageSender`` for both the primary
         ``sender`` and each BO_TX_BU_ entry — same conceptual check ("node
         referenced but not declared"), single wire code.
         """
@@ -575,7 +616,8 @@ class TestDBCMessageSenders:
             validation = client.validate_dbc(original)
 
         matching = [
-            issue for issue in validation["issues"]
+            issue
+            for issue in validation["issues"]
             if issue["code"] == "unknown_message_sender"
             and "additional sender" in issue["detail"]
             and "GhostECU" in issue["detail"]
@@ -595,12 +637,16 @@ def _msg_with_signal_value_descriptions(entries: list[dict]) -> dict:
 
 
 class TestDBCSignalValueDescriptions:
-    """Track E — VAL_ entries land on DBCSignal.valueDescriptions and round-trip
-    through the Agda core both at the JSON and at the .dbc text wire."""
+    """VAL_ entries land on DBCSignal.valueDescriptions and round-trip end-to-end.
+
+    The Agda core preserves them both at the JSON wire and at the .dbc text wire.
+    """
 
     def test_value_descriptions_preserved(self) -> None:
-        """A non-empty per-signal valueDescriptions list survives parse_dbc →
-        format_dbc round-trip with order and content intact."""
+        """A non-empty per-signal valueDescriptions list survives the round-trip.
+
+        ``parse_dbc → format_dbc`` preserves order and content intact.
+        """
         entries = [
             {"value": 0, "description": "Off"},
             {"value": 1, "description": "On"},
@@ -619,8 +665,10 @@ class TestDBCSignalValueDescriptions:
         assert sig["valueDescriptions"] == entries
 
     def test_empty_value_descriptions_default(self) -> None:
-        """Absent valueDescriptions round-trips as an empty list — the field is
-        always present on the wire even when no VAL_ block applies."""
+        """Absent valueDescriptions round-trips as an empty list.
+
+        The field is always present on the wire even when no VAL_ block applies.
+        """
         original: DBCDefinition = {
             "version": "1.0",
             "messages": [_msg_with_signal_value_descriptions([])],
@@ -634,8 +682,10 @@ class TestDBCSignalValueDescriptions:
         assert sig["valueDescriptions"] == []
 
     def test_format_dbc_text_emits_val_block(self) -> None:
-        """format_dbc_text emits a VAL_ line when a signal carries
-        valueDescriptions, with entries in declaration order."""
+        """format_dbc_text emits a VAL_ line for each signal with valueDescriptions.
+
+        Entries land in declaration order.
+        """
         entries = [
             {"value": 0, "description": "Off"},
             {"value": 1, "description": "On"},
@@ -649,21 +699,22 @@ class TestDBCSignalValueDescriptions:
             assert result["status"] == "success", result
             text = client.format_dbc_text(original)
 
-        assert f"VAL_ {_MSG_ID} {_SIG_NAME} 0 \"Off\" 1 \"On\" ;" in text
+        assert f'VAL_ {_MSG_ID} {_SIG_NAME} 0 "Off" 1 "On" ;' in text
 
     def test_unknown_value_description_target_warning(self) -> None:
-        """A VAL_ line pointing at a (message-id, signal-name) pair not declared
-        in BO_/SG_ surfaces an ``unknown_value_description_target`` warning.
+        """VAL_ line pointing at an undeclared signal surfaces a warning.
 
-        CHECK 23 walks ``DBC.unresolvedValueDescs`` populated only by
-        ``parseText``; the warning is delivered on ``ParsedDBCResponse.warnings``.
+        For a (message-id, signal-name) pair not declared in BO_/SG_, the
+        kernel emits an ``unknown_value_description_target`` warning.  CHECK
+        23 walks ``DBC.unresolvedValueDescs`` populated only by ``parseText``;
+        the warning is delivered on ``ParsedDBCResponse.warnings``.
         """
         text = (
             'VERSION ""\n\n'
-            'NS_ :\n\n'
-            'BS_:\n\n'
-            'BU_: ECU\n\n'
-            'BO_ 256 Engine: 8 ECU\n'
+            "NS_ :\n\n"
+            "BS_:\n\n"
+            "BU_: ECU\n\n"
+            "BO_ 256 Engine: 8 ECU\n"
             ' SG_ Rpm : 0|16@1+ (1,0) [0|8000] "rpm" Vector__XXX\n\n'
             'VAL_ 999 GhostSignal 0 "Off" 1 "On" ;\n'
         )

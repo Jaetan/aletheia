@@ -14,20 +14,20 @@ the way out, which matches the rest of the Python wire surface.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import pytest
-
 from _dbc_helpers import assert_non_terminating_rational, message, signal
-
 from aletheia import AletheiaClient
-from aletheia.protocols import (
-    DBCDefinition,
-    DBCEnvironmentVar,
-    DBCSignalGroup,
-    DBCValueEntry,
-    DBCValueTable,
-)
 
+if TYPE_CHECKING:
+    from aletheia.protocols import (
+        DBCDefinition,
+        DBCEnvironmentVar,
+        DBCSignalGroup,
+        DBCValueEntry,
+        DBCValueTable,
+    )
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -80,8 +80,10 @@ def _full_dbc() -> DBCDefinition:
 
 
 def _empty_metadata_dbc() -> DBCDefinition:
-    """DBC with explicit empty metadata arrays — proves the empty case
-    survives the wire even when keys are supplied."""
+    """DBC with explicit empty metadata arrays.
+
+    Proves the empty case survives the wire even when the keys are supplied.
+    """
     return {
         "version": "1.0",
         "messages": [_msg_two_signals()],
@@ -92,8 +94,11 @@ def _empty_metadata_dbc() -> DBCDefinition:
 
 
 def _no_metadata_keys_dbc() -> DBCDefinition:
-    """Pre-Tier-1 shape — no NotRequired keys at all. The parser has to treat
-    absent keys as empty and ``format_dbc`` has to still emit the arrays."""
+    """Pre-Tier-1 shape — no NotRequired keys at all.
+
+    The parser has to treat absent keys as empty and ``format_dbc`` has to
+    still emit the arrays.
+    """
     return {
         "version": "1.0",
         "messages": [_msg_two_signals()],
@@ -138,9 +143,11 @@ class TestDBCMetadataTier1Roundtrip:
         assert len(formatted["valueTables"]) == 0
 
     def test_absent_metadata_keys_default_to_empty(self) -> None:
-        """A pre-Tier-1 input (no NotRequired keys) is accepted and produces
-        empty arrays on the way out — the widened shape is backward-compatible
-        with hand-written fixtures."""
+        """A pre-Tier-1 input (no NotRequired keys) is accepted.
+
+        Produces empty arrays on the way out — the widened shape is
+        backward-compatible with hand-written fixtures.
+        """
         original = _no_metadata_keys_dbc()
         with AletheiaClient() as client:
             result = client.parse_dbc(original)
@@ -152,8 +159,10 @@ class TestDBCMetadataTier1Roundtrip:
         assert len(formatted["valueTables"]) == 0
 
     def test_numeric_env_var_fields_are_fractions(self) -> None:
-        """Environment-variable numeric fields use ``Fraction`` on the way out,
-        matching the ``DBCSignal`` wire contract (exact rational precision)."""
+        """Environment-variable numeric fields use ``Fraction`` on the way out.
+
+        Matches the ``DBCSignal`` wire contract (exact rational precision).
+        """
         original = _full_dbc()
         with AletheiaClient() as client:
             client.parse_dbc(original)
@@ -210,11 +219,13 @@ class TestDBCMetadataTier1Rejects:
         assert result["status"] == "error"
 
     def test_non_terminating_rational_rejected(self) -> None:
-        """EV_ numeric fields must have terminating decimal expansions —
+        """EV_ numeric fields must have terminating decimal expansions.
+
         ``Fraction(1, 3)`` (denominator 3) has no ``2^a·5^b`` form, so
         ``fromℚ?`` returns ``nothing`` and the parser emits
         ``parse_non_terminating_rational``. Prevents silent precision
-        loss when users hand-build rationals outside DBC's decimal grammar."""
+        loss when users hand-build rationals outside DBC's decimal grammar.
+        """
         bad: DBCDefinition = {
             "version": "1.0",
             "messages": [_msg_two_signals()],
@@ -235,10 +246,12 @@ class TestDBCMetadataTier1Rejects:
 
     @pytest.mark.parametrize("field", ["factor", "offset", "minimum", "maximum"])
     def test_signal_non_terminating_rational_rejected(self, field: str) -> None:
-        """SG_ (SignalDef) numeric fields must have terminating decimal
-        expansions. ``Fraction(1, 3)`` in ``factor``/``offset``/``minimum``/
-        ``maximum`` has no ``2^a·5^b`` form, so ``fromℚ?`` returns
-        ``nothing`` and the parser emits ``parse_non_terminating_rational``."""
+        """SG_ (SignalDef) numeric fields must have terminating decimal expansions.
+
+        ``Fraction(1, 3)`` in ``factor``/``offset``/``minimum``/``maximum``
+        has no ``2^a·5^b`` form, so ``fromℚ?`` returns ``nothing`` and the
+        parser emits ``parse_non_terminating_rational``.
+        """
         # Build a signal with the targeted field set to a non-terminating
         # rational; keep the others on sensible defaults.
         overrides = {field: Fraction(1, 3)}
@@ -252,10 +265,12 @@ class TestDBCMetadataTier1Rejects:
         assert_non_terminating_rational(bad, field)
 
     def test_signal_group_referring_to_unknown_signal_accepted(self) -> None:
-        """The Agda parser does not cross-check group signal references against
-        message signals — the field is opaque, so dangling references round-
-        trip unchanged. (Validation of references, if added later, is a
-        validator concern, not a parser concern.)"""
+        """The Agda parser does not cross-check group signal references against message signals.
+
+        The field is opaque, so dangling references round-trip unchanged.
+        (Validation of references, if added later, is a validator concern,
+        not a parser concern.)
+        """
         dangling: DBCDefinition = {
             "version": "1.0",
             "messages": [_msg_two_signals()],
@@ -266,9 +281,7 @@ class TestDBCMetadataTier1Rejects:
         with AletheiaClient() as client:
             result = client.parse_dbc(dangling)
             if result["status"] != "success":
-                pytest.fail(
-                    f"Expected opaque acceptance, got error: {result}"
-                )
+                pytest.fail(f"Expected opaque acceptance, got error: {result}")
             formatted = client.format_dbc()
 
         assert formatted["signalGroups"] == dangling["signalGroups"]

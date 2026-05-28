@@ -12,9 +12,7 @@ import pytest
 from _dbc_helpers import dbc as _build_dbc
 from _dbc_helpers import message as _build_msg
 from _dbc_helpers import signal as _build_sig
-
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError
-
 
 # Validator tests default to 8-bit signals ranged 0..255, matching the
 # narrow signals most DBC structural-validation cases exercise.
@@ -22,7 +20,7 @@ _VALIDATOR_DEFAULTS: dict[str, Any] = {"length": 8, "maximum": 255.0}
 
 
 def _make_dbc(messages: list[dict]) -> DBCDefinition:
-    """Helper to build a minimal DBC with given messages."""
+    """Build a minimal DBC with given messages."""
     return _build_dbc(messages)
 
 
@@ -34,12 +32,12 @@ def _make_message(
     dlc: int = 8,
     sender: str = "ECU",
 ) -> dict:
-    """Helper to build a DBC message."""
+    """Build a DBC message."""
     return _build_msg(msg_id, name, signals or [], dlc=dlc, sender=sender)
 
 
-def _make_signal(name: str, **overrides: Any) -> dict:
-    """Helper: 8-bit byte-aligned signal (validator-friendly defaults)."""
+def _make_signal(name: str, **overrides: object) -> dict:
+    """Build an 8-bit byte-aligned signal with validator-friendly defaults."""
     merged = {**_VALIDATOR_DEFAULTS, **overrides}
     return _build_sig(name, **merged)
 
@@ -52,9 +50,12 @@ def _make_mux_signal(
     start_bit: int = 0,
     length: int = 8,
 ) -> dict:
-    """Helper to build a multiplexed DBC signal."""
+    """Build a multiplexed DBC signal."""
     sig = _build_sig(
-        name, start_bit=start_bit, length=length, maximum=255.0,
+        name,
+        start_bit=start_bit,
+        length=length,
+        maximum=255.0,
     )
     # Multiplexed signals have no 'presence' field (it's mutually exclusive
     # with the multiplexor pair) — drop it and add the mux fields.
@@ -69,12 +70,18 @@ class TestValidDBCPassesClean:
 
     def test_valid_single_message(self) -> None:
         """Verify valid single message."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
-                _make_signal("RPM", start_bit=16, length=16, maximum=65535.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
+                        _make_signal("RPM", start_bit=16, length=16, maximum=65535.0),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -84,14 +91,24 @@ class TestValidDBCPassesClean:
 
     def test_valid_multiple_messages(self) -> None:
         """Verify valid multiple messages."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Engine", [
-                _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
-            ]),
-            _make_message(0x200, "Brakes", [
-                _make_signal("BrakePressure", start_bit=0, length=8),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Engine",
+                    [
+                        _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
+                    ],
+                ),
+                _make_message(
+                    0x200,
+                    "Brakes",
+                    [
+                        _make_signal("BrakePressure", start_bit=0, length=8),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -104,10 +121,12 @@ class TestDuplicateMessageId:
 
     def test_duplicate_message_id_detected(self) -> None:
         """Verify duplicate message id detected."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
-            _make_message(0x100, "Msg2", [_make_signal("Sig2")]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
+                _make_message(0x100, "Msg2", [_make_signal("Sig2")]),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -117,10 +136,12 @@ class TestDuplicateMessageId:
 
     def test_different_ids_no_duplicate(self) -> None:
         """Verify different ids no duplicate."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
-            _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
+                _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -133,12 +154,18 @@ class TestDuplicateMessageId:
 
 def test_duplicate_signal_name_detected() -> None:
     """Verify duplicate signal name detected."""
-    dbc = _make_dbc([
-        _make_message(0x100, "Msg1", [
-            _make_signal("Speed", start_bit=0, length=8),
-            _make_signal("Speed", start_bit=8, length=8),
-        ]),
-    ])
+    dbc = _make_dbc(
+        [
+            _make_message(
+                0x100,
+                "Msg1",
+                [
+                    _make_signal("Speed", start_bit=0, length=8),
+                    _make_signal("Speed", start_bit=8, length=8),
+                ],
+            ),
+        ]
+    )
     with AletheiaClient() as client:
         result = client.validate_dbc(dbc)
 
@@ -152,11 +179,17 @@ class TestFactorZero:
 
     def test_factor_zero_detected(self) -> None:
         """Verify factor zero detected."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("BadSignal", factor=0.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("BadSignal", factor=0.0),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -166,11 +199,17 @@ class TestFactorZero:
 
     def test_nonzero_factor_ok(self) -> None:
         """Verify nonzero factor ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("GoodSignal", factor=0.01),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("GoodSignal", factor=0.01),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -183,11 +222,17 @@ class TestFactorZero:
 
 def test_min_exceeds_max_detected() -> None:
     """Verify min exceeds max detected."""
-    dbc = _make_dbc([
-        _make_message(0x100, "Msg1", [
-            _make_signal("BadRange", minimum=100.0, maximum=50.0),
-        ]),
-    ])
+    dbc = _make_dbc(
+        [
+            _make_message(
+                0x100,
+                "Msg1",
+                [
+                    _make_signal("BadRange", minimum=100.0, maximum=50.0),
+                ],
+            ),
+        ]
+    )
     with AletheiaClient() as client:
         result = client.validate_dbc(dbc)
 
@@ -202,14 +247,24 @@ def test_min_exceeds_max_detected() -> None:
 
 def test_global_name_collision_detected() -> None:
     """Verify global name collision detected."""
-    dbc = _make_dbc([
-        _make_message(0x100, "Msg1", [
-            _make_signal("SharedName", start_bit=0, length=8),
-        ]),
-        _make_message(0x200, "Msg2", [
-            _make_signal("SharedName", start_bit=0, length=8),
-        ]),
-    ])
+    dbc = _make_dbc(
+        [
+            _make_message(
+                0x100,
+                "Msg1",
+                [
+                    _make_signal("SharedName", start_bit=0, length=8),
+                ],
+            ),
+            _make_message(
+                0x200,
+                "Msg2",
+                [
+                    _make_signal("SharedName", start_bit=0, length=8),
+                ],
+            ),
+        ]
+    )
     with AletheiaClient() as client:
         result = client.validate_dbc(dbc)
 
@@ -222,11 +277,20 @@ class TestSignalExceedsDLC:
 
     def test_little_endian_signal_exceeds_dlc(self) -> None:
         """Verify little endian signal exceeds dlc."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("TooWide", start_bit=56, length=16, byte_order="little_endian"),
-            ], dlc=8),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "TooWide", start_bit=56, length=16, byte_order="little_endian"
+                        ),
+                    ],
+                    dlc=8,
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -235,11 +299,18 @@ class TestSignalExceedsDLC:
 
     def test_little_endian_signal_fits_dlc(self) -> None:
         """Verify little endian signal fits dlc."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Fits", start_bit=0, length=16, byte_order="little_endian"),
-            ], dlc=8),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Fits", start_bit=0, length=16, byte_order="little_endian"),
+                    ],
+                    dlc=8,
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -254,15 +325,29 @@ class TestSignalExceedsDLC:
         # parse_signal_overflows_frame surfaces here instead of the
         # downstream validator's signal_exceeds_dlc.
         """Verify big endian signal exceeds dlc."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("TooWide", start_bit=7, length=33, byte_order="big_endian",
-                             maximum=255.0),
-            ], dlc=4),
-        ])
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError, match="overflows frame"):
-                client.validate_dbc(dbc)
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "TooWide",
+                            start_bit=7,
+                            length=33,
+                            byte_order="big_endian",
+                            maximum=255.0,
+                        ),
+                    ],
+                    dlc=4,
+                ),
+            ]
+        )
+        with (
+            AletheiaClient() as client,
+            pytest.raises(ProtocolError, match="overflows frame"),
+        ):
+            client.validate_dbc(dbc)
 
     def test_big_endian_signal_fits_dlc(self) -> None:
         # BitsInFrame checks startBit + bitLength ≤ dlc * 8 on the
@@ -270,12 +355,20 @@ class TestSignalExceedsDLC:
         # startBit=7, length=8, dlc=4 → physBit=31, converted=24,
         # 24+8=32 ≤ 4*8=32 → fits
         """Verify big endian signal fits dlc."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Fits", start_bit=7, length=8, byte_order="big_endian",
-                             maximum=255.0),
-            ], dlc=4),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Fits", start_bit=7, length=8, byte_order="big_endian", maximum=255.0
+                        ),
+                    ],
+                    dlc=4,
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -285,11 +378,20 @@ class TestSignalExceedsDLC:
     def test_small_dlc_catches_overflow(self) -> None:
         # DLC=2 means only 16 bits; signal at bit 16 with length 8 exceeds
         """Verify small dlc catches overflow."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Overflow", start_bit=16, length=8, byte_order="little_endian"),
-            ], dlc=2),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Overflow", start_bit=16, length=8, byte_order="little_endian"
+                        ),
+                    ],
+                    dlc=2,
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -302,12 +404,18 @@ class TestSignalOverlap:
 
     def test_overlapping_signals_detected(self) -> None:
         """Verify overlapping signals detected."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Sig1", start_bit=0, length=16),
-                _make_signal("Sig2", start_bit=8, length=16),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Sig1", start_bit=0, length=16),
+                        _make_signal("Sig2", start_bit=8, length=16),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -316,12 +424,18 @@ class TestSignalOverlap:
 
     def test_non_overlapping_signals_ok(self) -> None:
         """Verify non overlapping signals ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Sig1", start_bit=0, length=8),
-                _make_signal("Sig2", start_bit=8, length=8),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Sig1", start_bit=0, length=8),
+                        _make_signal("Sig2", start_bit=8, length=8),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -330,13 +444,19 @@ class TestSignalOverlap:
 
     def test_multiplexed_signals_can_share_bits(self) -> None:
         """Multiplexed signals that can't coexist should not report overlap."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Mux", start_bit=0, length=8),
-                _make_mux_signal("A", "Mux", 0, start_bit=8, length=8),
-                _make_mux_signal("B", "Mux", 1, start_bit=8, length=8),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Mux", start_bit=0, length=8),
+                        _make_mux_signal("A", "Mux", 0, start_bit=8, length=8),
+                        _make_mux_signal("B", "Mux", 1, start_bit=8, length=8),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -357,33 +477,49 @@ class TestBitLengthZero:
 
     def test_zero_length_le_rejected_at_parse(self) -> None:
         """LE bitLength=0 surfaces parse_signal_bit_length_zero from validate_dbc."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("ZeroLen", length=0, byte_order="little_endian"),
-            ]),
-        ])
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError, match="bit length"):
-                client.validate_dbc(dbc)
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("ZeroLen", length=0, byte_order="little_endian"),
+                    ],
+                ),
+            ]
+        )
+        with AletheiaClient() as client, pytest.raises(ProtocolError, match="bit length"):
+            client.validate_dbc(dbc)
 
     def test_zero_length_be_rejected_at_parse(self) -> None:
         """BE bitLength=0 surfaces parse_signal_bit_length_zero from validate_dbc."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("ZeroLen", length=0, byte_order="big_endian"),
-            ]),
-        ])
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError, match="bit length"):
-                client.validate_dbc(dbc)
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("ZeroLen", length=0, byte_order="big_endian"),
+                    ],
+                ),
+            ]
+        )
+        with AletheiaClient() as client, pytest.raises(ProtocolError, match="bit length"):
+            client.validate_dbc(dbc)
 
     def test_nonzero_length_ok(self) -> None:
         """Verify nonzero length ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Normal", length=8),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Normal", length=8),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -392,17 +528,17 @@ class TestBitLengthZero:
 
 
 class TestNonIntegerMultiplexValue:
-    """R23 — AGDA-C-5.1: non-integer in `multiplex_values` is rejected with
-    the typed `parse_non_integer_multiplex_value` wire code.
+    """Non-integer in ``multiplex_values`` is rejected with a typed wire code.
 
-    Before R23 both `InvalidPresence "non-integer in multiplex_values"`
-    sites at `JSONParser.parseNatList[⁺]` collapsed onto the
-    `parse_invalid_presence` wire code, conflating "presence string not
-    'always'" with "non-natural element in multiplex_values".
+    The kernel emits ``parse_non_integer_multiplex_value`` (distinct from the
+    earlier ``parse_invalid_presence`` wire code, which conflated "presence
+    string not 'always'" with "non-natural element in multiplex_values").
+    Both ``InvalidPresence "non-integer in multiplex_values"`` sites at
+    ``JSONParser.parseNatList[⁺]`` now route to the dedicated code.
 
-    Goes through `validate_dbc` (which in this round was fixed to
-    propagate the wire `code` field onto the raised `ProtocolError` —
-    previously dropped, parallel to `format_dbc` / `format_dbc_text`).
+    Goes through ``validate_dbc``, which propagates the wire ``code`` field
+    onto the raised ``ProtocolError`` (parallel to ``format_dbc`` /
+    ``format_dbc_text``).
     """
 
     def test_float_in_multiplex_values_rejected(self) -> None:
@@ -412,9 +548,8 @@ class TestNonIntegerMultiplexValue:
         sig["multiplexor"] = "Mux"
         sig["multiplex_values"] = [1.5]  # float — every element must be a JSON natural
         dbc = _make_dbc([_make_message(0x100, "Msg1", [sig])])
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError) as excinfo:
-                client.validate_dbc(dbc)
+        with AletheiaClient() as client, pytest.raises(ProtocolError) as excinfo:
+            client.validate_dbc(dbc)
         assert excinfo.value.code == "parse_non_integer_multiplex_value"
 
     def test_string_in_multiplex_values_rejected(self) -> None:
@@ -424,9 +559,8 @@ class TestNonIntegerMultiplexValue:
         sig["multiplexor"] = "Mux"
         sig["multiplex_values"] = ["not_a_number"]
         dbc = _make_dbc([_make_message(0x100, "Msg1", [sig])])
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError) as excinfo:
-                client.validate_dbc(dbc)
+        with AletheiaClient() as client, pytest.raises(ProtocolError) as excinfo:
+            client.validate_dbc(dbc)
         assert excinfo.value.code == "parse_non_integer_multiplex_value"
 
 
@@ -435,10 +569,12 @@ class TestDuplicateMessageName:
 
     def test_duplicate_name_detected(self) -> None:
         """Verify duplicate name detected."""
-        dbc = _make_dbc([
-            _make_message(0x100, "SameName", [_make_signal("Sig1")]),
-            _make_message(0x200, "SameName", [_make_signal("Sig2")]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "SameName", [_make_signal("Sig1")]),
+                _make_message(0x200, "SameName", [_make_signal("Sig2")]),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -447,10 +583,12 @@ class TestDuplicateMessageName:
 
     def test_different_names_ok(self) -> None:
         """Verify different names ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
-            _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
+                _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -470,12 +608,19 @@ class TestOffsetScaleRange:
     def test_unsigned_correct_range_clean(self) -> None:
         # 8-bit unsigned, factor=1, offset=0 → phys ∈ [0, 255]
         """Verify unsigned correct range clean."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Good", length=8, factor=1.0, offset=0.0,
-                             minimum=0.0, maximum=255.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Good", length=8, factor=1.0, offset=0.0, minimum=0.0, maximum=255.0
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -485,12 +630,19 @@ class TestOffsetScaleRange:
     def test_unsigned_declared_max_too_narrow(self) -> None:
         # 8-bit unsigned, factor=1, offset=0 → phys_max=255, but declared max=200
         """Verify unsigned declared max too narrow."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Narrow", length=8, factor=1.0, offset=0.0,
-                             minimum=0.0, maximum=200.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Narrow", length=8, factor=1.0, offset=0.0, minimum=0.0, maximum=200.0
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -501,12 +653,25 @@ class TestOffsetScaleRange:
     def test_signed_correct_range_clean(self) -> None:
         # 8-bit signed, factor=1, offset=0 → phys ∈ [-128, 127]
         """Verify signed correct range clean."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Temp", length=8, signed=True, factor=1.0,
-                             offset=0.0, minimum=-128.0, maximum=127.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Temp",
+                            length=8,
+                            signed=True,
+                            factor=1.0,
+                            offset=0.0,
+                            minimum=-128.0,
+                            maximum=127.0,
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -518,12 +683,25 @@ class TestOffsetScaleRange:
         # Declared range [-100, 127] is NARROWER than physical [-128, 127]
         # Hardware can produce values in [-128, -101] outside declared range → warning
         """Verify signed declared min too narrow."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Cold", length=8, signed=True, factor=1.0,
-                             offset=0.0, minimum=-100.0, maximum=127.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Cold",
+                            length=8,
+                            signed=True,
+                            factor=1.0,
+                            offset=0.0,
+                            minimum=-100.0,
+                            maximum=127.0,
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -535,12 +713,24 @@ class TestOffsetScaleRange:
         # 8-bit unsigned, factor=-0.1, offset=25.5
         # phys_min = 255 * (-0.1) + 25.5 = 0.0, phys_max = 0 * (-0.1) + 25.5 = 25.5
         """Verify negative factor unsigned."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Inverted", length=8, factor=-0.1, offset=25.5,
-                             minimum=0.0, maximum=25.5),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Inverted",
+                            length=8,
+                            factor=-0.1,
+                            offset=25.5,
+                            minimum=0.0,
+                            maximum=25.5,
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -552,12 +742,19 @@ class TestOffsetScaleRange:
         # phys range: [0.0, 25.5] (factor negative flips raw→phys direction)
         # Declared min=5.0 is ABOVE physMin=0.0 → hardware can produce [0, 5) outside declared range
         """Verify negative factor wrong range warns."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Bad", length=8, factor=-0.1, offset=25.5,
-                             minimum=5.0, maximum=25.5),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Bad", length=8, factor=-0.1, offset=25.5, minimum=5.0, maximum=25.5
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -568,12 +765,25 @@ class TestOffsetScaleRange:
     def test_with_offset_and_factor(self) -> None:
         # 16-bit unsigned, factor=0.01, offset=-100 → phys ∈ [-100, 555.35]
         """Verify with offset and factor."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Scaled", start_bit=0, length=16, factor=0.01,
-                             offset=-100.0, minimum=-100.0, maximum=555.35),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal(
+                            "Scaled",
+                            start_bit=0,
+                            length=16,
+                            factor=0.01,
+                            offset=-100.0,
+                            minimum=-100.0,
+                            maximum=555.35,
+                        ),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -586,9 +796,11 @@ class TestEmptyMessage:
 
     def test_empty_message_warned(self) -> None:
         """Verify empty message warned."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Empty", []),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "Empty", []),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -600,9 +812,11 @@ class TestEmptyMessage:
 
     def test_message_with_signals_ok(self) -> None:
         """Verify message with signals ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "HasSigs", [_make_signal("Sig1")]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "HasSigs", [_make_signal("Sig1")]),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -620,11 +834,17 @@ class TestStartBitOutOfRange:
 
     def test_start_bit_63_ok(self) -> None:
         """Verify start bit 63 ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("OkStart", start_bit=63, length=1, maximum=1.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("OkStart", start_bit=63, length=1, maximum=1.0),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -633,11 +853,17 @@ class TestStartBitOutOfRange:
 
     def test_start_bit_0_ok(self) -> None:
         """Verify start bit 0 ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("OkStart", start_bit=0, length=8),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("OkStart", start_bit=0, length=8),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -656,12 +882,17 @@ class TestBitLengthExcessive:
     def test_bit_length_32_ok(self) -> None:
         # Test with 32-bit signal — well within the 64-bit limit
         """Verify bit length 32 ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("Counter", start_bit=0, length=32,
-                             maximum=4294967295.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Counter", start_bit=0, length=32, maximum=4294967295.0),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -670,11 +901,17 @@ class TestBitLengthExcessive:
 
     def test_bit_length_1_ok(self) -> None:
         """Verify bit length 1 ok."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [
-                _make_signal("OneBit", start_bit=0, length=1, maximum=1.0),
-            ]),
-        ])
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("OneBit", start_bit=0, length=1, maximum=1.0),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
@@ -686,11 +923,13 @@ class TestParseDBCDualLayerValidation:
     """Tests that parseDBC runs validateDBCFull as a second validation layer."""
 
     def test_parse_dbc_rejects_duplicate_ids(self) -> None:
-        """parseDBC should reject a DBC with duplicate message IDs."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
-            _make_message(0x100, "Msg2", [_make_signal("Sig2")]),
-        ])
+        """ParseDBC should reject a DBC with duplicate message IDs."""
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
+                _make_message(0x100, "Msg2", [_make_signal("Sig2")]),
+            ]
+        )
         with AletheiaClient() as client:
             response = client.parse_dbc(dbc)
 
@@ -698,11 +937,13 @@ class TestParseDBCDualLayerValidation:
         assert "validation failed" in response.get("message", "").lower()
 
     def test_parse_dbc_accepts_valid(self) -> None:
-        """parseDBC should accept a clean DBC."""
-        dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
-            _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
-        ])
+        """ParseDBC should accept a clean DBC."""
+        dbc = _make_dbc(
+            [
+                _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
+                _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
+            ]
+        )
         with AletheiaClient() as client:
             response = client.parse_dbc(dbc)
 
@@ -722,13 +963,12 @@ def test_unknown_severity_raises_protocol_error(
     """Verify unknown severity raises protocol error."""
     dbc = _make_dbc([_make_message(0x100, "Msg1", [_make_signal("Sig1")])])
     with AletheiaClient() as client:
+
         def fake_send(_cmd: object) -> dict:
             return {
                 "status": "validation",
                 "has_errors": False,
-                "issues": [
-                    {"severity": "info", "code": "empty_message", "detail": "x"}
-                ],
+                "issues": [{"severity": "info", "code": "empty_message", "detail": "x"}],
             }
 
         monkeypatch.setattr(client, "_send_command", fake_send)

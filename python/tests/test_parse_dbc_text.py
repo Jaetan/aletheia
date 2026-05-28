@@ -81,8 +81,7 @@ class TestParseDBCTextFailure:
         assert resp["status"] == "error"
 
     def test_zero_length_le_signal_rejected_at_parse(self) -> None:
-        """LE bitLength=0 surfaces as a parse error (R5-B1 / R6-B7.1
-        closure 2026-05-15 — BE-LE parity completion, text-parser leg).
+        """LE bitLength=0 surfaces as a parse error.
 
         The text parser's `buildSignal` rejects `1 ≤ᵇ bl ≡ false`; the
         `nothing` propagates through buildAllRaw → resolveSignalList →
@@ -95,7 +94,9 @@ class TestParseDBCTextFailure:
         same DBC template so bl=0 is the only differentiator — without
         the success case, any incidental parse failure (empty NS_/BS_,
         receiver-list shape, etc.) would silently satisfy the error
-        assertion without exercising the new gate."""
+        assertion without exercising the new gate.
+        """
+
         def _text(length: int) -> str:
             return (
                 'VERSION ""\n'
@@ -109,6 +110,7 @@ class TestParseDBCTextFailure:
                 "BO_ 100 Msg: 1 Engine\n"
                 f' SG_ SigLE : 0|{length}@1+ (1,0) [0|0] "" Engine\n'
             )
+
         with AletheiaClient() as client:
             ok = client.parse_dbc_text(_text(1))
             assert ok["status"] == "success", ok
