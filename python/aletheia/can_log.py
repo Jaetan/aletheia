@@ -1,4 +1,4 @@
-"""CAN log file reader
+"""CAN log file reader.
 
 Read industry-standard CAN log files and convert frames for Aletheia analysis.
 Supports ASC, BLF, CSV, DB, candump .log, MF4, and TRC formats via python-can.
@@ -13,30 +13,40 @@ Example:
     # Lazy: iterate one frame at a time
     for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("highway.asc"):
         response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
+
 """
 
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
-# python-can is an optional extra (`pip install aletheia[can]`).  Surface a
-# clear, narrow ImportError naming the optional install rather than letting
-# a bare `ModuleNotFoundError: No module named 'can'` bubble up.  R19
-# cluster 16 — PY-D-18.5; mirrors the narrow-swallow pattern in
-# aletheia.__init__ for openpyxl / yaml.
-try:
-    import can
-except ImportError as exc:
-    raise ImportError(
-        "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
-    ) from exc
-
 from aletheia.client import CANFrameTuple, ValidationError, bytes_to_dlc
 from aletheia.protocols import DLCByteCount, DLCCode
 
-_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
-    ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",
-})
+# python-can is an optional extra (`pip install aletheia[can]`).  Surface a
+# clear, narrow ImportError naming the optional install rather than letting
+# a bare `ModuleNotFoundError: No module named 'can'` bubble up.  Mirrors
+# the narrow-swallow pattern in aletheia.__init__ for openpyxl / yaml.
+_CAN_IMPORT_ERROR_MSG = (
+    "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
+)
+
+try:
+    import can
+except ImportError as exc:
+    raise ImportError(_CAN_IMPORT_ERROR_MSG) from exc
+
+_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".asc",
+        ".blf",
+        ".csv",
+        ".db",
+        ".log",
+        ".mf4",
+        ".trc",
+    }
+)
 
 
 def load_can_log(
@@ -56,13 +66,16 @@ def load_can_log(
 
     Returns:
         List of (timestamp_us, arbitration_id, dlc, data, extended) tuples
+
     """
-    return list(iter_can_log(
-        path,
-        skip_error_frames=skip_error_frames,
-        skip_remote_frames=skip_remote_frames,
-        on_error=on_error,
-    ))
+    return list(
+        iter_can_log(
+            path,
+            skip_error_frames=skip_error_frames,
+            skip_remote_frames=skip_remote_frames,
+            on_error=on_error,
+        )
+    )
 
 
 def iter_can_log(
@@ -82,6 +95,7 @@ def iter_can_log(
 
     Yields:
         (timestamp_us, arbitration_id, dlc, data, extended) tuples
+
     """
     resolved = Path(path)
     _validate_path(resolved)
@@ -109,20 +123,21 @@ def iter_can_log(
 def _validate_path(path: Path) -> None:
     """Validate that the file exists and has a supported extension."""
     if not path.exists():
-        raise FileNotFoundError(f"CAN log file not found: {path}")
+        msg = f"CAN log file not found: {path}"
+        raise FileNotFoundError(msg)
 
     ext = _effective_extension(path)
     if ext not in _SUPPORTED_EXTENSIONS:
         raise ValidationError(
-            f"Unsupported CAN log format '{ext}'. " +
-            f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
+            f"Unsupported CAN log format '{ext}'. "
+            + f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
         )
 
 
 def _effective_extension(path: Path) -> str:
     """Get the effective file extension, stripping .gz if present."""
     suffixes = path.suffixes
-    if len(suffixes) >= 2 and suffixes[-1] == ".gz":
+    if len(suffixes) > 1 and suffixes[-1] == ".gz":
         return suffixes[-2]
     return path.suffix
 
@@ -157,8 +172,13 @@ def _convert_message(
     esi: bool | None = msg.error_state_indicator if msg.is_fd else None
 
     return CANFrameTuple(
-        timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id,
-        brs, esi,
+        timestamp_us,
+        msg.arbitration_id,
+        dlc,
+        data,
+        msg.is_extended_id,
+        brs,
+        esi,
     )
 
 
@@ -182,7 +202,7 @@ def _normalize_data(data: bytearray | None, dlc: int) -> bytearray:
 
     if len(data) < dlc:
         padded = bytearray(dlc)
-        padded[:len(data)] = data
+        padded[: len(data)] = data
         return padded
 
     return bytearray(data[:dlc])

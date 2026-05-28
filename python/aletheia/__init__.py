@@ -1,4 +1,4 @@
-"""Aletheia - Formally verified CAN frame analysis with LTL
+"""Aletheia - Formally verified CAN frame analysis with LTL.
 
 AletheiaClient
 ==============
@@ -48,7 +48,10 @@ Use the fluent Signal interface to build properties:
     brake.implies(speed_decreases.within(100))
 """
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
+from aletheia.checks import CheckResult
 
 # pylint: disable=cyclic-import
 # __init__.py re-exports from submodules; ``client/_ffi.py`` lazily imports
@@ -96,26 +99,26 @@ from aletheia.client import (
     bytes_to_dlc,
     dlc_to_bytes,
 )
-from aletheia.checks import CheckResult
 from aletheia.dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
-from aletheia.dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from aletheia.dbc_queries import (
+    always_present_signals,
+    is_multiplexed,
+    message_by_id,
+    message_by_name,
+    multiplexed_signals,
+    multiplexor_names,
+    mux_values,
+    signal_by_name,
+    signals_for_mux_value,
+)
+from aletheia.dsl import Predicate, Property, Signal, eventually_always, infinitely_often, never
 from aletheia.error_codes import ErrorCode
+from aletheia.issue_codes import IssueCode, ValidationIssue
 from aletheia.protocols import (
     DBCDefinition,
     PropertyResultEntry,
 )
-from aletheia.issue_codes import IssueCode, ValidationIssue
-from aletheia.dbc_queries import (
-    is_multiplexed,
-    always_present_signals,
-    multiplexed_signals,
-    multiplexor_names,
-    mux_values,
-    signals_for_mux_value,
-    message_by_id,
-    message_by_name,
-    signal_by_name,
-)
+
 
 # Optional-dependency modules: available when the corresponding extras are
 # installed (``pip install aletheia[can]``, ``[yaml]``, ``[excel]``, or
@@ -131,7 +134,7 @@ def _missing_pkg(exc: ImportError, pkg: str) -> bool:
 
 
 try:
-    from aletheia.can_log import load_can_log, iter_can_log
+    from aletheia.can_log import iter_can_log, load_can_log
 except ImportError as _e:
     if not _missing_pkg(_e, "can"):
         raise
@@ -143,7 +146,7 @@ except ImportError as _e:
         raise
 
 try:
-    from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
+    from aletheia.excel_loader import create_template, load_checks_from_excel, load_dbc_from_excel
 except ImportError as _e:
     if not _missing_pkg(_e, "openpyxl"):
         raise
@@ -159,69 +162,54 @@ except PackageNotFoundError:
 # raises ``AttributeError`` for the missing name, which is the documented
 # behaviour for missing extras.
 __all__ = [
-    # Client
     "AletheiaClient",
-    "CANFrameTuple",
-    "SignalExtractionResult",
-    "bytes_to_dlc",
-    "dlc_to_bytes",
-    # Backend DI seam (R20 cluster P — PY-D-24.1; cross-binding parity
-    # with Go ``Backend`` interface and C++ ``IBackend`` virtual surface).
-    "Backend",
-    "FFIBackend",
-    "MockBackend",
-    "BinaryPathUnsupportedError",
-    # Exceptions & response types
     "AletheiaError",
+    "Backend",
     "BatchError",
+    "BinaryPathUnsupportedError",
+    "CANFrameTuple",
+    "CheckResult",
+    "DBCDefinition",
+    "ErrorCode",
+    "FFIBackend",
     "FFIError",
     "FrameResponse",
     "FrameResult",
     "InputBoundExceededError",
+    "IssueCode",
+    "MockBackend",
+    "Predicate",
+    "Property",
     "PropertyDiagnostic",
+    "PropertyResultEntry",
     "ProtocolError",
     "RTSState",
+    "Signal",
+    "SignalExtractionResult",
     "StateError",
     "ValidationError",
-    # Check API — entry points live in ``aletheia.checks`` (use
-    # ``from aletheia import checks; checks.signal(...)`` to avoid
-    # shadowing the stdlib ``signal`` module or local ``signal``
-    # parameter names).
-    "CheckResult",
-    # Protocol types (consumer API for typed message inspection)
-    "DBCDefinition",
-    "ErrorCode",
-    "IssueCode",
-    "PropertyResultEntry",
     "ValidationIssue",
-    # DBC queries (no optional deps)
-    "is_multiplexed",
     "always_present_signals",
+    "bytes_to_dlc",
+    "convert_dbc_file",
+    "create_template",  # pip install aletheia[excel]
+    "dbc_to_json",
+    "dbc_to_text",
+    "dlc_to_bytes",
+    "eventually_always",
+    "infinitely_often",
+    "is_multiplexed",
+    "iter_can_log",  # pip install aletheia[can]
+    "load_can_log",  # pip install aletheia[can]
+    "load_checks",  # pip install aletheia[yaml]
+    "load_checks_from_excel",  # pip install aletheia[excel]
+    "load_dbc_from_excel",  # pip install aletheia[excel]
+    "message_by_id",
+    "message_by_name",
     "multiplexed_signals",
     "multiplexor_names",
     "mux_values",
-    "signals_for_mux_value",
-    "message_by_id",
-    "message_by_name",
-    "signal_by_name",
-    # DSL
-    "Signal",
-    "Predicate",
-    "Property",
-    "infinitely_often",
-    "eventually_always",
     "never",
-    # DBC text/JSON conversion via the verified Agda parser (no optional deps)
-    "convert_dbc_file",
-    "dbc_to_json",
-    "dbc_to_text",
-    # Optional: aletheia[can]
-    "load_can_log",
-    "iter_can_log",
-    # Optional: aletheia[yaml]
-    "load_checks",
-    # Optional: aletheia[excel]
-    "load_checks_from_excel",
-    "load_dbc_from_excel",
-    "create_template",
+    "signal_by_name",
+    "signals_for_mux_value",
 ]

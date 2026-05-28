@@ -16,8 +16,7 @@ shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 from pathlib import Path
 
 from aletheia.client import AletheiaClient, ValidationError, check_dbc_text_size_bound
-from aletheia.protocols import dump_json
-from aletheia.protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
+from aletheia.protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
 
 
 def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
@@ -40,6 +39,7 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         to run ``parseDBCText`` and shuts it down again — fine for ad-hoc
         conversions. For tight loops, drive ``parse_dbc_text`` on a
         long-lived ``AletheiaClient`` directly instead.
+
     """
     path = Path(dbc_path)
     check_dbc_text_size_bound(path.stat().st_size)
@@ -47,9 +47,8 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":
-        raise ValidationError(
-            f"Failed to parse DBC file '{dbc_path}': {response['message']}"
-        )
+        msg = f"Failed to parse DBC file '{dbc_path}': {response['message']}"
+        raise ValidationError(msg)
     return response["dbc"]
 
 
@@ -72,6 +71,7 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
         conversions. For tight loops, drive
         :meth:`AletheiaClient.format_dbc_text` on a long-lived
         ``AletheiaClient`` directly instead.
+
     """
     with AletheiaClient() as client:
         return client.format_dbc_text(dbc)
@@ -90,11 +90,12 @@ def convert_dbc_file(
 
     Returns:
         JSON string representation of the DBC file.
+
     """
     dbc_json = dbc_to_json(dbc_path)
     json_str = dump_json(dbc_json, indent=2)
 
     if output_path:
-        _ = Path(output_path).write_text(json_str, encoding='utf-8')
+        _ = Path(output_path).write_text(json_str, encoding="utf-8")
 
     return json_str
