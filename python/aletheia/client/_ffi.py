@@ -218,7 +218,7 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     lib.aletheia_free_buf.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
     lib.aletheia_free_buf.restype = None
 
-    # Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
+    # Cross-binding-identical Rational pretty-printer.
     # Returns a CString that the caller must free via ``aletheia_free_str``.
     # Display path only — bindings call this to render predicate values for
     # human-readable diagnostics.
@@ -233,8 +233,7 @@ def _validate_lib_path(p: Path, source: str) -> None:
     """Reject a candidate ``libaletheia-ffi.so`` path that fails security gates.
 
     Applied to every resolution path — env var, install config, build dir,
-    dist-newstyle scan — per R20 cluster N / PY-B-26.2 / PY-A-27.2.  R19
-    cluster 12 / PY-B-26.11 originally restricted these checks to the
+    dist-newstyle scan.  Earlier versions restricted these checks to the
     ``ALETHEIA_LIB`` env var; the fallback paths bypassed the symlink and
     permission gates even though they are equally untrusted from a
     "could be tampered post-install" standpoint.
@@ -291,8 +290,8 @@ def find_ffi_library() -> Path:
 
     """
     # Check ALETHEIA_LIB environment variable (Docker, custom deployments).
-    # Permission hardening (R19 cluster B / PY-B-26.11): refuse a path
-    # that any non-owner can write to.  The env var is implicitly trusted
+    # Permission hardening: refuse a path that any non-owner can write
+    # to.  The env var is implicitly trusted
     # — anyone who can set it can already redirect us to a malicious .so —
     # but a world-writable / group-writable file is even worse: an
     # unprivileged third party who cannot set the env var can still poison

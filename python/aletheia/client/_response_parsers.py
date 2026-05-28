@@ -56,15 +56,15 @@ def build_error_response(response: Response) -> ErrorResponse:
     third-party tooling writing to the same queue) and is surfaced as a
     ``ProtocolError`` rather than being papered over with a default —
     the defaults (``""`` for Python, ``"Unknown error"`` for C++) used
-    to diverge across bindings, and R16 shipped with a silent "unknown
-    error code" regression in production logs.
+    to diverge across bindings and produced a silent "unknown error
+    code" regression in production logs.
 
     InputBoundExceeded errors carry an additional ``bound_kind`` /
     ``observed`` / ``limit`` triple via ``Protocol/ResponseFormat.
-    errorExtras`` (AGDA-D-13.4 phase 2a); all three must be present and
-    well-typed when any one is, else the payload is treated as missing
-    rather than partial (matches the C++ binding's degrade-to-nullopt
-    rule in ``make_json_error``).
+    errorExtras``; all three must be present and well-typed when any
+    one is, else the payload is treated as missing rather than partial
+    (matches the C++ binding's degrade-to-nullopt rule in
+    ``make_json_error``).
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -161,9 +161,9 @@ def parse_frame_response(
 ) -> AckResponse | PropertyBatchResponse | ErrorResponse:
     """Parse a single frame response into a typed result.
 
-    R23 — AGDA-D-12.1: a single frame may now produce a batch of property
-    events (any satisfactions that completed before a halting violation,
-    in source-order, followed by the violation).  The wire `type` is
+    A single frame may produce a batch of property events (any
+    satisfactions that completed before a halting violation, in
+    source-order, followed by the violation).  The wire `type` is
     `"property_batch"`; the `results` list holds one or more
     `PropertyResultEntry` objects (fails / holds / unresolved).  A
     no-event frame still returns `AckResponse` ({"status": "ack"});
@@ -177,7 +177,7 @@ def parse_frame_response(
     if status == "error":
         return build_error_response(response)
 
-    # R23: streaming PropertyResponse is now uniformly a batch with
+    # Streaming PropertyResponse is uniformly a batch with
     # `type="property_batch"`.  No top-level `status` field on the wire —
     # the inner results carry per-event status (fails/holds/unresolved).
     response_type = response.get("type")

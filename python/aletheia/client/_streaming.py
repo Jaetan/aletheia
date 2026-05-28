@@ -128,7 +128,7 @@ class StreamingMixin(ABC):
     ) -> None:
         """Enrich one violation entry with signal diagnostics (in-place).
 
-        R23 — AGDA-D-12.1: takes one inner ``PropertyResultEntry`` from
+        Takes one inner ``PropertyResultEntry`` from
         ``PropertyBatchResponse.results``; caller filters to fails entries.
         """
         if not self._diags:
@@ -292,8 +292,8 @@ class StreamingMixin(ABC):
                 )
             return {"status": "ack"}
 
-        # Slow path: batched events / errors — full JSON parse.  R23 —
-        # AGDA-D-12.1: streaming PropertyResponse is now a batch envelope
+        # Slow path: batched events / errors — full JSON parse.
+        # Streaming PropertyResponse is a batch envelope
         # (type=property_batch + results[]); enrich each fails entry.
         response = cast("Response", parse_json_object(result_bytes.decode("utf-8")))
         result = parse_frame_response(response)

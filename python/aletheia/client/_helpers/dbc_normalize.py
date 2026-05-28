@@ -100,12 +100,13 @@ def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
     return cast("DBCDefinition", result)
 
 
-# DEFERRED — TRACKED (R19P2-CL16-4 — DEFER).
+# DEFERRED:
 # Finding: `normalize_signal` is exposed publicly (no underscore prefix) but
 #   only called by this module's internal helpers + tests.
-# Why DEFER: Mechanical underscore-prefix + import update; same shape as
-#   R19P2-CL16-3 (the wider boundary-naming sweep).
-# Revisit when: Co-decided with R19P2-CL16-3.
+# Why: Mechanical underscore-prefix + import update; same shape as the
+#   wider boundary-naming sweep (see DEFERRED block in
+#   `aletheia/_loader_utils.py`).
+# Revisit when: Co-decided with the _loader_utils.py deferral.
 def normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
     """Normalize a single Agda signal dict into a DBCSignal."""
     sig: dict[str, object] = dict(raw_sig)

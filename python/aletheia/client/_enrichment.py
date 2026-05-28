@@ -1,10 +1,10 @@
 """Formula enrichment helpers — formatting, signal collection, diagnostics.
 
 Module-level functions.  Rational rendering is delegated to the Agda
-kernel via the FFI's ``aletheia_format_rational`` (R20 cluster Y stage 2);
-the FFI library is registered eagerly by :class:`FFIBackend` and lazily
-loaded otherwise so direct callers like ``format_formula(my_dict)`` keep
-working without an explicit backend.
+kernel via the FFI's ``aletheia_format_rational``; the FFI library is
+registered eagerly by :class:`FFIBackend` and lazily loaded otherwise so
+direct callers like ``format_formula(my_dict)`` keep working without an
+explicit backend.
 """
 
 import ctypes
@@ -24,7 +24,7 @@ from aletheia.protocols import LTLFormula
 # pass this local check, serialize to JSON, then get rejected on the wire
 # as `bound_kind_nesting_depth`.  Mirroring the kernel cap surfaces the
 # rejection immediately as `ValidationError` instead of as a wire round-trip
-# error.  R21 PY-A-2.3 / AGDA-D-17.1 cross-binding SSOT fix.
+# error.
 
 _UNARY_OPS = frozenset(
     {
@@ -95,8 +95,8 @@ def _coerce_to_float(v: object) -> float:
     """Best-effort numeric \u2192 float conversion for the pretty-printer.
 
     Predicate values now flow as :class:`Fraction` per the DecRat universal
-    principle (cluster 17 / PY-D-19.1); the pretty-printer's role is only
-    human-readable display, so converting through float is fine here.
+    principle; the pretty-printer's role is only human-readable display,
+    so converting through float is fine here.
     """
     if isinstance(v, (int, float, Fraction)):
         return float(v)
@@ -104,7 +104,7 @@ def _coerce_to_float(v: object) -> float:
 
 
 # Module-level FFI library reference for the cross-binding-identical
-# Rational renderer (R20 cluster Y stage 2).  Registered eagerly by
+# Rational renderer.  Registered eagerly by
 # :meth:`aletheia.client._backend.FFIBackend.__init__` so production
 # paths use the loaded backend's library.  When unset (e.g. tests
 # calling ``format_formula`` directly without instantiating a client),
@@ -136,8 +136,8 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
     :func:`format_formula` / :func:`build_diagnostic` (typically tests
     or scripts) trigger the lazy load on first Rational render.
     """
-    # Thread-safe lazy-load (R23 PY-D-22.6).  Mirrors Go's sync.Once and
-    # C++'s std::call_once — without the lock, two concurrent first-callers
+    # Thread-safe lazy-load.  Mirrors Go's sync.Once and C++'s
+    # std::call_once — without the lock, two concurrent first-callers
     # both see _renderer_lib is None, both dlopen the .so, last-write wins.
     # GHC RTS init is idempotent per the renderer.cpp comment, so the race
     # is benign in practice; the lock is defensive thread-safety hygiene.

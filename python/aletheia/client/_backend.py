@@ -1,8 +1,8 @@
 """Backend Protocol — FFI-boundary DI seam for the Aletheia client.
 
 Mirrors Go ``aletheia.Backend`` (``go/aletheia/backend.go``) and C++
-``aletheia::IBackend`` (``cpp/include/aletheia/backend.hpp``) to close
-the cross-binding parity gap flagged as ``PY-D-24.1`` in R20.
+``aletheia::IBackend`` (``cpp/include/aletheia/backend.hpp``) for
+cross-binding parity at the FFI boundary.
 
 Three implementations live here:
 
@@ -287,10 +287,10 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         configure_ffi_signatures(self._lib)
         RTSState.acquire(self._lib, rts_cores)
         self._rts_cores = rts_cores
-        # Register this library as the Rational renderer (R20 cluster Y
-        # stage 2).  The renderer module also lazy-loads on demand for
-        # callers that bypass FFIBackend, so this registration is an
-        # eager optimisation rather than a strict requirement.
+        # Register this library as the Rational renderer.  The renderer
+        # module also lazy-loads on demand for callers that bypass
+        # FFIBackend, so this registration is an eager optimisation rather
+        # than a strict requirement.
         set_renderer_lib(self._lib)
 
     @property
@@ -544,8 +544,8 @@ class MockBackend:  # pylint: disable=too-many-public-methods
 
     Cross-binding parity with Go ``aletheia.MockBackend`` (mock.go) and
     C++ ``aletheia::MockBackend`` (``cpp/src/detail/mock_backend.hpp``).
-    Closes ``FEATURE_MATRIX.yaml`` row ``mock_backend`` for the Python
-    binding (R20 cluster P — PY-B-22.2).
+    Tracks ``FEATURE_MATRIX.yaml`` row ``mock_backend`` for the Python
+    binding.
 
     Usage::
 

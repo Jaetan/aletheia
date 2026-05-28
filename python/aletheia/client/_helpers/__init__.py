@@ -1,6 +1,6 @@
 """Pure helper functions for response parsing and type conversion.
 
-PY-D-16.1 (R23): split into three sub-modules by concern:
+Split into three sub-modules by concern:
 
 * ``rational`` — ℚ arithmetic + parsing + validation (float / Fraction /
   rational-dict / rational-string).

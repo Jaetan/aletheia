@@ -1,15 +1,15 @@
 """Client types, exceptions, and result containers."""
 
-# DEFERRED — TRACKED (R19P2-CL16-1 — DEFER).
-# Finding: This file (432 LOC, shrunk organically from ~600 pre-cluster-17)
+# DEFERRED:
+# Finding: This file (432 LOC, shrunk organically from a higher mark)
 #   mixes public-ish types (exception hierarchy) with client-internal scaffolding.
 #   Splitting into `python/aletheia/types.py` (public) + `python/aletheia/client/_internals.py`
-#   (internal) was deferred from R19 Phase 2 cluster 16.
-# Why DEFER: Organic shrinkage during cluster 17 reduced urgency.  Split would
-#   route public types via `aletheia.types` re-export which then needs the
-#   AletheiaError canonical-path decision (R19P2-CL16-2) co-decided.
-# Revisit when: This file re-grows past ~600 LOC, OR R19P2-CL16-2 is taken on
-#   (forces the co-decision on AletheiaError canonical path).
+#   (internal) is the natural shape.
+# Why: Organic shrinkage reduced urgency.  Split would route public types via
+#   `aletheia.types` re-export which then needs the AletheiaError canonical-path
+#   decision co-decided (see DEFERRED block in `__init__.py`).
+# Revisit when: This file re-grows past ~600 LOC, OR the AletheiaError
+#   canonical-path decision is taken on (forces the co-decision).
 
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
@@ -92,7 +92,7 @@ class ValidationError(AletheiaError):
     Mirrors Go ``ErrValidation`` and C++ ``ErrorKind::Validation`` —
     cross-binding parity for argument-rejection paths.  Replaces ad-hoc
     ``ValueError`` raises that escaped the typed ``AletheiaError``
-    hierarchy (R19 cluster 10 — PY-D-15.6).
+    hierarchy.
     """
 
 
@@ -126,8 +126,8 @@ def check_dbc_text_size_bound(observed: int) -> None:
 
     Defense-in-depth size cap shared by every parser surface that reads DBC
     text, YAML check definitions, or Excel workbooks.  Re-exported from
-    :mod:`aletheia.limits` (PY-D-16.2) — non-client modules should import
-    via the public path; this canonical definition stays here so
+    :mod:`aletheia.limits` — non-client modules should import via the
+    public path; this canonical definition stays here so
     InputBoundExceededError lives next to its raiser.
     """
     if observed > MAX_DBC_TEXT_BYTES:
@@ -181,9 +181,9 @@ def raise_on_error_response(
     been yielded to the consumer; batch-mode callers pass the live results
     list. See the ``BatchError`` docstring for the per-call contract.
     """
-    # R23 — AGDA-D-12.1: PropertyBatchResponse has no top-level "status"
-    # field (it discriminates on `type == "property_batch"`), so use
-    # ``.get()`` to avoid KeyError on non-error batches.
+    # PropertyBatchResponse has no top-level "status" field (it
+    # discriminates on `type == "property_batch"`), so use ``.get()``
+    # to avoid KeyError on non-error batches.
     if resp.get("status") == "error":
         err_resp = cast("ErrorResponse", resp)
         err = ProtocolError(
@@ -269,12 +269,12 @@ class FrameResult:
     def violation(self) -> PropertyResultEntry | None:
         """The first violating event from the batch, else None.
 
-        R23 — AGDA-D-12.1: a frame's response may now carry multiple
-        property events (any mid-stream satisfactions that completed
-        before a halting violation, in source-order, followed by the
-        violation).  Per the Agda invariant in dispatchIterResult,
-        violations always close a batch — there is at most one
-        violation per frame, and if present it is the last result.
+        A frame's response may carry multiple property events (any
+        mid-stream satisfactions that completed before a halting
+        violation, in source-order, followed by the violation).  Per
+        the Agda invariant in dispatchIterResult, violations always
+        close a batch — there is at most one violation per frame, and
+        if present it is the last result.
         """
         if self.response.get("type") != "property_batch":
             return None
@@ -286,7 +286,7 @@ class FrameResult:
 
     @property
     def satisfactions(self) -> list[PropertyResultEntry]:
-        """Mid-stream satisfaction events from the batch (R23 — AGDA-D-12.1).
+        """Mid-stream satisfaction events from the batch.
 
         Properties that completed (became Satisfied) on this frame are
         surfaced here in source-order.  Empty list for ack-only frames

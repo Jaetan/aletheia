@@ -75,9 +75,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
     Calls the formally verified Agda core via a :class:`Backend` —
     :class:`FFIBackend` in production (wraps ``libaletheia-ffi.so`` via
-    ``ctypes``), :class:`MockBackend` in tests.  The DI seam closes
-    cross-binding parity with Go ``aletheia.Backend`` and C++
-    ``aletheia::IBackend`` (R20 cluster P).
+    ``ctypes``), :class:`MockBackend` in tests.  The DI seam mirrors Go
+    ``aletheia.Backend`` and C++ ``aletheia::IBackend`` for cross-binding
+    parity.
 
     Protocol state machine:
     1. parse_dbc() - Load DBC definition (required first)
@@ -316,13 +316,13 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         Mirrors :meth:`parse_dbc`'s response shape; both routes share the
         same Agda core post-B.3.f.
 
-        Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
-        rejects DBC text inputs longer than :data:`MAX_DBC_TEXT_BYTES` before
-        wrapping them in a JSON command, raising :class:`InputBoundExceededError`
-        with code ``"input_bound_exceeded"``.  The outer
-        :data:`MAX_JSON_BYTES` cap in :meth:`_send_command` still covers the
-        wrapped command separately; the additional inner cap matches the
-        Agda kernel's two-layer enforcement in ``handleParseDBCText``.
+        Defense-in-depth (cross-binding parity): rejects DBC text inputs
+        longer than :data:`MAX_DBC_TEXT_BYTES` before wrapping them in a
+        JSON command, raising :class:`InputBoundExceededError` with code
+        ``"input_bound_exceeded"``.  The outer :data:`MAX_JSON_BYTES` cap
+        in :meth:`_send_command` still covers the wrapped command
+        separately; the additional inner cap matches the Agda kernel's
+        two-layer enforcement in ``handleParseDBCText``.
         """
         text_bytes = text.encode("utf-8")
         if len(text_bytes) > MAX_DBC_TEXT_BYTES:

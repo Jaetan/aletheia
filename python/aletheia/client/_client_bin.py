@@ -7,8 +7,8 @@ constants, and the small dataclasses (:class:`FrameIdentity` /
 :class:`SignalValues`) callers thread through the Backend's binary-FFI
 methods.
 
-Pre-R20 cluster P this module also hosted the ``BinaryFFI`` class that
-owned the ``ctypes`` plumbing for the three binary entry points; that
+Originally this module also hosted the ``BinaryFFI`` class that owned
+the ``ctypes`` plumbing for the three binary entry points; that
 responsibility moved to :class:`aletheia.client.FFIBackend` in
 ``_backend.py`` so the Backend Protocol owns the FFI boundary uniformly.
 What remains here is wire-format parsing — independent of how the bytes
