@@ -1,4 +1,4 @@
-"""Excel loader for CAN signal checks and DBC definitions
+"""Excel loader for CAN signal checks and DBC definitions.
 
 Loads check definitions and DBC signal tables from Excel workbooks
 (.xlsx) and compiles them through the Check API into LTL properties.
@@ -56,21 +56,28 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from aletheia import checks
-from aletheia.checks import CheckResult
-from aletheia.client import AletheiaError, check_dbc_text_size_bound
 from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
-    SIMPLE_VALUE_CONDITIONS,
+    ALL_THEN_CONDITIONS,
+    SIMPLE_EQUALS_CONDITIONS,
     SIMPLE_RANGE_CONDITIONS,
     SIMPLE_SETTLES_CONDITIONS,
-    SIMPLE_EQUALS_CONDITIONS,
+    SIMPLE_VALUE_CONDITIONS,
     WHEN_CONDITIONS,
-    ALL_THEN_CONDITIONS,
     dispatch_simple,
     dispatch_when,
 )
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.client import ValidationError
+from aletheia._loader_utils import (
+    get_bool,
+    get_int,
+    get_number,
+    get_str,
+    is_str,
+    reject_symlink_loader_path,
+)
+from aletheia.checks import CheckResult
+from aletheia.client import AletheiaError, ValidationError, check_dbc_text_size_bound
 from aletheia.protocols import (
     DBCDefinition,
     DBCMessage,
@@ -78,33 +85,26 @@ from aletheia.protocols import (
     DBCSignalAlways,
     DBCSignalMultiplexed,
     DLCByteCount,
+    to_signal_fraction,
 )
-from aletheia._loader_utils import (
-    is_str,
-    get_str,
-    get_number,
-    get_int,
-    get_bool,
-    reject_symlink_loader_path,
-)
-from aletheia.protocols import to_signal_fraction
 
 
 def _check_xlsx_uncompressed_bound(path: Path) -> None:
     """Sum the uncompressed sizes of every entry in the .xlsx (ZIP archive).
 
-    R19 cluster 12 — PY-B-23.4: openpyxl all-loads the workbook into memory;
-    the outer-file-size cap (`check_dbc_text_size_bound`) doesn't catch a
-    pathological ZIP that compresses, say, 10 GiB of XML down to 50 KiB.
-    Walk the central directory and reject if the sum of `file_size`
-    (uncompressed) exceeds the same bound.  No decompression is performed
-    here — `ZipFile.infolist()` reads the central directory only.
+    openpyxl all-loads the workbook into memory; the outer-file-size cap
+    (`check_dbc_text_size_bound`) doesn't catch a pathological ZIP that
+    compresses, say, 10 GiB of XML down to 50 KiB.  Walk the central
+    directory and reject if the sum of `file_size` (uncompressed)
+    exceeds the same bound.  No decompression is performed here —
+    `ZipFile.infolist()` reads the central directory only.
     """
     try:
         with zipfile.ZipFile(path) as zf:
             total = sum(info.file_size for info in zf.infolist())
     except zipfile.BadZipFile as exc:
-        raise ValidationError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
+        msg = f"{path}: not a valid .xlsx (ZIP) archive"
+        raise ValidationError(msg) from exc
     check_dbc_text_size_bound(total)
 
 
@@ -133,26 +133,57 @@ class _MessageKey:
 # ============================================================================
 
 DBC_HEADERS = [
-    "Message ID", "Message Name", "Extended", "DLC", "Signal", "Start Bit",
-    "Length", "Byte Order", "Signed", "Factor", "Offset", "Min", "Max",
-    "Unit", "Multiplexor", "Multiplex Value",
+    "Message ID",
+    "Message Name",
+    "Extended",
+    "DLC",
+    "Signal",
+    "Start Bit",
+    "Length",
+    "Byte Order",
+    "Signed",
+    "Factor",
+    "Offset",
+    "Min",
+    "Max",
+    "Unit",
+    "Multiplexor",
+    "Multiplex Value",
 ]
 
 CHECKS_HEADERS = [
-    "Check Name", "Signal", "Condition", "Value", "Min", "Max",
-    "Time (ms)", "Severity",
+    "Check Name",
+    "Signal",
+    "Condition",
+    "Value",
+    "Min",
+    "Max",
+    "Time (ms)",
+    "Severity",
 ]
 
 WHEN_THEN_HEADERS = [
-    "Check Name", "When Signal", "When Condition", "When Value",
-    "Then Signal", "Then Condition", "Then Value", "Then Min", "Then Max",
-    "Within (ms)", "Severity",
+    "Check Name",
+    "When Signal",
+    "When Condition",
+    "When Value",
+    "Then Signal",
+    "Then Condition",
+    "Then Value",
+    "Then Min",
+    "Then Max",
+    "Within (ms)",
+    "Severity",
 ]
+
+# Minimum row count for a usable DBC sheet: 1 header row + at least 1 data row.
+_MIN_DBC_SHEET_ROWS = 2
 
 
 # ============================================================================
 # Row helpers
 # ============================================================================
+
 
 def _row_ctx(row_num: int) -> str:
     """Format a row number as an error context string."""
@@ -181,14 +212,14 @@ def _parse_message_id(val: object, ctx: str) -> int:
             return int(stripped)
         except ValueError:
             pass
-    raise ValidationError(
-        f"{ctx}: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)"
-    )
+    msg = f"{ctx}: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)"
+    raise ValidationError(msg)
 
 
 # ============================================================================
 # Public API
 # ============================================================================
+
 
 def load_checks_from_excel(
     path: str | Path,
@@ -217,10 +248,12 @@ def load_checks_from_excel(
             AGENTS.md universal rule "Adversarial-input bounds at parser
             surfaces".
         ValidationError: Invalid data in cells
+
     """
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(f"Excel file not found: {path}")
+        msg = f"Excel file not found: {path}"
+        raise FileNotFoundError(msg)
     reject_symlink_loader_path(p, "Excel")
     check_dbc_text_size_bound(p.stat().st_size)
     _check_xlsx_uncompressed_bound(p)
@@ -237,9 +270,8 @@ def load_checks_from_excel(
             results.extend(_load_when_then_checks(wb[when_then_sheet]))
 
         if checks_sheet not in sheet_names and when_then_sheet not in sheet_names:
-            raise ValidationError(
-                f"Workbook has no '{checks_sheet}' or '{when_then_sheet}' sheet"
-            )
+            msg = f"Workbook has no '{checks_sheet}' or '{when_then_sheet}' sheet"
+            raise ValidationError(msg)
 
         return results
     finally:
@@ -269,10 +301,12 @@ def load_dbc_from_excel(
             AGENTS.md universal rule "Adversarial-input bounds at parser
             surfaces".
         ValidationError: Invalid or missing data
+
     """
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(f"Excel file not found: {path}")
+        msg = f"Excel file not found: {path}"
+        raise FileNotFoundError(msg)
     reject_symlink_loader_path(p, "Excel")
     check_dbc_text_size_bound(p.stat().st_size)
     _check_xlsx_uncompressed_bound(p)
@@ -280,12 +314,14 @@ def load_dbc_from_excel(
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:
         if sheet not in wb.sheetnames:
-            raise ValidationError(f"Workbook has no '{sheet}' sheet")
+            msg = f"Workbook has no '{sheet}' sheet"
+            raise ValidationError(msg)
 
         ws = wb[sheet]
         rows: list[ExcelRow] = list(ws.iter_rows(values_only=True))
-        if len(rows) < 2:
-            raise ValidationError("DBC sheet must have a header row and at least one data row")
+        if len(rows) < _MIN_DBC_SHEET_ROWS:
+            msg = "DBC sheet must have a header row and at least one data row"
+            raise ValidationError(msg)
 
         headers = _headers_from_row(rows[0])
         data_rows = [_row_to_dict(headers, r) for r in rows[1:]]
@@ -293,7 +329,8 @@ def load_dbc_from_excel(
         data_rows = [r for r in data_rows if r]
 
         if not data_rows:
-            raise ValidationError("DBC sheet has no data rows")
+            msg = "DBC sheet has no data rows"
+            raise ValidationError(msg)
 
         return _parse_dbc_rows(data_rows)
     finally:
@@ -311,17 +348,20 @@ def create_template(path: str | Path) -> None:
 
     Raises:
         FileExistsError: File already exists
+
     """
     p = Path(path)
     if p.exists():
-        raise FileExistsError(f"File already exists: {path}")
+        msg = f"File already exists: {path}"
+        raise FileExistsError(msg)
 
     wb = Workbook()
 
     # DBC sheet (rename the default sheet)
     ws_dbc = wb.active
     if ws_dbc is None:
-        raise AletheiaError("Workbook has no active sheet")
+        msg = "Workbook has no active sheet"
+        raise AletheiaError(msg)
     ws_dbc.title = "DBC"
     _write_header_row(ws_dbc, DBC_HEADERS)
 
@@ -339,6 +379,7 @@ def create_template(path: str | Path) -> None:
 # ============================================================================
 # Internal: sheet loaders
 # ============================================================================
+
 
 def _write_header_row(ws: Worksheet, headers: list[str]) -> None:
     """Write bold header row to a worksheet."""
@@ -384,6 +425,7 @@ def _load_when_then_checks(ws: Worksheet) -> list[CheckResult]:
 # Internal: row parsers
 # ============================================================================
 
+
 def _apply_metadata(result: CheckResult, d: dict[str, object]) -> CheckResult:
     """Apply optional name and severity from row data to a CheckResult."""
     name = d.get("Check Name")
@@ -401,37 +443,40 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
     condition = get_str(d, "Condition", _row_ctx(row_num))
 
     if condition not in ALL_SIMPLE_CONDITIONS:
-        raise ValidationError(f"Row {row_num}: unknown condition '{condition}'")
+        msg = f"Row {row_num}: unknown condition '{condition}'"
+        raise ValidationError(msg)
 
     if condition in SIMPLE_VALUE_CONDITIONS:
         result = dispatch_simple(signal, condition, get_number(d, "Value", _row_ctx(row_num)))
     elif condition in SIMPLE_RANGE_CONDITIONS:
         if "Min" not in d or "Max" not in d:
-            raise ValidationError(
-                f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
-            )
+            msg = f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
+            raise ValidationError(msg)
         result = checks.signal(signal).stays_between(
             get_number(d, "Min", _row_ctx(row_num)),
             get_number(d, "Max", _row_ctx(row_num)),
         )
     elif condition in SIMPLE_SETTLES_CONDITIONS:
         if "Min" not in d or "Max" not in d:
-            raise ValidationError(
-                f"Row {row_num}: condition 'settles_between' requires 'Min' and 'Max'"
-            )
+            msg = f"Row {row_num}: condition 'settles_between' requires 'Min' and 'Max'"
+            raise ValidationError(msg)
         if "Time (ms)" not in d:
-            raise ValidationError(
-                f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
+            msg = f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
+            raise ValidationError(msg)
+        result = (
+            checks.signal(signal)
+            .settles_between(
+                get_number(d, "Min", _row_ctx(row_num)),
+                get_number(d, "Max", _row_ctx(row_num)),
             )
-        result = checks.signal(signal).settles_between(
-            get_number(d, "Min", _row_ctx(row_num)),
-            get_number(d, "Max", _row_ctx(row_num)),
-        ).within(get_int(d, "Time (ms)", _row_ctx(row_num)))
+            .within(get_int(d, "Time (ms)", _row_ctx(row_num)))
+        )
     elif condition in SIMPLE_EQUALS_CONDITIONS:
         value = get_number(d, "Value", _row_ctx(row_num))
         result = checks.signal(signal).equals(value).always()
     else:
-        raise ValidationError(f"Row {row_num}: unknown condition '{condition}'")
+        msg = f"Row {row_num}: unknown condition '{condition}'"
+        raise ValidationError(msg)
 
     return _apply_metadata(result, d)
 
@@ -444,7 +489,8 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     when_value = get_number(d, "When Value", _row_ctx(row_num))
 
     if when_cond not in WHEN_CONDITIONS:
-        raise ValidationError(f"Row {row_num}: unknown when condition '{when_cond}'")
+        msg = f"Row {row_num}: unknown when condition '{when_cond}'"
+        raise ValidationError(msg)
 
     when_result = dispatch_when(checks.when(when_signal), when_cond, when_value)
 
@@ -453,7 +499,8 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     then_cond = get_str(d, "Then Condition", _row_ctx(row_num))
 
     if then_cond not in ALL_THEN_CONDITIONS:
-        raise ValidationError(f"Row {row_num}: unknown then condition '{then_cond}'")
+        msg = f"Row {row_num}: unknown then condition '{then_cond}'"
+        raise ValidationError(msg)
 
     then_builder = when_result.then(then_signal)
 
@@ -463,9 +510,10 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
         then_result = then_builder.exceeds(get_number(d, "Then Value", _row_ctx(row_num)))
     else:  # stays_between
         if "Then Min" not in d or "Then Max" not in d:
-            raise ValidationError(
+            msg = (
                 f"Row {row_num}: then condition 'stays_between' requires 'Then Min' and 'Then Max'"
             )
+            raise ValidationError(msg)
         then_result = then_builder.stays_between(
             get_number(d, "Then Min", _row_ctx(row_num)),
             get_number(d, "Then Max", _row_ctx(row_num)),
@@ -479,13 +527,13 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
 # Internal: DBC parser
 # ============================================================================
 
+
 def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     """Parse a single DBC signal row into a DBCSignal dict."""
     byte_order = get_str(row, "Byte Order", _row_ctx(row_num))
     if byte_order not in ("little_endian", "big_endian"):
-        raise ValidationError(
-            f"Row {row_num}: 'Byte Order' must be 'little_endian' or 'big_endian'"
-        )
+        msg = f"Row {row_num}: 'Byte Order' must be 'little_endian' or 'big_endian'"
+        raise ValidationError(msg)
 
     unit = row.get("Unit")
     unit_str = unit if is_str(unit) else ""
@@ -495,10 +543,11 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     has_mux_val = "Multiplex Value" in row
 
     if has_muxor != has_mux_val:
-        raise ValidationError(
+        msg = (
             f"Row {row_num}: 'Multiplexor' and 'Multiplex Value' "
-            + "must both be provided or both be empty"
+            "must both be provided or both be empty"
         )
+        raise ValidationError(msg)
 
     if has_muxor:
         mux_signal: DBCSignalMultiplexed = {
@@ -542,11 +591,7 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
     for idx, row in enumerate(rows):
         row_num = idx + 2  # 1-indexed, skip header
         ext_val = row.get("Extended")
-        is_extended = (
-            get_bool(row, "Extended", _row_ctx(row_num))
-            if ext_val is not None
-            else False
-        )
+        is_extended = get_bool(row, "Extended", _row_ctx(row_num)) if ext_val is not None else False
         key = _MessageKey(
             msg_id=_parse_message_id(row.get("Message ID"), _row_ctx(row_num)),
             name=get_str(row, "Message Name", _row_ctx(row_num)),
@@ -559,9 +604,7 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
 
     messages: list[DBCMessage] = []
     for key in insertion_order:
-        signals: list[DBCSignal] = [
-            _parse_dbc_signal(rows[i], i + 2) for i in groups[key]
-        ]
+        signals: list[DBCSignal] = [_parse_dbc_signal(rows[i], i + 2) for i in groups[key]]
         msg = DBCMessage(
             id=key.msg_id,
             name=key.name,
