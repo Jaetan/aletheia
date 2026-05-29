@@ -50,6 +50,7 @@ from aletheia.protocols import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from fractions import Fraction
+    from types import TracebackType
 
     from aletheia.checks import CheckResult
 
@@ -202,7 +203,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: object,
+        exc_tb: TracebackType | None,
     ) -> None:
         self.close()
 

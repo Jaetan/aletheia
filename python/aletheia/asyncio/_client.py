@@ -34,6 +34,7 @@ from aletheia.client._types import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterable, Mapping
     from fractions import Fraction
+    from types import TracebackType
 
     from aletheia.checks import CheckResult
     from aletheia.client._backend import Backend
@@ -120,7 +121,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: object,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Free state and release the RTS reference.
 
