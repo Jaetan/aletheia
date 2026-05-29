@@ -43,6 +43,7 @@ if TYPE_CHECKING:
         ReleaseFormula,
         SignalPredicate,
         UntilFormula,
+        WeakNextFormula,
     )
 
     # Formatting-dispatch sub-unions of the LTL taxonomy (implementation
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
     _UnaryFormula = (
         NotFormula
         | NextFormula
+        | WeakNextFormula
         | AlwaysFormula
         | EventuallyFormula
         | MetricAlwaysFormula
@@ -84,6 +86,7 @@ _UNARY_OPS = frozenset(
     {
         "not",
         "next",
+        "weakNext",
         "always",
         "eventually",
         "metricAlways",
@@ -258,6 +261,7 @@ def _format_timebound(us: int) -> str:
 _UNARY_WRAP: dict[str, str] = {
     "not": "not(",
     "next": "next(",
+    "weakNext": "weak_next(",
     "eventually": "eventually(",
     "always": "always(",
 }

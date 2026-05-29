@@ -50,6 +50,11 @@ class TestFormatFormula:
         f = Signal("Speed").less_than(220).next().to_dict()
         assert format_formula(f) == "next(Speed < 220)"
 
+    def test_weak_next(self) -> None:
+        """Verify weak_next (byte-parity with Go enrich.go / C++ enrich.cpp)."""
+        f = Signal("Speed").less_than(220).weak_next().to_dict()
+        assert format_formula(f) == "weak_next(Speed < 220)"
+
     def test_and(self) -> None:
         """Verify and."""
         f = Signal("Speed").less_than(220).and_(
@@ -284,6 +289,12 @@ class TestCollectSignals:
     def test_never_pattern(self) -> None:
         """Verify never pattern."""
         f = Signal("Speed").greater_than(100).never().to_dict()
+        signals = collect_signals(f)
+        assert signals == ["Speed"]
+
+    def test_weak_next(self) -> None:
+        """Verify weak_next subtree signals are walked, not dropped."""
+        f = Signal("Speed").less_than(220).weak_next().to_dict()
         signals = collect_signals(f)
         assert signals == ["Speed"]
 
