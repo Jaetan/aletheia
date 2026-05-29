@@ -17,8 +17,37 @@ from typing import cast
 import pytest
 import openpyxl  # type: ignore[import-untyped]
 from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
-from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
+from _excel_helpers import (
+    ALWAYS_SIGNAL_MUX_COLS_ROW,
+    BRAKE_PRESSURE_ROW,
+    BRAKE_RESPONSE_SAFETY_WT_ROW,
+    BRAKE_RESPONSE_WT_ROW,
+    ENGINE_RPM_HEX_ID_ROW,
+    ENGINE_RPM_NO_UNIT_ROW,
+    ENGINE_RPM_ROW,
+    ENGINE_TEMP_ROW,
+    ENGINE_TEMP_SIGNED_ROW,
+    FUEL_WT_ROW,
+    IGNITION_RPM_WT_ROW,
+    INVALID_BYTE_ORDER_ROW,
+    INVALID_MESSAGE_ID_ROW,
+    MIXED_SELECTOR_ROW,
+    MIXED_TEMPA_ROW,
+    MIXED_TEMPB_ROW,
+    MUX_SIGNAL_ROW,
+    PARTIAL_MUX_ROW,
+    PARTIAL_MUX_VALUE_ROW,
+    SIGNED_INT_ONE_ROW,
+    SIGNED_INT_ZERO_ROW,
+    SYMLINK_DBC_ROW,
+    UNKNOWN_THEN_WT_ROW,
+    UNKNOWN_WHEN_WT_ROW,
+    active_sheet,
+    make_checks_workbook,
+    make_dbc_workbook,
+    make_when_then_workbook,
+)
 from aletheia import ValidationError
 from aletheia.checks import signal, when
 from aletheia.excel_loader import (
@@ -32,73 +61,6 @@ from aletheia.excel_loader import (
 from aletheia.protocols import DBCSignalAlways, DBCSignalMultiplexed
 
 
-def _active_sheet(wb: Workbook) -> Worksheet:
-    """Return ``wb.active`` narrowed to ``Worksheet``.
-
-    openpyxl types ``Workbook.active`` as ``Worksheet | None`` for the
-    edge case of a workbook with zero sheets — but a freshly-constructed
-    ``Workbook()`` always has its default sheet present.  Asserting that
-    invariant here drops 21 ``# type: ignore[union-attr]`` suppressions
-    (per ``feedback_no_suppression_without_approval.md`` + R19P2 cluster
-    4) at every fixture site.
-    """
-    ws: Worksheet | None = wb.active
-    if ws is None:
-        raise AssertionError("workbook has no active sheet — fixture broken")
-    return ws
-
-
-def _make_checks_workbook(
-    tmp_path: Path,
-    rows: list[list[object]],
-    filename: str = "test.xlsx",
-) -> Path:
-    """Shortcut: workbook with only a Checks sheet."""
-    wb = Workbook()
-    ws = _active_sheet(wb)
-    ws.title = "Checks"
-    ws.append(CHECKS_HEADERS)
-    for row in rows:
-        ws.append(row)
-    p = tmp_path / filename
-    wb.save(str(p))
-    return p
-
-
-def _make_when_then_workbook(
-    tmp_path: Path,
-    rows: list[list[object]],
-    filename: str = "test.xlsx",
-) -> Path:
-    """Shortcut: workbook with only a When-Then sheet."""
-    wb = Workbook()
-    ws = _active_sheet(wb)
-    ws.title = "When-Then"
-    ws.append(WHEN_THEN_HEADERS)
-    for row in rows:
-        ws.append(row)
-    p = tmp_path / filename
-    wb.save(str(p))
-    return p
-
-
-def _make_dbc_workbook(
-    tmp_path: Path,
-    rows: list[list[object]],
-    filename: str = "test.xlsx",
-) -> Path:
-    """Shortcut: workbook with only a DBC sheet."""
-    wb = Workbook()
-    ws = _active_sheet(wb)
-    ws.title = "DBC"
-    ws.append(DBC_HEADERS)
-    for row in rows:
-        ws.append(row)
-    p = tmp_path / filename
-    wb.save(str(p))
-    return p
-
-
 # ============================================================================
 # Simple checks — each condition type
 # ============================================================================
@@ -108,7 +70,7 @@ class TestLoadSimpleChecks:
 
     def test_never_exceeds(self, tmp_path: Path) -> None:
         """Verify never exceeds."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -117,7 +79,7 @@ class TestLoadSimpleChecks:
 
     def test_never_below(self, tmp_path: Path) -> None:
         """Verify never below."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Voltage", "never_below", 11.5, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -126,7 +88,7 @@ class TestLoadSimpleChecks:
 
     def test_stays_between(self, tmp_path: Path) -> None:
         """Verify stays between."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Voltage", "stays_between", None, 11.5, 14.5, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -137,7 +99,7 @@ class TestLoadSimpleChecks:
 
     def test_never_equals(self, tmp_path: Path) -> None:
         """Verify never equals."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "ErrorCode", "never_equals", 255, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -146,7 +108,7 @@ class TestLoadSimpleChecks:
 
     def test_equals_always(self, tmp_path: Path) -> None:
         """Verify equals always."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Gear", "equals", 0, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -155,7 +117,7 @@ class TestLoadSimpleChecks:
 
     def test_settles_between(self, tmp_path: Path) -> None:
         """Verify settles between."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "CoolantTemp", "settles_between", None, 80, 100, 5000, None],
         ])
         checks = load_checks_from_excel(p)
@@ -166,7 +128,7 @@ class TestLoadSimpleChecks:
 
     def test_multiple_checks(self, tmp_path: Path) -> None:
         """Verify multiple checks."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
             [None, "Voltage", "stays_between", None, 11.5, 14.5, None, None],
         ])
@@ -187,14 +149,7 @@ class TestLoadWhenThenChecks:
 
     def test_when_exceeds_then_equals(self, tmp_path: Path) -> None:
         """Verify when exceeds then equals."""
-        p = _make_when_then_workbook(tmp_path, [
-            # Columns: name, when_sig, when_cond, when_val, then_sig, then_cond,
-            #          then_val, then_min, then_max, within, sev
-            [
-                "Brake response", "BrakePedal", "exceeds", 50,
-                "BrakeLight", "equals", 1, None, None, 100, None,
-            ],
-        ])
+        p = make_when_then_workbook(tmp_path, [BRAKE_RESPONSE_WT_ROW])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
         expected = (
@@ -207,12 +162,7 @@ class TestLoadWhenThenChecks:
 
     def test_when_equals_then_exceeds(self, tmp_path: Path) -> None:
         """Verify when equals then exceeds."""
-        p = _make_when_then_workbook(tmp_path, [
-            [
-                None, "Ignition", "equals", 1, "RPM", "exceeds",
-                500, None, None, 2000, None,
-            ],
-        ])
+        p = make_when_then_workbook(tmp_path, [IGNITION_RPM_WT_ROW])
         checks = load_checks_from_excel(p)
         expected = (
             when("Ignition").equals(1)
@@ -224,12 +174,7 @@ class TestLoadWhenThenChecks:
 
     def test_when_drops_below_then_stays_between(self, tmp_path: Path) -> None:
         """Verify when drops below then stays between."""
-        p = _make_when_then_workbook(tmp_path, [
-            [
-                None, "FuelLevel", "drops_below", 10,
-                "FuelWarning", "stays_between", None, 1, 1, 50, None,
-            ],
-        ])
+        p = make_when_then_workbook(tmp_path, [FUEL_WT_ROW])
         checks = load_checks_from_excel(p)
         expected = (
             when("FuelLevel").drops_below(10)
@@ -249,7 +194,7 @@ class TestLoadMetadata:
 
     def test_name_set(self, tmp_path: Path) -> None:
         """Verify name set."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             ["Speed limit", "Speed", "never_exceeds", 220, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -257,7 +202,7 @@ class TestLoadMetadata:
 
     def test_severity_set(self, tmp_path: Path) -> None:
         """Verify severity set."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, "critical"],
         ])
         checks = load_checks_from_excel(p)
@@ -265,7 +210,7 @@ class TestLoadMetadata:
 
     def test_name_and_severity(self, tmp_path: Path) -> None:
         """Verify name and severity."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             ["Speed limit", "Speed", "never_exceeds", 220, None, None, None, "warning"],
         ])
         checks = load_checks_from_excel(p)
@@ -274,7 +219,7 @@ class TestLoadMetadata:
 
     def test_defaults_none(self, tmp_path: Path) -> None:
         """Verify defaults none."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
@@ -283,12 +228,7 @@ class TestLoadMetadata:
 
     def test_when_then_metadata(self, tmp_path: Path) -> None:
         """Verify when then metadata."""
-        p = _make_when_then_workbook(tmp_path, [
-            [
-                "Brake response", "BrakePedal", "exceeds", 50,
-                "BrakeLight", "equals", 1, None, None, 100, "safety",
-            ],
-        ])
+        p = make_when_then_workbook(tmp_path, [BRAKE_RESPONSE_SAFETY_WT_ROW])
         checks = load_checks_from_excel(p)
         assert checks[0].name == "Brake response"
         assert checks[0].check_severity == "safety"
@@ -303,14 +243,7 @@ class TestLoadDBCFromExcel:
 
     def test_single_signal(self, tmp_path: Path) -> None:
         """Verify single signal."""
-        p = _make_dbc_workbook(tmp_path, [
-            # Columns: id, name, extended, dlc, signal, startbit, length, byteorder,
-            #          signed, factor, offset, min, max, unit
-            [
-                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
-                False, 0.25, 0, 0, 16383.75, "rpm",
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [ENGINE_RPM_ROW])
         dbc = load_dbc_from_excel(p)
         assert dbc["version"] == ""
         assert len(dbc["messages"]) == 1
@@ -337,20 +270,10 @@ class TestLoadDBCFromExcel:
 
     def test_message_grouping(self, tmp_path: Path) -> None:
         """Multiple rows with same message ID are grouped."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
-                False, 0.25, 0, 0, 16383.75, "rpm",
-            ],
-            [
-                256, "EngineData", None, 8, "Temp", 16, 8, "little_endian",
-                False, 1, -40, -40, 215, "C",
-            ],
-            [
-                512, "BrakeData", None, 4, "BrakePressure", 0, 16, "big_endian",
-                False, 0.1, 0, 0, 6553.5, "bar",
-            ],
-        ])
+        p = make_dbc_workbook(
+            tmp_path,
+            [ENGINE_RPM_ROW, ENGINE_TEMP_ROW, BRAKE_PRESSURE_ROW],
+        )
         dbc = load_dbc_from_excel(p)
         assert len(dbc["messages"]) == 2
         assert dbc["messages"][0]["name"] == "EngineData"
@@ -362,50 +285,31 @@ class TestLoadDBCFromExcel:
 
     def test_hex_message_id(self, tmp_path: Path) -> None:
         """Message IDs can be hex strings."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                "0x100", "EngineData", None, 8, "RPM", 0, 16, "little_endian",
-                False, 0.25, 0, 0, 16383.75, "rpm",
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [ENGINE_RPM_HEX_ID_ROW])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["id"] == 0x100
 
     def test_signed_true(self, tmp_path: Path) -> None:
         """Verify signed true."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "EngineData", None, 8, "Temp", 0, 8, "little_endian",
-                True, 1, -40, -40, 215, "C",
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [ENGINE_TEMP_SIGNED_ROW])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is True
 
     def test_signed_integer_one(self, tmp_path: Path) -> None:
         """Signed column as integer 1 (Excel data_only mode) accepted."""
-        p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""],
-        ])
+        p = make_dbc_workbook(tmp_path, [SIGNED_INT_ONE_ROW])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is True
 
     def test_signed_integer_zero(self, tmp_path: Path) -> None:
         """Signed column as integer 0 (Excel data_only mode) accepted."""
-        p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""],
-        ])
+        p = make_dbc_workbook(tmp_path, [SIGNED_INT_ZERO_ROW])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is False
 
     def test_missing_unit_defaults_empty(self, tmp_path: Path) -> None:
         """Verify missing unit defaults empty."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
-                False, 0.25, 0, 0, 16383.75, None,
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [ENGINE_RPM_NO_UNIT_ROW])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["unit"] == ""
 
@@ -419,12 +323,7 @@ class TestLoadDBCMultiplexed:
 
     def test_multiplexed_signal(self, tmp_path: Path) -> None:
         """Signal with both Multiplexor and Multiplex Value produces DBCSignalMultiplexed."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "Msg", None, 8, "MuxSignal", 8, 8, "little_endian",
-                False, 1, 0, 0, 255, "", "Selector", 3,
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [MUX_SIGNAL_ROW])
         dbc = load_dbc_from_excel(p)
         sig = dbc["messages"][0]["signals"][0]
         assert "multiplexor" in sig
@@ -436,12 +335,7 @@ class TestLoadDBCMultiplexed:
 
     def test_always_signal_no_mux_columns(self, tmp_path: Path) -> None:
         """Signal without Multiplexor/Multiplex Value columns is always-present."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
-                False, 1, 0, 0, 100, "", None, None,
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [ALWAYS_SIGNAL_MUX_COLS_ROW])
         dbc = load_dbc_from_excel(p)
         # cast narrows the DBCSignal union; the `multiplexor` key absence is
         # the structural invariant the test asserts.
@@ -451,20 +345,10 @@ class TestLoadDBCMultiplexed:
 
     def test_mixed_always_and_multiplexed(self, tmp_path: Path) -> None:
         """Same message can have both always-present and multiplexed signals."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "Msg", None, 8, "Selector", 0, 8, "little_endian",
-                False, 1, 0, 0, 255, "", None, None,
-            ],
-            [
-                256, "Msg", None, 8, "TempA", 8, 8, "little_endian",
-                False, 1, -40, -40, 215, "C", "Selector", 0,
-            ],
-            [
-                256, "Msg", None, 8, "TempB", 8, 8, "little_endian",
-                False, 1, -40, -40, 215, "C", "Selector", 1,
-            ],
-        ])
+        p = make_dbc_workbook(
+            tmp_path,
+            [MIXED_SELECTOR_ROW, MIXED_TEMPA_ROW, MIXED_TEMPB_ROW],
+        )
         dbc = load_dbc_from_excel(p)
         msg = dbc["messages"][0]
         assert len(msg["signals"]) == 3
@@ -481,23 +365,13 @@ class TestLoadDBCMultiplexed:
 
     def test_partial_mux_raises(self, tmp_path: Path) -> None:
         """Only Multiplexor without Multiplex Value raises ValidationError."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
-                False, 1, 0, 0, 100, "", "Selector", None,
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [PARTIAL_MUX_ROW])
         with pytest.raises(ValidationError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
 
     def test_partial_mux_value_only_raises(self, tmp_path: Path) -> None:
         """Only Multiplex Value without Multiplexor raises ValidationError."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
-                False, 1, 0, 0, 100, "", None, 3,
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [PARTIAL_MUX_VALUE_ROW])
         with pytest.raises(ValidationError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
 
@@ -591,7 +465,7 @@ class TestLoadErrors:
     def test_no_checks_or_when_then_sheet(self, tmp_path: Path) -> None:
         """Workbook with neither Checks nor When-Then raises ValidationError."""
         wb = Workbook()
-        ws = _active_sheet(wb)
+        ws = active_sheet(wb)
         ws.title = "Other"
         p = tmp_path / "bad.xlsx"
         wb.save(str(p))
@@ -601,7 +475,7 @@ class TestLoadErrors:
     def test_no_dbc_sheet(self, tmp_path: Path) -> None:
         """Verify no dbc sheet."""
         wb = Workbook()
-        ws = _active_sheet(wb)
+        ws = active_sheet(wb)
         ws.title = "Other"
         p = tmp_path / "bad.xlsx"
         wb.save(str(p))
@@ -610,7 +484,7 @@ class TestLoadErrors:
 
     def test_unknown_simple_condition(self, tmp_path: Path) -> None:
         """Verify unknown simple condition."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Speed", "bogus", 100, None, None, None, None],
         ])
         with pytest.raises(ValidationError, match="unknown condition 'bogus'"):
@@ -618,7 +492,7 @@ class TestLoadErrors:
 
     def test_missing_value_for_never_exceeds(self, tmp_path: Path) -> None:
         """Verify missing value for never exceeds."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", None, None, None, None, None],
         ])
         with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
@@ -626,7 +500,7 @@ class TestLoadErrors:
 
     def test_stays_between_missing_min(self, tmp_path: Path) -> None:
         """Verify stays between missing min."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Voltage", "stays_between", None, None, 14.5, None, None],
         ])
         with pytest.raises(ValidationError, match="requires 'Min' and 'Max'"):
@@ -634,7 +508,7 @@ class TestLoadErrors:
 
     def test_settles_between_missing_time(self, tmp_path: Path) -> None:
         """Verify settles between missing time."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             [None, "Temp", "settles_between", None, 80, 100, None, None],
         ])
         with pytest.raises(ValidationError, match="requires 'Time \\(ms\\)'"):
@@ -642,43 +516,32 @@ class TestLoadErrors:
 
     def test_unknown_when_condition(self, tmp_path: Path) -> None:
         """Verify unknown when condition."""
-        p = _make_when_then_workbook(tmp_path, [
-            [None, "Brake", "bogus", 50, "BrakeLight", "equals", 1, None, None, 100, None],
-        ])
+        p = make_when_then_workbook(tmp_path, [UNKNOWN_WHEN_WT_ROW])
         with pytest.raises(ValidationError, match="unknown when condition 'bogus'"):
             load_checks_from_excel(p)
 
     def test_unknown_then_condition(self, tmp_path: Path) -> None:
         """Verify unknown then condition."""
-        p = _make_when_then_workbook(tmp_path, [
-            [None, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, None, None, 100, None],
-        ])
+        p = make_when_then_workbook(tmp_path, [UNKNOWN_THEN_WT_ROW])
         with pytest.raises(ValidationError, match="unknown then condition 'bogus'"):
             load_checks_from_excel(p)
 
     def test_invalid_byte_order(self, tmp_path: Path) -> None:
         """Verify invalid byte order."""
-        p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Sig", 0, 16, "mixed_endian", False, 1, 0, 0, 100, ""],
-        ])
+        p = make_dbc_workbook(tmp_path, [INVALID_BYTE_ORDER_ROW])
         with pytest.raises(ValidationError, match="Byte Order"):
             load_dbc_from_excel(p)
 
     def test_invalid_message_id(self, tmp_path: Path) -> None:
         """Verify invalid message id."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                "not_a_number", "Msg", None, 8, "Sig", 0, 16, "little_endian",
-                False, 1, 0, 0, 100, "",
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [INVALID_MESSAGE_ID_ROW])
         with pytest.raises(ValidationError, match="invalid 'Message ID'"):
             load_dbc_from_excel(p)
 
     def test_dbc_empty_data(self, tmp_path: Path) -> None:
         """DBC sheet with only header row raises ValidationError."""
         wb = Workbook()
-        ws = _active_sheet(wb)
+        ws = active_sheet(wb)
         ws.title = "DBC"
         ws.append(DBC_HEADERS)
         p = tmp_path / "empty.xlsx"
@@ -696,7 +559,7 @@ class TestLoadFromFile:
 
     def test_checks_round_trip(self, tmp_path: Path) -> None:
         """Verify checks round trip."""
-        p = _make_checks_workbook(tmp_path, [
+        p = make_checks_workbook(tmp_path, [
             ["Speed limit", "Speed", "never_exceeds", 220, None, None, None, "critical"],
         ])
         checks = load_checks_from_excel(p)
@@ -708,7 +571,7 @@ class TestLoadFromFile:
     def test_combined_checks_and_when_then(self, tmp_path: Path) -> None:
         """Workbook with both Checks and When-Then sheets."""
         wb = Workbook()
-        ws_checks = _active_sheet(wb)
+        ws_checks = active_sheet(wb)
         ws_checks.title = "Checks"
         ws_checks.append(CHECKS_HEADERS)
         ws_checks.append(
@@ -739,16 +602,7 @@ class TestLoadFromFile:
 
     def test_dbc_round_trip(self, tmp_path: Path) -> None:
         """Verify dbc round trip."""
-        p = _make_dbc_workbook(tmp_path, [
-            [
-                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
-                False, 0.25, 0, 0, 16383.75, "rpm",
-            ],
-            [
-                256, "EngineData", None, 8, "Temp", 16, 8, "little_endian",
-                False, 1, -40, -40, 215, "C",
-            ],
-        ])
+        p = make_dbc_workbook(tmp_path, [ENGINE_RPM_ROW, ENGINE_TEMP_ROW])
         dbc = load_dbc_from_excel(p)
         assert len(dbc["messages"]) == 1
         msg = dbc["messages"][0]
@@ -768,7 +622,7 @@ class TestLoadFromFile:
 def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
     """Verify empty row skipped in checks."""
     wb = Workbook()
-    ws = _active_sheet(wb)
+    ws = active_sheet(wb)
     ws.title = "Checks"
     ws.append(CHECKS_HEADERS)
     ws.append(
@@ -795,7 +649,7 @@ def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
 
 def test_loader_rejects_symlink(tmp_path: Path) -> None:
     """A symlinked .xlsx is refused outright per cluster N hardening."""
-    real = _make_checks_workbook(
+    real = make_checks_workbook(
         tmp_path,
         [[None, "Speed", "never_exceeds", 220, None, None, None, None]],
         filename="real.xlsx",
@@ -811,10 +665,9 @@ def test_loader_rejects_symlink(tmp_path: Path) -> None:
 
 def test_loader_rejects_symlinked_dbc(tmp_path: Path) -> None:
     """The DBC entry point also refuses symlinks."""
-    real = _make_dbc_workbook(
+    real = make_dbc_workbook(
         tmp_path,
-        [["256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
-          "1", "0", "0", "255", "", "", "", ""]],
+        [SYMLINK_DBC_ROW],
         filename="real_dbc.xlsx",
     )
     link = tmp_path / "link_dbc.xlsx"
