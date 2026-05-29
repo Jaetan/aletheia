@@ -1,6 +1,7 @@
 """Shared test fixtures for all test modules."""
 
 from dataclasses import dataclass
+from typing import TypedDict, Unpack
 
 import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
@@ -9,10 +10,19 @@ from aletheia.dsl import Property
 from aletheia.protocols import DBCDefinition, DLCCode
 
 
+class _StreamOverrides(TypedDict, total=False):
+    """Optional keyword overrides for :func:`run_one_frame_stream`."""
+
+    property_: Property
+    timestamp: int
+    can_id: int
+    dlc: int
+
+
 def run_one_frame_stream(
     dbc: DBCDefinition,
     payload: bytes | bytearray,
-    **overrides: object,
+    **overrides: Unpack[_StreamOverrides],
 ) -> None:
     """Drive a complete one-frame streaming session.
 
@@ -25,12 +35,10 @@ def run_one_frame_stream(
     ``simple_dbc`` fixture).
     """
     prop = overrides.get("property_")
-    chosen: Property = (
-        prop if isinstance(prop, Property) else (Signal("TestSignal").less_than(1000).always())
-    )
-    timestamp = int(overrides.get("timestamp", 1000))  # type: ignore[arg-type]
-    can_id = int(overrides.get("can_id", 256))  # type: ignore[arg-type]
-    dlc = DLCCode(int(overrides.get("dlc", 8)))  # type: ignore[arg-type]
+    chosen: Property = prop if prop is not None else Signal("TestSignal").less_than(1000).always()
+    timestamp = overrides.get("timestamp", 1000)
+    can_id = overrides.get("can_id", 256)
+    dlc = DLCCode(overrides.get("dlc", 8))
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
         client.set_properties([chosen.to_dict()])
@@ -54,8 +62,8 @@ class CANFrame:
     data: bytearray
 
 
-@pytest.fixture(name="sample_dbc")
-def _sample_dbc() -> DBCDefinition:
+@pytest.fixture
+def sample_dbc() -> DBCDefinition:
     """Sample DBC JSON structure for testing."""
     return make_dbc(msg_id=0x100, sender="TestECU")
 
@@ -72,14 +80,14 @@ def simple_dbc() -> DBCDefinition:
     return CANONICAL_DBC
 
 
-@pytest.fixture(name="sample_property")
-def _sample_property() -> Property:
+@pytest.fixture
+def sample_property() -> Property:
     """Sample LTL property for testing."""
     return Signal("Speed").less_than(220).always()
 
 
-@pytest.fixture(name="sample_can_frame")
-def _sample_can_frame() -> CANFrame:
+@pytest.fixture
+def sample_can_frame() -> CANFrame:
     """Sample CAN frame data for testing."""
     return CANFrame(
         timestamp=1000,
