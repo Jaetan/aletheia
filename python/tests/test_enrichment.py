@@ -11,7 +11,6 @@ from aletheia.client._enrichment import (
 )
 from aletheia.dsl import Signal
 
-
 # ===========================================================================
 # Formula pretty-printer
 # ===========================================================================
@@ -57,16 +56,12 @@ class TestFormatFormula:
 
     def test_and(self) -> None:
         """Verify and."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500)).always().to_dict()
         assert format_formula(f) == "always(Speed < 220 and RPM > 500)"
 
     def test_or(self) -> None:
         """Verify or."""
-        f = Signal("Speed").less_than(220).or_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).or_(Signal("RPM").greater_than(500)).always().to_dict()
         assert format_formula(f) == "always(Speed < 220 or RPM > 500)"
 
     def test_until(self) -> None:
@@ -92,9 +87,7 @@ class TestFormatFormula:
     def test_not_non_atomic(self) -> None:
         # not(non-atomic) doesn't trigger Never pattern
         """Verify not non atomic."""
-        inner = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        )
+        inner = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500))
         f = inner.not_().always().to_dict()
         assert format_formula(f) == "always(not(Speed < 220 and RPM > 500))"
 
@@ -251,7 +244,7 @@ class TestFormatRational:
         assert "S = 1/19073486328125" in format_formula(f)
 
     def test_k_over_18_negative_renders_as_signed_fraction(self) -> None:
-        """k > 18 negative numerator keeps sign in the N/D output."""
+        """K > 18 negative numerator keeps sign in the N/D output."""
         f = Signal("S").equals(Fraction(-1, 33554432)).always().to_dict()
         assert "S = -1/33554432" in format_formula(f)
 
@@ -266,17 +259,13 @@ class TestCollectSignals:
 
     def test_multi_signal(self) -> None:
         """Verify multi signal."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500)).always().to_dict()
         signals = collect_signals(f)
         assert signals == ["Speed", "RPM"]
 
     def test_dedup(self) -> None:
         """Verify dedup."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("Speed").greater_than(0)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("Speed").greater_than(0)).always().to_dict()
         signals = collect_signals(f)
         assert signals == ["Speed"]
 
@@ -318,9 +307,7 @@ class TestBuildDiagnostic:
 
     def test_multi_signal(self) -> None:
         """Verify multi signal."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500)).always().to_dict()
         diag = build_diagnostic(f)
         assert diag.signals == ("Speed", "RPM")
         assert "Speed" in diag.formula_desc
@@ -341,7 +328,7 @@ class TestFormatEnrichedReason:
             signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "formula:" in reason
@@ -353,7 +340,7 @@ class TestFormatEnrichedReason:
             signals=("Speed", "RPM"),
             formula_desc="always(Speed < 220 and RPM > 500)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0, "RPM": 3000.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245), "RPM": Fraction(3000)}
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "RPM = 3000" in reason
@@ -374,7 +361,7 @@ class TestFormatEnrichedReason:
             signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values, core_reason="liveness timeout")
         assert reason.endswith("[core: liveness timeout]")
         assert "Speed = 245" in reason
@@ -385,7 +372,7 @@ class TestFormatEnrichedReason:
             signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values, core_reason="")
         assert "[core:" not in reason
 
@@ -403,7 +390,7 @@ class TestFormatEnrichedReason:
         """DSL formula -> diagnostic -> enriched reason."""
         f = Signal("Speed").less_than(220).always().to_dict()
         diag = build_diagnostic(f)
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "always(Speed < 220)" in reason
