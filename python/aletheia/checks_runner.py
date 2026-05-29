@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from aletheia.checks import CheckResult
     from aletheia.client import CANFrameTuple
     from aletheia.protocols import (
+        CompleteResponse,
         DBCDefinition,
+        ErrorResponse,
         PropertyBatchResponse,
         PropertyResultEntry,
         RationalNumber,
@@ -204,17 +206,16 @@ def _process_frames(
 
 
 def _process_end_stream(
-    end_resp: object,
+    end_resp: CompleteResponse | ErrorResponse,
     all_checks: list[CheckResult],
 ) -> tuple[list[Violation], list[Violation]]:
     """Split the end-stream finalization results into fails + unresolved."""
-    end = cast("dict[str, object]", end_resp)
-    if end["status"] == "error":
-        msg = f"end stream failed: {end['message']}"
+    if end_resp["status"] == "error":
+        msg = f"end stream failed: {end_resp['message']}"
         raise AletheiaError(msg)
     violations: list[Violation] = []
     unresolved: list[Violation] = []
-    for result in cast("list[PropertyResultEntry]", end["results"]):
+    for result in end_resp["results"]:
         if result["status"] == "fails":
             violations.append(_build_eos_violation(result, all_checks))
         elif result["status"] == "unresolved":
