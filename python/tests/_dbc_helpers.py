@@ -9,38 +9,78 @@ overrides without changing the wire format.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from aletheia import AletheiaClient
+from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.protocols import DLCByteCount, to_signal_fraction
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition
+    from fractions import Fraction
+    from typing import Unpack
+
+    from aletheia._dbc_types import ByteOrder, SignalPresence
+    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal
 
 
-def signal(name: str, **overrides: object) -> dict:
-    """Build a DBC signal dict with sensible defaults; kwargs override."""
+class _SignalOverrides(TypedDict, total=False):
+    """Optional keyword overrides for :func:`signal` (all default if absent)."""
+
+    start_bit: int
+    length: int
+    byte_order: ByteOrder
+    signed: bool
+    factor: float | Fraction
+    offset: float | Fraction
+    minimum: float | Fraction
+    maximum: float | Fraction
+    unit: str
+    presence: SignalPresence
+    receivers: list[str]
+
+
+class _MessageOverrides(TypedDict, total=False):
+    """Optional keyword overrides for :func:`message` (all default if absent)."""
+
+    dlc: int
+    sender: str
+    senders: list[str]
+
+
+def signal(name: str, **overrides: Unpack[_SignalOverrides]) -> DBCSignal:
+    """Build a DBC signal dict with sensible defaults; kwargs override.
+
+    Numeric fields are converted to :class:`Fraction` via
+    :func:`to_signal_fraction` to match ``DBCSignalAlways`` exactly (the
+    Agda core's exact-rational representation).
+    """
     return {
         "name": name,
         "startBit": overrides.get("start_bit", 0),
         "length": overrides.get("length", 16),
         "byteOrder": overrides.get("byte_order", "little_endian"),
         "signed": overrides.get("signed", False),
-        "factor": overrides.get("factor", 1.0),
-        "offset": overrides.get("offset", 0.0),
-        "minimum": overrides.get("minimum", 0.0),
-        "maximum": overrides.get("maximum", 65535.0),
+        "factor": to_signal_fraction(overrides.get("factor", 1)),
+        "offset": to_signal_fraction(overrides.get("offset", 0)),
+        "minimum": to_signal_fraction(overrides.get("minimum", 0)),
+        "maximum": to_signal_fraction(overrides.get("maximum", 65535)),
         "unit": overrides.get("unit", ""),
         "presence": overrides.get("presence", "always"),
         "receivers": overrides.get("receivers", []),
     }
 
 
-def message(msg_id: int, name: str, signals: list[dict], **overrides: object) -> dict:
+def message(
+    msg_id: int,
+    name: str,
+    signals: list[DBCSignal],
+    **overrides: Unpack[_MessageOverrides],
+) -> DBCMessage:
     """Build a DBC message dict wrapping the given signals."""
-    msg: dict = {
+    msg: DBCMessage = {
         "id": msg_id,
         "name": name,
-        "dlc": overrides.get("dlc", 8),
+        "dlc": DLCByteCount(overrides.get("dlc", 8)),
         "sender": overrides.get("sender", "ECU"),
         "signals": signals,
     }
@@ -49,9 +89,9 @@ def message(msg_id: int, name: str, signals: list[dict], **overrides: object) ->
     return msg
 
 
-def dbc(messages: list[dict], version: str = "1.0") -> DBCDefinition:
+def dbc(messages: list[DBCMessage], version: str = "1.0") -> DBCDefinition:
     """Wrap the given messages in a minimal DBC definition."""
-    return {"version": version, "messages": messages}
+    return {"version": version, "messages": messages, **empty_dbc_tier2()}
 
 
 def assert_non_terminating_rational(bad: DBCDefinition, field: str) -> None:
