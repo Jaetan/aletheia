@@ -9,7 +9,7 @@ the C FFI for downstream consumers.
 
 This file covers the binding's structural plumbing — the encoding
 helper, the ``CANFrameTuple`` shape, and the python-can lift in
-``can_log._convert_message``.  End-to-end FFI round-trip lives in
+``can_log.convert_message``.  End-to-end FFI round-trip lives in
 ``test_unified_client_canfd_mux.py`` so the real library has to
 accept the new 11-arg ``aletheia_send_frame`` signature.
 """
@@ -18,7 +18,7 @@ from __future__ import annotations
 import can
 
 from aletheia import CANFrameTuple
-from aletheia.can_log import _convert_message
+from aletheia.can_log import convert_message
 from aletheia.client._types import encode_maybe_bool
 from aletheia.protocols import DLCCode
 
@@ -59,7 +59,7 @@ class TestCANFrameTupleBrsEsi:
 
 
 class TestConvertMessageBrsEsi:
-    """``can_log._convert_message`` populates BRS / ESI iff ``is_fd``."""
+    """``can_log.convert_message`` populates BRS / ESI iff ``is_fd``."""
 
     @staticmethod
     def _make_msg(**overrides: object) -> can.Message:
@@ -83,7 +83,7 @@ class TestConvertMessageBrsEsi:
         """A non-FD frame surfaces None for both bits — the bit doesn't
         exist on the wire for classical CAN, so any python-can default
         (typically ``False``) must not be passed through."""
-        result = _convert_message(
+        result = convert_message(
             self._make_msg(),
             skip_error_frames=True, skip_remote_frames=True,
         )
@@ -93,7 +93,7 @@ class TestConvertMessageBrsEsi:
 
     def test_can_fd_lifts_bitrate_switch(self) -> None:
         """A CAN-FD frame with BRS set surfaces ``brs=True``."""
-        result = _convert_message(
+        result = convert_message(
             self._make_msg(is_fd=True, bitrate_switch=True, error_state_indicator=False),
             skip_error_frames=True, skip_remote_frames=True,
         )
@@ -103,7 +103,7 @@ class TestConvertMessageBrsEsi:
 
     def test_can_fd_lifts_error_state_indicator(self) -> None:
         """A CAN-FD frame with ESI set surfaces ``esi=True``."""
-        result = _convert_message(
+        result = convert_message(
             self._make_msg(is_fd=True, bitrate_switch=False, error_state_indicator=True),
             skip_error_frames=True, skip_remote_frames=True,
         )

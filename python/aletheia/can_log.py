@@ -98,13 +98,13 @@ def iter_can_log(
 
     """
     resolved = Path(path)
-    _validate_path(resolved)
+    validate_path(resolved)
 
     reader = can.LogReader(str(resolved))
     try:
         for msg in reader:
             try:
-                result = _convert_message(
+                result = convert_message(
                     msg,
                     skip_error_frames=skip_error_frames,
                     skip_remote_frames=skip_remote_frames,
@@ -120,13 +120,13 @@ def iter_can_log(
         reader.stop()
 
 
-def _validate_path(path: Path) -> None:
+def validate_path(path: Path) -> None:
     """Validate that the file exists and has a supported extension."""
     if not path.exists():
         msg = f"CAN log file not found: {path}"
         raise FileNotFoundError(msg)
 
-    ext = _effective_extension(path)
+    ext = effective_extension(path)
     if ext not in _SUPPORTED_EXTENSIONS:
         raise ValidationError(
             f"Unsupported CAN log format '{ext}'. "
@@ -134,7 +134,7 @@ def _validate_path(path: Path) -> None:
         )
 
 
-def _effective_extension(path: Path) -> str:
+def effective_extension(path: Path) -> str:
     """Get the effective file extension, stripping .gz if present."""
     suffixes = path.suffixes
     if len(suffixes) > 1 and suffixes[-1] == ".gz":
@@ -142,7 +142,7 @@ def _effective_extension(path: Path) -> str:
     return path.suffix
 
 
-def _convert_message(
+def convert_message(
     msg: can.Message,
     *,
     skip_error_frames: bool,
@@ -157,12 +157,12 @@ def _convert_message(
     if skip_remote_frames and msg.is_remote_frame:
         return None
 
-    timestamp_us = _timestamp_to_us(msg.timestamp)
+    timestamp_us = timestamp_to_us(msg.timestamp)
     # ``msg.dlc`` from python-can is the byte count (cantools convention);
     # ``bytes_to_dlc`` converts to the 4-bit DLC code that ``CANFrameTuple``
     # carries (CAN wire convention).
     dlc: DLCCode = bytes_to_dlc(DLCByteCount(msg.dlc))
-    data = _normalize_data(msg.data, msg.dlc)
+    data = normalize_data(msg.data, msg.dlc)
     # python-can carries CAN-FD BRS / ESI as ``bitrate_switch`` /
     # ``error_state_indicator`` on every ``Message``; both default to
     # ``False`` for CAN 2.0B logs.  Surface them only when the frame is
@@ -182,12 +182,12 @@ def _convert_message(
     )
 
 
-def _timestamp_to_us(timestamp: float) -> int:
+def timestamp_to_us(timestamp: float) -> int:
     """Convert seconds (float) to microseconds (int)."""
     return int(timestamp * 1_000_000)
 
 
-def _normalize_data(data: bytearray | None, dlc: int) -> bytearray:
+def normalize_data(data: bytearray | None, dlc: int) -> bytearray:
     """Normalize CAN frame data to match the DLC byte count.
 
     - If data is None (remote frames), return dlc zero bytes
