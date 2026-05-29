@@ -7,17 +7,71 @@ direct callers like ``format_formula(my_dict)`` keep working without an
 explicit backend.
 """
 
+from __future__ import annotations
+
 import ctypes
 import threading
-from collections.abc import Callable
-from fractions import Fraction
-from typing import cast
+from typing import TYPE_CHECKING
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
 from aletheia.client._ffi import configure_ffi_signatures, find_ffi_library
 from aletheia.client._types import PropertyDiagnostic, ValidationError
 from aletheia.limits import MAX_NESTING_DEPTH
-from aletheia.protocols import LTLFormula
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from fractions import Fraction
+    from typing import TypeGuard
+
+    from aletheia.protocols import (
+        AlwaysFormula,
+        AndFormula,
+        EqualsPredicate,
+        EventuallyFormula,
+        GreaterThanOrEqualPredicate,
+        GreaterThanPredicate,
+        LessThanOrEqualPredicate,
+        LessThanPredicate,
+        LTLFormula,
+        MetricAlwaysFormula,
+        MetricEventuallyFormula,
+        MetricReleaseFormula,
+        MetricUntilFormula,
+        NextFormula,
+        NotFormula,
+        OrFormula,
+        ReleaseFormula,
+        SignalPredicate,
+        UntilFormula,
+    )
+
+    # Formatting-dispatch sub-unions of the LTL taxonomy (implementation
+    # detail of this module — kept local rather than widening protocols.py's
+    # public surface).  Each groups the formula/predicate TypedDicts that
+    # share the structural shape a family handler depends on.
+    _UnaryFormula = (
+        NotFormula
+        | NextFormula
+        | AlwaysFormula
+        | EventuallyFormula
+        | MetricAlwaysFormula
+        | MetricEventuallyFormula
+    )
+    _BinaryFormula = (
+        AndFormula
+        | OrFormula
+        | UntilFormula
+        | ReleaseFormula
+        | MetricUntilFormula
+        | MetricReleaseFormula
+    )
+    _ComparisonPredicate = (
+        EqualsPredicate
+        | LessThanPredicate
+        | GreaterThanPredicate
+        | LessThanOrEqualPredicate
+        | GreaterThanOrEqualPredicate
+    )
 
 # Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
 # exposed as `aletheia.limits.MAX_NESTING_DEPTH`): a deeper formula would
@@ -46,42 +100,6 @@ _BINARY_OPS = frozenset(
         "metricRelease",
     }
 )
-
-
-def _walk_formula(
-    formula: dict[str, object],
-    on_atomic: Callable[[dict[str, object]], None],
-    depth: int = 0,
-) -> None:
-    """Walk a formula tree, calling on_atomic for each atomic node.
-
-    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
-    """
-    if depth > MAX_NESTING_DEPTH:
-        msg = f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
-        raise ValidationError(msg)
-    op = formula.get("operator")
-    if op == "atomic":
-        on_atomic(cast("dict[str, object]", formula["predicate"]))
-    elif op in _UNARY_OPS:
-        _walk_formula(
-            cast("dict[str, object]", formula["formula"]),
-            on_atomic,
-            depth + 1,
-        )
-    elif op in _BINARY_OPS:
-        _walk_formula(
-            cast("dict[str, object]", formula["left"]),
-            on_atomic,
-            depth + 1,
-        )
-        _walk_formula(
-            cast("dict[str, object]", formula["right"]),
-            on_atomic,
-            depth + 1,
-        )
-
-
 _COMPARISON_OPS: dict[str, str] = {
     "equals": "=",
     "lessThan": "<",
@@ -91,16 +109,40 @@ _COMPARISON_OPS: dict[str, str] = {
 }
 
 
-def _coerce_to_float(v: object) -> float:
-    """Best-effort numeric \u2192 float conversion for the pretty-printer.
+def _is_unary(formula: LTLFormula) -> TypeGuard[_UnaryFormula]:
+    """Narrow *formula* to a unary operator (single ``formula`` child)."""
+    return formula["operator"] in _UNARY_OPS
 
-    Predicate values now flow as :class:`Fraction` per the DecRat universal
-    principle; the pretty-printer's role is only human-readable display,
-    so converting through float is fine here.
+
+def _is_binary(formula: LTLFormula) -> TypeGuard[_BinaryFormula]:
+    """Narrow *formula* to a binary operator (``left`` / ``right`` children)."""
+    return formula["operator"] in _BINARY_OPS
+
+
+def _is_comparison(pred: SignalPredicate) -> TypeGuard[_ComparisonPredicate]:
+    """Narrow *pred* to a comparison predicate (single ``value`` field)."""
+    return pred["predicate"] in _COMPARISON_OPS
+
+
+def _walk_formula(
+    formula: LTLFormula,
+    on_atomic: Callable[[SignalPredicate], None],
+    depth: int = 0,
+) -> None:
+    """Walk a formula tree, calling on_atomic for each atomic node.
+
+    Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
-    if isinstance(v, (int, float, Fraction)):
-        return float(v)
-    return 0.0
+    if depth > MAX_NESTING_DEPTH:
+        msg = f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
+        raise ValidationError(msg)
+    if formula["operator"] == "atomic":
+        on_atomic(formula["predicate"])
+    elif _is_unary(formula):
+        _walk_formula(formula["formula"], on_atomic, depth + 1)
+    elif _is_binary(formula):
+        _walk_formula(formula["left"], on_atomic, depth + 1)
+        _walk_formula(formula["right"], on_atomic, depth + 1)
 
 
 # Module-level FFI library reference for the cross-binding-identical
@@ -156,65 +198,21 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
     return lib
 
 
-def _format_rational(v: object) -> str:
-    """Render a predicate value via the Agda kernel renderer.
+def _format_rational(value: Fraction) -> str:
+    """Render an exact rational via the Agda kernel renderer.
 
-    Delegates to :func:`Aletheia.DBC.RationalRenderer.formatRational`
-    in the Agda kernel (see ``aletheia_format_rational`` FFI export
-    in ``haskell-shim/src/AletheiaFFI.hs``).  Cross-binding parity is
-    an architectural invariant: the same Agda function is called by
-    Python, Go, and C++ enrichment paths, so the same Rational value
-    renders to byte-identical output everywhere.
-
-    Accepted input shapes (every shape coerces to ``Fraction`` then
-    flows through the FFI — no local ``:g``-style fallback):
-
-    * ``Fraction`` — passed straight through (DSL path via
-      ``to_predicate_fraction``).
-    * ``int`` / ``float`` — raw-JSON-dict callers (e.g. test fixtures
-      constructing ``{"value": 0}`` directly without the DSL); coerced
-      via ``Fraction(v)`` (exact for ``int``; IEEE-754-exact for
-      ``float``).
-    * ``dict`` with ``{"numerator", "denominator"}`` — wire-rational
-      shape; coerced via ``Fraction(num, den)``.
-
-    Any other shape is a contract violation and raises ``ValidationError``.
+    Delegates to :func:`Aletheia.DBC.RationalRenderer.formatRational` in
+    the Agda kernel (the ``aletheia_format_rational`` FFI export in
+    ``haskell-shim/src/AletheiaFFI.hs``).  Cross-binding parity is an
+    architectural invariant: the same Agda function backs the Python, Go,
+    and C++ enrichment paths, so a given rational renders byte-identically
+    everywhere.  Predicate values are exact :class:`Fraction` per the
+    DecRat universal principle, so the renderer only ever sees ℚ.
     """
-    if isinstance(v, Fraction):
-        frac = v
-    elif isinstance(v, int) and not isinstance(v, bool):
-        frac = Fraction(v, 1)
-    elif isinstance(v, float):
-        frac = Fraction(v)
-    elif isinstance(v, dict):
-        d = cast("dict[str, object]", v)
-        num = d.get("numerator")
-        den = d.get("denominator")
-        if not (
-            isinstance(num, int)
-            and isinstance(den, int)
-            and not isinstance(num, bool)
-            and not isinstance(den, bool)
-        ):
-            msg = (
-                f"_format_rational rational dict requires int numerator/denominator; "
-                f"got numerator={type(num).__name__} denominator={type(den).__name__}"
-            )
-            raise ValidationError(msg)
-        if den == 0:
-            msg = "_format_rational rational dict denominator must be non-zero"
-            raise ValidationError(msg)
-        frac = Fraction(num, den)
-    else:
-        msg = (
-            f"_format_rational expected Fraction / int / float / rational dict; "
-            f"got {type(v).__name__}"
-        )
-        raise ValidationError(msg)
     lib = _get_or_load_renderer_lib()
     raw = lib.aletheia_format_rational(
-        ctypes.c_int64(frac.numerator),
-        ctypes.c_int64(frac.denominator),
+        ctypes.c_int64(value.numerator),
+        ctypes.c_int64(value.denominator),
     )
     if not raw:
         # Defensive: the Agda function always returns a non-null CString
@@ -227,24 +225,21 @@ def _format_rational(v: object) -> str:
         lib.aletheia_free_str(raw)
 
 
-def _format_predicate(pred: dict[str, object]) -> str:
-    """Format a predicate dict as a human-readable string."""
-    kind = pred.get("predicate")
-    signal = str(pred.get("signal", ""))
-    op = _COMPARISON_OPS.get(str(kind))
-    if op is not None:
-        return f"{signal} {op} {_format_rational(pred.get('value', 0))}"
-    if kind == "between":
-        lo = _format_rational(pred.get("min", 0))
-        hi = _format_rational(pred.get("max", 0))
-        return f"{lo} <= {signal} <= {hi}"
-    if kind == "changedBy":
-        delta = pred.get("delta", 0)
-        if _coerce_to_float(delta) >= 0:
-            return f"\u0394{signal} >= {_format_rational(delta)}"
-        return f"\u0394{signal} <= {_format_rational(delta)}"
-    if kind == "stableWithin":
-        return f"|\u0394{signal}| <= {_format_rational(pred.get('tolerance', 0))}"
+def _format_predicate(pred: SignalPredicate) -> str:
+    """Format a signal predicate as a human-readable string."""
+    if _is_comparison(pred):
+        op = _COMPARISON_OPS[pred["predicate"]]
+        return f"{pred['signal']} {op} {_format_rational(pred['value'])}"
+    if pred["predicate"] == "between":
+        lo = _format_rational(pred["min"])
+        hi = _format_rational(pred["max"])
+        return f"{lo} <= {pred['signal']} <= {hi}"
+    if pred["predicate"] == "changedBy":
+        delta = pred["delta"]
+        sign = ">=" if delta >= 0 else "<="
+        return f"Δ{pred['signal']} {sign} {_format_rational(delta)}"
+    if pred["predicate"] == "stableWithin":
+        return f"|Δ{pred['signal']}| <= {_format_rational(pred['tolerance'])}"
     return "<unknown predicate>"
 
 
@@ -254,15 +249,7 @@ def _format_timebound(us: int) -> str:
         return f"{us // MICROSECONDS_PER_SECOND}s "
     if us % MICROSECONDS_PER_MILLISECOND == 0:
         return f"{us // MICROSECONDS_PER_MILLISECOND}ms "
-    return f"{us}\u03bcs "
-
-
-def _get_timebound(formula: dict[str, object]) -> str:
-    """Extract and format the timebound from a metric formula."""
-    tb = formula.get("timebound")
-    if isinstance(tb, (int, float)) and not isinstance(tb, bool):
-        return _format_timebound(int(tb))
-    return ""
+    return f"{us}μs "
 
 
 # Token tables for the formula pretty-printer — one handler per operator
@@ -291,12 +278,12 @@ _METRIC_BINARY_INFIX: dict[str, str] = {
 
 
 def format_formula(
-    formula: dict[str, object],
+    formula: LTLFormula,
     depth: int = 0,
     *,
     _parenthesize_binary: bool = False,
 ) -> str:
-    """Format an LTL formula dict as a human-readable string.
+    """Format an LTL formula as a human-readable string.
 
     Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
     """
@@ -306,62 +293,68 @@ def format_formula(
     return _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
 
 
-def _format_never(inner: dict[str, object]) -> str | None:
+def _format_never(inner: LTLFormula) -> str | None:
     """Render ``always(not(atomic(p)))`` as ``never <p>``; else ``None``.
 
     The ``never`` shorthand is reserved for the safety pattern where an
     atomic predicate must hold globally; any other ``always`` body falls
     through to the generic ``always(...)`` rendering.
     """
-    if inner.get("operator") != "not":
+    if inner["operator"] != "not":
         return None
-    inner_not = cast("dict[str, object]", inner["formula"])
-    if inner_not.get("operator") != "atomic":
-        return None
-    pred = cast("dict[str, object]", inner_not["predicate"])
-    return "never " + _format_predicate(pred)
+    return _never_if_atomic(inner["formula"])
 
 
-def _format_unary(formula: dict[str, object], depth: int, op: str) -> str:
+def _never_if_atomic(negated: LTLFormula) -> str | None:
+    """Render ``never <p>`` when *negated* is ``atomic(p)``, else ``None``.
+
+    Split out so the ``atomic`` discriminator narrows a fresh *parameter*.
+    Narrowing the inline ``inner["formula"]`` item access instead leaves an
+    ``Unknown`` arm — item access on the recursive ``LTLFormula`` forward-ref
+    bottoms out in ``Unknown``, which discriminator narrowing on
+    ``["operator"]`` cannot subtract; a parameter-typed ``LTLFormula`` narrows
+    cleanly (cf. ``_format_formula_inner`` / ``_walk_formula``).
+    """
+    if negated["operator"] != "atomic":
+        return None
+    return "never " + _format_predicate(negated["predicate"])
+
+
+def _format_unary(formula: _UnaryFormula, depth: int) -> str:
     """Render a unary operator (not/next/eventually/always/metric-*)."""
-    inner = cast("dict[str, object]", formula["formula"])
+    op = formula["operator"]
+    inner = formula["formula"]
     if op == "always":
         never = _format_never(inner)
         if never is not None:
             return never
     body = _format_formula_inner(inner, depth + 1, parenthesize_binary=False)
-    if op in _METRIC_UNARY_PREFIX:
-        return _METRIC_UNARY_PREFIX[op] + _get_timebound(formula) + "(" + body + ")"
+    if formula["operator"] == "metricAlways" or formula["operator"] == "metricEventually":
+        prefix = _METRIC_UNARY_PREFIX[formula["operator"]]
+        return prefix + _format_timebound(formula["timebound"]) + "(" + body + ")"
     return _UNARY_WRAP[op] + body + ")"
 
 
 def _format_binary(
-    formula: dict[str, object],
+    formula: _BinaryFormula,
     depth: int,
-    op: str,
     *,
     parenthesize_binary: bool,
 ) -> str:
     """Render a binary operator (and/or/until/release/metric-*)."""
-    left = _format_formula_inner(
-        cast("dict[str, object]", formula["left"]),
-        depth + 1,
-        parenthesize_binary=True,
-    )
-    right = _format_formula_inner(
-        cast("dict[str, object]", formula["right"]),
-        depth + 1,
-        parenthesize_binary=True,
-    )
-    if op in _METRIC_BINARY_INFIX:
-        s = left + _METRIC_BINARY_INFIX[op] + _get_timebound(formula) + right
+    left = _format_formula_inner(formula["left"], depth + 1, parenthesize_binary=True)
+    right = _format_formula_inner(formula["right"], depth + 1, parenthesize_binary=True)
+    op = formula["operator"]
+    if formula["operator"] == "metricUntil" or formula["operator"] == "metricRelease":
+        infix = _METRIC_BINARY_INFIX[formula["operator"]]
+        s = left + infix + _format_timebound(formula["timebound"]) + right
     else:
         s = left + _BINARY_INFIX[op] + right
     return "(" + s + ")" if parenthesize_binary else s
 
 
 def _format_formula_inner(
-    formula: dict[str, object],
+    formula: LTLFormula,
     depth: int,
     *,
     parenthesize_binary: bool,
@@ -370,22 +363,16 @@ def _format_formula_inner(
     if depth > MAX_NESTING_DEPTH:
         msg = f"Formula nesting depth exceeds {MAX_NESTING_DEPTH}"
         raise ValidationError(msg)
-    op = formula.get("operator")
-    if op == "atomic":
-        return _format_predicate(cast("dict[str, object]", formula["predicate"]))
-    if op in _UNARY_OPS:
-        return _format_unary(formula, depth, cast("str", op))
-    if op in _BINARY_OPS:
-        return _format_binary(
-            formula,
-            depth,
-            cast("str", op),
-            parenthesize_binary=parenthesize_binary,
-        )
+    if formula["operator"] == "atomic":
+        return _format_predicate(formula["predicate"])
+    if _is_unary(formula):
+        return _format_unary(formula, depth)
+    if _is_binary(formula):
+        return _format_binary(formula, depth, parenthesize_binary=parenthesize_binary)
     return "<unknown>"
 
 
-def collect_signals(formula: dict[str, object]) -> list[str]:
+def collect_signals(formula: LTLFormula) -> list[str]:
     """Collect all signal names from a formula, deduplicated, in order.
 
     Raises ValidationError if nesting exceeds MAX_NESTING_DEPTH.
@@ -393,8 +380,8 @@ def collect_signals(formula: dict[str, object]) -> list[str]:
     signals: list[str] = []
     seen: set[str] = set()
 
-    def on_atomic(pred: dict[str, object]) -> None:
-        name = str(pred.get("signal", ""))
+    def on_atomic(pred: SignalPredicate) -> None:
+        name = pred["signal"]
         if name and name not in seen:
             seen.add(name)
             signals.append(name)
@@ -405,10 +392,9 @@ def collect_signals(formula: dict[str, object]) -> list[str]:
 
 def build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
     """Build a PropertyDiagnostic from a formula. Always succeeds."""
-    f = cast("dict[str, object]", formula)
     return PropertyDiagnostic(
-        signals=tuple(collect_signals(f)),
-        formula_desc=format_formula(f),
+        signals=tuple(collect_signals(formula)),
+        formula_desc=format_formula(formula),
     )
 
 
