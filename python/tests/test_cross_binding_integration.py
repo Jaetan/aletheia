@@ -1,4 +1,4 @@
-"""Cross-binding integration tests (R18 cluster 5 — Cat 34d).
+"""Cross-binding integration tests.
 
 Counterpart of ``go/aletheia/cross_binding_integration_test.go`` and
 ``cpp/tests/test_cross_binding_integration.cpp``.  All three tests
@@ -60,8 +60,7 @@ class TestCrossBindingIntegration:
         # ParsedDBCResponse: status="success", dbc=<DBCDefinition>, warnings=[].
         assert isinstance(response, dict)
         assert _PARSED_DBC_RESPONSE_KEYS.issubset(set(response.keys())), (
-            f"parse_dbc response missing keys: "
-            f"{_PARSED_DBC_RESPONSE_KEYS - set(response.keys())}"
+            f"parse_dbc response missing keys: {_PARSED_DBC_RESPONSE_KEYS - set(response.keys())}"
         )
         assert response["status"] == "success"
         assert isinstance(response["warnings"], list)
@@ -100,20 +99,23 @@ class TestCrossBindingIntegration:
             client.set_properties([prop.to_dict()])
             client.start_stream()
             response = client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
+                timestamp=1000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([0, 0, 0, 0, 0, 0, 0, 0]),  # signal value 0 < 1000
             )
             client.end_stream()
 
         # AckResponse: status="ack", no other required keys.
         assert isinstance(response, dict)
+        assert "status" in response  # narrows the union away from PropertyBatchResponse
         assert response["status"] == "ack"
         assert _ACK_RESPONSE_KEYS.issubset(set(response.keys()))
 
     def test_send_frame_violation_response_shape(self) -> None:
         """``send_frame`` on a violating frame returns ``PropertyBatchResponse``.
 
-        R23 — AGDA-D-12.1: required wire keys per PROTOCOL.md:
+        Required wire keys per PROTOCOL.md:
         ``{type: "property_batch", results: [...]}``; each ``results``
         entry has ``{type: "property", status: "fails"|"holds"|"unresolved",
         property_index, [timestamp]}``.  ``reason`` and ``enrichment`` are
@@ -127,12 +129,15 @@ class TestCrossBindingIntegration:
             client.start_stream()
             # Signal value 0xFFFF (65535) > 100 → violation.
             response = client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
+                timestamp=1000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([0xFF, 0xFF, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
 
         assert isinstance(response, dict)
+        assert "type" in response  # narrows the union to PropertyBatchResponse
         assert response["type"] == "property_batch"
         assert isinstance(response["results"], list)
         assert len(response["results"]) >= 1
@@ -152,7 +157,9 @@ class TestCrossBindingIntegration:
             # CAN ID 0x800 (2048) is out of standard 11-bit range; FFI rejects.
             with pytest.raises((ValidationError, ValueError, RuntimeError, OSError)):
                 client.send_frame(
-                    timestamp=1000, can_id=0x800, dlc=DLCCode(8),
+                    timestamp=1000,
+                    can_id=0x800,
+                    dlc=DLCCode(8),
                     data=bytearray([0, 0, 0, 0, 0, 0, 0, 0]),
                 )
 
