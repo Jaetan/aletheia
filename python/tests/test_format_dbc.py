@@ -8,7 +8,7 @@ from _dbc_helpers import message, signal
 from aletheia import AletheiaClient, ProtocolError, dbc_to_text
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition, DLCByteCount
+from aletheia.protocols import DBCDefinition, DBCSignalMultiplexed, DLCByteCount
 
 EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
 
@@ -32,6 +32,7 @@ class TestDBCToText:
     def test_byte_order_encoding(self) -> None:
         """ByteOrder maps to correct DBC encoding (1=LE, 0=BE)."""
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
             "messages": [
                 message(
@@ -68,11 +69,23 @@ class TestDBCToText:
 
     def test_multiplexed_signals(self) -> None:
         """Multiplexed signals get m<value> indicator."""
-        mux_sig = signal("MuxSig", length=8, maximum=255.0)
-        mux_sig.pop("presence")
-        mux_sig["multiplexor"] = "Selector"
-        mux_sig["multiplex_values"] = [3]
+        mux_sig = DBCSignalMultiplexed(
+            name="MuxSig",
+            startBit=0,
+            length=8,
+            byteOrder="little_endian",
+            signed=False,
+            factor=Fraction(1),
+            offset=Fraction(0),
+            minimum=Fraction(0),
+            maximum=Fraction(255),
+            unit="",
+            presence="multiplexed",
+            multiplexor="Selector",
+            multiplex_values=[3],
+        )
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
             "messages": [message(1, "Msg", [mux_sig])],
         }
@@ -96,6 +109,7 @@ class TestDBCToText:
     def test_non_integer_factor(self) -> None:
         """Roundtrip a DBC with non-integer factor through Agda and dbc_to_text."""
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
             "messages": [
                 message(
@@ -132,18 +146,30 @@ class TestDBCToText:
         """Extended frames get bit 31 set in BO_ line."""
         ext_msg = message(0x100, "ExtMsg", [])
         ext_msg["extended"] = True
-        dbc: DBCDefinition = {"version": "", "messages": [ext_msg]}
+        dbc: DBCDefinition = {**empty_dbc_tier2(), "version": "", "messages": [ext_msg]}
         text = dbc_to_text(dbc)
         expected_id = 0x100 | 0x80000000  # CAN Extended Frame Format flag
         assert f"BO_ {expected_id} ExtMsg:" in text
 
     def test_multiplexor_m_indicator(self) -> None:
         """Multiplexor signal gets M indicator when referenced by multiplexed signals."""
-        muxed = signal("Muxed", start_bit=8, length=8, maximum=255.0)
-        muxed.pop("presence")
-        muxed["multiplexor"] = "Selector"
-        muxed["multiplex_values"] = [0]
+        muxed = DBCSignalMultiplexed(
+            name="Muxed",
+            startBit=8,
+            length=8,
+            byteOrder="little_endian",
+            signed=False,
+            factor=Fraction(1),
+            offset=Fraction(0),
+            minimum=Fraction(0),
+            maximum=Fraction(255),
+            unit="",
+            presence="multiplexed",
+            multiplexor="Selector",
+            multiplex_values=[0],
+        )
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
             "messages": [
                 message(
