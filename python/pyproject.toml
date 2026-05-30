@@ -71,6 +71,9 @@ dev = [
     # Gate mapping (which upper bound protects which CI check):
     #   pylint<5              — protects the ``pylint aletheia/`` 10.00/10 gate
     #   basedpyright<2        — protects the ``basedpyright aletheia/`` 0/0/0 gate
+    #   ruff<0.14             — protects the ``ruff check`` / ``ruff format`` (select=ALL)
+    #                           gate; ruff is pre-1.0 so new lint rules land in minor
+    #                           bumps — hence a minor-level upper bound, not major-level
     #   pytest<9              — protects the ``pytest tests/`` exit code
     #   pytest-cov<7          — protects coverage report shape (AGENTS.md R/N)
     #   pytest-markdown-docs<1 — protects the AGENTS.md Cat 32 doc-example gate
@@ -90,6 +93,9 @@ dev = [
     "hypothesis>=6.0,<7",
     "pylint>=4.0,<5",
     "basedpyright>=1.0,<2",
+    # ruff drives the ruff(ALL) lint + format gate; minor-level pin (pre-1.0,
+    # new rules land in minor bumps) per the gate mapping above.
+    "ruff>=0.13,<0.14",
     # AGENTS.md Python cat 25 long-run sub-check (NEW R18) — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
