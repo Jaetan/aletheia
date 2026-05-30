@@ -14,16 +14,21 @@ the way out, which matches the rest of the Python wire surface.
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from _dbc_helpers import assert_non_terminating_rational, message, signal
 from aletheia import AletheiaClient
+from aletheia._dbc_types import empty_dbc_tier2
 
 if TYPE_CHECKING:
+    from typing import Literal
+
+    from _dbc_helpers import SignalOverrides
     from aletheia.protocols import (
         DBCDefinition,
         DBCEnvironmentVar,
+        DBCMessage,
         DBCSignalGroup,
         DBCValueEntry,
         DBCValueTable,
@@ -34,7 +39,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _msg_two_signals() -> dict:
+def _msg_two_signals() -> DBCMessage:
     return message(
         0x100,
         "Engine",
@@ -76,6 +81,10 @@ def _full_dbc() -> DBCDefinition:
         "signalGroups": groups,
         "environmentVars": env_vars,
         "valueTables": value_tables,
+        "nodes": [],
+        "comments": [],
+        "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -87,9 +96,7 @@ def _empty_metadata_dbc() -> DBCDefinition:
     return {
         "version": "1.0",
         "messages": [_msg_two_signals()],
-        "signalGroups": [],
-        "environmentVars": [],
-        "valueTables": [],
+        **empty_dbc_tier2(),
     }
 
 
@@ -99,10 +106,7 @@ def _no_metadata_keys_dbc() -> DBCDefinition:
     The parser has to treat absent keys as empty and ``format_dbc`` has to
     still emit the arrays.
     """
-    return {
-        "version": "1.0",
-        "messages": [_msg_two_signals()],
-    }
+    return cast("DBCDefinition", {"version": "1.0", "messages": [_msg_two_signals()]})
 
 
 # ---------------------------------------------------------------------------
@@ -201,19 +205,22 @@ class TestDBCMetadataTier1Rejects:
 
     def test_invalid_var_type_rejected(self) -> None:
         """``varType`` outside {0, 1, 2} must be rejected by the Agda parser."""
-        bad: DBCDefinition = {
-            "version": "1.0",
-            "messages": [_msg_two_signals()],
-            "environmentVars": [
-                {
-                    "name": "Bad",
-                    "varType": 7,  # type: ignore[typeddict-item]  # intentional wire violation
-                    "initial": Fraction(0),
-                    "minimum": Fraction(0),
-                    "maximum": Fraction(1),
-                },
-            ],
-        }
+        bad = cast(
+            "DBCDefinition",
+            {
+                "version": "1.0",
+                "messages": [_msg_two_signals()],
+                "environmentVars": [
+                    {
+                        "name": "Bad",
+                        "varType": 7,  # intentional wire violation: varType must be 0/1/2
+                        "initial": Fraction(0),
+                        "minimum": Fraction(0),
+                        "maximum": Fraction(1),
+                    },
+                ],
+            },
+        )
         with AletheiaClient() as client:
             result = client.parse_dbc(bad)
         assert result["status"] == "error"
@@ -227,6 +234,7 @@ class TestDBCMetadataTier1Rejects:
         loss when users hand-build rationals outside DBC's decimal grammar.
         """
         bad: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_two_signals()],
             "environmentVars": [
@@ -245,7 +253,9 @@ class TestDBCMetadataTier1Rejects:
         assert result["code"] == "parse_non_terminating_rational"
 
     @pytest.mark.parametrize("field", ["factor", "offset", "minimum", "maximum"])
-    def test_signal_non_terminating_rational_rejected(self, field: str) -> None:
+    def test_signal_non_terminating_rational_rejected(
+        self, field: Literal["factor", "offset", "minimum", "maximum"]
+    ) -> None:
         """SG_ (SignalDef) numeric fields must have terminating decimal expansions.
 
         ``Fraction(1, 3)`` in ``factor``/``offset``/``minimum``/``maximum``
@@ -254,11 +264,13 @@ class TestDBCMetadataTier1Rejects:
         """
         # Build a signal with the targeted field set to a non-terminating
         # rational; keep the others on sensible defaults.
-        overrides = {field: Fraction(1, 3)}
+        overrides: SignalOverrides = {}
+        overrides[field] = Fraction(1, 3)
         # `minimum` and `maximum` defaults would conflict with factor 1/3 +
         # offset 0 producing a physical range outside [0, 65535]; ignore the
         # mismatch — the parser rejects before any validator check runs.
         bad: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [message(0x100, "Engine", [signal("Rpm", **overrides)])],
         }
@@ -272,6 +284,7 @@ class TestDBCMetadataTier1Rejects:
         not a parser concern.)
         """
         dangling: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_two_signals()],
             "signalGroups": [
@@ -300,6 +313,7 @@ def test_value_table_description_with_spaces() -> None:
     preserves whatever cantools produced.
     """
     spacey: DBCDefinition = {
+        **empty_dbc_tier2(),
         "version": "1.0",
         "messages": [_msg_two_signals()],
         "valueTables": [
