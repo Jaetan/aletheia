@@ -43,10 +43,7 @@ def _module_imports(source: str) -> list[ast.ImportFrom | ast.Import]:
     forms we *want*.
     """
     tree = ast.parse(source)
-    return [
-        node for node in tree.body
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-    ]
+    return [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))]
 
 
 def test_ffi_module_does_not_eagerly_import_install_config() -> None:
@@ -60,14 +57,16 @@ def test_ffi_module_does_not_eagerly_import_install_config() -> None:
     top_level = _module_imports(source)
 
     offending = [
-        node for node in top_level
+        node
+        for node in top_level
         if isinstance(node, ast.ImportFrom)
         and node.module is not None
         and "_install_config" in node.module
     ]
     # Also check ``from .. import _install_config`` (level=2, names list)
     offending.extend(
-        node for node in top_level
+        node
+        for node in top_level
         if isinstance(node, ast.ImportFrom)
         and node.level >= 1
         and any(alias.name == "_install_config" for alias in node.names)
@@ -90,7 +89,7 @@ def test_install_config_does_not_import_from_aletheia() -> None:
     if not _INSTALL_CONFIG.exists():
         pytest.skip(
             "_install_config.py not present — install via "
-            "'cabal run shake -- install' to exercise this guard."
+            + "'cabal run shake -- install' to exercise this guard."
         )
 
     source = _INSTALL_CONFIG.read_text(encoding="utf-8")
@@ -104,26 +103,24 @@ def test_install_config_does_not_import_from_aletheia() -> None:
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
             if module == "aletheia" or module.startswith("aletheia."):
-                offending.append(
-                    f"line {node.lineno}: from {module} import ..."
-                )
+                offending.append(f"line {node.lineno}: from {module} import ...")
             elif node.level >= 1:
                 offending.append(
                     f"line {node.lineno}: relative import (level={node.level})"
-                    f" — _install_config must be a leaf module."
+                    + " — _install_config must be a leaf module."
                 )
         elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "aletheia" or alias.name.startswith("aletheia."):
-                    offending.append(
-                        f"line {node.lineno}: import {alias.name}"
-                    )
+            offending.extend(
+                f"line {node.lineno}: import {alias.name}"
+                for alias in node.names
+                if alias.name == "aletheia" or alias.name.startswith("aletheia.")
+            )
 
     assert not offending, (
         "_install_config.py imports from aletheia: "
         + "; ".join(offending)
         + ". This recreates the import cycle that __init__.py's lazy "
-        "boundary is designed to avoid."
+        + "boundary is designed to avoid."
     )
 
 
