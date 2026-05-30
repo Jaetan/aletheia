@@ -1,4 +1,4 @@
-"""Atheris fuzz harness for the JSON response parser (R18 cluster 5 — Cat 34c).
+r"""Atheris fuzz harness for the JSON response parser.
 
 Counterpart of go FuzzParseResponse and cpp fuzz_parse_response.cpp.  The
 target is the Python binding's JSON-decode pipeline that wraps every FFI
@@ -6,7 +6,7 @@ response.  Atheris instruments the Python interpreter to drive the fuzzer's
 genetic search.
 
 Run:
-    python -m atheris fuzz_parse_response.py -- -max_total_time=60 \\
+    python -m atheris fuzz_parse_response.py -- -max_total_time=60 \
         python/tests/fuzz/seed/parse_response/
 
 Atheris dependency is opt-in (``aletheia[fuzz]`` extra) per AGENTS.md cat
@@ -16,7 +16,7 @@ Atheris dependency is opt-in (``aletheia[fuzz]`` extra) per AGENTS.md cat
 
 from __future__ import annotations
 
-import atheris  # type: ignore[import-not-found]
+import atheris
 from _atheris_runner import run
 
 with atheris.instrument_imports():

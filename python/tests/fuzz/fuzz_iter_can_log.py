@@ -1,11 +1,11 @@
-"""Atheris fuzz harness for ``iter_can_log`` (R18 cluster 5 — Cat 34c).
+r"""Atheris fuzz harness for ``iter_can_log``.
 
 ``iter_can_log`` parses CAN log files (asc, blf, mf4) into ``CANFrameTuple``
 streams.  This harness drives it with arbitrary byte inputs via an
 in-memory file path to surface parser UB / silent corruption.
 
 Run:
-    python -m atheris fuzz_iter_can_log.py -- -max_total_time=60 \\
+    python -m atheris fuzz_iter_can_log.py -- -max_total_time=60 \
         python/tests/fuzz/seed/iter_can_log/
 """
 # pylint: disable=import-error  # atheris is an opt-in fuzz extra.
@@ -15,7 +15,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import atheris  # type: ignore[import-not-found]
+import atheris
 from _atheris_runner import run
 
 with atheris.instrument_imports():
