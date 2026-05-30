@@ -8,8 +8,10 @@ the opt-in design.
 """
 
 import logging
+from collections.abc import Iterator
 
 import pytest
+from _dbc_helpers import dbc, message, signal
 from _stream_helpers import run_one_frame_stream
 
 from aletheia import AletheiaClient, Signal
@@ -29,7 +31,7 @@ class _Capture(logging.Handler):
 
 
 @pytest.fixture(name="capture")
-def _capture() -> _Capture:
+def capture_handler() -> Iterator[_Capture]:
     """Install a capturing handler on the ``aletheia`` logger."""
     logger = logging.getLogger("aletheia")
     handler = _Capture()
@@ -50,11 +52,14 @@ class TestLoggingStreamingEvents:
         run_one_frame_stream(simple_dbc, bytearray(8))
 
     def test_streaming_ack_events(
-        self, simple_dbc: DBCDefinition, capture: _Capture,
+        self,
+        simple_dbc: DBCDefinition,
+        capture: _Capture,
     ) -> None:
         """properties.set, stream.started, frame.processed(ack), stream.ended."""
         run_one_frame_stream(
-            simple_dbc, bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
+            simple_dbc,
+            bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
         )
 
         messages = [r.getMessage() for r in capture.records]
@@ -80,18 +85,24 @@ class TestLoggingStreamingEvents:
         assert "numFails=0" in ended_msgs[0]
 
     def test_streaming_violation_events(
-        self, simple_dbc: DBCDefinition, capture: _Capture,
+        self,
+        simple_dbc: DBCDefinition,
+        capture: _Capture,
     ) -> None:
         """Violation path logs frame.processed with response=violation."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(100).always().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    Signal("TestSignal").less_than(100).always().to_dict(),
+                ]
+            )
             client.start_stream()
             # Value 200 > 100 → violation
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
+                timestamp=1000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -106,7 +117,9 @@ class TestLoggingStreamingEvents:
         assert any(m.startswith("cache.miss") for m in messages)
 
     def test_stream_ended_counts_fails(
-        self, simple_dbc: DBCDefinition, capture: _Capture,
+        self,
+        simple_dbc: DBCDefinition,
+        capture: _Capture,
     ) -> None:
         """stream.ended includes correct numFails count.
 
@@ -115,13 +128,17 @@ class TestLoggingStreamingEvents:
         """
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(100).always().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    Signal("TestSignal").less_than(100).always().to_dict(),
+                ]
+            )
             client.start_stream()
             # Value 200 > 100 triggers mid-stream violation
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
+                timestamp=1000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -139,11 +156,14 @@ class TestLoggingStreamingEvents:
         assert "numFails=0" in ended_msgs[0]
 
     def test_log_levels(
-        self, simple_dbc: DBCDefinition, capture: _Capture,
+        self,
+        simple_dbc: DBCDefinition,
+        capture: _Capture,
     ) -> None:
         """Verify correct log levels for each event type."""
         run_one_frame_stream(
-            simple_dbc, bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
+            simple_dbc,
+            bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
         )
 
         for record in capture.records:
@@ -172,7 +192,7 @@ class TestLoggingSchema:
 
     def test_known_events_matches_enum(self) -> None:
         """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 16 names."""
-        assert KNOWN_EVENTS == {event.value for event in LogEvent}
+        assert {event.value for event in LogEvent} == KNOWN_EVENTS
         assert len(KNOWN_EVENTS) == 16
 
     def test_event_names_follow_namespace_dot_action(self) -> None:
@@ -180,21 +200,28 @@ class TestLoggingSchema:
         for name in KNOWN_EVENTS:
             assert "." in name, f"event {name!r} missing ``.`` separator"
             namespace, action = name.split(".", 1)
-            assert namespace and action, f"event {name!r} has empty parts"
+            assert namespace, f"event {name!r} has empty namespace"
+            assert action, f"event {name!r} has empty action"
 
     def test_all_emitted_events_are_known(
-        self, simple_dbc: DBCDefinition, capture: _Capture,
+        self,
+        simple_dbc: DBCDefinition,
+        capture: _Capture,
     ) -> None:
         """Every record from a streaming+violation workflow uses a known event."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(100).always().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    Signal("TestSignal").less_than(100).always().to_dict(),
+                ]
+            )
             client.start_stream()
             # Violation path exercises enrichment + cache warmup.
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
+                timestamp=1000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -205,9 +232,7 @@ class TestLoggingSchema:
         assert capture.records, "expected at least one log record"
         for record in capture.records:
             event = getattr(record, "event", None)
-            assert event is not None, (
-                f"record {record.getMessage()!r} missing ``event`` attr"
-            )
+            assert event is not None, f"record {record.getMessage()!r} missing ``event`` attr"
             assert event in KNOWN_EVENTS, (
                 f"record emitted unknown event {event!r}; "
                 f"add it to LogEvent or switch the call site"
@@ -217,7 +242,7 @@ class TestLoggingSchema:
 class TestEndStreamWarnings:
     """Per-warning log events on the EndStream Complete response.
 
-    R22 AGDA-D-12.1 closure — the kernel emits one ``CompleteWarning`` per
+    The kernel emits one ``CompleteWarning`` per
     atom whose target signal was never observed during the stream.  The
     binding re-emits each warning as a structured ``endstream.<kind>`` log
     event so operators can grep for specific properties.  The existing
@@ -226,58 +251,37 @@ class TestEndStreamWarnings:
     """
 
     def test_uncached_atom_emits_per_warning_event(
-        self, capture: _Capture,
+        self,
+        capture: _Capture,
     ) -> None:
         """Unobserved signal → one ``endstream.uncached_atom`` log event."""
         # Two-message DBC: predicate references Speed (msg 256), but only
         # msg 512 frames are sent — Speed is never observed.
-        two_message_dbc: DBCDefinition = {
-            "version": "1.0",
-            "messages": [
-                {
-                    "id": 256, "extended": False, "name": "Msg256", "dlc": 8,
-                    "sender": "ECU",
-                    "signals": [{
-                        "name": "Speed", "startBit": 0, "length": 16,
-                        "byteOrder": "little_endian", "signed": False,
-                        "factor": {"numerator": 1, "denominator": 1},
-                        "offset": {"numerator": 0, "denominator": 1},
-                        "minimum": {"numerator": 0, "denominator": 1},
-                        "maximum": {"numerator": 1000, "denominator": 1},
-                        "unit": "kph", "presence": "always",
-                        "valueDescriptions": [],
-                    }],
-                },
-                {
-                    "id": 512, "extended": False, "name": "Msg512", "dlc": 8,
-                    "sender": "ECU",
-                    "signals": [{
-                        "name": "Rpm", "startBit": 0, "length": 16,
-                        "byteOrder": "little_endian", "signed": False,
-                        "factor": {"numerator": 1, "denominator": 1},
-                        "offset": {"numerator": 0, "denominator": 1},
-                        "minimum": {"numerator": 0, "denominator": 1},
-                        "maximum": {"numerator": 8000, "denominator": 1},
-                        "unit": "rpm", "presence": "always",
-                        "valueDescriptions": [],
-                    }],
-                },
-            ],
-        }
+        two_message_dbc = dbc(
+            [
+                message(256, "Msg256", [signal("Speed", maximum=1000, unit="kph")]),
+                message(512, "Msg512", [signal("Rpm", maximum=8000, unit="rpm")]),
+            ]
+        )
         with AletheiaClient() as client:
             client.parse_dbc(two_message_dbc)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    Signal("Speed").less_than(100).always().to_dict(),
+                ]
+            )
             client.start_stream()
             client.send_frame(
-                timestamp=0, can_id=512, dlc=DLCCode(8),
+                timestamp=0,
+                can_id=512,
+                dlc=DLCCode(8),
                 data=bytearray([5, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
 
         uncached = [
-            r for r in capture.records
+            r
+            for r in capture.records
             if getattr(r, "event", None) == LogEvent.ENDSTREAM_UNCACHED_ATOM.value
         ]
         assert len(uncached) == 1, (
@@ -289,16 +293,18 @@ class TestEndStreamWarnings:
         assert getattr(rec, "detail", None) == "Speed"
 
     def test_all_observed_emits_no_per_warning_event(
-        self, simple_dbc: DBCDefinition, capture: _Capture,
+        self,
+        simple_dbc: DBCDefinition,
+        capture: _Capture,
     ) -> None:
         """Every atom's signal observed → no ``endstream.uncached_atom`` event."""
         run_one_frame_stream(
-            simple_dbc, bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
+            simple_dbc,
+            bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
         )
         uncached = [
-            r for r in capture.records
+            r
+            for r in capture.records
             if getattr(r, "event", None) == LogEvent.ENDSTREAM_UNCACHED_ATOM.value
         ]
-        assert not uncached, (
-            f"expected no endstream.uncached_atom records, got {len(uncached)}"
-        )
+        assert not uncached, f"expected no endstream.uncached_atom records, got {len(uncached)}"
