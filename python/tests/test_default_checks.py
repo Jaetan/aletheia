@@ -10,7 +10,6 @@ from aletheia import AletheiaClient
 from aletheia.checks import signal
 from aletheia.protocols import DLCCode
 
-
 # Simple DBC for testing
 SIMPLE_DBC = {
     "version": "1.0",

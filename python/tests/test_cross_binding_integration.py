@@ -29,12 +29,10 @@ against Python's runtime output.
 from __future__ import annotations
 
 import pytest
-
 from _canonical_dbc import CANONICAL_DBC as _CANONICAL_DBC
 
 from aletheia import AletheiaClient, Signal, ValidationError
 from aletheia.protocols import DLCCode
-
 
 # Documented structural invariants — these mirror PROTOCOL.md's response
 # shape tables.  Each binding asserts the same expectations against its

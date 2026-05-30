@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from typing import Unpack
 
     from aletheia._dbc_types import ByteOrder, SignalPresence
-    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal
+    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
 
 
 class SignalOverrides(TypedDict, total=False):
@@ -52,6 +52,21 @@ class _MessageOverrides(TypedDict, total=False):
     senders: list[str]
 
 
+class MuxSignalOverrides(TypedDict, total=False):
+    """Optional keyword overrides for :func:`mux_signal` (presence is fixed)."""
+
+    start_bit: int
+    length: int
+    byte_order: ByteOrder
+    signed: bool
+    factor: float | Fraction
+    offset: float | Fraction
+    minimum: float | Fraction
+    maximum: float | Fraction
+    unit: str
+    receivers: list[str]
+
+
 def signal(name: str, **overrides: Unpack[SignalOverrides]) -> DBCSignal:
     """Build a DBC signal dict with sensible defaults; kwargs override.
 
@@ -71,6 +86,37 @@ def signal(name: str, **overrides: Unpack[SignalOverrides]) -> DBCSignal:
         "maximum": to_signal_fraction(overrides.get("maximum", 65535)),
         "unit": overrides.get("unit", ""),
         "presence": overrides.get("presence", "always"),
+        "receivers": overrides.get("receivers", []),
+    }
+
+
+def mux_signal(
+    name: str,
+    multiplexor: str,
+    mux_values: list[int],
+    **overrides: Unpack[MuxSignalOverrides],
+) -> DBCSignalMultiplexed:
+    """Build a multiplexed DBC signal dict (``presence='multiplexed'``).
+
+    The canonical multiplexed wire form carries ``presence='multiplexed'`` plus
+    the ``multiplexor`` / ``multiplex_values`` pair.  Centralising the
+    constructor here keeps the verbose field block in one place (pylint R0801)
+    and mirrors :func:`signal` (defaults + ``to_signal_fraction`` numerics).
+    """
+    return {
+        "name": name,
+        "startBit": overrides.get("start_bit", 0),
+        "length": overrides.get("length", 8),
+        "byteOrder": overrides.get("byte_order", "little_endian"),
+        "signed": overrides.get("signed", False),
+        "factor": to_signal_fraction(overrides.get("factor", 1)),
+        "offset": to_signal_fraction(overrides.get("offset", 0)),
+        "minimum": to_signal_fraction(overrides.get("minimum", 0)),
+        "maximum": to_signal_fraction(overrides.get("maximum", 255)),
+        "unit": overrides.get("unit", ""),
+        "presence": "multiplexed",
+        "multiplexor": multiplexor,
+        "multiplex_values": mux_values,
         "receivers": overrides.get("receivers", []),
     }
 

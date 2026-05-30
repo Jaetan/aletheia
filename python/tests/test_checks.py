@@ -12,8 +12,7 @@ import pytest
 
 from aletheia import ValidationError
 from aletheia.checks import CheckResult, signal, when
-from aletheia.dsl import Signal, Property
-
+from aletheia.dsl import Property, Signal
 
 # ============================================================================
 # CheckSignal — one-shot methods

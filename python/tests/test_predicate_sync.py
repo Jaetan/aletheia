@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 
 import pytest
+
 from aletheia.protocols import PredicateType
 
 _AGDA_FILE = (

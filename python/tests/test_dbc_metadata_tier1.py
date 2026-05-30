@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from _dbc_helpers import assert_non_terminating_rational, message, signal
+
 from aletheia import AletheiaClient
 from aletheia._dbc_types import empty_dbc_tier2
 
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from typing import Literal
 
     from _dbc_helpers import SignalOverrides
+
     from aletheia.protocols import (
         DBCDefinition,
         DBCEnvironmentVar,

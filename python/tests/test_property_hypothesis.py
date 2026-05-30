@@ -21,12 +21,13 @@ from fractions import Fraction
 
 import hypothesis
 import pytest
-from hypothesis import given, settings, strategies as st
-
 from _canonical_dbc import CANONICAL_SIGNAL
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from aletheia import ProtocolError
 from aletheia.client._helpers.rational import parse_rational
-from aletheia.protocols import dump_json
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import DBCDefinition, dump_json
 
 hypothesis.settings.register_profile("ci", max_examples=200)
 hypothesis.settings.register_profile("dev", max_examples=20)
@@ -149,11 +150,10 @@ def test_parse_rational_rejects_non_positive_denominator(
     ``<= 0`` since R19 cluster 17; C++ ``Rational::make`` rejects the same;
     Python now rejects too instead of silently sign-flipping via Fraction.
     """
-    from aletheia import ProtocolError as _ProtocolError  # noqa: PLC0415
     rational_dict = {"numerator": numerator, "denominator": denominator}
     try:
         parse_rational(rational_dict)
-    except _ProtocolError:
+    except ProtocolError:
         pass
     else:
         msg = f"expected ProtocolError for denominator={denominator}"

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import cast
 
+from _stream_helpers import send_test_frame
+
 from aletheia import AletheiaClient, Signal
 from aletheia.dsl import UntilFormula
 from aletheia.protocols import DBCDefinition, DLCCode
@@ -206,12 +208,7 @@ def test_multi_event_frame_satisfaction_plus_violation(simple_dbc: DBCDefinition
         # TestSignal = 100 fires BOTH:
         #  - property 0 (eventually(== 100)): Satisfied → complete(0)
         #  - property 1 (always(< 50)):       Violated  → halt(1)
-        response = client.send_frame(
-            timestamp=1000,
-            can_id=256,
-            dlc=DLCCode(8),
-            data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
-        )
+        response = send_test_frame(client, [100, 0, 0, 0, 0, 0, 0, 0])
 
         assert response.get("type") == "property_batch", response
         assert len(response["results"]) == 2, response["results"]

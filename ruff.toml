@@ -44,6 +44,15 @@ ignore = [
 # should catch.  Earning this across the tree is the relative-imports cleanup.
 ban-relative-imports = "all"
 
+[lint.isort]
+# Classify `aletheia` as first-party so ruff's import-sorter (I001) groups it
+# in the first-party block — matching pylint's import-order check (C0411).
+# Without this, ruff infers `aletheia` as third-party (the package lives at
+# python/aletheia/ while this config and the tests sit elsewhere), so the two
+# tools demand different orderings and I001 / C0411 cannot both be satisfied.
+# This is a classification hint, NOT a suppression: I001 stays fully enforced.
+known-first-party = ["aletheia"]
+
 [lint.per-file-ignores]
 # pytest's bare `assert` is the only idiom for test assertions; rewriting to
 # unittest-style asserts would be a readability regression.  Tests also

@@ -26,12 +26,12 @@ from aletheia import (
     AletheiaError,
     InputBoundExceededError,
     Signal,
+    limits,
 )
-from aletheia import limits
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.error_codes import ErrorCode
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
 from aletheia.yaml_loader import load_checks
-from aletheia.error_codes import ErrorCode
 
 
 class TestInputBoundExceededErrorType:

@@ -14,7 +14,6 @@ from aletheia.client._client_bin import (
     parse_extraction_buffer,
 )
 
-
 NAMES = ("Speed", "RPM", "Temp")
 
 _AGDA_EXTRACTION = (

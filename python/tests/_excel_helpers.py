@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import openpyxl  # type: ignore[import-untyped]
+
 from aletheia.excel_loader import (
     CHECKS_HEADERS,
     DBC_HEADERS,
@@ -24,11 +25,12 @@ from aletheia.excel_loader import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from aletheia.excel_loader import CellValue
     from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
     from openpyxl.worksheet.worksheet import (  # type: ignore[import-untyped]
         Worksheet,
     )
+
+    from aletheia.excel_loader import CellValue
 
 
 def active_sheet(wb: Workbook) -> Worksheet:

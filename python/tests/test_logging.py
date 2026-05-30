@@ -10,7 +10,7 @@ the opt-in design.
 import logging
 
 import pytest
-from conftest import run_one_frame_stream
+from _stream_helpers import run_one_frame_stream
 
 from aletheia import AletheiaClient, Signal
 from aletheia.client._log import KNOWN_EVENTS, LogEvent

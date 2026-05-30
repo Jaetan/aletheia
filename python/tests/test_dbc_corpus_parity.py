@@ -40,6 +40,7 @@ import os
 from pathlib import Path
 
 import pytest
+
 from aletheia import AletheiaClient
 from aletheia.protocols import FractionJSONEncoder
 

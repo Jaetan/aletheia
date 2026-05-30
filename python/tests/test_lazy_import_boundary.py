@@ -30,7 +30,6 @@ import pytest
 
 import aletheia
 
-
 _ALETHEIA_PKG_ROOT = Path(aletheia.__file__).resolve().parent
 _FFI_MODULE = _ALETHEIA_PKG_ROOT / "client" / "_ffi.py"
 _INSTALL_CONFIG = _ALETHEIA_PKG_ROOT / "_install_config.py"

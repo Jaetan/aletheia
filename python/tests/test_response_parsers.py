@@ -7,6 +7,7 @@ exercising edge-cases in the shared helpers directly.
 from typing import TYPE_CHECKING, cast
 
 import pytest
+
 from aletheia import ProtocolError
 from aletheia.client._response_parsers import build_error_response
 

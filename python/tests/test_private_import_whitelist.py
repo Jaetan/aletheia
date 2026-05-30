@@ -17,7 +17,6 @@ How to extend:
 import ast
 from pathlib import Path
 
-
 _TESTS_DIR = Path(__file__).parent
 
 # (test_file_basename, private_module, symbol) triples. Each symbol is a

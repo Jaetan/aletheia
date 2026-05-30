@@ -22,13 +22,12 @@ from aletheia import ValidationError
 from aletheia.checks_runner import rational_to_int
 from aletheia.cli import (
     format_timestamp,
+    main,
     parse_can_id,
     parse_hex_data,
-    main,
 )
 from aletheia.protocols import DBCDefinition
 from aletheia.testing import run_checks
-
 
 # ============================================================================
 # Shared DBC content

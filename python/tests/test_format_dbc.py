@@ -4,11 +4,12 @@ from fractions import Fraction
 from pathlib import Path
 
 import pytest
-from _dbc_helpers import message, signal
+from _dbc_helpers import message, mux_signal, signal
+
 from aletheia import AletheiaClient, ProtocolError, dbc_to_text
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition, DBCSignalMultiplexed, DLCByteCount
+from aletheia.protocols import DBCDefinition, DLCByteCount
 
 EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
 
@@ -69,21 +70,7 @@ class TestDBCToText:
 
     def test_multiplexed_signals(self) -> None:
         """Multiplexed signals get m<value> indicator."""
-        mux_sig = DBCSignalMultiplexed(
-            name="MuxSig",
-            startBit=0,
-            length=8,
-            byteOrder="little_endian",
-            signed=False,
-            factor=Fraction(1),
-            offset=Fraction(0),
-            minimum=Fraction(0),
-            maximum=Fraction(255),
-            unit="",
-            presence="multiplexed",
-            multiplexor="Selector",
-            multiplex_values=[3],
-        )
+        mux_sig = mux_signal("MuxSig", "Selector", [3])
         dbc: DBCDefinition = {
             **empty_dbc_tier2(),
             "version": "",
@@ -153,21 +140,7 @@ class TestDBCToText:
 
     def test_multiplexor_m_indicator(self) -> None:
         """Multiplexor signal gets M indicator when referenced by multiplexed signals."""
-        muxed = DBCSignalMultiplexed(
-            name="Muxed",
-            startBit=8,
-            length=8,
-            byteOrder="little_endian",
-            signed=False,
-            factor=Fraction(1),
-            offset=Fraction(0),
-            minimum=Fraction(0),
-            maximum=Fraction(255),
-            unit="",
-            presence="multiplexed",
-            multiplexor="Selector",
-            multiplex_values=[0],
-        )
+        muxed = mux_signal("Muxed", "Selector", [0], start_bit=8)
         dbc: DBCDefinition = {
             **empty_dbc_tier2(),
             "version": "",

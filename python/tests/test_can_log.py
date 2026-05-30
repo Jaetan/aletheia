@@ -15,6 +15,7 @@ from typing import TypedDict, Unpack
 
 import can
 import pytest
+
 from aletheia import ValidationError
 from aletheia.can_log import (
     convert_message,

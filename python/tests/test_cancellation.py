@@ -24,6 +24,8 @@ import pytest
 
 from aletheia import (
     AletheiaClient as SyncClient,
+)
+from aletheia import (
     BatchError,
     CANFrameTuple,
     FFIBackend,
@@ -33,7 +35,10 @@ from aletheia import (
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gated_backend
 from aletheia.protocols import (
-    AckResponse, DBCDefinition, DLCCode, PropertyBatchResponse,
+    AckResponse,
+    DBCDefinition,
+    DLCCode,
+    PropertyBatchResponse,
 )
 
 

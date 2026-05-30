@@ -16,7 +16,6 @@ import tempfile
 from pathlib import Path
 
 import atheris  # type: ignore[import-not-found]
-
 from _atheris_runner import run
 
 with atheris.instrument_imports():

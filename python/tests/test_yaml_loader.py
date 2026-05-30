@@ -13,6 +13,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+
 from aletheia import ValidationError
 from aletheia.checks import signal, when
 from aletheia.yaml_loader import load_checks

@@ -11,6 +11,7 @@ Tests cover:
 from typing import TYPE_CHECKING, cast
 
 import pytest
+
 from aletheia import ValidationError
 from aletheia.dsl import Property, Signal, eventually_always, infinitely_often, never
 

@@ -47,6 +47,7 @@ from _excel_helpers import (
     make_dbc_workbook,
     make_when_then_workbook,
 )
+
 from aletheia import ValidationError
 from aletheia.checks import signal, when
 from aletheia.excel_loader import (

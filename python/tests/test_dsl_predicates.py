@@ -9,6 +9,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, cast
 
 import pytest
+
 from aletheia import ValidationError
 from aletheia.dsl import Predicate, Property, Signal
 

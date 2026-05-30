@@ -17,11 +17,11 @@ Atheris dependency is opt-in (``aletheia[fuzz]`` extra) per AGENTS.md cat
 from __future__ import annotations
 
 import atheris  # type: ignore[import-not-found]
-
 from _atheris_runner import run
 
 with atheris.instrument_imports():
     import json
+
     from aletheia.protocols import dump_json
 
 

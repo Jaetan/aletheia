@@ -9,7 +9,6 @@ from aletheia.client import AletheiaClient
 from aletheia.dsl import Signal
 from aletheia.protocols import DLCCode
 
-
 SIMPLE_DBC = dbc([
     message(256, "Test", [signal("Speed", unit="kph")]),
 ])

@@ -6,14 +6,14 @@ names, factor zero, multiplexor issues, global name collisions,
 min > max).
 """
 
-from fractions import Fraction
 from typing import Unpack, cast
 
 import pytest
-from _dbc_helpers import SignalOverrides
+from _dbc_helpers import SignalOverrides, mux_signal
 from _dbc_helpers import dbc as _build_dbc
 from _dbc_helpers import message as _build_msg
 from _dbc_helpers import signal as _build_sig
+
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError
 from aletheia.protocols import (
     Command,
@@ -60,21 +60,7 @@ def _make_mux_signal(
     length: int = 8,
 ) -> DBCSignalMultiplexed:
     """Build a multiplexed DBC signal."""
-    return DBCSignalMultiplexed(
-        name=name,
-        startBit=start_bit,
-        length=length,
-        byteOrder="little_endian",
-        signed=False,
-        factor=Fraction(1),
-        offset=Fraction(0),
-        minimum=Fraction(0),
-        maximum=Fraction(255),
-        unit="",
-        presence="multiplexed",
-        multiplexor=multiplexor,
-        multiplex_values=[mux_value],
-    )
+    return mux_signal(name, multiplexor, [mux_value], start_bit=start_bit, length=length)
 
 
 class TestValidDBCPassesClean:

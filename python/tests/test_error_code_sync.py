@@ -22,7 +22,6 @@ import pytest
 
 from aletheia.error_codes import ErrorCode
 
-
 _AGDA_FILE = (
     Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "Error.agda"
 )

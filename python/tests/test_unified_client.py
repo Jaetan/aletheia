@@ -21,6 +21,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from _stream_helpers import send_test_frame
 
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, Signal, StateError
 from aletheia.dbc_converter import dbc_to_json
@@ -111,12 +112,7 @@ class TestAletheiaClientStreaming:
             client.start_stream()
 
             # Send frame that violates (value = 200 > 100)
-            response = client.send_frame(
-                timestamp=1000,
-                can_id=256,
-                dlc=DLCCode(8),
-                data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
-            )
+            response = send_test_frame(client, [200, 0, 0, 0, 0, 0, 0, 0])
             # R23 — AGDA-D-12.1: send_frame returns PropertyBatchResponse;
             # the violation is the (typically single) entry in results.
             assert response.get("type") == "property_batch"

@@ -13,12 +13,11 @@ Run:
 from __future__ import annotations
 
 import atheris  # type: ignore[import-not-found]
-
 from _atheris_runner import run
 
 with atheris.instrument_imports():
+    from aletheia import AletheiaError, InputBoundExceededError
     from aletheia.dbc_converter import dbc_to_json
-    from aletheia import InputBoundExceededError, AletheiaError
 
 
 def fuzz_one_input(data: bytes) -> None:

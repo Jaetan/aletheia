@@ -22,7 +22,6 @@ from aletheia import (
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.protocols import DBCDefinition, DLCCode
 
-
 # -----------------------------------------------------------------------------
 # Backend Protocol structural conformance
 # -----------------------------------------------------------------------------

@@ -25,7 +25,6 @@ from typing import cast
 
 import pytest
 import yaml
-
 from _yaml_shape import as_str_object_dict
 
 _VALID_STATUSES: frozenset[str] = frozenset(

@@ -3,17 +3,16 @@
 import pytest
 
 from aletheia import AletheiaClient, ProtocolError, StateError, ValidationError
-from aletheia.client._helpers.rational import float_to_rational, parse_rational
-from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
-    SIMPLE_VALUE_CONDITIONS,
+    SIMPLE_EQUALS_CONDITIONS,
     SIMPLE_RANGE_CONDITIONS,
     SIMPLE_SETTLES_CONDITIONS,
-    SIMPLE_EQUALS_CONDITIONS,
+    SIMPLE_VALUE_CONDITIONS,
 )
+from aletheia.client._helpers.rational import float_to_rational, parse_rational
+from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia.protocols import DLCByteCount, DLCCode
-
 
 # ============================================================================
 # T-1: bytes_to_dlc tests

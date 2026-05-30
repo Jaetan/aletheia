@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import cast
 
 import yaml
-
 from _yaml_shape import as_str_object_dict
+
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
 
 _VALID_LEVELS: frozenset[str] = frozenset({"debug", "info", "warn"})
