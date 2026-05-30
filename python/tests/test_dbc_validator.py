@@ -6,20 +6,29 @@ names, factor zero, multiplexor issues, global name collisions,
 min > max).
 """
 
-from typing import Any
+from fractions import Fraction
+from typing import Unpack, cast
 
 import pytest
+from _dbc_helpers import SignalOverrides
 from _dbc_helpers import dbc as _build_dbc
 from _dbc_helpers import message as _build_msg
 from _dbc_helpers import signal as _build_sig
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError
+from aletheia.protocols import (
+    Command,
+    DBCMessage,
+    DBCSignal,
+    DBCSignalMultiplexed,
+    Response,
+)
 
 # Validator tests default to 8-bit signals ranged 0..255, matching the
 # narrow signals most DBC structural-validation cases exercise.
-_VALIDATOR_DEFAULTS: dict[str, Any] = {"length": 8, "maximum": 255.0}
+_VALIDATOR_DEFAULTS: SignalOverrides = {"length": 8, "maximum": 255.0}
 
 
-def _make_dbc(messages: list[dict]) -> DBCDefinition:
+def _make_dbc(messages: list[DBCMessage]) -> DBCDefinition:
     """Build a minimal DBC with given messages."""
     return _build_dbc(messages)
 
@@ -27,18 +36,18 @@ def _make_dbc(messages: list[dict]) -> DBCDefinition:
 def _make_message(
     msg_id: int,
     name: str,
-    signals: list[dict] | None = None,
+    signals: list[DBCSignal] | None = None,
     *,
     dlc: int = 8,
     sender: str = "ECU",
-) -> dict:
+) -> DBCMessage:
     """Build a DBC message."""
     return _build_msg(msg_id, name, signals or [], dlc=dlc, sender=sender)
 
 
-def _make_signal(name: str, **overrides: object) -> dict:
+def _make_signal(name: str, **overrides: Unpack[SignalOverrides]) -> DBCSignal:
     """Build an 8-bit byte-aligned signal with validator-friendly defaults."""
-    merged = {**_VALIDATOR_DEFAULTS, **overrides}
+    merged: SignalOverrides = {**_VALIDATOR_DEFAULTS, **overrides}
     return _build_sig(name, **merged)
 
 
@@ -49,20 +58,23 @@ def _make_mux_signal(
     *,
     start_bit: int = 0,
     length: int = 8,
-) -> dict:
+) -> DBCSignalMultiplexed:
     """Build a multiplexed DBC signal."""
-    sig = _build_sig(
-        name,
-        start_bit=start_bit,
+    return DBCSignalMultiplexed(
+        name=name,
+        startBit=start_bit,
         length=length,
-        maximum=255.0,
+        byteOrder="little_endian",
+        signed=False,
+        factor=Fraction(1),
+        offset=Fraction(0),
+        minimum=Fraction(0),
+        maximum=Fraction(255),
+        unit="",
+        presence="multiplexed",
+        multiplexor=multiplexor,
+        multiplex_values=[mux_value],
     )
-    # Multiplexed signals have no 'presence' field (it's mutually exclusive
-    # with the multiplexor pair) — drop it and add the mux fields.
-    sig.pop("presence", None)
-    sig["multiplexor"] = multiplexor
-    sig["multiplex_values"] = [mux_value]
-    return sig
 
 
 class TestValidDBCPassesClean:
@@ -543,10 +555,9 @@ class TestNonIntegerMultiplexValue:
 
     def test_float_in_multiplex_values_rejected(self) -> None:
         """Float in multiplex_values surfaces parse_non_integer_multiplex_value."""
-        sig: dict[str, Any] = {**_make_signal("Mode", start_bit=0, length=8, maximum=255.0)}
-        sig.pop("presence", None)
-        sig["multiplexor"] = "Mux"
-        sig["multiplex_values"] = [1.5]  # float — every element must be a JSON natural
+        sig = _make_mux_signal("Mode", "Mux", 0, start_bit=0, length=8)
+        # Adversarial: a float is not a valid JSON natural; the parser must reject.
+        sig["multiplex_values"] = cast("list[int]", [1.5])
         dbc = _make_dbc([_make_message(0x100, "Msg1", [sig])])
         with AletheiaClient() as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(dbc)
@@ -554,10 +565,9 @@ class TestNonIntegerMultiplexValue:
 
     def test_string_in_multiplex_values_rejected(self) -> None:
         """Non-numeric in multiplex_values also surfaces the same typed code."""
-        sig: dict[str, Any] = {**_make_signal("Mode", start_bit=0, length=8, maximum=255.0)}
-        sig.pop("presence", None)
-        sig["multiplexor"] = "Mux"
-        sig["multiplex_values"] = ["not_a_number"]
+        sig = _make_mux_signal("Mode", "Mux", 0, start_bit=0, length=8)
+        # Adversarial: a non-numeric element is not a valid JSON natural.
+        sig["multiplex_values"] = cast("list[int]", ["not_a_number"])
         dbc = _make_dbc([_make_message(0x100, "Msg1", [sig])])
         with AletheiaClient() as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(dbc)
@@ -964,12 +974,17 @@ def test_unknown_severity_raises_protocol_error(
     dbc = _make_dbc([_make_message(0x100, "Msg1", [_make_signal("Sig1")])])
     with AletheiaClient() as client:
 
-        def fake_send(_cmd: object) -> dict:
-            return {
-                "status": "validation",
-                "has_errors": False,
-                "issues": [{"severity": "info", "code": "empty_message", "detail": "x"}],
-            }
+        def fake_send(_cmd: Command) -> Response:
+            # Inject a deliberately-unknown issue severity to exercise the
+            # client's validation-response rejection path.
+            return cast(
+                "Response",
+                {
+                    "status": "validation",
+                    "has_errors": False,
+                    "issues": [{"severity": "info", "code": "empty_message", "detail": "x"}],
+                },
+            )
 
         monkeypatch.setattr(client, "_send_command", fake_send)
         with pytest.raises(ProtocolError, match="severity"):

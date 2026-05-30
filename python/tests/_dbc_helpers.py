@@ -23,8 +23,13 @@ if TYPE_CHECKING:
     from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal
 
 
-class _SignalOverrides(TypedDict, total=False):
-    """Optional keyword overrides for :func:`signal` (all default if absent)."""
+class SignalOverrides(TypedDict, total=False):
+    """Optional keyword overrides for :func:`signal` (all default if absent).
+
+    Public so sibling test modules that wrap :func:`signal` with their own
+    defaults can type their forwarding ``**kwargs`` as ``Unpack[SignalOverrides]``
+    (e.g. ``test_dbc_validator._make_signal``).
+    """
 
     start_bit: int
     length: int
@@ -47,7 +52,7 @@ class _MessageOverrides(TypedDict, total=False):
     senders: list[str]
 
 
-def signal(name: str, **overrides: Unpack[_SignalOverrides]) -> DBCSignal:
+def signal(name: str, **overrides: Unpack[SignalOverrides]) -> DBCSignal:
     """Build a DBC signal dict with sensible defaults; kwargs override.
 
     Numeric fields are converted to :class:`Fraction` via
