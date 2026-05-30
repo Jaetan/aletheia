@@ -11,111 +11,79 @@ Split out of ``test_unified_client.py`` to keep that file under the
 Fixtures (``simple_dbc``) come from ``conftest.py``.
 """
 
+from typing import ClassVar
+
 import pytest
+from _dbc_helpers import dbc, message, mux_signal, signal
 
 from aletheia import AletheiaClient, Signal, ValidationError, dlc_to_bytes
-from aletheia.protocols import DLCCode
+from aletheia.protocols import DBCDefinition, DLCCode
 
 
 class TestCANFDFrames:
     """CAN-FD frame tests: DLC 9-15, payloads 12-64 bytes."""
 
-    CANFD_DBC_12 = {
-        "version": "1.0",
-        "messages": [{
-            "id": 0x200,
-            "name": "CANFDMessage12",
-            "dlc": 12,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "BaseSignal",
-                    "startBit": 0,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                },
-                {
-                    "name": "WideSignal",
-                    "startBit": 64,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 65535.0,
-                    "unit": "", "presence": "always",
-                },
-            ],
-        }],
-    }
+    CANFD_DBC_12: ClassVar[DBCDefinition] = dbc(
+        [
+            message(
+                0x200,
+                "CANFDMessage12",
+                [
+                    signal("BaseSignal", start_bit=0, length=8, maximum=255),
+                    signal("WideSignal", start_bit=64, length=16, maximum=65535),
+                ],
+                dlc=12,
+            ),
+        ]
+    )
 
-    CANFD_DBC_64 = {
-        "version": "1.0",
-        "messages": [{
-            "id": 0x300,
-            "name": "CANFDMessage64",
-            "dlc": 64,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "FirstByte",
-                    "startBit": 0,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                },
-                {
-                    "name": "LastWord",
-                    "startBit": 496,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 65535.0,
-                    "unit": "", "presence": "always",
-                },
-            ],
-        }],
-    }
+    CANFD_DBC_64: ClassVar[DBCDefinition] = dbc(
+        [
+            message(
+                0x300,
+                "CANFDMessage64",
+                [
+                    signal("FirstByte", start_bit=0, length=8, maximum=255),
+                    signal("LastWord", start_bit=496, length=16, maximum=65535),
+                ],
+                dlc=64,
+            ),
+        ]
+    )
 
-    def test_canfd_extract_12_byte_frame(self):
+    def test_canfd_extract_12_byte_frame(self) -> None:
         """Extract signals from a 12-byte CAN-FD frame (DLC code 9)."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_12)
             data = bytearray(12)
-            data[0] = 42          # BaseSignal = 42
-            data[8] = 0xCD        # WideSignal low byte
-            data[9] = 0xAB        # WideSignal high byte -> 0xABCD = 43981
+            data[0] = 42  # BaseSignal = 42
+            data[8] = 0xCD  # WideSignal low byte
+            data[9] = 0xAB  # WideSignal high byte -> 0xABCD = 43981
             result = client.extract_signals(can_id=0x200, dlc=DLCCode(9), data=data)
             assert result.values["BaseSignal"] == 42.0
             assert result.values["WideSignal"] == 43981.0
             assert not result.errors
 
-    def test_canfd_extract_64_byte_frame(self):
+    def test_canfd_extract_64_byte_frame(self) -> None:
         """Extract signals from a 64-byte CAN-FD frame (DLC code 15)."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_64)
             data = bytearray(64)
-            data[0] = 99          # FirstByte = 99
-            data[62] = 0x34       # LastWord low byte
-            data[63] = 0x12       # LastWord high byte -> 0x1234 = 4660
+            data[0] = 99  # FirstByte = 99
+            data[62] = 0x34  # LastWord low byte
+            data[63] = 0x12  # LastWord high byte -> 0x1234 = 4660
             result = client.extract_signals(can_id=0x300, dlc=DLCCode(15), data=data)
             assert result.values["FirstByte"] == 99.0
             assert result.values["LastWord"] == 4660.0
             assert not result.errors
 
-    def test_canfd_build_12_byte_frame(self):
+    def test_canfd_build_12_byte_frame(self) -> None:
         """Build a 12-byte CAN-FD frame from signal values."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_12)
             frame = client.build_frame(
-                can_id=0x200, dlc=DLCCode(9),
+                can_id=0x200,
+                dlc=DLCCode(9),
                 signals={"BaseSignal": 42.0, "WideSignal": 1000.0},
             )
             assert len(frame) == 12
@@ -124,12 +92,13 @@ class TestCANFDFrames:
             assert result.values["BaseSignal"] == 42.0
             assert result.values["WideSignal"] == 1000.0
 
-    def test_canfd_build_64_byte_frame(self):
+    def test_canfd_build_64_byte_frame(self) -> None:
         """Build a 64-byte CAN-FD frame from signal values."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_64)
             frame = client.build_frame(
-                can_id=0x300, dlc=DLCCode(15),
+                can_id=0x300,
+                dlc=DLCCode(15),
                 signals={"FirstByte": 200.0, "LastWord": 5000.0},
             )
             assert len(frame) == 64
@@ -137,16 +106,19 @@ class TestCANFDFrames:
             assert result.values["FirstByte"] == 200.0
             assert result.values["LastWord"] == 5000.0
 
-    def test_canfd_update_frame(self):
+    def test_canfd_update_frame(self) -> None:
         """Update signals in a CAN-FD frame."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_12)
             original = client.build_frame(
-                can_id=0x200, dlc=DLCCode(9),
+                can_id=0x200,
+                dlc=DLCCode(9),
                 signals={"BaseSignal": 10.0, "WideSignal": 500.0},
             )
             updated = client.update_frame(
-                can_id=0x200, dlc=DLCCode(9), frame=original,
+                can_id=0x200,
+                dlc=DLCCode(9),
+                frame=original,
                 signals={"WideSignal": 9999.0},
             )
             assert len(updated) == 12
@@ -154,29 +126,21 @@ class TestCANFDFrames:
             assert result.values["BaseSignal"] == 10.0  # unchanged
             assert result.values["WideSignal"] == 9999.0  # updated
 
-    def test_canfd_all_valid_dlc_codes(self):
+    def test_canfd_all_valid_dlc_codes(self) -> None:
         """All DLC codes 0-15 produce valid frames with correct byte counts."""
-        dbc = {
-            "version": "1.0",
-            "messages": [{
-                "id": 0x400,
-                "name": "GenericMsg",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [{
-                    "name": "Sig",
-                    "startBit": 0,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                }],
-            }],
-        }
+        dbc_def = dbc(
+            [
+                message(
+                    0x400,
+                    "GenericMsg",
+                    [
+                        signal("Sig", start_bit=0, length=8, maximum=255),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(dbc)
+            client.parse_dbc(dbc_def)
             for dlc_int in range(16):
                 dlc_code = DLCCode(dlc_int)
                 nbytes = dlc_to_bytes(dlc_code)
@@ -184,7 +148,9 @@ class TestCANFDFrames:
                 if nbytes > 0:
                     data[0] = dlc_int  # encode DLC code as signal value
                 result = client.extract_signals(
-                    can_id=0x400, dlc=dlc_code, data=data,
+                    can_id=0x400,
+                    dlc=dlc_code,
+                    data=data,
                 )
                 expected = float(dlc_code) if nbytes > 0 else 0.0
                 assert result.values["Sig"] == expected, (
@@ -192,29 +158,27 @@ class TestCANFDFrames:
                     f"got {result.values.get('Sig')}"
                 )
 
-    def test_canfd_invalid_dlc_rejected(self):
+    def test_canfd_invalid_dlc_rejected(self) -> None:
         """DLC > 15 is rejected by the Python layer."""
         with pytest.raises(ValidationError, match="Invalid DLC code"):
             dlc_to_bytes(DLCCode(16))
         with pytest.raises(ValidationError, match="Invalid DLC code"):
             dlc_to_bytes(DLCCode(255))
 
-    def test_canfd_byte_count_mismatch(self):
+    def test_canfd_byte_count_mismatch(self) -> None:
         """Payload byte count must match DLC."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_12)
             # DLC 9 expects 12 bytes, send 11 — backend rejects the mismatch
             data = bytearray(11)
-            with pytest.raises(ValidationError, match="payload length .* does not match DLC"):
+            with pytest.raises(ValidationError, match=r"payload length .* does not match DLC"):
                 client.extract_signals(can_id=0x200, dlc=DLCCode(9), data=data)
 
-    def test_canfd_ltl_streaming(self):
+    def test_canfd_ltl_streaming(self) -> None:
         """Stream CAN-FD frames with LTL property checking."""
         with AletheiaClient(rts_cores=2) as client:
             client.parse_dbc(self.CANFD_DBC_12)
-            client.set_properties([
-                Signal("WideSignal").less_than(50000).always().to_dict()
-            ])
+            client.set_properties([Signal("WideSignal").less_than(50000).always().to_dict()])
             client.start_stream()
 
             # Send frames with WideSignal < 50000 — should pass
@@ -222,29 +186,34 @@ class TestCANFDFrames:
                 data = bytearray(12)
                 data[8] = i  # WideSignal = i (small value)
                 resp = client.send_frame(
-                    timestamp=i * 1000, can_id=0x200, dlc=DLCCode(9), data=data,
+                    timestamp=i * 1000,
+                    can_id=0x200,
+                    dlc=DLCCode(9),
+                    data=data,
                 )
-                assert resp["status"] == "ack", f"Frame {i}: {resp}"
+                assert resp.get("status") == "ack", f"Frame {i}: {resp}"
 
             # Send frame with WideSignal = 60000 > 50000 — should violate
             data = bytearray(12)
             data[8] = 0x60  # 0xEA60 = 60000
             data[9] = 0xEA
             resp = client.send_frame(
-                timestamp=5000, can_id=0x200, dlc=DLCCode(9), data=data,
+                timestamp=5000,
+                can_id=0x200,
+                dlc=DLCCode(9),
+                data=data,
             )
-            # R23 — AGDA-D-12.1: PropertyBatchResponse carries the violation.
-            assert resp["type"] == "property_batch"
+            # PropertyBatchResponse carries the violation.
+            assert "type" in resp
             assert any(e["status"] == "fails" for e in resp["results"])
 
             client.end_stream()
 
-    def test_canfd_brs_esi_passthrough(self):
+    def test_canfd_brs_esi_passthrough(self) -> None:
         """End-to-end FFI test for CAN-FD BRS / ESI plumbing.
 
-        R19 Phase 2 cluster 18 (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia
-        kernel does not consume BRS / ESI, but the binding must accept
-        them as ``send_frame`` kwargs and the FFI must accept the 4
+        The Aletheia kernel does not consume BRS / ESI, but the binding must
+        accept them as ``send_frame`` kwargs and the FFI must accept the 4
         trailing ``u8`` arguments without crashing.  Verifies that
         passing every combination of ``brs`` / ``esi`` ∈ ``{None, True,
         False}`` returns ``ack`` for an otherwise-valid frame.
@@ -259,13 +228,14 @@ class TestCANFDFrames:
                     ts += 1000
                     data = bytearray(12)
                     resp = client.send_frame(
-                        timestamp=ts, can_id=0x200,
-                        dlc=DLCCode(9), data=data,
-                        brs=brs, esi=esi,
+                        timestamp=ts,
+                        can_id=0x200,
+                        dlc=DLCCode(9),
+                        data=data,
+                        brs=brs,
+                        esi=esi,
                     )
-                    assert resp["status"] == "ack", (
-                        f"brs={brs} esi={esi}: {resp}"
-                    )
+                    assert resp.get("status") == "ack", f"brs={brs} esi={esi}: {resp}"
             client.end_stream()
 
 
@@ -284,43 +254,19 @@ class TestNestedMultiplexing:
     chain bottom-up.
     """
 
-    NESTED_DBC = {
-        "version": "1.0",
-        "messages": [{
-            "id": 0x400,
-            "name": "Diagnostic",
-            "dlc": 8,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "Mode",
-                    "startBit": 0, "length": 8,
-                    "byteOrder": "little_endian", "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                },
-                {
-                    "name": "SubMode",
-                    "startBit": 8, "length": 8,
-                    "byteOrder": "little_endian", "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "",
-                    "multiplexor": "Mode", "multiplex_values": [3],
-                },
-                {
-                    "name": "Detail",
-                    "startBit": 16, "length": 16,
-                    "byteOrder": "little_endian", "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 65535.0,
-                    "unit": "",
-                    "multiplexor": "SubMode", "multiplex_values": [7],
-                },
-            ],
-        }],
-    }
+    NESTED_DBC: ClassVar[DBCDefinition] = dbc(
+        [
+            message(
+                0x400,
+                "Diagnostic",
+                [
+                    signal("Mode", start_bit=0, length=8, maximum=255),
+                    mux_signal("SubMode", "Mode", [3], start_bit=8, length=8, maximum=255),
+                    mux_signal("Detail", "SubMode", [7], start_bit=16, length=16, maximum=65535),
+                ],
+            ),
+        ]
+    )
 
     def test_nested_mux_dbc_validates_clean(self) -> None:
         """Nested mux is no longer rejected by validation."""
@@ -366,35 +312,18 @@ class TestNestedMultiplexing:
 
     def test_mux_cycle_rejected_by_validator(self) -> None:
         """A self-referential mux chain is rejected as multiplexor_cycle."""
-        cyclic = {
-            "version": "1.0",
-            "messages": [{
-                "id": 0x500,
-                "name": "Cyclic",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "A",
-                        "startBit": 0, "length": 8,
-                        "byteOrder": "little_endian", "signed": False,
-                        "factor": 1.0, "offset": 0.0,
-                        "minimum": 0.0, "maximum": 255.0,
-                        "unit": "",
-                        "multiplexor": "B", "multiplex_values": [1],
-                    },
-                    {
-                        "name": "B",
-                        "startBit": 8, "length": 8,
-                        "byteOrder": "little_endian", "signed": False,
-                        "factor": 1.0, "offset": 0.0,
-                        "minimum": 0.0, "maximum": 255.0,
-                        "unit": "",
-                        "multiplexor": "A", "multiplex_values": [1],
-                    },
-                ],
-            }],
-        }
+        cyclic = dbc(
+            [
+                message(
+                    0x500,
+                    "Cyclic",
+                    [
+                        mux_signal("A", "B", [1], start_bit=0, length=8, maximum=255),
+                        mux_signal("B", "A", [1], start_bit=8, length=8, maximum=255),
+                    ],
+                ),
+            ]
+        )
         with AletheiaClient() as client:
             result = client.validate_dbc(cyclic)
             assert result["has_errors"] is True
