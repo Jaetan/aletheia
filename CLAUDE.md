@@ -108,8 +108,8 @@ cabal run shake -- build
 
 # Tests (each from the right cwd)
 cd python && python3 -m pytest tests/ -v
-cd python && basedpyright aletheia/
-cd python && pylint aletheia/
+cd python && basedpyright aletheia/ benchmarks/ tests/
+cd python && pylint aletheia/ tests/ benchmarks/
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 cd go && go test ./aletheia/ -v -count=1 -race
 

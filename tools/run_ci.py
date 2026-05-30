@@ -623,12 +623,13 @@ def _run_binding_tests(runner: Runner) -> None:
 def _run_lints(runner: Runner) -> None:
     """Run steps 22-27: the Python / Go / C++ lint gates plus the UBSan ctest lane."""
     # ─── Steps 20-24: Lints ────────────────────────────────────────────────
-    # ``benchmarks/`` joined the basedpyright gate 2026-05-09; the asymmetry
-    # against pylint's coverage was the same one
-    # ``feedback_no_subsumption_asymmetry.md`` flagged on the pylint side.
+    # ``benchmarks/`` joined the basedpyright gate 2026-05-09 and ``tests/`` on
+    # 2026-05-31; both closed the asymmetry against pylint's coverage that
+    # ``feedback_no_subsumption_asymmetry.md`` flagged — pylint already lints
+    # ``aletheia/ tests/ benchmarks/``, and basedpyright now matches it.
     runner.step(
         "basedpyright",
-        ["basedpyright", "aletheia/", "benchmarks/"],
+        ["basedpyright", "aletheia/", "benchmarks/", "tests/"],
         cwd=runner.repo_root / "python",
     )
 
