@@ -1,6 +1,9 @@
 """Tests for utility types, DLC conversion, rational parsing, and condition sets."""
 
+import math
+
 import pytest
+from _dbc_helpers import dbc, message, signal
 
 from aletheia import AletheiaClient, ProtocolError, StateError, ValidationError
 from aletheia._check_conditions import (
@@ -17,6 +20,7 @@ from aletheia.protocols import DLCByteCount, DLCCode
 # ============================================================================
 # T-1: bytes_to_dlc tests
 # ============================================================================
+
 
 class TestBytesToDlc:
     """Tests for bytes_to_dlc reverse mapping."""
@@ -50,6 +54,7 @@ class TestBytesToDlc:
 # T-6: Condition set identity
 # ============================================================================
 
+
 class TestConditionSets:
     """Verify ALL_SIMPLE_CONDITIONS is the union of component sets."""
 
@@ -61,7 +66,7 @@ class TestConditionSets:
             | SIMPLE_SETTLES_CONDITIONS
             | SIMPLE_EQUALS_CONDITIONS
         )
-        assert ALL_SIMPLE_CONDITIONS == expected
+        assert expected == ALL_SIMPLE_CONDITIONS
 
     def test_component_sets_disjoint(self) -> None:
         """The four component sets are pairwise disjoint."""
@@ -72,13 +77,14 @@ class TestConditionSets:
             SIMPLE_EQUALS_CONDITIONS,
         ]
         for i, s1 in enumerate(sets):
-            for s2 in sets[i + 1:]:
+            for s2 in sets[i + 1 :]:
                 assert s1.isdisjoint(s2), f"Overlap: {s1 & s2}"
 
 
 # ============================================================================
 # T-5: _parse_rational string path
 # ============================================================================
+
 
 class TestParseRational:
     """Tests for parse_rational helper function."""
@@ -89,25 +95,23 @@ class TestParseRational:
 
     def test_float_value(self) -> None:
         """Verify float value."""
-        assert parse_rational(3.14) == pytest.approx(3.14)
+        assert math.isclose(parse_rational(3.14), 3.14)
 
     def test_rational_string(self) -> None:
         """Verify rational string."""
-        assert parse_rational("3/4") == pytest.approx(0.75)
+        assert math.isclose(parse_rational("3/4"), 0.75)
 
     def test_rational_string_negative(self) -> None:
         """Verify rational string negative."""
-        assert parse_rational("-1/2") == pytest.approx(-0.5)
+        assert math.isclose(parse_rational("-1/2"), -0.5)
 
     def test_numeric_string(self) -> None:
         """Verify numeric string."""
-        assert parse_rational("2.5") == pytest.approx(2.5)
+        assert math.isclose(parse_rational("2.5"), 2.5)
 
     def test_rational_dict(self) -> None:
         """Verify rational dict."""
-        assert parse_rational(
-            {"numerator": 1, "denominator": 3}
-        ) == pytest.approx(1 / 3)
+        assert math.isclose(parse_rational({"numerator": 1, "denominator": 3}), 1 / 3)
 
     def test_non_positive_denominator_string_raises(self) -> None:
         """Zero and negative denominators raise (positive-denom canonical form)."""
@@ -126,6 +130,7 @@ class TestParseRational:
 # T-7: float_to_rational binary FFI conversion
 # ============================================================================
 
+
 class TestFloatToRational:
     """Tests for float_to_rational 10^9 scaling."""
 
@@ -140,7 +145,7 @@ class TestFloatToRational:
         n, d = float_to_rational(3.14)
         assert n == 3_140_000_000
         assert d == 1_000_000_000
-        assert n / d == pytest.approx(3.14)
+        assert math.isclose(n / d, 3.14)
 
     def test_zero(self) -> None:
         """Verify zero."""
@@ -159,18 +164,19 @@ class TestFloatToRational:
         n, d = float_to_rational(0.001)
         assert n == 1_000_000
         assert d == 1_000_000_000
-        assert n / d == pytest.approx(0.001)
+        assert math.isclose(n / d, 0.001)
 
     def test_roundtrip_precision(self) -> None:
         """Values round-trip through float_to_rational with 9 decimal places."""
         for value in [0.0, 1.0, -1.0, 0.123456789, 220.0, 0.01, 65535.0]:
             n, d = float_to_rational(value)
-            assert n / d == pytest.approx(value, abs=1e-9)
+            assert math.isclose(n / d, value, abs_tol=1e-9)
 
 
 # ============================================================================
 # T-8: Signal index cache integration
 # ============================================================================
+
 
 class TestSignalIndexCache:
     """Tests for signal index cache populated by parse_dbc (behavior-level)."""
@@ -178,64 +184,44 @@ class TestSignalIndexCache:
     def test_cache_populated_on_parse_dbc(self) -> None:
         """After parse_dbc, build_frame resolves signals by name."""
         with AletheiaClient() as client:
-            dbc = {
-                "version": "1.0",
-                "messages": [{
-                    "id": 256, "name": "Msg", "dlc": 8, "sender": "ECU",
-                    "signals": [
-                        {"name": "Sig0", "startBit": 0, "length": 8,
-                         "byteOrder": "little_endian", "signed": False,
-                         "factor": 1.0, "offset": 0.0,
-                         "minimum": 0.0, "maximum": 255.0,
-                         "unit": "", "presence": "always"},
-                        {"name": "Sig1", "startBit": 8, "length": 8,
-                         "byteOrder": "little_endian", "signed": False,
-                         "factor": 1.0, "offset": 0.0,
-                         "minimum": 0.0, "maximum": 255.0,
-                         "unit": "", "presence": "always"},
-                    ],
-                }],
-            }
-            client.parse_dbc(dbc)
+            dbc_def = dbc(
+                [
+                    message(
+                        256,
+                        "Msg",
+                        [
+                            signal("Sig0", start_bit=0, length=8, maximum=255),
+                            signal("Sig1", start_bit=8, length=8, maximum=255),
+                        ],
+                    ),
+                ]
+            )
+            client.parse_dbc(dbc_def)
             # Both signals defined in the DBC must resolve.
             frame = client.build_frame(
-                can_id=256, dlc=DLCCode(8), signals={"Sig0": 1.0, "Sig1": 2.0},
+                can_id=256,
+                dlc=DLCCode(8),
+                signals={"Sig0": 1.0, "Sig1": 2.0},
             )
             assert len(frame) == 8
 
     def test_cache_cleared_on_new_dbc(self) -> None:
         """A second parse_dbc replaces — not extends — the previous cache."""
         with AletheiaClient() as client:
-            dbc1 = {
-                "version": "1.0",
-                "messages": [{
-                    "id": 256, "name": "Msg1", "dlc": 8, "sender": "ECU",
-                    "signals": [
-                        {"name": "OldSig", "startBit": 0, "length": 8,
-                         "byteOrder": "little_endian", "signed": False,
-                         "factor": 1.0, "offset": 0.0,
-                         "minimum": 0.0, "maximum": 255.0,
-                         "unit": "", "presence": "always"},
-                    ],
-                }],
-            }
+            dbc1 = dbc(
+                [
+                    message(256, "Msg1", [signal("OldSig", length=8, maximum=255)]),
+                ]
+            )
             client.parse_dbc(dbc1)
             # Sanity: dbc1 is live.
             client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1.0})
 
-            dbc2 = {
-                "version": "1.0",
-                "messages": [{
-                    "id": 512, "name": "Msg2", "dlc": 8, "sender": "ECU",
-                    "signals": [
-                        {"name": "NewSig", "startBit": 0, "length": 8,
-                         "byteOrder": "little_endian", "signed": False,
-                         "factor": 1.0, "offset": 0.0,
-                         "minimum": 0.0, "maximum": 255.0,
-                         "unit": "", "presence": "always"},
-                    ],
-                }],
-            }
+            dbc2 = dbc(
+                [
+                    message(512, "Msg2", [signal("NewSig", length=8, maximum=255)]),
+                ]
+            )
             client.parse_dbc(dbc2)
             # dbc1's 256 key must be gone; dbc2's 512 key must be live.
             with pytest.raises(ValidationError, match="no DBC message for CAN ID 256"):
@@ -244,54 +230,41 @@ class TestSignalIndexCache:
 
     def test_build_frame_without_dbc_raises(self) -> None:
         """build_frame before parse_dbc raises with 'DBC not loaded'."""
-        with AletheiaClient() as client:
-            with pytest.raises(StateError, match="DBC not loaded"):
-                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
+        with (
+            AletheiaClient() as client,
+            pytest.raises(StateError, match="DBC not loaded"),
+        ):
+            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
 
     def test_build_frame_unknown_signal_raises(self) -> None:
         """build_frame with unknown signal name raises."""
         with AletheiaClient() as client:
-            dbc = {
-                "version": "1.0",
-                "messages": [{
-                    "id": 256, "name": "Msg", "dlc": 8, "sender": "ECU",
-                    "signals": [
-                        {"name": "RealSig", "startBit": 0, "length": 8,
-                         "byteOrder": "little_endian", "signed": False,
-                         "factor": 1.0, "offset": 0.0,
-                         "minimum": 0.0, "maximum": 255.0,
-                         "unit": "", "presence": "always"},
-                    ],
-                }],
-            }
-            client.parse_dbc(dbc)
+            dbc_def = dbc(
+                [
+                    message(256, "Msg", [signal("RealSig", length=8, maximum=255)]),
+                ]
+            )
+            client.parse_dbc(dbc_def)
             with pytest.raises(ValidationError, match="unknown signal"):
                 client.build_frame(can_id=256, dlc=DLCCode(8), signals={"NoSuchSig": 1.0})
 
     def test_dlc_payload_mismatch_extract(self) -> None:
         """extract_signals rejects payload/DLC size mismatch."""
         with AletheiaClient() as client:
-            dbc = {
-                "version": "1.0",
-                "messages": [{
-                    "id": 256, "name": "Msg", "dlc": 8, "sender": "ECU",
-                    "signals": [
-                        {"name": "Sig", "startBit": 0, "length": 8,
-                         "byteOrder": "little_endian", "signed": False,
-                         "factor": 1.0, "offset": 0.0,
-                         "minimum": 0.0, "maximum": 255.0,
-                         "unit": "", "presence": "always"},
-                    ],
-                }],
-            }
-            client.parse_dbc(dbc)
-            with pytest.raises(ValidationError, match="payload length .* does not match DLC"):
+            dbc_def = dbc(
+                [
+                    message(256, "Msg", [signal("Sig", length=8, maximum=255)]),
+                ]
+            )
+            client.parse_dbc(dbc_def)
+            with pytest.raises(ValidationError, match=r"payload length .* does not match DLC"):
                 client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(7))
 
 
 # ============================================================================
 # T-9: validate_can_id boundary conditions
 # ============================================================================
+
 
 class TestValidateCanId:
     """Boundary tests for validate_can_id."""
