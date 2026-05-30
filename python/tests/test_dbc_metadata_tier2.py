@@ -21,11 +21,12 @@ to ``float``.  DBC attribute bounds are stored as ``DecRat`` (Commit
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from _dbc_helpers import assert_non_terminating_rational, message, signal
 from aletheia import AletheiaClient
+from aletheia._dbc_types import empty_dbc_tier2
 
 if TYPE_CHECKING:
     from aletheia.protocols import (
@@ -33,9 +34,12 @@ if TYPE_CHECKING:
         DBCAttrDef,
         DBCAttrDefault,
         DBCAttribute,
+        DBCAttrTypeFloat,
         DBCComment,
         DBCDefinition,
+        DBCMessage,
         DBCNode,
+        DBCValueEntry,
     )
 
 # ---------------------------------------------------------------------------
@@ -48,7 +52,7 @@ _MSG_NAME = "Engine"
 _SIG_NAME = "Rpm"
 
 
-def _msg_one_signal() -> dict:
+def _msg_one_signal() -> DBCMessage:
     return message(
         _MSG_ID,
         _MSG_NAME,
@@ -203,9 +207,13 @@ def _full_dbc() -> DBCDefinition:
     return {
         "version": "1.0",
         "messages": [_msg_one_signal()],
+        "signalGroups": [],
+        "environmentVars": [],
+        "valueTables": [],
         "nodes": nodes,
         "comments": _all_comments(),
         "attributes": _all_attributes(),
+        "unresolvedValueDescs": [],
     }
 
 
@@ -214,9 +222,7 @@ def _empty_metadata_dbc() -> DBCDefinition:
     return {
         "version": "1.0",
         "messages": [_msg_one_signal()],
-        "nodes": [],
-        "comments": [],
-        "attributes": [],
+        **empty_dbc_tier2(),
     }
 
 
@@ -225,7 +231,7 @@ def _no_tier2_keys_dbc() -> DBCDefinition:
 
     Parser treats absent as empty; formatter still emits the arrays.
     """
-    return {"version": "1.0", "messages": [_msg_one_signal()]}
+    return cast("DBCDefinition", {"version": "1.0", "messages": [_msg_one_signal()]})
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +306,8 @@ class TestDBCMetadataTier2Roundtrip:
         float_default = next(
             a for a in attrs if a["kind"] == "default" and a["name"] == "FloatAttr"
         )
-        float_default_typed: DBCAttrDefault = float_default  # type: ignore[assignment]
+        assert float_default["kind"] == "default"
+        float_default_typed: DBCAttrDefault = float_default
         fval = float_default_typed["value"]
         assert fval["kind"] == "float"
         assert fval["value"] == Fraction(1, 8)
@@ -342,7 +349,7 @@ def cast_assign(a: DBCAttribute) -> DBCAttrAssign:
     Raises if the ``kind`` discriminator disagrees.
     """
     assert a["kind"] == "assignment"
-    return a  # type: ignore[return-value]
+    return a
 
 
 # ---------------------------------------------------------------------------
@@ -355,32 +362,38 @@ class TestDBCMetadataTier2Rejects:
 
     def test_unknown_comment_target_kind_rejected(self) -> None:
         """A ``CommentTarget`` with a bogus ``kind`` is rejected at parse time."""
-        bad: DBCDefinition = {
-            "version": "1.0",
-            "messages": [_msg_one_signal()],
-            "comments": [
-                {
-                    "target": {"kind": "bogus"},  # type: ignore[typeddict-item]
-                    "text": "x",
-                },
-            ],
-        }
+        bad = cast(
+            "DBCDefinition",
+            {
+                "version": "1.0",
+                "messages": [_msg_one_signal()],
+                "comments": [
+                    {
+                        "target": {"kind": "bogus"},
+                        "text": "x",
+                    },
+                ],
+            },
+        )
         with AletheiaClient() as client:
             result = client.parse_dbc(bad)
         assert result["status"] == "error", result
 
     def test_unknown_attribute_kind_rejected(self) -> None:
         """A ``DBCAttribute`` with a bogus ``kind`` is rejected at parse time."""
-        bad: DBCDefinition = {
-            "version": "1.0",
-            "messages": [_msg_one_signal()],
-            "attributes": [
-                {
-                    "kind": "nonsense",  # type: ignore[typeddict-item]
-                    "name": "X",
-                },
-            ],
-        }
+        bad = cast(
+            "DBCDefinition",
+            {
+                "version": "1.0",
+                "messages": [_msg_one_signal()],
+                "attributes": [
+                    {
+                        "kind": "nonsense",
+                        "name": "X",
+                    },
+                ],
+            },
+        )
         with AletheiaClient() as client:
             result = client.parse_dbc(bad)
         assert result["status"] == "error", result
@@ -392,13 +405,14 @@ class TestDBCMetadataTier2Rejects:
         ``Fraction(22, 7)`` — 3.142857… repeating — gets rejected by
         ``fromℚ?`` with ``parse_non_terminating_rational``.
         """
-        attr_type: dict = {
+        non_terminating = Fraction(22, 7)
+        attr_type: DBCAttrTypeFloat = {
             "kind": "float",
-            "min": Fraction(0),
-            "max": Fraction(1),
+            "min": non_terminating if field == "min" else Fraction(0),
+            "max": non_terminating if field == "max" else Fraction(1),
         }
-        attr_type[field] = Fraction(22, 7)
         bad: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_one_signal()],
             "attributes": [
@@ -406,7 +420,7 @@ class TestDBCMetadataTier2Rejects:
                     "kind": "definition",
                     "name": "FloatAttr",
                     "scope": "network",
-                    "attrType": attr_type,  # type: ignore[typeddict-item]
+                    "attrType": attr_type,
                 },
             ],
         }
@@ -418,6 +432,7 @@ class TestDBCMetadataTier2Rejects:
         Mirrors ATFloat min/max at the value layer.
         """
         bad: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_one_signal()],
             "attributes": [
@@ -456,6 +471,7 @@ def test_comment_text_with_special_chars() -> None:
     The parser doesn't re-interpret comment bodies.
     """
     spacey: DBCDefinition = {
+        **empty_dbc_tier2(),
         "version": "1.0",
         "messages": [_msg_one_signal()],
         "comments": [
@@ -479,7 +495,7 @@ def test_comment_text_with_special_chars() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _msg_with_signal_receivers(receivers: list[str]) -> dict:
+def _msg_with_signal_receivers(receivers: list[str]) -> DBCMessage:
     return message(
         _MSG_ID,
         _MSG_NAME,
@@ -493,6 +509,7 @@ class TestDBCSignalReceivers:
     def test_named_receivers_preserved(self) -> None:
         """A signal with explicit receiver nodes round-trips untouched."""
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_signal_receivers(["ECU_A", "ECU_B"])],
             "nodes": [{"name": "ECU_A"}, {"name": "ECU_B"}],
@@ -503,7 +520,7 @@ class TestDBCSignalReceivers:
             formatted = client.format_dbc()
 
         sig = formatted["messages"][0]["signals"][0]
-        assert sig["receivers"] == ["ECU_A", "ECU_B"]
+        assert sig.get("receivers") == ["ECU_A", "ECU_B"]
 
     def test_empty_receivers_default(self) -> None:
         """Absent receivers default to an empty list.
@@ -511,6 +528,7 @@ class TestDBCSignalReceivers:
         No receiver node referenced, the field still round-trips as present.
         """
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_signal_receivers([])],
         }
@@ -520,7 +538,7 @@ class TestDBCSignalReceivers:
             formatted = client.format_dbc()
 
         sig = formatted["messages"][0]["signals"][0]
-        assert sig["receivers"] == []
+        assert sig.get("receivers") == []
 
     def test_unknown_receiver_reported_as_warning(self) -> None:
         """A receiver that isn't a declared BU_ node surfaces a warning.
@@ -529,6 +547,7 @@ class TestDBCSignalReceivers:
         receiver name against the declared node list.
         """
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_signal_receivers(["GhostECU"])],
             "nodes": [{"name": "ECU_A"}],
@@ -548,7 +567,7 @@ class TestDBCSignalReceivers:
 def _msg_with_additional_senders(
     primary: str,
     additional: list[str],
-) -> dict:
+) -> DBCMessage:
     return message(
         _MSG_ID,
         _MSG_NAME,
@@ -570,6 +589,7 @@ class TestDBCMessageSenders:
     def test_additional_senders_preserved(self) -> None:
         """Explicit additional transmitters round-trip untouched."""
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_additional_senders("ECU_A", ["ECU_B", "ECU_C"])],
             "nodes": [{"name": "ECU_A"}, {"name": "ECU_B"}, {"name": "ECU_C"}],
@@ -581,11 +601,12 @@ class TestDBCMessageSenders:
 
         msg = formatted["messages"][0]
         assert msg["sender"] == "ECU_A"
-        assert msg["senders"] == ["ECU_B", "ECU_C"]
+        assert msg.get("senders") == ["ECU_B", "ECU_C"]
 
     def test_empty_senders_default(self) -> None:
         """Absent BO_TX_BU_ line round-trips as an empty ``senders`` list."""
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_additional_senders("ECU_A", [])],
             "nodes": [{"name": "ECU_A"}],
@@ -597,7 +618,7 @@ class TestDBCMessageSenders:
 
         msg = formatted["messages"][0]
         assert msg["sender"] == "ECU_A"
-        assert msg["senders"] == []
+        assert msg.get("senders") == []
 
     def test_unknown_additional_sender_reported_as_warning(self) -> None:
         """Additional sender not in BU_ surfaces an ``unknown_message_sender`` warning.
@@ -608,6 +629,7 @@ class TestDBCMessageSenders:
         referenced but not declared"), single wire code.
         """
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_additional_senders("ECU_A", ["GhostECU"])],
             "nodes": [{"name": "ECU_A"}],
@@ -630,7 +652,7 @@ class TestDBCMessageSenders:
 # ---------------------------------------------------------------------------
 
 
-def _msg_with_signal_value_descriptions(entries: list[dict]) -> dict:
+def _msg_with_signal_value_descriptions(entries: list[DBCValueEntry]) -> DBCMessage:
     sig = signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm")
     sig["valueDescriptions"] = entries
     return message(_MSG_ID, _MSG_NAME, [sig])
@@ -647,12 +669,13 @@ class TestDBCSignalValueDescriptions:
 
         ``parse_dbc → format_dbc`` preserves order and content intact.
         """
-        entries = [
+        entries: list[DBCValueEntry] = [
             {"value": 0, "description": "Off"},
             {"value": 1, "description": "On"},
             {"value": 2, "description": "Standby"},
         ]
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_signal_value_descriptions(entries)],
         }
@@ -662,7 +685,7 @@ class TestDBCSignalValueDescriptions:
             formatted = client.format_dbc()
 
         sig = formatted["messages"][0]["signals"][0]
-        assert sig["valueDescriptions"] == entries
+        assert sig.get("valueDescriptions") == entries
 
     def test_empty_value_descriptions_default(self) -> None:
         """Absent valueDescriptions round-trips as an empty list.
@@ -670,6 +693,7 @@ class TestDBCSignalValueDescriptions:
         The field is always present on the wire even when no VAL_ block applies.
         """
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_signal_value_descriptions([])],
         }
@@ -679,18 +703,19 @@ class TestDBCSignalValueDescriptions:
             formatted = client.format_dbc()
 
         sig = formatted["messages"][0]["signals"][0]
-        assert sig["valueDescriptions"] == []
+        assert sig.get("valueDescriptions") == []
 
     def test_format_dbc_text_emits_val_block(self) -> None:
         """format_dbc_text emits a VAL_ line for each signal with valueDescriptions.
 
         Entries land in declaration order.
         """
-        entries = [
+        entries: list[DBCValueEntry] = [
             {"value": 0, "description": "Off"},
             {"value": 1, "description": "On"},
         ]
         original: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_with_signal_value_descriptions(entries)],
         }
