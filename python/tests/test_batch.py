@@ -1,6 +1,6 @@
 """Tests for send_frames and BatchError."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -9,10 +9,8 @@ from aletheia.protocols import DLCCode
 
 
 def _make_client() -> AletheiaClient:
-    """Create a client with a mocked library handle."""
-    with patch.object(AletheiaClient, "__init__", lambda self, *a, **kw: None):
-        client = AletheiaClient.__new__(AletheiaClient)
-        return client
+    """Create a client with no FFI handle (``__new__`` bypasses ``__init__``)."""
+    return AletheiaClient.__new__(AletheiaClient)
 
 
 class TestSendFramesBatch:
@@ -25,13 +23,14 @@ class TestSendFramesBatch:
         client.send_frame = MagicMock(side_effect=responses)
 
         frames = [
-            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), extended=False),
         ]
         result = client.send_frames(frames)
         assert len(result) == 3
-        assert all(r["status"] == "ack" for r in result)
+        # "status" in r narrows each entry to AckResponse before subscripting.
+        assert all("status" in r and r["status"] == "ack" for r in result)
 
     def test_mid_batch_exception_carries_partial_results(self) -> None:
         """A Python exception mid-batch stops and carries partial results."""
@@ -41,32 +40,37 @@ class TestSendFramesBatch:
         )
 
         frames = [
-            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), extended=False),
         ]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 
         err = exc_info.value
         assert len(err.partial_results) == 1
-        assert err.partial_results[0]["status"] == "ack"
+        first = err.partial_results[0]
+        assert "status" in first  # AckResponse
+        assert first["status"] == "ack"
         assert isinstance(err.cause, ValueError)
         assert err.frame_index == 1
 
     def test_error_response_stops_batch(self) -> None:
         """An ErrorResponse mid-batch stops and raises BatchError."""
         client = _make_client()
-        error_resp = {"status": "error", "code": "handler_non_monotonic_timestamp",
-                      "message": "backward timestamp"}
+        error_resp = {
+            "status": "error",
+            "code": "handler_non_monotonic_timestamp",
+            "message": "backward timestamp",
+        }
         client.send_frame = MagicMock(
             side_effect=[{"status": "ack"}, error_resp, {"status": "ack"}]
         )
 
         frames = [
-            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), extended=False),
         ]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
@@ -76,7 +80,9 @@ class TestSendFramesBatch:
         # the ErrorResponse is surfaced via err.cause + err.frame_index
         # (matches Go and C++ bindings).
         assert len(err.partial_results) == 1
-        assert err.partial_results[0]["status"] == "ack"
+        first = err.partial_results[0]
+        assert "status" in first  # AckResponse
+        assert first["status"] == "ack"
         assert err.frame_index == 1
         assert isinstance(err.cause, ProtocolError)
         assert "handler_non_monotonic_timestamp" in str(err.cause)
@@ -88,7 +94,7 @@ class TestSendFramesBatch:
         client = _make_client()
         client.send_frame = MagicMock(side_effect=RuntimeError("fail"))
 
-        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)]
+        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False)]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 
@@ -98,41 +104,49 @@ class TestSendFramesBatch:
     def test_violation_does_not_stop_batch(self) -> None:
         """Verify violation does not stop batch.
 
-        R23 — AGDA-D-12.1: violation frames return a PropertyBatchResponse
-        carrying one or more events; the batch continues regardless.
+        Violation frames return a PropertyBatchResponse carrying one or
+        more events; the batch continues regardless.
         """
         client = _make_client()
         violation_batch = {
             "type": "property_batch",
-            "results": [{
-                "type": "property",
-                "status": "fails",
-                "property_index": {"numerator": 0, "denominator": 1},
-                "timestamp": {"numerator": 2000, "denominator": 1},
-            }],
+            "results": [
+                {
+                    "type": "property",
+                    "status": "fails",
+                    "property_index": {"numerator": 0, "denominator": 1},
+                    "timestamp": {"numerator": 2000, "denominator": 1},
+                }
+            ],
         }
         client.send_frame = MagicMock(
             side_effect=[{"status": "ack"}, violation_batch, {"status": "ack"}]
         )
 
         frames = [
-            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), False),
-            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), False),
+            CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(2000, 0x100, DLCCode(8), bytearray(8), extended=False),
+            CANFrameTuple(3000, 0x100, DLCCode(8), bytearray(8), extended=False),
         ]
         result = client.send_frames(frames)
         assert len(result) == 3
-        assert result[0]["status"] == "ack"
-        assert result[1]["type"] == "property_batch"
-        assert result[1]["results"][0]["status"] == "fails"
-        assert result[2]["status"] == "ack"
+        first = result[0]
+        second = result[1]
+        third = result[2]
+        assert "status" in first  # AckResponse
+        assert first["status"] == "ack"
+        assert "type" in second  # PropertyBatchResponse
+        assert second["type"] == "property_batch"
+        assert second["results"][0]["status"] == "fails"
+        assert "status" in third  # AckResponse
+        assert third["status"] == "ack"
 
     def test_cause_chaining(self) -> None:
         """Verify cause chaining."""
         client = _make_client()
         client.send_frame = MagicMock(side_effect=RuntimeError("boom"))
 
-        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)]
+        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False)]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 
@@ -145,7 +159,7 @@ class TestSendFramesBatch:
         client = _make_client()
         client.send_frame = MagicMock(side_effect=ValueError("bad data"))
 
-        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)]
+        frames = [CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False)]
         with pytest.raises(BatchError) as exc_info:
             client.send_frames(frames)
 
