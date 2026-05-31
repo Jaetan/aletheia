@@ -212,9 +212,9 @@ checkPrerequisites = do
         ExitSuccess -> return ()
         ExitFailure _ -> error "Python 3.12+ is required. Check your python3 version."
 
--- | Proof-only modules — the SINGLE SOURCE for both `check-properties` (batch,
--- authoritative) and `check-properties-warm` (one warm `agda --interaction-json`
--- process).  Each is unreachable from Main.agda's runtime closure, so the main
+-- | Proof-only modules — the SINGLE SOURCE for `check-properties`, type-checked
+-- in one warm `agda --interaction-json` process (tools.warm_check_properties).
+-- Each is unreachable from Main.agda's runtime closure, so the main
 -- build walk does not cover it; each is an explicit walk root, and dropping one
 -- silently stops type-checking its subtree (B.3.d Commit 4/6 shipped a latent
 -- `RawSignal : ℚ`-vs-DecRat mismatch in TextParser/Topology precisely because a
@@ -298,21 +298,12 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need ["build/libaletheia-ffi.so"]
 
     phony "check-properties" $ do
-        putInfo "Type-checking proof-only modules..."
-        cores <- liftIO getNumProcessors
-        let rtsFlags = ["+RTS", "-N" ++ show cores, "-M16G", "-RTS"]
-        let agdaWithRTS mod' = cmd_ (Cwd "src") "agda" (rtsFlags ++ [mod'])
-        mapM_ agdaWithRTS proofModules
-        putInfo "All proof modules type-checked successfully!"
-
-    phony "check-properties-warm" $ do
-        -- FAST inner-loop variant of `check-properties`: type-check every proof
-        -- module in ONE warm `agda --interaction-json` process (stdlib + shared
-        -- deps load once) instead of one `agda Module.agda` per module.  Verified
-        -- equivalent — catches proof-obligation failures (Status checked:false)
-        -- and writes `.agdai` so downstream build reuses the interfaces.  The
-        -- batch `check-properties` stays authoritative until warm and batch are
-        -- seen to agree across many commits.  Same `proofModules` single source.
+        -- Type-check every proof-only module in ONE warm `agda --interaction-json`
+        -- process (stdlib + shared deps load once) instead of one `agda Module.agda`
+        -- subprocess per module.  Catches proof-obligation failures (Status
+        -- checked:false) and writes `.agdai` so the downstream build reuses the
+        -- interfaces.  Replaces the former cold batch (one agda process per module,
+        -- ~13× slower: 629s -> ~48s); same `proofModules` single source of truth.
         putInfo "Type-checking proof-only modules (one warm agda process)..."
         cmd_ "python3" ("-m" : "tools.warm_check_properties" : proofModules)
 

@@ -617,6 +617,18 @@ step count: 27 → 28.
 
 ### Changed
 
+#### Changed — Build: `check-properties` type-checks proof modules in one warm agda process
+
+`cabal run shake -- check-properties` previously spawned one `agda Module.agda`
+subprocess per proof module (~45 processes, each reloading the standard library
+and shared interfaces). It now type-checks every module in a single warm
+`agda --interaction-json` process (`tools.warm_check_properties`), loading the
+stdlib once — roughly 13× faster (629s → ~48s) with identical verdicts: a
+proof-obligation failure still surfaces as `Status{checked:false}`, and the run
+writes `.agdai` so the downstream build reuses the interfaces. The former cold
+batch and the separate `check-properties-warm` target are removed (folded in);
+the `proofModules` list in `Shakefile.hs` remains the single source of truth.
+
 #### Changed — Python + C++: Check entry points migrated from class statics to free functions (R23 — CPP-D-15.2)
 
 **BREAKING** — The `Check` class (Python `aletheia.Check`, C++ `aletheia::Check`)

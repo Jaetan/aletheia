@@ -15,7 +15,7 @@ Equivalence to batch `agda Module.agda` (verified before adopting this):
 
 Exit 0 iff every module reached Status{checked:true}; non-zero (listing the
 failures) otherwise.  The module list is passed as argv by the Shakefile's
-`proofModules` value (single source of truth — see `check-properties-warm`).
+`proofModules` value (single source of truth — see the `check-properties` target).
 
 Run as a script so the script's own directory is on sys.path for the sibling
 `warm_dead_imports` import.
@@ -55,7 +55,7 @@ def main() -> int:
     elapsed = time.time() - t0
     if failures:
         _ = sys.stderr.write(
-            f"\ncheck-properties-warm: FAILED {len(failures)}/{len(mods)} "
+            f"\ncheck-properties: FAILED {len(failures)}/{len(mods)} "
             + f"in {elapsed:.0f}s:\n",
         )
         for mod in failures:
