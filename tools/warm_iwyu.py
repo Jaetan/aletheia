@@ -1,24 +1,28 @@
 """IWYU R&D (ci-speed branch): attribute used names to their providing module.
 
-Drives Agda's `Cmd_why_in_scope_toplevel` over `--interaction-json` to recover,
-for each name referenced in a module's body, which `open` brought it into scope.
-From that we derive the actually-used surface of each WILDCARD `open import M`
-(no `using`/`renaming` list) — the input to an "import what you use" narrowing
-suggestion.  Confirmed mechanism (see `memory/project_agda_iwyu.md`): the query
-returns a `DisplayInfo`/`WhyInScope` payload whose message names "the opening of
-M" for the responsible module.
+Derives, for each WILDCARD `open import M` (no `using`/`renaming` list), the
+subset of M's exports actually referenced in the body — the `using (...)` list
+an "import what you use" narrowing would replace the wildcard with.
 
-Reuses the warm-process driver `WarmAgda` from `warm_dead_imports` so the stdlib
-and shared interfaces load once.  Invoke as
+Attribution is by **definitionSite identity** (mixfix-safe).  Two facts make it
+work (see `memory/project_agda_iwyu.md`):
+
+  * Every body highlighting token carries a `definitionSite = {filepath, pos}`,
+    and reading `filepath` at `pos` spells the FULL name — so an operator used
+    infix (token `⊕`) resolves to its definition name `_⊕_`.
+  * `Cmd_show_module_contents_toplevel` returns M's full export names (again
+    `_⊕_`, not the part `⊕`).
+
+A name is used-from-M iff it is in `show_module_contents(M)` AND its full name
+appears among the body's definition-site names.  Re-exports fall out for free
+(the def-site spells the name; smc lists it under M).
+
+Reuses the warm-process driver `WarmAgda` from `warm_dead_imports`.  Invoke as
 `python -m tools.warm_iwyu <relpath.agda> [...]`.
 
-LIMITATION (mixfix): names are queried by the body token's source text, so an
-operator used infix (token `⊕`) is not matched to its scope name `_⊕_` and is
-under-reported.  The suggested `using` list can therefore wrongly omit used
-operators — this is informational R&D output, NOT yet safe to apply blindly.
-Fix path: attribute by definitionSite identity (a wildcard's exported def-ids,
-e.g. via `Cmd_show_module_contents`, matched against the body's def-ids —
-mixfix-safe); tracked in `memory/project_agda_iwyu.md`.
+Documented edges (not yet solved): a name *renamed* on re-export (smc shows the
+renamed name, the def-site the original → missed); a name exported by two
+wildcard modules (lands in both using-lists — conservative, harmless).
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from tools._agda_imports import parse_imports
@@ -35,82 +40,100 @@ from tools.warm_dead_imports import SRC, WarmAgda, line_offsets
 if TYPE_CHECKING:
     from tools.warm_dead_imports import Token
 
-# A WhyInScope message lists each responsible open as "- the opening of M at ...".
-_OPENING_RE = re.compile(r"the opening of (\S+)")
+# A definition name is the run of characters at its def-site up to whitespace
+# or a bracket/semicolon (Agda names may contain `_`, operators, sub/superscripts).
+_NAME_RE = re.compile(r"[^\s(){};]+")
 
 # Safety cap on lines read while awaiting a query's DisplayInfo terminal.
 _MAX_RESPONSE_LINES = 200
 
 
-class _WhyInScopeInfo(TypedDict, total=False):
-    """The `info` field of a WhyInScope DisplayInfo response."""
+class _ModuleEntry(TypedDict, total=False):
+    """One entry in a ModuleContents listing."""
+
+    name: str
+    term: str
+
+
+class _ModuleContentsInfo(TypedDict, total=False):
+    """The `info` field of a ModuleContents DisplayInfo response."""
 
     kind: str
-    message: str
-    thing: str
+    contents: list[_ModuleEntry]
 
 
-class _DisplayResponse(TypedDict, total=False):
-    """One `agda --interaction-json` response carrying display info."""
+class _ModuleContentsResponse(TypedDict, total=False):
+    """One `agda --interaction-json` response carrying module contents."""
 
     kind: str
-    info: _WhyInScopeInfo
+    info: _ModuleContentsInfo
 
 
-def _parse_openings(message: str) -> list[str]:
-    """Return the module paths named in a WhyInScope message, de-duplicated."""
-    matches: list[str] = _OPENING_RE.findall(message)
-    return list(dict.fromkeys(matches))
+def show_module_contents(agda: WarmAgda, abspath: str, module: str) -> list[str]:
+    """Return the full export names of `module` via Cmd_show_module_contents.
 
-
-def why_in_scope(agda: WarmAgda, abspath: str, name: str) -> list[str]:
-    """Return the modules whose opening brings `name` into scope in `abspath`.
-
-    Sends `Cmd_why_in_scope_toplevel` and reads to the `DisplayInfo` terminal
-    (the response is a `Status` then a `WhyInScope` display).  The module must
-    already be loaded in `agda`.  An out-of-scope name yields an empty list
-    rather than hanging.
+    `module` must be in scope (imported) in the loaded `abspath`.  Reads to the
+    `DisplayInfo` terminal; a non-ModuleContents display (e.g. an error) yields
+    an empty list rather than hanging.
     """
     proc = agda.proc
     if proc.stdin is None or proc.stdout is None:
         msg = "agda --interaction-json process has no stdin/stdout pipe"
         raise RuntimeError(msg)
-    query = f'IOTCM "{abspath}" None Direct (Cmd_why_in_scope_toplevel "{name}")\n'
+    query = f'IOTCM "{abspath}" None Direct (Cmd_show_module_contents_toplevel AsIs "{module}")\n'
     _ = proc.stdin.write(query)
     proc.stdin.flush()
     for _attempt in range(_MAX_RESPONSE_LINES):
         line = proc.stdout.readline()
         if not line:
-            msg = "agda --interaction-json exited during why_in_scope"
+            msg = "agda --interaction-json exited during show_module_contents"
             raise RuntimeError(msg)
         stripped = line.strip()
         if not stripped.startswith("{"):
             continue
         try:
-            resp = cast("_DisplayResponse", json.loads(stripped))
+            resp = cast("_ModuleContentsResponse", json.loads(stripped))
         except json.JSONDecodeError:
             continue
         if resp.get("kind") != "DisplayInfo":
             continue
         info = resp.get("info")
-        message = info.get("message", "") if info is not None else ""
-        return _parse_openings(message)
+        if info is None or info.get("kind") != "ModuleContents":
+            return []
+        return [name for entry in info.get("contents", []) if (name := entry.get("name"))]
     return []
+
+
+def _read_text(filepath: str) -> str:
+    """Return the file's text, or empty string if it cannot be read."""
+    try:
+        return Path(filepath).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _full_name_at(text: str, position: int) -> str:
+    """Extract the (mixfix-complete) name defined at 1-based codepoint `position`."""
+    match = _NAME_RE.match(text, position - 1)
+    return match.group(0) if match else ""
 
 
 def _wildcard_modules(text: str) -> set[str]:
     """Return the modules brought into scope UNQUALIFIED by a wildcard open.
 
-    A wildcard is `open import M` with no `using`/`renaming` list and not
-    `public`.  `import M` / `import M as N` (qualified-only — they add no
-    unqualified names, so there is no using-list to narrow them to) are
-    excluded by the leading-`open` check.
+    A wildcard is `open import M` with NO `using`/`renaming` clause and not
+    `public`.  Excluded: `import M` / `import M as N` (qualified-only, via the
+    leading-`open` check) and `open import M using ()` (an explicit
+    import-nothing for qualified `M.x` access, via the `"using"` check — it is
+    already maximally narrow, so there is nothing to suggest).  parse_imports
+    reports an empty `using ()` as no names, so the raw `"using"` check is what
+    tells the two apart.
     """
     return {
         block.module_path
         for block in parse_imports(text)
         if block.raw.lstrip().startswith("open")
-        and not block.using_names
+        and "using" not in block.raw
         and not block.renaming_pairs
         and not block.has_public
     }
@@ -127,13 +150,15 @@ def _import_char_ranges(text: str) -> list[tuple[int, int]]:
     return ranges
 
 
-def _body_names(text: str, tokens: list[Token], ranges: list[tuple[int, int]]) -> list[str]:
-    """Return the distinct names referenced in the body (outside import clauses).
+def used_full_names(tokens: list[Token], ranges: list[tuple[int, int]]) -> set[str]:
+    """Return the full names of every definition referenced in the body.
 
-    Only tokens that carry a `definitionSite` are kept — those resolve to a
-    definition and are worth attributing to a providing module.
+    For each body token (outside import clauses) carrying a `definitionSite`,
+    the name is read from the DEFINITION file at the recorded position — so a
+    mixfix operator used infix (`⊕`) resolves to its full name (`_⊕_`).
     """
-    seen: dict[str, None] = {}
+    cache: dict[str, str] = {}
+    names: set[str] = set()
     for tok in tokens:
         rng = tok.get("range")
         if not rng:
@@ -141,34 +166,39 @@ def _body_names(text: str, tokens: list[Token], ranges: list[tuple[int, int]]) -
         off0 = rng[0] - 1
         if any(start <= off0 < end for start, end in ranges):
             continue
-        if tok.get("definitionSite") is None:
+        site = tok.get("definitionSite")
+        if site is None:
             continue
-        seen.setdefault(text[off0 : rng[1] - 1], None)
-    return list(seen)
+        filepath = site["filepath"]
+        if filepath not in cache:
+            cache[filepath] = _read_text(filepath)
+        full = _full_name_at(cache[filepath], site["position"])
+        if full:
+            names.add(full)
+    return names
 
 
 def attribute_wildcards(
     agda: WarmAgda, abspath: str, text: str, tokens: list[Token]
 ) -> dict[str, list[str]]:
-    """Map each wildcard-opened module to the body names attributed to it.
+    """Map each wildcard-opened module to its actually-used export surface.
 
-    The result for module M is M's actually-used surface in this file — the
-    `using (...)` list that would replace its wildcard `open import M`.
+    The list for module M is the `using (...)` that an "import what you use"
+    narrowing would replace M's wildcard `open import M` with.
     """
     wildcards = _wildcard_modules(text)
     ranges = _import_char_ranges(text)
-    used_by: dict[str, set[str]] = {module: set() for module in wildcards}
-    for name in _body_names(text, tokens, ranges):
-        for module in why_in_scope(agda, abspath, name):
-            if module in wildcards:
-                used_by[module].add(name)
-    return {module: sorted(names) for module, names in used_by.items()}
+    used = used_full_names(tokens, ranges)
+    return {
+        module: sorted(set(show_module_contents(agda, abspath, module)) & used)
+        for module in sorted(wildcards)
+    }
 
 
 def _report(rel: str, used: dict[str, list[str]]) -> None:
     """Print the wildcard-narrowing suggestion for one file."""
     emit(f"=== {rel}: {len(used)} wildcard open(s) ===")
-    for module, names in sorted(used.items()):
+    for module, names in used.items():
         if names:
             emit(f"  open import {module}  -->  using ({'; '.join(names)})  [{len(names)} used]")
         else:
