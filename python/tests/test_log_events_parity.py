@@ -35,9 +35,7 @@ def _load_events() -> list[dict[str, object]]:
         raw: object = yaml.safe_load(fh)
     root = as_str_object_dict(raw, "LOG_EVENTS.yaml root")
     events_raw: object = root.get("events")
-    assert isinstance(events_raw, list), (
-        "LOG_EVENTS.yaml must contain an 'events' list"
-    )
+    assert isinstance(events_raw, list), "LOG_EVENTS.yaml must contain an 'events' list"
     narrowed_list: list[object] = cast("list[object]", events_raw)
     assert narrowed_list, "LOG_EVENTS.yaml 'events' list is empty"
     validated: list[dict[str, object]] = []
@@ -67,21 +65,16 @@ def test_yaml_schema_well_formed() -> None:
     for idx, evt in enumerate(_EVENTS):
         name = _event_name(evt)
         assert name, f"events[{idx}]: empty name"
-        assert "." in name, (
-            f"events[{idx}]: name {name!r} missing 'namespace.action' separator"
-        )
+        assert "." in name, f"events[{idx}]: name {name!r} missing 'namespace.action' separator"
         assert name not in seen, f"events[{idx}]: duplicate name {name!r}"
         seen.add(name)
 
         level = _event_level(evt)
-        assert level in _VALID_LEVELS, (
-            f"events[{idx}]: level {level!r} not in {_VALID_LEVELS}"
-        )
+        assert level in _VALID_LEVELS, f"events[{idx}]: level {level!r} not in {_VALID_LEVELS}"
 
         desc: object = evt.get("description")
-        assert isinstance(desc, str) and desc, (
-            f"events[{idx}]: missing or empty description"
-        )
+        assert isinstance(desc, str), f"events[{idx}]: missing or empty description"
+        assert desc, f"events[{idx}]: missing or empty description"
 
 
 def test_yaml_matches_log_event_enum() -> None:
@@ -94,14 +87,14 @@ def test_yaml_matches_log_event_enum() -> None:
         f"In enum but not YAML: {enum_names - yaml_names}"
     )
     # And the cached frozenset is consistent with both.
-    assert KNOWN_EVENTS == yaml_names
+    assert yaml_names == KNOWN_EVENTS
 
 
 def test_yaml_event_count_matches_documented_total() -> None:
-    """The YAML carries exactly 16 events — the count documented in
-    ``python/aletheia/client/_log.py``, ``go/aletheia/doc.go``, and
-    ``cpp/include/aletheia/log.hpp``.  Bumping the count requires a
-    coordinated edit across all four files plus a CHANGELOG entry."""
-    assert len(_EVENTS) == 16, (
-        f"expected 16 cross-binding events, found {len(_EVENTS)}"
-    )
+    """The YAML carries exactly 16 events.
+
+    This count is documented in ``python/aletheia/client/_log.py``,
+    ``go/aletheia/doc.go``, and ``cpp/include/aletheia/log.hpp``.  Bumping
+    it requires a coordinated edit across all four files plus a CHANGELOG entry.
+    """
+    assert len(_EVENTS) == 16, f"expected 16 cross-binding events, found {len(_EVENTS)}"

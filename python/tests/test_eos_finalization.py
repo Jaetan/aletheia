@@ -9,17 +9,21 @@ from aletheia.client import AletheiaClient
 from aletheia.dsl import Signal
 from aletheia.protocols import DLCCode
 
-SIMPLE_DBC = dbc([
-    message(256, "Test", [signal("Speed", unit="kph")]),
-])
+SIMPLE_DBC = dbc(
+    [
+        message(256, "Test", [signal("Speed", unit="kph")]),
+    ]
+)
 
 
 # Two-message DBC: the LTL predicate references Speed (from Msg256), but
 # tests below only send frames of Msg512, so Speed is never observed.
-TWO_MESSAGE_DBC = dbc([
-    message(256, "Msg256", [signal("Speed", unit="kph")]),
-    message(512, "Msg512", [signal("Rpm", unit="rpm")]),
-])
+TWO_MESSAGE_DBC = dbc(
+    [
+        message(256, "Msg256", [signal("Speed", unit="kph")]),
+        message(512, "Msg512", [signal("Rpm", unit="rpm")]),
+    ]
+)
 
 
 class TestEndOfStreamFinalization:
@@ -29,9 +33,7 @@ class TestEndOfStreamFinalization:
         """Always property that holds → satisfaction at end-of-stream."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             for i in range(5):
                 client.send_frame(i * 1000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
@@ -53,9 +55,7 @@ class TestEndOfStreamFinalization:
         """
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                Signal("Speed").changed_by(0).never().to_dict()
-            ])
+            client.set_properties([Signal("Speed").changed_by(0).never().to_dict()])
             client.start_stream()
             client.send_frame(0, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
@@ -69,9 +69,7 @@ class TestEndOfStreamFinalization:
         """0-frame Always → satisfaction (vacuously true per standard LTLf)."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             resp = client.end_stream()
             assert resp["status"] == "complete"
@@ -84,9 +82,7 @@ class TestEndOfStreamFinalization:
         """Eventually never satisfied → violation at end-of-stream."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                Signal("Speed").greater_than(1000).eventually().to_dict()
-            ])
+            client.set_properties([Signal("Speed").greater_than(1000).eventually().to_dict()])
             client.start_stream()
             for i in range(5):
                 client.send_frame(i * 1000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
@@ -101,12 +97,14 @@ class TestEndOfStreamFinalization:
         """Multiple properties: some hold, some fail at end-of-stream."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                # Property 0: Always(Speed < 100) — will hold
-                Signal("Speed").less_than(100).always().to_dict(),
-                # Property 1: Eventually(Speed > 1000) — will fail
-                Signal("Speed").greater_than(1000).eventually().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    # Property 0: Always(Speed < 100) — will hold
+                    Signal("Speed").less_than(100).always().to_dict(),
+                    # Property 1: Eventually(Speed > 1000) — will fail
+                    Signal("Speed").greater_than(1000).eventually().to_dict(),
+                ]
+            )
             client.start_stream()
             for i in range(5):
                 client.send_frame(i * 1000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
@@ -123,9 +121,7 @@ class TestEndOfStreamFinalization:
         """end_stream() response always has 'results' field."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             client.send_frame(0, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
@@ -173,9 +169,7 @@ class TestMissingSignalFinalization:
         """0 frames, signal never observed → Holds (vacuous via finalizeL)."""
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             resp = client.end_stream()
             assert resp["status"] == "complete"
@@ -192,9 +186,7 @@ class TestMissingSignalFinalization:
         """
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             client.send_frame(0, 512, DLCCode(8), bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
@@ -208,13 +200,10 @@ class TestMissingSignalFinalization:
         """5 frames of Msg512 → Unresolved (persists regardless of count)."""
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 512, DLCCode(8),
-                                  bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 512, DLCCode(8), bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -235,13 +224,10 @@ class TestMissingSignalFinalization:
         """
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").greater_than(10).eventually().to_dict()
-            ])
+            client.set_properties([Signal("Speed").greater_than(10).eventually().to_dict()])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 512, DLCCode(8),
-                                  bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 512, DLCCode(8), bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -252,9 +238,7 @@ class TestMissingSignalFinalization:
         """0 frames → Eventually still Fails (liveness, no vacuous truth)."""
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").greater_than(10).eventually().to_dict()
-            ])
+            client.set_properties([Signal("Speed").greater_than(10).eventually().to_dict()])
             client.start_stream()
             resp = client.end_stream()
             assert resp["status"] == "complete"
@@ -273,12 +257,9 @@ class TestMissingSignalFinalization:
         """
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
-            client.send_frame(0, 512, DLCCode(8),
-                              bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 512, DLCCode(8), bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             warnings = resp["warnings"]
@@ -291,12 +272,9 @@ class TestMissingSignalFinalization:
         """Every atom's signal observed → no warnings emitted."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
-            client.send_frame(0, 256, DLCCode(8),
-                              bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             assert resp["warnings"] == []
@@ -311,19 +289,14 @@ class TestMissingSignalFinalization:
         """
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)
-            client.set_properties([
-                Signal("Speed").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("Speed").less_than(100).always().to_dict()])
             client.start_stream()
             # Three frames of Msg512 (Speed absent)
             for i in range(3):
-                client.send_frame(i * 1000, 512, DLCCode(8),
-                                  bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 512, DLCCode(8), bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             # Two frames of Msg256 with Speed = 10 (< 100)
-            client.send_frame(3000, 256, DLCCode(8),
-                              bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
-            client.send_frame(4000, 256, DLCCode(8),
-                              bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(3000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(4000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]

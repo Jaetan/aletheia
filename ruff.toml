@@ -20,10 +20,11 @@ line-length = 100         # matches [tool.pylint.format] max-line-length
 select = ["ALL"]
 # Intentional mathematical / typographic Unicode in docstrings and prose: the
 # domain is formal math (ℚ rationals, ℕ naturals, ℤ integers, → maps-to,
-# × product, − minus, — em-dash, – en-dash).  Whitelisting these keeps
-# RUF001/002/003 active against genuine homoglyph confusables while allowing
-# the deliberate symbols (ASCII-ifying ℚ -> Q would lose meaning).
-allowed-confusables = ["×", "—", "–", "→", "ℕ", "ℚ", "ℤ", "−"]
+# × product, − minus, — em-dash, – en-dash, σ trace/word, ∨ logical-or).
+# Whitelisting these keeps RUF001/002/003 active against genuine homoglyph
+# confusables while allowing the deliberate symbols (ASCII-ifying ℚ -> Q,
+# or σ -> o, would lose meaning).
+allowed-confusables = ["×", "—", "–", "→", "ℕ", "ℚ", "ℤ", "−", "σ", "∨"]
 ignore = [
     # ── Mutually-exclusive pairs inside ALL (cannot satisfy both members) ──
     "D203",    # one-blank-line-before-class — we keep its opposite D211 (no blank line before the class docstring)

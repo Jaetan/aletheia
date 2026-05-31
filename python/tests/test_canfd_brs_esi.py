@@ -13,6 +13,7 @@ helper, the ``CANFrameTuple`` shape, and the python-can lift in
 ``test_unified_client_canfd_mux.py`` so the real library has to
 accept the new 11-arg ``aletheia_send_frame`` signature.
 """
+
 from __future__ import annotations
 
 import can
@@ -44,15 +45,20 @@ class TestCANFrameTupleBrsEsi:
 
     def test_default_brs_esi_is_none(self) -> None:
         """5-positional construction defaults BRS / ESI to None."""
-        frame = CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), False)
+        frame = CANFrameTuple(1000, 0x100, DLCCode(8), bytearray(8), extended=False)
         assert frame.brs is None
         assert frame.esi is None
 
     def test_explicit_brs_esi(self) -> None:
         """Verify BRS=True, ESI=False round-trip through the NamedTuple."""
         frame = CANFrameTuple(
-            1000, 0x100, DLCCode(8), bytearray(8), False,
-            True, False,
+            1000,
+            0x100,
+            DLCCode(8),
+            bytearray(8),
+            extended=False,
+            brs=True,
+            esi=False,
         )
         assert frame.brs is True
         assert frame.esi is False
@@ -80,12 +86,15 @@ class TestConvertMessageBrsEsi:
         return msg
 
     def test_can_2_0b_yields_none_brs_esi(self) -> None:
-        """A non-FD frame surfaces None for both bits — the bit doesn't
-        exist on the wire for classical CAN, so any python-can default
-        (typically ``False``) must not be passed through."""
+        """A non-FD frame surfaces None for both bits.
+
+        The bit doesn't exist on the wire for classical CAN, so any
+        python-can default (typically ``False``) must not be passed through.
+        """
         result = convert_message(
             self._make_msg(),
-            skip_error_frames=True, skip_remote_frames=True,
+            skip_error_frames=True,
+            skip_remote_frames=True,
         )
         assert result is not None
         assert result.brs is None
@@ -95,7 +104,8 @@ class TestConvertMessageBrsEsi:
         """A CAN-FD frame with BRS set surfaces ``brs=True``."""
         result = convert_message(
             self._make_msg(is_fd=True, bitrate_switch=True, error_state_indicator=False),
-            skip_error_frames=True, skip_remote_frames=True,
+            skip_error_frames=True,
+            skip_remote_frames=True,
         )
         assert result is not None
         assert result.brs is True
@@ -105,7 +115,8 @@ class TestConvertMessageBrsEsi:
         """A CAN-FD frame with ESI set surfaces ``esi=True``."""
         result = convert_message(
             self._make_msg(is_fd=True, bitrate_switch=False, error_state_indicator=True),
-            skip_error_frames=True, skip_remote_frames=True,
+            skip_error_frames=True,
+            skip_remote_frames=True,
         )
         assert result is not None
         assert result.brs is False

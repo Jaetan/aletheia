@@ -1,4 +1,4 @@
-"""Unit tests for the CLI module
+"""Unit tests for the CLI module.
 
 Tests cover:
 - Hex data parsing: various formats -> bytearray
@@ -11,9 +11,9 @@ Tests cover:
 - Error handling: missing files, bad arguments, exit codes
 """
 
-
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import can
 import pytest
@@ -26,19 +26,16 @@ from aletheia.cli import (
     parse_can_id,
     parse_hex_data,
 )
-from aletheia.protocols import DBCDefinition
 from aletheia.testing import run_checks
+
+if TYPE_CHECKING:
+    from aletheia.protocols import DBCDefinition
 
 # ============================================================================
 # Shared DBC content
 # ============================================================================
 
-_DBC_HEADER = (
-    'VERSION ""\n\n'
-    + "NS_ :\n\n"
-    + "BS_:\n\n"
-    + "BU_:\n\n"
-)
+_DBC_HEADER = 'VERSION ""\n\n' + "NS_ :\n\n" + "BS_:\n\n" + "BU_:\n\n"
 
 _DBC_ENGINE_MSG = (
     "BO_ 256 EngineStatus: 8 ECU1\n"
@@ -90,6 +87,7 @@ def _write_asc(path: Path, messages: list[can.Message]) -> None:
 # Hex data parsing
 # ============================================================================
 
+
 class TestParseHexData:
     """Test parse_hex_data: various hex formats -> bytearray."""
 
@@ -138,6 +136,7 @@ class TestParseHexData:
 # CAN ID parsing
 # ============================================================================
 
+
 class TestParseCanId:
     """Test parse_can_id: hex/decimal parsing, error cases."""
 
@@ -171,6 +170,7 @@ class TestParseCanId:
 # Timestamp formatting
 # ============================================================================
 
+
 class TestFormatTimestamp:
     """Test format_timestamp: microseconds -> human-readable string."""
 
@@ -194,6 +194,7 @@ class TestFormatTimestamp:
 # ============================================================================
 # Rational number conversion
 # ============================================================================
+
 
 class TestRationalToInt:
     """Test rational_to_int: {numerator, denominator} -> int."""
@@ -224,10 +225,11 @@ class TestRationalToInt:
 # Signals subcommand
 # ============================================================================
 
+
 class TestSignalsCommand:
     """Test 'aletheia signals' -- pure DBC traversal, no FFI needed."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def dbc_file(self, tmp_path: Path) -> Path:
         """Create a .dbc file with two messages."""
         p = tmp_path / "test.dbc"
@@ -268,10 +270,11 @@ class TestSignalsCommand:
 # Extract subcommand (requires FFI)
 # ============================================================================
 
+
 class TestExtractCommand:
     """Test 'aletheia extract' -- requires FFI shared library."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def dbc_file(self, tmp_path: Path) -> Path:
         """Write a DBC fixture and return its path."""
         p = tmp_path / "test.dbc"
@@ -320,7 +323,9 @@ class TestExtractCommand:
         assert code == 2
 
     def test_canfd_16_byte_payload(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Locks in R19 cluster 17 / PY-D-19.4 latent-bug fix.
 
@@ -349,17 +354,18 @@ class TestExtractCommand:
 # Check subcommand (requires FFI)
 # ============================================================================
 
+
 class TestCheckCommand:
     """Test 'aletheia check' -- requires FFI shared library."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def dbc_file(self, tmp_path: Path) -> Path:
         """Write a DBC fixture and return its path."""
         p = tmp_path / "test.dbc"
         _write_dbc(p, _DBC_ENGINE_MSG)
         return p
 
-    @pytest.fixture()
+    @pytest.fixture
     def checks_file(self, tmp_path: Path) -> Path:
         """Write a checks YAML fixture and return its path."""
         p = tmp_path / "checks.yaml"
@@ -376,21 +382,28 @@ class TestCheckCommand:
         """All checks pass -- exit code 0."""
         asc_file = tmp_path / "pass.asc"
         # EngineSpeed raw = 400 -> physical = 400 * 0.25 = 100.0 rpm (< 200)
-        _write_asc(asc_file, [
-            can.Message(
-                timestamp=1.0,
-                arbitration_id=0x100,
-                data=bytearray([0x90, 0x01, 0, 0, 0, 0, 0, 0]),
-                is_extended_id=False,
-            ),
-        ])
+        _write_asc(
+            asc_file,
+            [
+                can.Message(
+                    timestamp=1.0,
+                    arbitration_id=0x100,
+                    data=bytearray([0x90, 0x01, 0, 0, 0, 0, 0, 0]),
+                    is_extended_id=False,
+                ),
+            ],
+        )
 
-        code = main([
-            "check",
-            "--dbc", str(dbc_file),
-            "--checks", str(checks_file),
-            str(asc_file),
-        ])
+        code = main(
+            [
+                "check",
+                "--dbc",
+                str(dbc_file),
+                "--checks",
+                str(checks_file),
+                str(asc_file),
+            ]
+        )
         assert code == 0
         out = capsys.readouterr().out
         assert "all checks passed" in out
@@ -404,22 +417,29 @@ class TestCheckCommand:
     ) -> None:
         """JSON output when all checks pass."""
         asc_file = tmp_path / "pass.asc"
-        _write_asc(asc_file, [
-            can.Message(
-                timestamp=1.0,
-                arbitration_id=0x100,
-                data=bytearray([0x90, 0x01, 0, 0, 0, 0, 0, 0]),
-                is_extended_id=False,
-            ),
-        ])
+        _write_asc(
+            asc_file,
+            [
+                can.Message(
+                    timestamp=1.0,
+                    arbitration_id=0x100,
+                    data=bytearray([0x90, 0x01, 0, 0, 0, 0, 0, 0]),
+                    is_extended_id=False,
+                ),
+            ],
+        )
 
-        code = main([
-            "check",
-            "--dbc", str(dbc_file),
-            "--checks", str(checks_file),
-            "--json",
-            str(asc_file),
-        ])
+        code = main(
+            [
+                "check",
+                "--dbc",
+                str(dbc_file),
+                "--checks",
+                str(checks_file),
+                "--json",
+                str(asc_file),
+            ]
+        )
         assert code == 0
         out = capsys.readouterr().out
         data = json.loads(out)
@@ -437,21 +457,28 @@ class TestCheckCommand:
         """Violation detected -- exit code 1, enriched reason in text output."""
         asc_file = tmp_path / "fail.asc"
         # EngineSpeed raw = 4000 -> physical = 4000 * 0.25 = 1000.0 rpm (> 200)
-        _write_asc(asc_file, [
-            can.Message(
-                timestamp=1.0,
-                arbitration_id=0x100,
-                data=bytearray([0xA0, 0x0F, 0, 0, 0, 0, 0, 0]),
-                is_extended_id=False,
-            ),
-        ])
+        _write_asc(
+            asc_file,
+            [
+                can.Message(
+                    timestamp=1.0,
+                    arbitration_id=0x100,
+                    data=bytearray([0xA0, 0x0F, 0, 0, 0, 0, 0, 0]),
+                    is_extended_id=False,
+                ),
+            ],
+        )
 
-        code = main([
-            "check",
-            "--dbc", str(dbc_file),
-            "--checks", str(checks_file),
-            str(asc_file),
-        ])
+        code = main(
+            [
+                "check",
+                "--dbc",
+                str(dbc_file),
+                "--checks",
+                str(checks_file),
+                str(asc_file),
+            ]
+        )
         assert code == 1
         out = capsys.readouterr().out
         assert "violation" in out.lower()
@@ -467,22 +494,29 @@ class TestCheckCommand:
     ) -> None:
         """JSON output with violations."""
         asc_file = tmp_path / "fail.asc"
-        _write_asc(asc_file, [
-            can.Message(
-                timestamp=1.0,
-                arbitration_id=0x100,
-                data=bytearray([0xA0, 0x0F, 0, 0, 0, 0, 0, 0]),
-                is_extended_id=False,
-            ),
-        ])
+        _write_asc(
+            asc_file,
+            [
+                can.Message(
+                    timestamp=1.0,
+                    arbitration_id=0x100,
+                    data=bytearray([0xA0, 0x0F, 0, 0, 0, 0, 0, 0]),
+                    is_extended_id=False,
+                ),
+            ],
+        )
 
-        code = main([
-            "check",
-            "--dbc", str(dbc_file),
-            "--checks", str(checks_file),
-            "--json",
-            str(asc_file),
-        ])
+        code = main(
+            [
+                "check",
+                "--dbc",
+                str(dbc_file),
+                "--checks",
+                str(checks_file),
+                "--json",
+                str(asc_file),
+            ]
+        )
         assert code == 1
         out = capsys.readouterr().out
         data = json.loads(out)
@@ -501,12 +535,16 @@ class TestCheckCommand:
         checks_file: Path,
     ) -> None:
         """Verify missing log file."""
-        code = main([
-            "check",
-            "--dbc", str(dbc_file),
-            "--checks", str(checks_file),
-            "/nonexistent/drive.asc",
-        ])
+        code = main(
+            [
+                "check",
+                "--dbc",
+                str(dbc_file),
+                "--checks",
+                str(checks_file),
+                "/nonexistent/drive.asc",
+            ]
+        )
         assert code == 2
 
     def test_no_checks_specified(
@@ -517,22 +555,32 @@ class TestCheckCommand:
         """Verify no checks specified."""
         asc_file = tmp_path / "empty.asc"
         _write_asc(asc_file, [])
-        code = main([
-            "check",
-            "--dbc", str(dbc_file),
-            str(asc_file),
-        ])
+        code = main(
+            [
+                "check",
+                "--dbc",
+                str(dbc_file),
+                str(asc_file),
+            ]
+        )
         assert code == 2
 
     def test_run_checks_raises_on_missing_logfile(self) -> None:
-        """``run_checks`` must reject a missing logfile at its own entry,
-        not let the failure surface from inside ``iter_can_log`` two calls
+        """``run_checks`` rejects a missing logfile at its own entry.
+
+        The failure must not surface from inside ``iter_can_log`` two calls
         deeper.  Programmatic API contract: ``FileNotFoundError`` at the
-        orchestrator boundary so callers get a clear error site."""
+        orchestrator boundary so callers get a clear error site.
+        """
         dbc: DBCDefinition = {
-            "version": "", "messages": [],
-            "signalGroups": [], "environmentVars": [], "valueTables": [],
-            "nodes": [], "comments": [], "attributes": [],
+            "version": "",
+            "messages": [],
+            "signalGroups": [],
+            "environmentVars": [],
+            "valueTables": [],
+            "nodes": [],
+            "comments": [],
+            "attributes": [],
             "unresolvedValueDescs": [],
         }
         with pytest.raises(FileNotFoundError, match="log file not found"):
@@ -542,6 +590,7 @@ class TestCheckCommand:
 # ============================================================================
 # Error cases
 # ============================================================================
+
 
 class TestErrorCases:
     """Test error handling and exit codes."""
@@ -582,7 +631,7 @@ _DBC_MUX_MSG = (
 class TestMuxQueryCommand:
     """Test 'aletheia mux-query' -- pure DBC traversal, no FFI needed."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def dbc_file(self, tmp_path: Path) -> Path:
         """Create a .dbc file with one multiplexed and one plain message."""
         p = tmp_path / "mux.dbc"
@@ -590,7 +639,9 @@ class TestMuxQueryCommand:
         return p
 
     def test_summary_text_plain_message(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Verify summary text plain message."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x100"])
@@ -600,7 +651,9 @@ class TestMuxQueryCommand:
         assert "Not multiplexed" in out
 
     def test_summary_text_multiplexed(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Verify summary text multiplexed."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x300"])
@@ -614,7 +667,9 @@ class TestMuxQueryCommand:
         assert "TempMux" in out
 
     def test_summary_json(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Verify summary json."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x300", "--json"])
@@ -631,13 +686,23 @@ class TestMuxQueryCommand:
         assert "TempMux" in values[1]
 
     def test_selection_by_mux_and_value_text(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Verify selection by mux and value text."""
-        code = main([
-            "mux-query", "--dbc", str(dbc_file), "0x300",
-            "--mux", "Mode", "--value", "0",
-        ])
+        code = main(
+            [
+                "mux-query",
+                "--dbc",
+                str(dbc_file),
+                "0x300",
+                "--mux",
+                "Mode",
+                "--value",
+                "0",
+            ]
+        )
         assert code == 0
         out = capsys.readouterr().out
         assert "Mode = 0" in out
@@ -646,13 +711,24 @@ class TestMuxQueryCommand:
         assert "TempMux" not in out
 
     def test_selection_by_mux_and_value_json(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Verify selection by mux and value json."""
-        code = main([
-            "mux-query", "--dbc", str(dbc_file), "0x300",
-            "--mux", "Mode", "--value", "1", "--json",
-        ])
+        code = main(
+            [
+                "mux-query",
+                "--dbc",
+                str(dbc_file),
+                "0x300",
+                "--mux",
+                "Mode",
+                "--value",
+                "1",
+                "--json",
+            ]
+        )
         assert code == 0
         data = json.loads(capsys.readouterr().out)
         assert data["multiplexor"] == "Mode"
@@ -662,7 +738,9 @@ class TestMuxQueryCommand:
         assert "RpmMux" not in data["signals"]
 
     def test_message_by_name(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Verify message by name."""
         code = main(["mux-query", "--dbc", str(dbc_file), "DiagStatus"])
@@ -683,24 +761,46 @@ class TestMuxQueryCommand:
 
     def test_unknown_multiplexor(self, dbc_file: Path) -> None:
         """Verify unknown multiplexor."""
-        code = main([
-            "mux-query", "--dbc", str(dbc_file), "0x300",
-            "--mux", "NoSuch", "--value", "0",
-        ])
+        code = main(
+            [
+                "mux-query",
+                "--dbc",
+                str(dbc_file),
+                "0x300",
+                "--mux",
+                "NoSuch",
+                "--value",
+                "0",
+            ]
+        )
         assert code == 2
 
     def test_mux_without_value_rejected(self, dbc_file: Path) -> None:
         """Verify mux without value rejected."""
-        code = main([
-            "mux-query", "--dbc", str(dbc_file), "0x300", "--mux", "Mode",
-        ])
+        code = main(
+            [
+                "mux-query",
+                "--dbc",
+                str(dbc_file),
+                "0x300",
+                "--mux",
+                "Mode",
+            ]
+        )
         assert code == 2
 
     def test_value_without_mux_rejected(self, dbc_file: Path) -> None:
         """Verify value without mux rejected."""
-        code = main([
-            "mux-query", "--dbc", str(dbc_file), "0x300", "--value", "0",
-        ])
+        code = main(
+            [
+                "mux-query",
+                "--dbc",
+                str(dbc_file),
+                "0x300",
+                "--value",
+                "0",
+            ]
+        )
         assert code == 2
 
 
@@ -708,10 +808,11 @@ class TestMuxQueryCommand:
 # format-dbc subcommand
 # ============================================================================
 
+
 class TestFormatDBCCommand:
     """Test 'aletheia format-dbc' -- DBC roundtrip through the Agda core."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def dbc_file(self, tmp_path: Path) -> Path:
         """Create a .dbc file with one message."""
         p = tmp_path / "format.dbc"
@@ -719,7 +820,9 @@ class TestFormatDBCCommand:
         return p
 
     def test_json_roundtrip(
-        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+        self,
+        dbc_file: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """The canonical JSON mirrors the input DBC and is valid JSON."""
         code = main(["format-dbc", "--dbc", str(dbc_file)])
