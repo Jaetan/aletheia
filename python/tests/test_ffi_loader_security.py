@@ -9,13 +9,15 @@ poisons an existing legitimate path.
 
 from __future__ import annotations
 
-import os
 import stat
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from aletheia.client._ffi import find_ffi_library
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestALETHEIALibPermissionHardening:
@@ -28,9 +30,9 @@ class TestALETHEIALibPermissionHardening:
         fake_lib = tmp_path / "libaletheia-ffi.so"
         fake_lib.write_bytes(b"\x7fELF")  # ELF magic — content not validated
         # Make world-writable (mode 666).
-        os.chmod(fake_lib, stat.S_IRUSR | stat.S_IWUSR
-                          | stat.S_IRGRP | stat.S_IWGRP
-                          | stat.S_IROTH | stat.S_IWOTH)
+        fake_lib.chmod(
+            stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH
+        )
         monkeypatch.setenv("ALETHEIA_LIB", str(fake_lib))
         with pytest.raises(PermissionError, match="group- or world-writable"):
             find_ffi_library()
@@ -42,9 +44,7 @@ class TestALETHEIALibPermissionHardening:
         fake_lib = tmp_path / "libaletheia-ffi.so"
         fake_lib.write_bytes(b"\x7fELF")
         # Mode 664 — owner-rw + group-rw + other-r.
-        os.chmod(fake_lib, stat.S_IRUSR | stat.S_IWUSR
-                          | stat.S_IRGRP | stat.S_IWGRP
-                          | stat.S_IROTH)
+        fake_lib.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH)
         monkeypatch.setenv("ALETHEIA_LIB", str(fake_lib))
         with pytest.raises(PermissionError, match="group- or world-writable"):
             find_ffi_library()
@@ -56,8 +56,7 @@ class TestALETHEIALibPermissionHardening:
         fake_lib = tmp_path / "libaletheia-ffi.so"
         fake_lib.write_bytes(b"\x7fELF")
         # Mode 644 — owner-rw + group-r + other-r.
-        os.chmod(fake_lib, stat.S_IRUSR | stat.S_IWUSR
-                          | stat.S_IRGRP | stat.S_IROTH)
+        fake_lib.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
         monkeypatch.setenv("ALETHEIA_LIB", str(fake_lib))
         resolved = find_ffi_library()
         assert resolved == fake_lib
