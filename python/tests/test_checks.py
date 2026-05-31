@@ -1,4 +1,4 @@
-"""Unit tests for the Check API (industry-vocabulary wrappers over the DSL)
+"""Unit tests for the Check API (industry-vocabulary wrappers over the DSL).
 
 Tests cover:
 - CheckSignal one-shot methods (never_exceeds, never_below, stays_between, never_equals)
@@ -18,98 +18,99 @@ from aletheia.dsl import Property, Signal
 # CheckSignal — one-shot methods
 # ============================================================================
 
+
 class TestCheckSignal:
     """Test signal() one-shot convenience methods."""
 
     def test_never_exceeds(self) -> None:
-        """never_exceeds() produces G(s < v)"""
+        """never_exceeds() produces G(s < v)."""
         result = signal("Speed").never_exceeds(220)
         assert isinstance(result, CheckResult)
         assert result.to_dict() == {
-            'operator': 'always',
-            'formula': {
-                'operator': 'atomic',
-                'predicate': {'predicate': 'lessThan', 'signal': 'Speed', 'value': 220}
-            }
+            "operator": "always",
+            "formula": {
+                "operator": "atomic",
+                "predicate": {"predicate": "lessThan", "signal": "Speed", "value": 220},
+            },
         }
 
     def test_never_below(self) -> None:
-        """never_below() produces G(s >= v)"""
+        """never_below() produces G(s >= v)."""
         result = signal("Voltage").never_below(11.5)
         assert result.to_dict() == {
-            'operator': 'always',
-            'formula': {
-                'operator': 'atomic',
-                'predicate': {
-                    'predicate': 'greaterThanOrEqual',
-                    'signal': 'Voltage',
-                    'value': 11.5,
-                }
-            }
+            "operator": "always",
+            "formula": {
+                "operator": "atomic",
+                "predicate": {
+                    "predicate": "greaterThanOrEqual",
+                    "signal": "Voltage",
+                    "value": 11.5,
+                },
+            },
         }
 
     def test_stays_between(self) -> None:
-        """stays_between() produces G(lo <= s <= hi)"""
+        """stays_between() produces G(lo <= s <= hi)."""
         result = signal("Voltage").stays_between(11.5, 14.5)
         assert result.to_dict() == {
-            'operator': 'always',
-            'formula': {
-                'operator': 'atomic',
-                'predicate': {
-                    'predicate': 'between',
-                    'signal': 'Voltage',
-                    'min': 11.5,
-                    'max': 14.5,
-                }
-            }
+            "operator": "always",
+            "formula": {
+                "operator": "atomic",
+                "predicate": {
+                    "predicate": "between",
+                    "signal": "Voltage",
+                    "min": 11.5,
+                    "max": 14.5,
+                },
+            },
         }
 
     def test_never_equals(self) -> None:
-        """never_equals() produces G(not(s == v))"""
+        """never_equals() produces G(not(s == v))."""
         result = signal("ErrorCode").never_equals(0xFF)
         assert result.to_dict() == {
-            'operator': 'always',
-            'formula': {
-                'operator': 'not',
-                'formula': {
-                    'operator': 'atomic',
-                    'predicate': {
-                        'predicate': 'equals',
-                        'signal': 'ErrorCode',
-                        'value': 0xFF,
-                    }
-                }
-            }
+            "operator": "always",
+            "formula": {
+                "operator": "not",
+                "formula": {
+                    "operator": "atomic",
+                    "predicate": {
+                        "predicate": "equals",
+                        "signal": "ErrorCode",
+                        "value": 0xFF,
+                    },
+                },
+            },
         }
 
     def test_equals_always(self) -> None:
-        """equals().always() produces G(s == v)"""
+        """equals().always() produces G(s == v)."""
         result = signal("Gear").equals(0).always()
         assert isinstance(result, CheckResult)
         assert result.to_dict() == {
-            'operator': 'always',
-            'formula': {
-                'operator': 'atomic',
-                'predicate': {'predicate': 'equals', 'signal': 'Gear', 'value': 0}
-            }
+            "operator": "always",
+            "formula": {
+                "operator": "atomic",
+                "predicate": {"predicate": "equals", "signal": "Gear", "value": 0},
+            },
         }
 
     def test_settles_between_within(self) -> None:
-        """settles_between().within() produces G_t(lo <= s <= hi)"""
+        """settles_between().within() produces G_t(lo <= s <= hi)."""
         result = signal("Temp").settles_between(60, 80).within(500)
         assert isinstance(result, CheckResult)
         assert result.to_dict() == {
-            'operator': 'metricAlways',
-            'timebound': 500_000,
-            'formula': {
-                'operator': 'atomic',
-                'predicate': {
-                    'predicate': 'between',
-                    'signal': 'Temp',
-                    'min': 60,
-                    'max': 80,
-                }
-            }
+            "operator": "metricAlways",
+            "timebound": 500_000,
+            "formula": {
+                "operator": "atomic",
+                "predicate": {
+                    "predicate": "between",
+                    "signal": "Temp",
+                    "min": 60,
+                    "max": 80,
+                },
+            },
         }
 
     def test_settles_negative_time_rejected(self) -> None:
@@ -122,20 +123,18 @@ class TestCheckSignal:
 # When / Then causal checks
 # ============================================================================
 
+
 class TestCheckWhenThen:
     """Test when().then() causal chains."""
 
     def test_when_exceeds_then_equals(self) -> None:
-        """when().exceeds().then().equals().within() produces G(p -> F_t(q))"""
-        result = (
-            when("Brake").exceeds(50)
-            .then("BrakeLight").equals(1)
-            .within(100)
-        )
+        """when().exceeds().then().equals().within() produces G(p -> F_t(q))."""
+        result = when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
         assert isinstance(result, CheckResult)
         # G( Brake > 50 → F≤100(BrakeLight == 1) )
         expected = (
-            Signal("Brake").greater_than(50)
+            Signal("Brake")
+            .greater_than(50)
             .implies(Signal("BrakeLight").equals(1).within(100))
             .always()
             .to_dict()
@@ -143,14 +142,11 @@ class TestCheckWhenThen:
         assert result.to_dict() == expected
 
     def test_when_equals_then_exceeds(self) -> None:
-        """when().equals() trigger with then().exceeds() response"""
-        result = (
-            when("Ignition").equals(1)
-            .then("RPM").exceeds(500)
-            .within(2000)
-        )
+        """when().equals() trigger with then().exceeds() response."""
+        result = when("Ignition").equals(1).then("RPM").exceeds(500).within(2000)
         expected = (
-            Signal("Ignition").equals(1)
+            Signal("Ignition")
+            .equals(1)
             .implies(Signal("RPM").greater_than(500).within(2000))
             .always()
             .to_dict()
@@ -158,14 +154,13 @@ class TestCheckWhenThen:
         assert result.to_dict() == expected
 
     def test_when_drops_below_then_stays_between(self) -> None:
-        """when().drops_below() trigger with then().stays_between() response"""
+        """when().drops_below() trigger with then().stays_between() response."""
         result = (
-            when("FuelLevel").drops_below(10)
-            .then("FuelWarning").stays_between(1, 1)
-            .within(50)
+            when("FuelLevel").drops_below(10).then("FuelWarning").stays_between(1, 1).within(50)
         )
         expected = (
-            Signal("FuelLevel").less_than(10)
+            Signal("FuelLevel")
+            .less_than(10)
             .implies(Signal("FuelWarning").between(1, 1).within(50))
             .always()
             .to_dict()
@@ -182,53 +177,42 @@ class TestCheckWhenThen:
 # Metadata
 # ============================================================================
 
+
 class TestCheckMetadata:
     """Test CheckResult metadata (name, severity) and chaining."""
 
     def test_named(self) -> None:
-        """named() sets the name attribute"""
+        """named() sets the name attribute."""
         result = signal("Speed").never_exceeds(220).named("Speed limit")
         assert result.name == "Speed limit"
 
     def test_severity(self) -> None:
-        """severity() sets the check_severity attribute"""
+        """severity() sets the check_severity attribute."""
         result = signal("Speed").never_exceeds(220).severity("critical")
         assert result.check_severity == "critical"
 
     def test_chaining_named_then_severity(self) -> None:
-        """named() then severity() both stick"""
-        result = (
-            signal("Speed").never_exceeds(220)
-            .named("Speed limit")
-            .severity("critical")
-        )
+        """named() then severity() both stick."""
+        result = signal("Speed").never_exceeds(220).named("Speed limit").severity("critical")
         assert result.name == "Speed limit"
         assert result.check_severity == "critical"
 
     def test_chaining_severity_then_named(self) -> None:
-        """severity() then named() both stick"""
-        result = (
-            signal("Speed").never_exceeds(220)
-            .severity("warning")
-            .named("Soft limit")
-        )
+        """severity() then named() both stick."""
+        result = signal("Speed").never_exceeds(220).severity("warning").named("Soft limit")
         assert result.name == "Soft limit"
         assert result.check_severity == "warning"
 
     def test_metadata_absent_from_to_dict(self) -> None:
         """Metadata is NOT included in the LTL formula dict."""
-        result = (
-            signal("Speed").never_exceeds(220)
-            .named("Speed limit")
-            .severity("critical")
-        )
+        result = signal("Speed").never_exceeds(220).named("Speed limit").severity("critical")
         d = result.to_dict()
         assert d.get("name") is None
         assert d.get("severity") is None
         assert d.get("check_severity") is None
 
     def test_defaults_empty(self) -> None:
-        """name and check_severity default to empty string"""
+        """Name and check_severity default to empty string."""
         result = signal("Speed").never_exceeds(220)
         assert result.name == ""
         assert result.check_severity == ""
@@ -241,7 +225,7 @@ class TestCheckMetadata:
         assert d.get("condition_desc") is None
 
     def test_to_property_returns_property(self) -> None:
-        """to_property() unwraps to a Property with matching dict"""
+        """to_property() unwraps to a Property with matching dict."""
         result = signal("Speed").never_exceeds(220)
         prop = result.to_property()
         assert isinstance(prop, Property)
@@ -252,55 +236,52 @@ class TestCheckMetadata:
 # Equivalence: Check API == DSL
 # ============================================================================
 
+
 class TestCheckEquivalence:
     """Every Check method must produce the same formula as its DSL equivalent."""
 
     def test_never_exceeds_eq_dsl(self) -> None:
-        """never_exceeds matches Signal.less_than.always"""
+        """never_exceeds matches Signal.less_than.always."""
         check = signal("Speed").never_exceeds(220).to_dict()
         dsl = Signal("Speed").less_than(220).always().to_dict()
         assert check == dsl
 
     def test_never_below_eq_dsl(self) -> None:
-        """never_below matches Signal.greater_than_or_equal.always"""
+        """never_below matches Signal.greater_than_or_equal.always."""
         check = signal("Voltage").never_below(11.5).to_dict()
         dsl = Signal("Voltage").greater_than_or_equal(11.5).always().to_dict()
         assert check == dsl
 
     def test_stays_between_eq_dsl(self) -> None:
-        """stays_between matches Signal.between.always"""
+        """stays_between matches Signal.between.always."""
         check = signal("Voltage").stays_between(11.5, 14.5).to_dict()
         dsl = Signal("Voltage").between(11.5, 14.5).always().to_dict()
         assert check == dsl
 
     def test_never_equals_eq_dsl(self) -> None:
-        """never_equals matches Signal.equals.never"""
+        """never_equals matches Signal.equals.never."""
         check = signal("ErrorCode").never_equals(0xFF).to_dict()
         dsl = Signal("ErrorCode").equals(0xFF).never().to_dict()
         assert check == dsl
 
     def test_equals_always_eq_dsl(self) -> None:
-        """equals.always matches Signal.equals.always"""
+        """equals.always matches Signal.equals.always."""
         check = signal("Gear").equals(0).always().to_dict()
         dsl = Signal("Gear").equals(0).always().to_dict()
         assert check == dsl
 
     def test_settles_between_eq_dsl(self) -> None:
-        """settles_between.within matches Signal.between.for_at_least"""
+        """settles_between.within matches Signal.between.for_at_least."""
         check = signal("Temp").settles_between(60, 80).within(500).to_dict()
         dsl = Signal("Temp").between(60, 80).for_at_least(500).to_dict()
         assert check == dsl
 
     def test_when_then_eq_dsl(self) -> None:
-        """when/then matches implies.within.always"""
-        check = (
-            when("Brake").exceeds(50)
-            .then("BrakeLight").equals(1)
-            .within(100)
-            .to_dict()
-        )
+        """when/then matches implies.within.always."""
+        check = when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
         dsl = (
-            Signal("Brake").greater_than(50)
+            Signal("Brake")
+            .greater_than(50)
             .implies(Signal("BrakeLight").equals(1).within(100))
             .always()
             .to_dict()
@@ -308,15 +289,11 @@ class TestCheckEquivalence:
         assert check == dsl
 
     def test_when_equals_then_exceeds_eq_dsl(self) -> None:
-        """when(equals)/then(exceeds) matches DSL equivalent"""
-        check = (
-            when("Ignition").equals(1)
-            .then("RPM").exceeds(500)
-            .within(2000)
-            .to_dict()
-        )
+        """when(equals)/then(exceeds) matches DSL equivalent."""
+        check = when("Ignition").equals(1).then("RPM").exceeds(500).within(2000).to_dict()
         dsl = (
-            Signal("Ignition").equals(1)
+            Signal("Ignition")
+            .equals(1)
             .implies(Signal("RPM").greater_than(500).within(2000))
             .always()
             .to_dict()
@@ -324,15 +301,13 @@ class TestCheckEquivalence:
         assert check == dsl
 
     def test_when_drops_below_then_stays_between_eq_dsl(self) -> None:
-        """when(drops_below)/then(stays_between) matches DSL equivalent"""
+        """when(drops_below)/then(stays_between) matches DSL equivalent."""
         check = (
-            when("Fuel").drops_below(10)
-            .then("Warning").stays_between(1, 1)
-            .within(50)
-            .to_dict()
+            when("Fuel").drops_below(10).then("Warning").stays_between(1, 1).within(50).to_dict()
         )
         dsl = (
-            Signal("Fuel").less_than(10)
+            Signal("Fuel")
+            .less_than(10)
             .implies(Signal("Warning").between(1, 1).within(50))
             .always()
             .to_dict()
@@ -343,6 +318,7 @@ class TestCheckEquivalence:
 # ============================================================================
 # Diagnostic metadata
 # ============================================================================
+
 
 class TestCheckDiagnostics:
     """Test signal_name and condition_desc on all check builders."""
@@ -409,9 +385,6 @@ class TestCheckDiagnostics:
 
     def test_metadata_preserved_through_named_severity(self) -> None:
         """Diagnostic metadata survives .named() and .severity() chaining."""
-        r = (
-            signal("Speed").never_exceeds(220)
-            .named("Speed limit").severity("critical")
-        )
+        r = signal("Speed").never_exceeds(220).named("Speed limit").severity("critical")
         assert r.signal_name == "Speed"
         assert r.condition_desc == "< 220"
