@@ -46,7 +46,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 from tools._agda_imports import parse_imports, replace_block_in_lines
-from tools._common import emit, install_restore_handlers, track_inflight, untrack_inflight
+from tools._common import (
+    agda_tree_lock,
+    emit,
+    install_restore_handlers,
+    track_inflight,
+    untrack_inflight,
+)
 from tools.warm_dead_imports import SRC, LoadResult, WarmAgda, line_offsets, ranged_tokens
 
 if TYPE_CHECKING:
@@ -379,7 +385,7 @@ def main() -> int:
     if not rels:
         emit("usage: python -m tools.warm_iwyu [--apply] <relpath.agda> [...]")
         return 2
-    with WarmAgda() as agda:
+    with agda_tree_lock(), WarmAgda() as agda:
         for rel in rels:
             _process(agda, rel, apply=apply)
     return 0

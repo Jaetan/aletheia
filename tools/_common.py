@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import errno
+import fcntl
 import hashlib
 import json
+import os
 import shutil
 import signal
 import subprocess
@@ -22,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Generator, Mapping
 
 
 def match_paren_content(text: str, start: int) -> str | None:
@@ -220,3 +223,106 @@ def install_restore_handlers() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         _ = signal.signal(sig, _signal_restore)
     _restore_handlers_installed.append(True)
+
+
+# --- repo-wide single-Agda lock ---------------------------------------------
+# Every Agda-invoking tool acquires this one exclusive lock before it touches
+# Agda over the source tree -- the read-only check-properties driver and the
+# tools that rewrite-and-restore files in place to probe them (warm prune, the
+# cold prune driver, warm dead-imports, warm IWYU) alike.  It enforces the
+# project's standing "one agda -M16G at a time" rule and, more importantly,
+# closes the read-during-write race: a second Agda op must not observe a file
+# mid-prune-rewrite and draw a false verdict (the confound that corrupted an
+# earlier prune validation run).
+#
+# Crash-safe BY CONSTRUCTION: the lock is an `flock` on an open fd, which the
+# kernel releases when the holder exits for ANY reason -- including SIGKILL or a
+# host crash -- so a crashed holder never leaves the tree locked.  The PID
+# written into the file is purely diagnostic (it names the live holder in the
+# contention message).  Release rides the context manager's `finally` (normal
+# exit, or the SIGINT/SIGTERM `sys.exit` from `install_restore_handlers`).
+
+_AGDA_LOCK_NAME = ".agda-tree.lock"
+
+
+def _agda_lock_path() -> Path:
+    """Return the repo-root sentinel path for the single-Agda lock."""
+    return git_toplevel() / _AGDA_LOCK_NAME
+
+
+def _process_alive(pid: int) -> bool:
+    """Return True if `pid` names a live process (signal-0 probe)."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by another user
+    return True
+
+
+def _read_lock_pid(fd: int) -> int:
+    """Read the PID recorded in the lock file (for the contention message)."""
+    try:
+        _ = os.lseek(fd, 0, os.SEEK_SET)
+        text = os.read(fd, 32).decode(errors="replace").strip()
+    except OSError:
+        return -1
+    try:
+        return int(text)
+    except ValueError:
+        return -1
+
+
+def _acquire_agda_lock() -> int | None:
+    """Acquire the repo-wide Agda lock via flock; exit if a live tool holds it.
+
+    Returns the held fd (closed by `agda_tree_lock` to release), or None when the
+    filesystem cannot lock -- in which case the tool proceeds unlocked rather
+    than blocking all Agda tooling on a missing kernel feature.
+    """
+    path = _agda_lock_path()
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        holder = _read_lock_pid(fd)
+        os.close(fd)
+        liveness = "alive" if _process_alive(holder) else "stale?"
+        message = (
+            f"another Agda tool holds {_AGDA_LOCK_NAME} (pid {holder}, {liveness}); "
+            + "refusing to start a concurrent Agda op -- wait for it to finish "
+            + "(this guards the read-during-write prune race)."
+        )
+        sys.exit(message)
+    except OSError as exc:
+        os.close(fd)
+        if exc.errno in (errno.ENOLCK, errno.ENOSYS, errno.EOPNOTSUPP):
+            _ = sys.stderr.write(
+                f"warning: {path} does not support flock ({exc}); "
+                + "proceeding without the single-Agda lock\n"
+            )
+            return None
+        raise
+    _ = os.ftruncate(fd, 0)
+    _ = os.write(fd, f"{os.getpid()}\n".encode())
+    return fd
+
+
+@contextlib.contextmanager
+def agda_tree_lock() -> Generator[None]:
+    """Hold the exclusive repo-wide "one Agda process at a time" lock.
+
+    Wrap any Agda-invoking tool body in this.  Acquires the lock (or aborts with
+    a clear message naming the live holder); the `finally` closes the fd, which
+    frees the `flock`.  See the section comment for the crash-safety rationale.
+    """
+    fd = _acquire_agda_lock()
+    try:
+        yield
+    finally:
+        if fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(fd)  # closing the fd releases the flock

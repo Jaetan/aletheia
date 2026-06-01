@@ -26,7 +26,7 @@ from __future__ import annotations
 import sys
 import time
 
-from tools._common import emit
+from tools._common import agda_tree_lock, emit
 from tools.warm_dead_imports import SRC, WarmAgda
 
 
@@ -42,7 +42,7 @@ def main() -> int:
 
     t0 = time.time()
     failures: list[str] = []
-    with WarmAgda() as agda:
+    with agda_tree_lock(), WarmAgda() as agda:
         for i, mod in enumerate(mods, 1):
             t = time.time()
             ok = agda.load(str(SRC / mod)).ok

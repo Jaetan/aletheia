@@ -28,7 +28,13 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
-from tools._common import emit, install_restore_handlers, track_inflight, untrack_inflight
+from tools._common import (
+    agda_tree_lock,
+    emit,
+    install_restore_handlers,
+    track_inflight,
+    untrack_inflight,
+)
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
@@ -611,7 +617,7 @@ def main() -> int:
         emit("usage: python -m tools.warm_dead_imports [--confirm] <relpath.agda> [...]")
         return 2
     start = time.time()
-    with WarmAgda() as agda:
+    with agda_tree_lock(), WarmAgda() as agda:
         swept = _sweep(agda, files)
         _print_summary(files, swept.times, swept.candidates, time.time() - start)
         if do_confirm and swept.candidates:

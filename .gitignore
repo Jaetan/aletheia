@@ -98,3 +98,6 @@ python/.mutmut-cache
 
 # Generated install config
 python/aletheia/_install_config.py
+
+# repo-wide single-Agda tool lock (tools/_common.py agda_tree_lock)
+.agda-tree.lock
