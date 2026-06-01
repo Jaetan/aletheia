@@ -285,6 +285,13 @@ def _add_missing(used: UsingByModule, error: str) -> bool:
     Returns True iff a new name was added.  A name already present, or one whose
     qualifier is not a narrowed wildcard module, is skipped — so a stalled
     completion (agda still failing with nothing new to add) returns False.
+
+    When the suggestion is a record-field access (`M.Record.field`, e.g.
+    `…Cache.CachedSignal.value`), stripping the module leaves `Record.field` —
+    which is not a valid using-list entry.  The entry that brings it into scope
+    is the FIRST component (`Record`); since Agda names never contain `.`, the
+    first dotted component is always the right top-level name (a record, a
+    submodule, …) to add.
     """
     modules = list(used)
     suggestions: list[str] = _SUGGESTION_RE.findall(error)
@@ -293,7 +300,7 @@ def _add_missing(used: UsingByModule, error: str) -> bool:
         module = _module_for(qualified, modules)
         if module is None:
             continue
-        name = qualified[len(module) + 1 :]
+        name = qualified[len(module) + 1 :].split(".", 1)[0]
         if name and name not in used[module]:
             used[module].append(name)
             added = True
@@ -338,7 +345,10 @@ def _report(rel: str, used: UsingByModule) -> None:
         if names:
             emit(f"  open import {module}  -->  using ({'; '.join(names)})  [{len(names)} used]")
         else:
-            emit(f"  open import {module}  -->  (no names used here; wildcard import is DEAD)")
+            emit(
+                f"  open import {module}  -->  (no names attributed; not a narrowing "
+                + "target — check whole-import removability via the dead-import/prune oracle)"
+            )
 
 
 def _process(agda: WarmAgda, rel: str, *, apply: bool) -> None:
