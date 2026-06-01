@@ -62,6 +62,10 @@ type CharRange = tuple[int, int]
 # A definition identity: (definitionSite.filepath, definitionSite.position).
 DefId = tuple[str, int]
 
+# A def-id imported this many times (or more) is a redundant duplicate: removing
+# one copy leaves the others in scope, so the extra import is dead.
+_MIN_DUP_OCCURRENCES = 2
+
 
 class ConfirmResult(NamedTuple):
     """How a file's candidates split once authoritatively confirmed.
@@ -158,6 +162,7 @@ class DetectResult(TypedDict):
 
     dead: list[Name]
     dead_defid_only: list[Name]
+    duplicates: list[Name]
     public_skipped: list[Name]
     unresolved: list[Name]
 
@@ -343,9 +348,22 @@ class WarmAgda:
         return state
 
     def load(self, abspath: str) -> LoadResult:
-        """Send Cmd_load; return the load's tokens, ok flag, and error message."""
+        """Send Cmd_load; return the load's tokens, ok flag, and error message.
+
+        Agda re-sends highlighting in chunks on a cold check (no warm `.agdai`),
+        so the SAME token range can arrive in several `HighlightingInfo`
+        messages and accumulate.  Dedup by range (keeping the last, i.e. most
+        complete, token per range) so every consumer sees each token once —
+        occurrence-counting (duplicate-import detection) must not be fooled by
+        re-sent tokens.
+        """
         state = self._run_load(abspath)
-        return LoadResult(state.tokens, state.ok, state.error, state.warnings)
+        by_range: dict[tuple[int, ...], Token] = {}
+        for tok in state.tokens:
+            key = tuple(tok.get("range", ()))
+            if key:
+                by_range[key] = tok
+        return LoadResult(list(by_range.values()), state.ok, state.error, state.warnings)
 
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
@@ -368,9 +386,10 @@ class _ImportStructure(NamedTuple):
 
 
 class _BodyIndex(NamedTuple):
-    """The four body lookups `detect_dead` consumes (see its docstring)."""
+    """The lookups `detect_dead` consumes (see its docstring)."""
 
     import_defid: dict[Name, DefId]  # import name → its definition identity
+    import_occurrences: list[tuple[Name, DefId]]  # EVERY import-clause token (name, def-id)
     body_defids: set[DefId]  # def-ids referenced anywhere in the body
     body_names_external: set[Name]  # body names whose def lives in another file
     qualified_use_files: dict[Name, set[str]]  # qualifier → files of its `q.field` uses
@@ -414,26 +433,30 @@ def _body_index(
     described in `detect_dead`.
     """
     import_defid: dict[Name, DefId] = {}
+    import_occurrences: list[tuple[Name, DefId]] = []
     body_defids: set[DefId] = set()
     body_names_external: set[Name] = set()
     qualified_use_files: dict[Name, set[str]] = {}
     for tok, rng in ranged_tokens(tokens):
-        off0 = rng[0] - 1  # Agda ranges are 1-based; Python str is 0-based
-        name = text[off0 : rng[1] - 1]
+        name = text[rng[0] - 1 : rng[1] - 1]  # Agda ranges are 1-based
         site = tok.get("definitionSite")
         defid: DefId | None = (site["filepath"], site["position"]) if site else None
-        if any(s <= off0 < e for s, e in import_ranges):  # token in an import clause
-            # def==None for a renaming dest / local binding: body refs point at
-            # THIS token's position in THIS file -> synthesize that def-id.
-            if name in check_names and name not in import_defid:
-                import_defid[name] = defid or (abspath, rng[0])
+        if any(s <= rng[0] - 1 < e for s, e in import_ranges):  # token in an import clause
+            # def==None for a renaming dest / local binding: body refs point at THIS
+            # token's position in THIS file -> synthesize (abspath, offset), which is
+            # per-occurrence-unique so a rename never groups as a duplicate.
+            if name in check_names:
+                import_occurrences.append((name, defid or (abspath, rng[0])))
+                import_defid.setdefault(name, defid or (abspath, rng[0]))
         elif defid is not None:  # def-less body tokens can't be import-uses
             body_defids.add(defid)
             if defid[0] != abspath:
                 body_names_external.add(name)
             if "." in name:  # qualified use `q.field`
                 qualified_use_files.setdefault(name.split(".", 1)[0], set()).add(defid[0])
-    return _BodyIndex(import_defid, body_defids, body_names_external, qualified_use_files)
+    return _BodyIndex(
+        import_defid, import_occurrences, body_defids, body_names_external, qualified_use_files
+    )
 
 
 def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
@@ -468,10 +491,26 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 
     dead = sorted(n for n, d in import_defid.items() if not alive(n, d))
     dead_defid_only = sorted(n for n, d in import_defid.items() if d not in index.body_defids)
+    # Structural duplicates: a def-id imported by >=2 occurrences is redundant
+    # (removing one copy keeps the others in scope), even when the name is "alive"
+    # — exactly the L178 `length` case the per-name `import_defid` collapses away.
+    # Grouping by DEF-ID, not name, so overloaded `[]`/`_∷_` (distinct def-ids)
+    # are not falsely paired, and a same-entity-different-name alias still is.
+    occ_count: dict[DefId, int] = {}
+    for _name, defid in index.import_occurrences:
+        occ_count[defid] = occ_count.get(defid, 0) + 1
+    duplicates = sorted(
+        {
+            name
+            for name, defid in index.import_occurrences
+            if occ_count[defid] >= _MIN_DUP_OCCURRENCES
+        }
+    )
     unresolved = sorted(structure.check_names - set(import_defid))
     return {
         "dead": dead,
         "dead_defid_only": dead_defid_only,
+        "duplicates": duplicates,
         "public_skipped": structure.public_skipped,
         "unresolved": unresolved,
     }
@@ -481,13 +520,17 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
 
-def _text_without_name(original: str, name: Name) -> str | None:
-    """Return `original` with `name` removed from its import clause, or None.
+def _texts_without_name(original: str, name: Name) -> list[str]:
+    """Each variant of `original` with `name` dropped from ONE import block.
 
-    Locates the first block whose `using`/renaming entry is `name` (a plain
-    name, a `module X`, or a renaming dest) and drops just that entry; returns
-    None when no clause yields a changed block (⇒ conservatively NOT removable).
+    A name imported in several blocks (a duplicate) yields one variant per
+    block, so the confirm can test EVERY occurrence — the redundant copy need
+    not be the first (e.g. a where-local re-import shadowed by a top-level one).
+    Each block's entry may be a plain name, a `module X`, or a renaming dest;
+    blocks that yield no change are skipped.
     """
+    variants: list[str] = []
+    lines = original.splitlines(keepends=True)
     for blk in parse_imports(original):
         if name in blk.using_names:
             cand = remove_name_from_raw(blk.raw, name)
@@ -497,31 +540,31 @@ def _text_without_name(original: str, name: Name) -> str | None:
             pair = next(((s, d) for s, d in blk.renaming_pairs if d == name), None)
             cand = remove_rename_from_raw(blk.raw, pair[0], pair[1]) if pair else None
         if cand is not None and cand != blk.raw:
-            new_lines = replace_block_in_lines(original.splitlines(keepends=True), blk, cand)
-            return "".join(new_lines)
-    return None
+            variants.append("".join(replace_block_in_lines(lines, blk, cand)))
+    return variants
 
 
 def _confirm_one(agda: WarmAgda, rel: RelPath, name: Name, original: str, baseline: int) -> bool:
-    """Remove just `name`, warm-reload, and report whether it is truly dead.
+    """Remove `name` from each block holding it, warm-reload; dead iff ANY succeeds.
 
-    Dead ⇔ the file still type-checks (`ok`) AND introduces no new
+    Dead ⇔ for SOME occurrence, the file still type-checks (`ok`) with no new
     silent-semantic-change warning beyond `baseline` (prune's guard — a removed
-    constructor reinterpreting a pattern as a variable binding).  ALWAYS restores
-    the original content, even on failure.
+    constructor reinterpreting a pattern as a variable binding).  Trying every
+    occurrence is what catches a redundant duplicate that is not the first copy.
+    ALWAYS restores the original content after each attempt, even on failure.
     """
-    modified = _text_without_name(original, name)
-    if modified is None:
-        return False  # can't locate the clause entry -> conservatively NOT dead
     path = SRC / rel
-    try:
-        track_inflight(str(path), original)
-        _ = path.write_text(modified, encoding="utf-8")
-        result = agda.load(str(path))
-        return result.ok and count_semantic_warnings(result.warnings) <= baseline
-    finally:
-        _ = path.write_text(original, encoding="utf-8")  # ALWAYS restore
-        untrack_inflight(str(path))
+    for modified in _texts_without_name(original, name):
+        try:
+            track_inflight(str(path), original)
+            _ = path.write_text(modified, encoding="utf-8")
+            result = agda.load(str(path))
+            if result.ok and count_semantic_warnings(result.warnings) <= baseline:
+                return True  # this occurrence is removable -> the import is dead
+        finally:
+            _ = path.write_text(original, encoding="utf-8")  # ALWAYS restore
+            untrack_inflight(str(path))
+    return False
 
 
 def confirm_candidates(agda: WarmAgda, rel: RelPath, names: list[Name]) -> ConfirmResult:
@@ -561,14 +604,17 @@ def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
             )
             continue
         result = detect_dead(text, loaded.tokens, str(SRC / rel))
-        if result["dead"]:
-            candidates[rel] = result["dead"]
+        cands = sorted(set(result["dead"]) | set(result["duplicates"]))
+        if cands:
+            candidates[rel] = cands
         extra = ""
+        if result["duplicates"]:
+            extra += f"  duplicates={result['duplicates']}"
         if result["public_skipped"]:
             extra += f"  public-skipped={len(result['public_skipped'])}"
         if result["unresolved"]:
             extra += f"  unresolved={result['unresolved']}"
-        shown = result["dead"] if result["dead"] else "—"
+        shown = cands if cands else "—"
         emit(
             f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
             + f"tokens={len(loaded.tokens)} CANDIDATES={shown}{extra}"
@@ -592,8 +638,8 @@ def _print_summary(
         emit(f"--- 1 file: {total:.1f}s — {ncand} candidate(s) ---")
 
 
-def _confirm_all(agda: WarmAgda, candidates: Candidates) -> None:
-    """Confirm every candidate (remove-one + warm-recompile) and print the verdict."""
+def _confirm_all(agda: WarmAgda, candidates: Candidates) -> int:
+    """Confirm every candidate (remove-one + warm-recompile); return the dead count."""
     ncand = sum(len(v) for v in candidates.values())
     emit(f"=== confirming {ncand} candidate(s): remove-one + warm recompile (ground truth) ===")
     start = time.time()
@@ -606,10 +652,18 @@ def _confirm_all(agda: WarmAgda, candidates: Candidates) -> None:
             + f"fp/used={confirmed.false_positives or '—'}"
         )
     emit(f"=== confirm: {n_dead} truly-dead of {ncand} in {time.time() - start:.1f}s ===")
+    return n_dead
 
 
 def main() -> int:
-    """Warm-sweep the given modules for dead-import candidates; --confirm to verify."""
+    """Warm-sweep modules for dead-import candidates; --confirm verifies (gate mode).
+
+    Sieve candidates = unused-by-def-id names, plus structural duplicates (a
+    def-id imported twice or more).  With --confirm, each is remove-one +
+    warm-recompiled (ground truth, filtering inferred-use false positives); exits
+    1 iff any are confirmed dead — so --confirm is the blocking gate, the bare
+    sieve is a fast report.
+    """
     args = sys.argv[1:]
     do_confirm = "--confirm" in args
     files = [a for a in args if not a.startswith("--")]
@@ -617,12 +671,13 @@ def main() -> int:
         emit("usage: python -m tools.warm_dead_imports [--confirm] <relpath.agda> [...]")
         return 2
     start = time.time()
+    n_dead = 0
     with agda_tree_lock(), WarmAgda() as agda:
         swept = _sweep(agda, files)
         _print_summary(files, swept.times, swept.candidates, time.time() - start)
         if do_confirm and swept.candidates:
-            _confirm_all(agda, swept.candidates)
-    return 0
+            n_dead = _confirm_all(agda, swept.candidates)
+    return 1 if (do_confirm and n_dead) else 0
 
 
 if __name__ == "__main__":
