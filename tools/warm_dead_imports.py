@@ -163,6 +163,8 @@ class DetectResult(TypedDict):
     dead: list[Name]
     dead_defid_only: list[Name]
     duplicates: list[Name]
+    candidates: list[Name]  # the authoritative set to confirm (FN-complete)
+    disqualified: bool  # file has an unmodeled-scope open -> all in-body confirmed
     public_skipped: list[Name]
     unresolved: list[Name]
 
@@ -381,7 +383,8 @@ class _ImportStructure(NamedTuple):
     """The import-clause structure of a file that `detect_dead` works over."""
 
     import_ranges: list[CharRange]  # char span of each import block
-    check_names: set[Name]  # unqualified names to test for deadness
+    check_names: set[Name]  # non-public names — the confirm candidates
+    all_names: set[Name]  # public + non-public — for unique-provider counting
     public_skipped: list[Name]  # `public` re-exports (never flagged — see below)
 
 
@@ -406,6 +409,7 @@ def _import_structure(text: str) -> _ImportStructure:
     offs = line_offsets(text)
     import_ranges: list[CharRange] = []
     check_names: set[Name] = set()
+    all_names: set[Name] = set()
     public_skipped: list[Name] = []
     for blk in blocks:
         start = offs[blk.line_start]
@@ -413,24 +417,53 @@ def _import_structure(text: str) -> _ImportStructure:
         import_ranges.append((start, end))
         names = [n[7:].strip() if n.startswith("module ") else n for n in blk.using_names]
         names += [dst for _src, dst in blk.renaming_pairs]
+        all_names.update(names)  # both kinds — a public re-export still PROVIDES a name
         if blk.has_public:
             public_skipped += names
         else:
             check_names.update(names)
-    return _ImportStructure(import_ranges, check_names, public_skipped)
+    return _ImportStructure(import_ranges, check_names, all_names, public_skipped)
+
+
+def _has_unmodeled_scope(text: str) -> bool:
+    """Report whether the file has any `open` the sieve does not fully model.
+
+    `open` is Agda's single gateway for bringing an unqualified name from another
+    scope into the body: `open import M using/renaming (...)` is fully enumerated
+    (MODELED — its names are listed, so uniqueness is decidable), whereas a bare
+    `open M` / record or module open / `let open`, or a wildcard `open import M`
+    with no name list (`hiding` likewise), is an UNMODELED provider whose names
+    the sieve cannot enumerate.  When any such construct is present the
+    "alive iff def-id in body" shortcut is unsound (a seemingly-used import may be
+    redundantly supplied by the unmodeled open), so the caller must confirm EVERY
+    in-body import rather than skip.
+
+    Whitelisting the one modeled form (and disqualifying every other `open`,
+    including forms not yet imagined) keeps the gate correct BY CONSTRUCTION: an
+    unrecognised `open` defaults to confirm, never to a silent skip.
+    """
+    modeled_lines: set[int] = set()
+    for blk in parse_imports(text):
+        raw = blk.raw
+        if raw.lstrip().startswith("open import") and ("using" in raw or "renaming" in raw):
+            modeled_lines.update(range(blk.line_start, blk.line_end + 1))
+    for i, line in enumerate(text.splitlines()):
+        stripped = line.lstrip()
+        is_open = stripped == "open" or stripped[:5] in ("open ", "open\t")
+        if is_open and i not in modeled_lines:
+            return True
+    return False
 
 
 def _body_index(
-    text: str,
-    tokens: list[Token],
-    abspath: str,
-    import_ranges: list[CharRange],
-    check_names: set[Name],
+    text: str, tokens: list[Token], abspath: str, structure: _ImportStructure
 ) -> _BodyIndex:
-    """Index tokens into the four lookups `detect_dead` consumes.
+    """Index tokens into the lookups `detect_dead` consumes.
 
-    The external / qualified-file distinctions are the no-false-positive guards
-    described in `detect_dead`.
+    Occurrences are recorded for ALL import names (public + non-public) so the
+    unique-provider count sees a public re-export too; `import_defid` (the
+    confirm candidates) is non-public only.  The external / qualified-file
+    distinctions are the no-false-positive guards described in `detect_dead`.
     """
     import_defid: dict[Name, DefId] = {}
     import_occurrences: list[tuple[Name, DefId]] = []
@@ -441,13 +474,15 @@ def _body_index(
         name = text[rng[0] - 1 : rng[1] - 1]  # Agda ranges are 1-based
         site = tok.get("definitionSite")
         defid: DefId | None = (site["filepath"], site["position"]) if site else None
-        if any(s <= rng[0] - 1 < e for s, e in import_ranges):  # token in an import clause
+        if any(s <= rng[0] - 1 < e for s, e in structure.import_ranges):  # token in import clause
             # def==None for a renaming dest / local binding: body refs point at THIS
             # token's position in THIS file -> synthesize (abspath, offset), which is
             # per-occurrence-unique so a rename never groups as a duplicate.
-            if name in check_names:
-                import_occurrences.append((name, defid or (abspath, rng[0])))
-                import_defid.setdefault(name, defid or (abspath, rng[0]))
+            if name in structure.all_names:
+                occ = defid or (abspath, rng[0])
+                import_occurrences.append((name, occ))  # public + non-public: uniqueness count
+                if name in structure.check_names:
+                    import_defid.setdefault(name, occ)  # non-public: a confirm candidate
         elif defid is not None:  # def-less body tokens can't be import-uses
             body_defids.add(defid)
             if defid[0] != abspath:
@@ -459,8 +494,30 @@ def _body_index(
     )
 
 
+def _duplicate_names(occurrences: list[tuple[Name, DefId]], check_names: set[Name]) -> list[Name]:
+    """Non-public names whose def-id is imported >=2 times (a redundant duplicate).
+
+    Grouping by DEF-ID (not name), so overloaded `[]`/`_∷_` (distinct def-ids)
+    are not falsely paired while a same-entity alias still is.  Occurrences
+    include public re-exports (another provider), so a non-public import made
+    redundant by a public one is caught; only non-public names are returned (the
+    confirm candidates) — exactly the L178 `length` case the per-name
+    `import_defid` dict collapses away.
+    """
+    occ_count: dict[DefId, int] = {}
+    for _name, defid in occurrences:
+        occ_count[defid] = occ_count.get(defid, 0) + 1
+    return sorted(
+        {n for n, d in occurrences if occ_count[d] >= _MIN_DUP_OCCURRENCES and n in check_names}
+    )
+
+
 def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
-    """Return {dead, dead_defid_only, public_skipped, unresolved}.
+    """Return one file's dead / duplicate / candidate analysis.
+
+    `candidates` is the authoritative set to confirm; it is FN-complete by
+    construction (see `_has_unmodeled_scope`).  `dead` / `duplicates` are its
+    components, reported for insight.
 
     Identity model (from Agda's highlighting): a body reference's def-id is
     `(definitionSite.filepath, position)`; an imported name is ALIVE when its
@@ -478,7 +535,7 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
     the name/prefix fallbacks (reported, to show what they catch).
     """
     structure = _import_structure(text)
-    index = _body_index(text, tokens, abspath, structure.import_ranges, structure.check_names)
+    index = _body_index(text, tokens, abspath, structure)
     import_defid = index.import_defid
 
     def alive(name: Name, defid: DefId) -> bool:
@@ -491,26 +548,22 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 
     dead = sorted(n for n, d in import_defid.items() if not alive(n, d))
     dead_defid_only = sorted(n for n, d in import_defid.items() if d not in index.body_defids)
-    # Structural duplicates: a def-id imported by >=2 occurrences is redundant
-    # (removing one copy keeps the others in scope), even when the name is "alive"
-    # — exactly the L178 `length` case the per-name `import_defid` collapses away.
-    # Grouping by DEF-ID, not name, so overloaded `[]`/`_∷_` (distinct def-ids)
-    # are not falsely paired, and a same-entity-different-name alias still is.
-    occ_count: dict[DefId, int] = {}
-    for _name, defid in index.import_occurrences:
-        occ_count[defid] = occ_count.get(defid, 0) + 1
-    duplicates = sorted(
-        {
-            name
-            for name, defid in index.import_occurrences
-            if occ_count[defid] >= _MIN_DUP_OCCURRENCES
-        }
-    )
+    duplicates = _duplicate_names(index.import_occurrences, structure.check_names)
     unresolved = sorted(structure.check_names - set(import_defid))
+    # Correct BY CONSTRUCTION: the "alive iff def-id in body" skip is sound only
+    # when the file's every `open` is a fully-enumerated import (unique provider
+    # decidable).  With any unmodeled-scope open, we cannot prove ANY in-body
+    # import alive -> confirm them all (this file pays oracle cost, but no FN).
+    disqualified = _has_unmodeled_scope(text)
+    candidates = (
+        sorted(structure.check_names) if disqualified else sorted(set(dead) | set(duplicates))
+    )
     return {
         "dead": dead,
         "dead_defid_only": dead_defid_only,
         "duplicates": duplicates,
+        "candidates": candidates,
+        "disqualified": disqualified,
         "public_skipped": structure.public_skipped,
         "unresolved": unresolved,
     }
@@ -604,17 +657,24 @@ def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
             )
             continue
         result = detect_dead(text, loaded.tokens, str(SRC / rel))
-        cands = sorted(set(result["dead"]) | set(result["duplicates"]))
+        cands = result["candidates"]
         if cands:
             candidates[rel] = cands
         extra = ""
-        if result["duplicates"]:
+        if result["disqualified"]:
+            extra += "  [unmodeled-scope: confirming all in-body imports]"
+        elif result["duplicates"]:
             extra += f"  duplicates={result['duplicates']}"
         if result["public_skipped"]:
             extra += f"  public-skipped={len(result['public_skipped'])}"
         if result["unresolved"]:
             extra += f"  unresolved={result['unresolved']}"
-        shown = cands if cands else "—"
+        if not cands:
+            shown = "—"
+        elif result["disqualified"]:
+            shown = f"ALL {len(cands)}"
+        else:
+            shown = str(cands)
         emit(
             f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
             + f"tokens={len(loaded.tokens)} CANDIDATES={shown}{extra}"
