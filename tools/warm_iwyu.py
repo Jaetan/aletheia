@@ -258,7 +258,7 @@ def verify_narrowing(agda: WarmAgda, abspath: str, text: str, used: UsingByModul
     and `error` drive completion; its `tokens` (of the narrowed file) are unused.
     """
     if not any(used.values()):
-        return LoadResult([], ok=True, error="")
+        return LoadResult([], ok=True, error="", warnings=[])
     install_restore_handlers()
     path = Path(abspath)
     try:

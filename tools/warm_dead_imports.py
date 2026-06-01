@@ -81,17 +81,25 @@ class _ErrorPayload(TypedDict, total=False):
     message: str
 
 
+class _WarningEntry(TypedDict, total=False):
+    """One entry in an AllGoalsWarnings `warnings` list."""
+
+    message: str
+
+
 class _Info(TypedDict, total=False):
-    """A response's `info` field — HighlightingInfo tokens or an Error.
+    """A response's `info` field — HighlightingInfo tokens, an Error, or warnings.
 
     `payload` carries the highlighting tokens; `kind`/`error` carry a DisplayInfo
-    error (the `[NotInScope]` message).  total=False because each response kind
-    sets only its own keys, so reads go through `.get`.
+    error (the `[NotInScope]` message); `warnings` carries an AllGoalsWarnings
+    list.  total=False because each response kind sets only its own keys, so
+    reads go through `.get`.
     """
 
     payload: list[Token]
     kind: str
     error: _ErrorPayload
+    warnings: list[_WarningEntry]
 
 
 class _StatusInfo(TypedDict, total=False):
@@ -114,11 +122,14 @@ class LoadResult(NamedTuple):
     `ok` is True iff agda reported `Status{checked:true}`.  `error` is agda's
     failure message ('' when ok) — for a narrowing that dropped a needed name,
     the `[NotInScope]` text whose `did you mean 'M.x'` hint drives completion.
+    `warnings` is the AllGoalsWarnings messages — `count_semantic_warnings`
+    extracts the silent-semantic-change ones (prune's dead-import guard).
     """
 
     tokens: list[Token]
     ok: bool
     error: str
+    warnings: list[str]
 
 
 class DetectResult(TypedDict):
@@ -177,6 +188,18 @@ class _LoadState:
     ok: bool = False
     saw_error: bool = False
     error: str = ""
+    warnings: list[str] = field(default_factory=list)
+
+
+# Warnings that signal a SILENT semantic change — a pattern reinterpreted as a
+# variable binding when a constructor leaves scope (the file still type-checks
+# but its meaning changes).  Mirrors prune's `_SEMANTIC_WARNING_TAGS`.
+SEMANTIC_WARNING_TAGS = ("PatternShadowsConstructor", "UnreachableClauses")
+
+
+def count_semantic_warnings(warnings: list[str]) -> int:
+    """Count warning messages tagged as a silent semantic change."""
+    return sum(1 for w in warnings if any(tag in w for tag in SEMANTIC_WARNING_TAGS))
 
 
 def _error_display_message(payload: _Response) -> str:
@@ -191,6 +214,19 @@ def _error_display_message(payload: _Response) -> str:
         return ""
     err = info.get("error")
     return err.get("message", "") if err is not None else ""
+
+
+def _display_warnings(payload: _Response) -> list[str]:
+    """Return an AllGoalsWarnings DisplayInfo's warning messages, or [] otherwise.
+
+    A successful `Cmd_load` emits this after `Status{checked:true}`; the messages
+    carry the warning tags (`-W[no]UnreachableClauses`, …) that
+    `count_semantic_warnings` scans for the silent-semantic-change ones.
+    """
+    info = payload.get("info")
+    if info is None or info.get("kind") != "AllGoalsWarnings":
+        return []
+    return [msg for w in info.get("warnings", []) if (msg := w.get("message"))]
 
 
 def _parse_response(line: str) -> _Response | None:
@@ -247,6 +283,7 @@ class WarmAgda:
             message = _error_display_message(payload)
             if message:
                 state.error = message
+            state.warnings += _display_warnings(payload)
         elif kind == "JumpToError":
             state.saw_error = True
         elif kind == "Status":
@@ -287,7 +324,7 @@ class WarmAgda:
     def load(self, abspath: str) -> LoadResult:
         """Send Cmd_load; return the load's tokens, ok flag, and error message."""
         state = self._run_load(abspath)
-        return LoadResult(state.tokens, state.ok, state.error)
+        return LoadResult(state.tokens, state.ok, state.error, state.warnings)
 
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
