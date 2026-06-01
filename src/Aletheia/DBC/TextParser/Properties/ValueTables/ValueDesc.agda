@@ -28,7 +28,6 @@ module Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc where
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length)
   renaming (_++_ to _++ₗ_)
-open import Data.List.Properties
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
