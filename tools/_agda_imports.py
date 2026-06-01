@@ -27,12 +27,16 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import (
     find_executable,
     match_paren_content,
     split_top_level_semicolons,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _find_repo_root() -> Path:
@@ -282,21 +286,38 @@ def replace_block_in_lines(lines: list[str], block: ImportBlock, new_raw: str) -
 # ----------------------------------------------------------------------------
 
 
+class WarmVerdict(NamedTuple):
+    """A warm type-check's outcome: whether it checked, and its warning count."""
+
+    ok: bool
+    semantic_warnings: int
+
+
+# A warm replacement for the cold agda subprocess: given a src-relative path,
+# (re)load it in a persistent agda process and report (ok, semantic-warning
+# count).  Injected on TypecheckCtx so prune's whole algorithm — bisection,
+# find_live_block, consumer checks — runs on the warm engine unchanged.
+type WarmCheck = Callable[[str], WarmVerdict]
+
+
 @dataclass(frozen=True)
 class TypecheckCtx:
     """The agda invocation parameters shared by every type-check in a run.
 
-    These four values are fixed for the whole pruning pass (they come from CLI
+    These values are fixed for the whole pruning pass (they come from CLI
     flags), so bundling them keeps the dozen type-check call sites from each
-    threading four positional arguments.  ``src_dir`` is the cwd agda runs in
+    threading several positional arguments.  ``src_dir`` is the cwd agda runs in
     (paths are passed relative to it); ``rts_cores`` / ``rts_heap_gb`` set the
     GHC RTS ``-N`` / ``-M`` flags; ``timeout`` caps each agda call in seconds.
+    When ``warm`` is set, ``typecheck`` / ``warning_count_for`` route through it
+    instead of spawning a cold agda subprocess.
     """
 
     src_dir: Path
     rts_cores: int
     rts_heap_gb: int
     timeout: int
+    warm: WarmCheck | None = None
 
 
 # Warning categories that signal SILENT SEMANTIC CHANGES — must not appear
@@ -457,8 +478,12 @@ def typecheck(
     The second condition catches the silent-semantic-change bug where a
     removal turns constructor patterns into pattern-variable bindings.
     Caller should compute the baseline via ``warning_count_for`` before the
-    first removal attempt.
+    first removal attempt.  When ``ctx.warm`` is set the file (already written
+    by the caller) is re-checked on the warm engine instead of a cold subprocess.
     """
+    if ctx.warm is not None:
+        verdict = ctx.warm(rel_path)
+        return verdict.ok and verdict.semantic_warnings <= baseline_warning_count
     try:
         result = subprocess.run(
             _agda_cmd(rel_path, ctx),
@@ -492,8 +517,12 @@ def warning_count_for(
     can fail because F's ``.agdai`` is mid-flight.  This typically resolves
     itself once the first worker's agda invocation completes and writes a
     consistent ``.agdai``.  Retry up to ``retries`` times with ``retry_sleep_s``
-    backoff between attempts.
+    backoff between attempts.  When ``ctx.warm`` is set, the warm engine answers
+    directly (one serial process, so no cross-worker ``.agdai`` race to retry).
     """
+    if ctx.warm is not None:
+        verdict = ctx.warm(rel_path)
+        return verdict.semantic_warnings if verdict.ok else -1
     cmd = _agda_cmd(rel_path, ctx)
     for attempt in range(retries):
         try:
