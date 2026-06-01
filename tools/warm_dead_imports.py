@@ -20,19 +20,15 @@ Invoke as `python -m tools.warm_dead_imports [--confirm] <relpath.agda> ...`.
 
 from __future__ import annotations
 
-import atexit
-import contextlib
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Self, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
-from tools._common import emit
+from tools._common import emit, install_restore_handlers, track_inflight, untrack_inflight
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
@@ -44,6 +40,9 @@ from tools.prune_unused_imports import (
     typecheck,
     warning_count_for,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 AGDA = str(AGDA_BIN)
 SRC = SRC_DIR
@@ -76,10 +75,23 @@ class Token(TypedDict, total=False):
     definitionSite: DefSite | None
 
 
-class _HLInfo(TypedDict):
-    """`info` field of a HighlightingInfo response."""
+class _ErrorPayload(TypedDict, total=False):
+    """The `error` object carried by an Error DisplayInfo."""
+
+    message: str
+
+
+class _Info(TypedDict, total=False):
+    """A response's `info` field — HighlightingInfo tokens or an Error.
+
+    `payload` carries the highlighting tokens; `kind`/`error` carry a DisplayInfo
+    error (the `[NotInScope]` message).  total=False because each response kind
+    sets only its own keys, so reads go through `.get`.
+    """
 
     payload: list[Token]
+    kind: str
+    error: _ErrorPayload
 
 
 class _StatusInfo(TypedDict, total=False):
@@ -92,8 +104,21 @@ class _Response(TypedDict, total=False):
     """One `agda --interaction-json` response object."""
 
     kind: str
-    info: _HLInfo
+    info: _Info
     status: _StatusInfo
+
+
+class LoadResult(NamedTuple):
+    """The outcome of one warm `Cmd_load`.
+
+    `ok` is True iff agda reported `Status{checked:true}`.  `error` is agda's
+    failure message ('' when ok) — for a narrowing that dropped a needed name,
+    the `[NotInScope]` text whose `did you mean 'M.x'` hint drives completion.
+    """
+
+    tokens: list[Token]
+    ok: bool
+    error: str
 
 
 class DetectResult(TypedDict):
@@ -111,6 +136,18 @@ def line_offsets(text: str) -> list[int]:
     for line in text.splitlines(keepends=True):
         offs.append(offs[-1] + len(line))
     return offs
+
+
+def ranged_tokens(tokens: list[Token]) -> Iterator[tuple[Token, list[int]]]:
+    """Yield (token, range) for each highlighting token carrying a `range`.
+
+    Tokens without a `range` (whitespace, layout) are skipped — the shared entry
+    point both the dead-import indexer and the IWYU attributor iterate over.
+    """
+    for tok in tokens:
+        rng = tok.get("range")
+        if rng:
+            yield tok, rng
 
 
 def _spawn_agda() -> subprocess.Popen[str]:
@@ -139,6 +176,21 @@ class _LoadState:
     tokens: list[Token] = field(default_factory=list)
     ok: bool = False
     saw_error: bool = False
+    error: str = ""
+
+
+def _error_display_message(payload: _Response) -> str:
+    """Return an Error DisplayInfo's message text, or '' if it is not one.
+
+    A failed `Cmd_load` emits a `DisplayInfo` whose `info.kind == "Error"`
+    carries the human-readable error (the `[NotInScope]` text that names the
+    missing identifier) BEFORE the `JumpToError`/`Status{checked:false}` terminal.
+    """
+    info = payload.get("info")
+    if info is None or info.get("kind") != "Error":
+        return ""
+    err = info.get("error")
+    return err.get("message", "") if err is not None else ""
 
 
 def _parse_response(line: str) -> _Response | None:
@@ -189,8 +241,12 @@ class WarmAgda:
         kind = payload.get("kind")
         if kind == "HighlightingInfo":
             info = payload.get("info")
-            if info is not None:
-                state.tokens += info["payload"]
+            if info is not None and (tokens := info.get("payload")) is not None:
+                state.tokens += tokens
+        elif kind == "DisplayInfo":
+            message = _error_display_message(payload)
+            if message:
+                state.error = message
         elif kind == "JumpToError":
             state.saw_error = True
         elif kind == "Status":
@@ -203,11 +259,11 @@ class WarmAgda:
             return True  # success terminal
         return False
 
-    def load(self, abspath: str) -> tuple[list[Token], bool]:
-        """Send Cmd_load; collect HighlightingInfo tokens until the load ends.
+    def _run_load(self, abspath: str) -> _LoadState:
+        """Send Cmd_load and fold responses into a _LoadState until a terminal.
 
-        Returns (tokens, ok) where ok == saw `Status{checked:true}`.  A FAILED
-        load emits `JumpToError` and ends on `Status{checked:false}` (no
+        Collects HighlightingInfo tokens and an Error DisplayInfo's message.  A
+        FAILED load emits `JumpToError` and ends on `Status{checked:false}` (no
         `InteractionPoints`), so both terminals are handled — a broken file is
         reported, not hung on.
         """
@@ -226,7 +282,12 @@ class WarmAgda:
             payload = _parse_response(line)
             if payload is not None and self._apply_response(payload, state):
                 break
-        return state.tokens, state.ok
+        return state
+
+    def load(self, abspath: str) -> LoadResult:
+        """Send Cmd_load; return the load's tokens, ok flag, and error message."""
+        state = self._run_load(abspath)
+        return LoadResult(state.tokens, state.ok, state.error)
 
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
@@ -284,10 +345,7 @@ def _body_index(
     body_defids: set[DefId] = set()
     body_names_external: set[str] = set()
     qualified_use_files: dict[str, set[str]] = {}
-    for tok in tokens:
-        rng = tok.get("range")
-        if not rng:
-            continue
+    for tok, rng in ranged_tokens(tokens):
         off0 = rng[0] - 1  # Agda ranges are 1-based; Python str is 0-based
         name = text[off0 : rng[1] - 1]
         site = tok.get("definitionSite")
@@ -351,33 +409,6 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 # ---- confirmation: authoritatively classify candidates by removing JUST each
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
-_inflight: dict[str, str] = {}  # path -> original content, for crash-safe restore
-_handlers_installed: list[bool] = []  # sentinel (mutated, not rebound → no `global`)
-
-
-def _restore_inflight() -> None:
-    """Restore any file left modified by an interrupted confirmation."""
-    for path_str, original in list(_inflight.items()):
-        with contextlib.suppress(OSError):
-            _ = Path(path_str).write_text(original, encoding="utf-8")
-    _inflight.clear()
-
-
-def _signal_restore(signum: int, _frame: object) -> None:
-    """SIGINT/SIGTERM handler: restore in-flight files, then exit."""
-    _restore_inflight()
-    sys.exit(128 + signum)
-
-
-def _install_restore_handlers() -> None:
-    """Install atexit + SIGINT/SIGTERM restore handlers once (idempotent)."""
-    if _handlers_installed:
-        return
-    _ = atexit.register(_restore_inflight)
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        _ = signal.signal(sig, _signal_restore)
-    _handlers_installed.append(True)
-
 
 def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
     """Remove just `name` from its import clause, recompile, then restore.
@@ -403,12 +434,12 @@ def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
         return False  # can't locate the clause entry -> conservatively NOT dead
     new_lines = replace_block_in_lines(original.splitlines(keepends=True), target, new_raw)
     try:
-        _inflight[str(path)] = original
+        track_inflight(str(path), original)
         _ = path.write_text("".join(new_lines), encoding="utf-8")
         return typecheck(rel, _CONFIRM_CTX, baseline_warning_count=baseline)
     finally:
         _ = path.write_text(original, encoding="utf-8")  # ALWAYS restore
-        _ = _inflight.pop(str(path), None)
+        untrack_inflight(str(path))
 
 
 def confirm_candidates(rel: str, names: list[str]) -> tuple[list[str], list[str]]:
@@ -418,7 +449,7 @@ def confirm_candidates(rel: str, names: list[str]) -> tuple[list[str], list[str]
     atexit/SIGINT/SIGTERM handlers restore the file.  `typecheck`'s baseline
     guards the PatternShadowsConstructor silent-breakage class.
     """
-    _install_restore_handlers()
+    install_restore_handlers()
     original = (SRC / rel).read_text(encoding="utf-8")
     baseline = warning_count_for(rel, _CONFIRM_CTX)
     truly_dead: list[str] = []
@@ -435,16 +466,16 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
     for i, rel in enumerate(files, 1):
         text = (SRC / rel).read_text(encoding="utf-8")
         start = time.time()
-        tokens, ok = agda.load(str(SRC / rel))
+        loaded = agda.load(str(SRC / rel))
         dt = time.time() - start
         times.append(dt)
-        if not ok:
+        if not loaded.ok:
             emit(
                 f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  ⚠️ LOAD FAILED "
                 + "(no Status checked:true — agda could not check it)"
             )
             continue
-        result = detect_dead(text, tokens, str(SRC / rel))
+        result = detect_dead(text, loaded.tokens, str(SRC / rel))
         if result["dead"]:
             candidates[rel] = result["dead"]
         extra = ""
@@ -455,7 +486,7 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
         shown = result["dead"] if result["dead"] else "—"
         emit(
             f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
-            + f"tokens={len(tokens)} CANDIDATES={shown}{extra}"
+            + f"tokens={len(loaded.tokens)} CANDIDATES={shown}{extra}"
         )
     return candidates, times
 

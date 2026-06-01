@@ -45,7 +45,7 @@ def main() -> int:
     with WarmAgda() as agda:
         for i, mod in enumerate(mods, 1):
             t = time.time()
-            _, ok = agda.load(str(SRC / mod))
+            ok = agda.load(str(SRC / mod)).ok
             if not ok:
                 failures.append(mod)
             status = "OK  " if ok else "FAIL"
@@ -55,8 +55,7 @@ def main() -> int:
     elapsed = time.time() - t0
     if failures:
         _ = sys.stderr.write(
-            f"\ncheck-properties: FAILED {len(failures)}/{len(mods)} "
-            + f"in {elapsed:.0f}s:\n",
+            f"\ncheck-properties: FAILED {len(failures)}/{len(mods)} " + f"in {elapsed:.0f}s:\n",
         )
         for mod in failures:
             _ = sys.stderr.write(f"  {mod}\n")

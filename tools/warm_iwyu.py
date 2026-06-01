@@ -18,37 +18,49 @@ A name is used-from-M iff it is in `show_module_contents(M)` AND its full name
 appears among the body's definition-site names.  Re-exports fall out for free.
 
 `--apply` rewrites each verified narrowing into the source; the narrowing is
-recompiled first, so an incomplete used-set (it would not type-check) is
-reported and skipped rather than applied.  Crash-safe: a rewritten file is
-restored on interrupt.
+recompiled first, so one that would not type-check is reported and skipped
+rather than applied.  Crash-safe: a rewritten file is restored on interrupt.
+
+Error-driven completion (`complete_narrowing`) recovers the names static
+attribution cannot see — one *renamed* on re-export (`ℕ`, re-exported for the
+builtin `Nat`: the def-site spells `Nat`, `show_module_contents` spells `ℕ`, so
+the intersection drops it) and one used only in an inferred position (no body
+token at all).  When a narrowing fails to type-check, agda's `[NotInScope]`
+error names each dropped-but-needed name as a `did you mean 'M.x'` suggestion
+(always present, since `using` keeps `M.*` qualified-accessible); those names
+are added back and the narrowing re-verified to a fixpoint.
 
 Reuses the warm-process driver `WarmAgda` from `warm_dead_imports`.  Invoke as
 `python -m tools.warm_iwyu [--apply] <relpath.agda> [...]`.
 
-Documented edges (not solved): a name *renamed* on re-export (smc shows the
-renamed name, the def-site the original → missed — but `--apply` would catch
-the resulting type error and skip); a name exported by two wildcard modules
-(lands in both using-lists — conservative).
+Remaining edge: a name exported by two wildcard modules lands in both
+using-lists (conservative — both `did you mean` candidates are added).
 """
 
 from __future__ import annotations
 
-import atexit
-import contextlib
 import json
 import re
-import signal
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 from tools._agda_imports import parse_imports, replace_block_in_lines
-from tools._common import emit
-from tools.warm_dead_imports import SRC, WarmAgda, line_offsets
+from tools._common import emit, install_restore_handlers, track_inflight, untrack_inflight
+from tools.warm_dead_imports import SRC, LoadResult, WarmAgda, line_offsets, ranged_tokens
 
 if TYPE_CHECKING:
     from tools._agda_imports import ImportBlock
     from tools.warm_dead_imports import Token
+
+# An Agda identifier as it appears in a `using (...)` list (mixfix-complete,
+# e.g. "ℕ", "_∷_").
+type Name = str
+# A module path brought into scope by an `open import`, e.g. "Aletheia.Prelude".
+type ModulePath = str
+# A file's wildcard narrowing: each wildcard-opened module → the using-list of
+# the names actually referenced from it.
+type UsingByModule = dict[ModulePath, list[Name]]
 
 # A definition name is the run of characters at its def-site up to whitespace
 # or a bracket/semicolon (Agda names may contain `_`, operators, sub/superscripts).
@@ -57,9 +69,28 @@ _NAME_RE = re.compile(r"[^\s(){};]+")
 # Safety cap on lines read while awaiting a query's DisplayInfo terminal.
 _MAX_RESPONSE_LINES = 200
 
-# Source files rewritten in-flight, restored on interrupt (path -> original).
-_inflight: dict[str, str] = {}
-_handlers_installed: list[bool] = []
+# Agda's NotInScope error quotes the qualified form of each dropped-but-needed
+# name, e.g. "(did you mean 'Aletheia.Prelude.ℕ'?)" — the completion signal.
+_SUGGESTION_RE = re.compile(r"'([^']+)'")
+
+# Backstop on error-driven completion rounds (one reload recovers one name).
+_MAX_COMPLETION_ROUNDS = 40
+
+
+class Narrowing(NamedTuple):
+    """A file's completed wildcard-import narrowing.
+
+    `used` maps each wildcard-opened module to the using-list it should narrow
+    to.  `verified` is True iff that narrowing type-checks — and ONLY then is it
+    safe to apply; when False, `used` is the best effort reached before a stall
+    and is left unapplied (the wildcard stays).  `rounds` is the number of
+    error-driven completion reloads taken (1 ⇒ static attribution was already
+    complete).
+    """
+
+    used: UsingByModule
+    verified: bool
+    rounds: int
 
 
 class _ModuleEntry(TypedDict, total=False):
@@ -83,31 +114,7 @@ class _ModuleContentsResponse(TypedDict, total=False):
     info: _ModuleContentsInfo
 
 
-def _restore_inflight() -> None:
-    """Restore any source file left rewritten by an interrupted narrowing."""
-    for path_str, original in list(_inflight.items()):
-        with contextlib.suppress(OSError):
-            _ = Path(path_str).write_text(original, encoding="utf-8")
-    _inflight.clear()
-
-
-def _signal_restore(signum: int, _frame: object) -> None:
-    """SIGINT/SIGTERM handler: restore rewritten files, then exit."""
-    _restore_inflight()
-    sys.exit(128 + signum)
-
-
-def _install_restore_handlers() -> None:
-    """Install atexit + SIGINT/SIGTERM restore handlers once (idempotent)."""
-    if _handlers_installed:
-        return
-    _ = atexit.register(_restore_inflight)
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        _ = signal.signal(sig, _signal_restore)
-    _handlers_installed.append(True)
-
-
-def show_module_contents(agda: WarmAgda, abspath: str, module: str) -> list[str]:
+def show_module_contents(agda: WarmAgda, abspath: str, module: ModulePath) -> list[Name]:
     """Return the full export names of `module` via Cmd_show_module_contents.
 
     `module` must be in scope (imported) in the loaded `abspath`.  Reads to the
@@ -172,7 +179,7 @@ def _is_wildcard(block: ImportBlock) -> bool:
     )
 
 
-def _wildcard_modules(text: str) -> set[str]:
+def _wildcard_modules(text: str) -> set[ModulePath]:
     """Return the modules brought into scope UNQUALIFIED by a wildcard open."""
     return {block.module_path for block in parse_imports(text) if _is_wildcard(block)}
 
@@ -188,7 +195,7 @@ def _import_char_ranges(text: str) -> list[tuple[int, int]]:
     return ranges
 
 
-def used_full_names(tokens: list[Token], ranges: list[tuple[int, int]]) -> set[str]:
+def used_full_names(tokens: list[Token], ranges: list[tuple[int, int]]) -> set[Name]:
     """Return the full names of every definition referenced in the body.
 
     For each body token (outside import clauses) carrying a `definitionSite`,
@@ -196,11 +203,8 @@ def used_full_names(tokens: list[Token], ranges: list[tuple[int, int]]) -> set[s
     mixfix operator used infix (`⊕`) resolves to its full name (`_⊕_`).
     """
     cache: dict[str, str] = {}
-    names: set[str] = set()
-    for tok in tokens:
-        rng = tok.get("range")
-        if not rng:
-            continue
+    names: set[Name] = set()
+    for tok, rng in ranged_tokens(tokens):
         off0 = rng[0] - 1
         if any(start <= off0 < end for start, end in ranges):
             continue
@@ -218,7 +222,7 @@ def used_full_names(tokens: list[Token], ranges: list[tuple[int, int]]) -> set[s
 
 def attribute_wildcards(
     agda: WarmAgda, abspath: str, text: str, tokens: list[Token]
-) -> dict[str, list[str]]:
+) -> UsingByModule:
     """Map each wildcard-opened module to its actually-used export surface."""
     wildcards = _wildcard_modules(text)
     ranges = _import_char_ranges(text)
@@ -229,13 +233,13 @@ def attribute_wildcards(
     }
 
 
-def _narrowed_block_raw(block: ImportBlock, names: list[str]) -> str:
+def _narrowed_block_raw(block: ImportBlock, names: list[Name]) -> str:
     """Rewrite a wildcard block as `open import M using (n1; n2; ...)`."""
     indent = block.raw[: len(block.raw) - len(block.raw.lstrip())]
     return f"{indent}open import {block.module_path} using ({'; '.join(names)})\n"
 
 
-def narrow_text(text: str, used: dict[str, list[str]]) -> str:
+def narrow_text(text: str, used: UsingByModule) -> str:
     """Rewrite each used wildcard `open import M` to `using (...)` in `text`."""
     lines = text.splitlines(keepends=True)
     blocks = [b for b in parse_imports(text) if _is_wildcard(b) and used.get(b.module_path)]
@@ -246,27 +250,88 @@ def narrow_text(text: str, used: dict[str, list[str]]) -> str:
     return "".join(lines)
 
 
-def verify_narrowing(agda: WarmAgda, abspath: str, text: str, used: dict[str, list[str]]) -> bool:
-    """Rewrite the wildcards to using-lists, reload, and report if it type-checks.
+def verify_narrowing(agda: WarmAgda, abspath: str, text: str, used: UsingByModule) -> LoadResult:
+    """Rewrite the wildcards to using-lists, reload, and return the LoadResult.
 
     Always restores the original text (crash-safe); the caller re-applies the
-    (already-verified) narrowing only when `--apply` is set.
+    (already-verified) narrowing only when `--apply` is set.  The reload's `ok`
+    and `error` drive completion; its `tokens` (of the narrowed file) are unused.
     """
     if not any(used.values()):
-        return True
-    _install_restore_handlers()
+        return LoadResult([], ok=True, error="")
+    install_restore_handlers()
     path = Path(abspath)
     try:
-        _inflight[abspath] = text
+        track_inflight(abspath, text)
         _ = path.write_text(narrow_text(text, used), encoding="utf-8")
-        _tokens, ok = agda.load(abspath)
-        return ok
+        return agda.load(abspath)
     finally:
         _ = path.write_text(text, encoding="utf-8")
-        _ = _inflight.pop(abspath, None)
+        untrack_inflight(abspath)
 
 
-def _report(rel: str, used: dict[str, list[str]]) -> None:
+def _module_for(qualified: str, modules: list[ModulePath]) -> ModulePath | None:
+    """Return the longest wildcard module M for which `qualified` == 'M.<name>'."""
+    best: ModulePath | None = None
+    for module in modules:
+        if qualified.startswith(module + ".") and (best is None or len(module) > len(best)):
+            best = module
+    return best
+
+
+def _add_missing(used: UsingByModule, error: str) -> bool:
+    """Append each `did you mean 'M.name'` suggestion to module M's using-list.
+
+    Returns True iff a new name was added.  A name already present, or one whose
+    qualifier is not a narrowed wildcard module, is skipped — so a stalled
+    completion (agda still failing with nothing new to add) returns False.
+    """
+    modules = list(used)
+    suggestions: list[str] = _SUGGESTION_RE.findall(error)
+    added = False
+    for qualified in suggestions:
+        module = _module_for(qualified, modules)
+        if module is None:
+            continue
+        name = qualified[len(module) + 1 :]
+        if name and name not in used[module]:
+            used[module].append(name)
+            added = True
+    return added
+
+
+def complete_narrowing(agda: WarmAgda, abspath: str, text: str, used: UsingByModule) -> Narrowing:
+    """Grow each wildcard's using-list by the names agda reports out-of-scope.
+
+    Body-token attribution misses a name whose def-site spells something other
+    than M re-exports (e.g. `ℕ`, re-exported for the builtin `Nat`) and any name
+    used only in an inferred position (no body token at all).  After a narrowing
+    fails to type-check, every `did you mean 'M.name'` in the error names a
+    still-qualified-accessible export to add back (`open import M using (X)` keeps
+    `M.*` qualified, so the suggestion always appears); re-verify and repeat to a
+    fixpoint.  Only verify-confirmed names are kept, and a stall ends the loop
+    leaving the wildcard untouched (see `Narrowing`).
+
+    A dropped operator used *infix* yields a `[NoParseForLHS]` parse error with
+    no `did you mean` suggestion, so completion cannot recover it and stalls
+    (safe — the wildcard stays).  This is rare: static attribution already
+    catches body-used operators mixfix-safely, so an operator reaches completion
+    only when renamed on re-export or used purely in an inferred position.
+    """
+    used = {module: list(names) for module, names in used.items()}
+    rounds = 0
+    for rounds in range(1, _MAX_COMPLETION_ROUNDS + 1):
+        outcome = verify_narrowing(agda, abspath, text, used)
+        if outcome.ok:
+            for names in used.values():
+                names.sort()
+            return Narrowing(used, verified=True, rounds=rounds)
+        if not _add_missing(used, outcome.error):
+            return Narrowing(used, verified=False, rounds=rounds)
+    return Narrowing(used, verified=False, rounds=rounds)
+
+
+def _report(rel: str, used: UsingByModule) -> None:
     """Print the wildcard-narrowing suggestion for one file."""
     emit(f"=== {rel}: {len(used)} wildcard open(s) ===")
     for module, names in used.items():
@@ -280,18 +345,19 @@ def _process(agda: WarmAgda, rel: str, *, apply: bool) -> None:
     """Report (and optionally apply) the wildcard narrowing for one file."""
     abspath = str(SRC / rel)
     text = (SRC / rel).read_text(encoding="utf-8")
-    tokens, ok = agda.load(abspath)
-    if not ok:
+    loaded = agda.load(abspath)
+    if not loaded.ok:
         emit(f"{rel}: LOAD FAILED (agda could not check it)")
         return
-    used = attribute_wildcards(agda, abspath, text, tokens)
-    _report(rel, used)
+    used = attribute_wildcards(agda, abspath, text, loaded.tokens)
     if not any(used.values()):
+        _report(rel, used)
         return
-    verified = verify_narrowing(agda, abspath, text, used)
-    emit(f"  narrowing type-checks: {verified}")
-    if apply and verified:
-        _ = (SRC / rel).write_text(narrow_text(text, used), encoding="utf-8")
+    narrowing = complete_narrowing(agda, abspath, text, used)
+    _report(rel, narrowing.used)
+    emit(f"  narrowing type-checks: {narrowing.verified}  (completion rounds: {narrowing.rounds})")
+    if apply and narrowing.verified:
+        _ = (SRC / rel).write_text(narrow_text(text, narrowing.used), encoding="utf-8")
         emit(f"  APPLIED narrowing to {rel}")
 
 

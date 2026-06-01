@@ -9,9 +9,12 @@ as ``python -m tools.X`` (see ``tools/__init__.py``).
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import hashlib
 import json
 import shutil
+import signal
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -173,3 +176,47 @@ def write_and_report_summary(artifact_dir: Path, summary: Mapping[str, object]) 
     _ = (artifact_dir / "summary.json").write_text(rendered + "\n")
     emit(rendered)
     return 0 if summary["passed"] else 1
+
+
+# --- crash-safe in-flight source restore ------------------------------------
+# Shared by the warm-process tools that rewrite a source file in place to probe
+# it (dead-import confirmation, IWYU narrowing) and must restore it even on an
+# interrupt: track the original before each rewrite, untrack after restoring,
+# and install handlers so SIGINT/SIGTERM/atexit restore anything still in flight.
+
+_inflight: dict[str, str] = {}  # path -> original content
+_restore_handlers_installed: list[bool] = []  # sentinel (mutated, not rebound)
+
+
+def track_inflight(path: str, original: str) -> None:
+    """Record `path`'s `original` content so an interrupt can restore it."""
+    _inflight[path] = original
+
+
+def untrack_inflight(path: str) -> None:
+    """Drop `path` from the restore set (its rewrite has already been undone)."""
+    _ = _inflight.pop(path, None)
+
+
+def restore_inflight() -> None:
+    """Restore every file left rewritten by an interrupted operation."""
+    for path_str, original in list(_inflight.items()):
+        with contextlib.suppress(OSError):
+            _ = Path(path_str).write_text(original, encoding="utf-8")
+    _inflight.clear()
+
+
+def _signal_restore(signum: int, _frame: object) -> None:
+    """SIGINT/SIGTERM handler: restore rewritten files, then exit."""
+    restore_inflight()
+    sys.exit(128 + signum)
+
+
+def install_restore_handlers() -> None:
+    """Install atexit + SIGINT/SIGTERM restore handlers once (idempotent)."""
+    if _restore_handlers_installed:
+        return
+    _ = atexit.register(restore_inflight)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        _ = signal.signal(sig, _signal_restore)
+    _restore_handlers_installed.append(True)
