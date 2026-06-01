@@ -1,6 +1,8 @@
 """Shared test fixtures for all test modules."""
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
@@ -8,6 +10,12 @@ from _canonical_dbc import CANONICAL_DBC, make_dbc
 from aletheia import Signal
 from aletheia.dsl import Property
 from aletheia.protocols import DBCDefinition
+
+# Make the repo root importable so tests can reach the ``tools`` package (the dev
+# tooling lives at ``<repo>/tools``, a sibling of ``python/``, not under it).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 
 @dataclass(frozen=True)
