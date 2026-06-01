@@ -32,13 +32,10 @@ from tools._common import emit, install_restore_handlers, track_inflight, untrac
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
-    TypecheckCtx,
     parse_imports,
     remove_name_from_raw,
     remove_rename_from_raw,
     replace_block_in_lines,
-    typecheck,
-    warning_count_for,
 )
 
 if TYPE_CHECKING:
@@ -47,18 +44,36 @@ if TYPE_CHECKING:
 AGDA = str(AGDA_BIN)
 SRC = SRC_DIR
 
-# Confirmation type-check budget (one serial agda at a time; memory-safe).
-_RTS_CORES = 8
-_RTS_HEAP_GB = 8
-_CONFIRM_TIMEOUT = 300
-
-# Bundled agda invocation context for the confirmation type-checks.
-_CONFIRM_CTX = TypecheckCtx(
-    src_dir=SRC, rts_cores=_RTS_CORES, rts_heap_gb=_RTS_HEAP_GB, timeout=_CONFIRM_TIMEOUT
-)
+# An imported identifier — a `using (...)` entry or renaming dest, e.g. "_∷_".
+type Name = str
+# A src-relative Agda module path, e.g. "Aletheia/LTL/Coalgebra.agda".
+type RelPath = str
+# Dead-import candidates per file: each module → the names flagged removable.
+type Candidates = dict[RelPath, list[Name]]
+# A half-open [start, end) char-offset span (0-based) of an import block.
+type CharRange = tuple[int, int]
 
 # A definition identity: (definitionSite.filepath, definitionSite.position).
 DefId = tuple[str, int]
+
+
+class ConfirmResult(NamedTuple):
+    """How a file's candidates split once authoritatively confirmed.
+
+    `truly_dead` removed cleanly (the file still type-checks with no new
+    silent-semantic-change warning); `false_positives` turned out to be needed
+    (e.g. used only in an inferred position the sieve could not see).
+    """
+
+    truly_dead: list[Name]
+    false_positives: list[Name]
+
+
+class SweepResult(NamedTuple):
+    """The warm sweep's output: per-file candidates plus per-file load times."""
+
+    candidates: Candidates
+    times: list[float]
 
 
 class DefSite(TypedDict):
@@ -135,10 +150,10 @@ class LoadResult(NamedTuple):
 class DetectResult(TypedDict):
     """Result of `detect_dead` for one file."""
 
-    dead: list[str]
-    dead_defid_only: list[str]
-    public_skipped: list[str]
-    unresolved: list[str]
+    dead: list[Name]
+    dead_defid_only: list[Name]
+    public_skipped: list[Name]
+    unresolved: list[Name]
 
 
 def line_offsets(text: str) -> list[int]:
@@ -338,10 +353,25 @@ class WarmAgda:
             self.proc.kill()
 
 
-def _import_structure(
-    text: str,
-) -> tuple[list[tuple[int, int]], set[str], list[str]]:
-    """Parse import blocks → (import-clause char ranges, names to check, public-skipped).
+class _ImportStructure(NamedTuple):
+    """The import-clause structure of a file that `detect_dead` works over."""
+
+    import_ranges: list[CharRange]  # char span of each import block
+    check_names: set[Name]  # unqualified names to test for deadness
+    public_skipped: list[Name]  # `public` re-exports (never flagged — see below)
+
+
+class _BodyIndex(NamedTuple):
+    """The four body lookups `detect_dead` consumes (see its docstring)."""
+
+    import_defid: dict[Name, DefId]  # import name → its definition identity
+    body_defids: set[DefId]  # def-ids referenced anywhere in the body
+    body_names_external: set[Name]  # body names whose def lives in another file
+    qualified_use_files: dict[Name, set[str]]  # qualifier → files of its `q.field` uses
+
+
+def _import_structure(text: str) -> _ImportStructure:
+    """Parse import blocks into the clause ranges, names-to-check, and public skips.
 
     `using (module X)` contributes `X` (used qualified); renaming dests are
     in-scope; `public` re-export blocks are skipped (their only uses are
@@ -349,9 +379,9 @@ def _import_structure(
     """
     blocks = parse_imports(text)
     offs = line_offsets(text)
-    import_ranges: list[tuple[int, int]] = []
-    check_names: set[str] = set()
-    public_skipped: list[str] = []
+    import_ranges: list[CharRange] = []
+    check_names: set[Name] = set()
+    public_skipped: list[Name] = []
     for blk in blocks:
         start = offs[blk.line_start]
         end = offs[blk.line_end + 1] if blk.line_end + 1 < len(offs) else offs[-1]
@@ -362,26 +392,25 @@ def _import_structure(
             public_skipped += names
         else:
             check_names.update(names)
-    return import_ranges, check_names, public_skipped
+    return _ImportStructure(import_ranges, check_names, public_skipped)
 
 
 def _body_index(
     text: str,
     tokens: list[Token],
     abspath: str,
-    import_ranges: list[tuple[int, int]],
-    check_names: set[str],
-) -> tuple[dict[str, DefId], set[DefId], set[str], dict[str, set[str]]]:
+    import_ranges: list[CharRange],
+    check_names: set[Name],
+) -> _BodyIndex:
     """Index tokens into the four lookups `detect_dead` consumes.
 
-    Returns (import-name→def-id, body def-ids, body names with an EXTERNAL def,
-    qualifier→field-def-files).  The external / qualified-file distinctions are
-    the no-false-positive guards described in `detect_dead`.
+    The external / qualified-file distinctions are the no-false-positive guards
+    described in `detect_dead`.
     """
-    import_defid: dict[str, DefId] = {}
+    import_defid: dict[Name, DefId] = {}
     body_defids: set[DefId] = set()
-    body_names_external: set[str] = set()
-    qualified_use_files: dict[str, set[str]] = {}
+    body_names_external: set[Name] = set()
+    qualified_use_files: dict[Name, set[str]] = {}
     for tok, rng in ranged_tokens(tokens):
         off0 = rng[0] - 1  # Agda ranges are 1-based; Python str is 0-based
         name = text[off0 : rng[1] - 1]
@@ -398,7 +427,7 @@ def _body_index(
                 body_names_external.add(name)
             if "." in name:  # qualified use `q.field`
                 qualified_use_files.setdefault(name.split(".", 1)[0], set()).add(defid[0])
-    return import_defid, body_defids, body_names_external, qualified_use_files
+    return _BodyIndex(import_defid, body_defids, body_names_external, qualified_use_files)
 
 
 def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
@@ -419,26 +448,25 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
     No-FP bias: dead only if NONE of these say alive.  `dead_defid_only` drops
     the name/prefix fallbacks (reported, to show what they catch).
     """
-    import_ranges, check_names, public_skipped = _import_structure(text)
-    import_defid, body_defids, body_names_external, qualified_use_files = _body_index(
-        text, tokens, abspath, import_ranges, check_names
-    )
+    structure = _import_structure(text)
+    index = _body_index(text, tokens, abspath, structure.import_ranges, structure.check_names)
+    import_defid = index.import_defid
 
-    def alive(name: str, defid: DefId) -> bool:
-        if defid in body_defids:  # precise: the import's OWN def is used
+    def alive(name: Name, defid: DefId) -> bool:
+        if defid in index.body_defids:  # precise: the import's OWN def is used
             return True
-        if name in body_names_external:  # re-export alias (def-ids differ across files)
+        if name in index.body_names_external:  # re-export alias (def-ids differ across files)
             return True
         # qualified use `name.field` whose field is defined in the import's module
-        return defid[0] in qualified_use_files.get(name, set())
+        return defid[0] in index.qualified_use_files.get(name, set())
 
     dead = sorted(n for n, d in import_defid.items() if not alive(n, d))
-    dead_defid_only = sorted(n for n, d in import_defid.items() if d not in body_defids)
-    unresolved = sorted(check_names - set(import_defid))
+    dead_defid_only = sorted(n for n, d in import_defid.items() if d not in index.body_defids)
+    unresolved = sorted(structure.check_names - set(import_defid))
     return {
         "dead": dead,
         "dead_defid_only": dead_defid_only,
-        "public_skipped": public_skipped,
+        "public_skipped": structure.public_skipped,
         "unresolved": unresolved,
     }
 
@@ -447,15 +475,13 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
 
-def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
-    """Remove just `name` from its import clause, recompile, then restore.
+def _text_without_name(original: str, name: Name) -> str | None:
+    """Return `original` with `name` removed from its import clause, or None.
 
-    Returns True iff the file still type-checks without it (⇒ truly dead).
-    ALWAYS restores the original content, even on failure.
+    Locates the first block whose `using`/renaming entry is `name` (a plain
+    name, a `module X`, or a renaming dest) and drops just that entry; returns
+    None when no clause yields a changed block (⇒ conservatively NOT removable).
     """
-    path = SRC / rel
-    new_raw: str | None = None
-    target = None
     for blk in parse_imports(original):
         if name in blk.using_names:
             cand = remove_name_from_raw(blk.raw, name)
@@ -465,40 +491,56 @@ def _confirm_one(rel: str, name: str, original: str, baseline: int) -> bool:
             pair = next(((s, d) for s, d in blk.renaming_pairs if d == name), None)
             cand = remove_rename_from_raw(blk.raw, pair[0], pair[1]) if pair else None
         if cand is not None and cand != blk.raw:
-            new_raw, target = cand, blk
-            break
-    if new_raw is None or target is None:
+            new_lines = replace_block_in_lines(original.splitlines(keepends=True), blk, cand)
+            return "".join(new_lines)
+    return None
+
+
+def _confirm_one(agda: WarmAgda, rel: RelPath, name: Name, original: str, baseline: int) -> bool:
+    """Remove just `name`, warm-reload, and report whether it is truly dead.
+
+    Dead ⇔ the file still type-checks (`ok`) AND introduces no new
+    silent-semantic-change warning beyond `baseline` (prune's guard — a removed
+    constructor reinterpreting a pattern as a variable binding).  ALWAYS restores
+    the original content, even on failure.
+    """
+    modified = _text_without_name(original, name)
+    if modified is None:
         return False  # can't locate the clause entry -> conservatively NOT dead
-    new_lines = replace_block_in_lines(original.splitlines(keepends=True), target, new_raw)
+    path = SRC / rel
     try:
         track_inflight(str(path), original)
-        _ = path.write_text("".join(new_lines), encoding="utf-8")
-        return typecheck(rel, _CONFIRM_CTX, baseline_warning_count=baseline)
+        _ = path.write_text(modified, encoding="utf-8")
+        result = agda.load(str(path))
+        return result.ok and count_semantic_warnings(result.warnings) <= baseline
     finally:
         _ = path.write_text(original, encoding="utf-8")  # ALWAYS restore
         untrack_inflight(str(path))
 
 
-def confirm_candidates(rel: str, names: list[str]) -> tuple[list[str], list[str]]:
-    """Classify each warm-flagged candidate by removing JUST it and recompiling.
+def confirm_candidates(agda: WarmAgda, rel: RelPath, names: list[Name]) -> ConfirmResult:
+    """Classify each candidate by removing JUST it and warm-recompiling.
 
-    Returns (truly_dead, false_positives).  Crash-safe: per-candidate finally +
-    atexit/SIGINT/SIGTERM handlers restore the file.  `typecheck`'s baseline
-    guards the PatternShadowsConstructor silent-breakage class.
+    The baseline is the file's own semantic-warning count, so a pre-existing
+    warning is not counted as new.  Crash-safe: per-candidate finally +
+    atexit/SIGINT/SIGTERM handlers restore the file.
     """
     install_restore_handlers()
     original = (SRC / rel).read_text(encoding="utf-8")
-    baseline = warning_count_for(rel, _CONFIRM_CTX)
-    truly_dead: list[str] = []
-    fps: list[str] = []
+    baseline = count_semantic_warnings(agda.load(str(SRC / rel)).warnings)
+    truly_dead: list[Name] = []
+    false_positives: list[Name] = []
     for name in names:
-        (truly_dead if _confirm_one(rel, name, original, baseline) else fps).append(name)
-    return truly_dead, fps
+        if _confirm_one(agda, rel, name, original, baseline):
+            truly_dead.append(name)
+        else:
+            false_positives.append(name)
+    return ConfirmResult(truly_dead, false_positives)
 
 
-def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list[float]]:
-    """Warm-load each file, print its per-file result, return (candidates, times)."""
-    candidates: dict[str, list[str]] = {}
+def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
+    """Warm-load each file, print its per-file result, return the SweepResult."""
+    candidates: Candidates = {}
     times: list[float] = []
     for i, rel in enumerate(files, 1):
         text = (SRC / rel).read_text(encoding="utf-8")
@@ -525,11 +567,11 @@ def _sweep(agda: WarmAgda, files: list[str]) -> tuple[dict[str, list[str]], list
             f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
             + f"tokens={len(loaded.tokens)} CANDIDATES={shown}{extra}"
         )
-    return candidates, times
+    return SweepResult(candidates, times)
 
 
 def _print_summary(
-    files: list[str], times: list[float], candidates: dict[str, list[str]], total: float
+    files: list[RelPath], times: list[float], candidates: Candidates, total: float
 ) -> None:
     """Print the warm-sweep timing + candidate count."""
     ncand = sum(len(v) for v in candidates.values())
@@ -544,16 +586,19 @@ def _print_summary(
         emit(f"--- 1 file: {total:.1f}s — {ncand} candidate(s) ---")
 
 
-def _confirm_all(candidates: dict[str, list[str]]) -> None:
-    """Confirm every candidate (remove-one + recompile) and print the verdict."""
+def _confirm_all(agda: WarmAgda, candidates: Candidates) -> None:
+    """Confirm every candidate (remove-one + warm-recompile) and print the verdict."""
     ncand = sum(len(v) for v in candidates.values())
-    emit(f"=== confirming {ncand} candidate(s): remove-one + recompile (ground truth) ===")
+    emit(f"=== confirming {ncand} candidate(s): remove-one + warm recompile (ground truth) ===")
     start = time.time()
     n_dead = 0
     for rel, cands in candidates.items():
-        truly_dead, fps = confirm_candidates(rel, cands)
-        n_dead += len(truly_dead)
-        emit(f"  {rel}: TRULY-DEAD={truly_dead or '—'}  fp/used={fps or '—'}")
+        confirmed = confirm_candidates(agda, rel, cands)
+        n_dead += len(confirmed.truly_dead)
+        emit(
+            f"  {rel}: TRULY-DEAD={confirmed.truly_dead or '—'}  "
+            + f"fp/used={confirmed.false_positives or '—'}"
+        )
     emit(f"=== confirm: {n_dead} truly-dead of {ncand} in {time.time() - start:.1f}s ===")
 
 
@@ -567,10 +612,10 @@ def main() -> int:
         return 2
     start = time.time()
     with WarmAgda() as agda:
-        candidates, times = _sweep(agda, files)
-    _print_summary(files, times, candidates, time.time() - start)
-    if do_confirm and candidates:
-        _confirm_all(candidates)
+        swept = _sweep(agda, files)
+        _print_summary(files, swept.times, swept.candidates, time.time() - start)
+        if do_confirm and swept.candidates:
+            _confirm_all(agda, swept.candidates)
     return 0
 
 
