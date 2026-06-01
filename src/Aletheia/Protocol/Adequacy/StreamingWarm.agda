@@ -51,7 +51,7 @@ module Aletheia.Protocol.Adequacy.StreamingWarm where
 open import Aletheia.DBC.Identifier using
     (Identifier; _≡csᵇ_; ≡csᵇ-sound)
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; Maybe; T; []; _,_; _×_; _∷_; _≡_; cong; false; just; length; nothing; proj₁; proj₂; refl; sym; trans; true; tt)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using ()
 open import Data.Maybe using ()

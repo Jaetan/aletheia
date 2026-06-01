@@ -35,7 +35,7 @@
 -- table is assembled from `evalPredicateTV` rather than raw `Unknown`).
 module Aletheia.LTL.SignalPredicate.Evaluation.Properties where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (Maybe; _,_; _≡_; _⊎_; cong; false; inj₁; inj₂; just; nothing; refl; trans; true; ℚ)
 open import Data.Char using (Char)
 open import Data.Sum using ()
 open import Data.Product using (∃-syntax)
@@ -52,8 +52,8 @@ open import Aletheia.LTL.SignalPredicate.Types public  -- re-exports `signalOf`
                                                        -- of `…Properties.signalOf`
                                                        -- continue to type-check
                                                        -- via this re-export)
-open import Aletheia.LTL.SignalPredicate.Cache
-open import Aletheia.LTL.SignalPredicate.Evaluation
+open import Aletheia.LTL.SignalPredicate.Cache using (CachedSignal; lookupCache)
+open import Aletheia.LTL.SignalPredicate.Evaluation using (cachedSignalValue; evalDeltaPredicate; evalDeltaPredicateTV; evalPredicateTV; evalValuePredicate; evalValuePredicateTV; extractTruthValue; getTruthValue; lookupCacheValue)
 
 -- ============================================================================
 -- HELPERS

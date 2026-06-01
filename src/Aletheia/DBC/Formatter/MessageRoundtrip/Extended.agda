@@ -26,7 +26,7 @@ open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; Physicall
   getNat-ℕtoJSON)
 open import Aletheia.DBC.Formatter.SignalRoundtrip using (signal-list-roundtrip)
 open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip)
-open import Aletheia.DBC.Formatter.MessageRoundtrip.Base
+open import Aletheia.DBC.Formatter.MessageRoundtrip.Base using (>>=ₑ-congʳ; ctx; messageFields; mkMessage)
 
 private
   -- Stage 1: parseCANId roundtrip (Extended)

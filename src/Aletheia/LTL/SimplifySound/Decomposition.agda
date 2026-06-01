@@ -23,7 +23,7 @@
 --   private decomposition helpers.
 module Aletheia.LTL.SimplifySound.Decomposition where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (T; []; _,_; _∷_; _≡_; _≡ᵇ_; cong; refl; sym; trans)
 open import Data.Bool using ()
 open import Data.Bool.Properties using (T-∧)
 open import Relation.Binary.PropositionalEquality using (cong₂)

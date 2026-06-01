@@ -25,7 +25,7 @@
 -- (and similarly for the other metric operators).
 module Aletheia.LTL.Semantics where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _∷_; _∸_; false; true; ℕ)
 open import Data.Nat using (_≤ᵇ_)
 
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)

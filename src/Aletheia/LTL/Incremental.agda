@@ -10,7 +10,7 @@
 -- Havelund-Rosu formula progression with ℕ-indexed predicates.
 module Aletheia.LTL.Incremental where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (String; ℕ)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================

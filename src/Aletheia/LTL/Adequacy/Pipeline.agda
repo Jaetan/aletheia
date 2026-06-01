@@ -10,7 +10,7 @@
 
 module Aletheia.LTL.Adequacy.Pipeline where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _∷_; _≡_; refl; sym; trans; ℕ)
 open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False)

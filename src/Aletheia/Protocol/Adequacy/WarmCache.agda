@@ -39,7 +39,7 @@
 -- case analysis.
 module Aletheia.Protocol.Adequacy.WarmCache where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _,_; _<_; _×_; _∷_; _≡_; _⊎_; cong; inj₁; inj₂; just; length; refl; suc; sym; trans; zero; ℕ)
 open import Data.Unit using (⊤)
 open import Data.Nat using (s≤s)
 open import Data.Product using (∃-syntax)

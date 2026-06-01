@@ -10,7 +10,7 @@
 -- Role: Core types imported by LTL modules, Cache, and Evaluation.
 module Aletheia.LTL.SignalPredicate.Types where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (Bool; List; false; true; ℚ)
 open import Data.Char using (Char)
 open import Data.Rational using ()
 open import Aletheia.DBC.Identifier using (Identifier)
