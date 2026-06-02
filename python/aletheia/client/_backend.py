@@ -499,7 +499,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Extract signals via the binary path; returns the packed-binary buffer."""
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
         out_buf = ctypes.POINTER(ctypes.c_uint8)()
-        out_size = ctypes.c_uint32()
+        out_size = ctypes.c_uint32(0)
         out_err = ctypes.c_char_p()
         status = self._lib.aletheia_extract_signals_bin(
             ctypes.c_void_p(state),

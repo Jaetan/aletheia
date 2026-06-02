@@ -7,10 +7,8 @@ Go ``DBCMessage`` methods (``IsMultiplexed``, ``AlwaysPresentSignals``, etc.).
 
 from typing import TYPE_CHECKING, cast
 
-from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal
-
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCSignalMultiplexed
+    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
 
 
 def is_multiplexed(msg: DBCMessage) -> bool:

@@ -13,7 +13,7 @@
 # and basedpyright configuration live in python/pyproject.toml; this file is
 # ruff-only (lint + format).
 
-target-version = "py313"  # matches python/pyproject.toml requires-python >=3.13
+target-version = "py314"  # matches python/pyproject.toml requires-python >=3.14
 line-length = 100         # matches [tool.pylint.format] max-line-length
 
 [lint]
@@ -32,6 +32,7 @@ ignore = [
     # ── Conflicts with an authoritative gate / the formatter ──
     "ISC003",  # explicit-string-concatenation — basedpyright reportImplicitStringConcatenation=error REQUIRES the explicit '+' form; that gate is authoritative
     "COM812",  # missing-trailing-comma — conflicts with `ruff format` (ruff's own documented recommendation)
+    "PYI021",  # docstring-in-stub — pylint C0114 (the AGENTS.md 10.00/10 gate) REQUIRES a module docstring and lints our single first-party stub (aletheia/_install_config.pyi); the two cannot coexist, and the 10/10 gate is authoritative
     # ── Policy this repository has deliberately not adopted ──
     "CPY001",  # missing-copyright-notice — no per-file copyright/SPDX header convention exists; adopting one across the tree is a licensing decision, not a lint fix
     # ── No structural fix exists; the rule fires on every legitimate use ──

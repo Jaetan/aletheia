@@ -9,9 +9,9 @@ re-exports its public names so consumers can keep importing from
 """
 
 import json
-from enum import Enum
+from enum import StrEnum
 from fractions import Fraction
-from typing import Literal, NotRequired, TypedDict, TypeGuard, cast
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, TypeGuard, cast
 
 from aletheia._dbc_types import (
     AttrScope,
@@ -63,7 +63,9 @@ from aletheia._dbc_types import (
     DLCCode,
     SignalPresence,
 )
-from aletheia.issue_codes import ValidationIssue
+
+if TYPE_CHECKING:
+    from aletheia.issue_codes import ValidationIssue
 
 # ─── Public wire helpers ───────────────────────────────────────────────────
 # Promoted from ``client/_helpers.py`` so non-client modules
@@ -152,7 +154,7 @@ def is_object_list(val: object) -> TypeGuard[list[object]]:
     return isinstance(val, list)
 
 
-class PredicateType(str, Enum):
+class PredicateType(StrEnum):
     """Signal predicate types matching Agda JSON schema."""
 
     EQUALS = "equals"
@@ -253,6 +255,11 @@ class StableWithinPredicate(TypedDict):
     tolerance: Fraction
 
 
+# R0801 false positive: the first five union arms below coincide with
+# ``aletheia.client._enrichment._ComparisonPredicate``, but that alias is a
+# deliberate subset (it omits Between/ChangedBy/StableWithin); merging the two
+# would widen ``_ComparisonPredicate`` to predicates it must reject.
+# pylint: disable=duplicate-code
 SignalPredicate = (
     EqualsPredicate
     | LessThanPredicate
@@ -263,6 +270,7 @@ SignalPredicate = (
     | ChangedByPredicate
     | StableWithinPredicate
 )
+# pylint: enable=duplicate-code
 
 
 # -- LTL Formula Types (using "operator" key) --
@@ -279,37 +287,37 @@ class AndFormula(TypedDict):
     """Logical AND: left && right."""
 
     operator: Literal["and"]
-    left: "LTLFormula"
-    right: "LTLFormula"
+    left: LTLFormula
+    right: LTLFormula
 
 
 class OrFormula(TypedDict):
     """Logical OR: left || right."""
 
     operator: Literal["or"]
-    left: "LTLFormula"
-    right: "LTLFormula"
+    left: LTLFormula
+    right: LTLFormula
 
 
 class NotFormula(TypedDict):
     """Logical NOT: !formula."""
 
     operator: Literal["not"]
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class AlwaysFormula(TypedDict):
     """Always (globally): G(formula)."""
 
     operator: Literal["always"]
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class EventuallyFormula(TypedDict):
     """Eventually (finally): F(formula)."""
 
     operator: Literal["eventually"]
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class NextFormula(TypedDict):
@@ -321,7 +329,7 @@ class NextFormula(TypedDict):
     """
 
     operator: Literal["next"]
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class WeakNextFormula(TypedDict):
@@ -333,7 +341,7 @@ class WeakNextFormula(TypedDict):
     """
 
     operator: Literal["weakNext"]
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class MetricEventuallyFormula(TypedDict):
@@ -341,7 +349,7 @@ class MetricEventuallyFormula(TypedDict):
 
     operator: Literal["metricEventually"]
     timebound: int
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class MetricAlwaysFormula(TypedDict):
@@ -349,23 +357,23 @@ class MetricAlwaysFormula(TypedDict):
 
     operator: Literal["metricAlways"]
     timebound: int
-    formula: "LTLFormula"
+    formula: LTLFormula
 
 
 class UntilFormula(TypedDict):
     """Temporal until: left U right."""
 
     operator: Literal["until"]
-    left: "LTLFormula"
-    right: "LTLFormula"
+    left: LTLFormula
+    right: LTLFormula
 
 
 class ReleaseFormula(TypedDict):
     """Temporal release: left R right (dual of until)."""
 
     operator: Literal["release"]
-    left: "LTLFormula"
-    right: "LTLFormula"
+    left: LTLFormula
+    right: LTLFormula
 
 
 class MetricUntilFormula(TypedDict):
@@ -373,8 +381,8 @@ class MetricUntilFormula(TypedDict):
 
     operator: Literal["metricUntil"]
     timebound: int
-    left: "LTLFormula"
-    right: "LTLFormula"
+    left: LTLFormula
+    right: LTLFormula
 
 
 class MetricReleaseFormula(TypedDict):
@@ -382,8 +390,8 @@ class MetricReleaseFormula(TypedDict):
 
     operator: Literal["metricRelease"]
     timebound: int
-    left: "LTLFormula"
-    right: "LTLFormula"
+    left: LTLFormula
+    right: LTLFormula
 
 
 # Union type for all LTL formulas
@@ -566,7 +574,7 @@ class PropertyBatchResponse(TypedDict):
     """
 
     type: Literal["property_batch"]
-    results: list["PropertyResultEntry"]
+    results: list[PropertyResultEntry]
 
 
 class PropertyResultEntry(TypedDict):

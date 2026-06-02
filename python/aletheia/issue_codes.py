@@ -7,18 +7,18 @@ re-exports ``IssueCode`` and ``ValidationIssue`` (see ``__init__.py``);
 ``IssueSeverity`` is accessible as ``aletheia.issue_codes.IssueSeverity``.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import TypedDict
 
 
-class IssueSeverity(str, Enum):
+class IssueSeverity(StrEnum):
     """Validation issue severity."""
 
     ERROR = "error"
     WARNING = "warning"
 
 
-class IssueCode(str, Enum):
+class IssueCode(StrEnum):
     """Validation issue codes matching Agda IssueCode enum."""
 
     DUPLICATE_MESSAGE_ID = "duplicate_message_id"

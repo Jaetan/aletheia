@@ -224,7 +224,7 @@ def _eval_int_expr(expr: str) -> int | None:
     try:
         tree = ast.parse(cleaned, mode="eval")
         result = _eval_arith_node(tree.body)
-    except (SyntaxError, ValueError, TypeError, ZeroDivisionError):
+    except SyntaxError, ValueError, TypeError, ZeroDivisionError:
         return None
     # Constants in this codebase are integers; reject a `float` result (e.g.
     # from `/`) so the contract stays `int | None` and matches prior behaviour.

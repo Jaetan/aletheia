@@ -9,14 +9,12 @@ the client.
 """
 
 import logging
-from collections.abc import Callable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from aletheia.client._helpers.dbc_normalize import normalize_dbc
 from aletheia.client._helpers.rational import validate_integer_rational
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
-from aletheia.issue_codes import ValidationIssue
 from aletheia.protocols import (
     AckResponse,
     ErrorResponse,
@@ -28,6 +26,11 @@ from aletheia.protocols import (
     is_object_list,
     is_str_dict,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from aletheia.issue_codes import ValidationIssue
 
 _logger = logging.getLogger("aletheia")
 

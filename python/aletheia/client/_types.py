@@ -12,11 +12,10 @@
 #   canonical-path decision is taken on (forces the co-decision).
 
 import dataclasses
-from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
-from typing import NamedTuple, cast, override
+from typing import TYPE_CHECKING, NamedTuple, cast, override
 
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
 from aletheia.protocols import (
@@ -27,6 +26,9 @@ from aletheia.protocols import (
     PropertyBatchResponse,
     PropertyResultEntry,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
 
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 
@@ -197,7 +199,7 @@ def raise_on_error_response(
 def call_send_frame(
     send_fn: Callable[..., FrameResponse],
     frame_index: int,
-    frame: "CANFrameTuple",
+    frame: CANFrameTuple,
     partial: Sequence[AckResponse | PropertyBatchResponse],
 ) -> AckResponse | PropertyBatchResponse:
     """Send one frame via ``send_fn`` and return the committed response.

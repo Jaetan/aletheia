@@ -158,7 +158,7 @@ def _parse_rational_str(value_raw: str) -> Fraction | None:
                 return Fraction(numerator_s, denominator_s)
     try:
         return Fraction(value_raw)
-    except (ValueError, ZeroDivisionError):
+    except ValueError, ZeroDivisionError:
         return None
 
 

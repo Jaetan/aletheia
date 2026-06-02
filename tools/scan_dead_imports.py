@@ -387,13 +387,11 @@ def main() -> int:
     """Scan the requested .agda files for dead-import candidates (always exits 0)."""
     args = _build_arg_parser().parse_args()
 
-    paths = args.paths if args.paths else [SRC_DIR]
+    paths = args.paths or [SRC_DIR]
     files = _gather_files(paths)
 
     # Scan first (without applying ignore — we need raw findings for --write-ignore).
-    per_file_raw: list[FileFindings] = [
-        (f, flagged) for f in files if (flagged := scan_file(f))
-    ]
+    per_file_raw: list[FileFindings] = [(f, flagged) for f in files if (flagged := scan_file(f))]
 
     if args.write_ignore:
         IGNORE_PATH.parent.mkdir(parents=True, exist_ok=True)

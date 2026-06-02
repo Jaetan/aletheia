@@ -700,7 +700,7 @@ def test_loader_rejects_symlink(tmp_path: Path) -> None:
     link = tmp_path / "link.xlsx"
     try:
         link.symlink_to(real)
-    except (OSError, NotImplementedError):
+    except OSError, NotImplementedError:
         pytest.skip("symlink creation not permitted on this filesystem")
     with pytest.raises(ValidationError, match="symbolic link"):
         load_checks_from_excel(link)
@@ -716,7 +716,7 @@ def test_loader_rejects_symlinked_dbc(tmp_path: Path) -> None:
     link = tmp_path / "link_dbc.xlsx"
     try:
         link.symlink_to(real)
-    except (OSError, NotImplementedError):
+    except OSError, NotImplementedError:
         pytest.skip("symlink creation not permitted on this filesystem")
     with pytest.raises(ValidationError, match="symbolic link"):
         load_dbc_from_excel(link)

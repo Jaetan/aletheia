@@ -8,8 +8,7 @@ explode or exhaust memory.  This module provides both surfaces.
 
 import os
 import stat
-from pathlib import Path
-from typing import TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 
 # DEFERRED:
 # Finding: `is_str_dict` (in protocols/_dbc_types.py) and `is_object_list`
@@ -24,6 +23,9 @@ from typing import TypeGuard
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
 from aletheia.client._types import ValidationError
 from aletheia.protocols import is_str_dict
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def is_str(val: object) -> TypeGuard[str]:

@@ -31,7 +31,7 @@ def fuzz_one_input(data: bytes) -> None:
     raw = fdp.ConsumeUnicodeNoSurrogates(len(data))
     try:
         parsed = json.loads(raw)
-    except (ValueError, json.JSONDecodeError):
+    except ValueError, json.JSONDecodeError:
         return  # documented error path
     # Round-trip property: loaded JSON re-serialized must parse to the same
     # value.  Catches: silent type coercion, key-order drift, encode/decode
@@ -42,7 +42,7 @@ def fuzz_one_input(data: bytes) -> None:
         assert re_parsed == parsed, (
             f"round-trip mismatch: {parsed!r} → {re_encoded!r} → {re_parsed!r}"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         # dump_json may reject non-JSON-compatible types extracted from
         # adversarial input; that's acceptable, not a fuzz finding.
         pass

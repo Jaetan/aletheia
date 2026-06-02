@@ -1,11 +1,14 @@
 """Protocol-level list parsers for the streaming response shape."""
 
-from collections.abc import Sequence
-from fractions import Fraction
+from typing import TYPE_CHECKING
 
 from aletheia.client._helpers.rational import parse_rational
 from aletheia.client._types import ProtocolError
 from aletheia.protocols import is_str_dict
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from fractions import Fraction
 
 
 def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:

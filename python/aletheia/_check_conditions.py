@@ -5,9 +5,13 @@ through the same Check API builders.  This module defines the keyword sets
 and dispatch helpers so that the two loaders stay in sync.
 """
 
+from typing import TYPE_CHECKING
+
 from aletheia import checks
-from aletheia.checks import CheckResult, WhenCondition, WhenSignal
 from aletheia.client import ValidationError
+
+if TYPE_CHECKING:
+    from aletheia.checks import CheckResult, WhenCondition, WhenSignal
 
 # ============================================================================
 # Condition keyword sets

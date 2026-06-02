@@ -99,6 +99,10 @@ class _CountingGateBackend:
         if self._counter == self._after_n:
             self._started.set()
             self._proceed.wait()
+        # R0801 false positive: forwarding the full ``send_frame_binary`` wire
+        # signature necessarily mirrors the sync streaming path; a shared helper
+        # would couple this test backend to the hot path it deliberately wraps.
+        # pylint: disable=duplicate-code
         return self._inner.send_frame_binary(
             state,
             timestamp=timestamp,
@@ -109,6 +113,7 @@ class _CountingGateBackend:
             brs=brs,
             esi=esi,
         )
+        # pylint: enable=duplicate-code
 
     # --- pure delegation ----------------------------------------------
 

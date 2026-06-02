@@ -8,8 +8,10 @@ threshold; ``aletheia.protocols`` remains the canonical public surface
 via re-export.
 """
 
-from fractions import Fraction
-from typing import Literal, NewType, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, NewType, NotRequired, TypedDict
+
+if TYPE_CHECKING:
+    from fractions import Fraction
 
 ByteOrder = Literal["little_endian", "big_endian"]
 
@@ -47,7 +49,7 @@ class DBCSignalAlways(TypedDict):
     unit: str
     presence: SignalPresence
     receivers: NotRequired[list[str]]
-    valueDescriptions: NotRequired[list["DBCValueEntry"]]
+    valueDescriptions: NotRequired[list[DBCValueEntry]]
 
 
 class DBCSignalMultiplexed(TypedDict):
@@ -80,7 +82,7 @@ class DBCSignalMultiplexed(TypedDict):
     multiplexor: str
     multiplex_values: list[int]
     receivers: NotRequired[list[str]]
-    valueDescriptions: NotRequired[list["DBCValueEntry"]]
+    valueDescriptions: NotRequired[list[DBCValueEntry]]
 
 
 # Union type for all signal types
@@ -450,7 +452,7 @@ class DBCRawValueDesc(TypedDict):
     id: int
     extended: NotRequired[bool]
     signalName: str
-    entries: list["DBCValueEntry"]
+    entries: list[DBCValueEntry]
 
 
 class DBCDefinition(TypedDict):

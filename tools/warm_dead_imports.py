@@ -512,7 +512,7 @@ class WarmAgda:
         try:
             self.proc.stdin.close()
             _ = self.proc.wait(timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError, subprocess.TimeoutExpired:
             self.proc.kill()
 
 
@@ -857,7 +857,7 @@ def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
             candidates[rel] = cands
         emit(
             f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  tokens={len(loaded.tokens)} "
-            + f"CANDIDATES={cands if cands else '—'}{_result_extra(result)}"
+            + f"CANDIDATES={cands or '—'}{_result_extra(result)}"
         )
     return SweepResult(candidates, times)
 

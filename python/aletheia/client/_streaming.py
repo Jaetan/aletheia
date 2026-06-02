@@ -260,6 +260,12 @@ class StreamingMixin(ABC):
 
         # Use the bound method cached at __enter__ to dodge per-frame
         # attribute-lookup cost on ``self._backend.send_frame_binary``.
+        #
+        # R0801 false positive: the kwargs are ``send_frame_binary``'s full wire
+        # signature, necessarily identical to the async/testing backends. A
+        # shared helper would re-add the per-frame attribute-lookup/dispatch
+        # overhead this hot path deliberately caches away.
+        # pylint: disable=duplicate-code
         result_bytes = self._send_frame_binary(
             self._state,
             timestamp=timestamp,
@@ -270,6 +276,7 @@ class StreamingMixin(ABC):
             brs=brs,
             esi=esi,
         )
+        # pylint: enable=duplicate-code
 
         # Track last frame per CAN ID for EOS enrichment.
         if self._diags:
@@ -411,6 +418,10 @@ class StreamingMixin(ABC):
 
         """
         for i, frame in enumerate(frames):
+            # R0801 false positive: populating ``FrameResult`` from a frame is
+            # the same field mapping as the async generator; both run per-frame,
+            # so a shared helper would add a call per yielded frame.
+            # pylint: disable=duplicate-code
             yield FrameResult(
                 frame_index=i,
                 timestamp=frame.timestamp,
@@ -418,6 +429,7 @@ class StreamingMixin(ABC):
                 extended=frame.extended,
                 response=call_send_frame(self.send_frame, i, frame, []),
             )
+            # pylint: enable=duplicate-code
 
     def send_error(self, timestamp: int) -> AckResponse:
         """Send a CAN error event (no ID, no payload).

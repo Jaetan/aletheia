@@ -6,7 +6,7 @@ names, factor zero, multiplexor issues, global name collisions,
 min > max).
 """
 
-from typing import Unpack, cast
+from typing import TYPE_CHECKING, Unpack, cast
 
 import pytest
 from _dbc_helpers import SignalOverrides, mux_signal
@@ -15,13 +15,15 @@ from _dbc_helpers import message as _build_msg
 from _dbc_helpers import signal as _build_sig
 
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError
-from aletheia.protocols import (
-    Command,
-    DBCMessage,
-    DBCSignal,
-    DBCSignalMultiplexed,
-    Response,
-)
+
+if TYPE_CHECKING:
+    from aletheia.protocols import (
+        Command,
+        DBCMessage,
+        DBCSignal,
+        DBCSignalMultiplexed,
+        Response,
+    )
 
 # Validator tests default to 8-bit signals ranged 0..255, matching the
 # narrow signals most DBC structural-validation cases exercise.

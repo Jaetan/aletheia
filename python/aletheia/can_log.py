@@ -16,12 +16,14 @@ Example:
 
 """
 
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from aletheia.client import CANFrameTuple, ValidationError, bytes_to_dlc
 from aletheia.protocols import DLCByteCount, DLCCode
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # python-can is an optional extra (`pip install aletheia[can]`).  Surface a
 # clear, narrow ImportError naming the optional install rather than letting
@@ -109,7 +111,7 @@ def iter_can_log(
                     skip_error_frames=skip_error_frames,
                     skip_remote_frames=skip_remote_frames,
                 )
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 if on_error == "raise":
                     raise
                 continue

@@ -12,13 +12,13 @@ Tests cover:
 """
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import can
 import pytest
 
 from aletheia import ValidationError
+from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.checks_runner import rational_to_int
 from aletheia.cli import (
     format_timestamp,
@@ -29,6 +29,8 @@ from aletheia.cli import (
 from aletheia.testing import run_checks
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from aletheia.protocols import DBCDefinition
 
 # ============================================================================
@@ -575,13 +577,7 @@ class TestCheckCommand:
         dbc: DBCDefinition = {
             "version": "",
             "messages": [],
-            "signalGroups": [],
-            "environmentVars": [],
-            "valueTables": [],
-            "nodes": [],
-            "comments": [],
-            "attributes": [],
-            "unresolvedValueDescs": [],
+            **empty_dbc_tier2(),
         }
         with pytest.raises(FileNotFoundError, match="log file not found"):
             run_checks(dbc, [], "/nonexistent/drive.asc")

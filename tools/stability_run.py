@@ -106,7 +106,7 @@ def _finalize_lane(binding: str, proc: subprocess.CompletedProcess[str], out_pat
     empty object if the harness was silent), treats exit codes 0/1 as a verdict
     to parse, and any other code as an environment failure.
     """
-    out_path.write_text(proc.stdout if proc.stdout else "{}\n")
+    out_path.write_text(proc.stdout or "{}\n")
     if proc.returncode in _VERDICT_EXIT_CODES:
         try:
             passed = _verdict_from_report(proc.stdout)

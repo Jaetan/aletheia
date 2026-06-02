@@ -35,7 +35,7 @@ def fuzz_one_input(data: bytes) -> None:
         # parser's invariant must hold over every frame yielded.
         for _frame in iter_can_log(tmp_path, on_error="skip"):
             pass
-    except (ValidationError, ValueError, RuntimeError, OSError):
+    except ValidationError, ValueError, RuntimeError, OSError:
         # Documented error paths; not a fuzz finding.
         pass
     finally:

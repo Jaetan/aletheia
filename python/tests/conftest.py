@@ -3,13 +3,16 @@
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
 
 from aletheia import Signal
-from aletheia.dsl import Property
-from aletheia.protocols import DBCDefinition
+
+if TYPE_CHECKING:
+    from aletheia.dsl import Property
+    from aletheia.protocols import DBCDefinition
 
 # Make the repo root importable so tests can reach the ``tools`` package (the dev
 # tooling lives at ``<repo>/tools``, a sibling of ``python/``, not under it).

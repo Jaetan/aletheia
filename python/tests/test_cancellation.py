@@ -18,7 +18,7 @@ durable in stream state" half of the contract is actually exercised.
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterable, Iterable
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -41,6 +41,9 @@ from aletheia.protocols import (
     PropertyBatchResponse,
     PropertyResultEntry,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterable, Iterable
 
 
 def _make_frames(

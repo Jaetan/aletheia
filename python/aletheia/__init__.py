@@ -161,6 +161,12 @@ except PackageNotFoundError:
 # those packages aren't installed; ``from aletheia import *`` in that case
 # raises ``AttributeError`` for the missing name, which is the documented
 # behaviour for missing extras.
+#
+# R0801 false positive: the re-export names below necessarily overlap a run in
+# ``aletheia.client.__all__`` (this package re-exports the client's public API).
+# ``__all__`` must stay a sorted list literal for RUF022 and basedpyright
+# re-export tracking, so the shared run cannot be factored out.
+# pylint: disable=duplicate-code
 __all__ = [
     "AletheiaClient",
     "AletheiaError",
@@ -213,3 +219,4 @@ __all__ = [
     "signal_by_name",
     "signals_for_mux_value",
 ]
+# pylint: enable=duplicate-code

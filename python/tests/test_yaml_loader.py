@@ -10,13 +10,16 @@ Tests cover:
 """
 
 import textwrap
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from aletheia import ValidationError
 from aletheia.checks import signal, when
 from aletheia.yaml_loader import load_checks
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ============================================================================
 # Simple checks — each condition type
@@ -569,7 +572,7 @@ class TestLoaderHardening:
         link = tmp_path / "link.yaml"
         try:
             link.symlink_to(real)
-        except (OSError, NotImplementedError):
+        except OSError, NotImplementedError:
             pytest.skip("symlink creation not permitted on this filesystem")
         with pytest.raises(ValidationError, match="symbolic link"):
             load_checks(link)

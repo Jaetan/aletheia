@@ -20,6 +20,7 @@ benchmark / engine re-export surface and does NOT re-host
 ``MockBackend`` — users import the mock directly from ``aletheia`` (or
 ``aletheia.client``).  PY-S-17.2 closure (R21).
 """
+
 from __future__ import annotations
 
 from aletheia.checks_runner import CheckRunResult, Violation, run_checks

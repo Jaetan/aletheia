@@ -299,6 +299,11 @@ def _normalize_comment(raw: dict[str, object]) -> DBCComment:
     }
 
 
+# R0801 false positive: these seven attr-scope wire names also appear in
+# ``test_dbc_metadata_tier2`` as an ORDERED list pinning the round-trip order.
+# This is an unordered membership ``frozenset``; the two shapes are not
+# interchangeable, so neither can import the other.
+# pylint: disable=duplicate-code
 _ATTR_SCOPE_WIRE: frozenset[str] = frozenset(
     {
         "network",
@@ -310,6 +315,7 @@ _ATTR_SCOPE_WIRE: frozenset[str] = frozenset(
         "nodeSig",
     }
 )
+# pylint: enable=duplicate-code
 
 
 def _normalize_attr_scope(value: object) -> AttrScope:

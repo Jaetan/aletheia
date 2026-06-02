@@ -65,6 +65,12 @@ from aletheia.client._types import (
 # Public symbols — every name here is covered by basedpyright at ``strict``
 # level. User-facing API is ``AletheiaClient``, the exception hierarchy, the
 # response TypedDicts, and the byte/DLC converters.
+#
+# R0801 false positive: these names necessarily overlap a run in the top-level
+# ``aletheia.__all__`` (which re-exports this client API). ``__all__`` must stay
+# a sorted list literal for RUF022 and basedpyright re-export tracking, so the
+# shared run cannot be factored out.
+# pylint: disable=duplicate-code
 __all__ = [
     "AletheiaClient",
     "AletheiaError",
@@ -88,3 +94,4 @@ __all__ = [
     "check_dbc_text_size_bound",
     "dlc_to_bytes",
 ]
+# pylint: enable=duplicate-code

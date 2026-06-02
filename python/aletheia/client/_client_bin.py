@@ -16,13 +16,17 @@ were obtained.
 """
 
 import struct
-from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 from aletheia.client._types import ProtocolError, SignalExtractionResult
-from aletheia.protocols import DLCCode
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from aletheia.protocols import DLCCode
 
 # The binary extraction response opens with a three-``u16`` count header
 # (values / errors / absent); ``<HHH`` is 6 bytes.

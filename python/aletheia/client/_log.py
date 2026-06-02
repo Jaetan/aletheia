@@ -24,12 +24,14 @@ Do NOT invent new event names in call sites — add the name here first,
 then use ``log_event(logger, LogEvent.NEW_NAME, ...)``.
 """
 
-import logging
-from enum import Enum
-from typing import Final
+from enum import StrEnum
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    import logging
 
 
-class LogEvent(str, Enum):
+class LogEvent(StrEnum):
     """Structured log event names shared with Go (``slog``) and C++ (``Logger``).
 
     Exactly 16 values — the set must stay identical across bindings.  Every

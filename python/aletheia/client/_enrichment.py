@@ -67,6 +67,10 @@ if TYPE_CHECKING:
         | MetricUntilFormula
         | MetricReleaseFormula
     )
+    # R0801 false positive: these five arms coincide with the first five of
+    # ``aletheia.protocols.SignalPredicate``, but this alias is intentionally a
+    # subset (no Between/ChangedBy/StableWithin) — it must stay narrower.
+    # pylint: disable=duplicate-code
     _ComparisonPredicate = (
         EqualsPredicate
         | LessThanPredicate
@@ -74,6 +78,7 @@ if TYPE_CHECKING:
         | LessThanOrEqualPredicate
         | GreaterThanOrEqualPredicate
     )
+    # pylint: enable=duplicate-code
 
 # Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
 # exposed as `aletheia.limits.MAX_NESTING_DEPTH`): a deeper formula would

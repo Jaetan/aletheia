@@ -17,8 +17,7 @@ from aletheia.client._client_bin import (
 NAMES = ("Speed", "RPM", "Temp")
 
 _AGDA_EXTRACTION = (
-    Path(__file__).resolve().parents[2]
-    / "src" / "Aletheia" / "CAN" / "BatchExtraction.agda"
+    Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "CAN" / "BatchExtraction.agda"
 )
 _AGDA_EXTRACTION_MISSING = not _AGDA_EXTRACTION.exists()
 _AGDA_SKIP_REASON = (
@@ -150,13 +149,12 @@ class TestExtractionErrorCodeSync:
         # a non-indented line or blank line is reached.
         try:
             start = next(
-                i for i, line in enumerate(lines)
-                if line.startswith("data ExtractionErrorCode")
+                i for i, line in enumerate(lines) if line.startswith("data ExtractionErrorCode")
             )
         except StopIteration:
             pytest.fail("``data ExtractionErrorCode`` block not found in Agda source")
         ctors: list[str] = []
-        for line in lines[start + 1:]:
+        for line in lines[start + 1 :]:
             stripped = line.strip()
             if not stripped or not line.startswith(" "):
                 break
@@ -190,8 +188,7 @@ class TestExtractionErrorCodeSync:
             )
             py_member = ExtractionErrorCode[py_name]
             assert py_member.value == i, (
-                f"{agda_name} is Agda constructor #{i} but Python "
-                f"{py_name} = {py_member.value}"
+                f"{agda_name} is Agda constructor #{i} but Python {py_name} = {py_member.value}"
             )
 
     def test_messages_cover_every_code(self) -> None:

@@ -18,7 +18,7 @@ allocating buffers / parsing.
 """
 
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from _dbc_helpers import dbc, message
@@ -30,12 +30,15 @@ from aletheia import (
     Signal,
     limits,
 )
+from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.dsl import Predicate
 from aletheia.error_codes import ErrorCode
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
-from aletheia.protocols import DBCDefinition, LTLFormula
 from aletheia.yaml_loader import load_checks
+
+if TYPE_CHECKING:
+    from aletheia.dsl import Predicate
+    from aletheia.protocols import DBCDefinition, LTLFormula
 
 
 def _path_exists_false(_self: Path) -> bool:
@@ -414,13 +417,7 @@ class TestListCardinalityBound:
                         ],
                     }
                 ],
-                "signalGroups": [],
-                "environmentVars": [],
-                "valueTables": [],
-                "nodes": [],
-                "comments": [],
-                "attributes": [],
-                "unresolvedValueDescs": [],
+                **empty_dbc_tier2(),
             },
         )
         with AletheiaClient() as client:

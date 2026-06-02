@@ -56,6 +56,7 @@ When/Then checks (causal)::
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
@@ -78,9 +79,11 @@ from aletheia._loader_utils import (
     get_str,
     reject_symlink_loader_path,
 )
-from aletheia.checks import CheckResult
 from aletheia.client import ValidationError, check_dbc_text_size_bound
 from aletheia.protocols import is_object_list, is_str_dict
+
+if TYPE_CHECKING:
+    from aletheia.checks import CheckResult
 
 
 def _ctx(name: str) -> str:

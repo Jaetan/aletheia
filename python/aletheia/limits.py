@@ -29,13 +29,13 @@ from typing import Final
 
 # Wire codes — must match ``boundKindCode`` in ``Aletheia.Limits`` (Agda).
 BOUND_KIND_INPUT_LENGTH_BYTES: Final[str] = "input_length_bytes"
-BOUND_KIND_NESTING_DEPTH:      Final[str] = "nesting_depth"
-BOUND_KIND_ARRAY_CARDINALITY:  Final[str] = "array_cardinality"
-BOUND_KIND_IDENTIFIER_LENGTH:  Final[str] = "identifier_length"
-BOUND_KIND_STRING_LENGTH:      Final[str] = "string_length"
-BOUND_KIND_ATOM_COUNT:         Final[str] = "atom_count"
-BOUND_KIND_FRAME_BYTE_COUNT:   Final[str] = "frame_byte_count"
-BOUND_KIND_PROPERTY_COUNT:     Final[str] = "property_count"
+BOUND_KIND_NESTING_DEPTH: Final[str] = "nesting_depth"
+BOUND_KIND_ARRAY_CARDINALITY: Final[str] = "array_cardinality"
+BOUND_KIND_IDENTIFIER_LENGTH: Final[str] = "identifier_length"
+BOUND_KIND_STRING_LENGTH: Final[str] = "string_length"
+BOUND_KIND_ATOM_COUNT: Final[str] = "atom_count"
+BOUND_KIND_FRAME_BYTE_COUNT: Final[str] = "frame_byte_count"
+BOUND_KIND_PROPERTY_COUNT: Final[str] = "property_count"
 
 # ============================================================================
 # BOUND CONSTANTS

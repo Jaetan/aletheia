@@ -27,6 +27,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from aletheia import ProtocolError
+from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.client._helpers.rational import parse_rational
 from aletheia.protocols import (
     ByteOrder,
@@ -109,13 +110,7 @@ def dbc_strategy(draw: st.DrawFn) -> DBCDefinition:
     return {
         "version": "1.0",
         "messages": messages,
-        "signalGroups": [],
-        "environmentVars": [],
-        "valueTables": [],
-        "nodes": [],
-        "comments": [],
-        "attributes": [],
-        "unresolvedValueDescs": [],
+        **empty_dbc_tier2(),
     }
 
 

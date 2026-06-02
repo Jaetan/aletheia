@@ -8,7 +8,7 @@ the opt-in design.
 """
 
 import logging
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 from _dbc_helpers import dbc, message, signal
@@ -17,6 +17,9 @@ from _stream_helpers import run_one_frame_stream
 from aletheia import AletheiaClient, Signal
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
 from aletheia.protocols import DBCDefinition, DLCCode
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 class _Capture(logging.Handler):

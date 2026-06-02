@@ -505,7 +505,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             try:
                 for i, formula in enumerate(properties):
                     self._diags[i] = build_diagnostic(formula)
-            except (FFIError, ValidationError):
+            except FFIError, ValidationError:
                 # build_diagnostic failed after the kernel accepted the
                 # properties → drop partial diagnostics so subsequent
                 # stream iterations don't observe an inconsistent view.

@@ -856,7 +856,7 @@ def main() -> int:
     args = _build_arg_parser().parse_args()
 
     if args.restore_backups:
-        paths = args.paths if args.paths else [SRC_DIR]
+        paths = args.paths or [SRC_DIR]
         emit(f"restored {restore_backups(paths)} backup(s)")
         return 0
 
@@ -865,7 +865,7 @@ def main() -> int:
         args.dry_run = True
         args.quiet = True
 
-    paths = args.paths if args.paths else [SRC_DIR]
+    paths = args.paths or [SRC_DIR]
 
     # Crash-safe cleanup: sweep any leftovers from a prior interrupted run
     # (e.g. a SIGKILL that bypassed the signal handler), then arm exit/signal

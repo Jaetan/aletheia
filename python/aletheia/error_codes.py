@@ -12,10 +12,10 @@ the Agda source and asserts this enum is a reciprocal superset — drift
 either direction fails CI.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """Machine-readable error codes matching Agda Error ADT.
 
     Each code maps 1:1 to an Agda error constructor via errorCode.

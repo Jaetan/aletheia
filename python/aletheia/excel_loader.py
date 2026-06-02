@@ -49,11 +49,11 @@ import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import openpyxl
 from openpyxl.styles import Font
 from openpyxl.workbook import Workbook
-from openpyxl.worksheet.worksheet import Worksheet
 
 from aletheia import checks
 from aletheia._check_conditions import (
@@ -76,7 +76,6 @@ from aletheia._loader_utils import (
     is_str,
     reject_symlink_loader_path,
 )
-from aletheia.checks import CheckResult
 from aletheia.client import AletheiaError, ValidationError, check_dbc_text_size_bound
 from aletheia.protocols import (
     DBCDefinition,
@@ -87,6 +86,11 @@ from aletheia.protocols import (
     DLCByteCount,
     to_signal_fraction,
 )
+
+if TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
+
+    from aletheia.checks import CheckResult
 
 
 def _check_xlsx_uncompressed_bound(path: Path) -> None:

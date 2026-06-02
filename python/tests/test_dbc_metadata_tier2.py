@@ -333,6 +333,11 @@ class TestDBCMetadataTier2Roundtrip:
 
         assignments = [a for a in formatted["attributes"] if a["kind"] == "assignment"]
         kinds = [cast_assign(a)["target"]["kind"] for a in assignments]
+        # R0801 false positive: this ORDERED list pins the round-trip order of
+        # the attr-scope kinds; it intentionally restates the names rather than
+        # importing the unordered ``_ATTR_SCOPE_WIRE`` frozenset (which carries
+        # no order and would make the assertion circular).
+        # pylint: disable=duplicate-code
         assert kinds == [
             "network",
             "node",
@@ -342,6 +347,7 @@ class TestDBCMetadataTier2Roundtrip:
             "nodeMsg",
             "nodeSig",
         ]
+        # pylint: enable=duplicate-code
 
 
 def cast_assign(a: DBCAttribute) -> DBCAttrAssign:
