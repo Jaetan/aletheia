@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
@@ -81,9 +83,13 @@ DefId = tuple[str, int]
 # one copy leaves the others in scope, so the extra import is dead.
 _MIN_DUP_OCCURRENCES = 2
 
-# Safety cap on lines read awaiting a `Cmd_show_module_contents` DisplayInfo
-# terminal, so an unexpected response stream can never hang the query.
-_MAX_SMC_LINES = 200
+# Max seconds of agda SILENCE (no output line) before a read gives up, so no
+# command can hang on a silent agda.  A Cmd_load terminal arrives within one
+# module's check time even cold; the cap only fires on a genuinely wedged
+# process.  Cmd_show_module_contents answers an UNRESOLVABLE module with total
+# silence (verified) -- the short cap turns that into a None verdict, fast.
+_LOAD_SILENCE_S = 300.0
+_SMC_SILENCE_S = 20.0
 
 
 class ConfirmResult(NamedTuple):
@@ -312,18 +318,127 @@ def _parse_response(line: str) -> _Response | None:
         return None
 
 
+def _apply_load_response(payload: _Response, state: _LoadState) -> bool:
+    """Fold one parsed Cmd_load response into `state`; return True at a terminal.
+
+    Accumulates `HighlightingInfo` tokens, records `JumpToError`, and reads
+    `Status`.  Returns True on either terminal — the success `InteractionPoints`,
+    or the `Status{checked:false}` that follows an error — and False otherwise.
+    """
+    kind = payload.get("kind")
+    if kind == "HighlightingInfo":
+        info = payload.get("info")
+        if info is not None and (tokens := info.get("payload")) is not None:
+            state.tokens += tokens
+    elif kind == "DisplayInfo":
+        message = _error_display_message(payload)
+        if message:
+            state.error = message
+        state.warnings += _display_warnings(payload)
+    elif kind == "JumpToError":
+        state.saw_error = True
+    elif kind == "Status":
+        status = payload.get("status")
+        if status is not None and status.get("checked"):
+            state.ok = True
+        elif state.saw_error:
+            return True  # failure terminal: Status{checked:false} after the error
+    elif kind == "InteractionPoints":
+        return True  # success terminal
+    return False
+
+
+def read_load(read_line: Callable[[], str | None]) -> _LoadState:
+    """Fold Cmd_load response lines (from `read_line`) into a _LoadState.
+
+    `read_line` returns the next line, None at EOF, and raises `queue.Empty` on
+    silence (a wedged process) — silence returns the partial state (`ok` False)
+    rather than hanging; EOF mid-load raises.  Pure (no process), so the
+    load-terminal logic is unit-testable with a synthetic line source.
+    """
+    state = _LoadState()
+    while True:
+        try:
+            line = read_line()
+        except queue.Empty:
+            return state  # silent past the load budget -> give up (ok False)
+        if line is None:
+            message = "agda --interaction-json exited unexpectedly"
+            raise RuntimeError(message)
+        payload = _parse_response(line)
+        if payload is not None and _apply_load_response(payload, state):
+            return state
+
+
+def read_module_contents(read_line: Callable[[], str | None]) -> list[Name] | None:
+    """Fold Cmd_show_module_contents response lines into names, or None.
+
+    `read_line` returns the next line, None at EOF, and raises `queue.Empty` on
+    the SILENCE an unresolvable module produces; both map to None (unresolvable),
+    as does an Error / wrong-terminal display.  A ModuleContents display yields
+    its full export names ([] for a genuinely empty module).  Pure, so the
+    terminal/None logic is unit-testable without a process.
+    """
+    while True:
+        try:
+            line = read_line()
+        except queue.Empty:
+            return None  # unresolvable module -> agda answers with silence
+        if line is None:
+            return None  # process exited
+        payload = _parse_response(line)
+        if payload is None:
+            continue
+        kind = payload.get("kind")
+        if kind in ("JumpToError", "InteractionPoints"):
+            return None  # errored / wrong terminal — module not enumerable
+        if kind != "DisplayInfo":
+            continue
+        info = cast("_ModuleContentsResponse", payload).get("info")
+        if info is None or info.get("kind") != "ModuleContents":
+            return None
+        return [name for entry in info.get("contents", []) if (name := entry.get("name"))]
+
+
 class WarmAgda:
     """One long-lived `agda --interaction-json` process driven over pipes.
 
-    Use as a context manager (`with WarmAgda() as agda: agda.load(...)`).  Pipe
-    discipline (deadlock-critical): line-buffered text pipes, flush after every
-    command, and drain a command's responses fully (to the terminal marker)
-    before sending the next.
+    Use as a context manager (`with WarmAgda() as agda: agda.load(...)`).  A
+    daemon thread drains agda's stdout into a queue, so every read is
+    time-bounded (`_next_line`): a command can never hang on a silent agda --
+    notably `Cmd_show_module_contents_toplevel`, which answers an unresolvable
+    module with TOTAL silence.  Pipe discipline still holds: flush after every
+    command and drain its responses to the terminal marker before the next.
     """
 
     def __init__(self) -> None:
-        """Spawn the warm `agda --interaction-json` process."""
+        """Spawn the warm agda process and start its stdout reader thread."""
         self.proc: subprocess.Popen[str] = _spawn_agda()
+        self._lines: queue.Queue[str | None] = queue.Queue()
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+
+    def _read_loop(self) -> None:
+        """Drain agda's stdout into the line queue; enqueue None as the EOF sentinel.
+
+        Uses `iter(readline, "")` (not `for line in stream`, which read-ahead
+        buffers and would stall interactive line delivery) so each response line
+        is queued as it arrives.  Runs in a daemon thread for the process's life.
+        """
+        out = self.proc.stdout
+        if out is not None:
+            for line in iter(out.readline, ""):
+                self._lines.put(line)
+        self._lines.put(None)
+
+    def _next_line(self, timeout: float) -> str | None:
+        """Return the next agda line, or None at EOF; raise `queue.Empty` on silence.
+
+        `queue.Empty` after `timeout` seconds of no output is how a command
+        detects that agda has gone silent without sending its terminal (e.g. an
+        unresolvable `show_module_contents`) -- the bound that prevents a hang.
+        """
+        return self._lines.get(timeout=timeout)
 
     def __enter__(self) -> Self:
         """Enter the context manager, returning this live process wrapper."""
@@ -333,61 +448,21 @@ class WarmAgda:
         """Exit the context manager, closing the underlying process."""
         self.close()
 
-    @staticmethod
-    def _apply_response(payload: _Response, state: _LoadState) -> bool:
-        """Fold one parsed response into `state`; return True at a terminal.
-
-        Accumulates `HighlightingInfo` tokens, records `JumpToError`, and reads
-        `Status`.  Returns True on either terminal — the success
-        `InteractionPoints`, or the `Status{checked:false}` that follows an
-        error — and False otherwise.
-        """
-        kind = payload.get("kind")
-        if kind == "HighlightingInfo":
-            info = payload.get("info")
-            if info is not None and (tokens := info.get("payload")) is not None:
-                state.tokens += tokens
-        elif kind == "DisplayInfo":
-            message = _error_display_message(payload)
-            if message:
-                state.error = message
-            state.warnings += _display_warnings(payload)
-        elif kind == "JumpToError":
-            state.saw_error = True
-        elif kind == "Status":
-            status = payload.get("status")
-            if status is not None and status.get("checked"):
-                state.ok = True
-            elif state.saw_error:
-                return True  # failure terminal: Status{checked:false} after the error
-        elif kind == "InteractionPoints":
-            return True  # success terminal
-        return False
-
     def _run_load(self, abspath: str) -> _LoadState:
         """Send Cmd_load and fold responses into a _LoadState until a terminal.
 
-        Collects HighlightingInfo tokens and an Error DisplayInfo's message.  A
-        FAILED load emits `JumpToError` and ends on `Status{checked:false}` (no
-        `InteractionPoints`), so both terminals are handled — a broken file is
-        reported, not hung on.
+        A FAILED load emits `JumpToError` + `Status{checked:false}` (no
+        `InteractionPoints`); both terminals (and a wedged-process silence past
+        `_LOAD_SILENCE_S`) are handled by `read_load`, so a broken or stuck file
+        is reported, never hung on.
         """
-        if self.proc.stdin is None or self.proc.stdout is None:
-            message = "agda --interaction-json process has no stdin/stdout pipe"
+        if self.proc.stdin is None:
+            message = "agda --interaction-json process has no stdin pipe"
             raise RuntimeError(message)
         cmd = f'IOTCM "{abspath}" NonInteractive Direct (Cmd_load "{abspath}" [])\n'
         _ = self.proc.stdin.write(cmd)
         self.proc.stdin.flush()
-        state = _LoadState()
-        while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                message = "agda --interaction-json exited unexpectedly"
-                raise RuntimeError(message)
-            payload = _parse_response(line)
-            if payload is not None and self._apply_response(payload, state):
-                break
-        return state
+        return read_load(lambda: self._next_line(_LOAD_SILENCE_S))
 
     def load(self, abspath: str) -> LoadResult:
         """Send Cmd_load; return the load's tokens, ok flag, and error message.
@@ -414,37 +489,20 @@ class WarmAgda:
         the loaded `abspath`.  The result's full mixfix names (`_⊕_`, including
         re-exports) are the wildcard provided-set the redundancy check needs.
 
-        Distinguishes UNRESOLVABLE (returns None — an Error display, or a
-        `JumpToError`/`InteractionPoints` terminal seen instead of the
-        ModuleContents `DisplayInfo`) from a genuinely EMPTY module (returns []),
-        so the caller maps None to the conservative confirm-all fallback rather
-        than to "supplies nothing".  A line cap guards against a stream that
-        never reaches a terminal, so the query can never hang.
+        Distinguishes UNRESOLVABLE (returns None) from a genuinely EMPTY module
+        (returns []), so the caller maps None to the conservative confirm-all
+        fallback rather than to "supplies nothing".  Unresolvable is detected two
+        ways: an Error / wrong-terminal display, OR -- the common case, verified
+        empirically -- agda answering with TOTAL SILENCE, caught by the
+        `_SMC_SILENCE_S` read bound.  Either way the query cannot hang.
         """
-        if self.proc.stdin is None or self.proc.stdout is None:
-            message = "agda --interaction-json process has no stdin/stdout pipe"
+        if self.proc.stdin is None:
+            message = "agda --interaction-json process has no stdin pipe"
             raise RuntimeError(message)
         cmd = f'IOTCM "{abspath}" None Direct (Cmd_show_module_contents_toplevel AsIs "{module}")\n'
         _ = self.proc.stdin.write(cmd)
         self.proc.stdin.flush()
-        for _attempt in range(_MAX_SMC_LINES):
-            line = self.proc.stdout.readline()
-            if not line:
-                message = "agda --interaction-json exited during show_module_contents"
-                raise RuntimeError(message)
-            payload = _parse_response(line)
-            if payload is None:
-                continue
-            kind = payload.get("kind")
-            if kind in ("JumpToError", "InteractionPoints"):
-                return None  # errored / wrong terminal — module not enumerable
-            if kind != "DisplayInfo":
-                continue
-            info = cast("_ModuleContentsResponse", payload).get("info")
-            if info is None or info.get("kind") != "ModuleContents":
-                return None
-            return [name for entry in info.get("contents", []) if (name := entry.get("name"))]
-        return None
+        return read_module_contents(lambda: self._next_line(_SMC_SILENCE_S))
 
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
@@ -658,7 +716,7 @@ def _open_raw_without_name(raw: str, open_info: OpenInfo, name: Name) -> str | N
     return None
 
 
-def _texts_without_name(original: str, name: Name) -> list[str]:
+def texts_without_name(original: str, name: Name) -> list[str]:
     """Each variant of `original` with `name` dropped from ONE open's clause.
 
     Iterates EVERY open (`find_opens`), not just top-level `open import` blocks,
@@ -692,7 +750,7 @@ def _confirm_one(agda: WarmAgda, rel: RelPath, name: Name, original: str, baseli
     ALWAYS restores the original content after each attempt, even on failure.
     """
     path = SRC / rel
-    for modified in _texts_without_name(original, name):
+    for modified in texts_without_name(original, name):
         try:
             track_inflight(str(path), original)
             _ = path.write_text(modified, encoding="utf-8")
