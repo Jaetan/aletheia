@@ -25,17 +25,18 @@ repo root (``--markdown-docs`` runs with ``--rootdir=<repo>``). The regular
 ``python/tests/`` suite uses ``python/pyproject.toml`` as its rootdir, so
 these fakes do not leak into unit-test runs.
 """
+
 from __future__ import annotations
 
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
 import aletheia
-import aletheia.checks
 import aletheia.can_log
+import aletheia.checks
 import aletheia.dbc_converter
 import aletheia.excel_loader
 import aletheia.yaml_loader
@@ -52,50 +53,60 @@ from aletheia import (
     infinitely_often,
     never,
 )
+from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dsl import Predicate, Property
+from aletheia.protocols import DLCByteCount, DLCCode
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+    from types import ModuleType
+    from typing import TypeAliasType
+
+    from aletheia import CheckResult, DBCDefinition
+    from aletheia.protocols import DBCMessage, DBCSignalAlways
 
 _REPO_ROOT = Path(__file__).parent
 
-# Shared defaults for every signal in the hand-built DBC. Pulled out of
-# ``_signal`` so the helper takes a single ``overrides`` dict (3 positional
-# + 1 dict arg) and pylint's ``too-many-arguments`` gate stays green.
-_SIGNAL_DEFAULTS: dict[str, Any] = {
-    "byteOrder": "little_endian",
-    "signed": False,
-    "factor": Fraction(1),
-    "offset": Fraction(0),
-    "minimum": Fraction(0),
-    "maximum": Fraction(65535),
-    "unit": "",
-    "presence": "always",
-}
+
+class _SignalOverrides(TypedDict, total=False):
+    """Per-signal field overrides accepted by :func:`_signal`.
+
+    Bundled into one optional dict so ``_signal`` stays at four parameters
+    (pylint ``too-many-arguments``).  Numeric fields are exact ``Fraction``s
+    to match the Agda core's rational schema (``parse_dbc`` rejects floats).
+    """
+
+    factor: Fraction
+    offset: Fraction
+    minimum: Fraction
+    maximum: Fraction
+    unit: str
 
 
 def _signal(
     name: str,
     start_bit: int,
     length: int,
-    overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build one signal dict from the shared defaults plus overrides.
+    overrides: _SignalOverrides | None = None,
+) -> DBCSignalAlways:
+    """Build one always-present signal from defaults plus optional overrides."""
+    o: _SignalOverrides = overrides if overrides is not None else {}
+    return {
+        "name": name,
+        "startBit": start_bit,
+        "length": length,
+        "byteOrder": "little_endian",
+        "signed": False,
+        "factor": o.get("factor", Fraction(1)),
+        "offset": o.get("offset", Fraction(0)),
+        "minimum": o.get("minimum", Fraction(0)),
+        "maximum": o.get("maximum", Fraction(65535)),
+        "unit": o.get("unit", ""),
+        "presence": "always",
+    }
 
-    ``overrides`` values that happen to be ``int``/``float``/``Fraction``
-    are re-wrapped as bounded ``Fraction`` so the returned dict matches the
-    schema the real ``parse_dbc`` call expects (Agda-side types are exact
-    rationals, not floats).
-    """
-    sig: dict[str, Any] = {"name": name, "startBit": start_bit, "length": length}
-    sig.update(_SIGNAL_DEFAULTS)
-    if overrides:
-        for key, val in overrides.items():
-            if isinstance(val, (int, float, Fraction)):
-                sig[key] = Fraction(val).limit_denominator(10000)
-            else:
-                sig[key] = val
-    return sig
 
-
-def _doc_dbc() -> dict[str, Any]:
+def _doc_dbc() -> DBCDefinition:
     """Hand-built DBC that covers the signal names used across the docs.
 
     Docs freely reference Speed/VehicleSpeed/EngineRPM/etc. as illustrative
@@ -104,37 +115,49 @@ def _doc_dbc() -> dict[str, Any]:
     against real signal definitions. The numeric ranges are deliberately
     wide so 72.0 / 130.0 / 0.0 doc-literal values stay inside [min, max].
     """
-    vehicle_state = {
+    speed_overrides: _SignalOverrides = {
+        "factor": Fraction(1, 100),
+        "maximum": Fraction("655.35"),
+        "unit": "km/h",
+    }
+    vehicle_state: DBCMessage = {
         "id": 0x100,
         "name": "VehicleState",
-        "dlc": 8,
+        "dlc": DLCByteCount(8),
         "sender": "ECU",
         "signals": [
-            _signal("VehicleSpeed", 0, 16,
-                    {"factor": 0.01, "maximum": 655.35, "unit": "km/h"}),
-            _signal("Speed", 16, 16,
-                    {"factor": 0.01, "maximum": 655.35, "unit": "km/h"}),
-            _signal("BrakePedal", 32, 8, {"maximum": 255, "unit": "%"}),
+            _signal("VehicleSpeed", 0, 16, speed_overrides),
+            _signal("Speed", 16, 16, speed_overrides),
+            _signal("BrakePedal", 32, 8, {"maximum": Fraction(255), "unit": "%"}),
             _signal("EngineRPM", 40, 16, {"unit": "rpm"}),
-            _signal("CoolantTemp", 56, 8,
-                    {"offset": -40, "minimum": -40, "maximum": 215, "unit": "celsius"}),
+            _signal(
+                "CoolantTemp",
+                56,
+                8,
+                {
+                    "offset": Fraction(-40),
+                    "minimum": Fraction(-40),
+                    "maximum": Fraction(215),
+                    "unit": "celsius",
+                },
+            ),
         ],
     }
-    return {"version": "1.0", "messages": [vehicle_state]}
+    return {"version": "1.0", "messages": [vehicle_state], **empty_dbc_tier2()}
 
 
-def _harness_dbc_to_json(*_args: Any, **_kwargs: Any) -> Any:
+def _harness_dbc_to_json[**P](*_args: P.args, **_kwargs: P.kwargs) -> DBCDefinition:
     return _doc_dbc()
 
 
-def _harness_convert_dbc_file(*_args: Any, **_kwargs: Any) -> str:
+def _harness_convert_dbc_file[**P](*_args: P.args, **_kwargs: P.kwargs) -> str:
     # Deliberately skip the filesystem write — a doc fence like
     # ``convert_dbc_file("vehicle.dbc", "vehicle.json")`` would otherwise
     # leak ``vehicle.json`` into the repo root during harness runs.
     return "{}"
 
 
-def _harness_iter_can_log(*_args: Any, **_kwargs: Any) -> Iterator[Any]:
+def _harness_iter_can_log[**P](*_args: P.args, **_kwargs: P.kwargs) -> Iterator[CANFrameTuple]:
     """Return a single illustrative 7-tuple frame.
 
     Empty iterators silently pass any unpack — including a 4-tuple unpack
@@ -149,30 +172,83 @@ def _harness_iter_can_log(*_args: Any, **_kwargs: Any) -> Iterator[Any]:
     the ``Speed < 250`` property the docs commonly reference. ``brs`` and
     ``esi`` are ``None`` (CAN 2.0B; the BRS/ESI bits do not exist).
     """
-    return iter([CANFrameTuple(0, 0x100, 8, bytes(8), False, None, None)])
+    return iter([CANFrameTuple(0, 0x100, DLCCode(8), bytes(8), extended=False, brs=None, esi=None)])
 
 
-def _harness_load_can_log(*_args: Any, **_kwargs: Any) -> list[Any]:
+def _harness_load_can_log[**P](*_args: P.args, **_kwargs: P.kwargs) -> list[CANFrameTuple]:
     return []
 
 
-def _harness_load_checks(*_args: Any, **_kwargs: Any) -> list[Any]:
+def _harness_load_checks[**P](*_args: P.args, **_kwargs: P.kwargs) -> list[CheckResult]:
     return []
 
 
-def _harness_load_checks_from_excel(*_args: Any, **_kwargs: Any) -> list[Any]:
+def _harness_load_checks_from_excel[**P](*_args: P.args, **_kwargs: P.kwargs) -> list[CheckResult]:
     return []
 
 
-def _harness_load_dbc_from_excel(*_args: Any, **_kwargs: Any) -> Any:
+def _harness_load_dbc_from_excel[**P](*_args: P.args, **_kwargs: P.kwargs) -> DBCDefinition:
     return _doc_dbc()
 
 
-def _harness_create_template(*_args: Any, **_kwargs: Any) -> None:
+def _harness_create_template[**P](*_args: P.args, **_kwargs: P.kwargs) -> None:
     return None
 
 
-def _make_globals() -> dict[str, Any]:
+class _DocGlobals(TypedDict):
+    """Exact name -> type map of the namespace injected into every doc fence.
+
+    Naming each entry (rather than ``dict[str, object]``) keeps the harness
+    self-documenting and lets the type checker verify the construction in
+    :func:`_make_globals`.  The empty scratch lists carry the element type
+    fences are expected to append.
+    """
+
+    # The colliding names (AletheiaClient/Signal/Predicate/Property/...) are
+    # both TypedDict field names AND types referenced in the annotations, so
+    # they are written ``aletheia.X`` (module-qualified) to resolve to the
+    # re-exported type rather than the class-scoped field.
+    AletheiaClient: type[aletheia.AletheiaClient]
+    Signal: type[aletheia.Signal]
+    Predicate: type[aletheia.Predicate]
+    Property: type[aletheia.Property]
+    AletheiaError: type[aletheia.AletheiaError]
+    ProtocolError: type[aletheia.ProtocolError]
+    ValidationError: type[aletheia.ValidationError]
+    BatchError: type[aletheia.BatchError]
+    FrameResponse: TypeAliasType
+    infinitely_often: Callable[[aletheia.Property | aletheia.Predicate], aletheia.Property]
+    eventually_always: Callable[[aletheia.Property | aletheia.Predicate], aletheia.Property]
+    never: Callable[[aletheia.Property | aletheia.Predicate], aletheia.Property]
+    dbc_to_json: Callable[..., DBCDefinition]
+    convert_dbc_file: Callable[..., str]
+    iter_can_log: Callable[..., Iterator[CANFrameTuple]]
+    load_can_log: Callable[..., list[CANFrameTuple]]
+    load_checks: Callable[..., list[CheckResult]]
+    load_checks_from_excel: Callable[..., list[CheckResult]]
+    load_dbc_from_excel: Callable[..., DBCDefinition]
+    create_template: Callable[..., None]
+    dbc: DBCDefinition
+    dbc_json: DBCDefinition
+    client: aletheia.AletheiaClient
+    frames: list[CANFrameTuple]
+    trace: list[CANFrameTuple]
+    checks: ModuleType
+    check_list: list[CheckResult]
+    properties: list[aletheia.Property]
+    safety_checks: list[CheckResult]
+    session_checks: list[CheckResult]
+    can_trace: list[CANFrameTuple]
+    frame_bytes: bytes
+    property: aletheia.Property
+    brake_pressed: aletheia.Predicate
+    ts: int
+    can_id: int
+    dlc: int
+    data: bytes
+
+
+def _make_globals() -> _DocGlobals:
     """Per-test globals injected into every markdown code fence.
 
     Returns a fresh client + mutable collections per invocation so fences
@@ -254,13 +330,13 @@ def pytest_sessionstart() -> None:
     aletheia.excel_loader.create_template = _harness_create_template
 
 
-def pytest_markdown_docs_globals() -> dict[str, Any]:
+def pytest_markdown_docs_globals() -> _DocGlobals:
     """pytest-markdown-docs hook — globals merged into every fence's namespace."""
     return _make_globals()
 
 
 @pytest.fixture(autouse=True)
-def _sandbox_cwd(
+def sandbox_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
