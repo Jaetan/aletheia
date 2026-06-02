@@ -11,14 +11,12 @@ C++-derived public API.
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 
-
 class FuzzedDataProvider:
     """Maps the fuzzer's raw byte stream to typed values deterministically."""
 
     def __init__(self, data: bytes) -> None: ...
     def ConsumeBytes(self, count: int) -> bytes: ...
     def ConsumeUnicodeNoSurrogates(self, count: int) -> str: ...
-
 
 def instrument_imports(
     include: Sequence[str] = ...,

@@ -67,6 +67,12 @@ known-first-party = ["aletheia"]
 # production code (aletheia/), where literal comparisons get named constants.
 "python/tests/**" = ["S101", "INP001", "PLR2004"]
 "conftest.py" = ["S101", "INP001"]
+# Type stubs (.pyi) mirror a THIRD-PARTY library's public API verbatim, so
+# function names must match upstream's casing (e.g. atheris' ``ConsumeBytes`` /
+# ``Setup`` / ``Fuzz``); renaming them to snake_case would make the stub stop
+# matching the real module.  N802 (non-lowercase function name) carries no
+# signal here.
+"python/stubs/**" = ["N802"]
 # A demo / benchmark script exists to print its results for a human reader:
 # stdout is the deliverable, so the no-print rule does not apply.  These are
 # runnable scripts, not importable packages, hence INP001 too.

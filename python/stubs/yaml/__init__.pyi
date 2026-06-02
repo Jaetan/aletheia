@@ -6,5 +6,4 @@ PyYAML is a third-party library that does not ship inline types.
 
 from typing import IO
 
-
 def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> object: ...
