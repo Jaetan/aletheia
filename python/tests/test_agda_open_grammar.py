@@ -135,10 +135,12 @@ FORMS: list[Form] = [
         Expect(is_open=True, has_using=True, provides_exact=_exact("Sub"), check=_exact("Sub")),
     ),
     _form(
+        # A `public` re-export PROVIDES pa, but pa is NOT a per-file candidate:
+        # its uses are downstream, so a per-file gate must not flag it.
         "using+public",
         "open import P using (pa) public",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("pa"), check=_exact("pa")),
+        Expect(is_open=True, has_using=True, provides_exact=_exact("pa")),
     ),
     # ---- WILDCARD: no `using` → set read from show_module_contents ----
     _form(
@@ -156,6 +158,9 @@ FORMS: list[Form] = [
         ),
     ),
     _form(
+        # Wildcard for PROVISION (brings all of P, pb renamed), yet the rename
+        # destination pbAlt is an individually-prunable entry (delete just the
+        # `pb to pbAlt` pair) — so it IS a check-name even with no using clause.
         "renaming (no using → wildcard)",
         "open import P renaming (pb to pbAlt)",
         "P",
@@ -164,6 +169,7 @@ FORMS: list[Form] = [
             has_using=False,
             provides_has=_exact("pa", "pbAlt"),
             provides_lacks=_exact("pb"),
+            check=_exact("pbAlt"),
         ),
     ),
     _form(
@@ -264,12 +270,15 @@ def test_provided_set(form: Form) -> None:
 
 @pytest.mark.parametrize("form", FORMS, ids=lambda f: f.label)
 def test_check_names_contribution(form: Form) -> None:
-    """open_check_names yields the using / renaming names each form makes prunable."""
+    """open_check_names yields EXACTLY the names each single-open form makes prunable.
+
+    Exact equality (not ``<=``) pins down both directions: every using-entry and
+    rename-destination of a candidate open is flagged, and nothing else is — a
+    bare wildcard, a `public` re-export, and a qualified-only `import` all
+    contribute the empty set.
+    """
     names = open_check_names(find_opens(form.source))
-    assert form.expect.check <= names
-    # a form with no `using` clause contributes no prunable check-names
-    if not form.expect.has_using:
-        assert names == set()
+    assert names == set(form.expect.check)
 
 
 # ---- P1: FN-complete check-name extraction across ALL opens (the audit fix) ----
@@ -295,16 +304,35 @@ def test_p1_local_using_open_is_flaggable() -> None:
     assert "loc" in open_check_names(find_opens(source))
 
 
-def test_renaming_without_using_is_wildcard_not_enumerated() -> None:
-    """`renaming` without `using` is a wildcard — its rename dest is NOT a check-name.
+def test_renaming_without_using_dest_is_prunable() -> None:
+    """`renaming` without `using` is a wildcard, yet its rename dest IS prunable.
 
-    The old gate treated `renaming` as enumerable, an FN hole (it brings ALL of
-    the module). Here the rename destination must not be reported as an
-    individually-prunable using-entry.
+    The open is a wildcard for PROVISION (no `using` clause → it brings ALL of
+    the module), so `has_using` is False — but the rename destination `b` is an
+    explicit, individually-removable entry (delete just the `a to b` pair), so it
+    must be a check-name. Treating `renaming`-without-`using` as having no
+    prunable entry was an FN (`++ₗ-assoc` is removed by exactly this deletion).
     """
     opens = find_opens("module Fixture where\nopen import M renaming (a to b)\n")
     assert opens[0].has_using is False
+    assert open_check_names(opens) == {"b"}
+
+
+def test_public_reexport_excluded_from_check_names() -> None:
+    """A `using`/`renaming` name on a `public` re-export is NOT a per-file candidate.
+
+    Removing a name from a `public` block changes the file's exported surface,
+    which can break a downstream consumer the per-file gate cannot see — so such
+    names must never be flagged. They still appear in `provided_set` (a public
+    open DOES supply them) — only the candidate set excludes them.
+    """
+    opens = find_opens(
+        "module Fixture where\nopen import P using (pa) renaming (pb to pbAlt) public\n"
+    )
+    assert opens[0].has_public is True
     assert open_check_names(opens) == set()
+    # but it still provides the names (for OTHER opens' redundancy decisions)
+    assert {"pa", "pbAlt"} <= (provided_set(opens[0], RECORDED_SMC) or set())
 
 
 # ---- the unified redundancy rule ----

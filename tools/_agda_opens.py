@@ -29,9 +29,14 @@ Grounding (Agda ``src/full/Agda/Syntax/Parser/Parser.y``):
   stripped scan for the ``open``/``import`` keyword tokens finds them all,
   regardless of nesting position.
 
-The unqualified-name set an open injects is :func:`provided_set`; the names a
-file makes prunable (the gate's candidates) is :func:`open_check_names` — both
-derived uniformly from every open, which is what makes the gate FN-complete.
+The unqualified-name set an open *injects* is :func:`provided_set` (text for a
+``using`` open, else its ``show_module_contents``).  The names a file makes
+*prunable* — the gate's candidates — is :func:`open_check_names`: every
+``using`` entry AND every ``renaming`` destination of a non-``public`` open.  A
+rename destination is prunable even with no ``using`` clause (delete just the
+``a to b`` pair), so "wildcard for provision" and "has a prunable entry" are
+independent.  Both are derived uniformly from every open, which is what makes
+the gate FN-complete.
 """
 
 from __future__ import annotations
@@ -48,6 +53,14 @@ if TYPE_CHECKING:
 type Name = str
 # A (source, destination) renaming pair from a ``renaming (src to dst)`` clause.
 type Rename = tuple[Name, Name]
+# A half-open [start, end) char-offset span (0-based) of one open's directive.
+type CharRange = tuple[int, int]
+# A dotted Agda module path or alias — the key of a scope query — e.g.
+# "Data.List.Properties", or an ``open module N = …`` alias "N".
+type ModulePath = str
+# A module's full export names (one ``Cmd_show_module_contents`` result): the
+# wildcard provided-set the redundancy check reads, keyed by module path.
+type ModuleContents = Mapping[ModulePath, list[Name]]
 
 # Directive-modifier keywords (the ``ImportDirective1`` alternatives that are not
 # ``public``).  Only ``using`` restricts; the scan matches them as whole tokens.
@@ -152,15 +165,21 @@ class OpenInfo(NamedTuple):
     (``is_open`` False).  ``has_using`` decides text-vs-scope enumeration:
     with a ``using`` clause the injected set is read from ``using_names`` plus
     the ``renaming`` destinations; otherwise it is the opened module's contents.
+    ``has_public`` flags a ``public`` re-export (the names it introduces are
+    used downstream, so a per-file gate must not treat them as prunable).
+    ``span`` is the directive's [start, end) char offset in the source — used to
+    tell an import-clause token from a body reference.
     """
 
     module: Name  # the QId after the keyword (for a scope query)
     is_open: bool  # injects unqualified names?
     is_import: bool  # has the ``import`` keyword (qualified module binding)?
     has_using: bool  # carries a ``using`` clause (→ enumerable from text)?
+    has_public: bool  # carries a ``public`` clause (re-export → not prunable)?
     using_names: list[Name]  # ``using (...)`` entries (may include "module X")
     hiding_names: list[Name]  # ``hiding (...)`` entries
     renaming: list[Rename]  # ``renaming (src to dst)`` pairs
+    span: CharRange  # [start, end) char offset of this directive in the source
 
 
 def _strip_module_prefix(name: Name) -> Name:
@@ -179,32 +198,41 @@ def find_opens(text: str) -> list[OpenInfo]:
     """
     code = strip_noncode(text)
     lines = code.splitlines(keepends=True)
-    offsets: list[int] = []
-    acc = 0
+    offsets = [0]
     for line in lines:
-        offsets.append(acc)
-        acc += len(line)
-    offsets.append(acc)
-
-    def line_index(pos: int) -> int:
-        for idx in range(len(offsets) - 1):
-            if offsets[idx] <= pos < offsets[idx + 1]:
-                return idx
-        return len(lines) - 1
-
-    results: list[OpenInfo] = []
-    for keyword_match in re.finditer(r"\b(open\s+import|open|import)\b", code):
-        kw = re.sub(r"\s+", " ", keyword_match.group(1))
-        is_open = kw.startswith("open")
-        is_import = "import" in kw
-        li = line_index(keyword_match.start())
-        directive = _gather_directive(lines, offsets, li, keyword_match.end())
-        results.append(_classify(directive, is_open=is_open, is_import=is_import))
-    return results
+        offsets.append(offsets[-1] + len(line))
+    return [
+        _open_at(lines, offsets, m) for m in re.finditer(r"\b(open\s+import|open|import)\b", code)
+    ]
 
 
-def _gather_directive(lines: list[str], offsets: list[int], li: int, start: int) -> str:
-    """Collect a directive: rest of its line plus indented continuation lines."""
+def _line_index(offsets: list[int], pos: int) -> int:
+    """Return the index of the line containing char offset ``pos``."""
+    for idx in range(len(offsets) - 1):
+        if offsets[idx] <= pos < offsets[idx + 1]:
+            return idx
+    return len(offsets) - 2  # last line
+
+
+def _open_at(lines: list[str], offsets: list[int], keyword_match: re.Match[str]) -> OpenInfo:
+    """Build the OpenInfo for one matched ``open``/``import`` keyword token."""
+    kw = re.sub(r"\s+", " ", keyword_match.group(1))
+    li = _line_index(offsets, keyword_match.start())
+    directive, end_line = _gather_directive(lines, offsets, li, keyword_match.end())
+    return _classify(
+        directive,
+        span=(keyword_match.start(), offsets[end_line]),
+        is_open=kw.startswith("open"),
+        is_import="import" in kw,
+    )
+
+
+def _gather_directive(lines: list[str], offsets: list[int], li: int, start: int) -> tuple[str, int]:
+    """Collect a directive: rest of its line plus indented continuation lines.
+
+    Returns the directive text and the line index just past it, so the caller
+    can read the directive's end char offset (``offsets[end_line]``).
+    """
     chunks = [lines[li][start - offsets[li] :] if start - offsets[li] < len(lines[li]) else ""]
     base_indent = len(lines[li]) - len(lines[li].lstrip())
     j = li + 1
@@ -220,10 +248,10 @@ def _gather_directive(lines: list[str], offsets: list[int], li: int, start: int)
             j += 1
         else:
             break
-    return "".join(chunks)
+    return "".join(chunks), j
 
 
-def _classify(directive: str, *, is_open: bool, is_import: bool) -> OpenInfo:
+def _classify(directive: str, *, span: CharRange, is_open: bool, is_import: bool) -> OpenInfo:
     """Parse a directive's module name and modifiers into an OpenInfo."""
     dstrip = directive.lstrip()
     modifiers = directive
@@ -245,15 +273,15 @@ def _classify(directive: str, *, is_open: bool, is_import: bool) -> OpenInfo:
         is_open=is_open,
         is_import=is_import,
         has_using=has_using,
+        has_public=re.search(r"\bpublic\b", modifiers) is not None,
         using_names=_clause_names(modifiers, _RESTRICTING_KW) if has_using else [],
         hiding_names=_clause_names(modifiers, "hiding"),
         renaming=_renaming_pairs(modifiers),
+        span=span,
     )
 
 
-def provided_set(
-    open_info: OpenInfo, module_contents: Mapping[str, list[Name]]
-) -> set[Name] | None:
+def provided_set(open_info: OpenInfo, module_contents: ModuleContents) -> set[Name] | None:
     """Return the unqualified names ``open_info`` injects, or None if unresolvable.
 
     The unified rule, by case on the directive (grammar-grounded):
@@ -286,52 +314,105 @@ def provided_set(
 
 
 def _using_names(open_info: OpenInfo) -> set[Name]:
-    """Return the names a ``using``-carrying open introduces (read from text)."""
+    """Return the names ``open_info`` introduces by an *explicit* source entry.
+
+    These are the individually-prunable names: the ``using (...)`` entries (with
+    any ``module `` prefix stripped) plus every ``renaming`` destination.  A
+    rename destination is prunable even with no ``using`` clause — deleting just
+    the ``a to b`` pair leaves the rest of the (wildcard) open intact — so this
+    is well-defined for a renaming-only open too.
+    """
     names = {_strip_module_prefix(n) for n in open_info.using_names}
     names |= {dst for _src, dst in open_info.renaming}
     return names
 
 
-def redundant_names(opens: list[OpenInfo], module_contents: Mapping[str, list[Name]]) -> set[Name]:
-    """Return ``using``-introduced names that ANOTHER open also provides.
+def _has_explicit_entries(open_info: OpenInfo) -> bool:
+    """Return True iff ``open_info`` injects names via an explicit source entry.
 
-    The redundancy half of the gate's candidate generation: a name brought in by
-    ``using`` is removable if some *other* open in scope supplies it too.  This
-    is decided by set membership against each other open's :func:`provided_set`
-    — a scope question, no recompile — so its cost is independent of proof size
-    (fast for any tree).  Membership is a *candidate* signal, not a verdict: a
-    local ``where``/``let`` open supplies a name only locally, so the gate's
-    confirm step (remove-and-recompile) still arbitrates every name returned.
-
-    An *unresolvable* other open (a wildcard whose module a top-level scope query
-    cannot enumerate — ``provided_set`` is None) is treated as possibly
-    supplying any name, so its presence makes every using-name a candidate: the
-    sound, no-false-negative fallback (confirm then decides).
+    That is: it is an ``open`` carrying a ``using`` clause or a ``renaming``
+    destination — the per-name removable units.  A bare wildcard ``open import
+    M`` has no such entry (its only removable unit is the whole import).
     """
-    provided = [provided_set(o, module_contents) for o in opens]
-    out: set[Name] = set()
-    for i, open_info in enumerate(opens):
-        if not open_info.is_open or not open_info.has_using:
-            continue
-        for name in _using_names(open_info):
-            for j, other_provided in enumerate(provided):
-                if j != i and (other_provided is None or name in other_provided):
-                    out.add(name)
-                    break
-    return out
+    return open_info.is_open and (open_info.has_using or bool(open_info.renaming))
+
+
+def _is_candidate_open(open_info: OpenInfo) -> bool:
+    """Return True iff ``open_info``'s explicit entries are per-file prunable.
+
+    A candidate open has explicit entries and is not a ``public`` re-export
+    (those names are used downstream — a per-file gate must not flag them).
+    """
+    return _has_explicit_entries(open_info) and not open_info.has_public
+
+
+def redundant_names(opens: list[OpenInfo], module_contents: ModuleContents) -> set[Name]:
+    """Return prunable names a *wildcard* open also supplies (wildcard-redundancy).
+
+    A name brought in by an explicit ``using``/``renaming`` entry is removable
+    if a wildcard open in scope already supplies it.  "Wildcard" = an ``open``
+    with no ``using`` clause (bare / ``hiding`` / renaming-only / ``open M`` /
+    ``open R r`` / ``open module N = …``): its provided set is the opened
+    module's contents (:func:`provided_set` via ``show_module_contents``).
+    Membership against those smc sets is a scope question (no recompile), so the
+    cost is bounded by the number of wildcard opens — ≈0 in a narrowed tree —
+    not by proof size, keeping the gate fast for any tree.
+
+    Two opens that both *list* the same name via ``using`` are deliberately NOT
+    reported here: those are usually different overloaded entities (e.g. ``[]``
+    from ``Data.List`` and from ``…All``), and a genuinely-dead one is already
+    caught by the def-id unused-sieve — name-based using-vs-using matching would
+    add only false positives (and a recompile each).  Membership is a *candidate*
+    signal, not a verdict: a local ``where``/``let`` wildcard supplies a name
+    only locally, so the gate's confirm step still arbitrates every name.
+
+    An *unresolvable* wildcard (its module is absent from ``module_contents`` —
+    only one defined in a local scope a top-level query cannot reach) is treated
+    as possibly supplying any name, so its presence makes every candidate name a
+    candidate: the sound, no-false-negative fallback (confirm then decides).
+    """
+    wildcard_provided: set[Name] = set()
+    has_unresolvable_wildcard = False
+    for open_info in opens:
+        if not open_info.is_open or open_info.has_using:
+            continue  # only a non-``using`` open is a wildcard provider
+        provided = provided_set(open_info, module_contents)
+        if provided is None:
+            has_unresolvable_wildcard = True
+        else:
+            wildcard_provided |= provided
+    candidates = open_check_names(opens)
+    return set(candidates) if has_unresolvable_wildcard else candidates & wildcard_provided
 
 
 def open_check_names(opens: list[OpenInfo]) -> set[Name]:
-    """Return every prunable unqualified name introduced by a ``using`` clause.
+    """Return every prunable unqualified name across all opens (the gate's set).
 
-    These are the gate's candidates — the names that, if unused or redundant,
-    can be dropped.  Derived from *all* opens (not just top-level
-    ``open import``), so an unused name in ``open Syntax using (LTL; decodeStart)``
-    or a local ``where open import M using (foo)`` is flaggable.  ``renaming``
-    destinations are included (the new name is what is in scope and prunable).
+    The names that, if unused or redundant, can be dropped: the ``using (...)``
+    entries and ``renaming`` destinations of every candidate open
+    (:func:`_is_candidate_open`).  Derived from *all* opens — not just top-level
+    ``open import`` — so an unused name in ``open Syntax using (decodeStart)`` or
+    a local ``where open import M using (foo)`` is flaggable, and a renaming-only
+    ``open import M renaming (a to b)`` contributes its destination ``b``.
+    ``public`` re-exports are excluded (their names are used downstream).
     """
     names: set[Name] = set()
     for open_info in opens:
-        if open_info.is_open and open_info.has_using:
+        if _is_candidate_open(open_info):
+            names |= _using_names(open_info)
+    return names
+
+
+def public_open_names(opens: list[OpenInfo]) -> set[Name]:
+    """Return the prunable-shaped names introduced by a ``public`` re-export.
+
+    These are the ``using``/``renaming`` names of ``public`` opens — reported
+    (and counted as providers for duplicate detection) but never flagged as
+    candidates, since removing one changes the file's exported surface and could
+    break a downstream consumer the per-file gate cannot see.
+    """
+    names: set[Name] = set()
+    for open_info in opens:
+        if _has_explicit_entries(open_info) and open_info.has_public:
             names |= _using_names(open_info)
     return names

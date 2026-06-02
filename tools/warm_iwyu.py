@@ -39,11 +39,10 @@ using-lists (conservative — both `did you mean` candidates are added).
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple
 
 from tools._agda_imports import parse_imports, replace_block_in_lines
 from tools._common import (
@@ -72,9 +71,6 @@ type UsingByModule = dict[ModulePath, list[Name]]
 # or a bracket/semicolon (Agda names may contain `_`, operators, sub/superscripts).
 _NAME_RE = re.compile(r"[^\s(){};]+")
 
-# Safety cap on lines read while awaiting a query's DisplayInfo terminal.
-_MAX_RESPONSE_LINES = 200
-
 # Agda's NotInScope error quotes the qualified form of each dropped-but-needed
 # name, e.g. "(did you mean 'Aletheia.Prelude.ℕ'?)" — the completion signal.
 _SUGGESTION_RE = re.compile(r"'([^']+)'")
@@ -97,62 +93,6 @@ class Narrowing(NamedTuple):
     used: UsingByModule
     verified: bool
     rounds: int
-
-
-class _ModuleEntry(TypedDict, total=False):
-    """One entry in a ModuleContents listing."""
-
-    name: str
-    term: str
-
-
-class _ModuleContentsInfo(TypedDict, total=False):
-    """The `info` field of a ModuleContents DisplayInfo response."""
-
-    kind: str
-    contents: list[_ModuleEntry]
-
-
-class _ModuleContentsResponse(TypedDict, total=False):
-    """One `agda --interaction-json` response carrying module contents."""
-
-    kind: str
-    info: _ModuleContentsInfo
-
-
-def show_module_contents(agda: WarmAgda, abspath: str, module: ModulePath) -> list[Name]:
-    """Return the full export names of `module` via Cmd_show_module_contents.
-
-    `module` must be in scope (imported) in the loaded `abspath`.  Reads to the
-    `DisplayInfo` terminal; a non-ModuleContents display (e.g. an error) yields
-    an empty list rather than hanging.
-    """
-    proc = agda.proc
-    if proc.stdin is None or proc.stdout is None:
-        msg = "agda --interaction-json process has no stdin/stdout pipe"
-        raise RuntimeError(msg)
-    query = f'IOTCM "{abspath}" None Direct (Cmd_show_module_contents_toplevel AsIs "{module}")\n'
-    _ = proc.stdin.write(query)
-    proc.stdin.flush()
-    for _attempt in range(_MAX_RESPONSE_LINES):
-        line = proc.stdout.readline()
-        if not line:
-            msg = "agda --interaction-json exited during show_module_contents"
-            raise RuntimeError(msg)
-        stripped = line.strip()
-        if not stripped.startswith("{"):
-            continue
-        try:
-            resp = cast("_ModuleContentsResponse", json.loads(stripped))
-        except json.JSONDecodeError:
-            continue
-        if resp.get("kind") != "DisplayInfo":
-            continue
-        info = resp.get("info")
-        if info is None or info.get("kind") != "ModuleContents":
-            return []
-        return [name for entry in info.get("contents", []) if (name := entry.get("name"))]
-    return []
 
 
 def _read_text(filepath: str) -> str:
@@ -234,7 +174,7 @@ def attribute_wildcards(
     ranges = _import_char_ranges(text)
     used = used_full_names(tokens, ranges)
     return {
-        module: sorted(set(show_module_contents(agda, abspath, module)) & used)
+        module: sorted(set(agda.show_module_contents(abspath, module) or []) & used)
         for module in sorted(wildcards)
     }
 

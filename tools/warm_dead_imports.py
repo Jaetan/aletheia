@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""PROTOTYPE (ci-speed branch): warm-process dead-import detection via `agda --interaction-json`.
+"""Warm-process dead-import detection via `agda --interaction-json` (ci-speed).
 
 Supersedes a per-file `agda --html` pass:
   * ONE warm agda process loads many files (`Cmd_load` each) -> per-file agda
     startup + stdlib/interface reload is amortized across the whole batch.
   * structured JSON: every token carries `definitionSite = {filepath, position}`
     (the exact def identity) -> no HTML parse, no closure written to disk.
-  * reuses tools.prune_unused_imports.parse_imports (multi-line/public/renaming)
-    and its portable repo-root / agda-binary discovery.
 
-DEAD = a checked import name whose DEFINITION never reappears among the file's
-BODY tokens.  This is a fast CANDIDATE generator, NOT a standalone pruner: a type
-used only in INFERRED positions (e.g. `BitVec` in `Maybe (BitVec _)`) references
-no body token, so it is over-flagged.  `confirm_candidates` (remove-one +
-recompile) filters those against agda ground truth.
+The prunable names come from `tools._agda_opens` (grammar-complete: every
+`open` in every position — top-level, `where`/`let`, non-`import` `open M`,
+open-module-macro — and every directive form), so the candidate set is
+FN-complete by construction.  A candidate is generated three ways:
+  * UNUSED — its definition never reappears among the file's BODY tokens.  A
+    type used only in an INFERRED position (e.g. `BitVec` in `Maybe (BitVec _)`)
+    references no body token, so this over-flags; `confirm_candidates` filters it.
+  * DUPLICATE — its def-id is imported >=2 times (one copy is redundant).
+  * WILDCARD-REDUNDANT — a wildcard open (`open M` / `open import M` with no
+    `using`) already supplies it (`show_module_contents` membership).
+
+`confirm_candidates` (remove-one + recompile against agda ground truth) is the
+verdict; the sieve only narrows what is confirmed, so confirm cost is
+proportional to actual deadness, not file size.
 
 Invoke as `python -m tools.warm_dead_imports [--confirm] <relpath.agda> ...`.
 """
@@ -22,12 +29,22 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
+from tools._agda_opens import (
+    ModuleContents,
+    ModulePath,
+    OpenInfo,
+    find_opens,
+    open_check_names,
+    public_open_names,
+    redundant_names,
+)
 from tools._common import (
     agda_tree_lock,
     emit,
@@ -38,14 +55,12 @@ from tools._common import (
 from tools.prune_unused_imports import (
     AGDA_BIN,
     SRC_DIR,
-    parse_imports,
     remove_name_from_raw,
     remove_rename_from_raw,
-    replace_block_in_lines,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 AGDA = str(AGDA_BIN)
 SRC = SRC_DIR
@@ -65,6 +80,10 @@ DefId = tuple[str, int]
 # A def-id imported this many times (or more) is a redundant duplicate: removing
 # one copy leaves the others in scope, so the extra import is dead.
 _MIN_DUP_OCCURRENCES = 2
+
+# Safety cap on lines read awaiting a `Cmd_show_module_contents` DisplayInfo
+# terminal, so an unexpected response stream can never hang the query.
+_MAX_SMC_LINES = 200
 
 
 class ConfirmResult(NamedTuple):
@@ -141,6 +160,27 @@ class _Response(TypedDict, total=False):
     status: _StatusInfo
 
 
+class _ModuleEntry(TypedDict, total=False):
+    """One entry in a `Cmd_show_module_contents` ModuleContents listing."""
+
+    name: str
+    term: str
+
+
+class _ModuleContentsInfo(TypedDict, total=False):
+    """The `info` field of a ModuleContents DisplayInfo response."""
+
+    kind: str
+    contents: list[_ModuleEntry]
+
+
+class _ModuleContentsResponse(TypedDict, total=False):
+    """One `agda --interaction-json` response carrying module contents."""
+
+    kind: str
+    info: _ModuleContentsInfo
+
+
 class LoadResult(NamedTuple):
     """The outcome of one warm `Cmd_load`.
 
@@ -163,8 +203,8 @@ class DetectResult(TypedDict):
     dead: list[Name]
     dead_defid_only: list[Name]
     duplicates: list[Name]
+    wildcard_redundant: list[Name]  # a wildcard open in scope also supplies these
     candidates: list[Name]  # the authoritative set to confirm (FN-complete)
-    disqualified: bool  # file has an unmodeled-scope open -> all in-body confirmed
     public_skipped: list[Name]
     unresolved: list[Name]
 
@@ -367,6 +407,45 @@ class WarmAgda:
                 by_range[key] = tok
         return LoadResult(list(by_range.values()), state.ok, state.error, state.warnings)
 
+    def show_module_contents(self, abspath: str, module: str) -> list[Name] | None:
+        """Return `module`'s full export names, or None if it cannot be enumerated.
+
+        Sends `Cmd_show_module_contents_toplevel`; `module` must be in scope in
+        the loaded `abspath`.  The result's full mixfix names (`_⊕_`, including
+        re-exports) are the wildcard provided-set the redundancy check needs.
+
+        Distinguishes UNRESOLVABLE (returns None — an Error display, or a
+        `JumpToError`/`InteractionPoints` terminal seen instead of the
+        ModuleContents `DisplayInfo`) from a genuinely EMPTY module (returns []),
+        so the caller maps None to the conservative confirm-all fallback rather
+        than to "supplies nothing".  A line cap guards against a stream that
+        never reaches a terminal, so the query can never hang.
+        """
+        if self.proc.stdin is None or self.proc.stdout is None:
+            message = "agda --interaction-json process has no stdin/stdout pipe"
+            raise RuntimeError(message)
+        cmd = f'IOTCM "{abspath}" None Direct (Cmd_show_module_contents_toplevel AsIs "{module}")\n'
+        _ = self.proc.stdin.write(cmd)
+        self.proc.stdin.flush()
+        for _attempt in range(_MAX_SMC_LINES):
+            line = self.proc.stdout.readline()
+            if not line:
+                message = "agda --interaction-json exited during show_module_contents"
+                raise RuntimeError(message)
+            payload = _parse_response(line)
+            if payload is None:
+                continue
+            kind = payload.get("kind")
+            if kind in ("JumpToError", "InteractionPoints"):
+                return None  # errored / wrong terminal — module not enumerable
+            if kind != "DisplayInfo":
+                continue
+            info = cast("_ModuleContentsResponse", payload).get("info")
+            if info is None or info.get("kind") != "ModuleContents":
+                return None
+            return [name for entry in info.get("contents", []) if (name := entry.get("name"))]
+        return None
+
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
         if self.proc.stdin is None:
@@ -398,61 +477,29 @@ class _BodyIndex(NamedTuple):
     qualified_use_files: dict[Name, set[str]]  # qualifier → files of its `q.field` uses
 
 
-def _import_structure(text: str) -> _ImportStructure:
-    """Parse import blocks into the clause ranges, names-to-check, and public skips.
+def _import_structure(opens: list[OpenInfo]) -> _ImportStructure:
+    """Derive the clause ranges, prunable names, and public skips from the opens.
 
-    `using (module X)` contributes `X` (used qualified); renaming dests are
-    in-scope; `public` re-export blocks are skipped (their only uses are
-    downstream — flagging them would let a prune break the consumer's build).
+    Built from the grammar-complete open list (`tools._agda_opens.find_opens`),
+    NOT just top-level `open import` blocks:
+      * `import_ranges` is every directive's char span, so a token inside ANY
+        open (incl. non-`import` `open M`, an open-module-macro, a local
+        `where`/`let` open) is classified as an import-clause token, not a body
+        use — closing the body-exclusion FN those forms had.
+      * `check_names` is the prunable set (`open_check_names`): every `using`
+        entry and `renaming` destination of a non-`public` open (P1-complete).
+      * a `public` re-export's names are recorded as PROVIDERS (in `all_names`,
+        for duplicate counting) and as `public_skipped`, but never as candidates
+        — removing one changes the file's exported surface.
     """
-    blocks = parse_imports(text)
-    offs = line_offsets(text)
-    import_ranges: list[CharRange] = []
-    check_names: set[Name] = set()
-    all_names: set[Name] = set()
-    public_skipped: list[Name] = []
-    for blk in blocks:
-        start = offs[blk.line_start]
-        end = offs[blk.line_end + 1] if blk.line_end + 1 < len(offs) else offs[-1]
-        import_ranges.append((start, end))
-        names = [n[7:].strip() if n.startswith("module ") else n for n in blk.using_names]
-        names += [dst for _src, dst in blk.renaming_pairs]
-        all_names.update(names)  # both kinds — a public re-export still PROVIDES a name
-        if blk.has_public:
-            public_skipped += names
-        else:
-            check_names.update(names)
-    return _ImportStructure(import_ranges, check_names, all_names, public_skipped)
-
-
-def _has_unmodeled_scope(text: str) -> bool:
-    """Report whether the file has any `open` the sieve does not fully model.
-
-    `open` is Agda's single gateway for bringing an unqualified name from another
-    scope into the body: `open import M using/renaming (...)` is fully enumerated
-    (MODELED — its names are listed, so uniqueness is decidable), whereas a bare
-    `open M` / record or module open / `let open`, or a wildcard `open import M`
-    with no name list (`hiding` likewise), is an UNMODELED provider whose names
-    the sieve cannot enumerate.  When any such construct is present the
-    "alive iff def-id in body" shortcut is unsound (a seemingly-used import may be
-    redundantly supplied by the unmodeled open), so the caller must confirm EVERY
-    in-body import rather than skip.
-
-    Whitelisting the one modeled form (and disqualifying every other `open`,
-    including forms not yet imagined) keeps the gate correct BY CONSTRUCTION: an
-    unrecognised `open` defaults to confirm, never to a silent skip.
-    """
-    modeled_lines: set[int] = set()
-    for blk in parse_imports(text):
-        raw = blk.raw
-        if raw.lstrip().startswith("open import") and ("using" in raw or "renaming" in raw):
-            modeled_lines.update(range(blk.line_start, blk.line_end + 1))
-    for i, line in enumerate(text.splitlines()):
-        stripped = line.lstrip()
-        is_open = stripped == "open" or stripped[:5] in ("open ", "open\t")
-        if is_open and i not in modeled_lines:
-            return True
-    return False
+    check_names = open_check_names(opens)
+    public = public_open_names(opens)
+    return _ImportStructure(
+        import_ranges=[o.span for o in opens],
+        check_names=check_names,
+        all_names=check_names | public,
+        public_skipped=sorted(public),
+    )
 
 
 def _body_index(
@@ -512,12 +559,24 @@ def _duplicate_names(occurrences: list[tuple[Name, DefId]], check_names: set[Nam
     )
 
 
-def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
-    """Return one file's dead / duplicate / candidate analysis.
+def detect_dead(
+    text: str,
+    tokens: list[Token],
+    abspath: str,
+    module_contents: ModuleContents,
+) -> DetectResult:
+    """Return one file's dead / duplicate / wildcard-redundant / candidate analysis.
 
-    `candidates` is the authoritative set to confirm; it is FN-complete by
-    construction (see `_has_unmodeled_scope`).  `dead` / `duplicates` are its
-    components, reported for insight.
+    `candidates` is the authoritative set to confirm.  It is FN-complete by
+    construction: a dead import is removable iff its name is either UNUSED, a
+    same-entity DUPLICATE, or already supplied by a WILDCARD open — the three
+    components, each reported for insight:
+      * `dead` — the unused-sieve (def-id never reappears in the body).
+      * `duplicates` — a def-id imported >=2 times (`_duplicate_names`).
+      * `wildcard_redundant` — supplied by a non-`using` open's
+        `show_module_contents` (`tools._agda_opens.redundant_names`, fed
+        `module_contents`); an unresolvable wildcard makes every check-name a
+        candidate (the sound confirm-all fallback that replaced disqualification).
 
     Identity model (from Agda's highlighting): a body reference's def-id is
     `(definitionSite.filepath, position)`; an imported name is ALIVE when its
@@ -534,7 +593,8 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
     No-FP bias: dead only if NONE of these say alive.  `dead_defid_only` drops
     the name/prefix fallbacks (reported, to show what they catch).
     """
-    structure = _import_structure(text)
+    opens = find_opens(text)
+    structure = _import_structure(opens)
     index = _body_index(text, tokens, abspath, structure)
     import_defid = index.import_defid
 
@@ -549,21 +609,15 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
     dead = sorted(n for n, d in import_defid.items() if not alive(n, d))
     dead_defid_only = sorted(n for n, d in import_defid.items() if d not in index.body_defids)
     duplicates = _duplicate_names(index.import_occurrences, structure.check_names)
+    wildcard_redundant = sorted(redundant_names(opens, module_contents))
     unresolved = sorted(structure.check_names - set(import_defid))
-    # Correct BY CONSTRUCTION: the "alive iff def-id in body" skip is sound only
-    # when the file's every `open` is a fully-enumerated import (unique provider
-    # decidable).  With any unmodeled-scope open, we cannot prove ANY in-body
-    # import alive -> confirm them all (this file pays oracle cost, but no FN).
-    disqualified = _has_unmodeled_scope(text)
-    candidates = (
-        sorted(structure.check_names) if disqualified else sorted(set(dead) | set(duplicates))
-    )
+    candidates = sorted(set(dead) | set(duplicates) | set(wildcard_redundant))
     return {
         "dead": dead,
         "dead_defid_only": dead_defid_only,
         "duplicates": duplicates,
+        "wildcard_redundant": wildcard_redundant,
         "candidates": candidates,
-        "disqualified": disqualified,
         "public_skipped": structure.public_skipped,
         "unresolved": unresolved,
     }
@@ -573,27 +627,58 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
 
-def _texts_without_name(original: str, name: Name) -> list[str]:
-    """Each variant of `original` with `name` dropped from ONE import block.
+def _edit_clause(raw: str, keyword: str, edit: Callable[[str], str | None]) -> str | None:
+    """Apply `edit` to `raw` from the `keyword` clause onward, keeping the prefix.
 
-    A name imported in several blocks (a duplicate) yields one variant per
-    block, so the confirm can test EVERY occurrence — the redundant copy need
-    not be the first (e.g. a where-local re-import shadowed by a top-level one).
-    Each block's entry may be a plain name, a `module X`, or a renaming dest;
-    blocks that yield no change are skipped.
+    Slicing from the `using`/`renaming` keyword confines the removal to that
+    clause, so a name equal to the opened module's last path component is never
+    matched in the module path.  Returns None if the keyword is absent or `edit`
+    finds nothing to remove.
+    """
+    match = re.search(rf"\b{keyword}\b", raw)
+    if match is None:
+        return None
+    edited = edit(raw[match.start() :])
+    return raw[: match.start()] + edited if edited is not None else None
+
+
+def _open_raw_without_name(raw: str, open_info: OpenInfo, name: Name) -> str | None:
+    """Return `raw` (one open's directive) with `name` dropped, or None if absent.
+
+    Handles the three entry shapes: a plain `using` name, a `using (module X)`
+    entry, and a `renaming` destination — each edited within its own clause.
+    """
+    if name in open_info.using_names:
+        return _edit_clause(raw, "using", lambda c: remove_name_from_raw(c, name))
+    if "module " + name in open_info.using_names:
+        return _edit_clause(raw, "using", lambda c: remove_name_from_raw(c, "module " + name))
+    pair = next(((s, d) for s, d in open_info.renaming if d == name), None)
+    if pair is not None:
+        return _edit_clause(raw, "renaming", lambda c: remove_rename_from_raw(c, pair[0], pair[1]))
+    return None
+
+
+def _texts_without_name(original: str, name: Name) -> list[str]:
+    """Each variant of `original` with `name` dropped from ONE open's clause.
+
+    Iterates EVERY open (`find_opens`), not just top-level `open import` blocks,
+    so a P1 name — a `using` entry on a non-`import` `open M`, an
+    open-module-macro, or a local `where`/`let` open — is removable too.  A name
+    imported in several opens (a duplicate) yields one variant per open, so the
+    confirm tests EVERY occurrence (the redundant copy need not be the first).
+    `public` re-exports are skipped (removing one would change the exported
+    surface, which the per-file recompile cannot validate).  Opens that yield no
+    change are skipped.
     """
     variants: list[str] = []
-    lines = original.splitlines(keepends=True)
-    for blk in parse_imports(original):
-        if name in blk.using_names:
-            cand = remove_name_from_raw(blk.raw, name)
-        elif "module " + name in blk.using_names:
-            cand = remove_name_from_raw(blk.raw, "module " + name)
-        else:
-            pair = next(((s, d) for s, d in blk.renaming_pairs if d == name), None)
-            cand = remove_rename_from_raw(blk.raw, pair[0], pair[1]) if pair else None
-        if cand is not None and cand != blk.raw:
-            variants.append("".join(replace_block_in_lines(lines, blk, cand)))
+    for open_info in find_opens(original):
+        if not open_info.is_open or open_info.has_public:
+            continue
+        start, end = open_info.span
+        raw = original[start:end]
+        edited = _open_raw_without_name(raw, open_info, name)
+        if edited is not None and edited != raw:
+            variants.append(original[:start] + edited + original[end:])
     return variants
 
 
@@ -640,14 +725,65 @@ def confirm_candidates(agda: WarmAgda, rel: RelPath, names: list[Name]) -> Confi
     return ConfirmResult(truly_dead, false_positives)
 
 
+def _module_contents_for_file(
+    agda: WarmAgda,
+    abspath: str,
+    opens: list[OpenInfo],
+    import_cache: dict[ModulePath, list[Name]],
+) -> dict[ModulePath, list[Name]]:
+    """Query `show_module_contents` for each wildcard open's module.
+
+    A WILDCARD open (`is_open`, no `using`) needs its module's exports to decide
+    wildcard-redundancy.  A globally-pathed `open import M` is cached across
+    files (its exports are stable), but a non-`import` `open M` / `open R r` /
+    `open module N = …` resolves in the LOADED file's scope, so it is queried per
+    file and NEVER cached under its possibly-file-local name (caching it could
+    return another file's same-named module — an FN).  An unresolvable module is
+    omitted, so `redundant_names` takes its conservative confirm-all fallback.
+    """
+    contents: dict[ModulePath, list[Name]] = {}
+    for open_info in opens:
+        if not open_info.is_open or open_info.has_using or not open_info.module:
+            continue
+        module = open_info.module
+        if open_info.is_import:
+            if module not in import_cache:
+                resolved = agda.show_module_contents(abspath, module)
+                if resolved is not None:
+                    import_cache[module] = resolved
+            if module in import_cache:
+                contents[module] = import_cache[module]
+        else:
+            resolved = agda.show_module_contents(abspath, module)
+            if resolved is not None:
+                contents[module] = resolved
+    return contents
+
+
+def _result_extra(result: DetectResult) -> str:
+    """Build the per-file diagnostic suffix (duplicates / redundant / skipped)."""
+    parts: list[str] = []
+    if result["duplicates"]:
+        parts.append(f"duplicates={result['duplicates']}")
+    if result["wildcard_redundant"]:
+        parts.append(f"wildcard-redundant={result['wildcard_redundant']}")
+    if result["public_skipped"]:
+        parts.append(f"public-skipped={len(result['public_skipped'])}")
+    if result["unresolved"]:
+        parts.append(f"unresolved={result['unresolved']}")
+    return ("  " + "  ".join(parts)) if parts else ""
+
+
 def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
     """Warm-load each file, print its per-file result, return the SweepResult."""
     candidates: Candidates = {}
     times: list[float] = []
+    import_cache: dict[ModulePath, list[Name]] = {}  # globally-pathed exports, reused across files
     for i, rel in enumerate(files, 1):
+        abspath = str(SRC / rel)
         text = (SRC / rel).read_text(encoding="utf-8")
         start = time.time()
-        loaded = agda.load(str(SRC / rel))
+        loaded = agda.load(abspath)
         dt = time.time() - start
         times.append(dt)
         if not loaded.ok:
@@ -656,28 +792,14 @@ def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
                 + "(no Status checked:true — agda could not check it)"
             )
             continue
-        result = detect_dead(text, loaded.tokens, str(SRC / rel))
+        module_contents = _module_contents_for_file(agda, abspath, find_opens(text), import_cache)
+        result = detect_dead(text, loaded.tokens, abspath, module_contents)
         cands = result["candidates"]
         if cands:
             candidates[rel] = cands
-        extra = ""
-        if result["disqualified"]:
-            extra += "  [unmodeled-scope: confirming all in-body imports]"
-        elif result["duplicates"]:
-            extra += f"  duplicates={result['duplicates']}"
-        if result["public_skipped"]:
-            extra += f"  public-skipped={len(result['public_skipped'])}"
-        if result["unresolved"]:
-            extra += f"  unresolved={result['unresolved']}"
-        if not cands:
-            shown = "—"
-        elif result["disqualified"]:
-            shown = f"ALL {len(cands)}"
-        else:
-            shown = str(cands)
         emit(
-            f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  "
-            + f"tokens={len(loaded.tokens)} CANDIDATES={shown}{extra}"
+            f"[{i}/{len(files)}] {dt:5.1f}s  {rel}  tokens={len(loaded.tokens)} "
+            + f"CANDIDATES={cands if cands else '—'}{_result_extra(result)}"
         )
     return SweepResult(candidates, times)
 
