@@ -16,20 +16,26 @@ import argparse
 import sys
 import time
 from dataclasses import dataclass
-from typing import IO, TypedDict
+from typing import IO, TYPE_CHECKING, TypedDict
+
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from benchmarks._common import (
+    CAN20_SPEC,
+    CANFD_SPEC,
+    DEFAULT_CAN20_PROPERTIES,
+    DEFAULT_CANFD_PROPERTIES,
+    FrameSpec,
+    emit_json_report,
+    load_canfd_dbc,
+    load_dbc,
+)
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient
-from aletheia.protocols import DBCDefinition, LTLFormula
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from benchmarks._common import (
-    CAN20_SPEC, CANFD_SPEC,
-    DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,
-    FrameSpec,
-    emit_json_report, load_canfd_dbc, load_dbc,
-)
+if TYPE_CHECKING:
+    from aletheia.protocols import DBCDefinition, LTLFormula
 
 
 class _LatencyStats(TypedDict):
@@ -257,16 +263,28 @@ def main() -> int:
     print(f"Operations: {args.ops:,}", file=out)
     print(f"Warmup: {args.warmup:,}", file=out)
 
-    all_stats = run_latency_suite(LatencyContext(
-        label="CAN 2.0B", dbc=load_dbc(), spec=CAN20_SPEC,
-        properties=DEFAULT_CAN20_PROPERTIES,
-        num_ops=args.ops, warmup=args.warmup, file=out,
-    ))
-    all_stats += run_latency_suite(LatencyContext(
-        label="CAN-FD", dbc=load_canfd_dbc(), spec=CANFD_SPEC,
-        properties=DEFAULT_CANFD_PROPERTIES,
-        num_ops=args.ops, warmup=args.warmup, file=out,
-    ))
+    all_stats = run_latency_suite(
+        LatencyContext(
+            label="CAN 2.0B",
+            dbc=load_dbc(),
+            spec=CAN20_SPEC,
+            properties=DEFAULT_CAN20_PROPERTIES,
+            num_ops=args.ops,
+            warmup=args.warmup,
+            file=out,
+        )
+    )
+    all_stats += run_latency_suite(
+        LatencyContext(
+            label="CAN-FD",
+            dbc=load_canfd_dbc(),
+            spec=CANFD_SPEC,
+            properties=DEFAULT_CANFD_PROPERTIES,
+            num_ops=args.ops,
+            warmup=args.warmup,
+            file=out,
+        )
+    )
 
     _print_summary(all_stats, out)
 

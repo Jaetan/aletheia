@@ -17,15 +17,17 @@ import time
 from dataclasses import dataclass
 from multiprocessing import cpu_count
 
-# See ``throughput.py`` — benchmarks import the installed package to keep
-# the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient, Signal
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from benchmarks._common import (
     CAN20_SPEC,
     FrameSpec,
-    get_rss_mb, load_dbc,
+    get_rss_mb,
+    load_dbc,
 )
+
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
+from aletheia import AletheiaClient, Signal
 
 NUM_FRAMES = 2000
 WARMUP = 100
@@ -71,11 +73,19 @@ def _measure_streaming(client: AletheiaClient, spec: FrameSpec) -> float:
     for i in range(WARMUP):
         client.send_frame(timestamp=i, can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
     start = time.perf_counter()
+    # R0801 false positive: this per-frame send loop IS the throughput being
+    # measured; the only cross-benchmark difference is the timestamp expression.
+    # Extracting a shared helper would add a call per frame and skew the
+    # measurement, so the loop is kept inline in each benchmark.
+    # pylint: disable=duplicate-code
     for i in range(NUM_FRAMES):
         client.send_frame(
             timestamp=WARMUP + i,
-            can_id=spec.can_id, dlc=spec.dlc, data=spec.payload,
+            can_id=spec.can_id,
+            dlc=spec.dlc,
+            data=spec.payload,
         )
+    # pylint: enable=duplicate-code
     elapsed = time.perf_counter() - start
     client.end_stream()
     return NUM_FRAMES / elapsed
@@ -135,12 +145,18 @@ def _print_memory(mem: MemorySnapshot) -> None:
 def _print_throughput(tput: ThroughputSnapshot) -> None:
     """Print the throughput report block."""
     print(f"\n{'Throughput (2K frames, 1 run)':-<60}")
-    print(f"  Streaming LTL:    {tput.streaming_fps:8,.0f} fps  "
-          + f"({1e6 / tput.streaming_fps:6.0f} us/frame)")
-    print(f"  Signal Extraction:{tput.extraction_fps:8,.0f} fps  "
-          + f"({1e6 / tput.extraction_fps:6.0f} us/frame)")
-    print(f"  Frame Building:   {tput.building_fps:8,.0f} fps  "
-          + f"({1e6 / tput.building_fps:6.0f} us/frame)")
+    print(
+        f"  Streaming LTL:    {tput.streaming_fps:8,.0f} fps  "
+        + f"({1e6 / tput.streaming_fps:6.0f} us/frame)"
+    )
+    print(
+        f"  Signal Extraction:{tput.extraction_fps:8,.0f} fps  "
+        + f"({1e6 / tput.extraction_fps:6.0f} us/frame)"
+    )
+    print(
+        f"  Frame Building:   {tput.building_fps:8,.0f} fps  "
+        + f"({1e6 / tput.building_fps:6.0f} us/frame)"
+    )
 
 
 def _print_docker(mem: MemorySnapshot) -> None:

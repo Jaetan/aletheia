@@ -22,7 +22,7 @@ import platform
 import resource
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from aletheia import AletheiaClient, Signal
@@ -65,19 +65,19 @@ CAN20_SIGNALS: dict[str, float] = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
 # ============================================================================
 
 CANFD_FRAME: bytes = bytes(
-    [0x00, 0xE1, 0xF5, 0x05]    # GPSLatitude  (raw ~100000000 → 10.0 deg)
+    [0x00, 0xE1, 0xF5, 0x05]  # GPSLatitude  (raw ~100000000 → 10.0 deg)
     + [0x00, 0x6C, 0xDC, 0x02]  # GPSLongitude (raw ~48100000 → 4.81 deg)
-    + [0xE8, 0x03]              # GPSAltitude  (raw 1000 → 100.0 m)
-    + [0xD0, 0x07]              # GPSSpeed     (raw 2000 → 20.0 m/s)
-    + [0x00, 0x00]              # YawRate      (raw 0 → 0.0 deg/s)
-    + [0x00, 0x00]              # LateralAccel (raw 0)
-    + [0x00, 0x00]              # LongAccel    (raw 0)
-    + [0x00, 0x00]              # SteeringAngle(raw 0)
-    + [0xE8, 0x03]              # WheelSpeedFL (raw 1000 → 10.0 m/s)
-    + [0xE8, 0x03]              # WheelSpeedFR
-    + [0xE8, 0x03]              # WheelSpeedRL
-    + [0xE8, 0x03]              # WheelSpeedRR
-    + [0x00] * 36               # Remaining signals + padding to 64 bytes
+    + [0xE8, 0x03]  # GPSAltitude  (raw 1000 → 100.0 m)
+    + [0xD0, 0x07]  # GPSSpeed     (raw 2000 → 20.0 m/s)
+    + [0x00, 0x00]  # YawRate      (raw 0 → 0.0 deg/s)
+    + [0x00, 0x00]  # LateralAccel (raw 0)
+    + [0x00, 0x00]  # LongAccel    (raw 0)
+    + [0x00, 0x00]  # SteeringAngle(raw 0)
+    + [0xE8, 0x03]  # WheelSpeedFL (raw 1000 → 10.0 m/s)
+    + [0xE8, 0x03]  # WheelSpeedFR
+    + [0xE8, 0x03]  # WheelSpeedRL
+    + [0xE8, 0x03]  # WheelSpeedRR
+    + [0x00] * 36  # Remaining signals + padding to 64 bytes
 )
 CANFD_CAN_ID: int = 0x200
 CANFD_DLC: DLCCode = DLCCode(15)
@@ -113,10 +113,16 @@ class FrameSpec:
 
 
 CAN20_SPEC: FrameSpec = FrameSpec(
-    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
+    CAN20_CAN_ID,
+    CAN20_DLC,
+    CAN20_FRAME,
+    CAN20_SIGNALS,
 )
 CANFD_SPEC: FrameSpec = FrameSpec(
-    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
+    CANFD_CAN_ID,
+    CANFD_DLC,
+    CANFD_FRAME,
+    CANFD_SIGNALS,
 )
 
 
@@ -171,7 +177,9 @@ class BenchmarkConfig:
 
 
 def stream_frames(
-    client: AletheiaClient, spec: FrameSpec, num_frames: int,
+    client: AletheiaClient,
+    spec: FrameSpec,
+    num_frames: int,
 ) -> float:
     """Time a streaming-mode ``send_frame`` loop.  Returns elapsed seconds.
 
@@ -184,13 +192,19 @@ def stream_frames(
     start = time.perf_counter()
     for i in range(num_frames):
         client.send_frame(
-            timestamp=i, can_id=spec.can_id, dlc=spec.dlc, data=spec.payload,
+            timestamp=i,
+            can_id=spec.can_id,
+            dlc=spec.dlc,
+            data=spec.payload,
         )
     return time.perf_counter() - start
 
 
 def run_streaming_benchmark(
-    dbc: DBCDefinition, num_frames: int, spec: FrameSpec, properties: list[LTLFormula],
+    dbc: DBCDefinition,
+    num_frames: int,
+    spec: FrameSpec,
+    properties: list[LTLFormula],
 ) -> tuple[float, float]:
     """End-to-end streaming benchmark: own a Client, parse, stream, end, close.
 
@@ -220,7 +234,7 @@ def emit_json_report(name: str, results: object) -> None:
     output = {
         "benchmark": name,
         "language": "python",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "system": get_system_info(),
         "results": results,
     }

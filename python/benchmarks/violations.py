@@ -21,13 +21,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import statistics
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Callable, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import can
 
@@ -38,6 +37,9 @@ from aletheia.checks import CheckResult, signal
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DBCDefinition, DLCCode
 from aletheia.testing import run_checks
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _TARGET_FPS = 8000
 _DBC_PATH = Path(__file__).parent.parent.parent / "examples" / "demo" / "vehicle.dbc"
@@ -57,6 +59,7 @@ class _BenchResult(TypedDict):
 # ============================================================================
 # ASC file generators
 # ============================================================================
+
 
 def _write_asc(path: str, messages: list[can.Message]) -> None:
     """Write the given CAN messages to an ASC log at ``path``."""
@@ -87,21 +90,21 @@ def _raw_data(speed_raw: int) -> bytearray:
 
 def gen_all_identical(tmpdir: str, n: int) -> str:
     """Generate ASC log of N copies of the same violating frame."""
-    path = os.path.join(tmpdir, "all_identical.asc")
+    path = str(Path(tmpdir) / "all_identical.asc")
     _write_asc(path, [_make_frame(10000, i * 0.001) for i in range(n)])
     return path
 
 
 def gen_all_unique(tmpdir: str, n: int) -> str:
     """Generate ASC log of N unique violating frames (forces cache miss)."""
-    path = os.path.join(tmpdir, "all_unique.asc")
+    path = str(Path(tmpdir) / "all_unique.asc")
     _write_asc(path, [_make_frame(5100 + i, i * 0.001) for i in range(n)])
     return path
 
 
 def gen_mixed(tmpdir: str, n: int) -> str:
     """Generate ASC log with 10% violations + 90% passing."""
-    path = os.path.join(tmpdir, "mixed.asc")
+    path = str(Path(tmpdir) / "mixed.asc")
     msgs: list[can.Message] = []
     for i in range(n):
         raw = 10000 if i % 10 == 0 else 2000
@@ -112,7 +115,7 @@ def gen_mixed(tmpdir: str, n: int) -> str:
 
 def gen_no_violations(tmpdir: str, n: int) -> str:
     """Generate ASC log of N copies of a passing frame."""
-    path = os.path.join(tmpdir, "no_violations.asc")
+    path = str(Path(tmpdir) / "no_violations.asc")
     _write_asc(path, [_make_frame(2000, i * 0.001) for i in range(n)])
     return path
 
@@ -120,6 +123,7 @@ def gen_no_violations(tmpdir: str, n: int) -> str:
 # ============================================================================
 # Client-level benchmark
 # ============================================================================
+
 
 def _stream_identical(client: AletheiaClient, num_frames: int) -> float:
     """Stream identical violating frames; return elapsed seconds."""
@@ -166,7 +170,10 @@ _FRAME_GENS: dict[str, Callable[[AletheiaClient, int], float]] = {
 
 
 def bench_client(
-    dbc: DBCDefinition, checks: list[CheckResult], num_frames: int, frame_gen: str,
+    dbc: DBCDefinition,
+    checks: list[CheckResult],
+    num_frames: int,
+    frame_gen: str,
 ) -> float:
     """Benchmark AletheiaClient.send_frame() with enrichment.
 
@@ -185,8 +192,11 @@ def bench_client(
 # CLI-level benchmark
 # ============================================================================
 
+
 def bench_cli(
-    dbc: DBCDefinition, checks: list[CheckResult], asc_path: str,
+    dbc: DBCDefinition,
+    checks: list[CheckResult],
+    asc_path: str,
 ) -> tuple[float, int]:
     """Benchmark ``run_checks`` (CLI pipeline).
 
@@ -201,6 +211,7 @@ def bench_cli(
 # ============================================================================
 # Runner
 # ============================================================================
+
 
 def run_multi(name: str, func: Callable[[], float], num_runs: int) -> _BenchResult:
     """Run a benchmark function multiple times and collect stats."""
@@ -225,9 +236,7 @@ def print_summary(title: str, results: list[_BenchResult]) -> None:
     print(f"\n{'=' * 70}")
     print(title)
     print("=" * 70)
-    print(
-        f"{'Scenario':<30} {'Mean FPS':>10} {'us/frame':>10} {'Stdev':>8} {'Status':>8}"
-    )
+    print(f"{'Scenario':<30} {'Mean FPS':>10} {'us/frame':>10} {'Stdev':>8} {'Status':>8}")
     print("-" * 70)
     for r in results:
         status = "OK" if r["mean_fps"] >= _TARGET_FPS else "SLOW"
@@ -241,7 +250,10 @@ def print_summary(title: str, results: list[_BenchResult]) -> None:
 
 
 def _run_client_layer(
-    dbc: DBCDefinition, checks: list[CheckResult], num_frames: int, num_runs: int,
+    dbc: DBCDefinition,
+    checks: list[CheckResult],
+    num_frames: int,
+    num_runs: int,
 ) -> list[_BenchResult]:
     """Run + summarize the AletheiaClient.send_frame() benchmark layer."""
     scenarios = [
@@ -254,17 +266,22 @@ def _run_client_layer(
     results: list[_BenchResult] = []
     for label, gen in scenarios:
         print(f"\n{label}:")
-        results.append(run_multi(
-            label,
-            lambda g=gen: bench_client(dbc, checks, num_frames, g),
-            num_runs,
-        ))
+        results.append(
+            run_multi(
+                label,
+                lambda g=gen: bench_client(dbc, checks, num_frames, g),
+                num_runs,
+            )
+        )
     print_summary("Client-level Summary", results)
     return results
 
 
 def _run_cli_layer(
-    dbc: DBCDefinition, checks: list[CheckResult], num_frames: int, num_runs: int,
+    dbc: DBCDefinition,
+    checks: list[CheckResult],
+    num_frames: int,
+    num_runs: int,
 ) -> tuple[list[_BenchResult], list[str]]:
     """Run + summarize the ``run_checks`` CLI benchmark layer.
 
@@ -283,11 +300,13 @@ def _run_cli_layer(
     paths: list[str] = []
     for label, asc_path in scenarios:
         print(f"\n{label}:")
-        results.append(run_multi(
-            label,
-            lambda p=asc_path: bench_cli(dbc, checks, p)[0],
-            num_runs,
-        ))
+        results.append(
+            run_multi(
+                label,
+                lambda p=asc_path: bench_cli(dbc, checks, p)[0],
+                num_runs,
+            )
+        )
         paths.append(asc_path)
     print_summary("CLI-level Summary", results)
     paths.append(tmpdir)
@@ -309,8 +328,7 @@ def main() -> int:
 
     dbc = dbc_to_json(str(_DBC_PATH))
     checks = [
-        signal("VehicleSpeed").never_exceeds(50.0)
-            .named("Speed limit").severity("critical"),
+        signal("VehicleSpeed").never_exceeds(50.0).named("Speed limit").severity("critical"),
     ]
 
     _run_client_layer(dbc, checks, args.frames, args.runs)
@@ -319,8 +337,8 @@ def main() -> int:
     # Cleanup: paths is [asc1, asc2, asc3, asc4, tmpdir] — last entry is the dir.
     *files, tmpdir = paths
     for path in files:
-        os.unlink(path)
-    os.rmdir(tmpdir)
+        Path(path).unlink()
+    Path(tmpdir).rmdir()
 
     return 0
 
