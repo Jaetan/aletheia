@@ -164,10 +164,10 @@ except PackageNotFoundError:
 # raises ``AttributeError`` for the missing name, which is the documented
 # behaviour for missing extras.
 #
-# R0801 false positive: the re-export names below necessarily overlap a run in
-# ``aletheia.client.__all__`` (this package re-exports the client's public API).
-# ``__all__`` must stay a sorted list literal for RUF022 and basedpyright
-# re-export tracking, so the shared run cannot be factored out.
+# R0801: the re-export names below overlap a run in ``aletheia.client.__all__``
+# (this package re-exports the client's public API). ``__all__`` must stay a
+# sorted list literal for RUF022 and basedpyright re-export tracking, so the
+# shared run cannot be factored into a shared symbol — required by those tools.
 # pylint: disable=duplicate-code
 __all__ = [
     "AletheiaClient",

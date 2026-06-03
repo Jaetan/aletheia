@@ -264,10 +264,13 @@ class StreamingMixin(ABC):
         # Use the bound method cached at __enter__ to dodge per-frame
         # attribute-lookup cost on ``self._backend.send_frame_binary``.
         #
-        # R0801 false positive: the kwargs are ``send_frame_binary``'s full wire
-        # signature, necessarily identical to the async/testing backends. A
-        # shared helper would re-add the per-frame attribute-lookup/dispatch
-        # overhead this hot path deliberately caches away.
+        # R0801: these eight kwargs are ``send_frame_binary``'s wire signature,
+        # restated wherever a frame crosses the backend boundary (here and the
+        # testing double).  A forwarding helper only moves the kwarg list to its
+        # call sites; a positional one re-trips PLR0913 on the eight fields (see
+        # the testing backend's ``# noqa: PLR0913``) — so the duplication is
+        # structural, not removable by extraction.  The cached bound method is
+        # passed through unchanged, so this is not a perf trade-off.
         # pylint: disable=duplicate-code
         result_bytes = self._send_frame_binary(
             self._state,

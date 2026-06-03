@@ -101,9 +101,11 @@ class _CountingGateBackend:
         if self._counter == self._after_n:
             self._started.set()
             self._proceed.wait()
-        # R0801 false positive: forwarding the full ``send_frame_binary`` wire
-        # signature necessarily mirrors the sync streaming path; a shared helper
-        # would couple this test backend to the hot path it deliberately wraps.
+        # R0801: forwarding ``send_frame_binary``'s eight-field wire signature,
+        # the same restatement as the sync streaming path.  A forwarding helper
+        # only moves the kwarg list to its call sites; a positional one re-trips
+        # the PLR0913 this method already carries — the duplication is structural,
+        # not removable by extraction.
         # pylint: disable=duplicate-code
         return self._inner.send_frame_binary(
             state,

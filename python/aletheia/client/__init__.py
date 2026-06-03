@@ -68,10 +68,10 @@ from aletheia.client._types import (
 # level. User-facing API is ``AletheiaClient``, the exception hierarchy, the
 # response TypedDicts, and the byte/DLC converters.
 #
-# R0801 false positive: these names necessarily overlap a run in the top-level
-# ``aletheia.__all__`` (which re-exports this client API). ``__all__`` must stay
-# a sorted list literal for RUF022 and basedpyright re-export tracking, so the
-# shared run cannot be factored out.
+# R0801: these names overlap a run in the top-level ``aletheia.__all__`` (which
+# re-exports this client API). ``__all__`` must stay a sorted list literal for
+# RUF022 and basedpyright re-export tracking, so the shared run cannot be
+# factored into a shared symbol — the duplication is required by those tools.
 # pylint: disable=duplicate-code
 __all__ = [
     "AletheiaClient",
