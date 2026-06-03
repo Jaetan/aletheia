@@ -48,6 +48,7 @@ RECORDED_SMC: dict[str, list[str]] = {
     "R": ["rf1", "rf2"],
     "N": ["_⊕_", "R", "pa", "pb"],
     "HasV": ["v"],
+    "A.B.C": ["dotName", "dotOp"],
 }
 
 
@@ -239,6 +240,143 @@ FORMS: list[Form] = [
         "P",
         Expect(is_open=False, has_using=False, provides_exact=_exact()),
     ),
+    # ---- OPEN IMPORT ... AS: `as` is in OpenArgs, but `open` still injects ----
+    _form(
+        # open import M as N opens M unqualified (wildcard) AND binds alias N;
+        # it must NOT be misclassified as the qualified-only `import M as N`.
+        "open import as (wildcard + alias)",
+        "open import P as PP",
+        "P",
+        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb")),
+    ),
+    _form(
+        "open import with module application",
+        "open import PM Nat",
+        "PM",
+        Expect(is_open=True, has_using=False, provides_has=_exact("pmName")),
+    ),
+    # ---- QUALIFIED (dotted) module name = the whole first token ----
+    _form(
+        "qualified dotted module + using",
+        "open import A.B.C using (dotName)",
+        "A.B.C",
+        Expect(
+            is_open=True,
+            has_using=True,
+            provides_exact=_exact("dotName"),
+            check=_exact("dotName"),
+        ),
+    ),
+    _form(
+        "qualified dotted module wildcard",
+        "open import A.B.C",
+        "A.B.C",
+        Expect(is_open=True, has_using=False, provides_has=_exact("dotName", "dotOp")),
+    ),
+    # ---- DIRECTIVE COMBINATIONS (free order/count; only `using` restricts) ----
+    _form(
+        "hiding+renaming (no using → wildcard)",
+        "open import P hiding (pb) renaming (pa to paAlt)",
+        "P",
+        Expect(
+            is_open=True,
+            has_using=False,
+            provides_has=_exact("paAlt"),
+            provides_lacks=_exact("pa", "pb"),
+            check=_exact("paAlt"),
+        ),
+    ),
+    _form(
+        "using+hiding+renaming (all three)",
+        "open import P using (pa) hiding (xx) renaming (pb to pbAlt)",
+        "P",
+        Expect(
+            is_open=True,
+            has_using=True,
+            provides_exact=_exact("pa", "pbAlt"),
+            check=_exact("pa", "pbAlt"),
+        ),
+    ),
+    _form(
+        # `public` BEFORE `using` (free order) — still a public re-export, so its
+        # names are provided but never per-file candidates.
+        "public before using (reversed order)",
+        "open import P public using (pa)",
+        "P",
+        Expect(is_open=True, has_using=True, provides_exact=_exact("pa")),
+    ),
+    _form(
+        "hiding+public (wildcard re-export)",
+        "open import P hiding (pb) public",
+        "P",
+        Expect(
+            is_open=True, has_using=False, provides_has=_exact("pa"), provides_lacks=_exact("pb")
+        ),
+    ),
+    # ---- RENAMING TARGET forms: fixity / operator / module / multiple ----
+    _form(
+        # RenamingTarget = Id | 'infix'/'infixl'/'infixr' Float Id — the dst is
+        # the bare Id; the fixity annotation must be skipped (else dst is wrong → FN).
+        "renaming with infixl fixity target",
+        "open import P renaming (pb to infixl 6 pbAlt)",
+        "P",
+        Expect(
+            is_open=True,
+            has_using=False,
+            provides_has=_exact("pbAlt"),
+            provides_lacks=_exact("pb"),
+            check=_exact("pbAlt"),
+        ),
+    ),
+    _form(
+        "renaming with infixr fixity target",
+        "open import P renaming (pb to infixr 5 pbAlt)",
+        "P",
+        Expect(is_open=True, has_using=False, provides_has=_exact("pbAlt"), check=_exact("pbAlt")),
+    ),
+    _form(
+        "renaming an operator (mixfix)",
+        "open import P renaming (_⊕_ to _⊗_)",
+        "P",
+        Expect(
+            is_open=True,
+            has_using=False,
+            provides_has=_exact("_⊗_"),
+            provides_lacks=_exact("_⊕_"),
+            check=_exact("_⊗_"),
+        ),
+    ),
+    _form(
+        # ImportName_ = Id | 'module' Id — a module may be renamed; the dst is prunable.
+        "renaming a module",
+        "open import P renaming (module R to RAlt)",
+        "P",
+        Expect(is_open=True, has_using=False, check=_exact("RAlt")),
+    ),
+    _form(
+        "renaming multiple pairs",
+        "open import P renaming (pa to x; pb to y)",
+        "P",
+        Expect(is_open=True, has_using=False, check=_exact("x", "y")),
+    ),
+    # ---- USING entry forms: operator / multiple ----
+    _form(
+        "using an operator (mixfix)",
+        "open import P using (_⊕_)",
+        "P",
+        Expect(is_open=True, has_using=True, provides_exact=_exact("_⊕_"), check=_exact("_⊕_")),
+    ),
+    _form(
+        "using multiple names",
+        "open import P using (pa; pb)",
+        "P",
+        Expect(
+            is_open=True,
+            has_using=True,
+            provides_exact=_exact("pa", "pb"),
+            check=_exact("pa", "pb"),
+        ),
+    ),
 ]
 
 
@@ -365,3 +503,110 @@ def test_unresolvable_wildcard_makes_using_a_candidate() -> None:
     source = "module Fixture where\nopen import P using (pa)\nopen LocallyDefined\n"
     # LocallyDefined is absent from RECORDED_SMC → provided_set is None → fallback.
     assert "pa" in redundant_names(find_opens(source), RECORDED_SMC)
+
+
+# ---- COMMENT / STRING ROBUSTNESS ------------------------------------------
+# Agda keywords are reserved, so a keyword token inside a comment or a string
+# literal is never a directive.  Stripping must not produce a phantom open
+# (over-flag, harmless to confirm but noisy) NOR drop a real open after it (FN).
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "-- open import P using (dead)",  # line comment
+        "{- open import P using (dead) -}",  # block comment
+        "{- outer {- open import P -} still open -}",  # nested block comment
+        '  s = "open import P using (dead)"',  # string literal
+        "{-# COMPILE open import P #-}",  # pragma (a {- … -} block form)
+    ],
+    ids=["line-comment", "block-comment", "nested-block", "string", "pragma"],
+)
+def test_keyword_in_noncode_is_not_an_open(line: str) -> None:
+    """An ``open``/``import`` token inside a comment or string is never a directive."""
+    source = f"module Fixture where\n{line}\nreal = 0\n"
+    assert find_opens(source) == []
+
+
+def test_real_open_after_block_comment_is_found() -> None:
+    """A real open after a block comment is still found (stripping must not over-eat)."""
+    source = "module Fixture where\n{- a comment -}\nopen import P using (pa)\n"
+    assert open_check_names(find_opens(source)) == {"pa"}
+
+
+def test_trailing_line_comment_after_open_is_ignored() -> None:
+    """An inline ``--`` comment after a using clause does not corrupt the name list."""
+    source = "module Fixture where\nopen import P using (pa)  -- keep only pa\n"
+    assert open_check_names(find_opens(source)) == {"pa"}
+
+
+# ---- NESTING: opens are found in every declaration-block context -----------
+# Open/Import are Declarations; declaration blocks nest in where/let/private/
+# instance/abstract/macro/mutual/opaque/record bodies.  The position-independent
+# keyword scan must find a nested open's check-name in each (else FN).
+
+
+@pytest.mark.parametrize(
+    "block",
+    ["private", "abstract", "instance", "macro", "mutual", "opaque"],
+)
+def test_open_found_in_block_context(block: str) -> None:
+    """A ``using``-open nested in any declaration block contributes its check-name."""
+    source = f"module Fixture where\n{block}\n  open import M using (loc)\n"
+    assert "loc" in open_check_names(find_opens(source))
+
+
+def test_open_found_in_let_binding() -> None:
+    """A ``let open … using`` inside a term is found (a known live FN class)."""
+    source = "module Fixture where\nf = let open M using (loc) in loc\n"
+    assert "loc" in open_check_names(find_opens(source))
+
+
+# ---- LAYOUT: multi-line directives must not truncate the name list (FN) -----
+# _gather_directive collects continuation lines by indentation; a multi-line
+# using/renaming whose names span lines must still yield ALL of them.
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("module F where\nopen import M using\n  (a; b)\n", {"a", "b"}),
+        ("module F where\nopen import M using\n  ( a\n  ; b\n  ; c\n  )\n", {"a", "b", "c"}),
+        ("module F where\nopen import M renaming\n  ( a to x\n  ; b to y\n  )\n", {"x", "y"}),
+        # a sibling declaration after the open must NOT be slurped into its names
+        ("module F where\nopen import M using (a; b)\nfoo : Set\nfoo = a\n", {"a", "b"}),
+        # nested open with a multi-line using indented under `where`
+        (
+            "module F where\ng = x\n  where\n    open import M using\n      (a; b)\n",
+            {"a", "b"},
+        ),
+    ],
+    ids=[
+        "paren-next-line",
+        "names-multiline",
+        "renaming-multiline",
+        "stop-at-sibling",
+        "nested-ml",
+    ],
+)
+def test_multiline_directive_name_list_complete(source: str, expected: set[str]) -> None:
+    """A multi-line ``using``/``renaming`` contributes all its names (no truncation)."""
+    assert open_check_names(find_opens(source)) == expected
+
+
+# ---- REPEATED DIRECTIVES: the grammar permits a list of ImportDirective1 ----
+# `ImportDirective : ImportDirective1 ImportDirective`, so `using (a) using (b)`
+# is grammatical.  Both name lists must be flagged (a first-clause-only parse is
+# an under-flag → FN).
+
+
+def test_repeated_using_clauses_are_all_flagged() -> None:
+    """Two ``using`` clauses on one open contribute both name lists (no FN)."""
+    source = "module F where\nopen import M using (a) using (b)\n"
+    assert open_check_names(find_opens(source)) == {"a", "b"}
+
+
+def test_repeated_renaming_clauses_are_all_flagged() -> None:
+    """Two ``renaming`` clauses on one open contribute both destinations (no FN)."""
+    source = "module F where\nopen import M renaming (a to x) renaming (b to y)\n"
+    assert open_check_names(find_opens(source)) == {"x", "y"}

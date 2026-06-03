@@ -135,14 +135,19 @@ def strip_noncode(text: str) -> str:
 
 
 def _clause_names(directive: str, keyword: str) -> list[Name]:
-    """Return the semicolon-split names inside ``keyword (...)``, or [] if absent."""
-    match = re.search(rf"\b{keyword}\b\s*\(", directive)
-    if match is None:
-        return []
-    inner = match_paren_content(directive, match.end())
-    if inner is None:
-        return []
-    return split_top_level_semicolons(inner)
+    """Return the semicolon-split names from EVERY ``keyword (...)`` clause.
+
+    ``ImportDirective`` is a list of ``ImportDirective1`` (Parser.y), so a single
+    open may carry the same directive keyword more than once — e.g. ``using (a)
+    using (b)``.  Reading only the first clause would silently drop the rest
+    (a false negative), so every ``keyword (...)`` occurrence is collected.
+    """
+    names: list[Name] = []
+    for match in re.finditer(rf"\b{keyword}\b\s*\(", directive):
+        inner = match_paren_content(directive, match.end())
+        if inner is not None:
+            names.extend(split_top_level_semicolons(inner))
+    return names
 
 
 def _renaming_pairs(directive: str) -> list[Rename]:
