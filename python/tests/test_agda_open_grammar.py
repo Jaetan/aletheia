@@ -580,6 +580,10 @@ def test_open_found_in_let_binding() -> None:
             "module F where\ng = x\n  where\n    open import M using\n      (a; b)\n",
             {"a", "b"},
         ),
+        # multi-line using of OPERATORS — the exact shape (keyword on one line,
+        # mixfix names on the next) that the legacy parse_imports mis-reads as an
+        # empty using-list (a real false negative the grammar scan must not share).
+        ("module F where\nopen import M using\n  (_<|>_; _>>=_)\n", {"_<|>_", "_>>=_"}),
     ],
     ids=[
         "paren-next-line",
@@ -587,6 +591,7 @@ def test_open_found_in_let_binding() -> None:
         "renaming-multiline",
         "stop-at-sibling",
         "nested-ml",
+        "multiline-operators",
     ],
 )
 def test_multiline_directive_name_list_complete(source: str, expected: set[str]) -> None:
