@@ -262,7 +262,7 @@ representable? sig v factor≢0 = go (removeScaling v factor offset) refl
   where
     sd = DBCSignal.signalDef sig
     open SignalDef sd
-      using (startBit; bitLength; isSigned)
+      using (bitLength; isSigned)
       renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     factor = toℚ factorᵈ
     offset = toℚ offsetᵈ

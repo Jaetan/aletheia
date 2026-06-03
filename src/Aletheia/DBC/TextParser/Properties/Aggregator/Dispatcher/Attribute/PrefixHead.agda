@@ -54,7 +54,7 @@ open import Aletheia.DBC.TextFormatter.Attributes using
 open import Aletheia.DBC.TextParser.Attributes using
   (RawDBCAttribute; parseAttrLine)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSAttribute; parseTopStmt)
+  (TSAttribute; parseTopStmt)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute using
   (parseTopStmt-on-BA-head)

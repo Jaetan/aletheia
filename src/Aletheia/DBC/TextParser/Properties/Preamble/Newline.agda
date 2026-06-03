@@ -39,7 +39,7 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition;
-   pure; _>>=_; _<|>_; _*>_; many; manyHelper;
+   pure; _>>=_; _*>_; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using

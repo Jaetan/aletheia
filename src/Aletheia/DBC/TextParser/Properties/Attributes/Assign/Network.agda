@@ -71,7 +71,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
   ; digitChar-not-B; digitChar-not-S; digitChar-not-E)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOK)
+  (emit; parse; EmitsOK)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;

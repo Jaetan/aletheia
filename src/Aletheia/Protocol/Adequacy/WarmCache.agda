@@ -47,10 +47,10 @@ open import Data.Nat using (s≤s)
 open import Data.Product using (∃-syntax)
 open import Relation.Binary.PropositionalEquality using (subst; cong₂)
 
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Types using ()
 
 open import Aletheia.LTL.SignalPredicate using
-  (TruthVal; True; False; notTV; _∧TV_; _∨TV_;
+  (True; False; notTV; _∧TV_; _∨TV_;
    SignalPredicate; SignalCache)
 open import Aletheia.LTL.SignalPredicate.Cache using (lookupCache)
 open import Aletheia.LTL.SignalPredicate.Evaluation.Properties

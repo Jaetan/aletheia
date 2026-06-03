@@ -26,7 +26,7 @@ open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers using (processStreamCommand)
 open import Aletheia.Error using
-  ( Error; DispatchErr
+  ( DispatchErr
   ; InputBoundExceeded
   ; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
   )

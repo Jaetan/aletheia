@@ -27,13 +27,13 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure; _<|>_)
+  (Position; mkResult; advancePositions;
+   _>>=_; pure)
 
 open import Aletheia.DBC.TextParser.ValueTables using
   (RawValueDesc; parseValueTable; parseValueDescription)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSValueTable; TSValueDesc; parseTopStmt)
+  (TSValueTable; TSValueDesc; parseTopStmt)
 
 open import Aletheia.DBC.TextFormatter.ValueTables using
   (emitValueDescription-chars)

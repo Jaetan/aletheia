@@ -65,7 +65,7 @@ open import Aletheia.DBC.TextParser.Topology using
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace; parseNewline)
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK; ParseFailsAt; roundtrip)
-  renaming (many to manyF)
+  renaming ()
 open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 

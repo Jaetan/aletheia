@@ -13,7 +13,7 @@
 module Aletheia.CAN.Endianness.Properties.StartBit where
 
 open import Aletheia.CAN.Endianness using
-  ( ByteOrder; LittleEndian; BigEndian
+  ( LittleEndian; BigEndian
   ; lookupSafe; updateSafe
   ; swapBytes
   ; physicalBitPos

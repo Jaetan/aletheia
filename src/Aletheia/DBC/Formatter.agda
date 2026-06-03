@@ -24,7 +24,7 @@ open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ
 
 open import Data.String as String using (String; toList)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
-open import Data.List.NonEmpty as List⁺ using (List⁺)
+open import Data.List.NonEmpty as List⁺ using ()
 open import Data.Bool using (true)
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ)

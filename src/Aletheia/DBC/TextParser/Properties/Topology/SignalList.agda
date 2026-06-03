@@ -40,7 +40,7 @@ import Data.List.Properties as ListProps
 open import Data.List using (List; []; _∷_; foldr; map; length)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties
-  renaming (++-assoc to ++ₗ-assoc)
+  renaming ()
 open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -67,7 +67,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using
    MuxMarker; NotMux; IsMux; SelBy)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOKMany; []-fails; ∷-cons;
+  (emit; parse; EmitsOKMany; []-fails; ∷-cons;
    ParseFailsAt; roundtrip)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.SignalLine using

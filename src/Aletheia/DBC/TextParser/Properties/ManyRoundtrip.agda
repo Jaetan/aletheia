@@ -35,14 +35,14 @@ open import Data.List.Properties using (length-++)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using
-  (ℕ; zero; suc; _+_; _≤_; _<_; s≤s; z≤n)
+  (ℕ; zero; suc; _≤_; _<_; s≤s; z≤n)
 open import Data.Nat.Properties using
-  (m≤n+m; m≤m+n; <⇒≢; ≤-trans; ≤-step; +-mono-≤)
+  (m≤n+m; m≤m+n; <⇒≢; ≤-trans; +-mono-≤)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; Position; ParseResult; mkResult;
+  (Parser; Position; mkResult;
    advancePositions; many; manyHelper; sameLengthᵇ)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using

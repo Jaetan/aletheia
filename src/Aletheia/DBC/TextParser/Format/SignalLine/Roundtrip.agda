@@ -32,7 +32,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; sym)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
+  using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)

@@ -54,7 +54,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
+  using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; intDecRatToℤ)

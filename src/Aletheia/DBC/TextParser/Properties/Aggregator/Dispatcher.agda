@@ -34,7 +34,7 @@ open import Aletheia.DBC.Types using
   )
 
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; parseTopStmt)
+  (parseTopStmt)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops)

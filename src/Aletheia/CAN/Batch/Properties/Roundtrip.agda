@@ -39,7 +39,7 @@ open import Data.Maybe.Properties using (just-injective)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
 open import Function using (case_of_)
 
-open import Aletheia.Data.BitVec using (BitVec)
+open import Aletheia.Data.BitVec using ()
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ)
 
 -- ============================================================================
@@ -88,7 +88,7 @@ private
     where
       open SignalDef sig
         using (startBit; bitLength; isSigned)
-        renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
+        renaming (minimum to minimumᵈ; maximum to maximumᵈ)
       minimum = toℚ minimumᵈ
       maximum = toℚ maximumᵈ
 

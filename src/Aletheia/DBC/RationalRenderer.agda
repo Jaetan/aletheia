@@ -63,7 +63,7 @@ open import Data.String using (String; fromList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.DecRat using
-  (DecRat; mkDecRat; fromℚ?)
+  (mkDecRat; fromℚ?)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showNat-chars; showInt-chars; showℕ-padded-chars)
 

@@ -48,7 +48,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; many-parseNewline-one-LF-stop)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.Nodes as FmtBU using
   (nodeListFmt; nodeEntry-format)

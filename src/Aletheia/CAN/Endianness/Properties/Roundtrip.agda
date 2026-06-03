@@ -11,8 +11,7 @@
 module Aletheia.CAN.Endianness.Properties.Roundtrip where
 
 open import Aletheia.CAN.Endianness using
-  ( ByteOrder; LittleEndian; BigEndian
-  ; lookupSafe; updateSafe
+  ( lookupSafe; updateSafe
   ; byteToBitVec; bitVecToByte
   ; extractBits; injectBits
   ; swapBytes

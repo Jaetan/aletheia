@@ -51,7 +51,7 @@ open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
-open import Data.List.Relation.Unary.All as All using (All)
+open import Data.List.Relation.Unary.All as All using ()
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;

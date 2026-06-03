@@ -37,7 +37,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
-open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat using ()
 open import Aletheia.DBC.Types using
   ( AttrDef
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar

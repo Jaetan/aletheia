@@ -18,12 +18,12 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure)
+  (Position; mkResult; advancePositions;
+   pure)
 
 open import Aletheia.DBC.Types using (EnvironmentVar)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSEnvVar; parseTopStmt)
+  (TSEnvVar; parseTopStmt)
 open import Aletheia.DBC.TextParser.EnvVars using
   (parseEnvVar)
 

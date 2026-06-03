@@ -38,7 +38,7 @@
 module Aletheia.LTL.SignalPredicate.Evaluation.Properties where
 
 open import Aletheia.Prelude using (Maybe; _,_; _≡_; _⊎_; cong; false; inj₁; inj₂; just; nothing; refl; trans; true; ℚ)
-open import Data.Char using (Char)
+open import Data.Char using ()
 open import Data.Sum using ()
 open import Data.Product using (∃-syntax)
 open import Data.Maybe using ()
@@ -46,7 +46,7 @@ open import Relation.Binary.PropositionalEquality
   using (cong₂)
 
 open import Aletheia.CAN.Frame using (CANFrame)
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Types using ()
 
 open import Aletheia.LTL.SignalPredicate.Types public  -- re-exports `signalOf`
                                                        -- (now defined there;

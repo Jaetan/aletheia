@@ -27,8 +27,7 @@ open import Aletheia.CAN.Endianness.Properties.Roundtrip using
   ; injectBits-preserves-later-bit
   )
 open import Aletheia.CAN.Endianness.Properties.WriteSet using
-  ( BitWrite; applyWrite; applyWrites; writesOf; DiffPos; AllDiffPos; AllDistinct
-  ; applyWrites-comm; injectBits≡applyWrites; writesOf-distinct
+  ( BitWrite; applyWrite; applyWrites; writesOf; DiffPos; AllDiffPos; applyWrites-comm; injectBits≡applyWrites; writesOf-distinct
   ; payloadIso-involutive
   )
 open import Aletheia.CAN.Endianness.Properties.StartBit using

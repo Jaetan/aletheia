@@ -69,7 +69,7 @@ open import Aletheia.DBC.Types using (DBCSignal)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit)
+  (emit)
 open import Aletheia.DBC.TextParser.Format.SignalLine using
   (signalLineFmt; muxMarkerFmt; byteOrderFmt; signFlagFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine.Roundtrip using

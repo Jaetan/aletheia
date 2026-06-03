@@ -34,7 +34,7 @@ open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
 open import Aletheia.Trace.CANTrace using ()
-open import Aletheia.CAN.DLC using (DLC)
+open import Aletheia.CAN.DLC using ()
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.List using (List; [])
 open import Data.Sum using (inj₁; inj₂)

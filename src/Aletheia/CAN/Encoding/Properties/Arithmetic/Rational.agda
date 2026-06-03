@@ -40,16 +40,16 @@
 module Aletheia.CAN.Encoding.Properties.Arithmetic.Rational where
 
 open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; removeScaling)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_)
+open import Data.Nat using (ℕ; suc)
 open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
 open import Data.Nat.DivMod as ℕ using ()
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Integer.DivMod as ℤ using ()
 open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; 1/_; NonZero; ≢-nonZero; mkℚ; toℚᵘ; fromℚᵘ; _≤ᵇ_) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
-open import Data.Rational.Unnormalised.Base as ℚᵘ using (ℚᵘ; mkℚᵘ)
+open import Data.Rational.Unnormalised.Base as ℚᵘ using ()
 open import Data.Rational.Literals using (fromℤ)
 open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc; ≤-antisym to ≤ᵣ-antisym; ≤ᵇ⇒≤ to ≤ᵇ⇒≤ᵣ)
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (true; false)
 open import Data.Maybe using (just; nothing)
 open import Data.Maybe.Properties using (just-injective)
 open import Data.Product using (_×_; _,_)
@@ -158,7 +158,7 @@ private
   -- Bridge lemma: division via fromℚᵘ/toℚᵘ equals semantic ÷ᵣ
   -- This is the ONLY place where representation details appear
   -- The bridge connects Encoding.divideByFactor to the semantic _÷ᵣ_
-  open import Data.Rational.Unnormalised.Base using () renaming (_÷_ to _÷ᵘ_; _*_ to _*ᵘ_; 1/_ to 1/ᵘ_)
+  open import Data.Rational.Unnormalised.Base using () renaming (_÷_ to _÷ᵘ_)
   open import Data.Rational.Unnormalised.Properties as ℚᵘ using (≃-refl; ≃-trans; ≃-sym; *-cong)
 
   -- Step 1: toℚᵘ preserves division (up to ≃ᵘ)
@@ -257,7 +257,7 @@ applyScaling-injective raw₁ raw₂ factor offset factor≢0 eq =
 private
   open import Data.Integer.DivMod as ℤ using ([n/d]*d≤n; n<s[n/ℕd]*d)
   open import Data.Rational using (*≤*; *<*)  -- Just constructors; types already renamed to _≤ᵣ_, _<ᵣ_
-  open import Data.Rational.Properties using (≤-reflexive)
+  open import Data.Rational.Properties using ()
 
   -- Floor lower bound: floor(q) / 1 ≤ q
   -- Strategy: floor q = ↥q ℤ./ ↧q, use [n/d]*d≤n, lift via *≤*
@@ -350,7 +350,7 @@ private
     fromℚᵘ (toℚᵘ (fromℤ a +ᵣ fromℤ b)) ≡⟨ fromℚᵘ-toℚᵘ (fromℤ a +ᵣ fromℤ b) ⟩
     fromℤ a +ᵣ fromℤ b            ∎
     where
-      open import Data.Rational.Unnormalised.Base as ℚᵘ using () renaming (_+_ to _+ᵘ_)
+      open import Data.Rational.Unnormalised.Base as ℚᵘ using () renaming ()
       open import Data.Rational.Unnormalised.Properties as ℚᵘ using (≃-sym)
       open import Data.Rational.Properties using (fromℚᵘ-toℚᵘ; fromℚᵘ-cong; toℚᵘ-homo-+)
       open import Data.Integer.Properties as ℤ using (*-identityʳ)

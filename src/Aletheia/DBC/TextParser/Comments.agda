@@ -48,7 +48,7 @@ open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
 open import Aletheia.DBC.Types using
-  ( CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
+  ( CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; DBCComment; mkComment
   )
 

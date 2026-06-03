@@ -55,8 +55,8 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 
 -- DSL framework + `ValueDescription-format` Format.
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
-  renaming (many to manyF)
+  (emit; parse)
+  renaming ()
 open import Aletheia.DBC.TextParser.Format.ValueDescription as FmtVD using
   (ValueDescription-format; RawValueDescNameStop)
 

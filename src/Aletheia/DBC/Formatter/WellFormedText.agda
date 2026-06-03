@@ -63,7 +63,7 @@ open import Relation.Nullary using (¬_)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
-  (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+  (DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedMessageRT)
 open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
 

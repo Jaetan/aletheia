@@ -62,7 +62,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node using
   ( IdentNameStop)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOK)
+  (emit; parse; EmitsOK)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;

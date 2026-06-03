@@ -53,7 +53,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.SignalGroup as FmtSG using
   (signalGroupFmt; sigEntry-format; parseSignalGroup-format-roundtrip)

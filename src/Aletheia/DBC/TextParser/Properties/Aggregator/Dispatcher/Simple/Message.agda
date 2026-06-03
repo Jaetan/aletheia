@@ -21,12 +21,12 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure; _<|>_; _*>_)
+  (Position; mkResult; advancePositions;
+   _>>=_; pure; _*>_)
 
 open import Aletheia.DBC.Types using (DBCMessage; clearVdsMsg)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSMessage; TSBOTxBu; parseTopStmt; parseBOTxBu)
+  (TSMessage; TSBOTxBu; parseTopStmt; parseBOTxBu)
 open import Aletheia.DBC.TextParser.Topology using
   (parseMessage)
 

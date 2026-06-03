@@ -76,7 +76,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOK)
+  (emit; parse; EmitsOK)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;

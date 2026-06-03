@@ -24,11 +24,11 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult;
-   _>>=_; pure)
+  (Position; mkResult;
+   pure)
 
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSAttribute; parseTopStmt)
+  (TSAttribute; parseTopStmt)
 open import Aletheia.DBC.TextParser.Attributes using
   (RawDBCAttribute; parseAttrLine)
 

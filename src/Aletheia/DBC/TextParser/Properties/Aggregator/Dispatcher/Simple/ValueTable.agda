@@ -25,7 +25,7 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators using
   (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure; _<|>_)
+   _>>=_; pure)
 
 open import Aletheia.DBC.Types using (ValueTable)
 open import Aletheia.DBC.TextParser.TopLevel using

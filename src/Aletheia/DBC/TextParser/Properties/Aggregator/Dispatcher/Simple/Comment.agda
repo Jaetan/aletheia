@@ -21,7 +21,7 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions;
-   _>>=_; pure)
+   pure)
 
 open import Aletheia.DBC.Types using
   (DBCComment; mkComment;

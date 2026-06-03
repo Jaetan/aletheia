@@ -32,13 +32,13 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions; many)
+  (Position; mkResult; advancePositions; many)
 
 open import Aletheia.DBC.Types using
   (AttrDef)
 
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; parseTopStmt)
+  (parseTopStmt)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops)

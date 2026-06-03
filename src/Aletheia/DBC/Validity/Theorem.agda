@@ -25,7 +25,6 @@ open import Aletheia.DBC.Validator using
   ; checkAllDuplicateAttributeNames; checkAllUnknownCommentTargets
   ; checkAllUnknownMessageSenders; checkAllUnknownSignalReceivers
   ; checkAllUnknownAdditionalSenders
-  ; checkAllUnknownValueDescriptionTargets
   )
 open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.Validity.Composition using

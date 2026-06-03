@@ -47,7 +47,6 @@ open import Aletheia.DBC.DecRat.Refinement using
 open import Aletheia.DBC.Types using
   ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  ; DBCAttribute
   )
 open import Aletheia.DBC.TextParser.Attributes using
   ( RawAttrValue; RavString; RavDecRat

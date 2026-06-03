@@ -53,7 +53,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
 open import Aletheia.DBC.TextParser.Format.EnvVar as FmtEV using
   (envVarFmt; parseEnvVar-format-roundtrip)
 

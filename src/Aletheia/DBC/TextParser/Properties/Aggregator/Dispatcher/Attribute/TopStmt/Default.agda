@@ -27,7 +27,7 @@ open import Aletheia.DBC.TextFormatter.Attributes using ()
 
 open import Aletheia.DBC.TextParser.Attributes using ()
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; parseTopStmt)
+  (parseTopStmt)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   ( WFAttribute

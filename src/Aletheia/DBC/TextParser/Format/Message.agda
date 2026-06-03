@@ -43,8 +43,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; literal; ident; nat; pair; iso;
-   wsOpt; ws; withPrefix)
+  (Format; ident; nat; pair; iso;
+   withPrefix)
 open import Aletheia.DBC.TextParser.Format.SignalLine using
   (newlineFmt; withWS; withWSOpt)
 
