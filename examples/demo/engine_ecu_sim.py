@@ -1,4 +1,4 @@
-"""Engine ECU Simulator with Staleness Bug
+"""Engine ECU Simulator with Staleness Bug.
 
 Simulates an Engine ECU that sends periodic CAN messages containing:
 - EngineRPM (16-bit, factor 0.25)
@@ -77,6 +77,7 @@ ENGINE_DBC = {
 @dataclass
 class CANFrame:
     """A single CAN frame with timestamp."""
+
     timestamp_us: int
     can_id: int
     data: bytearray
@@ -94,13 +95,18 @@ def _encode_engine_frame(rpm: float, coolant_c: float, counter: int) -> bytearra
     raw_rpm = int(rpm / 0.25)
     raw_temp = int(coolant_c + 40)
     raw_counter = counter & 0x0F
-    return bytearray([
-        raw_rpm & 0xFF,
-        (raw_rpm >> 8) & 0xFF,
-        raw_temp & 0xFF,
-        raw_counter,
-        0, 0, 0, 0,
-    ])
+    return bytearray(
+        [
+            raw_rpm & 0xFF,
+            (raw_rpm >> 8) & 0xFF,
+            raw_temp & 0xFF,
+            raw_counter,
+            0,
+            0,
+            0,
+            0,
+        ]
+    )
 
 
 def generate_normal_trace(n_frames: int = 50) -> list[CANFrame]:
@@ -117,8 +123,7 @@ def generate_normal_trace(n_frames: int = 50) -> list[CANFrame]:
         rpm = 800 + (2200 * i / n_frames)
         coolant = 60 + (30 * i / n_frames)
         counter = (i + 1) % 16  # Start at 1: avoids |1 - 0| = 0 on first frame
-        frames.append(CANFrame(t_us, ENGINE_STATUS_ID,
-                               _encode_engine_frame(rpm, coolant, counter)))
+        frames.append(CANFrame(t_us, ENGINE_STATUS_ID, _encode_engine_frame(rpm, coolant, counter)))
     return frames
 
 
@@ -152,6 +157,5 @@ def generate_frozen_trace(
             coolant = 60 + (30 * freeze_at / n_frames)
             counter = frozen_counter  # STUCK!
 
-        frames.append(CANFrame(t_us, ENGINE_STATUS_ID,
-                               _encode_engine_frame(rpm, coolant, counter)))
+        frames.append(CANFrame(t_us, ENGINE_STATUS_ID, _encode_engine_frame(rpm, coolant, counter)))
     return frames

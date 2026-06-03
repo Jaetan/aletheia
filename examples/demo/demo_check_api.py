@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check API Demo
+"""Check API Demo.
 
 The Check API provides industry-vocabulary wrappers over the LTL DSL.
 Every check compiles to the same verified LTL property used by the DSL layer.
@@ -11,7 +11,6 @@ import json
 
 from aletheia import Signal
 from aletheia.checks import signal, when
-
 
 # =============================================================================
 # SECTION 1: Simple Signal Checks
@@ -48,27 +47,15 @@ print("\n" + "=" * 60)
 print("SECTION 2: When/Then Causal Checks")
 print("=" * 60)
 
-check7 = (
-    when("BrakePedal").exceeds(50)
-    .then("BrakeLight").equals(1)
-    .within(100)
-)
+check7 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
 print("\n7. when('BrakePedal').exceeds(50)")
 print("       .then('BrakeLight').equals(1).within(100)")
 
-check8 = (
-    when("Ignition").equals(1)
-    .then("EngineRPM").exceeds(500)
-    .within(2000)
-)
+check8 = when("Ignition").equals(1).then("EngineRPM").exceeds(500).within(2000)
 print("\n8. when('Ignition').equals(1)")
 print("       .then('EngineRPM').exceeds(500).within(2000)")
 
-check9 = (
-    when("FuelLevel").drops_below(10)
-    .then("FuelWarning").stays_between(1, 1)
-    .within(50)
-)
+check9 = when("FuelLevel").drops_below(10).then("FuelWarning").stays_between(1, 1).within(50)
 print("\n9. when('FuelLevel').drops_below(10)")
 print("       .then('FuelWarning').stays_between(1, 1).within(50)")
 
@@ -81,11 +68,7 @@ print("\n" + "=" * 60)
 print("SECTION 3: Metadata")
 print("=" * 60)
 
-labeled = (
-    signal("VehicleSpeed").never_exceeds(220)
-    .named("Speed limit")
-    .severity("safety")
-)
+labeled = signal("VehicleSpeed").never_exceeds(220).named("Speed limit").severity("safety")
 print(f"\n  Name:     {labeled.name}")
 print(f"  Severity: {labeled.check_severity}")
 
@@ -98,7 +81,7 @@ print("\n" + "=" * 60)
 print("SECTION 4: Generated LTL Formula")
 print("=" * 60)
 
-print(f"\nsignal('VehicleSpeed').never_exceeds(220) produces:\n")
+print("\nsignal('VehicleSpeed').never_exceeds(220) produces:\n")
 print(json.dumps(check1.to_dict(), indent=2))
 
 
@@ -118,17 +101,13 @@ print("  Raw DSL:   Signal('VehicleSpeed').less_than(220).always()")
 print(f"  Identical: {dsl_formula == check_formula}")
 
 dsl_wt = (
-    Signal("BrakePedal").greater_than(50)
+    Signal("BrakePedal")
+    .greater_than(50)
     .implies(Signal("BrakeLight").equals(1).within(100))
     .always()
     .to_dict()
 )
-check_wt = (
-    when("BrakePedal").exceeds(50)
-    .then("BrakeLight").equals(1)
-    .within(100)
-    .to_dict()
-)
+check_wt = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
 
 print("\n  Check API: when('BrakePedal').exceeds(50)")
 print("                 .then('BrakeLight').equals(1).within(100)")

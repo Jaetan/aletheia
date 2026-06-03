@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Excel Loader Demo
+"""Excel Loader Demo.
 
 Load signal checks and DBC definitions from an Excel workbook (.xlsx).
 Designed for automotive technicians: fill in cells, press Run.
@@ -13,9 +13,8 @@ No FFI or Agda build required — this demo only generates formulas.
 import tempfile
 from pathlib import Path
 
-from aletheia import load_checks_from_excel, load_dbc_from_excel, create_template
+from aletheia import create_template, load_checks_from_excel, load_dbc_from_excel
 from aletheia.checks import signal, when
-
 
 WORKBOOK = Path(__file__).parent / "demo_workbook.xlsx"
 
@@ -33,6 +32,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     create_template(template_path)
 
     import openpyxl  # type: ignore[import-untyped]
+
     wb = openpyxl.load_workbook(template_path)
     print(f"\n  Created: {template_path.name}")
     print(f"  Sheets:  {wb.sheetnames}")
@@ -93,12 +93,7 @@ api_speed = signal("VehicleSpeed").never_exceeds(220).to_dict()
 print(f"\n  Excel 'Speed limit' == Check API: {excel_speed == api_speed}")
 
 excel_brake = checks[6].to_dict()
-api_brake = (
-    when("BrakePedal").exceeds(50)
-    .then("BrakeLight").equals(1)
-    .within(100)
-    .to_dict()
-)
+api_brake = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
 print(f"  Excel 'Brake light' == Check API: {excel_brake == api_brake}")
 
 
