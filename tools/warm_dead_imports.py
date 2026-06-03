@@ -65,6 +65,7 @@ from tools.prune_unused_imports import AGDA_BIN, SRC_DIR
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from pathlib import Path
 
 AGDA = str(AGDA_BIN)
 SRC = SRC_DIR
@@ -187,6 +188,13 @@ class LoadResult(NamedTuple):
     ok: bool
     error: str
     warnings: list[str]
+
+
+# The one capability the remove-recompile core needs of a warm agda: load a file
+# by path and report the result.  Passed as a bare callable (`WarmAgda.load`) so
+# the core is a pure function of "can this text type-check?", unit-testable with a
+# plain stub and free of any process/Protocol coupling.
+type LoadFn = Callable[[str], LoadResult]
 
 
 class DetectResult(TypedDict):
@@ -614,37 +622,59 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
 
-def remove_and_reload(
-    agda: WarmAgda, rel: RelPath, name: Name, baseline: int, *, keep: bool
-) -> bool:
-    """Try removing `name` (each occurrence variant) + warm-reload.
+def _first_removable(load: LoadFn, path: Path, name: Name, baseline: int, *, commit: bool) -> bool:
+    """Try each occurrence-variant of `name`; act on the FIRST that type-checks.
 
-    The shared remove-recompile primitive of the confirm gate and the cleanup
-    tool.  Reads the CURRENT file, then returns True iff SOME occurrence-variant still
-    type-checks (`ok`) with no new silent-semantic-change warning beyond
-    `baseline` (prune's guard).  With ``keep=True`` a successful removal STAYS in
-    place (the cleanup path, :mod:`tools.warm_apply`); with ``keep=False`` the
-    file is always restored (the confirm gate).  A failed variant — or any
-    exception — also restores, so it is crash-safe (registered via
-    ``track_inflight``).  Trying every occurrence catches a redundant duplicate
-    that is not the first copy.
+    Reads `path`'s CURRENT text (so the apply fixpoint always sees prior
+    commits), then `texts_without_name` yields one variant per open `name`
+    appears in.  On the first variant that loads `ok` within `baseline`
+    silent-semantic warnings (prune's guard), either COMMIT it (leave the edit on
+    disk, ``commit=True``) or RESTORE it (probe only, ``commit=False``) and
+    return True.  Any non-committed write — a failed variant or an exception — is
+    restored, so it is crash-safe (registered via ``track_inflight``).  Returns
+    False when no variant is removable.
     """
-    path = SRC / rel
     original = path.read_text(encoding="utf-8")
     for modified in texts_without_name(original, name):
         kept = False
         try:
             track_inflight(str(path), original)
             _ = path.write_text(modified, encoding="utf-8")
-            result = agda.load(str(path))
+            result = load(str(path))
             if result.ok and count_semantic_warnings(result.warnings) <= baseline:
-                kept = keep
-                return True  # removable -> dead
+                kept = commit
+                return True
         finally:
             if not kept:
                 _ = path.write_text(original, encoding="utf-8")  # restore
             untrack_inflight(str(path))
     return False
+
+
+def remove_and_reload(load: LoadFn, rel: RelPath, name: Name, baseline: int, *, keep: bool) -> bool:
+    """Decide (and, with ``keep``, perform) the removal of dead `name` from `rel`.
+
+    The shared remove-recompile primitive of the confirm gate and the cleanup
+    tool.  ``keep=False`` (the confirm gate) PROBES — is some occurrence-variant
+    still type-checking within `baseline` warnings? — and always restores; True
+    means "dead".  ``keep=True`` (the cleanup, :mod:`tools.warm_apply`) REMOVES
+    EVERY dead occurrence: each commit is recompile-validated, then the file is
+    re-read and the next occurrence tried, to a fixpoint.  Clearing all copies
+    (not just the first) is what makes a cleaned file pass the gate — a name dead
+    in several opens (e.g. a where-block local repeated per clause) must lose
+    them all, or the gate would flag its own output.  Sound for the mixed case
+    too: a copy that is actually USED fails to type-check, so its variant is
+    restored and only the genuinely-dead copies go.  Terminating: each commit
+    strictly drops one occurrence.  Returns True iff `name` was dead (probed
+    removable, or ≥1 occurrence removed).
+    """
+    path = SRC / rel
+    if not keep:
+        return _first_removable(load, path, name, baseline, commit=False)
+    removed = False
+    while _first_removable(load, path, name, baseline, commit=True):
+        removed = True
+    return removed
 
 
 def process_names(
@@ -662,7 +692,8 @@ def process_names(
     dead: list[Name] = []
     alive: list[Name] = []
     for name in names:
-        (dead if remove_and_reload(agda, rel, name, baseline, keep=keep) else alive).append(name)
+        is_dead = remove_and_reload(agda.load, rel, name, baseline, keep=keep)
+        (dead if is_dead else alive).append(name)
     return dead, alive
 
 

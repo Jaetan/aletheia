@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import queue
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -32,12 +33,14 @@ import pytest
 from tools.warm_dead_imports import (
     SRC,
     DefSite,
+    LoadResult,
     Token,
     all_agda_files,
     changed_agda_files,
     detect_dead,
     read_load,
     read_module_contents,
+    remove_and_reload,
     select_files,
     texts_without_name,
 )
@@ -175,6 +178,93 @@ def test_texts_without_name_clause_scoped_not_module_path() -> None:
     """A name equal to the module's last path component never corrupts the path."""
     src = "module M where\nopen import Data.List using (List)\n"
     assert texts_without_name(src, "List") == ["module M where\nopen import Data.List using ()\n"]
+
+
+# ---- remove_and_reload: the confirm/apply core, against a stub typechecker -----
+
+
+def _faked_load(required: list[str]) -> Callable[[str], LoadResult]:
+    """Build a stand-in for ``WarmAgda.load``: a file type-checks iff it still holds `required`.
+
+    Models ground-truth recompilation deterministically and without a process:
+    the file "type-checks" (``ok``) exactly when every substring in `required`
+    survives in it.  ``required=[]`` makes every removal pass (a name dead in
+    every open it appears in); a substring like ``"open import P using (rel)"``
+    makes that one clause load-bearing, so dropping it fails — the mixed
+    used/dead case the apply loop must navigate by restoring and trying the next.
+    """
+
+    def load(abspath: str) -> LoadResult:
+        text = Path(abspath).read_text(encoding="utf-8")
+        ok = all(s in text for s in required)
+        return LoadResult([], ok=ok, error="" if ok else "boom", warnings=[])
+
+    return load
+
+
+def test_remove_and_reload_apply_clears_every_dead_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Apply removes a name from EVERY open it is dead in (multi-occurrence completeness).
+
+    The ``Rational.agda`` regression: a name imported in two where-block opens,
+    dead in both.  Removing only the first copy would leave the gate able to flag
+    its own output; the apply loop must run to a fixpoint.
+    """
+    src = (
+        "module Fixture where\nopen import P using (rel)\nopen import Q using (rel)\nbody = unit\n"
+    )
+    path = tmp_path / "Fixture.agda"
+    _ = path.write_text(src, encoding="utf-8")
+    monkeypatch.setattr("tools.warm_dead_imports.SRC", tmp_path)
+
+    removed = remove_and_reload(_faked_load([]), "Fixture.agda", "rel", 0, keep=True)
+
+    assert removed is True
+    final = path.read_text(encoding="utf-8")
+    assert "using (rel)" not in final  # BOTH copies gone, not just the first
+    assert final.count("using ()") == 2
+
+
+def test_remove_and_reload_apply_keeps_the_used_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a name is used in one open and dead in another, apply removes only the dead one.
+
+    Recompilation is the arbiter: dropping the USED copy fails to type-check, so
+    that variant is restored and only the genuinely-dead copy goes.
+    """
+    src = (
+        "module Fixture where\nopen import P using (rel)\nopen import Q using (rel)\nbody = unit\n"
+    )
+    path = tmp_path / "Fixture.agda"
+    _ = path.write_text(src, encoding="utf-8")
+    monkeypatch.setattr("tools.warm_dead_imports.SRC", tmp_path)
+
+    # P's `rel` is load-bearing: a file type-checks only while that exact open survives.
+    removed = remove_and_reload(
+        _faked_load(["open import P using (rel)"]), "Fixture.agda", "rel", 0, keep=True
+    )
+
+    assert removed is True
+    final = path.read_text(encoding="utf-8")
+    assert "open import P using (rel)" in final  # used copy retained
+    assert "open import Q using ()" in final  # dead copy removed
+
+
+def test_remove_and_reload_confirm_probes_without_editing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Confirm mode (``keep=False``) reports removability but leaves the file untouched."""
+    src = "module Fixture where\nopen import P using (rel)\nbody = unit\n"
+    path = tmp_path / "Fixture.agda"
+    _ = path.write_text(src, encoding="utf-8")
+    monkeypatch.setattr("tools.warm_dead_imports.SRC", tmp_path)
+
+    removed = remove_and_reload(_faked_load([]), "Fixture.agda", "rel", 0, keep=False)
+
+    assert removed is True
+    assert path.read_text(encoding="utf-8") == src  # probe-only: nothing written back
 
 
 # ---- the warm read loop (no process): silence guard + terminals ------------
