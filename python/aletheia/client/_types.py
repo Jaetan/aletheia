@@ -305,6 +305,25 @@ class FrameResult:
         ]
 
 
+def make_frame_result(
+    frame_index: int,
+    frame: CANFrameTuple,
+    response: AckResponse | PropertyBatchResponse,
+) -> FrameResult:
+    """Build a :class:`FrameResult` from a source frame's identity + response.
+
+    Shared by the sync (``send_frames_iter``) and async per-frame generators,
+    which otherwise restate the same five-field construction on every yield.
+    """
+    return FrameResult(
+        frame_index=frame_index,
+        timestamp=frame.timestamp,
+        can_id=frame.can_id,
+        extended=frame.extended,
+        response=response,
+    )
+
+
 class SignalExtractionResult:
     """Rich result object for signal extraction.
 

@@ -31,6 +31,7 @@ from aletheia.client._types import (
     FrameResult,
     SignalExtractionResult,
     call_send_frame,
+    make_frame_result,
 )
 
 if TYPE_CHECKING:
@@ -275,18 +276,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
                 frame,
                 [],
             )
-            # R0801 false positive: populating ``FrameResult`` from a frame is
-            # the same field mapping as the sync streaming generator; both run
-            # per-frame, so a shared helper would add a call per yielded frame.
-            # pylint: disable=duplicate-code
-            yield FrameResult(
-                frame_index=i,
-                timestamp=frame.timestamp,
-                can_id=frame.can_id,
-                extended=frame.extended,
-                response=resp,
-            )
-            # pylint: enable=duplicate-code
+            yield make_frame_result(i, frame, resp)
 
     async def send_error(self, timestamp: int) -> AckResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.send_error`."""

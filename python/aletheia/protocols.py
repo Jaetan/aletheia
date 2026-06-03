@@ -257,22 +257,20 @@ class StableWithinPredicate(TypedDict):
     tolerance: Fraction
 
 
-# R0801 false positive: the first five union arms below coincide with
-# ``aletheia.client._enrichment._ComparisonPredicate``, but that alias is a
-# deliberate subset (it omits Between/ChangedBy/StableWithin); merging the two
-# would widen ``_ComparisonPredicate`` to predicates it must reject.
-# pylint: disable=duplicate-code
-SignalPredicate = (
+# A signal predicate is either a comparison (the five relational forms) or a
+# range/temporal form.  Naming the comparison subset lets callers that handle
+# only comparisons (e.g. the enrichment TypeGuard) reuse it instead of
+# restating the arms, and makes the subset relationship explicit.
+ComparisonPredicate = (
     EqualsPredicate
     | LessThanPredicate
     | GreaterThanPredicate
     | LessThanOrEqualPredicate
     | GreaterThanOrEqualPredicate
-    | BetweenPredicate
-    | ChangedByPredicate
-    | StableWithinPredicate
 )
-# pylint: enable=duplicate-code
+SignalPredicate = (
+    ComparisonPredicate | BetweenPredicate | ChangedByPredicate | StableWithinPredicate
+)
 
 
 # -- LTL Formula Types (using "operator" key) --

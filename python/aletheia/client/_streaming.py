@@ -43,6 +43,7 @@ from aletheia.client._types import (
     StreamCaches,
     ValidationError,
     call_send_frame,
+    make_frame_result,
     validate_can_id,
     validate_payload_length,
 )
@@ -420,18 +421,7 @@ class StreamingMixin(ABC):
 
         """
         for i, frame in enumerate(frames):
-            # R0801 false positive: populating ``FrameResult`` from a frame is
-            # the same field mapping as the async generator; both run per-frame,
-            # so a shared helper would add a call per yielded frame.
-            # pylint: disable=duplicate-code
-            yield FrameResult(
-                frame_index=i,
-                timestamp=frame.timestamp,
-                can_id=frame.can_id,
-                extended=frame.extended,
-                response=call_send_frame(self.send_frame, i, frame, []),
-            )
-            # pylint: enable=duplicate-code
+            yield make_frame_result(i, frame, call_send_frame(self.send_frame, i, frame, []))
 
     def send_error(self, timestamp: int) -> AckResponse:
         """Send a CAN error event (no ID, no payload).
