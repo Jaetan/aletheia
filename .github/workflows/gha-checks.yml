@@ -67,6 +67,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
       - name: Run check_action_pins.py
         run: python3 tools/check_action_pins.py
 
@@ -77,6 +82,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
 
       - name: Run check_workflow_permissions.py
         run: python3 tools/check_workflow_permissions.py
