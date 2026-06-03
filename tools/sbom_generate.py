@@ -361,7 +361,7 @@ def main() -> int:
     ap.add_argument(
         "--image-base",
         default=None,
-        help="Base image digest (e.g. python:3.13-slim@sha256:...); used with --image-id",
+        help="Base image digest (e.g. python:3.14-slim@sha256:...); used with --image-id",
     )
     ap.add_argument(
         "--image-libgmp",

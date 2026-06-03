@@ -31,7 +31,7 @@ COPY . .
 RUN cabal run shake -- build && cabal run shake -- dist
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # Only non-default system dependency
 RUN apt-get update && \

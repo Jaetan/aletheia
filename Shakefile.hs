@@ -149,7 +149,7 @@ checkFFINames ffiFile = do
 
 -- | Parse the digest-pinned base image from Dockerfile.runtime.
 -- Returns the value after `FROM ` up to end-of-line (e.g.
--- `python:3.13-slim@sha256:...`).  Falls back to "unknown" if no
+-- `python:3.14-slim@sha256:...`).  Falls back to "unknown" if no
 -- `FROM` line is found.
 parseFromBase :: String -> String
 parseFromBase dockerfile =
