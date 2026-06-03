@@ -83,7 +83,7 @@ known-first-party = ["aletheia"]
 # no signal here.  The basedpyright counterpart (reportPrivateUsage) is NOT
 # muffled dir-wide -- it stays on project-wide and is suppressed only inline, at
 # the exact white-box lines in profile_extraction.py (each with a rationale).
-"examples/**" = ["T201", "INP001"]
+"examples/**" = ["T201", "INP001", "S101"]
 "benchmarks/**" = ["T201", "INP001", "S101", "SLF001"]
 "python/benchmarks/**" = ["T201", "INP001"]
 
