@@ -618,6 +618,18 @@ def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
     }
 
 
+def import_defids(text: str, tokens: list[Token], abspath: str) -> dict[Name, DefId]:
+    """Map each prunable import name to the definition identity its clause token carries.
+
+    The (file, position) def-id is the SAME coordinate the IWYU `.agdai` reader
+    reports for used names, so a name is dead iff its def-id is absent from the
+    reader's elaboration-complete used-set.  Shared with :mod:`tools.iwyu_reader`
+    (the reader-vs-recompile-confirm equivalence check).
+    """
+    structure = _import_structure(find_opens(text))
+    return _body_index(text, tokens, abspath, structure).import_defid
+
+
 # ---- confirmation: authoritatively classify candidates by removing JUST each
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
