@@ -18,9 +18,9 @@ Coverage: every directive form (``using`` / ``hiding`` / ``renaming`` / ``public
 and combinations, in both orders), every module-expression form (bare, qualified,
 application, record-instance, instance, re-export, open-module-macro), the
 no-injection forms (``import`` / ``import as``), local ``where`` / ``let`` opens,
-and the two completeness properties the audit turned on: the unified redundancy
-rule and FN-complete check-name extraction across non-``import`` and local
-``using``-opens.
+and FN-complete check-name extraction across non-``import`` and local
+``using``-opens.  The injected-set primitive :func:`provided_set` is also
+checked per form (it feeds the IWYU narrower :mod:`tools.warm_iwyu`).
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ from tools._agda_opens import (
     find_opens,
     open_check_names,
     provided_set,
-    redundant_names,
 )
 
 # show_module_contents outputs verified against a live Agda this session, for the
@@ -473,36 +472,6 @@ def test_public_reexport_excluded_from_check_names() -> None:
     assert open_check_names(opens) == set()
     # but it still provides the names (for OTHER opens' redundancy decisions)
     assert {"pa", "pbAlt"} <= (provided_set(opens[0], RECORDED_SMC) or set())
-
-
-# ---- the unified redundancy rule ----
-
-
-def test_redundancy_detected_via_wildcard_reexport() -> None:
-    """A `using`-import re-supplied by a wildcard open is a redundancy candidate."""
-    # `pa` arrives both explicitly and via the wildcard re-export of P.
-    source = "module Fixture where\nopen import P using (pa)\nopen import Re\n"
-    redundant = redundant_names(find_opens(source), RECORDED_SMC)
-    assert "pa" in redundant
-
-
-def test_non_overlapping_using_is_not_redundant() -> None:
-    """A `using`-import no other open supplies is NOT flagged redundant."""
-    # `pmName` comes only from `open import PM`; nothing else supplies it.
-    source = "module Fixture where\nopen import PM using (pmName)\nopen import R\n"
-    assert "pmName" not in redundant_names(find_opens(source), RECORDED_SMC)
-
-
-def test_unresolvable_wildcard_makes_using_a_candidate() -> None:
-    """An unresolvable wildcard (smc cannot enumerate) makes every using-name a candidate.
-
-    The sound no-false-negative fallback: a module a top-level scope query cannot
-    resolve (e.g. one defined in a local scope) is treated as possibly supplying
-    any name, so confirm — not membership — gets the final say.
-    """
-    source = "module Fixture where\nopen import P using (pa)\nopen LocallyDefined\n"
-    # LocallyDefined is absent from RECORDED_SMC → provided_set is None → fallback.
-    assert "pa" in redundant_names(find_opens(source), RECORDED_SMC)
 
 
 # ---- COMMENT / STRING ROBUSTNESS ------------------------------------------

@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Grammar-complete detection of Agda ``open``/``import`` directives.
 
-This is the substrate for the dead-import gate's "what does each open inject?"
-question.  Unlike :func:`tools.prune_unused_imports.parse_imports` (which only
+This is the substrate for the dead-import gate (:mod:`tools.warm_dead_imports`)
+and the IWYU narrower (:mod:`tools.warm_iwyu`): what opens exist, and what does
+each inject?  Unlike :func:`tools.prune_unused_imports.parse_imports` (which only
 recognises top-level ``open import`` / ``import`` blocks), this module finds
 *every* open the Agda grammar permits, in *every* position, and classifies it.
 
@@ -31,14 +32,14 @@ Grounding (Agda ``src/full/Agda/Syntax/Parser/Parser.y``):
   stripped scan for the ``open``/``import`` keyword tokens finds them all,
   regardless of nesting position.
 
-The unqualified-name set an open *injects* is :func:`provided_set` (text for a
-``using`` open, else its ``show_module_contents``).  The names a file makes
-*prunable* — the gate's candidates — is :func:`open_check_names`: every
-``using`` entry AND every ``renaming`` destination of a non-``public`` open.  A
-rename destination is prunable even with no ``using`` clause (delete just the
-``a to b`` pair), so "wildcard for provision" and "has a prunable entry" are
-independent.  Both are derived uniformly from every open, which is what makes
-the gate FN-complete.
+The names a file makes *prunable* — the dead-import gate's candidates — are
+:func:`open_check_names`: every ``using`` entry AND every ``renaming``
+destination of a non-``public`` open.  A rename destination is prunable even
+with no ``using`` clause (delete just the ``a to b`` pair).  The complementary
+question — the full set an open *injects* (text for a ``using`` open, else its
+``show_module_contents`` wildcard, minus ``hiding`` and with ``renaming``
+applied) — is :func:`provided_set`, used by the IWYU narrower
+:mod:`tools.warm_iwyu` to narrow each wildcard.
 """
 
 from __future__ import annotations
@@ -60,8 +61,8 @@ type CharRange = tuple[int, int]
 # A dotted Agda module path or alias — the key of a scope query — e.g.
 # "Data.List.Properties", or an ``open module N = …`` alias "N".
 type ModulePath = str
-# A module's full export names (one ``Cmd_show_module_contents`` result): the
-# wildcard provided-set the redundancy check reads, keyed by module path.
+# A module's full export names (one ``Cmd_show_module_contents`` result), keyed
+# by module path — the wildcard provided-set :func:`provided_set` reads.
 type ModuleContents = Mapping[ModulePath, list[Name]]
 
 # Directive-modifier keywords (the ``ImportDirective1`` alternatives that are not
@@ -291,7 +292,8 @@ def _classify(directive: str, *, span: CharRange, is_open: bool, is_import: bool
 def provided_set(open_info: OpenInfo, module_contents: ModuleContents) -> set[Name] | None:
     """Return the unqualified names ``open_info`` injects, or None if unresolvable.
 
-    The unified rule, by case on the directive (grammar-grounded):
+    The grammar-complete "what does this open bring into scope?" primitive, by
+    case on the directive:
 
     * not an open (``import M`` / ``import M as N``) → injects nothing → ``set()``.
     * has ``using`` → exactly the ``using`` entries plus the ``renaming``
@@ -301,10 +303,14 @@ def provided_set(open_info: OpenInfo, module_contents: ModuleContents) -> set[Na
       with ``renaming`` applied.
 
     Returns ``None`` when a wildcard's module is absent from ``module_contents``
-    (a module defined in a local scope that a top-level scope query cannot
-    resolve): the caller must treat that file conservatively (confirm every
-    in-scope import), never as an empty set — that is what keeps the gate from a
-    silent false negative.
+    (one defined in a local scope a top-level query cannot reach): the caller
+    must treat that conservatively, never as an empty set.
+
+    The dead-import gate does NOT use this (it flags only genuinely-unused
+    imports, not redundancy — see :mod:`tools.warm_dead_imports`); the consumer
+    is the IWYU narrower :mod:`tools.warm_iwyu`, which needs each wildcard's
+    injected set to narrow it.  Validated by the grammar harness in
+    ``python/tests/test_agda_open_grammar*.py``.
     """
     if not open_info.is_open:
         return set()
@@ -351,45 +357,6 @@ def _is_candidate_open(open_info: OpenInfo) -> bool:
     (those names are used downstream — a per-file gate must not flag them).
     """
     return _has_explicit_entries(open_info) and not open_info.has_public
-
-
-def redundant_names(opens: list[OpenInfo], module_contents: ModuleContents) -> set[Name]:
-    """Return prunable names a *wildcard* open also supplies (wildcard-redundancy).
-
-    A name brought in by an explicit ``using``/``renaming`` entry is removable
-    if a wildcard open in scope already supplies it.  "Wildcard" = an ``open``
-    with no ``using`` clause (bare / ``hiding`` / renaming-only / ``open M`` /
-    ``open R r`` / ``open module N = …``): its provided set is the opened
-    module's contents (:func:`provided_set` via ``show_module_contents``).
-    Membership against those smc sets is a scope question (no recompile), so the
-    cost is bounded by the number of wildcard opens — ≈0 in a narrowed tree —
-    not by proof size, keeping the gate fast for any tree.
-
-    Two opens that both *list* the same name via ``using`` are deliberately NOT
-    reported here: those are usually different overloaded entities (e.g. ``[]``
-    from ``Data.List`` and from ``…All``), and a genuinely-dead one is already
-    caught by the def-id unused-sieve — name-based using-vs-using matching would
-    add only false positives (and a recompile each).  Membership is a *candidate*
-    signal, not a verdict: a local ``where``/``let`` wildcard supplies a name
-    only locally, so the gate's confirm step still arbitrates every name.
-
-    An *unresolvable* wildcard (its module is absent from ``module_contents`` —
-    only one defined in a local scope a top-level query cannot reach) is treated
-    as possibly supplying any name, so its presence makes every candidate name a
-    candidate: the sound, no-false-negative fallback (confirm then decides).
-    """
-    wildcard_provided: set[Name] = set()
-    has_unresolvable_wildcard = False
-    for open_info in opens:
-        if not open_info.is_open or open_info.has_using:
-            continue  # only a non-``using`` open is a wildcard provider
-        provided = provided_set(open_info, module_contents)
-        if provided is None:
-            has_unresolvable_wildcard = True
-        else:
-            wildcard_provided |= provided
-    candidates = open_check_names(opens)
-    return set(candidates) if has_unresolvable_wildcard else candidates & wildcard_provided
 
 
 def open_check_names(opens: list[OpenInfo]) -> set[Name]:

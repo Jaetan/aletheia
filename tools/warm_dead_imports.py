@@ -11,14 +11,19 @@ Supersedes a per-file `agda --html` pass:
 
 The prunable names come from `tools._agda_opens` (grammar-complete: every
 `open` in every position — top-level, `where`/`let`, non-`import` `open M`,
-open-module-macro — and every directive form), so the candidate set is
-FN-complete by construction.  A candidate is generated three ways:
-  * UNUSED — its definition never reappears among the file's BODY tokens.  A
-    type used only in an INFERRED position (e.g. `BitVec` in `Maybe (BitVec _)`)
-    references no body token, so this over-flags; the confirm pass filters it.
-  * DUPLICATE — its def-id is imported >=2 times (one copy is redundant).
-  * WILDCARD-REDUNDANT — a wildcard open (`open M` / `open import M` with no
-    `using`) already supplies it (`show_module_contents` membership).
+open-module-macro — and every directive form).  A candidate is one UNUSED
+import: its definition never reappears among the file's BODY tokens.  A type
+used only in an INFERRED position (e.g. `String` behind a string literal, an
+instance argument, `BitVec` in `Maybe (BitVec _)`) references no body token, so
+the sieve over-flags it; the confirm pass filters it back out.
+
+The gate flags ONLY genuinely-unused imports.  It deliberately does NOT flag
+"redundant" imports — a name that IS used but also supplied by a duplicate
+import or a wildcard `open` — because that is a scope/provider question the
+def-id sieve cannot answer soundly, and "drop the explicit import, lean on the
+wildcard" is anti-IWYU.  Provider-redundancy belongs to the future
+`.agdai`-interface reader (`iInsideScope` carries the scope precisely); see
+`memory/project_agda_iwyu.md`.
 
 The confirm pass (`drive_dead` / `process_names` — remove-one + recompile
 against agda ground truth) is the verdict; the sieve only narrows what is
@@ -40,13 +45,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
 from tools._agda_opens import (
-    ModuleContents,
-    ModulePath,
     OpenInfo,
     find_opens,
     open_check_names,
     public_open_names,
-    redundant_names,
 )
 from tools._common import (
     agda_tree_lock,
@@ -78,10 +80,6 @@ type CharRange = tuple[int, int]
 
 # A definition identity: (definitionSite.filepath, definitionSite.position).
 DefId = tuple[str, int]
-
-# A def-id imported this many times (or more) is a redundant duplicate: removing
-# one copy leaves the others in scope, so the extra import is dead.
-_MIN_DUP_OCCURRENCES = 2
 
 # Max seconds of agda SILENCE (no output line) before a read gives up, so no
 # command can hang on a silent agda.  A Cmd_load terminal arrives within one
@@ -194,13 +192,10 @@ class LoadResult(NamedTuple):
 class DetectResult(TypedDict):
     """Result of `detect_dead` for one file."""
 
-    dead: list[Name]
-    dead_defid_only: list[Name]
-    duplicates: list[Name]
-    wildcard_redundant: list[Name]  # a wildcard open in scope also supplies these
-    candidates: list[Name]  # the authoritative set to confirm (FN-complete)
-    public_skipped: list[Name]
-    unresolved: list[Name]
+    dead: list[Name]  # the unused-sieve verdict — also the candidate set
+    candidates: list[Name]  # the authoritative set to confirm (== dead)
+    public_skipped: list[Name]  # `public` re-exports, never flagged
+    unresolved: list[Name]  # check-names with no resolvable def-id (a blind spot)
 
 
 def line_offsets(text: str) -> list[int]:
@@ -459,8 +454,7 @@ class WarmAgda:
         so the SAME token range can arrive in several `HighlightingInfo`
         messages and accumulate.  Dedup by range (keeping the last, i.e. most
         complete, token per range) so every consumer sees each token once —
-        occurrence-counting (duplicate-import detection) must not be fooled by
-        re-sent tokens.
+        body-def-id counting must not be fooled by re-sent tokens.
         """
         state = self._run_load(abspath)
         by_range: dict[tuple[int, ...], Token] = {}
@@ -509,7 +503,6 @@ class _ImportStructure(NamedTuple):
 
     import_ranges: list[CharRange]  # char span of each import block
     check_names: set[Name]  # non-public names — the confirm candidates
-    all_names: set[Name]  # public + non-public — for unique-provider counting
     public_skipped: list[Name]  # `public` re-exports (never flagged — see below)
 
 
@@ -517,7 +510,6 @@ class _BodyIndex(NamedTuple):
     """The lookups `detect_dead` consumes (see its docstring)."""
 
     import_defid: dict[Name, DefId]  # import name → its definition identity
-    import_occurrences: list[tuple[Name, DefId]]  # EVERY import-clause token (name, def-id)
     body_defids: set[DefId]  # def-ids referenced anywhere in the body
     body_names_external: set[Name]  # body names whose def lives in another file
     qualified_use_files: dict[Name, set[str]]  # qualifier → files of its `q.field` uses
@@ -534,17 +526,13 @@ def _import_structure(opens: list[OpenInfo]) -> _ImportStructure:
         use — closing the body-exclusion FN those forms had.
       * `check_names` is the prunable set (`open_check_names`): every `using`
         entry and `renaming` destination of a non-`public` open (P1-complete).
-      * a `public` re-export's names are recorded as PROVIDERS (in `all_names`,
-        for duplicate counting) and as `public_skipped`, but never as candidates
-        — removing one changes the file's exported surface.
+      * a `public` re-export's names are recorded as `public_skipped`, but never
+        as candidates — removing one changes the file's exported surface.
     """
-    check_names = open_check_names(opens)
-    public = public_open_names(opens)
     return _ImportStructure(
         import_ranges=[o.span for o in opens],
-        check_names=check_names,
-        all_names=check_names | public,
-        public_skipped=sorted(public),
+        check_names=open_check_names(opens),
+        public_skipped=sorted(public_open_names(opens)),
     )
 
 
@@ -553,13 +541,11 @@ def _body_index(
 ) -> _BodyIndex:
     """Index tokens into the lookups `detect_dead` consumes.
 
-    Occurrences are recorded for ALL import names (public + non-public) so the
-    unique-provider count sees a public re-export too; `import_defid` (the
-    confirm candidates) is non-public only.  The external / qualified-file
-    distinctions are the no-false-positive guards described in `detect_dead`.
+    `import_defid` maps each non-public check-name to its definition identity;
+    the external / qualified-file distinctions are the no-false-positive guards
+    described in `detect_dead`.
     """
     import_defid: dict[Name, DefId] = {}
-    import_occurrences: list[tuple[Name, DefId]] = []
     body_defids: set[DefId] = set()
     body_names_external: set[Name] = set()
     qualified_use_files: dict[Name, set[str]] = {}
@@ -569,60 +555,24 @@ def _body_index(
         defid: DefId | None = (site["filepath"], site["position"]) if site else None
         if any(s <= rng[0] - 1 < e for s, e in structure.import_ranges):  # token in import clause
             # def==None for a renaming dest / local binding: body refs point at THIS
-            # token's position in THIS file -> synthesize (abspath, offset), which is
-            # per-occurrence-unique so a rename never groups as a duplicate.
-            if name in structure.all_names:
-                occ = defid or (abspath, rng[0])
-                import_occurrences.append((name, occ))  # public + non-public: uniqueness count
-                if name in structure.check_names:
-                    import_defid.setdefault(name, occ)  # non-public: a confirm candidate
+            # token's position in THIS file -> synthesize (abspath, offset).
+            if name in structure.check_names:
+                import_defid.setdefault(name, defid or (abspath, rng[0]))
         elif defid is not None:  # def-less body tokens can't be import-uses
             body_defids.add(defid)
             if defid[0] != abspath:
                 body_names_external.add(name)
             if "." in name:  # qualified use `q.field`
                 qualified_use_files.setdefault(name.split(".", 1)[0], set()).add(defid[0])
-    return _BodyIndex(
-        import_defid, import_occurrences, body_defids, body_names_external, qualified_use_files
-    )
+    return _BodyIndex(import_defid, body_defids, body_names_external, qualified_use_files)
 
 
-def _duplicate_names(occurrences: list[tuple[Name, DefId]], check_names: set[Name]) -> list[Name]:
-    """Non-public names whose def-id is imported >=2 times (a redundant duplicate).
+def detect_dead(text: str, tokens: list[Token], abspath: str) -> DetectResult:
+    """Return one file's unused-import analysis (the dead-only sieve).
 
-    Grouping by DEF-ID (not name), so overloaded `[]`/`_∷_` (distinct def-ids)
-    are not falsely paired while a same-entity alias still is.  Occurrences
-    include public re-exports (another provider), so a non-public import made
-    redundant by a public one is caught; only non-public names are returned (the
-    confirm candidates) — exactly the L178 `length` case the per-name
-    `import_defid` dict collapses away.
-    """
-    occ_count: dict[DefId, int] = {}
-    for _name, defid in occurrences:
-        occ_count[defid] = occ_count.get(defid, 0) + 1
-    return sorted(
-        {n for n, d in occurrences if occ_count[d] >= _MIN_DUP_OCCURRENCES and n in check_names}
-    )
-
-
-def detect_dead(
-    text: str,
-    tokens: list[Token],
-    abspath: str,
-    module_contents: ModuleContents,
-) -> DetectResult:
-    """Return one file's dead / duplicate / wildcard-redundant / candidate analysis.
-
-    `candidates` is the authoritative set to confirm.  It is FN-complete by
-    construction: a dead import is removable iff its name is either UNUSED, a
-    same-entity DUPLICATE, or already supplied by a WILDCARD open — the three
-    components, each reported for insight:
-      * `dead` — the unused-sieve (def-id never reappears in the body).
-      * `duplicates` — a def-id imported >=2 times (`_duplicate_names`).
-      * `wildcard_redundant` — supplied by a non-`using` open's
-        `show_module_contents` (`tools._agda_opens.redundant_names`, fed
-        `module_contents`); an unresolvable wildcard makes every check-name a
-        candidate (the sound confirm-all fallback that replaced disqualification).
+    `candidates` == `dead`: the names whose imported definition never reappears
+    among the file's body tokens.  Redundant-but-used imports (duplicate /
+    wildcard-supplied) are deliberately NOT flagged — see the module docstring.
 
     Identity model (from Agda's highlighting): a body reference's def-id is
     `(definitionSite.filepath, position)`; an imported name is ALIVE when its
@@ -636,11 +586,10 @@ def detect_dead(
       * re-export aliases (`[]`): decl/use def-ids differ -> exact-name fallback,
         restricted to body tokens defined OUTSIDE this file (a local shadow of
         the same name must not keep the import alive).
-    No-FP bias: dead only if NONE of these say alive.  `dead_defid_only` drops
-    the name/prefix fallbacks (reported, to show what they catch).
+    No-FP bias: dead only if NONE of these say alive — the confirm pass is the
+    final ground-truth arbiter.
     """
-    opens = find_opens(text)
-    structure = _import_structure(opens)
+    structure = _import_structure(find_opens(text))
     index = _body_index(text, tokens, abspath, structure)
     import_defid = index.import_defid
 
@@ -653,19 +602,11 @@ def detect_dead(
         return defid[0] in index.qualified_use_files.get(name, set())
 
     dead = sorted(n for n, d in import_defid.items() if not alive(n, d))
-    dead_defid_only = sorted(n for n, d in import_defid.items() if d not in index.body_defids)
-    duplicates = _duplicate_names(index.import_occurrences, structure.check_names)
-    wildcard_redundant = sorted(redundant_names(opens, module_contents))
-    unresolved = sorted(structure.check_names - set(import_defid))
-    candidates = sorted(set(dead) | set(duplicates) | set(wildcard_redundant))
     return {
         "dead": dead,
-        "dead_defid_only": dead_defid_only,
-        "duplicates": duplicates,
-        "wildcard_redundant": wildcard_redundant,
-        "candidates": candidates,
+        "candidates": dead,
         "public_skipped": structure.public_skipped,
-        "unresolved": unresolved,
+        "unresolved": sorted(structure.check_names - set(import_defid)),
     }
 
 
@@ -753,48 +694,9 @@ def drive_dead(
     return total
 
 
-def _module_contents_for_file(
-    agda: WarmAgda,
-    abspath: str,
-    opens: list[OpenInfo],
-    import_cache: dict[ModulePath, list[Name]],
-) -> dict[ModulePath, list[Name]]:
-    """Query `show_module_contents` for each wildcard open's module.
-
-    A WILDCARD open (`is_open`, no `using`) needs its module's exports to decide
-    wildcard-redundancy.  A globally-pathed `open import M` is cached across
-    files (its exports are stable), but a non-`import` `open M` / `open R r` /
-    `open module N = …` resolves in the LOADED file's scope, so it is queried per
-    file and NEVER cached under its possibly-file-local name (caching it could
-    return another file's same-named module — an FN).  An unresolvable module is
-    omitted, so `redundant_names` takes its conservative confirm-all fallback.
-    """
-    contents: dict[ModulePath, list[Name]] = {}
-    for open_info in opens:
-        if not open_info.is_open or open_info.has_using or not open_info.module:
-            continue
-        module = open_info.module
-        if open_info.is_import:
-            if module not in import_cache:
-                resolved = agda.show_module_contents(abspath, module)
-                if resolved is not None:
-                    import_cache[module] = resolved
-            if module in import_cache:
-                contents[module] = import_cache[module]
-        else:
-            resolved = agda.show_module_contents(abspath, module)
-            if resolved is not None:
-                contents[module] = resolved
-    return contents
-
-
 def _result_extra(result: DetectResult) -> str:
-    """Build the per-file diagnostic suffix (duplicates / redundant / skipped)."""
+    """Build the per-file diagnostic suffix (public-skipped / unresolved)."""
     parts: list[str] = []
-    if result["duplicates"]:
-        parts.append(f"duplicates={result['duplicates']}")
-    if result["wildcard_redundant"]:
-        parts.append(f"wildcard-redundant={result['wildcard_redundant']}")
     if result["public_skipped"]:
         parts.append(f"public-skipped={len(result['public_skipped'])}")
     if result["unresolved"]:
@@ -806,7 +708,6 @@ def sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
     """Warm-load each file, print its per-file result, return the SweepResult."""
     candidates: Candidates = {}
     times: list[float] = []
-    import_cache: dict[ModulePath, list[Name]] = {}  # globally-pathed exports, reused across files
     for i, rel in enumerate(files, 1):
         abspath = str(SRC / rel)
         text = (SRC / rel).read_text(encoding="utf-8")
@@ -820,8 +721,7 @@ def sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
                 + "(no Status checked:true — agda could not check it)"
             )
             continue
-        module_contents = _module_contents_for_file(agda, abspath, find_opens(text), import_cache)
-        result = detect_dead(text, loaded.tokens, abspath, module_contents)
+        result = detect_dead(text, loaded.tokens, abspath)
         cands = result["candidates"]
         if cands:
             candidates[rel] = cands
@@ -949,12 +849,12 @@ def run_warm_tool(args: list[str], action: Callable[[WarmAgda, SweepResult], int
 def main() -> int:
     """Warm-sweep modules for dead-import candidates; --confirm verifies (gate mode).
 
-    Sieve candidates = unused-by-def-id names, plus structural duplicates (a
-    def-id imported twice or more).  With --confirm, each is remove-one +
-    warm-recompiled (ground truth, filtering inferred-use false positives); exits
-    1 iff any are confirmed dead — so --confirm is the blocking gate, the bare
-    sieve is a fast report.  (To REMOVE confirmed-dead imports in place, use the
-    sibling cleanup tool ``python -m tools.warm_apply``.)
+    Sieve candidates = UNUSED-by-def-id names only (no duplicate / wildcard
+    speculation — see the module docstring).  With --confirm, each is remove-one
+    + warm-recompiled (ground truth, filtering inferred-use false positives);
+    exits 1 iff any are confirmed dead — so --confirm is the blocking gate, the
+    bare sieve is a fast report.  (To REMOVE confirmed-dead imports in place, use
+    the sibling cleanup tool ``python -m tools.warm_apply``.)
 
     File scope (no silent skip): ``--all`` (whole tree) / ``--diff`` (changed vs
     main) / explicit paths.  ``--diff`` with no .agda change is a genuine no-op

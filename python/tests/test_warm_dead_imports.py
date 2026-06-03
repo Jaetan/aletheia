@@ -5,19 +5,20 @@
 Per the project rule to test from the grammar / synthetic fixtures rather than
 the current codebase (``memory/project_agda_iwyu.md``: "Test from the GRAMMAR,
 not the tree"), every fixture here is hand-built Agda source plus synthetic
-Agda-highlighting tokens plus synthetic ``show_module_contents`` results.  This
-exercises, without spawning agda or reading any project file:
+Agda-highlighting tokens.  This exercises, without spawning agda or reading any
+project file:
 
-* the gate's candidate logic (:func:`detect_dead`) — the unused-sieve,
-  def-id duplicate detection (and that an *overload* is NOT a duplicate), the
-  wildcard-redundancy signal, the unresolvable-wildcard confirm-all fallback,
-  and ``public`` re-export exclusion;
+* the gate's candidate logic (:func:`detect_dead`) — the unused (dead) sieve,
+  that a name still in USE is never flagged (even when a duplicate import or a
+  wildcard open also supplies it — redundancy is deliberately NOT flagged), and
+  ``public`` re-export exclusion;
 * the confirm clause-editing (:func:`texts_without_name`), including the P1
   case of a non-``import`` open and the clause-scoped edit that never touches a
   module path;
 * the warm read-loop logic (:func:`read_load` / :func:`read_module_contents`),
   notably the SILENCE guard that makes an unresolvable ``show_module_contents``
-  return ``None`` instead of hanging — the regression test for a real hang.
+  return ``None`` instead of hanging — the regression test for a real hang
+  (:func:`read_module_contents` serves the IWYU narrower ``tools.warm_iwyu``).
 """
 
 from __future__ import annotations
@@ -67,29 +68,42 @@ def _tok(text: str, needle: str, occ: int, defid: DefId) -> Token:
 # ---- detect_dead: the candidate matrix -------------------------------------
 
 
-def test_detect_dead_unused_and_wildcard_redundant() -> None:
-    """An unused name is dead; a used name a wildcard also supplies is redundant."""
-    text = (
-        "module Fixture where\n"
-        "open import P using (usedName; deadName)\n"
-        "open import W\n"
-        "body = usedName\n"
-    )
+def test_detect_dead_unused_is_dead() -> None:
+    """An imported name whose def-id never reappears in the body is dead."""
+    text = "module Fixture where\nopen import P using (usedName; deadName)\nbody = usedName\n"
     tokens = [
         _tok(text, "usedName", 0, ("P.agda", 10)),  # import-clause occurrence
         _tok(text, "deadName", 0, ("P.agda", 20)),  # imported, never used -> dead
         _tok(text, "usedName", 1, ("P.agda", 10)),  # body use -> same def-id -> alive
     ]
-    result = detect_dead(text, tokens, _ABS, {"W": ["usedName", "wOther"]})
+    result = detect_dead(text, tokens, _ABS)
     assert result["dead"] == ["deadName"]
-    assert result["wildcard_redundant"] == ["usedName"]  # W (wildcard) also supplies it
-    assert result["candidates"] == ["deadName", "usedName"]
-    assert result["duplicates"] == []
+    assert result["candidates"] == ["deadName"]  # candidates == dead
     assert result["public_skipped"] == []
 
 
-def test_detect_dead_duplicate_same_defid() -> None:
-    """Two imports of the SAME entity (one def-id) make one a removable duplicate."""
+def test_detect_dead_used_name_is_never_flagged_redundant() -> None:
+    """A name still in USE is alive even if a wildcard ``open`` also supplies it.
+
+    The dead-only contract: redundancy (used here AND wildcard-supplied) is NOT
+    flagged — that speculative, anti-IWYU signal is exactly what this gate drops.
+    """
+    text = (
+        "module Fixture where\n"
+        "open import P using (usedName)\n"
+        "open import W\n"  # wildcard that may also supply usedName — irrelevant now
+        "body = usedName\n"
+    )
+    tokens = [
+        _tok(text, "usedName", 0, ("P.agda", 10)),  # import-clause occurrence
+        _tok(text, "usedName", 1, ("P.agda", 10)),  # body use -> alive
+    ]
+    result = detect_dead(text, tokens, _ABS)
+    assert result["candidates"] == []  # used -> not flagged; the wildcard is ignored
+
+
+def test_detect_dead_duplicate_but_used_is_not_flagged() -> None:
+    """A name imported twice but USED is alive — no duplicate speculation."""
     text = (
         "module Fixture where\nopen import P using (dup)\nopen import Q using (dup)\nbody = dup\n"
     )
@@ -97,24 +111,10 @@ def test_detect_dead_duplicate_same_defid() -> None:
     tokens = [
         _tok(text, "dup", 0, entity),  # P clause
         _tok(text, "dup", 1, entity),  # Q clause (same entity, re-exported)
-        _tok(text, "dup", 2, entity),  # body use -> alive, but still a duplicate
+        _tok(text, "dup", 2, entity),  # body use -> alive
     ]
-    result = detect_dead(text, tokens, _ABS, {})
-    assert result["duplicates"] == ["dup"]
-    assert "dup" in result["candidates"]
-
-
-def test_detect_dead_overload_is_not_duplicate() -> None:
-    """Two same-NAMED but distinct entities (different def-ids) are not paired."""
-    text = "module Fixture where\nopen import P using (ov)\nopen import Q using (ov)\nbody = ov\n"
-    tokens = [
-        _tok(text, "ov", 0, ("A.agda", 1)),  # P clause
-        _tok(text, "ov", 1, ("B.agda", 2)),  # Q clause — DIFFERENT entity
-        _tok(text, "ov", 2, ("A.agda", 1)),  # body uses P's
-    ]
-    result = detect_dead(text, tokens, _ABS, {})
-    assert result["duplicates"] == []  # distinct def-ids -> not a duplicate
-    assert result["candidates"] == []  # used, no wildcard, no dup -> nothing
+    result = detect_dead(text, tokens, _ABS)
+    assert result["candidates"] == []  # used -> not a candidate (duplicate not flagged)
 
 
 def test_detect_dead_public_reexport_excluded() -> None:
@@ -124,33 +124,9 @@ def test_detect_dead_public_reexport_excluded() -> None:
         _tok(text, "pub", 0, ("P.agda", 7)),  # public clause
         _tok(text, "pub", 1, ("P.agda", 7)),  # body use
     ]
-    result = detect_dead(text, tokens, _ABS, {})
+    result = detect_dead(text, tokens, _ABS)
     assert result["public_skipped"] == ["pub"]
     assert result["candidates"] == []
-
-
-def test_detect_dead_unresolvable_wildcard_falls_back_to_all() -> None:
-    """A wildcard whose module smc cannot enumerate makes every name a candidate.
-
-    The sound, no-false-negative fallback that replaced disqualification: when a
-    non-``using`` open's module is absent from ``module_contents`` (e.g. one
-    defined in a local scope), confirm — not membership — must decide, so every
-    check-name is nominated.
-    """
-    text = (
-        "module Fixture where\n"
-        "open import P using (a; b)\n"
-        "open LocalMod\n"  # non-import wildcard, absent from module_contents
-        "body = a\n"
-    )
-    tokens = [
-        _tok(text, "a", 0, ("P.agda", 1)),
-        _tok(text, "b", 0, ("P.agda", 2)),
-        _tok(text, "a", 1, ("P.agda", 1)),  # body uses a (b is unused)
-    ]
-    result = detect_dead(text, tokens, _ABS, {})  # no entry for LocalMod
-    assert set(result["wildcard_redundant"]) == {"a", "b"}
-    assert set(result["candidates"]) >= {"a", "b"}
 
 
 # ---- texts_without_name: confirm clause-editing over any open --------------
