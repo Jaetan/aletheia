@@ -19,7 +19,7 @@ cabal-install's ``dist-newstyle/`` flock when the parent process is itself
 ``cabal run``.  Direct invocation avoids the flock-recursion entirely.  See
 Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
-═══ ALWAYS-ON STEPS (30 total) ═══
+═══ ALWAYS-ON STEPS (31 total) ═══
 
   Agda gates (8):
      1. build           — produces libaletheia-ffi.so
@@ -31,7 +31,7 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
      7. check-ffi-exports
      8. count-modules
   Branch-scoped Agda gate (1):
-     9. prune-unused-imports — `tools/prune_unused_imports.py --check-only`
+     9. dead-imports — `tools/warm_dead_imports.py --diff --confirm`
         on .agda files modified vs main.  Agda-driven precise check; fails
         if any branch-introduced dead imports remain.  Empty diff ⇒ no-op.
         Omits --include-public (caught by periodic full sweep — too slow
@@ -67,6 +67,8 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
     28. actionlint (workflow YAML lint, skipped if not installed)
     29. check-action-pins
     30. check-workflow-permissions
+  Source-hygiene gate (1):
+    31. check-spdx-headers (SPDX license header on every source/build file)
 
 ═══ OPT-IN LANES (3 total) ═══
 
@@ -146,7 +148,7 @@ POSIX_SHELL = "/bin/sh"
 # Number of trailing log lines echoed to stderr when a step fails.
 FAILURE_TAIL_LINES = 50
 
-# Always-on step count (includes promoted UBSan lane + prune-unused-imports
+# Always-on step count (includes promoted UBSan lane + dead-imports
 # gate + SPDX-header gate).
 BASE_STEPS = 31
 
@@ -487,61 +489,6 @@ class Runner:
         return 1
 
 
-def _build_prune_command(python: str) -> str:
-    """Return the shell snippet for the branch-scoped dead-import gate (step 9).
-
-    ``python`` is the resolved 3.14 interpreter (venv or python3.14); the
-    pruner imports 3.14-only tooling, so it must not run under bare python3.
-
-    Agda-driven precise check via ``tools/prune_unused_imports.py
-    --check-only``.  Runs on the set of .agda files modified vs main —
-    not the whole tree — to keep the gate's runtime proportional to
-    the size of the work.  Empty change-set ⇒ no-op.
-
-    We deliberately OMIT --include-public here: that mode invokes agda
-    on every direct consumer of each modified file, which can multiply
-    runtime by 5-30x when a public-heavy file (e.g. Prelude.agda) is
-    touched.  Public-line dead imports are caught by the full periodic
-    sweep, not this per-branch gate.  See
-    memory/feedback_agda_import_pruning_safety.md for the trade-off.
-
-    ``--no-topo`` is a hint here: skip the topo-graph startup overhead
-    IF the modified file set has no inter-dependencies (single topo
-    level).  The tool auto-overrides to topo batching when inter-deps
-    are detected (e.g., a branch that touches Universal.agda + its
-    imports), keeping the race-free guarantee.
-    """
-    return (
-        "files=$(git diff --name-only main...HEAD -- 'src/' "
-        "| grep '\\.agda$' || true); "
-        'if [ -z "$files" ]; then '
-        "  echo 'no .agda files modified vs main; skipping'; "
-        "  exit 0; "
-        "fi; "
-        # Sanity threshold: per-file agda runs are 5-15 min each.  Past
-        # ~30 files the gate runtime becomes hostile for a per-push CI.
-        # Long-running review branches should rely on the periodic full
-        # sweep instead.  Override with ALETHEIA_PRUNE_GATE_NOLIMIT=1.
-        'n=$(echo "$files" | wc -l); '
-        'if [ "$n" -gt 30 ] && [ -z "$ALETHEIA_PRUNE_GATE_NOLIMIT" ]; then '
-        '  echo "$n modified .agda files exceeds the gate\'s 30-file threshold."; '
-        "  echo 'Branches this large should rely on the periodic full sweep'; "
-        "  echo '(tools/prune_unused_imports.py -j 4 --include-public --final-check).'; "
-        "  echo 'Override with ALETHEIA_PRUNE_GATE_NOLIMIT=1 to force the gate to run.'; "
-        "  exit 0; "
-        "fi; "
-        "printf 'checking %s modified file(s) for dead imports...\\n' \"$n\"; "
-        # --rts-heap 16 / --timeout 900: heavy proof modules (e.g. TextParser,
-        # Aggregator/Refine/ValueDescriptions) need check-properties' -M16G to
-        # baseline-type-check; the tool's 3G/300s defaults FP-fail their baseline
-        # ("file does not type-check") even though they pass check-properties.
-        # -j 1 (serial) is REQUIRED alongside -M16G: the tool's default 4 workers
-        # x 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
-        f"{python} -m tools.prune_unused_imports --check-only --no-topo -j 1 "
-        "--rts-heap 16 --timeout 900 $files"
-    )
-
-
 def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     """Run steps 1-9: the Agda gate sweep plus the branch-scoped dead-import gate."""
     # ─── Steps 1-8: Agda gates ─────────────────────────────────────────────
@@ -554,8 +501,16 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
     runner.step("count-modules", [*cabal, "count-modules"])
 
-    # ─── Step 9: dead-import gate on branch-modified files ─────────────────
-    runner.step("prune-unused-imports", _build_prune_command(runner.python))
+    # ─── Step 9: dead-import gate on branch-modified files (grammar-complete) ─
+    # warm_dead_imports does its own --diff scoping (git diff main...HEAD -- src/)
+    # + per-candidate ground-truth confirm.  It supersedes prune_unused_imports,
+    # whose parse_imports silently drops multi-line ``using`` clauses (a real
+    # false negative); the grammar-complete _agda_opens scan does not.
+    runner.step(
+        "dead-imports",
+        [runner.python, "-m", "tools.warm_dead_imports", "--diff", "--confirm"],
+        cwd=runner.repo_root,
+    )
 
 
 def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:

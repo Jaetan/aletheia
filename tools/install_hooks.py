@@ -172,10 +172,11 @@ def main() -> int:
         sys.stderr.write(out + "\\n\\n")
         sys.stderr.write(
             "pre-commit: ADVISORY ONLY — commit proceeds.  Run\\n"
-            "  tools/prune_unused_imports.py --check-only "
+            "  python -m tools.warm_dead_imports --confirm "
             + " ".join(str(f.relative_to(repo_root)) for f in files) + "\\n"
-            "to verify which are actually dead (the scanner has known FPs:\\n"
-            "see memory/feedback_agda_import_pruning_safety.md).\\n\\n"
+            "to confirm which are actually dead — --confirm is the ground-truth\\n"
+            "recompile check that filters the scanner's false positives\\n"
+            "(see memory/feedback_agda_import_pruning_safety.md).\\n\\n"
         )
     return 0
 
