@@ -76,8 +76,15 @@ known-first-party = ["aletheia"]
 # A demo / benchmark script exists to print its results for a human reader:
 # stdout is the deliverable, so the no-print rule does not apply.  These are
 # runnable scripts, not importable packages, hence INP001 too.
+#
+# The top-level benchmarks/ profilers are white-box: they ``assert`` invariants
+# (S101) and deliberately reach into FFI internals (SLF001) to time each phase.
+# These mirror the per-binding profiling done by the C++/Go harnesses and carry
+# no signal here.  The basedpyright counterpart (reportPrivateUsage) is NOT
+# muffled dir-wide -- it stays on project-wide and is suppressed only inline, at
+# the exact white-box lines in profile_extraction.py (each with a rationale).
 "examples/**" = ["T201", "INP001"]
-"benchmarks/**" = ["T201", "INP001"]
+"benchmarks/**" = ["T201", "INP001", "S101", "SLF001"]
 "python/benchmarks/**" = ["T201", "INP001"]
 
 [format]
