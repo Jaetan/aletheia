@@ -153,6 +153,16 @@ extraPaths = [".."]
 root = "tests"
 extraPaths = ["..", "."]
 
+# The example demos under ../examples/demo run as scripts (``python
+# examples/demo/demo.py``), so they import their siblings as bare modules
+# (``import drive_log`` / ``from engine_ecu_sim import ...``).  Add the demo
+# directory itself to the search path so basedpyright resolves those sibling
+# imports; ``aletheia`` still resolves via the project root.  Pure import-path
+# resolution (mirrors the ../tools env), NOT a check relaxation.
+[[tool.basedpyright.executionEnvironments]]
+root = "../examples/demo"
+extraPaths = ["."]
+
 [tool.pylint.main]
 # Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` /
 # ``tests/`` / ``benchmarks/`` packages (orchestrator runs all three).
