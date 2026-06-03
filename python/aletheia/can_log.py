@@ -38,7 +38,11 @@ _CAN_IMPORT_ERROR_MSG = (
 try:
     import can
 except ImportError as exc:
-    raise ImportError(_CAN_IMPORT_ERROR_MSG) from exc
+    # Preserve name="can" so aletheia.__init__'s `_missing_pkg(_, "can")` guard
+    # recognises this as the optional-extra-absent case and tolerates it; a bare
+    # ImportError(msg) would have name=None and make `import aletheia` hard-fail
+    # whenever python-can is not installed (e.g. the base runtime image).
+    raise ImportError(_CAN_IMPORT_ERROR_MSG, name="can") from exc
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     {
