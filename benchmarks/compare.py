@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Cross-Language Benchmark Comparison.
 
 Reads JSON benchmark results from Python, C++, and Go benchmarks,

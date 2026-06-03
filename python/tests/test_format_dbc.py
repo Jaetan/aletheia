@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for DBC pretty-printer (format_dbc + dbc_to_text)."""
 
 from fractions import Fraction

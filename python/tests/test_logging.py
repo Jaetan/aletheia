@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for opt-in structured logging.
 
 Verifies that the 16 log events shared with Go's ``slog`` and the C++

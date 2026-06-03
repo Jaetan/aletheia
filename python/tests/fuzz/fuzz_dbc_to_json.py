@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 r"""Atheris fuzz harness for ``dbc_to_json``.
 
 The Python binding owns ``dbc_converter.dbc_to_json`` which converts DBC

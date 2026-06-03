@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """IWYU R&D (ci-speed branch): narrow wildcard `open import M` to `using (...)`.
 
 Derives, for each WILDCARD `open import M` (no `using`/`renaming` clause), the

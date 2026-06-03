@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Workbook builders and wide-row fixtures shared by the Excel-loader tests.
 
 ``test_excel_loader.py`` constructs ``.xlsx`` workbooks from inline row

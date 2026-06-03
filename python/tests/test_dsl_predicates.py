@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Unit tests for the Python DSL - Signal and Predicate.
 
 Tests cover:

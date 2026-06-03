@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Industry-vocabulary Check API for CAN signal verification.
 
 Provides fluent, domain-specific wrappers over the LTL DSL so that

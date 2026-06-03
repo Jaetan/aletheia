@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // Excel loader tests.
 // Tests Excel check and DBC parsing with programmatically-created workbooks.
 #include <catch2/catch_test_macros.hpp>

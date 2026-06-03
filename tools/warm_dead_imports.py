@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Warm-process dead-import detection via `agda --interaction-json` (ci-speed).
 
 Supersedes a per-file `agda --html` pass:

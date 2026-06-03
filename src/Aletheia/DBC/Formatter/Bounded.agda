@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- R19 cluster 8 phase e.4 — bounded-emission theorems for the DBC formatter.

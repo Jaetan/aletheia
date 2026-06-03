@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Multiplexing query helpers and DBC definition lookup utilities.
 
 These functions operate on the DBCMessage / DBCDefinition TypedDicts

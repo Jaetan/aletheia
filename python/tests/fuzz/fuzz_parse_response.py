@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 r"""Atheris fuzz harness for the JSON response parser.
 
 Counterpart of go FuzzParseResponse and cpp fuzz_parse_response.cpp.  The

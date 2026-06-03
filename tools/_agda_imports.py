@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Agda import parsing, surgical editing, dependency graphs, and type-checking.
 
 The substrate shared by the dead-import tooling (``prune_unused_imports`` and

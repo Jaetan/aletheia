@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // YAML loader tests.
 // Tests YAML check parsing through the Check API with inline YAML strings.
 #include <catch2/catch_test_macros.hpp>

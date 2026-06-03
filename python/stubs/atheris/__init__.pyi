@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Type stubs for the atheris coverage-guided fuzzing library.
 
 Only covers the subset of the atheris API used by Aletheia's fuzz

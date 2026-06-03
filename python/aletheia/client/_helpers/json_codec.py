@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Protocol-level list parsers for the streaming response shape."""
 
 from typing import TYPE_CHECKING

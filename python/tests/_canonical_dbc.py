@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Single source of the canonical DBC fixture used across tests.
 
 The ``CANONICAL_DBC`` dict is the shared input for the cross-binding

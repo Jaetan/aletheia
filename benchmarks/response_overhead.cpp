@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // Microbenchmark: response parsing overhead on the C++ side.
 //
 // Measures the cost of each step in the ack response path:

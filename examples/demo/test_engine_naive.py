@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Naive Engine ECU Tests — ALL PASS Against the Buggy ECU.
 
 These tests represent the kind of checks that automotive test engineers

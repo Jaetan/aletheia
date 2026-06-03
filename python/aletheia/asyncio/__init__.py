@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Asynchronous mirror of :mod:`aletheia.client` for asyncio code.
 
 Exposes the same set of operation methods as the sync ``AletheiaClient``,

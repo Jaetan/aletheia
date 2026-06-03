@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Package excel provides optional Excel-based loaders for Aletheia check
 // definitions and DBC signal tables. It lives in its own module so the heavy
 // excelize dependency (and its transitive crypto / net / text chain) stays

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // Layer 3: Integration tests with real libaletheia-ffi.so.
 // Requires: cabal run shake -- build (produces build/libaletheia-ffi.so)
 // Run with: ctest -R integration (or ./integration_tests)

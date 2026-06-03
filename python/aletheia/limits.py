@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Adversarial-input bounds — Python mirror of ``Aletheia.Limits`` (Agda).
 
 Single source of truth: ``src/Aletheia/Limits.agda`` (numeric values are

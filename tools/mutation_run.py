@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Dynamic mutation-testing runner.
 
 Drives each binding's mutation tool in turn (mutmut for Python, go-mutesting

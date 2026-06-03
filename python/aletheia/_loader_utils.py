@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Shared field accessors and path-hardening helpers for the YAML and Excel loaders.
 
 Both loaders need to (a) extract typed fields from untyped dicts with

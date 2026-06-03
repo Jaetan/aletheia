@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/scan_dead_imports.py — fast regex scanner for dead Agda imports.
 
 This is the FAST tier of the dead-import workflow.  It uses regex pattern

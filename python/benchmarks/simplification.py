@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Simplification Stress Benchmark.
 
 Tests whether Rosu formula simplification keeps the formula tree bounded

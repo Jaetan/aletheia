@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Structural roundtrip tests for Tier 1 DBC metadata.
 
 Tier 1 covers the three metadata arrays already modeled by the Agda ``DBC``

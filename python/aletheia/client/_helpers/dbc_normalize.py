@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Outbound (TypedDict → wire JSON) and inbound (Agda formatDBC → DBCDefinition) normalisation."""
 
 from __future__ import annotations

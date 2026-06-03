@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Unit tests: Check DSL (one-shot, two-step, when/then chains).
 //

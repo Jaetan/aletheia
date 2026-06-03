@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """YAML shape helpers shared by parity tests.
 
 Both ``test_feature_matrix_parity`` and ``test_log_events_parity`` validate

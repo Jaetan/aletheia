@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Configurable mock backend for testing.
 // Tests include this header directly to queue responses and inspect requests.

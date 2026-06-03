@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Cross-binding log event vocabulary parity — Python side.
 
 Reads ``docs/LOG_EVENTS.yaml`` and asserts that the canonical event set

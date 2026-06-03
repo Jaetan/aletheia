@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/install_hooks.py — Install Aletheia's offline-CI git hooks.
 
 Idempotent: safe to re-run.  Each hook is installed only if not already

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Grep-guard for test files that reach into ``aletheia.client._*`` internals.
 
 Test modules are allowed to exercise implementation detail directly, but

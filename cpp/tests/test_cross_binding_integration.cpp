@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // Cross-binding integration test (R18 cluster 5 — Cat 33d).
 //
 // Counterpart of python/tests/test_cross_binding_integration.py and

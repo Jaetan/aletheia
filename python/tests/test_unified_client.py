@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Core tests for the unified AletheiaClient.
 
 Covers basic operations, streaming, mixed signal/streaming flows, the

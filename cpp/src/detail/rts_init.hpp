@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
 // Shared GHC RTS init state — used by both `rational_renderer.cpp` and

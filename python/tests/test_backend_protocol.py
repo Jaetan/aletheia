@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Backend Protocol + MockBackend + DI seam coverage.
 
 Covers the Backend Protocol DI seam and the MockBackend (documented but

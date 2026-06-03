@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Agda/Python ``ErrorCode`` enum synchronization.
 
 Guards the Python ``ErrorCode`` enum in ``aletheia.protocols`` against

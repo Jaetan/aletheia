@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --without-K #-}
 
 -- B.3.d substrate: bridging axioms for `String ↔ List Char` (Track B.3.d

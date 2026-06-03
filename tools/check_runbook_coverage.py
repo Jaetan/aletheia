@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/check_runbook_coverage.py — Enforce runbook coverage of every log event.
 
 Offline enforcer for AGENTS.md cat 22 (Operational runbook — log-keyed

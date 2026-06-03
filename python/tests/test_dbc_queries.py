@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for dbc_queries multiplexing helpers and definition lookups."""
 
 from aletheia._dbc_types import empty_dbc_tier2

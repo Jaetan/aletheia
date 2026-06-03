@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Shared benchmark helpers: DBC loaders, frame constants, system info, dataclasses.
 
 Every benchmark script in this directory pulls DBC loaders, frame byte

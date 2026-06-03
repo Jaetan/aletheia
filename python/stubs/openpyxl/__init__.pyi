@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Minimal type stubs for openpyxl.
 
 Only covers the API surface used by Aletheia's excel_loader module.

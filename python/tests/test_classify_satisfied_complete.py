@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Re-evaluating a Satisfied proc must not emit a spurious Violated counterexample.
 
 ``classifyStepResult`` in ``Aletheia.Protocol.StreamState.Internals`` returns

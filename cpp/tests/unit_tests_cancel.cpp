@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Cancellation regression tests for AletheiaClient's std::stop_token surface.
 // Mirrors the Go binding's cancel_test.go semantics:

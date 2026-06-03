@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Generate sample CAN log data for the demo.
 
 This module provides sample CAN frames simulating a drive where:

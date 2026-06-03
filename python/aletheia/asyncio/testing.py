@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Deterministic test scaffolding for async cancellation contracts.
 
 Public testing helpers used by ``python/tests/test_cancellation.py`` and

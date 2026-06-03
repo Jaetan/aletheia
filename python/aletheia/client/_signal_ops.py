@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Signal operations mixin for :class:`aletheia.AletheiaClient`.
 
 Hosts ``extract_signals`` / ``update_frame`` / ``build_frame`` so the

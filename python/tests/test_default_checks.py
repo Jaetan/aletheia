@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for AletheiaClient default_checks and add_checks() API.
 
 Verifies that default checks are correctly merged with session checks,

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Repo-root conftest — harness for `pytest --markdown-docs`.
 
 Doc-example harness per AGENTS.md § Python Cat 32. Every ```python fence

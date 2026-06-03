@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Command stability is the Go long-run resource-leakage harness (R18 cluster
 // 6 / Go cat 27).
 //

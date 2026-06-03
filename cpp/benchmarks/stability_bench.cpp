@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // Long-run resource-leakage stability harness (R18 cluster 6 / C++ cat 26).
 //
 // Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M

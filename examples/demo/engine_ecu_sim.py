@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Engine ECU Simulator with Staleness Bug.
 
 Simulates an Engine ECU that sends periodic CAN messages containing:

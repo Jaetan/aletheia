@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Lazy-import boundary guard for ``aletheia/__init__.py``.
 
 The ``aletheia`` package re-exports from submodules at import time. One

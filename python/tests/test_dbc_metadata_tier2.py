@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Structural roundtrip tests for Tier 2 DBC metadata.
 
 Tier 2 widens the DBC wire shape with the three tagged-union arrays introduced

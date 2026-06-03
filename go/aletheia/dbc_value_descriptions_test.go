@@ -1,5 +1,6 @@
 //go:build cgo && linux
 
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
 // Track E — VAL_ value descriptions on DBCSignal.ValueDescriptions and the

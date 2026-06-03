@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Staleness Bug Demo — LTL Catches What Naive Tests Cannot.
 
 This demo shows the key value proposition of Aletheia's formally verified

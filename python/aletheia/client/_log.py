@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Structured logging schema for the Python binding.
 
 Mirrors the 16-event vocabulary used by the Go binding's ``slog`` calls and

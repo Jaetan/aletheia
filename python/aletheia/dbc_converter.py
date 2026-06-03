@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Convert between .dbc files, JSON, and DBC text format.
 
 * ``dbc_to_json``: parse a .dbc file to the Agda wire format via the

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """CAN log file reader.
 
 Read industry-standard CAN log files and convert frames for Aletheia analysis.

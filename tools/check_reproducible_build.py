@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/check_reproducible_build.py — Reproducible-build hash gate.
 
 Implements reproducible build verification.  Runs two clean

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Static mutation-setup coverage gate.
 
 Parses ``docs/MUTATION_BENCH.yaml`` and verifies, for every binding, that the

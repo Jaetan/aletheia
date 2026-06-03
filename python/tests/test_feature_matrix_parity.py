@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Feature matrix parity test — Python side.
 
 Reads ``docs/FEATURE_MATRIX.yaml`` and verifies:

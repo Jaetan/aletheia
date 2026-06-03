@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Unit tests for CAN-FD BRS / ESI metadata plumbing on the Python side.
 
 R19 Phase 2 cluster 18 — AGDA-D-10.1 / 13.1 / 17.1 closure.

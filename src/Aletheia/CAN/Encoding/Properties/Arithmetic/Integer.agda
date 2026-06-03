@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Layer 2 (ℕ ↔ ℤ two's complement) bridge lemmas for CAN signal encoding.

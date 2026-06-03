@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for end-of-stream property finalization.
 
 Verifies that properties are correctly finalized when end_stream() is called.

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Load-bearing reduction canary for the B.3.d Layer 3 `EV_` proof.

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // JSON serialization: C++ types → JSON command strings for the Agda core.
 #include "detail/json.hpp"

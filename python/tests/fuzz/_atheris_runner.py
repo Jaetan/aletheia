@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Shared atheris setup / Fuzz invocation boilerplate.
 
 Three fuzz harnesses (``fuzz_parse_response``, ``fuzz_dbc_to_json``,

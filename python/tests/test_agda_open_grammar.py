@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Grammar-derived regression tests for ``tools._agda_opens`` (open detection).
 
 The fixtures here are SYNTHETIC and derived from Agda's import/open grammar

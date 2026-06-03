@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/review_db.py -- Review findings database.
 
 Loads structured YAML findings under .archive/reviews/r*/ into an in-memory

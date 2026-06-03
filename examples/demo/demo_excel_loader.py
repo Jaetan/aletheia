@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Excel Loader Demo.
 
 Load signal checks and DBC definitions from an Excel workbook (.xlsx).

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Layer 3 (ℚ scaling) and Layers A/A'/C/D (floor bounds, normalization,

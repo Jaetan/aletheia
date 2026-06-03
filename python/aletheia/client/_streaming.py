@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Streaming / frame-I/O mixin for :class:`aletheia.AletheiaClient`.
 
 Hosts ``start_stream`` / ``send_frame`` / ``send_frames`` /

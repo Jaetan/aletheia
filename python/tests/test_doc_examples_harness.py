@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Cat 32 gate: every ``python`` fence in the published docs must run.
 
 Per AGENTS.md § Python Cat 32 and the doc-example harness in the repo-root

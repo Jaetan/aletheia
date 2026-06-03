@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/check_limits_parity.py — Enforce parity between Agda Limits SSOT and binding mirrors.
 
 Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces",

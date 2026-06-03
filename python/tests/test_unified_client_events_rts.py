@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Trace-event, format_dbc, and RTS-state tests for AletheiaClient.
 
 Split out of ``test_unified_client.py`` to keep that file under the

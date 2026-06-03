@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Cancellation contract tests.
 
 Covers the four scenarios called out in docs/architecture/CANCELLATION.md:

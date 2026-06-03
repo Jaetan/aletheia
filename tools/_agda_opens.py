@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Grammar-complete detection of Agda ``open``/``import`` directives.
 
 This is the substrate for the dead-import gate's "what does each open inject?"

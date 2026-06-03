@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/run_ci.py — Offline CI orchestrator.
 
 Chains the full gate sweep that commit messages have historically asserted

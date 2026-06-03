@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Response parsers — turn raw FFI JSON dicts into typed response objects.
 
 Pure functions, stateless. Extracted from ``_client.py`` so the

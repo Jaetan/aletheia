@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Aletheia Client sub-package — public API.
 
 Names exported here are part of the stable public surface alongside the

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Focused tests for ``aletheia.client._response_parsers``.
 
 Complements the per-surface tests in ``test_unified_client*`` by

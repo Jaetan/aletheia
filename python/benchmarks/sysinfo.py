@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """System Info & Docker Sizing Benchmark.
 
 Runs a short benchmark and prints resource usage, throughput, and Docker

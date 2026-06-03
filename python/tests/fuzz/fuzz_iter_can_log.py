@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 r"""Atheris fuzz harness for ``iter_can_log``.
 
 ``iter_can_log`` parses CAN log files (asc, blf, mf4) into ``CANFrameTuple``

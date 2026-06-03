@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # GHA infrastructure checks — meta-gates that have no offline equivalent.
 #
 # Aletheia's CI is local-first (see docs/development/CI_LOCAL.md): the

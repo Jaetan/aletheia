@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Warm-engine flat dead-import prune (ci-speed branch).
 
 Tests each imported name INDEPENDENTLY against the pristine file: remove the

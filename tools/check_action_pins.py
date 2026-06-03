@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/check_action_pins.py — Verify action-pin policy on GHA workflows.
 
 Aletheia's action-pin policy:

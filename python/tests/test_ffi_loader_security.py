@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """FFI shared-library loader security tests.
 
 R19 cluster B / PY-B-26.11: ``ALETHEIA_LIB`` is implicitly trusted (anyone

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Frame Injection Demo.
 
 Injects a modified CAN frame mid-stream and verifies that Aletheia

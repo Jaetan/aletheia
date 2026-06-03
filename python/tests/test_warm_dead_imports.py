@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Pure tests for ``tools.warm_dead_imports`` — synthetic fixtures, no agda, no tree.
 
 Per the project rule to test from the grammar / synthetic fixtures rather than

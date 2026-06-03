@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """DBC structure TypedDicts (private — re-exported via ``aletheia.protocols``).
 
 Holds the cross-binding DBC wire schema: the leaf type aliases

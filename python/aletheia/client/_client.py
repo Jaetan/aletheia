@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """AletheiaClient — streaming LTL checking and signal operations via FFI."""
 
 from __future__ import annotations

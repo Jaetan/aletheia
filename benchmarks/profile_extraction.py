@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Profile CAN-FD extraction to identify bottlenecks.
 
 Breaks down the per-frame cost into:

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Internal JSON serialization/parsing — not part of the public API.
 // Tests may include this header to verify JSON round-trips directly.

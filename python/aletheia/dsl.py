@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Python DSL for LTL properties over CAN signals.
 
 Provides fluent interface for expressing temporal properties:

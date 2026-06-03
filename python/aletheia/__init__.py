@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Aletheia - Formally verified CAN frame analysis with LTL.
 
 AletheiaClient

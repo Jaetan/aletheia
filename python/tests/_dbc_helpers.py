@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Compact DBC builders used by test modules to avoid duplicate-code.
 
 The JSON shape of a DBC signal is verbose (11 required fields). When every

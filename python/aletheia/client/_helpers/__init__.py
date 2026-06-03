@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Pure helper functions for response parsing and type conversion.
 
 Split into three sub-modules by concern:

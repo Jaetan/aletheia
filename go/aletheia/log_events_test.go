@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Cross-binding log event vocabulary parity — Go side.
 //
 // Reads docs/LOG_EVENTS.yaml and asserts:

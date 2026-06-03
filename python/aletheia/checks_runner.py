@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Engine-layer driver for :func:`run_checks` and its result types.
 
 Streams a CAN log through :class:`AletheiaClient`, builds enriched

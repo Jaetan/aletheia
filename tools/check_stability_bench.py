@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Static stability-bench coverage gate.
 
 Parses ``docs/STABILITY_BENCH.yaml`` and verifies, for every

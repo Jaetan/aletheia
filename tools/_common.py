@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Shared helpers for the Aletheia developer tooling (the tools/ package).
 
 Centralises the small boilerplate that several gate scripts would otherwise

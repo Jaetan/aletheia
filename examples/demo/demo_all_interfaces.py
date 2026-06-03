@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Four-Tier Equivalence Demo.
 
 Defines the same 3 checks using all four interface tiers and proves

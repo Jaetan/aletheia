@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Type stubs for python-can library.
 
 Only covers the subset of python-can API used by Aletheia's can_log module.

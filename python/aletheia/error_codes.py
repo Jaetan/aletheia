@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Machine-readable error codes mirroring Agda's ``Error`` ADT.
 
 This module is the Python side of the cross-binding error-code contract.

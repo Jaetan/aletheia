@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Excel loader for CAN signal checks and DBC definitions.
 
 Loads check definitions and DBC signal tables from Excel workbooks

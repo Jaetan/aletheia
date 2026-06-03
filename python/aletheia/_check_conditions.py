@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Shared condition vocabulary for YAML and Excel check loaders.
 
 Both loaders accept the same set of condition keywords and dispatch them

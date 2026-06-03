@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 cmake_minimum_required(VERSION 3.25)
 project(aletheia-cpp VERSION 1.1.1 LANGUAGES CXX)
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Aletheia Go Benchmark
 //
 // Measures throughput, latency, and scaling for CAN 2.0B and CAN-FD frames

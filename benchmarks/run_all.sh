@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # Cross-Language Benchmark Runner
 #
 # Builds all bindings and runs throughput benchmarks for Python, C++, and Go.
