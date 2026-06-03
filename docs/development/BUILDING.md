@@ -121,15 +121,16 @@ agda test.agda
 
 #### 5. Python
 
-**Minimum version: 3.13** (required by `python/pyproject.toml` — `requires-python = ">=3.13"`)
-**Recommended: 3.13+** (Docker images use 3.13; 3.14 works but is not in the Dockerfile base images yet)
+**Minimum version: 3.14** (required by `python/pyproject.toml` — `requires-python = ">=3.14"`)
+**The build tooling invokes `python3.14`** for the dev venv; the project uses 3.14-only syntax (PEP 758).
+(Note: the Dockerfile / reproducible-build base images still pin 3.13 and are pending a bump to 3.14.)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
 ```bash
-# Check if Python is installed (must be 3.13+)
-python3 --version
-# Should output: Python 3.13.0 or higher
+# Check if Python is installed (must be 3.14+)
+python3.14 --version
+# Should output: Python 3.14.0 or higher
 
 # If you need to install a newer Python:
 # - On Ubuntu 26.04+: python3.14 is available via apt (no PPA needed)
@@ -298,7 +299,7 @@ For integrating `libaletheia-ffi.so` into C, C++, or Go projects, see [DISTRIBUT
 
 For deployment outside the git repository (Docker, CI/CD, shared servers), Aletheia can be installed
 as a self-contained bundle with all GHC runtime libraries included. No GHC or Agda is needed at
-runtime — only Python 3.13+.
+runtime — only Python 3.14+.
 
 #### Prerequisites
 
@@ -329,7 +330,7 @@ $PREFIX/
 ├── lib/aletheia/
 │   ├── libaletheia-ffi.so              # patched RPATH=$ORIGIN
 │   ├── libHSbase-*.so, libHSrts-*.so   # bundled GHC runtime (~31 MB)
-│   ├── venv/                           # Python 3.13+ venv with aletheia
+│   ├── venv/                           # Python 3.14+ venv with aletheia
 │   └── manifest.txt                    # for uninstall
 ├── share/doc/aletheia/                 # documentation
 └── share/aletheia/examples/            # example scripts
@@ -459,7 +460,7 @@ deactivate
 
 **Error**: `pip: command not found` after activating venv
 
-**Solution**: Ensure venv was created with a supported Python version (3.13+):
+**Solution**: Ensure venv was created with a supported Python version (3.14+):
 ```bash
 rm -rf .venv
 python3 -m venv .venv

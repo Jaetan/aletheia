@@ -316,11 +316,12 @@ class RunContext:
         timestamp = _now_utc().strftime("%Y-%m-%dT%H-%M-%SZ")
 
         # Prefer the project's venv if present so dev-extras (markdown-docs,
-        # random-order, hypothesis, mutmut) resolve.  Falls back to system
-        # python3 for systems where the lanes are intentionally exercised
-        # against the global env (e.g. release builds).
+        # random-order, hypothesis, mutmut) resolve.  Falls back to python3.14
+        # (the project requires Python 3.14 -- PEP 758 syntax in tools/ and
+        # requires-python>=3.14 -- so bare python3, often 3.12/3.13, would
+        # SyntaxError on the 3.14-only tools).
         venv_python = repo_root / "python" / ".venv" / "bin" / "python3"
-        python = str(venv_python) if venv_python.exists() else "python3"
+        python = str(venv_python) if venv_python.exists() else "python3.14"
 
         return cls(
             repo_root=repo_root,
@@ -486,8 +487,11 @@ class Runner:
         return 1
 
 
-def _build_prune_command() -> str:
+def _build_prune_command(python: str) -> str:
     """Return the shell snippet for the branch-scoped dead-import gate (step 9).
+
+    ``python`` is the resolved 3.14 interpreter (venv or python3.14); the
+    pruner imports 3.14-only tooling, so it must not run under bare python3.
 
     Agda-driven precise check via ``tools/prune_unused_imports.py
     --check-only``.  Runs on the set of .agda files modified vs main —
@@ -533,7 +537,7 @@ def _build_prune_command() -> str:
         # ("file does not type-check") even though they pass check-properties.
         # -j 1 (serial) is REQUIRED alongside -M16G: the tool's default 4 workers
         # x 16G would exceed the WSL2 memory budget (OOM).  Serial caps peak at 16G.
-        "python3 -m tools.prune_unused_imports --check-only --no-topo -j 1 "
+        f"{python} -m tools.prune_unused_imports --check-only --no-topo -j 1 "
         "--rts-heap 16 --timeout 900 $files"
     )
 
@@ -551,7 +555,7 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     runner.step("count-modules", [*cabal, "count-modules"])
 
     # ─── Step 9: dead-import gate on branch-modified files ─────────────────
-    runner.step("prune-unused-imports", _build_prune_command())
+    runner.step("prune-unused-imports", _build_prune_command(runner.python))
 
 
 def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:

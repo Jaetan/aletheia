@@ -209,10 +209,10 @@ checkPrerequisites = do
             , "  macOS:         brew install patchelf"
             , "  Fedora:        sudo dnf install patchelf"
             ]
-    Exit pyCode <- cmd Shell "python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)'"
+    Exit pyCode <- cmd Shell (bootstrapPython ++ " -c 'import sys; sys.exit(0 if sys.version_info >= (3,14) else 1)'")
     case pyCode of
         ExitSuccess -> return ()
-        ExitFailure _ -> error "Python 3.12+ is required. Check your python3 version."
+        ExitFailure _ -> error (bootstrapPython ++ " (Python 3.14+) is required; ensure python3.14 is on PATH.")
 
 -- | Proof-only modules — the SINGLE SOURCE for `check-properties`, type-checked
 -- in one warm `agda --interaction-json` process (tools.warm_check_properties).
@@ -222,6 +222,21 @@ checkPrerequisites = do
 -- `RawSignal : ℚ`-vs-DecRat mismatch in TextParser/Topology precisely because a
 -- root was missing).  Rationale per `feedback_check_properties_aggregator_walks`;
 -- per-module history is in this file's git log (pre-refactor inline comments).
+-- | Interpreters for build tooling.  The project requires Python 3.14 (PEP 758
+-- `except A, B` syntax lives in tools/, plus requires-python>=3.14), so bare
+-- `python3` -- often still 3.12/3.13 -- would `SyntaxError` on the 3.14-only
+-- tools.  Build-tooling invocations therefore run in the dev venv
+-- (`python/.venv`), which is 3.14 AND carries the project's runtime deps: some
+-- meta-checks `import yaml` (PyYAML), absent from a bare interpreter (cf.
+-- feedback_use_venv_for_gates).  Shake runs with cwd = repo root, so the
+-- relative venv path resolves.  `bootstrapPython` is the system 3.14 used only
+-- to create venvs and as the version-gate target.
+pythonBin :: String
+pythonBin = "python/.venv/bin/python3"
+
+bootstrapPython :: String
+bootstrapPython = "python3.14"
+
 proofModules :: [String]
 proofModules =
     -- Parser / top-level JSON
@@ -307,7 +322,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- interfaces.  Replaces the former cold batch (one agda process per module,
         -- ~13× slower: 629s -> ~48s); same `proofModules` single source of truth.
         putInfo "Type-checking proof-only modules (one warm agda process)..."
-        cmd_ "python3" ("-m" : "tools.warm_check_properties" : proofModules)
+        cmd_ pythonBin ("-m" : "tools.warm_check_properties" : proofModules)
 
     phony "check-invariants" $ do
         -- Enforce "postulates and Unsafe modules are limited to the
@@ -750,7 +765,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- without rebuilding the Shake binary.  Branch-level granularity
         -- (one CHANGELOG commit covers any number of public-API commits
         -- on the same branch).
-        cmd_ "python3" "-m" "tools.check_changelog"
+        cmd_ pythonBin "-m" "tools.check_changelog"
 
     phony "check-gate-claim" $ do
         -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
@@ -761,7 +776,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         --
         -- Defaults to HEAD-mode when invoked via Shake (pre-commit mode is
         -- only meaningful inside the actual pre-commit hook context).
-        cmd_ "python3" "-m" "tools.check_gate_claim" "HEAD"
+        cmd_ pythonBin "-m" "tools.check_gate_claim" "HEAD"
 
     phony "check-runbook" $ do
         -- Runbook coverage gate (R18 cluster 4).  AGENTS.md cat 22 mandates
@@ -770,7 +785,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- docs/LOG_EVENTS.yaml and verifies every event name appears as a
         -- `#### `<name>`` heading in the runbook.  Missing entries fail the
         -- gate — operators must not be left blind on an event the code emits.
-        cmd_ "python3" "-m" "tools.check_runbook_coverage"
+        cmd_ pythonBin "-m" "tools.check_runbook_coverage"
 
     phony "check-limits-parity" $ do
         -- Limits SSOT parity gate (post-R20 DEFERRALS sweep).  The Agda
@@ -785,7 +800,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- mirror, numeric value mismatch, BoundKind wire-string mismatch,
         -- or any side having an entry the other side lacks (with explicit
         -- categorisation in NAME_MAPPING).
-        cmd_ "python3" "-m" "tools.check_limits_parity"
+        cmd_ pythonBin "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
@@ -797,7 +812,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- without running the harnesses.  The dynamic counterpart that
         -- actually runs the bench is `tools/stability_run.py`, gated
         -- behind ALETHEIA_STABILITY_CHECK=1 in `tools/run_ci.py`.
-        cmd_ "python3" "-m" "tools.check_stability_bench"
+        cmd_ pythonBin "-m" "tools.check_stability_bench"
 
     phony "check-mutation-setup" $ do
         -- Mutation-setup coverage gate (R18 cluster 7).  AGENTS.md cat 14(g)
@@ -810,7 +825,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Dynamic counterpart that actually runs mutmut / go-mutesting /
         -- Mull is `tools/mutation_run.py`, gated behind
         -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.
-        cmd_ "python3" "-m" "tools.check_mutation_setup"
+        cmd_ pythonBin "-m" "tools.check_mutation_setup"
 
     phony "check-bound-enforcement" $ do
         -- Adversarial-input bound enforcement gate (R20 cluster I /
@@ -822,7 +837,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- ADT and greps for `InputBoundExceeded <Ctor>` emit sites under
         -- `src/`; a ctor with zero sites is dead metadata (the wire code
         -- is unreachable) and fails the gate.
-        cmd_ "python3" "-m" "tools.check_bound_enforcement"
+        cmd_ pythonBin "-m" "tools.check_bound_enforcement"
 
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.
@@ -1015,7 +1030,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- source state, not wall-clock — required for artifact-level repro.
         putInfo "Generating SBOM..."
         let distGhcDeps = map (\dep -> distLib </> takeFileName dep) ghcDeps
-        cmd_ "python3" "-m" "tools.sbom_generate"
+        cmd_ pythonBin "-m" "tools.sbom_generate"
             "--repo" "."
             "--main-so" mainSoDist
             "--out" sbomFile
@@ -1157,7 +1172,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             distGhcDepsDocker = map (\dep -> distLibDocker </> takeFileName dep) ghcDepsDocker
         liftIO $ createDirectoryIfMissing True (takeDirectory imageSbomFile)
         putInfo $ "Generating image SBOM (" ++ imageSbomFile ++ ")..."
-        cmd_ "python3" "-m" "tools.sbom_generate"
+        cmd_ pythonBin "-m" "tools.sbom_generate"
             "--repo" "."
             "--main-so" (distLibDocker </> "libaletheia-ffi.so")
             "--out" imageSbomFile
@@ -1349,7 +1364,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
         -- Create Python venv
         putInfo "Creating Python virtual environment..."
-        cmd_ "python3" "-m" "venv" venvDir
+        cmd_ bootstrapPython "-m" "venv" venvDir
         cmd_ venvPip "install" "--upgrade" "pip" "setuptools" "wheel"
 
         -- Install aletheia Python package (non-editable)

@@ -44,7 +44,7 @@ PRE_PUSH_MARKER = "# aletheia-pre-push-marker (offline CI sweep)"
 PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (dead-import scanner)"
 
 PRE_PUSH_BODY = f'''\
-#!/usr/bin/env python3
+#!/usr/bin/env python3.14
 {PRE_PUSH_MARKER}
 """Aletheia pre-push hook.
 
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
 
 PRE_COMMIT_BODY = f'''\
-#!/usr/bin/env python3
+#!/usr/bin/env python3.14
 {PRE_COMMIT_MARKER}
 """Aletheia pre-commit hook — fast dead-import scanner (advisory).
 
