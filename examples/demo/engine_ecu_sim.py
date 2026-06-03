@@ -15,63 +15,71 @@ exists precisely to detect this, but naive value-range tests cannot catch it.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from aletheia.protocols import DBCDefinition
 
 # CAN message ID for the Engine ECU
 ENGINE_STATUS_ID = 0x300  # 768
 
-# DBC definition for the Engine ECU
-ENGINE_DBC = {
-    "version": "1.0",
-    "messages": [
-        {
-            "id": ENGINE_STATUS_ID,
-            "name": "EngineStatus",
-            "dlc": 8,
-            "sender": "EngineECU",
-            "signals": [
-                {
-                    "name": "EngineRPM",
-                    "startBit": 0,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 0.25,
-                    "offset": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 16383.75,
-                    "unit": "rpm",
-                    "presence": "always",
-                },
-                {
-                    "name": "CoolantTemp",
-                    "startBit": 16,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0,
-                    "offset": -40.0,
-                    "minimum": -40.0,
-                    "maximum": 215.0,
-                    "unit": "degC",
-                    "presence": "always",
-                },
-                {
-                    "name": "FrameCounter",
-                    "startBit": 24,
-                    "length": 4,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0,
-                    "offset": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 15.0,
-                    "unit": "",
-                    "presence": "always",
-                },
-            ],
-        }
-    ],
-}
+# DBC definition for the Engine ECU (raw wire form — float factors etc. — so it
+# is cast to DBCDefinition for the consumers that pass it to ``parse_dbc``).
+ENGINE_DBC = cast(
+    "DBCDefinition",
+    {
+        "version": "1.0",
+        "messages": [
+            {
+                "id": ENGINE_STATUS_ID,
+                "name": "EngineStatus",
+                "dlc": 8,
+                "sender": "EngineECU",
+                "signals": [
+                    {
+                        "name": "EngineRPM",
+                        "startBit": 0,
+                        "length": 16,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 0.25,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 16383.75,
+                        "unit": "rpm",
+                        "presence": "always",
+                    },
+                    {
+                        "name": "CoolantTemp",
+                        "startBit": 16,
+                        "length": 8,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": -40.0,
+                        "minimum": -40.0,
+                        "maximum": 215.0,
+                        "unit": "degC",
+                        "presence": "always",
+                    },
+                    {
+                        "name": "FrameCounter",
+                        "startBit": 24,
+                        "length": 4,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 15.0,
+                        "unit": "",
+                        "presence": "always",
+                    },
+                ],
+            }
+        ],
+    },
+)
 
 
 @dataclass
