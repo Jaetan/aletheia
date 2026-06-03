@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """SPDX license-header gate for the Aletheia source tree.
 
 Every source/build file must carry a two-line SPDX header::

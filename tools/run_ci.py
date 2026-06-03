@@ -147,8 +147,8 @@ POSIX_SHELL = "/bin/sh"
 FAILURE_TAIL_LINES = 50
 
 # Always-on step count (includes promoted UBSan lane + prune-unused-imports
-# gate).
-BASE_STEPS = 30
+# gate + SPDX-header gate).
+BASE_STEPS = 31
 
 _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -702,6 +702,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-workflow-permissions",
         [sys.executable, "-m", "tools.check_workflow_permissions"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-spdx-headers",
+        [sys.executable, "-m", "tools.check_spdx_headers"],
         cwd=runner.repo_root,
     )
 

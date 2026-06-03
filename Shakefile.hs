@@ -767,6 +767,15 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- on the same branch).
         cmd_ pythonBin "-m" "tools.check_changelog"
 
+    phony "check-spdx-headers" $ do
+        -- SPDX license-header gate.  Every source/build file must carry the
+        -- two-line SPDX header (SPDX-FileCopyrightText 2025 Nicolas Pelletier +
+        -- SPDX-License-Identifier BSD-2-Clause).  The tool is an allowlist over
+        -- source/build extensions and excludes docs, archived review data,
+        -- comment-less files (JSON), binaries, and generated artefacts.  Repair
+        -- in place with `python -m tools.check_spdx_headers --apply`.
+        cmd_ pythonBin "-m" "tools.check_spdx_headers"
+
     phony "check-gate-claim" $ do
         -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
         -- Mechanical enforcer for `memory/feedback_gate_claim_integrity.md`.
