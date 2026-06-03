@@ -29,11 +29,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tools.warm_dead_imports import (
+    SRC,
     DefSite,
     Token,
+    all_agda_files,
+    changed_agda_files,
     detect_dead,
     read_load,
     read_module_contents,
+    select_files,
     texts_without_name,
 )
 
@@ -286,3 +290,36 @@ def test_read_load_eof_raises() -> None:
     """EOF mid-load (process died) raises rather than reporting a clean result."""
     with pytest.raises(RuntimeError):
         read_load(_reader([None]))
+
+
+# ---- Layer-2 orchestration: file-scope mode dispatch (no silent skip) -------
+
+
+def testselect_files_all_is_the_whole_tree() -> None:
+    """``--all`` selects every src .agda (onboarding / periodic sweep)."""
+    selected = select_files(["--all"])
+    assert selected == all_agda_files()
+    assert selected, "the source tree should contain .agda files"
+
+
+def testselect_files_diff_matches_changed_set() -> None:
+    """``--diff`` selects exactly the .agda changed vs main (per-push scope)."""
+    assert select_files(["--diff"]) == changed_agda_files()
+
+
+def testselect_files_explicit_passthrough_filters_flags() -> None:
+    """Explicit paths pass through; ``--``-flags are not treated as files."""
+    assert select_files(["--confirm", "A.agda", "B.agda"]) == ["A.agda", "B.agda"]
+
+
+def testselect_files_no_mode_no_files_is_usage_error() -> None:
+    """No mode flag and no files is a usage error (None ⇒ the caller exits 2)."""
+    assert select_files(["--confirm"]) is None
+    assert select_files([]) is None
+
+
+def testall_agda_files_are_src_relative_and_real() -> None:
+    """Whole-tree paths are src-relative .agda files that exist on disk."""
+    files = all_agda_files()
+    assert all(f.endswith(".agda") for f in files)
+    assert all((SRC / f).is_file() for f in files[:5])

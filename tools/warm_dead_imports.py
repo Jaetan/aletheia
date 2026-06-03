@@ -52,7 +52,10 @@ from tools._agda_opens import (
 from tools._common import (
     agda_tree_lock,
     emit,
+    find_executable,
+    git_toplevel,
     install_restore_handlers,
+    run_capture,
     track_inflight,
     untrack_inflight,
 )
@@ -897,6 +900,72 @@ def _confirm_all(agda: WarmAgda, candidates: Candidates) -> int:
     return n_dead
 
 
+def all_agda_files() -> list[RelPath]:
+    """Return every ``.agda`` under ``src/``, src-relative (whole-tree mode)."""
+    return sorted(str(p.relative_to(SRC)) for p in SRC.rglob("*.agda"))
+
+
+def changed_agda_files() -> list[RelPath]:
+    """Return ``.agda`` files changed vs the merge-base with ``main``, src-relative.
+
+    The per-push scope (``git diff --name-only main...HEAD -- src/``).  Sound for
+    a name whose last use was removed in a CHANGED file; a name made dead by an
+    edit in an UNCHANGED file (cross-file deadness) is caught only by the periodic
+    whole-tree (``--all``) sweep — so the per-push gate is complete *modulo* that
+    sweep, not on its own.  A git failure (e.g. no ``main`` ref) is surfaced and
+    yields an empty scope rather than a silent pass.
+    """
+    root = git_toplevel()
+    result = run_capture(
+        [
+            find_executable("git"),
+            "-C",
+            str(root),
+            "diff",
+            "--name-only",
+            "main...HEAD",
+            "--",
+            "src/",
+        ],
+    )
+    if result.returncode != 0:
+        emit("dead-import gate: could not diff vs main (rely on the periodic --all sweep)")
+        return []
+    rels: list[RelPath] = []
+    for line in result.stdout.splitlines():
+        if not line.endswith(".agda"):
+            continue
+        try:
+            rels.append(str((root / line).relative_to(SRC)))
+        except ValueError:
+            continue
+    return sorted(rels)
+
+
+def select_files(args: list[str]) -> list[RelPath] | None:
+    """Resolve the scoped file set from the mode flags; None signals a usage error.
+
+    ``--all`` = whole tree (onboarding / periodic).  ``--diff`` = files changed
+    vs ``main`` (per-push).  Otherwise the explicit ``<relpath.agda> …`` args.
+    Unlike the legacy prune gate — which silently ``exit 0``s past a 30-file
+    threshold (a false negative) — there is NO file-count skip here: the warm
+    sieve is fast enough (~0.6 s/file) to run on every scoped file.
+    """
+    if "--all" in args:
+        files = all_agda_files()
+        emit(f"dead-import gate: whole tree — {len(files)} file(s)")
+        return files
+    if "--diff" in args:
+        files = changed_agda_files()
+        emit(f"dead-import gate: {len(files)} .agda file(s) changed vs main")
+        return files
+    explicit = [a for a in args if not a.startswith("--")]
+    if not explicit:
+        emit("usage: warm_dead_imports [--confirm] (--all | --diff | FILE.agda ...)")
+        return None
+    return explicit
+
+
 def main() -> int:
     """Warm-sweep modules for dead-import candidates; --confirm verifies (gate mode).
 
@@ -905,13 +974,18 @@ def main() -> int:
     warm-recompiled (ground truth, filtering inferred-use false positives); exits
     1 iff any are confirmed dead — so --confirm is the blocking gate, the bare
     sieve is a fast report.
+
+    File scope (no silent skip): ``--all`` (whole tree) / ``--diff`` (changed vs
+    main) / explicit paths.  ``--diff`` with no .agda change is a genuine no-op
+    (exit 0): nothing in scope, not a skipped check.
     """
     args = sys.argv[1:]
     do_confirm = "--confirm" in args
-    files = [a for a in args if not a.startswith("--")]
-    if not files:
-        emit("usage: python -m tools.warm_dead_imports [--confirm] <relpath.agda> [...]")
+    files = select_files(args)
+    if files is None:
         return 2
+    if not files:
+        return 0  # nothing in scope (e.g. --diff with no .agda change): a true no-op
     start = time.time()
     n_dead = 0
     with agda_tree_lock(), WarmAgda() as agda:
