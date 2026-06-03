@@ -15,14 +15,14 @@ open-module-macro — and every directive form), so the candidate set is
 FN-complete by construction.  A candidate is generated three ways:
   * UNUSED — its definition never reappears among the file's BODY tokens.  A
     type used only in an INFERRED position (e.g. `BitVec` in `Maybe (BitVec _)`)
-    references no body token, so this over-flags; `confirm_candidates` filters it.
+    references no body token, so this over-flags; the confirm pass filters it.
   * DUPLICATE — its def-id is imported >=2 times (one copy is redundant).
   * WILDCARD-REDUNDANT — a wildcard open (`open M` / `open import M` with no
     `using`) already supplies it (`show_module_contents` membership).
 
-`confirm_candidates` (remove-one + recompile against agda ground truth) is the
-verdict; the sieve only narrows what is confirmed, so confirm cost is
-proportional to actual deadness, not file size.
+The confirm pass (`drive_dead` / `process_names` — remove-one + recompile
+against agda ground truth) is the verdict; the sieve only narrows what is
+confirmed, so confirm cost is proportional to actual deadness, not file size.
 
 Invoke as `python -m tools.warm_dead_imports [--confirm] <relpath.agda> ...`.
 """
@@ -32,7 +32,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
 import subprocess
 import sys
 import threading
@@ -59,12 +58,8 @@ from tools._common import (
     track_inflight,
     untrack_inflight,
 )
-from tools.prune_unused_imports import (
-    AGDA_BIN,
-    SRC_DIR,
-    remove_name_from_raw,
-    remove_rename_from_raw,
-)
+from tools._dead_edit import texts_without_name
+from tools.prune_unused_imports import AGDA_BIN, SRC_DIR
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -95,18 +90,6 @@ _MIN_DUP_OCCURRENCES = 2
 # silence (verified) -- the short cap turns that into a None verdict, fast.
 _LOAD_SILENCE_S = 300.0
 _SMC_SILENCE_S = 20.0
-
-
-class ConfirmResult(NamedTuple):
-    """How a file's candidates split once authoritatively confirmed.
-
-    `truly_dead` removed cleanly (the file still type-checks with no new
-    silent-semantic-change warning); `false_positives` turned out to be needed
-    (e.g. used only in an inferred position the sieve could not see).
-    """
-
-    truly_dead: list[Name]
-    false_positives: list[Name]
 
 
 class SweepResult(NamedTuple):
@@ -690,102 +673,84 @@ def detect_dead(
 # ---- one and asking agda (ground truth) — NOT the O(all-imports) brute-force.
 
 
-def _edit_clause(raw: str, keyword: str, edit: Callable[[str], str | None]) -> str | None:
-    """Apply `edit` to `raw` from the `keyword` clause onward, keeping the prefix.
+def remove_and_reload(
+    agda: WarmAgda, rel: RelPath, name: Name, baseline: int, *, keep: bool
+) -> bool:
+    """Try removing `name` (each occurrence variant) + warm-reload.
 
-    Slicing from the `using`/`renaming` keyword confines the removal to that
-    clause, so a name equal to the opened module's last path component is never
-    matched in the module path.  Returns None if the keyword is absent or `edit`
-    finds nothing to remove.
-    """
-    match = re.search(rf"\b{keyword}\b", raw)
-    if match is None:
-        return None
-    edited = edit(raw[match.start() :])
-    return raw[: match.start()] + edited if edited is not None else None
-
-
-def _open_raw_without_name(raw: str, open_info: OpenInfo, name: Name) -> str | None:
-    """Return `raw` (one open's directive) with `name` dropped, or None if absent.
-
-    Handles the three entry shapes: a plain `using` name, a `using (module X)`
-    entry, and a `renaming` destination — each edited within its own clause.
-    """
-    if name in open_info.using_names:
-        return _edit_clause(raw, "using", lambda c: remove_name_from_raw(c, name))
-    if "module " + name in open_info.using_names:
-        return _edit_clause(raw, "using", lambda c: remove_name_from_raw(c, "module " + name))
-    pair = next(((s, d) for s, d in open_info.renaming if d == name), None)
-    if pair is not None:
-        return _edit_clause(raw, "renaming", lambda c: remove_rename_from_raw(c, pair[0], pair[1]))
-    return None
-
-
-def texts_without_name(original: str, name: Name) -> list[str]:
-    """Each variant of `original` with `name` dropped from ONE open's clause.
-
-    Iterates EVERY open (`find_opens`), not just top-level `open import` blocks,
-    so a P1 name — a `using` entry on a non-`import` `open M`, an
-    open-module-macro, or a local `where`/`let` open — is removable too.  A name
-    imported in several opens (a duplicate) yields one variant per open, so the
-    confirm tests EVERY occurrence (the redundant copy need not be the first).
-    `public` re-exports are skipped (removing one would change the exported
-    surface, which the per-file recompile cannot validate).  Opens that yield no
-    change are skipped.
-    """
-    variants: list[str] = []
-    for open_info in find_opens(original):
-        if not open_info.is_open or open_info.has_public:
-            continue
-        start, end = open_info.span
-        raw = original[start:end]
-        edited = _open_raw_without_name(raw, open_info, name)
-        if edited is not None and edited != raw:
-            variants.append(original[:start] + edited + original[end:])
-    return variants
-
-
-def _confirm_one(agda: WarmAgda, rel: RelPath, name: Name, original: str, baseline: int) -> bool:
-    """Remove `name` from each block holding it, warm-reload; dead iff ANY succeeds.
-
-    Dead ⇔ for SOME occurrence, the file still type-checks (`ok`) with no new
-    silent-semantic-change warning beyond `baseline` (prune's guard — a removed
-    constructor reinterpreting a pattern as a variable binding).  Trying every
-    occurrence is what catches a redundant duplicate that is not the first copy.
-    ALWAYS restores the original content after each attempt, even on failure.
+    The shared remove-recompile primitive of the confirm gate and the cleanup
+    tool.  Reads the CURRENT file, then returns True iff SOME occurrence-variant still
+    type-checks (`ok`) with no new silent-semantic-change warning beyond
+    `baseline` (prune's guard).  With ``keep=True`` a successful removal STAYS in
+    place (the cleanup path, :mod:`tools.warm_apply`); with ``keep=False`` the
+    file is always restored (the confirm gate).  A failed variant — or any
+    exception — also restores, so it is crash-safe (registered via
+    ``track_inflight``).  Trying every occurrence catches a redundant duplicate
+    that is not the first copy.
     """
     path = SRC / rel
+    original = path.read_text(encoding="utf-8")
     for modified in texts_without_name(original, name):
+        kept = False
         try:
             track_inflight(str(path), original)
             _ = path.write_text(modified, encoding="utf-8")
             result = agda.load(str(path))
             if result.ok and count_semantic_warnings(result.warnings) <= baseline:
-                return True  # this occurrence is removable -> the import is dead
+                kept = keep
+                return True  # removable -> dead
         finally:
-            _ = path.write_text(original, encoding="utf-8")  # ALWAYS restore
+            if not kept:
+                _ = path.write_text(original, encoding="utf-8")  # restore
             untrack_inflight(str(path))
     return False
 
 
-def confirm_candidates(agda: WarmAgda, rel: RelPath, names: list[Name]) -> ConfirmResult:
-    """Classify each candidate by removing JUST it and warm-recompiling.
+def process_names(
+    agda: WarmAgda, rel: RelPath, names: list[Name], *, keep: bool
+) -> tuple[list[Name], list[Name]]:
+    """Run `remove_and_reload` over each name; partition into (dead, alive).
 
-    The baseline is the file's own semantic-warning count, so a pre-existing
-    warning is not counted as new.  Crash-safe: per-candidate finally +
-    atexit/SIGINT/SIGTERM handlers restore the file.
+    The shared per-file driver of confirm (`keep=False`, restores) and apply
+    (`keep=True`, removes for good).  ``baseline`` is the file's own
+    semantic-warning count, so a pre-existing warning is never counted as new.
+    Crash-safe: atexit/SIGINT/SIGTERM handlers plus each removal's own restore.
     """
     install_restore_handlers()
-    original = (SRC / rel).read_text(encoding="utf-8")
     baseline = count_semantic_warnings(agda.load(str(SRC / rel)).warnings)
-    truly_dead: list[Name] = []
-    false_positives: list[Name] = []
+    dead: list[Name] = []
+    alive: list[Name] = []
     for name in names:
-        if _confirm_one(agda, rel, name, original, baseline):
-            truly_dead.append(name)
-        else:
-            false_positives.append(name)
-    return ConfirmResult(truly_dead, false_positives)
+        (dead if remove_and_reload(agda, rel, name, baseline, keep=keep) else alive).append(name)
+    return dead, alive
+
+
+def drive_dead(
+    agda: WarmAgda,
+    candidates: Candidates,
+    *,
+    keep: bool,
+    verb: str,
+    fmt: Callable[[list[Name], list[Name]], str],
+) -> int:
+    """Per-file driver: process each file's candidates and report; return the total.
+
+    The shared loop of the confirm gate (``keep=False``, restores) and the
+    cleanup tool (``keep=True``, :mod:`tools.warm_apply`).  ``fmt(dead, alive)``
+    renders each per-file line, so the two tools keep their own wording
+    (TRULY-DEAD vs REMOVED) over one shared remove-recompile pass
+    (:func:`process_names`).
+    """
+    ncand = sum(len(v) for v in candidates.values())
+    emit(f"=== {verb}: {ncand} candidate(s) via remove + warm recompile ===")
+    start = time.time()
+    total = 0
+    for rel, cands in candidates.items():
+        dead, alive = process_names(agda, rel, cands, keep=keep)
+        total += len(dead)
+        emit(f"  {rel}: {fmt(dead, alive)}")
+    emit(f"=== {verb}: {total} of {ncand} in {time.time() - start:.1f}s ===")
+    return total
 
 
 def _module_contents_for_file(
@@ -837,7 +802,7 @@ def _result_extra(result: DetectResult) -> str:
     return ("  " + "  ".join(parts)) if parts else ""
 
 
-def _sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
+def sweep(agda: WarmAgda, files: list[RelPath]) -> SweepResult:
     """Warm-load each file, print its per-file result, return the SweepResult."""
     candidates: Candidates = {}
     times: list[float] = []
@@ -884,20 +849,14 @@ def _print_summary(
 
 
 def _confirm_all(agda: WarmAgda, candidates: Candidates) -> int:
-    """Confirm every candidate (remove-one + warm-recompile); return the dead count."""
-    ncand = sum(len(v) for v in candidates.values())
-    emit(f"=== confirming {ncand} candidate(s): remove-one + warm recompile (ground truth) ===")
-    start = time.time()
-    n_dead = 0
-    for rel, cands in candidates.items():
-        confirmed = confirm_candidates(agda, rel, cands)
-        n_dead += len(confirmed.truly_dead)
-        emit(
-            f"  {rel}: TRULY-DEAD={confirmed.truly_dead or '—'}  "
-            + f"fp/used={confirmed.false_positives or '—'}"
-        )
-    emit(f"=== confirm: {n_dead} truly-dead of {ncand} in {time.time() - start:.1f}s ===")
-    return n_dead
+    """Confirm every candidate (remove-one + warm-recompile, restoring); dead count."""
+    return drive_dead(
+        agda,
+        candidates,
+        keep=False,
+        verb="confirm",
+        fmt=lambda dead, alive: f"TRULY-DEAD={dead or '—'}  fp/used={alive or '—'}",
+    )
 
 
 def all_agda_files() -> list[RelPath]:
@@ -961,9 +920,30 @@ def select_files(args: list[str]) -> list[RelPath] | None:
         return files
     explicit = [a for a in args if not a.startswith("--")]
     if not explicit:
-        emit("usage: warm_dead_imports [--confirm] (--all | --diff | FILE.agda ...)")
+        emit("usage: warm_dead_imports [--confirm|--apply] (--all | --diff | FILE.agda ...)")
         return None
     return explicit
+
+
+def run_warm_tool(args: list[str], action: Callable[[WarmAgda, SweepResult], int]) -> int:
+    """Resolve --all/--diff/explicit scope, warm-sweep, then run ``action``.
+
+    The shared CLI shell of the gate (:mod:`tools.warm_dead_imports`) and the
+    cleanup (:mod:`tools.warm_apply`): it handles scope selection (usage error →
+    exit 2; empty scope → exit 0 no-op), the agda-tree lock + warm process, and
+    the per-sweep summary, then delegates the per-tool work to
+    ``action(agda, swept)`` whose return value becomes the exit code.
+    """
+    files = select_files(args)
+    if files is None:
+        return 2
+    if not files:
+        return 0  # nothing in scope (e.g. --diff with no .agda change): a true no-op
+    start = time.time()
+    with agda_tree_lock(), WarmAgda() as agda:
+        swept = sweep(agda, files)
+        _print_summary(files, swept.times, swept.candidates, time.time() - start)
+        return action(agda, swept)
 
 
 def main() -> int:
@@ -973,27 +953,21 @@ def main() -> int:
     def-id imported twice or more).  With --confirm, each is remove-one +
     warm-recompiled (ground truth, filtering inferred-use false positives); exits
     1 iff any are confirmed dead — so --confirm is the blocking gate, the bare
-    sieve is a fast report.
+    sieve is a fast report.  (To REMOVE confirmed-dead imports in place, use the
+    sibling cleanup tool ``python -m tools.warm_apply``.)
 
     File scope (no silent skip): ``--all`` (whole tree) / ``--diff`` (changed vs
     main) / explicit paths.  ``--diff`` with no .agda change is a genuine no-op
     (exit 0): nothing in scope, not a skipped check.
     """
-    args = sys.argv[1:]
-    do_confirm = "--confirm" in args
-    files = select_files(args)
-    if files is None:
-        return 2
-    if not files:
-        return 0  # nothing in scope (e.g. --diff with no .agda change): a true no-op
-    start = time.time()
-    n_dead = 0
-    with agda_tree_lock(), WarmAgda() as agda:
-        swept = _sweep(agda, files)
-        _print_summary(files, swept.times, swept.candidates, time.time() - start)
+    do_confirm = "--confirm" in sys.argv[1:]
+
+    def action(agda: WarmAgda, swept: SweepResult) -> int:
         if do_confirm and swept.candidates:
-            n_dead = _confirm_all(agda, swept.candidates)
-    return 1 if (do_confirm and n_dead) else 0
+            return 1 if _confirm_all(agda, swept.candidates) else 0
+        return 0
+
+    return run_warm_tool(sys.argv[1:], action)
 
 
 if __name__ == "__main__":
