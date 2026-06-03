@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, get_args
 
 from aletheia._loader_utils import is_pure_int
 from aletheia.client._helpers.rational import parse_rational
@@ -301,23 +301,10 @@ def _normalize_comment(raw: dict[str, object]) -> DBCComment:
     }
 
 
-# R0801 false positive: these seven attr-scope wire names also appear in
-# ``test_dbc_metadata_tier2`` as an ORDERED list pinning the round-trip order.
-# This is an unordered membership ``frozenset``; the two shapes are not
-# interchangeable, so neither can import the other.
-# pylint: disable=duplicate-code
-_ATTR_SCOPE_WIRE: frozenset[str] = frozenset(
-    {
-        "network",
-        "node",
-        "message",
-        "signal",
-        "envVar",
-        "nodeMsg",
-        "nodeSig",
-    }
-)
-# pylint: enable=duplicate-code
+# Membership set of the attr-scope wire names, derived from the ``AttrScope``
+# Literal so the names live in exactly one place.  ``test_dbc_metadata_tier2``
+# pins the round-trip order against the same ``get_args(AttrScope)`` sequence.
+_ATTR_SCOPE_WIRE: frozenset[str] = frozenset(get_args(AttrScope))
 
 
 def _normalize_attr_scope(value: object) -> AttrScope:

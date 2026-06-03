@@ -23,13 +23,13 @@ to ``float``.  DBC attribute bounds are stored as ``DecRat`` (Commit
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, get_args
 
 import pytest
 from _dbc_helpers import assert_non_terminating_rational, message, signal
 
 from aletheia import AletheiaClient
-from aletheia._dbc_types import empty_dbc_tier2
+from aletheia._dbc_types import AttrScope, empty_dbc_tier2
 
 if TYPE_CHECKING:
     from aletheia.protocols import (
@@ -335,21 +335,11 @@ class TestDBCMetadataTier2Roundtrip:
 
         assignments = [a for a in formatted["attributes"] if a["kind"] == "assignment"]
         kinds = [cast_assign(a)["target"]["kind"] for a in assignments]
-        # R0801 false positive: this ORDERED list pins the round-trip order of
-        # the attr-scope kinds; it intentionally restates the names rather than
-        # importing the unordered ``_ATTR_SCOPE_WIRE`` frozenset (which carries
-        # no order and would make the assertion circular).
-        # pylint: disable=duplicate-code
-        assert kinds == [
-            "network",
-            "node",
-            "message",
-            "signal",
-            "envVar",
-            "nodeMsg",
-            "nodeSig",
-        ]
-        # pylint: enable=duplicate-code
+        # Pin the round-trip order against the AttrScope Literal's declaration
+        # order.  The formatter produces ``kinds`` independently of this Python
+        # type, so the assertion checks the formatter rather than restating a
+        # tautology — and the names now live in exactly one place.
+        assert kinds == list(get_args(AttrScope))
 
 
 def cast_assign(a: DBCAttribute) -> DBCAttrAssign:
