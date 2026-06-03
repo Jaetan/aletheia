@@ -9,8 +9,10 @@ Demonstrates:
 """
 
 from pathlib import Path
-from aletheia import AletheiaClient, Signal
+
+from aletheia import AletheiaClient, AletheiaError, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.protocols import DLCCode
 
 
 def main() -> int:
@@ -24,7 +26,7 @@ def main() -> int:
     print(f"Loading DBC from: {dbc_file}")
     try:
         dbc_json = dbc_to_json(str(dbc_file))
-    except Exception as e:
+    except (AletheiaError, OSError) as e:
         print(f"Failed to load DBC: {e}")
         return 1
     print("DBC loaded\n")
@@ -53,18 +55,18 @@ def main() -> int:
 
             # Frame 1: Normal engine status (Speed=2000rpm, Temp=90C)
             frame1 = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-            response1 = client.send_frame(timestamp=100, can_id=0x100, dlc=8, data=frame1)
+            response1 = client.send_frame(timestamp=100, can_id=0x100, dlc=DLCCode(8), data=frame1)
             print(f"  t=100µs, ID=0x100: {response1}")
 
             # Frame 2: Normal brake status (Pressure=50bar, Pressed=1)
             frame2 = bytearray([0xF4, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
-            response2 = client.send_frame(timestamp=200, can_id=0x200, dlc=8, data=frame2)
+            response2 = client.send_frame(timestamp=200, can_id=0x200, dlc=DLCCode(8), data=frame2)
             print(f"  t=200µs, ID=0x200: {response2}")
 
             client.end_stream()
             print("\nVerification complete")
 
-    except Exception as e:
+    except (AletheiaError, OSError) as e:
         print(f"\nError during verification: {e}")
         return 1
 
@@ -73,4 +75,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

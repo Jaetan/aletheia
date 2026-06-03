@@ -15,12 +15,14 @@ from dataclasses import dataclass
 @dataclass
 class CANFrame:
     """A single CAN frame with timestamp."""
+
     timestamp_us: int  # Microseconds
     can_id: int
     data: bytearray
 
     @property
     def timestamp_ms(self) -> int:
+        """Frame timestamp in milliseconds (derived from the microsecond field)."""
         return self.timestamp_us // 1000
 
 
@@ -33,24 +35,25 @@ def encode_speed(speed_kph: float) -> bytearray:
     return bytearray([raw & 0xFF, (raw >> 8) & 0xFF, 0, 0, 0, 0, 0, 0])
 
 
-def encode_brake(pressure_kpa: float, active: bool = False) -> bytearray:
+def encode_brake(pressure_kpa: float, *, active: bool = False) -> bytearray:
     """Encode brake status into CAN frame data.
 
     BrakePressure: 16-bit little-endian, factor 0.1, offset 0
     BrakeActive: 1-bit at bit 16
     """
     raw_pressure = int(pressure_kpa / 0.1)
-    return bytearray([
-        raw_pressure & 0xFF,
-        (raw_pressure >> 8) & 0xFF,
-        1 if active else 0,
-        0, 0, 0, 0, 0
-    ])
+    return bytearray(
+        [raw_pressure & 0xFF, (raw_pressure >> 8) & 0xFF, 1 if active else 0, 0, 0, 0, 0, 0]
+    )
 
 
 # CAN IDs from the DBC
 VEHICLE_DYNAMICS_ID = 0x100  # 256
-BRAKE_STATUS_ID = 0x200      # 512
+BRAKE_STATUS_ID = 0x200  # 512
+
+# Demo-scenario thresholds
+_BRAKE_APPLY_MS = 1700  # brakes engage within 500ms of crossing 80 kph (~1666ms)
+_MIN_BRAKING_SPEED_KPH = 10  # below this the brakes release (pressure 0)
 
 
 def generate_normal_drive() -> list[CANFrame]:
@@ -77,8 +80,10 @@ def generate_normal_drive() -> list[CANFrame]:
         frames.append(CANFrame(t * 1000, VEHICLE_DYNAMICS_ID, encode_speed(speed)))
 
         # Apply brakes at 1700ms (within 500ms of crossing 80 at ~1666ms)
-        if t >= 1700:
-            frames.append(CANFrame(t * 1000 + 10000, BRAKE_STATUS_ID, encode_brake(500, True)))
+        if t >= _BRAKE_APPLY_MS:
+            frames.append(
+                CANFrame(t * 1000 + 10000, BRAKE_STATUS_ID, encode_brake(500, active=True))
+            )
         else:
             frames.append(CANFrame(t * 1000 + 10000, BRAKE_STATUS_ID, encode_brake(0)))
 
@@ -86,8 +91,14 @@ def generate_normal_drive() -> list[CANFrame]:
     for t in range(2000, 3100, 100):
         speed = max(0, 90 - 90 * ((t - 2000) / 1000))  # Decelerate to 0
         frames.append(CANFrame(t * 1000, VEHICLE_DYNAMICS_ID, encode_speed(speed)))
-        pressure = 800 if speed > 10 else 0
-        frames.append(CANFrame(t * 1000 + 10000, BRAKE_STATUS_ID, encode_brake(pressure, speed > 10)))
+        pressure = 800 if speed > _MIN_BRAKING_SPEED_KPH else 0
+        frames.append(
+            CANFrame(
+                t * 1000 + 10000,
+                BRAKE_STATUS_ID,
+                encode_brake(pressure, active=speed > _MIN_BRAKING_SPEED_KPH),
+            )
+        )
 
     # Sort by timestamp
     frames.sort(key=lambda f: f.timestamp_us)
@@ -121,8 +132,14 @@ def generate_overspeed_drive() -> list[CANFrame]:
     for t in range(2000, 3600, 100):
         speed = max(0, 150 - 100 * ((t - 2000) / 1500))
         frames.append(CANFrame(t * 1000, VEHICLE_DYNAMICS_ID, encode_speed(speed)))
-        pressure = 1000 if speed > 10 else 0
-        frames.append(CANFrame(t * 1000 + 10000, BRAKE_STATUS_ID, encode_brake(pressure, speed > 10)))
+        pressure = 1000 if speed > _MIN_BRAKING_SPEED_KPH else 0
+        frames.append(
+            CANFrame(
+                t * 1000 + 10000,
+                BRAKE_STATUS_ID,
+                encode_brake(pressure, active=speed > _MIN_BRAKING_SPEED_KPH),
+            )
+        )
 
     frames.sort(key=lambda f: f.timestamp_us)
     return frames
