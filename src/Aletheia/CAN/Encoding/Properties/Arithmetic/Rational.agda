@@ -282,7 +282,7 @@ private
   floor-upper : ∀ (q : ℚ) → q <ᵣ ((floor q ℤ.+ ℤ.+ 1) /ᵣ 1)
   floor-upper q@(mkℚ n d-1 _) = subst (q <ᵣ_) (sym (z/1≡fromℤ (floor q ℤ.+ ℤ.+ 1))) fromℤ-suc-floor->
     where
-      open import Data.Integer as ℤ using (suc; _<_)
+      open import Data.Integer as ℤ using (suc)
       open import Data.Integer.Properties as ℤ using (*-identityˡ; +-comm)
       open import Data.Integer.DivMod as ℤ using (div-pos-is-/ℕ; _/ℕ_)
       open import Data.Nat as ℕ using () renaming (suc to sucℕ)
@@ -446,7 +446,7 @@ private
       in result ≤ᵣ value × value <ᵣ result +ᵣ factor
   scaling-bounds-pos value factor offset raw factor-pos floor≡raw = left-bound , right-bound
     where
-      open import Data.Rational.Properties using (≤-reflexive; <-respʳ-≡)
+      open import Data.Rational.Properties using (<-respʳ-≡)
 
       q : ℚ
       q = _÷ᵣ_ (value -ᵣ offset) factor {{>-nonZero factor-pos}}
@@ -516,7 +516,7 @@ private
       in result +ᵣ factor <ᵣ value × value ≤ᵣ result
   scaling-bounds-neg value factor offset raw factor-neg floor≡raw = left-bound , right-bound
     where
-      open import Data.Rational.Properties using (≤-reflexive; <-respʳ-≡)
+      open import Data.Rational.Properties using (<-respʳ-≡)
 
       q : ℚ
       q = _÷ᵣ_ (value -ᵣ offset) factor {{<-nonZero factor-neg}}
