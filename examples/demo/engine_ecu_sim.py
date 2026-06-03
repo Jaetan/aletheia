@@ -14,6 +14,11 @@ This is a real-world failure mode in automotive ECUs. The alive counter
 exists precisely to detect this, but naive value-range tests cannot catch it.
 """
 
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 

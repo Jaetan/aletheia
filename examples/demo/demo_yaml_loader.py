@@ -7,6 +7,11 @@ check definitions without writing Python.
 No FFI or Agda build required — this demo only generates formulas.
 """
 
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
 import json
 from pathlib import Path
 

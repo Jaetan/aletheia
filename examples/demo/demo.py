@@ -14,6 +14,11 @@ Requirements:
     - Run from the examples/demo directory
 """
 
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
 from __future__ import annotations
 
 from pathlib import Path
