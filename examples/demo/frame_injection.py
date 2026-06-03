@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Frame Injection Demo
+"""Frame Injection Demo.
 
 Injects a modified CAN frame mid-stream and verifies that Aletheia
 detects the violation at the exact injected frame.
@@ -9,19 +9,103 @@ Requirements:
     - Run from the examples/demo directory
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
+
+from drive_log import NORMAL_DRIVE, VEHICLE_DYNAMICS_ID
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
-from drive_log import NORMAL_DRIVE, VEHICLE_DYNAMICS_ID
+from aletheia.protocols import DLCCode
+
+if TYPE_CHECKING:
+    from drive_log import CANFrame
+
+_TARGET_SPEED_FRAME = 15  # inject into the 15th VehicleDynamics frame
+_INJECTED_SPEED_KPH = 130.0  # exceeds the 120 kph limit
+_MAX_SHOWN = 3  # violations printed before eliding the rest
+
+
+class _Violation(NamedTuple):
+    """One detected property violation during the injected stream."""
+
+    frame_index: int
+    timestamp_ms: int
+    reason: str | None
+
+
+def _find_target_frame(frames: list[CANFrame], target_count: int) -> int | None:
+    """Return the index of the ``target_count``-th VehicleDynamics frame."""
+    speed_frame_count = 0
+    for i, frame in enumerate(frames):
+        if frame.can_id == VEHICLE_DYNAMICS_ID:
+            speed_frame_count += 1
+            if speed_frame_count == target_count:
+                return i
+    return None
+
+
+def _stream_with_injection(
+    client: AletheiaClient,
+    frames: list[CANFrame],
+    target_index: int,
+    modified_data: bytearray,
+    injected_speed: float,
+) -> list[_Violation]:
+    """Stream ``frames``, substituting ``modified_data`` at ``target_index``."""
+    violations: list[_Violation] = []
+    for i, frame in enumerate(frames):
+        data = modified_data if i == target_index else frame.data
+        if i == target_index:
+            print(f"  [{i:3d}] >> INJECTING (speed={injected_speed} kph)")
+        response = client.send_frame(
+            timestamp=frame.timestamp_us,
+            can_id=frame.can_id,
+            dlc=DLCCode(len(data)),
+            data=data,
+        )
+        if "results" in response:
+            fails = [e for e in response["results"] if e["status"] == "fails"]
+            if fails:
+                violations.append(_Violation(i, frame.timestamp_ms, fails[0].get("reason")))
+                print(f"  [{i:3d}] !! VIOLATION at {frame.timestamp_ms}ms")
+    return violations
+
+
+def _print_results(violations: list[_Violation], target_index: int) -> None:
+    """Print the injection results summary."""
+    print("\n" + "=" * 60)
+    print("RESULTS")
+    print("=" * 60)
+
+    if not violations:
+        print("\n  No violations detected (unexpected)")
+        return
+
+    print(f"\n  {len(violations)} violation(s) detected")
+    first_idx = violations[0].frame_index
+    if first_idx == target_index:
+        print(f"  First violation at injected frame #{target_index}")
+    else:
+        print(f"  First violation at frame #{first_idx} (injection was #{target_index})")
+
+    for v in violations[:_MAX_SHOWN]:
+        print(f"    Frame #{v.frame_index} at {v.timestamp_ms}ms")
+        if v.reason is not None:
+            print(f"      {v.reason}")
+
+    if len(violations) > _MAX_SHOWN:
+        print(f"    ... and {len(violations) - _MAX_SHOWN} more")
 
 
 def main() -> None:
+    """Load a DBC, inject an over-limit speed frame, and report the violation."""
     print("=" * 60)
     print("FRAME INJECTION DEMO")
     print("=" * 60)
 
-    # Load DBC and define property
     dbc_path = Path(__file__).parent / "vehicle.dbc"
     dbc = dbc_to_json(str(dbc_path))
 
@@ -31,27 +115,11 @@ def main() -> None:
     print(f"\nDBC: {dbc['version']}")
     print("Property: speed.less_than(120).always()")
 
-    # Find the 15th speed frame as injection target
-    target_speed_frame_num = 15
-    speed_frame_count = 0
-    target_frame_index = None
-
-    for i, frame in enumerate(NORMAL_DRIVE):
-        if frame.can_id == VEHICLE_DYNAMICS_ID:
-            speed_frame_count += 1
-            if speed_frame_count == target_speed_frame_num:
-                target_frame_index = i
-                break
-
-    if target_frame_index is None:
-        print(f"Error: Could not find frame #{target_speed_frame_num}")
+    target_index = _find_target_frame(NORMAL_DRIVE, _TARGET_SPEED_FRAME)
+    if target_index is None:
+        print(f"Error: Could not find frame #{_TARGET_SPEED_FRAME}")
         return
-
-    original_frame = NORMAL_DRIVE[target_frame_index]
-
-    # =================================================================
-    # PREPARING INJECTION
-    # =================================================================
+    original_frame = NORMAL_DRIVE[target_index]
 
     print("\n" + "=" * 60)
     print("PREPARING INJECTION")
@@ -60,81 +128,35 @@ def main() -> None:
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
 
-        # Extract original speed
+        dlc = DLCCode(len(original_frame.data))
         original_result = client.extract_signals(
-            can_id=original_frame.can_id,
-            data=original_frame.data,
+            can_id=original_frame.can_id, dlc=dlc, data=original_frame.data
         )
-        original_speed = original_result.get("VehicleSpeed", 0.0)
-        print(f"\n  Frame #{target_frame_index} at {original_frame.timestamp_ms}ms")
+        original_speed = original_result.get("VehicleSpeed")
+        print(f"\n  Frame #{target_index} at {original_frame.timestamp_ms}ms")
         print(f"  Original speed: {original_speed:.1f} kph")
 
-        # Build modified frame (130 kph, exceeds 120 limit)
-        injected_speed = 130.0
         modified_data = client.update_frame(
             can_id=original_frame.can_id,
+            dlc=dlc,
             frame=original_frame.data,
-            signals={"VehicleSpeed": injected_speed},
+            signals={"VehicleSpeed": _INJECTED_SPEED_KPH},
         )
-        print(f"  Injected speed: {injected_speed:.1f} kph")
-
-        # =============================================================
-        # STREAMING WITH INJECTION
-        # =============================================================
+        print(f"  Injected speed: {_INJECTED_SPEED_KPH:.1f} kph")
 
         print("\n" + "=" * 60)
         print("STREAMING WITH INJECTION")
         print("=" * 60)
-
-        print(f"\n  {len(NORMAL_DRIVE)} frames, injecting at index {target_frame_index}")
+        print(f"\n  {len(NORMAL_DRIVE)} frames, injecting at index {target_index}")
 
         client.set_properties([speed_limit.to_dict()])
         client.start_stream()
-
-        violations = []
-        for i, frame in enumerate(NORMAL_DRIVE):
-            if i == target_frame_index:
-                data = modified_data
-                print(f"  [{i:3d}] >> INJECTING (speed={injected_speed} kph)")
-            else:
-                data = frame.data
-
-            response = client.send_frame(frame.timestamp_us, frame.can_id, data)
-
-            if response.get("status") == "fails":
-                violations.append({"frame_index": i, "timestamp_ms": frame.timestamp_ms, "response": response})
-                ts = response.get("timestamp", {})
-                ts_ms = ts.get("numerator", 0) // 1000 if isinstance(ts, dict) else 0
-                print(f"  [{i:3d}] !! VIOLATION at {ts_ms}ms")
-
+        violations = _stream_with_injection(
+            client, NORMAL_DRIVE, target_index, modified_data, _INJECTED_SPEED_KPH
+        )
         client.end_stream()
 
-    # =================================================================
-    # RESULTS
-    # =================================================================
-
-    print("\n" + "=" * 60)
-    print("RESULTS")
-    print("=" * 60)
-
-    if violations:
-        print(f"\n  {len(violations)} violation(s) detected")
-
-        first_idx = violations[0]["frame_index"]
-        if first_idx == target_frame_index:
-            print(f"  First violation at injected frame #{target_frame_index}")
-        else:
-            print(f"  First violation at frame #{first_idx} (injection was #{target_frame_index})")
-
-        for v in violations[:3]:
-            print(f"    Frame #{v['frame_index']} at {v['timestamp_ms']}ms")
-            if "reason" in v["response"]:
-                print(f"      {v['response']['reason']}")
-
-        if len(violations) > 3:
-            print(f"    ... and {len(violations) - 3} more")
-    else:
-        print("\n  No violations detected (unexpected)")
+    _print_results(violations, target_index)
 
     print("\n" + "=" * 60)
     print("DONE")
