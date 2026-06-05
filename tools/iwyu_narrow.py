@@ -35,7 +35,13 @@ import sys
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools._agda_opens import ModulePath, find_opens
-from tools._common import agda_tree_lock, emit
+from tools._common import (
+    agda_tree_lock,
+    emit,
+    install_restore_handlers,
+    track_inflight,
+    untrack_inflight,
+)
 from tools.iwyu_reader import WildQuery, read_wildcards
 from tools.warm_dead_imports import SRC, Name, RelPath, WarmAgda, select_files
 
@@ -63,6 +69,13 @@ class Finding(NamedTuple):
     module: ModulePath
     kind: WildcardKind
     needed: frozenset[Name]
+
+
+class LineEdit(NamedTuple):
+    """A pending source edit: the 0-based line of a wildcard open + its finding."""
+
+    line: int
+    finding: Finding
 
 
 def is_wildcard(open_info: OpenInfo) -> bool:
@@ -137,6 +150,67 @@ def analyze(rels: list[RelPath]) -> list[Finding]:
     return findings
 
 
+def rewrite(text: str, findings: dict[ModulePath, Finding]) -> str:
+    """Apply each module's finding to its wildcard open(s) in `text`.
+
+    NARROWABLE → `open import M using (needed)`; DEAD / REDUNDANT → delete the
+    line.  Edits are applied bottom-up so earlier line numbers stay valid, and
+    the original indentation is preserved.  Targets only line-leading wildcard
+    `open import M` directives (what `is_wildcard` matches).
+    """
+    lines = text.splitlines(keepends=True)
+    edits = [
+        LineEdit(text[: o.span[0]].count("\n"), findings[o.module])
+        for o in find_opens(text)
+        if is_wildcard(o) and o.module in findings
+    ]
+    for e in sorted(edits, key=lambda x: x.line, reverse=True):
+        line = lines[e.line]
+        indent = line[: len(line) - len(line.lstrip())]
+        if e.finding.kind == NARROWABLE:
+            using = "; ".join(sorted(e.finding.needed))
+            lines[e.line] = f"{indent}open import {e.finding.module} using ({using})\n"
+        else:  # DEAD / REDUNDANT — the wildcard provides nothing uniquely used
+            del lines[e.line]
+    return "".join(lines)
+
+
+def _apply(agda: WarmAgda, findings: list[Finding]) -> int:
+    """Rewrite each file's wildcard findings, verifying each rewrite type-checks.
+
+    A rewritten file is reloaded; if it fails (a use the reader did not capture),
+    the original is restored and the file skipped.  Crash-safe: a rewritten file
+    is restored on interrupt.  Returns the number of files successfully rewritten.
+    """
+    by_file: dict[RelPath, dict[ModulePath, Finding]] = {}
+    for f in findings:
+        if f.kind in (DEAD, REDUNDANT, NARROWABLE):
+            by_file.setdefault(f.rel, {})[f.module] = f
+    install_restore_handlers()
+    applied = 0
+    for rel, fmap in by_file.items():
+        path = SRC / rel
+        original = path.read_text(encoding="utf-8")
+        new = rewrite(original, fmap)
+        if new == original:
+            continue
+        kept = False
+        try:
+            track_inflight(str(path), original)
+            _ = path.write_text(new, encoding="utf-8")
+            if agda.load(str(path)).ok:
+                kept = True
+                applied += 1
+                emit(f"  applied {rel} ({len(fmap)} wildcard finding(s))")
+            else:
+                emit(f"  SKIP {rel}: rewrite did not type-check — restored")
+        finally:
+            if not kept:
+                _ = path.write_text(original, encoding="utf-8")
+            untrack_inflight(str(path))
+    return applied
+
+
 def _report(findings: list[Finding]) -> int:
     """Print each actionable wildcard finding; return how many were reported."""
     actionable = 0
@@ -156,10 +230,14 @@ def main() -> int:
     """Scope files, refresh their `.agdai`, classify every wildcard open, report.
 
     Scope mirrors the dead-import gate (`--all` / `--diff` / explicit paths).
-    With `--check`, exit 1 if any finding is reported; otherwise exit 0 (report).
+    `--apply` rewrites each finding (verifying it type-checks, restoring on
+    failure); `--check` exits 1 if any finding is reported (and is ignored under
+    `--apply`).  Otherwise exit 0 after reporting.
     """
-    args = [a for a in sys.argv[1:] if a != "--check"]
+    flags = {"--check", "--apply"}
+    args = [a for a in sys.argv[1:] if a not in flags]
     check = "--check" in sys.argv[1:]
+    apply = "--apply" in sys.argv[1:]
     files = select_files(args)
     if files is None:
         return 2
@@ -168,8 +246,11 @@ def main() -> int:
     with agda_tree_lock(), WarmAgda() as agda:
         for rel in files:
             _ = agda.load(str(SRC / rel))  # refresh `.agdai` so the reader sees current interfaces
-    findings = analyze(files)
-    actionable = _report(findings)
+        findings = analyze(files)
+        actionable = _report(findings)
+        if apply:
+            emit(f"=== applied {_apply(agda, findings)} file(s) ===")
+            return 0
     return 1 if (check and actionable) else 0
 
 
