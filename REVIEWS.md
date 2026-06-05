@@ -70,4 +70,4 @@ See `memory/feedback_review_branch_workflow.md` for the per-round lifecycle.  He
 
 ## Graduated categories
 
-See `memory/feedback_graduated_categories.md`.  Graduated categories are no longer reviewed by agents; mechanical gates enforce their semantic surface continuously.  As of R22 close, cat 1 (Dead code) is graduated to `tools/prune_unused_imports.py --check-only` on pre-push.
+See `memory/feedback_graduated_categories.md`.  Graduated categories are no longer reviewed by agents; mechanical gates enforce their semantic surface continuously.  Cat 1 (Dead code) graduated at R22 close; post-R23 its gate is the scope-aware `.agdai` IWYU reader (`tools/iwyu_reader.py` + `tools/iwyu_narrow.py`, run_ci steps 9-10), which replaced the recompile/regex dead-import tools.

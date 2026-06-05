@@ -15,49 +15,51 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Pre-commit advisory | `tools/scan_dead_imports.py` (via pre-commit hook) | `git commit` | Regex dead-import scan on staged `.agda` files (advisory only — never blocks; ~1s/file) |
-| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **30 always-on steps** — Agda gates (incl. agda-driven dead-import gate on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
+| Pre-commit advisory | `tools/iwyu_reader.py` (via pre-commit hook) | `git commit` | IWYU `.agdai`-reader dead-import scan on staged `.agda` files (advisory only — never blocks) |
+| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **32 always-on steps** — Agda gates (incl. the two IWYU gates on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
 The pre-push hook (installed by `tools/install_hooks.py`) is the principal
 correctness gate; the GHA workflows are intentionally narrow.
 
-## Pre-commit hook (advisory) — `tools/scan_dead_imports.py`
+## Pre-commit hook (advisory) — `tools/iwyu_reader.py`
 
-A fast regex scanner runs at every `git commit` against staged `.agda`
-files.  Findings are printed as a WARNING; the commit always proceeds.
+The scope-aware `.agdai` IWYU reader runs at every `git commit` against
+staged `.agda` files under `src/`.  DEAD / UNRESOLVED findings are printed
+as a WARNING; the commit always proceeds.
 
-Rationale: the regex scanner has a non-trivial false-positive rate
-(mixfix syntax sugar, sections, public re-exports — see
-`memory/feedback_agda_import_pruning_safety.md`).  Blocking commits on
-its output would be too noisy; the precise check happens at pre-push.
-
-Known FPs are persistently suppressed via the committed ignore file
-`tools/scan_dead_imports.ignore` so the hook is silent on a
-dead-name-clean codebase.  Refresh the ignore file after each periodic
-full sweep with `tools/scan_dead_imports.py --write-ignore`.
+It is not sub-second (it warm-loads the staged files to refresh their
+`.agdai` interfaces), so it runs only when `.agda` files are staged.  The
+reader reads interfaces directly — no recompile-confirm — and its
+verdicts are validated by the synthetic fixture matrix
+(`tools/iwyu_fixture_test`), so there is no false-positive ignore list to
+maintain.  The same gates run blocking at pre-push.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **30 always-on**
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **32 always-on**
 sequential steps, ~22-30 minutes warm (UBSan ctest promoted from opt-in
 to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
-`Rational::from_double` because the lane was opt-in; agda-driven
-dead-import gate added at step 9 as part of the R22 sweep follow-up).
+`Rational::from_double` because the lane was opt-in; the two IWYU gates
+at steps 9-10 replaced the recompile dead-import gate post-R23).
 Plus 3 opt-in lanes (reproducible build, stability bench, mutation
 testing) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
 `tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
 gate-claim-integrity evidence.
 
-Step 9 — `prune-unused-imports` — runs `tools/prune_unused_imports.py
---check-only --no-topo` on the set of `.agda` files modified vs `main`.
-Fails the sweep if any branch-introduced dead imports remain.  Skipped
-automatically when more than 30 files have been modified vs `main`
-(set `ALETHEIA_PRUNE_GATE_NOLIMIT=1` to force).  Omits `--include-public`
-to keep runtime proportional to the branch size — public-line dead
-imports are caught by the periodic full sweep.
+Steps 9-10 — the IWYU gates — run on the set of `.agda` files modified
+vs `main` (`git diff main...HEAD -- src/`; empty diff ⇒ no-op).  Step 9
+(`tools/iwyu_reader.py --diff`) judges every `using`/`renaming` import via
+the scope-aware `.agdai` reader and fails if any is DEAD (unused) or
+UNRESOLVED (unjudgeable — surfaced, never silently passed).  Step 10
+(`tools/iwyu_narrow.py --check --diff`) narrows or removes wildcard
+`open import M` (DEAD / REDUNDANT / NARROWABLE) via the same reader.
+Neither recompiles; both read interfaces directly and run on every scoped
+file (no file-count skip).  Cross-file deadness (a name made dead by an
+edit in an UNCHANGED file) is caught by the periodic whole-tree
+(`--all`) run.
 
 Install both hooks (pre-commit + pre-push):
 
@@ -66,12 +68,12 @@ tools/install_hooks.py
 ```
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them
-up).  After install, every `git commit` runs the pre-commit scanner
-(advisory only) and every `git push` runs the 30-step sweep (blocking).
+up).  After install, every `git commit` runs the pre-commit IWYU advisory
+and every `git push` runs the 32-step sweep (blocking).
 Bypass either hook with `--no-verify`:
 
 ```bash
-git commit --no-verify   # skip pre-commit scanner
+git commit --no-verify   # skip pre-commit IWYU advisory
 git push   --no-verify   # skip pre-push CI sweep (for incident response)
 ```
 
@@ -298,9 +300,10 @@ assertions, even if the pre-push hook didn't run.
 
 - [`tools/run_ci.py`](../../tools/run_ci.py) — offline correctness orchestrator (Phase 3).
 - [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-commit + pre-push hook installer.
-- [`tools/scan_dead_imports.py`](../../tools/scan_dead_imports.py) — fast regex dead-import scanner (pre-commit advisory).
-- [`tools/prune_unused_imports.py`](../../tools/prune_unused_imports.py) — agda-driven precise dead-import remover (pre-push step 9 + manual full sweeps).
-- [`tools/scan_dead_imports.ignore`](../../tools/scan_dead_imports.ignore) — committed known-FP suppression list for the scanner.
+- [`tools/iwyu_reader.py`](../../tools/iwyu_reader.py) — scope-aware `.agdai` IWYU reader; dead-named-import gate (pre-commit advisory + pre-push step 9) + `read_wildcards` API.
+- [`tools/iwyu_narrow.py`](../../tools/iwyu_narrow.py) — wildcard `open import M` narrow/remove gate (pre-push step 10) with `--apply`.
+- [`tools/iwyu_fixture_test.py`](../../tools/iwyu_fixture_test.py) — synthetic fixture matrix validating the reader's verdicts.
+- [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store).
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — UR-1 enforcement (Phase 1).
 - [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity (Phase 2).
 - [`memory/feedback_gate_claim_integrity.md`](../../../.claude/projects/-home-nicolas-dev-agda-aletheia/memory/feedback_gate_claim_integrity.md) — the discipline this enforces.

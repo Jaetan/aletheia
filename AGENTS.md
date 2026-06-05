@@ -63,7 +63,7 @@ Every deferred finding from prior rounds is automatically a carry-over candidate
 
 Once graduated, the category is no longer reviewed at Step 1 / Step 2 — the gate runs continuously, and a re-raise in a review is a regression of the graduation. Step 3's coverage check skips graduated categories per the list in `memory/feedback_graduated_categories.md`. The per-language agent tables below may still list a graduated category in their range (e.g. "1-6"); the graduated-set table in memory takes precedence. `tools/review_db.py --report graduation` surfaces candidates; merging a category into the graduated set is a deliberate documented step, not an automatic consequence of the report.
 
-Cat 1 (Dead code) is the worked example: graduated after R22's `tools/prune_unused_imports.py --check-only` was wired as a strict pre-push gate (commit `403555b`); R22's residual A-1.1 work was historical cleanup wearing review clothes — the new-code regression class is now caught at push time, not at review time.
+Cat 1 (Dead code) is the worked example: graduated R22 when a strict pre-push dead-import gate was wired (commit `403555b`); R22's residual A-1.1 work was historical cleanup wearing review clothes. Post-R23 the gate is the scope-aware `.agdai` IWYU reader (`tools/iwyu_reader.py` + `tools/iwyu_narrow.py`, run_ci steps 9-10); the recompile/regex tools it replaced are retired. Either way, the new-code regression class is caught at push time, not at review time.
 
 ### Step 1: Per-file review (agents A, B, C in parallel)
 
