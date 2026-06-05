@@ -15,10 +15,8 @@ project file:
 * the confirm clause-editing (:func:`texts_without_name`), including the P1
   case of a non-``import`` open and the clause-scoped edit that never touches a
   module path;
-* the warm read-loop logic (:func:`read_load` / :func:`read_module_contents`),
-  notably the SILENCE guard that makes an unresolvable ``show_module_contents``
-  return ``None`` instead of hanging — the regression test for a real hang
-  (:func:`read_module_contents` serves the IWYU narrower ``tools.warm_iwyu``).
+* the warm read-loop logic (:func:`read_load`), notably the SILENCE guard that
+  makes a wedged agda give up instead of hanging.
 """
 
 from __future__ import annotations
@@ -39,7 +37,6 @@ from tools.warm_dead_imports import (
     changed_agda_files,
     detect_dead,
     read_load,
-    read_module_contents,
     remove_and_reload,
     select_files,
     texts_without_name,
@@ -291,34 +288,6 @@ def _reader(items: list[str | None]) -> Callable[[], str | None]:
 def _display(kind: str, **info: object) -> str:
     """Encode a DisplayInfo response line with the given ``info`` kind/fields."""
     return json.dumps({"kind": "DisplayInfo", "info": {"kind": kind, **info}})
-
-
-def test_read_module_contents_resolvable() -> None:
-    """A ModuleContents display yields its full export names (mixfix included)."""
-    line = _display("ModuleContents", contents=[{"name": "a"}, {"name": "_⊕_"}])
-    assert read_module_contents(_reader([line])) == ["a", "_⊕_"]
-
-
-def test_read_module_contents_empty_module() -> None:
-    """A genuinely empty module returns [] (distinct from None=unresolvable)."""
-    line = _display("ModuleContents", contents=[])
-    assert read_module_contents(_reader([line])) == []
-
-
-def test_read_module_contents_silence_returns_none() -> None:
-    """THE HANG GUARD: an unresolvable module → agda silent → None, never a hang."""
-    assert read_module_contents(_reader([])) is None
-
-
-def test_read_module_contents_error_display_returns_none() -> None:
-    """An Error display (module not in scope) is unresolvable → None."""
-    line = _display("Error", error={"message": "Not in scope"})
-    assert read_module_contents(_reader([line])) is None
-
-
-def test_read_module_contents_eof_returns_none() -> None:
-    """Process exit mid-query returns None rather than raising."""
-    assert read_module_contents(_reader([None])) is None
 
 
 def test_read_load_success() -> None:

@@ -82,13 +82,11 @@ type CharRange = tuple[int, int]
 # A definition identity: (definitionSite.filepath, definitionSite.position).
 DefId = tuple[str, int]
 
-# Max seconds of agda SILENCE (no output line) before a read gives up, so no
-# command can hang on a silent agda.  A Cmd_load terminal arrives within one
-# module's check time even cold; the cap only fires on a genuinely wedged
-# process.  Cmd_show_module_contents answers an UNRESOLVABLE module with total
-# silence (verified) -- the short cap turns that into a None verdict, fast.
+# Max seconds of agda SILENCE (no output line) before a Cmd_load read gives up,
+# so no command can hang on a silent agda.  A Cmd_load terminal arrives within
+# one module's check time even cold; the cap only fires on a genuinely wedged
+# process.
 _LOAD_SILENCE_S = 300.0
-_SMC_SILENCE_S = 20.0
 
 
 class SweepResult(NamedTuple):
@@ -151,27 +149,6 @@ class _Response(TypedDict, total=False):
     kind: str
     info: _Info
     status: _StatusInfo
-
-
-class _ModuleEntry(TypedDict, total=False):
-    """One entry in a `Cmd_show_module_contents` ModuleContents listing."""
-
-    name: str
-    term: str
-
-
-class _ModuleContentsInfo(TypedDict, total=False):
-    """The `info` field of a ModuleContents DisplayInfo response."""
-
-    kind: str
-    contents: list[_ModuleEntry]
-
-
-class _ModuleContentsResponse(TypedDict, total=False):
-    """One `agda --interaction-json` response carrying module contents."""
-
-    kind: str
-    info: _ModuleContentsInfo
 
 
 class LoadResult(NamedTuple):
@@ -361,45 +338,14 @@ def read_load(read_line: Callable[[], str | None]) -> _LoadState:
             return state
 
 
-def read_module_contents(read_line: Callable[[], str | None]) -> list[Name] | None:
-    """Fold Cmd_show_module_contents response lines into names, or None.
-
-    `read_line` returns the next line, None at EOF, and raises `queue.Empty` on
-    the SILENCE an unresolvable module produces; both map to None (unresolvable),
-    as does an Error / wrong-terminal display.  A ModuleContents display yields
-    its full export names ([] for a genuinely empty module).  Pure, so the
-    terminal/None logic is unit-testable without a process.
-    """
-    while True:
-        try:
-            line = read_line()
-        except queue.Empty:
-            return None  # unresolvable module -> agda answers with silence
-        if line is None:
-            return None  # process exited
-        payload = _parse_response(line)
-        if payload is None:
-            continue
-        kind = payload.get("kind")
-        if kind in ("JumpToError", "InteractionPoints"):
-            return None  # errored / wrong terminal — module not enumerable
-        if kind != "DisplayInfo":
-            continue
-        info = cast("_ModuleContentsResponse", payload).get("info")
-        if info is None or info.get("kind") != "ModuleContents":
-            return None
-        return [name for entry in info.get("contents", []) if (name := entry.get("name"))]
-
-
 class WarmAgda:
     """One long-lived `agda --interaction-json` process driven over pipes.
 
     Use as a context manager (`with WarmAgda() as agda: agda.load(...)`).  A
     daemon thread drains agda's stdout into a queue, so every read is
-    time-bounded (`_next_line`): a command can never hang on a silent agda --
-    notably `Cmd_show_module_contents_toplevel`, which answers an unresolvable
-    module with TOTAL silence.  Pipe discipline still holds: flush after every
-    command and drain its responses to the terminal marker before the next.
+    time-bounded (`_next_line`): a command can never hang on a silent agda.
+    Pipe discipline still holds: flush after every command and drain its
+    responses to the terminal marker before the next.
     """
 
     def __init__(self) -> None:
@@ -426,8 +372,8 @@ class WarmAgda:
         """Return the next agda line, or None at EOF; raise `queue.Empty` on silence.
 
         `queue.Empty` after `timeout` seconds of no output is how a command
-        detects that agda has gone silent without sending its terminal (e.g. an
-        unresolvable `show_module_contents`) -- the bound that prevents a hang.
+        detects that agda has gone silent without sending its terminal -- the
+        bound that prevents a hang.
         """
         return self._lines.get(timeout=timeout)
 
@@ -471,28 +417,6 @@ class WarmAgda:
             if key:
                 by_range[key] = tok
         return LoadResult(list(by_range.values()), state.ok, state.error, state.warnings)
-
-    def show_module_contents(self, abspath: str, module: str) -> list[Name] | None:
-        """Return `module`'s full export names, or None if it cannot be enumerated.
-
-        Sends `Cmd_show_module_contents_toplevel`; `module` must be in scope in
-        the loaded `abspath`.  The result's full mixfix names (`_⊕_`, including
-        re-exports) are the wildcard provided-set the redundancy check needs.
-
-        Distinguishes UNRESOLVABLE (returns None) from a genuinely EMPTY module
-        (returns []), so the caller maps None to the conservative confirm-all
-        fallback rather than to "supplies nothing".  Unresolvable is detected two
-        ways: an Error / wrong-terminal display, OR -- the common case, verified
-        empirically -- agda answering with TOTAL SILENCE, caught by the
-        `_SMC_SILENCE_S` read bound.  Either way the query cannot hang.
-        """
-        if self.proc.stdin is None:
-            message = "agda --interaction-json process has no stdin pipe"
-            raise RuntimeError(message)
-        cmd = f'IOTCM "{abspath}" None Direct (Cmd_show_module_contents_toplevel AsIs "{module}")\n'
-        _ = self.proc.stdin.write(cmd)
-        self.proc.stdin.flush()
-        return read_module_contents(lambda: self._next_line(_SMC_SILENCE_S))
 
     def close(self) -> None:
         """Close stdin and wait for the process to exit (kill on timeout)."""
