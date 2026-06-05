@@ -3,7 +3,7 @@
 """Grammar-complete detection of Agda ``open``/``import`` directives.
 
 This is the substrate for the dead-import gate (:mod:`tools.warm_dead_imports`)
-and the IWYU narrower (:mod:`tools.warm_iwyu`): what opens exist, and what does
+and the IWYU narrower (:mod:`tools.iwyu_narrow`): what opens exist, and what does
 each inject?  Unlike :func:`tools.prune_unused_imports.parse_imports` (which only
 recognises top-level ``open import`` / ``import`` blocks), this module finds
 *every* open the Agda grammar permits, in *every* position, and classifies it.
@@ -37,9 +37,9 @@ The names a file makes *prunable* — the dead-import gate's candidates — are
 destination of a non-``public`` open.  A rename destination is prunable even
 with no ``using`` clause (delete just the ``a to b`` pair).  The complementary
 question — the full set an open *injects* (text for a ``using`` open, else its
-``show_module_contents`` wildcard, minus ``hiding`` and with ``renaming``
-applied) — is :func:`provided_set`, used by the IWYU narrower
-:mod:`tools.warm_iwyu` to narrow each wildcard.
+``Cmd_show_module_contents`` wildcard, minus ``hiding`` and with ``renaming``
+applied) — is :func:`provided_set`, a grammar-tested primitive (retained pending
+removal; its former consumer, the warm-highlighting narrower, has been retired).
 """
 
 from __future__ import annotations
@@ -307,9 +307,11 @@ def provided_set(open_info: OpenInfo, module_contents: ModuleContents) -> set[Na
     must treat that conservatively, never as an empty set.
 
     The dead-import gate does NOT use this (it flags only genuinely-unused
-    imports, not redundancy — see :mod:`tools.warm_dead_imports`); the consumer
-    is the IWYU narrower :mod:`tools.warm_iwyu`, which needs each wildcard's
-    injected set to narrow it.  Validated by the grammar harness in
+    imports, not redundancy — see :mod:`tools.warm_dead_imports`).  It is a
+    grammar-tested primitive with no current production consumer (its former
+    consumer, the warm-highlighting narrower, has been retired; the `.agdai`
+    narrower :mod:`tools.iwyu_narrow` uses the reader's used-set instead), so it
+    is retained pending its own removal.  Validated by the grammar harness in
     ``python/tests/test_agda_open_grammar*.py``.
     """
     if not open_info.is_open:

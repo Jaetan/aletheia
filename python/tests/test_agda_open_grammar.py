@@ -20,7 +20,7 @@ application, record-instance, instance, re-export, open-module-macro), the
 no-injection forms (``import`` / ``import as``), local ``where`` / ``let`` opens,
 and FN-complete check-name extraction across non-``import`` and local
 ``using``-opens.  The injected-set primitive :func:`provided_set` is also
-checked per form (it feeds the IWYU narrower :mod:`tools.warm_iwyu`).
+checked per form (a grammar-tested primitive retained pending removal).
 """
 
 from __future__ import annotations
