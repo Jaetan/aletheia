@@ -7,20 +7,19 @@ The fixtures here are SYNTHETIC and derived from Agda's import/open grammar
 project tree, so the detector is verified for *any* Agda a contributor might
 write, per the gate's correct-by-construction mandate.
 
-The suite is *pure*: it runs no Agda process.  Each wildcard open's contribution
-is read from :data:`RECORDED_SMC`, the ``Cmd_show_module_contents`` outputs
-verified against a live Agda this session for the synthetic provider ``P`` and
-its derivatives.  That keeps the regression test fast and unable to hang; an
-Agda-backed integration test that re-confirms ``RECORDED_SMC`` lands with the
-gate port.
+The suite is *pure*: it runs no Agda process, asserting only the text-level
+classification (:func:`tools._agda_opens.find_opens`) and the prunable
+check-name set (:func:`tools._agda_opens.open_check_names`).  A *wildcard*
+open's full injected set is NOT enumerated here — that needs the opened module's
+contents, which the scope-aware ``.agdai`` reader supplies (validated by its own
+synthetic fixture harness, ``tools/agda-iwyu-reader/test/``).
 
 Coverage: every directive form (``using`` / ``hiding`` / ``renaming`` / ``public``
 and combinations, in both orders), every module-expression form (bare, qualified,
 application, record-instance, instance, re-export, open-module-macro), the
 no-injection forms (``import`` / ``import as``), local ``where`` / ``let`` opens,
 and FN-complete check-name extraction across non-``import`` and local
-``using``-opens.  The injected-set primitive :func:`provided_set` is also
-checked per form (a grammar-tested primitive retained pending removal).
+``using``-opens.
 """
 
 from __future__ import annotations
@@ -34,37 +33,17 @@ from tools._agda_opens import (
     OpenInfo,
     find_opens,
     open_check_names,
-    provided_set,
 )
-
-# show_module_contents outputs verified against a live Agda this session, for the
-# synthetic provider P (pa, pb, _⊕_, record R, module Sub, module PM) and its
-# derivatives (Re re-exports P; N is `open module N = P`; HasV / R are records).
-RECORDED_SMC: dict[str, list[str]] = {
-    "P": ["_⊕_", "R", "pa", "pb"],
-    "Re": ["_⊕_", "R", "pa", "pb"],
-    "PM": ["pmName"],
-    "R": ["rf1", "rf2"],
-    "N": ["_⊕_", "R", "pa", "pb"],
-    "HasV": ["v"],
-    "A.B.C": ["dotName", "dotOp"],
-}
 
 
 class Expect(NamedTuple):
     """The detection outcome expected for one grammar form.
 
-    ``provides_exact`` asserts the whole injected set (text-enumerated forms);
-    ``provides_has`` / ``provides_lacks`` assert membership / disjointness
-    (wildcard forms read from recorded smc); ``check`` is the subset of
-    :func:`open_check_names` the form must contribute.
+    ``check`` is the subset of :func:`open_check_names` the form must contribute.
     """
 
     is_open: bool
     has_using: bool
-    provides_exact: frozenset[str] | None = None
-    provides_has: frozenset[str] = frozenset()
-    provides_lacks: frozenset[str] = frozenset()
     check: frozenset[str] = frozenset()
 
 
@@ -84,80 +63,68 @@ def _form(label: str, line: str, target: str, expect: Expect) -> Form:
 
 
 def _exact(*names: str) -> frozenset[str]:
-    """Return a frozenset of ``names`` (for ``provides_exact`` / ``check`` fields)."""
+    """Return a frozenset of ``names`` (for the ``check`` field)."""
     return frozenset(names)
 
 
 FORMS: list[Form] = [
-    # ---- MODELED: a `using` clause → set read from source text ----
+    # ---- MODELED: a `using` clause → enumerable from source text ----
     _form(
         "using",
         "open import P using (pa)",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("pa"), check=_exact("pa")),
+        Expect(is_open=True, has_using=True, check=_exact("pa")),
     ),
     _form(
         "using-empty",
         "open import P using ()",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact()),
+        Expect(is_open=True, has_using=True),
     ),
     _form(
         "using+renaming",
         "open import P using (pa) renaming (pb to pbAlt)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=True,
-            provides_exact=_exact("pa", "pbAlt"),
-            check=_exact("pa", "pbAlt"),
-        ),
+        Expect(is_open=True, has_using=True, check=_exact("pa", "pbAlt")),
     ),
     _form(
         "using+hiding",
         "open import P using (pa) hiding (pb)",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("pa"), check=_exact("pa")),
+        Expect(is_open=True, has_using=True, check=_exact("pa")),
     ),
     _form(
         "renaming+using (reversed order)",
         "open import P renaming (pb to pbAlt) using (pa)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=True,
-            provides_exact=_exact("pa", "pbAlt"),
-            check=_exact("pa", "pbAlt"),
-        ),
+        Expect(is_open=True, has_using=True, check=_exact("pa", "pbAlt")),
     ),
     _form(
         "using(module Sub)",
         "open import P using (module Sub)",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("Sub"), check=_exact("Sub")),
+        Expect(is_open=True, has_using=True, check=_exact("Sub")),
     ),
     _form(
-        # A `public` re-export PROVIDES pa, but pa is NOT a per-file candidate:
+        # A `public` re-export brings pa, but pa is NOT a per-file candidate:
         # its uses are downstream, so a per-file gate must not flag it.
         "using+public",
         "open import P using (pa) public",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("pa")),
+        Expect(is_open=True, has_using=True),
     ),
-    # ---- WILDCARD: no `using` → set read from show_module_contents ----
+    # ---- WILDCARD: no `using` → contributes no text-enumerable check-name ----
     _form(
         "bare",
         "open import P",
         "P",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb", "_⊕_")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "hiding",
         "open import P hiding (pb)",
         "P",
-        Expect(
-            is_open=True, has_using=False, provides_has=_exact("pa"), provides_lacks=_exact("pb")
-        ),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         # Wildcard for PROVISION (brings all of P, pb renamed), yet the rename
@@ -166,78 +133,70 @@ FORMS: list[Form] = [
         "renaming (no using → wildcard)",
         "open import P renaming (pb to pbAlt)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=False,
-            provides_has=_exact("pa", "pbAlt"),
-            provides_lacks=_exact("pb"),
-            check=_exact("pbAlt"),
-        ),
+        Expect(is_open=True, has_using=False, check=_exact("pbAlt")),
     ),
     _form(
         "renaming-empty (wildcard)",
         "open import P renaming ()",
         "P",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "public (wildcard re-export)",
         "open import P public",
         "P",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "module-open",
         "open P",
         "P",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "module-application",
         "open PM Nat",
         "PM",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pmName")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "record-instance open",
         "open R r",
         "R",
-        Expect(is_open=True, has_using=False, provides_has=_exact("rf1", "rf2")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "instance open",
         "open R {{...}}",
         "R",
-        Expect(is_open=True, has_using=False, provides_has=_exact("rf1", "rf2")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "re-export wildcard",
         "open import Re",
         "Re",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb", "_⊕_", "R")),
+        Expect(is_open=True, has_using=False),
     ),
     # ---- OPEN-MODULE-MACRO ----
     _form(
         "open-module-macro (wildcard)",
         "open module N = P",
         "N",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb", "_⊕_")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "open-module-macro + using",
         "open module N = P using (pa)",
         "N",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("pa"), check=_exact("pa")),
+        Expect(is_open=True, has_using=True, check=_exact("pa")),
     ),
     # ---- NO INJECTION: qualified-only ----
-    _form(
-        "import", "import P", "P", Expect(is_open=False, has_using=False, provides_exact=_exact())
-    ),
+    _form("import", "import P", "P", Expect(is_open=False, has_using=False)),
     _form(
         "import as",
         "import P as PP",
         "P",
-        Expect(is_open=False, has_using=False, provides_exact=_exact()),
+        Expect(is_open=False, has_using=False),
     ),
     # ---- OPEN IMPORT ... AS: `as` is in OpenArgs, but `open` still injects ----
     _form(
@@ -246,71 +205,53 @@ FORMS: list[Form] = [
         "open import as (wildcard + alias)",
         "open import P as PP",
         "P",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pa", "pb")),
+        Expect(is_open=True, has_using=False),
     ),
     _form(
         "open import with module application",
         "open import PM Nat",
         "PM",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pmName")),
+        Expect(is_open=True, has_using=False),
     ),
     # ---- QUALIFIED (dotted) module name = the whole first token ----
     _form(
         "qualified dotted module + using",
         "open import A.B.C using (dotName)",
         "A.B.C",
-        Expect(
-            is_open=True,
-            has_using=True,
-            provides_exact=_exact("dotName"),
-            check=_exact("dotName"),
-        ),
+        Expect(is_open=True, has_using=True, check=_exact("dotName")),
     ),
     _form(
         "qualified dotted module wildcard",
         "open import A.B.C",
         "A.B.C",
-        Expect(is_open=True, has_using=False, provides_has=_exact("dotName", "dotOp")),
+        Expect(is_open=True, has_using=False),
     ),
     # ---- DIRECTIVE COMBINATIONS (free order/count; only `using` restricts) ----
     _form(
         "hiding+renaming (no using → wildcard)",
         "open import P hiding (pb) renaming (pa to paAlt)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=False,
-            provides_has=_exact("paAlt"),
-            provides_lacks=_exact("pa", "pb"),
-            check=_exact("paAlt"),
-        ),
+        Expect(is_open=True, has_using=False, check=_exact("paAlt")),
     ),
     _form(
         "using+hiding+renaming (all three)",
         "open import P using (pa) hiding (xx) renaming (pb to pbAlt)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=True,
-            provides_exact=_exact("pa", "pbAlt"),
-            check=_exact("pa", "pbAlt"),
-        ),
+        Expect(is_open=True, has_using=True, check=_exact("pa", "pbAlt")),
     ),
     _form(
         # `public` BEFORE `using` (free order) — still a public re-export, so its
-        # names are provided but never per-file candidates.
+        # names are brought but never per-file candidates.
         "public before using (reversed order)",
         "open import P public using (pa)",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("pa")),
+        Expect(is_open=True, has_using=True),
     ),
     _form(
         "hiding+public (wildcard re-export)",
         "open import P hiding (pb) public",
         "P",
-        Expect(
-            is_open=True, has_using=False, provides_has=_exact("pa"), provides_lacks=_exact("pb")
-        ),
+        Expect(is_open=True, has_using=False),
     ),
     # ---- RENAMING TARGET forms: fixity / operator / module / multiple ----
     _form(
@@ -319,31 +260,19 @@ FORMS: list[Form] = [
         "renaming with infixl fixity target",
         "open import P renaming (pb to infixl 6 pbAlt)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=False,
-            provides_has=_exact("pbAlt"),
-            provides_lacks=_exact("pb"),
-            check=_exact("pbAlt"),
-        ),
+        Expect(is_open=True, has_using=False, check=_exact("pbAlt")),
     ),
     _form(
         "renaming with infixr fixity target",
         "open import P renaming (pb to infixr 5 pbAlt)",
         "P",
-        Expect(is_open=True, has_using=False, provides_has=_exact("pbAlt"), check=_exact("pbAlt")),
+        Expect(is_open=True, has_using=False, check=_exact("pbAlt")),
     ),
     _form(
         "renaming an operator (mixfix)",
         "open import P renaming (_⊕_ to _⊗_)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=False,
-            provides_has=_exact("_⊗_"),
-            provides_lacks=_exact("_⊕_"),
-            check=_exact("_⊗_"),
-        ),
+        Expect(is_open=True, has_using=False, check=_exact("_⊗_")),
     ),
     _form(
         # ImportName_ = Id | 'module' Id — a module may be renamed; the dst is prunable.
@@ -363,18 +292,13 @@ FORMS: list[Form] = [
         "using an operator (mixfix)",
         "open import P using (_⊕_)",
         "P",
-        Expect(is_open=True, has_using=True, provides_exact=_exact("_⊕_"), check=_exact("_⊕_")),
+        Expect(is_open=True, has_using=True, check=_exact("_⊕_")),
     ),
     _form(
         "using multiple names",
         "open import P using (pa; pb)",
         "P",
-        Expect(
-            is_open=True,
-            has_using=True,
-            provides_exact=_exact("pa", "pb"),
-            check=_exact("pa", "pb"),
-        ),
+        Expect(is_open=True, has_using=True, check=_exact("pa", "pb")),
     ),
 ]
 
@@ -394,17 +318,6 @@ def test_classification(form: Form) -> None:
     target = _target_open(form)
     assert target.is_open is form.expect.is_open
     assert target.has_using is form.expect.has_using
-
-
-@pytest.mark.parametrize("form", FORMS, ids=lambda f: f.label)
-def test_provided_set(form: Form) -> None:
-    """provided_set computes each form's injected names (text or recorded smc)."""
-    provided = provided_set(_target_open(form), RECORDED_SMC)
-    assert provided is not None, f"{form.label}: unexpectedly unresolvable"
-    if form.expect.provides_exact is not None:
-        assert provided == set(form.expect.provides_exact)
-    assert form.expect.provides_has <= provided
-    assert form.expect.provides_lacks.isdisjoint(provided)
 
 
 @pytest.mark.parametrize("form", FORMS, ids=lambda f: f.label)
@@ -462,16 +375,13 @@ def test_public_reexport_excluded_from_check_names() -> None:
 
     Removing a name from a `public` block changes the file's exported surface,
     which can break a downstream consumer the per-file gate cannot see — so such
-    names must never be flagged. They still appear in `provided_set` (a public
-    open DOES supply them) — only the candidate set excludes them.
+    names must never be flagged: the candidate set excludes them.
     """
     opens = find_opens(
         "module Fixture where\nopen import P using (pa) renaming (pb to pbAlt) public\n"
     )
     assert opens[0].has_public is True
     assert open_check_names(opens) == set()
-    # but it still provides the names (for OTHER opens' redundancy decisions)
-    assert {"pa", "pbAlt"} <= (provided_set(opens[0], RECORDED_SMC) or set())
 
 
 # ---- COMMENT / STRING ROBUSTNESS ------------------------------------------

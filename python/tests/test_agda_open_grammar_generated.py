@@ -22,7 +22,7 @@ Axes crossed (Parser.y ``Open`` / ``ImportDirective`` / ``ModuleName``):
   ``opaque`` declaration blocks (Declarations nest in all of them).
 
 That is several thousand cases; each is a pure-function assertion (no Agda, so
-it cannot hang) on ``find_opens`` / ``provided_set`` / ``open_check_names``.
+it cannot hang) on ``find_opens`` / ``open_check_names``.
 """
 
 from __future__ import annotations
@@ -32,18 +32,13 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
-from tools._agda_opens import OpenInfo, find_opens, open_check_names, provided_set
+from tools._agda_opens import OpenInfo, find_opens, open_check_names
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-# A module's recorded ``show_module_contents`` export list (the wildcard set).
-_SMC: dict[str, list[str]] = {
-    "P": ["pa", "pb", "pc", "_op_"],
-    "A.B.C": ["da", "db", "_dop_"],
-}
-# Per-module names guaranteed present in the smc, for the hiding / renaming-src
-# pieces (so the wildcard provided-set computation is exercised meaningfully).
+# Per-module names guaranteed present in the module, for the hiding / renaming-src
+# pieces (so those directive forms reference real names).
 _HIDE: dict[str, str] = {"P": "pb", "A.B.C": "db"}
 _REN_SRC: dict[str, str] = {"P": "pa", "A.B.C": "da"}
 
@@ -73,7 +68,6 @@ class Form(NamedTuple):
     alias_target: bool  # module-macro: the open's module is the alias, not {mod}
     is_open: bool
     is_import: bool
-    resolvable: bool  # is the wildcard's module present in _SMC?
 
 
 _FORMS: tuple[Form, ...] = (
@@ -83,7 +77,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=False,
         is_open=False,
         is_import=True,
-        resolvable=False,
     ),
     Form(
         "import-as",
@@ -91,7 +84,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=False,
         is_open=False,
         is_import=True,
-        resolvable=False,
     ),
     Form(
         "open-import",
@@ -99,7 +91,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=False,
         is_open=True,
         is_import=True,
-        resolvable=True,
     ),
     Form(
         "open-import-as",
@@ -107,7 +98,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=False,
         is_open=True,
         is_import=True,
-        resolvable=True,
     ),
     Form(
         "open",
@@ -115,7 +105,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=False,
         is_open=True,
         is_import=False,
-        resolvable=True,
     ),
     Form(
         "instance",
@@ -123,7 +112,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=False,
         is_open=True,
         is_import=False,
-        resolvable=True,
     ),
     Form(
         "macro",
@@ -131,7 +119,6 @@ _FORMS: tuple[Form, ...] = (
         alias_target=True,
         is_open=True,
         is_import=False,
-        resolvable=False,
     ),
 )
 
@@ -168,7 +155,6 @@ class Case(NamedTuple):
     is_open: bool
     has_using: bool
     check: frozenset[str]
-    provided: frozenset[str] | None  # None ⇒ expect an unresolvable wildcard
 
 
 def _expected_check(form: Form, subset: tuple[str, ...]) -> frozenset[str]:
@@ -181,26 +167,6 @@ def _expected_check(form: Form, subset: tuple[str, ...]) -> frozenset[str]:
     if "renaming" in subset:
         names.add(_REN_DST)
     return frozenset(names)
-
-
-def _expected_provided(form: Form, subset: tuple[str, ...], module: str) -> frozenset[str] | None:
-    """Return the unqualified set this open injects (text using / smc wildcard)."""
-    if not form.is_open:
-        return frozenset()
-    if "using" in subset:
-        names: set[str] = set(_USING)
-        if "renaming" in subset:
-            names.add(_REN_DST)
-        return frozenset(names)
-    if not form.resolvable:
-        return None  # wildcard whose (macro alias) module a scope query can't resolve
-    base = set(_SMC[module])
-    if "hiding" in subset:
-        base.discard(_HIDE[module])
-    if "renaming" in subset:
-        base.discard(_REN_SRC[module])
-        base.add(_REN_DST)
-    return frozenset(base)
 
 
 def _wrap(line: str, ctx: str) -> str:
@@ -227,7 +193,6 @@ def _gen_cases() -> Iterator[Case]:
                     pieces = [_piece(t, module) for t in order]
                     line = form.template.format(mod=module, dir=" ".join(pieces)).rstrip()
                     check = _expected_check(form, subset)
-                    provided = _expected_provided(form, subset, module)
                     order_id = "+".join(order) or "bare"
                     for ctx in _CONTEXTS:
                         yield Case(
@@ -237,7 +202,6 @@ def _gen_cases() -> Iterator[Case]:
                             is_open=form.is_open,
                             has_using="using" in subset,
                             check=check,
-                            provided=provided,
                         )
                     # Multi-line layout: each directive on its own continuation
                     # line (top level) — stresses _gather_directive's indentation
@@ -253,7 +217,6 @@ def _gen_cases() -> Iterator[Case]:
                             is_open=form.is_open,
                             has_using="using" in subset,
                             check=check,
-                            provided=provided,
                         )
 
 
@@ -270,16 +233,11 @@ def _target_open(case: Case) -> OpenInfo:
 
 @pytest.mark.parametrize("case", _CASES, ids=[c.label for c in _CASES])
 def test_generated_grammar_case(case: Case) -> None:
-    """find_opens / provided_set / open_check_names match the generated expectation."""
+    """find_opens / open_check_names match the generated expectation."""
     target = _target_open(case)
     assert target.is_open is case.is_open
     assert target.has_using is case.has_using
     assert open_check_names(find_opens(case.source)) == set(case.check)
-    provided = provided_set(target, _SMC)
-    if case.provided is None:
-        assert provided is None
-    else:
-        assert provided == set(case.provided)
 
 
 def test_generated_case_count_is_in_the_thousands() -> None:

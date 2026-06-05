@@ -3,21 +3,22 @@
 """Grammar-complete detection of Agda ``open``/``import`` directives.
 
 This is the substrate for the dead-import gate (:mod:`tools.warm_dead_imports`)
-and the IWYU narrower (:mod:`tools.iwyu_narrow`): what opens exist, and what does
-each inject?  Unlike :func:`tools.prune_unused_imports.parse_imports` (which only
-recognises top-level ``open import`` / ``import`` blocks), this module finds
-*every* open the Agda grammar permits, in *every* position, and classifies it.
+and the IWYU narrower (:mod:`tools.iwyu_narrow`): what opens exist, and how is
+each classified (which names it lists explicitly, whether it is a wildcard)?
+Unlike :func:`tools.prune_unused_imports.parse_imports` (which only recognises
+top-level ``open import`` / ``import`` blocks), this module finds *every* open
+the Agda grammar permits, in *every* position, and classifies it.
 
 Grounding (Agda ``src/full/Agda/Syntax/Parser/Parser.y``):
 
 * ``ImportDirective`` is a free combination, in any order, of ``public`` |
   ``using (names)`` | ``hiding (names)`` | ``renaming (renames)``.  Only
   ``using`` *restricts* to an enumerable list; ``hiding``/``renaming`` are
-  wildcard modifiers; ``public`` is orthogonal re-export.  So **an open injects
-  an enumerable set that is readable from source text iff it carries a ``using``
-  clause**; every other open is a *wildcard* whose set is the opened module's
-  contents (read from ``show_module_contents``), minus ``hiding`` and with
-  ``renaming`` applied.
+  wildcard modifiers; ``public`` is orthogonal re-export.  So **an open's
+  individually-removable entries are readable from source text iff it carries a
+  ``using`` clause** (plus any ``renaming`` destination); every other open is a
+  *wildcard* over the opened module's full contents, which only a scope query
+  (the ``.agdai`` reader) can enumerate — not this text-level module.
 
 * ``ModuleName = QId`` is a single dotted token with no internal whitespace;
   ``OpenArgs`` / ``{{…}}`` / modifiers all follow whitespace.  So the module
@@ -36,21 +37,17 @@ The names a file makes *prunable* — the dead-import gate's candidates — are
 :func:`open_check_names`: every ``using`` entry AND every ``renaming``
 destination of a non-``public`` open.  A rename destination is prunable even
 with no ``using`` clause (delete just the ``a to b`` pair).  The complementary
-question — the full set an open *injects* (text for a ``using`` open, else its
-``Cmd_show_module_contents`` wildcard, minus ``hiding`` and with ``renaming``
-applied) — is :func:`provided_set`, a grammar-tested primitive (retained pending
-removal; its former consumer, the warm-highlighting narrower, has been retired).
+question — the full set a *wildcard* open injects — is not answered here: it
+needs the opened module's contents, which the scope-aware ``.agdai`` reader
+(:mod:`tools.iwyu_reader`) enumerates and :mod:`tools.iwyu_narrow` consumes.
 """
 
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 from tools._common import match_paren_content, split_top_level_semicolons
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 # An imported/opened identifier, e.g. "foo", "_∷_", "module Sub".
 type Name = str
@@ -61,9 +58,6 @@ type CharRange = tuple[int, int]
 # A dotted Agda module path or alias — the key of a scope query — e.g.
 # "Data.List.Properties", or an ``open module N = …`` alias "N".
 type ModulePath = str
-# A module's full export names (one ``Cmd_show_module_contents`` result), keyed
-# by module path — the wildcard provided-set :func:`provided_set` reads.
-type ModuleContents = Mapping[ModulePath, list[Name]]
 
 # Directive-modifier keywords (the ``ImportDirective1`` alternatives that are not
 # ``public``).  Only ``using`` restricts; the scan matches them as whole tokens.
@@ -287,45 +281,6 @@ def _classify(directive: str, *, span: CharRange, is_open: bool, is_import: bool
         renaming=_renaming_pairs(modifiers),
         span=span,
     )
-
-
-def provided_set(open_info: OpenInfo, module_contents: ModuleContents) -> set[Name] | None:
-    """Return the unqualified names ``open_info`` injects, or None if unresolvable.
-
-    The grammar-complete "what does this open bring into scope?" primitive, by
-    case on the directive:
-
-    * not an open (``import M`` / ``import M as N``) → injects nothing → ``set()``.
-    * has ``using`` → exactly the ``using`` entries plus the ``renaming``
-      destinations, read from source text (no scope query needed).
-    * otherwise a wildcard → the opened module's contents (from
-      ``module_contents``, i.e. ``show_module_contents``), minus ``hiding`` and
-      with ``renaming`` applied.
-
-    Returns ``None`` when a wildcard's module is absent from ``module_contents``
-    (one defined in a local scope a top-level query cannot reach): the caller
-    must treat that conservatively, never as an empty set.
-
-    The dead-import gate does NOT use this (it flags only genuinely-unused
-    imports, not redundancy — see :mod:`tools.warm_dead_imports`).  It is a
-    grammar-tested primitive with no current production consumer (its former
-    consumer, the warm-highlighting narrower, has been retired; the `.agdai`
-    narrower :mod:`tools.iwyu_narrow` uses the reader's used-set instead), so it
-    is retained pending its own removal.  Validated by the grammar harness in
-    ``python/tests/test_agda_open_grammar*.py``.
-    """
-    if not open_info.is_open:
-        return set()
-    if open_info.has_using:
-        return _using_names(open_info)
-    if open_info.module not in module_contents:
-        return None  # wildcard whose module a top-level scope query can't resolve
-    base = set(module_contents[open_info.module])
-    base -= set(open_info.hiding_names)
-    if open_info.renaming:
-        base -= {src for src, _dst in open_info.renaming}
-        base |= {dst for _src, dst in open_info.renaming}
-    return base
 
 
 def _using_names(open_info: OpenInfo) -> set[Name]:
