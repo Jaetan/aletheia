@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Driver for the `.agdai` IWYU reader (Route A) + its equivalence check.
+"""Driver + equivalence check for the scope-aware `.agdai` IWYU reader (Route A).
 
 Builds `tools/agda-iwyu-reader` on demand (linking the PREBUILT Agda from the
-cabal store, never a fresh solve), runs it over the scoped modules' interface
-files, and turns its elaboration-complete used-QName set into a dead-import
-verdict by matching the reader's used def-sites against the sieve's import
-def-ids (the `(file, position)` coordinate).
+cabal store, never a fresh solve), turns each dead-import candidate into a
+`(module, name)` query, runs the reader, and compares its USED/DEAD verdict
+against the recompile-confirm ORACLE
+(:func:`tools.warm_dead_imports.process_names`).
 
-`--validate` compares the reader's dead-set against the recompile-confirm ORACLE
-(:func:`tools.warm_dead_imports.process_names`) restricted to the sieve's
-candidates.  Equivalence is what would license retiring recompile-confirm for
-the (one-typecheck) reader.
-
-KNOWN GAP (surfaced by --validate, 2026-06-04): the `(file, position)` def-id
-agrees with the highlighting only for DIRECTLY-defined names.  It does NOT for
-(a) RE-EXPORTS — highlighting points the import at the re-export site, the reader
-at the canonical definition (e.g. `[]`: `Data/List/Base.agda` vs
-`prim/.../Builtin/List.agda`); and (b) MODULE imports — a module is not a
-term-level QName, so `namesIn` never holds it (only its contents).  Both make the
-naive def-id match over-report dead.  The fix is scope-aware resolution: resolve
-each imported name to its canonical QName via the interface's `iInsideScope`
-(handles re-exports precisely) and treat a module import as used iff some of its
-contents are used.  Until then `--validate` reports these as mismatches.
+The ONE release-blocking disagreement is a **false negative**: the reader says
+DEAD but removing the import fails to type-check (the oracle keeps it).  The
+reverse — reader keeps / UNRESOLVED while the oracle finds it removable — is the
+safe direction (an over-keep, or the IWYU-vs-brute-force distinction), reported
+but non-blocking.  `--validate` exits 1 iff any false negative is found; that
+clean differential, on a real corpus, is what would license retiring the oracle.
 
 Invoke: `python -m tools.iwyu_reader --validate (--all | --diff | FILE.agda ...)`.
 """
@@ -37,17 +28,14 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import NamedTuple, cast
+from typing import cast
 
+from tools._agda_opens import find_opens
 from tools._common import emit, find_executable, run_capture
 from tools.prune_unused_imports import AGDA_BIN, SRC_DIR
 from tools.warm_dead_imports import (
-    DefId,
-    LoadResult,
     SweepResult,
     WarmAgda,
-    detect_dead,
-    import_defids,
     process_names,
     run_warm_tool,
 )
@@ -57,16 +45,12 @@ REPO = SRC.parent
 AGDA = str(AGDA_BIN)
 PKG = Path(__file__).resolve().parent / "agda-iwyu-reader"
 
-# Used QNames per file, as the (def-file, def-position) coordinate shared with the
-# sieve's import def-ids.
-type UsedByRel = dict[str, set[DefId]]
-
-
-class _Parsed(NamedTuple):
-    """One reader JSONL line decoded: the module's rel path + its used def-ids."""
-
-    rel: str
-    defids: set[DefId]
+# A candidate name -> the (module, original-name) queries that resolve it.  For a
+# `using (n)` the query name is n; for `renaming (src to dst)` the candidate is
+# dst but the query name is src (the elaborated term references the origin).
+type QueryMap = dict[str, list[tuple[str, str]]]
+# Reader verdict per (rel, module, query-name).
+type Verdicts = dict[tuple[str, str, str], str]
 
 
 @functools.cache
@@ -105,6 +89,11 @@ def build_reader() -> Path:
             str(db),
             "-package",
             "Agda",
+            "-package",
+            "containers",
+            "-package",
+            "unordered-containers",
+            "-XPatternSynonyms",
             "-outputdir",
             str(outdir),
             str(source),
@@ -157,117 +146,164 @@ def _include_paths() -> tuple[str, ...]:
     return tuple(paths)
 
 
-def _used_defids(entries: object) -> set[DefId]:
-    """Collect (def-file, def-pos) pairs from a reader entry's ``used`` array."""
-    defids: set[DefId] = set()
-    if isinstance(entries, list):
-        for entry in cast("list[object]", entries):
-            if isinstance(entry, dict):
-                item = cast("dict[str, object]", entry)
-                f, p = item.get("f"), item.get("p")
-                if isinstance(f, str) and isinstance(p, int):
-                    defids.add((f, p))
-    return defids
+def candidate_queries(text: str) -> QueryMap:
+    """Map each prunable import name to its ``(module, original-name)`` queries.
 
-
-def _parse_used(line: str, by_path: dict[str, str]) -> _Parsed | None:
-    """Parse one reader JSONL line into its rel + used-def-ids, or None to skip it.
-
-    Skips non-object lines, unknown paths, and error objects (a file the reader
-    could not decode is left out of the validation rather than mis-flagged).
+    Mirrors the gate's candidate set (:func:`tools._agda_opens.open_check_names`)
+    but keeps the module + original-name association the reader needs.  A
+    ``using (n)`` entry resolves as ``(module, n)`` (a ``module `` prefix
+    stripped); a ``renaming (src to dst)`` candidate ``dst`` resolves as
+    ``(module, src)`` — the elaborated term references the origin, never the alias.
     """
+    qmap: QueryMap = {}
+    for open_info in find_opens(text):
+        is_candidate = (
+            open_info.is_open
+            and (open_info.has_using or bool(open_info.renaming))
+            and not open_info.has_public
+        )
+        if not is_candidate:
+            continue
+        for raw in open_info.using_names:
+            name = raw[len("module ") :].strip() if raw.startswith("module ") else raw
+            qmap.setdefault(name, []).append((open_info.module, name))
+        for src, dst in open_info.renaming:
+            qmap.setdefault(dst, []).append((open_info.module, src))
+    return qmap
+
+
+def _decode_verdict(line: str, by_path: dict[str, str]) -> tuple[tuple[str, str, str], str] | None:
+    """Decode one reader JSONL line into ((rel, mod, name), verdict), or None."""
     line = line.strip()
     if not line.startswith("{"):
         return None
-    raw: object = json.loads(line)
+    raw = cast("object", json.loads(line))
     if not isinstance(raw, dict):
         return None
     obj = cast("dict[str, object]", raw)
-    path = obj.get("path")
-    rel = by_path.get(path) if isinstance(path, str) else None
-    if rel is None or "error" in obj:
+    path, mod, name, verdict = obj.get("path"), obj.get("mod"), obj.get("name"), obj.get("verdict")
+    if not all(isinstance(v, str) for v in (path, mod, name, verdict)):
         return None
-    return _Parsed(rel, _used_defids(obj.get("used")))
+    rel = by_path.get(cast("str", path))
+    if rel is None:
+        return None
+    return (rel, cast("str", mod), cast("str", name)), cast("str", verdict)
 
 
-def run_reader(rels: list[str]) -> UsedByRel:
-    """Run the reader over the scoped modules' interfaces; map rel -> used def-ids.
+def run_reader(queries: list[tuple[str, str, str]]) -> Verdicts:
+    """Run the reader over ``(rel, module, name)`` queries; map each to its verdict.
 
-    Only files whose `.agdai` exists and decodes appear in the result (the caller
-    skips the rest rather than treating "unread" as "everything dead").
+    Only queries whose file has a present `.agdai` are sent (the caller treats a
+    missing verdict as "reader could not judge" → defer to the oracle).
     """
-    binary = build_reader()
-    present = {rel: _agdai_path(rel) for rel in rels if _agdai_path(rel).is_file()}
-    if not present:
+    if not queries:
         return {}
+    binary = build_reader()
+    rels = {rel for rel, _mod, _name in queries}
+    present = {rel: _agdai_path(rel) for rel in rels if _agdai_path(rel).is_file()}
     by_path = {str(p): rel for rel, p in present.items()}
+    lines = [f"{present[rel]}\t{mod}\t{name}" for rel, mod, name in queries if rel in present]
+    if not lines:
+        return {}
     env = {**os.environ, "AGDA_IWYU_INCLUDE_PATHS": ":".join(_include_paths())}
     result = subprocess.run(
-        [str(binary), *by_path],
+        [str(binary)],
+        input="\n".join(lines) + "\n",
         capture_output=True,
         text=True,
         env=env,
         check=False,
     )
-    used: UsedByRel = {}
+    verdicts: Verdicts = {}
     for line in result.stdout.splitlines():
-        parsed = _parse_used(line, by_path)
-        if parsed is not None:
-            used[parsed.rel] = parsed.defids
-    return used
+        decoded = _decode_verdict(line, by_path)
+        if decoded is not None:
+            verdicts[decoded[0]] = decoded[1]
+    return verdicts
 
 
-def _check_file(agda: WarmAgda, rel: str, loaded: LoadResult, reader_used: set[DefId]) -> bool:
-    """Compare the reader's dead-set against the recompile-confirm oracle for `rel`.
+def _reader_verdict(rel: str, name: str, qmap: QueryMap, verdicts: Verdicts) -> str:
+    """Aggregate a candidate's reader verdict across its ``(module, name)`` queries.
 
-    Returns True on disagreement (a mismatch).  The reader-dead set is the sieve
-    candidates whose def-id the reader's used-set lacks; the oracle confirms the
-    same candidates by remove-and-recompile.  Files with no candidates agree
-    trivially and are silent.
+    USED if any query is USED; DEAD only if all are DEAD; otherwise UNRESOLVED
+    (a missing or UNRESOLVED query → defer to the oracle, never DEAD).
     """
-    text = (SRC / rel).read_text(encoding="utf-8")
-    abspath = str(SRC / rel)
-    candidates = detect_dead(text, loaded.tokens, abspath)["candidates"]
-    if not candidates:
-        return False
-    defids = import_defids(text, loaded.tokens, abspath)
-    reader_dead = sorted(c for c in candidates if defids[c] not in reader_used)
-    confirmed = sorted(process_names(agda, rel, candidates, keep=False)[0])
-    if reader_dead != confirmed:
-        emit(f"  MISMATCH {rel}: reader={reader_dead} oracle={confirmed} candidates={candidates}")
-        return True
-    emit(f"  ok {rel}: dead={confirmed or '—'} (filtered {len(candidates) - len(confirmed)} FP)")
-    return False
+    qs = qmap.get(name, [])
+    results = [verdicts.get((rel, mod, orig)) for mod, orig in qs]
+    if not results or any(r is None for r in results):
+        return "UNRESOLVED"
+    if "USED" in results:
+        return "USED"
+    if all(r == "DEAD" for r in results):
+        return "DEAD"
+    return "UNRESOLVED"
+
+
+def _classify_file(
+    rel: str,
+    cands: list[str],
+    qmap: QueryMap,
+    verdicts: Verdicts,
+    dead_set: set[str],
+) -> tuple[int, int, int]:
+    """Compare reader vs oracle per candidate; return (false_negs, over_keeps, agree).
+
+    A FALSE NEGATIVE (reader DEAD, oracle ALIVE) is the only blocking direction;
+    the reverse (reader keeps / UNRESOLVED, oracle DEAD) is a safe over-keep.
+    """
+    false_negs = over_keeps = agree = 0
+    for name in cands:
+        reader = _reader_verdict(rel, name, qmap, verdicts)
+        oracle = "DEAD" if name in dead_set else "ALIVE"
+        if reader == "DEAD" and oracle == "ALIVE":
+            emit(f"  ✗ FALSE NEGATIVE {rel}: {name}  reader=DEAD oracle=ALIVE")
+            false_negs += 1
+        elif reader != "DEAD" and oracle == "DEAD":
+            emit(f"  · over-keep {rel}: {name}  reader={reader} oracle=DEAD (safe)")
+            over_keeps += 1
+        else:
+            agree += 1
+    return false_negs, over_keeps, agree
 
 
 def _validate(agda: WarmAgda, swept: SweepResult) -> int:
-    """Compare reader-dead vs the recompile-confirm oracle over the swept candidates.
+    """Differential: reader verdict vs recompile-confirm oracle over the candidates.
 
-    Only files the sieve flagged candidates for can disagree (reader-dead is a
-    subset of the sieve candidates); files with none agree trivially.  The sweep
-    already refreshed every `.agdai`, so the reader sees interfaces consistent
-    with the loaded tokens.  Exit 1 on any disagreement.
+    For every sieve candidate, the reader's aggregated verdict is compared with
+    the oracle's (remove-one + recompile).  Reports the blocking direction —
+    reader DEAD yet the oracle keeps it (a false negative) — plus the safe
+    over-keep direction; exits 1 iff any false negative is found.
     """
-    rels = sorted(swept.candidates)
-    used = run_reader(rels)
-    mismatches = 0
-    for rel in rels:
-        if rel not in used:
-            emit(f"  skip {rel}: reader could not read its .agdai")
-            continue
-        loaded = agda.load(str(SRC / rel))
-        mismatches += int(_check_file(agda, rel, loaded, used[rel]))
-    emit(f"=== reader-vs-oracle: {mismatches} mismatch(es) ===")
-    return 1 if mismatches else 0
+    qmaps = {
+        rel: candidate_queries((SRC / rel).read_text(encoding="utf-8")) for rel in swept.candidates
+    }
+    queries = [
+        (rel, mod, orig)
+        for rel, cands in swept.candidates.items()
+        for name in cands
+        for mod, orig in qmaps[rel].get(name, [])
+    ]
+    verdicts = run_reader(queries)
+    false_negs = over_keeps = agree = 0
+    for rel, cands in swept.candidates.items():
+        oracle_dead, _alive = process_names(agda, rel, cands, keep=False)
+        fneg, over, ag = _classify_file(rel, cands, qmaps[rel], verdicts, set(oracle_dead))
+        false_negs += fneg
+        over_keeps += over
+        agree += ag
+    emit(
+        f"=== reader-vs-oracle: {false_negs} FALSE NEGATIVE(s), "
+        + f"{over_keeps} over-keep, {agree} agree ==="
+    )
+    return 1 if false_negs else 0
 
 
 def main() -> int:
-    """Validate the reader against the recompile-confirm oracle over the scoped files.
+    """Run the reader-vs-oracle differential over the scoped files; exit 1 on any FN.
 
     Scope flags mirror the dead-import gate (`--all` / `--diff` / explicit paths),
     resolved by the shared `run_warm_tool` shell; `--validate` is accepted and
-    ignored (this tool only validates for now).  Exit 1 if the reader disagrees
-    with the oracle on any file.
+    ignored (this tool only validates for now).
     """
     args = [a for a in sys.argv[1:] if a != "--validate"]
     return run_warm_tool(args, _validate)
