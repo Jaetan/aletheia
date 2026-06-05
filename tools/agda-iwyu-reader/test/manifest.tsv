@@ -16,9 +16,11 @@ ConsumerRenameDeadClean	Origin	idO	DEAD
 ConsumerOpUsed	OpMod	_⊕_	USED
 ConsumerOpUsed	OpMod	_⊗_	DEAD
 ConsumerInstUsed	InstLib	defI	USED
-ConsumerPatUsed	PatLib	two	UNRESOLVED
-ConsumerPatDead	PatLib	two	UNRESOLVED
+ConsumerPatUsed	PatLib	two	USED
+ConsumerPatDead	PatLib	two	DEAD
 ConsumerAbsUsed	AbsMid	InstAb	USED
 ConsumerAbsDead	AbsMid	InstAb	DEAD
 ConsumerRecUsed	RecLib	fstP	USED
 ConsumerAliasDup	Origin	idO	USED
+ConsumerIUsed	MidI	InstI	USED
+ConsumerIDead	MidI	InstI	DEAD

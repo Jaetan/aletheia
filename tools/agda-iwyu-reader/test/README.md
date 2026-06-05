@@ -29,15 +29,30 @@ here.
 | `ConsumerRename*` `Origin idO` | **renaming** — query the original name | USED / DEAD |
 | `ConsumerOpUsed` `OpMod _⊕_`/`_⊗_` | **operator / mixfix** | USED / DEAD |
 | `ConsumerInstUsed` `InstLib defI` | **instance / inferred use** (no body token; `namesIn` captures it) | USED |
-| `ConsumerPat*` `PatLib two` | **pattern synonym** (lives in `iPatternSyns`, not `sigDefinitions`; expands to constructors) | UNRESOLVED (→ oracle) |
+| `ConsumerPat*` `PatLib two` | **pattern synonym** (expands to constructors, so absent from `sigDefinitions`; caught by the syntactic occurrence-count from `iHighlighting`) | USED / DEAD |
 | `ConsumerAbs*` `AbsMid InstAb` | **abstract** Function copy | USED / DEAD |
 | `ConsumerRecUsed` `RecLib fstP` | **record projection** | USED |
 | `ConsumerAliasDup` `Origin idO` | **aliased duplicate** (same origin under two names, one used) — over-keep is the safe direction | USED |
+| `ConsumerI*` `MidI InstI` | **module-application instance copy used via instance search** (no body token; origin in `used`) — the case that exercises the *delegated* signal | USED / DEAD |
 
-**FN-safety property** (the bar): no *used*-case ever resolves to DEAD. Cases the
-reader cannot decide precisely (pattern synonyms; unreadable defining interface)
-return UNRESOLVED, which the driver routes to the recompile-confirm oracle —
-never to DEAD.
+The reader decides a candidate by the union of three signals, all read from the
+`.agdai`:
+
+1. **semantic** — its canonical QName is in `namesIn(iSignature)` (the
+   elaborated terms; captures inferred / implicit / literal-backed uses);
+2. **syntactic** — its definition site is referenced by a source token, counted
+   from `iHighlighting`. An import-listed name always contributes one occurrence
+   (the `using (...)` token), so a *value* needs count ≥ 2 to be a body use; a
+   *module member* is not in the import list, so any occurrence (≥ 1) is a use.
+   This is what catches pattern synonyms, which elaboration erases;
+3. **delegated** — a module-application Function copy whose delegated origin
+   reaches the used-set.
+
+**FN-safety property** (the bar): no *used*-case ever resolves to DEAD — every
+real use mechanism is covered by one of the three signals, so DEAD means "none
+fired". UNRESOLVED is reserved for a candidate that cannot be resolved in scope
+at all (which should not happen for a real candidate); the driver routes it to
+the recompile-confirm oracle, never to DEAD.
 
 ## Running the validation (manual, until the runner lands)
 

@@ -8,24 +8,29 @@
 -- name -- the elaborated term references the origin, never the alias.
 --
 -- The verdict rule (validated against a synthetic fixture matrix; see
--- tools/agda-iwyu-reader/test/): a scope QName q is USED iff
---   (1) q in the used-set  (= namesIn over the consumer signature: covers direct
---       defs, re-exports, datatype/constructor copies, and any name the
---       elaborated term references by its own QName -- including instance /
---       implicit / literal-backed uses that source highlighting cannot see), OR
---   (2) q is a module-application Function COPY whose delegated origin reaches
---       the used-set.  A copy's body is `Def origin <section-args>`; we take the
---       clause-body HEAD (dropping the type and the args, which would otherwise
---       leak unrelated QNames -- the false-"used" trap) and recurse.
--- def q is read from q's OWN defining interface, auto-derived from its
--- qnameModule (the file boundary is unmarked, so strip-retry the module-name
--- prefix until one resolves AND contains q), cached by path.
---
--- UNRESOLVED is returned when the reader cannot decide precisely (defining
--- interface unreadable; pattern synonyms, which live in iPatternSyns and expand
--- to constructors; abstract copies with no clause body).  UNRESOLVED MUST be
--- treated by the driver as "route to the recompile-confirm oracle", never as
--- DEAD -- the no-false-negative guarantee rests on that.
+-- tools/agda-iwyu-reader/test/): a candidate is USED iff ANY of three signals,
+-- all read from the .agdai, fires for a QName it resolves to in scope:
+--   (1) SEMANTIC -- the QName is in `namesIn (iSignature)` (the elaborated
+--       terms): direct defs, re-exports, datatype/constructor copies, and the
+--       instance / implicit / literal-backed uses source highlighting misses.
+--   (2) SYNTACTIC -- its definition site is referenced by a source token, by
+--       OCCURRENCE COUNT from `iHighlighting`.  An import-listed name always
+--       contributes one occurrence (the `using (...)` token), so a VALUE needs
+--       count >= 2 to be a body use; a MODULE MEMBER is not import-listed, so any
+--       occurrence (>= 1) is a use.  This catches PATTERN SYNONYMS, which expand
+--       to constructors and so never reach the signature.
+--   (3) DELEGATED -- a module-application Function COPY whose delegated origin
+--       reaches the used-set.  A copy's body is `Def origin <section-args>`; we
+--       take the clause-body HEAD (dropping the type and args, which would leak
+--       unrelated QNames -- the false-"used" trap) and recurse.  def q is read
+--       from q's OWN defining interface, auto-derived from its qnameModule (the
+--       file boundary is unmarked, so strip-retry the module-name prefix until
+--       one resolves AND contains q), cached by path.
+-- DEAD means none of the three fired (every real use mechanism is covered, so
+-- this is the no-false-negative guarantee).  UNRESOLVED is reserved for a
+-- candidate that cannot be resolved in scope at all (should not happen for a
+-- real candidate); the driver routes it to the recompile-confirm oracle, never
+-- to DEAD.
 --
 -- Include paths (project src + stdlib src) come from $AGDA_IWYU_INCLUDE_PATHS
 -- (colon-separated); they MUST match what wrote the interfaces.
@@ -48,22 +53,26 @@ import           System.IO (hSetEncoding, stdout, utf8)
 import           Agda.Interaction.FindFile (findFile', mkInterfaceFile, toIFile)
 import           Agda.Interaction.Imports (readInterface)
 import           Agda.Interaction.Options (defaultOptions, optIncludePaths)
-import           Agda.Syntax.Abstract.Name (ModuleName (..), QName, qnameModule)
+import           Agda.Syntax.Abstract.Name (ModuleName (..), QName, nameBindingSite, qnameModule, qnameName)
+import           Agda.Syntax.Common.Aspect (Aspects (..), DefinitionSite (..))
 import           Agda.Syntax.Common.Pretty (prettyShow)
 import qualified Agda.Syntax.Concrete.Name as C
 import           Agda.Syntax.Internal (Abs (..), Clause (..), ConHead (..), Term (..))
 import           Agda.Syntax.Internal.Names (namesIn)
+import           Agda.Syntax.Position (posPos, rStart, rangeFileName, srcFile)
 import           Agda.Syntax.Scope.Base (AbstractName (..), Scope, allNamesInScope, scopeModules)
 import           Agda.Syntax.TopLevelModuleName (rawTopLevelModuleNameForModuleName)
 import           Agda.TypeChecking.Monad.Base
-                   (Definition, Interface, TCM, defCopy, funClauses, iInsideScope, iSignature,
-                    pattern Function, runTCMTop, sigDefinitions, theDef)
+                   (Definition, Interface, TCM, defCopy, funClauses, iHighlighting, iInsideScope,
+                    iSignature, pattern Function, runTCMTop, sigDefinitions, theDef)
 import           Agda.TypeChecking.Monad.Options (setCommandLineOptions)
 import           Agda.TypeChecking.Monad.State (topLevelModuleName)
 import           Agda.Utils.FileName (AbsolutePath, absolute, filePath)
 import           Agda.Utils.Lens ((^.))
 import           Agda.Utils.List1 (List1)
 import qualified Agda.Utils.List1 as List1
+import qualified Agda.Utils.Maybe.Strict as Strict
+import qualified Agda.Utils.RangeMap as RangeMap
 
 -- ---- three-valued verdict ---------------------------------------------------
 
@@ -102,6 +111,32 @@ defsOf iface = iSignature iface ^. sigDefinitions
 
 usedOf :: Interface -> Set QName
 usedOf iface = namesIn (toList (defsOf iface))
+
+-- The SYNTACTIC use signal: how many source tokens reference each definition
+-- site, keyed by (defining-module, position).  This is the complement of the
+-- semantic `usedOf` set -- it captures source-level uses that elaboration
+-- erases, notably PATTERN SYNONYMS (which expand to constructors, so never
+-- appear in the signature).  An import-listed name always contributes one
+-- occurrence (the `using (...)` token itself), so a *value* candidate is used
+-- in the body iff its count is >= 2; a *module member* is not in the import
+-- list, so any occurrence (>= 1) is a real use.
+highlightCount :: Interface -> Map (String, Int) Int
+highlightCount iface = Map.fromListWith (+)
+  [ ((prettyShow (defSiteModule ds), defSitePos ds), 1)
+  | (_, asp) <- RangeMap.toList (iHighlighting iface)
+  , Just ds  <- [definitionSite asp] ]
+
+-- A QName's own definition site as (module, position), to look up its count.
+defKey :: QName -> Maybe (String, Int)
+defKey q = do
+  pos  <- rStart (nameBindingSite (qnameName q))
+  rf   <- Strict.toLazy (srcFile pos)
+  modn <- rangeFileName rf
+  pure (prettyShow modn, fromIntegral (posPos pos))
+
+-- Number of source tokens referencing q's definition (0 if its site is unknown).
+occurrences :: Map (String, Int) Int -> QName -> Int
+occurrences hc q = maybe 0 (\k -> Map.findWithDefault 0 k hc) (defKey q)
 
 -- ---- scope resolution -------------------------------------------------------
 
@@ -164,25 +199,39 @@ defOf cache q = go (length parts)
             Just d  -> pure (Just d)
             Nothing -> go (n - 1)
 
-isUsedDeep :: Cache -> Set QName -> QName -> Set QName -> TCM V
-isUsedDeep cache used q visited
+-- Semantic + delegated-copy verdict for one scope QName.  The syntactic signal
+-- is added by the caller; here defOf failure (pattern synonym / not in any
+-- signature) or a non-copy not in `used` means no semantic use => Dead.
+semDeep :: Cache -> Set QName -> QName -> Set QName -> TCM V
+semDeep cache used q visited
   | q `Set.member` used    = pure Used
   | q `Set.member` visited = pure Dead
   | otherwise = do
       mdef <- defOf cache q
       case mdef of
-        Nothing -> pure Unresolved
+        Nothing -> pure Dead
         Just d
-          | isFunctionCopy d -> case delegatedHeads d of
-              [] -> pure Unresolved
-              hs -> combine <$> mapM (\h -> isUsedDeep cache used h (Set.insert q visited)) hs
-          | otherwise -> pure Dead
+          | isFunctionCopy d -> combine <$> mapM (\h -> semDeep cache used h (Set.insert q visited)) (delegatedHeads d)
+          | otherwise        -> pure Dead
 
-resolveQuery :: Cache -> Set QName -> Map String Scope -> String -> String -> TCM V
-resolveQuery cache used scopes modS name = do
-  let qs = valueLookup scopes modS name ++ moduleExports scopes (modS ++ "." ++ name)
-  if null qs then pure Unresolved
-  else combine <$> mapM (\q -> isUsedDeep cache used q Set.empty) qs
+-- ASSUMPTION (load-bearing for FN-safety): a value candidate is listed in
+-- exactly ONE `using`/`renaming` clause, contributing exactly one highlight
+-- occurrence, so a body use means count >= 2.  This holds for the dead-import
+-- gate (every candidate is import-listed).  When NARROWING lands (Step 3), a
+-- wildcard `open import M` contributes ZERO import tokens, so the threshold must
+-- generalize to `importOccurrences(candidate) + 1` (the driver, which parses the
+-- opens, supplies that count) -- otherwise a used-once syntactic-only name from a
+-- wildcard open would count 1 < 2 and be a FALSE NEGATIVE.
+resolveQuery :: Cache -> Set QName -> Map (String, Int) Int -> Map String Scope -> String -> String -> TCM V
+resolveQuery cache used hc scopes modS name = do
+  let valQs = valueLookup scopes modS name                  -- import-listed: a body use needs count >= 2
+      modQs = moduleExports scopes (modS ++ "." ++ name)     -- members: any occurrence (>= 1) is a use
+      qs    = valQs ++ modQs
+      synUsed = any (\q -> occurrences hc q >= 2) valQs
+             || any (\q -> occurrences hc q >= 1) modQs
+  if null qs        then pure Unresolved  -- not in scope at all (should not happen for a real candidate)
+  else if synUsed   then pure Used        -- syntactic: referenced in the source beyond its import
+  else combine <$> mapM (\q -> semDeep cache used q Set.empty) qs
 
 -- ---- driver -----------------------------------------------------------------
 
@@ -210,9 +259,10 @@ main = do
         Nothing    -> pure [ errLine q "decode failed" | q <- qs ]
         Just iface -> do
           let used   = usedOf iface
+              hc     = highlightCount iface
               scopes = scopeMap iface
           forM qs $ \q -> do
-            v <- resolveQuery cache used scopes (qMod q) (qName q)
+            v <- resolveQuery cache used hc scopes (qMod q) (qName q)
             pure (verdictLine q v)
   case res of
     Left _   -> putStr ""   -- a top-level TCM error: emit nothing (driver treats absent as oracle)
