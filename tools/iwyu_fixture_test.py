@@ -33,9 +33,9 @@ from typing import NamedTuple
 
 from tools._agda_opens import find_opens
 from tools._common import emit, run_capture
+from tools._warm import AGDA_BIN
 from tools.iwyu_narrow import classify_wildcard, explicit_from
 from tools.iwyu_reader import invoke_reader, verdict_fields, wildcard_fields
-from tools.prune_unused_imports import AGDA_BIN
 
 PKG = Path(__file__).resolve().parent / "agda-iwyu-reader"
 FIXTURES = PKG / "test" / "fixtures"

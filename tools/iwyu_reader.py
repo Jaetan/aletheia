@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Driver + equivalence check for the scope-aware `.agdai` IWYU reader (Route A).
+"""Scope-aware `.agdai` IWYU reader: the dead-named-import gate + wildcard-read API.
 
 Builds `tools/agda-iwyu-reader` on demand (linking the PREBUILT Agda from the
-cabal store, never a fresh solve), turns each dead-import candidate into a
-`NameQuery`, runs the reader, and compares its USED/DEAD verdict against the
-recompile-confirm ORACLE (:func:`tools.warm_dead_imports.process_names`).
+cabal store, never a fresh solve) and asks it — by reading interfaces — whether
+each imported name is actually used.
 
-The ONE release-blocking disagreement is a **false negative**: the reader says
-DEAD but removing the import fails to type-check (the oracle keeps it).  The
-reverse — reader keeps / UNRESOLVED while the oracle finds it removable — is the
-safe direction (an over-keep, or the IWYU-vs-brute-force distinction), reported
-but non-blocking.  `--validate` exits 1 iff any false negative is found; that
-clean differential, on a real corpus, is what would license retiring the oracle.
+As a GATE (`python -m tools.iwyu_reader (--all | --diff | FILE.agda ...)`): for
+every prunable named import (a `using (n)` entry or a `renaming (src to dst)`
+destination), the reader returns USED / DEAD / UNRESOLVED.  A DEAD verdict is a
+finding — an unused import to remove.  UNRESOLVED means the reader could not
+judge the candidate (a missing `.agdai`); it is SURFACED, never silently passed,
+and never collapsed to DEAD.  Exits 1 if any DEAD or UNRESOLVED candidate is
+found.  Wildcard `open import M` narrowing is the sibling gate
+:mod:`tools.iwyu_narrow`.
 
 Also exposes `read_wildcards` (the USED subset of each wildcard `open import M`)
-for the narrowing / redundancy driver :mod:`tools.iwyu_narrow`.
+for that narrowing driver.
 
-Invoke: `python -m tools.iwyu_reader --validate (--all | --diff | FILE.agda ...)`.
+The reader's correctness is validated by the synthetic fixture matrix
+(:mod:`tools.iwyu_fixture_test`), NOT by any recompile oracle — the brute-force
+import-resolution tools it superseded are retired.
 """
 
 from __future__ import annotations
@@ -34,15 +37,7 @@ from typing import NamedTuple, TypedDict, cast
 
 from tools._agda_opens import ModulePath, find_opens
 from tools._common import emit, find_executable, run_capture
-from tools.prune_unused_imports import AGDA_BIN, SRC_DIR
-from tools.warm_dead_imports import (
-    Name,
-    RelPath,
-    SweepResult,
-    WarmAgda,
-    process_names,
-    run_warm_tool,
-)
+from tools._warm import AGDA_BIN, SRC_DIR, Name, RelPath, run_warm_gate
 
 SRC = SRC_DIR
 REPO = SRC.parent
@@ -405,7 +400,7 @@ def _reader_verdict(rel: RelPath, name: Name, qmap: QueryMap, verdicts: Verdicts
     """Aggregate a candidate's reader verdict across the imports that resolve it.
 
     USED if any query is USED; DEAD only if all are DEAD; otherwise UNRESOLVED
-    (a missing or UNRESOLVED query → defer to the oracle, never DEAD).
+    (a missing or UNRESOLVED query → surfaced as "could not judge", never DEAD).
     """
     results = [verdicts.get(NameQuery(rel, ref.module, ref.name)) for ref in qmap.get(name, [])]
     if not results or any(r is None for r in results):
@@ -417,84 +412,73 @@ def _reader_verdict(rel: RelPath, name: Name, qmap: QueryMap, verdicts: Verdicts
     return "UNRESOLVED"
 
 
-class Differential(NamedTuple):
-    """Per-file reader-vs-oracle tally: blocking FNs, safe over-keeps, agreements."""
+class DeadImport(NamedTuple):
+    """A prunable named import the reader judged on, located by file + name."""
 
-    false_negs: int
-    over_keeps: int
-    agree: int
+    rel: RelPath
+    name: Name
 
 
-def _classify_file(
-    rel: RelPath,
-    cands: list[Name],
-    qmap: QueryMap,
-    verdicts: Verdicts,
-    dead_set: set[Name],
-) -> Differential:
-    """Compare reader vs oracle per candidate.
+class GateResult(NamedTuple):
+    """The gate's verdict over a scope: DEAD findings + the ones it could not judge.
 
-    A FALSE NEGATIVE (reader DEAD, oracle ALIVE) is the only blocking direction;
-    the reverse (reader keeps / UNRESOLVED, oracle DEAD) is a safe over-keep.
+    `unresolved` are candidates whose `.agdai` the reader could not read (a
+    missing interface) — surfaced (never silently dropped, never collapsed to
+    DEAD), so the gate fails loud rather than under-reporting.
     """
-    false_negs = over_keeps = agree = 0
-    for name in cands:
-        reader = _reader_verdict(rel, name, qmap, verdicts)
-        oracle = "DEAD" if name in dead_set else "ALIVE"
-        if reader == "DEAD" and oracle == "ALIVE":
-            emit(f"  ✗ FALSE NEGATIVE {rel}: {name}  reader=DEAD oracle=ALIVE")
-            false_negs += 1
-        elif reader != "DEAD" and oracle == "DEAD":
-            emit(f"  · over-keep {rel}: {name}  reader={reader} oracle=DEAD (safe)")
-            over_keeps += 1
-        else:
-            agree += 1
-    return Differential(false_negs, over_keeps, agree)
+
+    dead: list[DeadImport]
+    unresolved: list[DeadImport]
 
 
-def _validate(agda: WarmAgda, swept: SweepResult) -> int:
-    """Differential: reader verdict vs recompile-confirm oracle over the candidates.
+def analyze(rels: list[RelPath]) -> GateResult:
+    """Judge every prunable named import across the scoped files (`.agdai` must be fresh).
 
-    For every sieve candidate, the reader's aggregated verdict is compared with
-    the oracle's (remove-one + recompile).  Reports the blocking direction —
-    reader DEAD yet the oracle keeps it (a false negative) — plus the safe
-    over-keep direction; exits 1 iff any false negative is found.
+    Each file's `using`/`renaming` candidates (:func:`candidate_queries`) are put
+    to the reader; a candidate aggregating to DEAD is a finding, to UNRESOLVED is
+    surfaced, to USED is dropped.
     """
-    qmaps = {
-        rel: candidate_queries((SRC / rel).read_text(encoding="utf-8")) for rel in swept.candidates
-    }
+    qmaps = {rel: candidate_queries((SRC / rel).read_text(encoding="utf-8")) for rel in rels}
     queries = [
         NameQuery(rel, ref.module, ref.name)
-        for rel, cands in swept.candidates.items()
-        for name in cands
-        for ref in qmaps[rel].get(name, [])
+        for rel, qmap in qmaps.items()
+        for name in qmap
+        for ref in qmap[name]
     ]
     verdicts = run_reader(queries)
-    total = Differential(0, 0, 0)
-    for rel, cands in swept.candidates.items():
-        oracle_dead, _alive = process_names(agda, rel, cands, keep=False)
-        d = _classify_file(rel, cands, qmaps[rel], verdicts, set(oracle_dead))
-        total = Differential(
-            total.false_negs + d.false_negs,
-            total.over_keeps + d.over_keeps,
-            total.agree + d.agree,
-        )
+    dead: list[DeadImport] = []
+    unresolved: list[DeadImport] = []
+    for rel, qmap in qmaps.items():
+        for name in qmap:
+            verdict = _reader_verdict(rel, name, qmap, verdicts)
+            if verdict == "DEAD":
+                dead.append(DeadImport(rel, name))
+            elif verdict == "UNRESOLVED":
+                unresolved.append(DeadImport(rel, name))
+    return GateResult(sorted(dead), sorted(unresolved))
+
+
+def _report(result: GateResult) -> int:
+    """Print each DEAD finding + any unresolved candidate; return findings+unresolved count."""
+    for d in result.dead:
+        emit(f"  DEAD {d.rel}: {d.name} (unused import — remove)")
+    for u in result.unresolved:  # surfaced, never silently dropped, never flagged DEAD
+        emit(f"  ⚠️ UNRESOLVED {u.rel}: {u.name} (reader could not read its .agdai)")
     emit(
-        f"=== reader-vs-oracle: {total.false_negs} FALSE NEGATIVE(s), "
-        + f"{total.over_keeps} over-keep, {total.agree} agree ==="
+        f"=== iwyu dead-imports: {len(result.dead)} dead, "
+        + f"{len(result.unresolved)} unresolved ==="
     )
-    return 1 if total.false_negs else 0
+    return len(result.dead) + len(result.unresolved)
 
 
 def main() -> int:
-    """Run the reader-vs-oracle differential over the scoped files; exit 1 on any FN.
+    """Scope files, refresh their `.agdai`, judge every named import, report.
 
-    Scope flags mirror the dead-import gate (`--all` / `--diff` / explicit paths),
-    resolved by the shared `run_warm_tool` shell; `--validate` is accepted and
-    ignored (this tool only validates for now).
+    Scope mirrors the wildcard gate (`--all` / `--diff` / explicit paths).  Exits
+    1 if any candidate is DEAD (an unused import) OR UNRESOLVED (the reader could
+    not judge it — fail loud, never a silent pass); 0 otherwise.
     """
-    args = [a for a in sys.argv[1:] if a != "--validate"]
-    return run_warm_tool(args, _validate)
+    return run_warm_gate(sys.argv[1:], lambda _agda, files: 1 if _report(analyze(files)) else 0)
 
 
 if __name__ == "__main__":

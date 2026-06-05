@@ -20,7 +20,7 @@ failures) otherwise.  The module list is passed as argv by the Shakefile's
 `proofModules` value (single source of truth — see the `check-properties` target).
 
 Run as a script so the script's own directory is on sys.path for the sibling
-`warm_dead_imports` import.
+`tools._warm` import (the shared warm-Agda process).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import sys
 import time
 
 from tools._common import agda_tree_lock, emit
-from tools.warm_dead_imports import SRC, WarmAgda
+from tools._warm import SRC, WarmAgda
 
 
 def main() -> int:

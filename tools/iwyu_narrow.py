@@ -38,14 +38,13 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from tools._agda_opens import ModulePath, find_opens
 from tools._common import (
-    agda_tree_lock,
     emit,
     install_restore_handlers,
     track_inflight,
     untrack_inflight,
 )
+from tools._warm import SRC, Name, RelPath, WarmAgda, run_warm_gate
 from tools.iwyu_reader import WildQuery, read_wildcards
-from tools.warm_dead_imports import SRC, Name, RelPath, WarmAgda, select_files
 
 if TYPE_CHECKING:
     from tools._agda_opens import OpenInfo
@@ -258,24 +257,18 @@ def main() -> int:
     skipped (fail loud — never silently pass an unreadable `.agdai`).  `--check`
     is ignored under `--apply`.  Otherwise exit 0 after reporting.
     """
-    flags = {"--check", "--apply"}
-    args = [a for a in sys.argv[1:] if a not in flags]
     check = "--check" in sys.argv[1:]
     apply = "--apply" in sys.argv[1:]
-    files = select_files(args)
-    if files is None:
-        return 2
-    if not files:
-        return 0
-    with agda_tree_lock(), WarmAgda() as agda:
-        for rel in files:
-            _ = agda.load(str(SRC / rel))  # refresh `.agdai` so the reader sees current interfaces
+
+    def action(agda: WarmAgda, files: list[RelPath]) -> int:
         result = analyze(files)
         actionable = _report(result)
         if apply:
             emit(f"=== applied {_apply(agda, result.findings)} file(s) ===")
             return 0
-    return 1 if (check and (actionable or result.skipped)) else 0
+        return 1 if (check and (actionable or result.skipped)) else 0
+
+    return run_warm_gate(sys.argv[1:], action)
 
 
 if __name__ == "__main__":
