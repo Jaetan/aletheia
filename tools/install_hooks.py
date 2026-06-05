@@ -7,18 +7,18 @@ Idempotent: safe to re-run.  Each hook is installed only if not already
 marked installed (detected by a hook-specific marker comment line).
 
 Hooks installed:
-  * pre-commit — runs ``tools/scan_dead_imports.py`` on staged .agda files
-    as an ADVISORY check.  Prints findings if any, but exits 0 so the
-    commit proceeds.  The regex scanner has a non-trivial false-positive
-    rate (mixfix syntax sugar, sections, public re-exports — see
-    ``memory/feedback_agda_import_pruning_safety.md``); blocking commits
-    on its output would be too noisy.  The precise gate runs at pre-push.
+  * pre-commit — runs ``tools/iwyu_reader.py`` (the scope-aware `.agdai`
+    IWYU reader) on staged .agda files as an ADVISORY check.  Prints any
+    DEAD / UNRESOLVED findings, but exits 0 so the commit proceeds.  It is
+    not sub-second (it warm-loads the staged files to refresh their
+    interfaces), so it runs only when .agda files are staged; the blocking
+    gate runs at pre-push.
 
   * pre-push — runs ``tools/run_ci.py`` before allowing push.  Refuses
     push on any non-zero exit.  Rationale: limited GitHub Actions monthly
     allotment; offline validation catches breakage before it lands on
-    origin.  The CI sweep includes the precise ``prune_unused_imports.py
-    --check-only`` gate on files modified in the branch.
+    origin.  The CI sweep includes the IWYU gates (``iwyu_reader`` +
+    ``iwyu_narrow``) on files modified in the branch.
 
 Skip via::
 
@@ -41,7 +41,7 @@ from pathlib import Path
 from tools._common import emit, find_executable
 
 PRE_PUSH_MARKER = "# aletheia-pre-push-marker (offline CI sweep)"
-PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (dead-import scanner)"
+PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (IWYU reader advisory)"
 
 PRE_PUSH_BODY = f'''\
 #!/usr/bin/env python3.14
@@ -102,26 +102,25 @@ if __name__ == "__main__":
 PRE_COMMIT_BODY = f'''\
 #!/usr/bin/env python3.14
 {PRE_COMMIT_MARKER}
-"""Aletheia pre-commit hook — fast dead-import scanner (advisory).
+"""Aletheia pre-commit hook — IWYU dead-import advisory.
 
-For each staged .agda file, runs the regex scanner and prints findings
-as a warning.  Always exits 0; the commit proceeds whether findings
-exist or not.
+For each staged .agda file under src/, runs the scope-aware `.agdai`
+IWYU reader (tools/iwyu_reader) and prints any DEAD / UNRESOLVED
+findings as a warning.  Always exits 0; the commit proceeds whether
+findings exist or not.
 
 Rationale:
-  - Pre-commit must be fast (sub-second target).  The regex scanner
-    meets this; the precise agda-driven tool (5-15 min/file) does not.
-  - The regex scanner has FPs (mixfix syntax sugar, sections, public
-    re-exports — see memory/feedback_agda_import_pruning_safety.md).
-    Blocking commits on noisy output erodes developer trust in the
-    hook system.
-  - The precise gate runs at pre-push via tools/run_ci.py.  If a real
-    dead import slipped past pre-commit, pre-push catches it.
+  - The `.agdai` reader is the project's trusted import-resolution tool;
+    the regex scanner and recompile-confirm approaches are retired.  It
+    is not sub-second (it warm-loads the staged files to refresh their
+    interfaces), so this advisory runs only when .agda files are staged.
+  - The blocking gate runs at pre-push via tools/run_ci.py (steps 9-10:
+    iwyu_reader + iwyu_narrow on the branch diff).  If a finding slips
+    past this advisory, pre-push catches it.
 
 Bypass: `git commit --no-verify`.
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -135,48 +134,39 @@ def main() -> int:
     if not repo_root:
         return 0
     repo_root = Path(repo_root)
+    src = repo_root / "src"
 
-    scanner = repo_root / "tools" / "scan_dead_imports.py"
-    if not scanner.is_file():
-        # Tool not present (perhaps an old branch); silently skip.
-        return 0
-
-    # Get staged .agda files (Added / Copied / Modified / Renamed).
+    # Staged .agda files under src/ (Added / Copied / Modified / Renamed).
     diff = subprocess.run(
         ["git", "diff", "--cached", "--name-only",
-         "--diff-filter=ACMR", "--", "*.agda"],
+         "--diff-filter=ACMR", "--", "src/*.agda"],
         capture_output=True, text=True, check=False,
     )
-    files = [
-        repo_root / p.strip()
-        for p in diff.stdout.splitlines()
-        if p.strip() and (repo_root / p.strip()).is_file()
-    ]
-    if not files:
-        return 0  # no Agda changes — nothing to check
+    rels = []
+    for p in diff.stdout.splitlines():
+        path = repo_root / p.strip()
+        if p.strip() and path.is_file():
+            try:
+                rels.append(str(path.relative_to(src)))
+            except ValueError:
+                continue
+    if not rels:
+        return 0  # no staged Agda under src/ — nothing to check
 
-    # Run the scanner.  Exit code is always 0; we only care about output.
+    # Advisory: the reader exits 1 on findings, but the commit always proceeds.
     result = subprocess.run(
-        [sys.executable, "-m", "tools.scan_dead_imports", "--summary"]
-        + [str(f) for f in files],
+        [sys.executable, "-m", "tools.iwyu_reader", *rels],
         capture_output=True, text=True, check=False, cwd=repo_root,
     )
-    out = result.stdout.strip()
-    # If nothing was flagged, the scanner prints only its totals line
-    # ("Total: 0 dead candidates...").  Suppress that case.
-    has_findings = "Total: 0 dead" not in out
-    if has_findings:
+    if result.returncode != 0:
         sys.stderr.write(
-            "\\npre-commit: dead-import scanner found candidates in staged .agda files:\\n\\n"
+            "\\npre-commit: IWYU reader flagged imports in staged .agda files:\\n\\n"
         )
-        sys.stderr.write(out + "\\n\\n")
+        sys.stderr.write(result.stdout.strip() + "\\n\\n")
         sys.stderr.write(
-            "pre-commit: ADVISORY ONLY — commit proceeds.  Run\\n"
-            "  python -m tools.warm_dead_imports --confirm "
-            + " ".join(str(f.relative_to(repo_root)) for f in files) + "\\n"
-            "to confirm which are actually dead — --confirm is the ground-truth\\n"
-            "recompile check that filters the scanner's false positives\\n"
-            "(see memory/feedback_agda_import_pruning_safety.md).\\n\\n"
+            "pre-commit: ADVISORY ONLY — commit proceeds.  The pre-push gate\\n"
+            "(tools/run_ci.py) blocks on these.  Remove a DEAD import; narrow a\\n"
+            "wildcard `open import M` via `python -m tools.iwyu_narrow --apply`.\\n\\n"
         )
     return 0
 
@@ -243,7 +233,7 @@ def main() -> int:
         "pre-commit",
         PRE_COMMIT_BODY,
         PRE_COMMIT_MARKER,
-        "every `git commit` will run `tools/scan_dead_imports.py` on staged "
+        "every `git commit` will run `tools/iwyu_reader.py` on staged "
         + ".agda files (advisory only — never blocks)",
     )
     _install_hook(

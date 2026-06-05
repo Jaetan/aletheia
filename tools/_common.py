@@ -59,9 +59,9 @@ def split_top_level_semicolons(content: str) -> list[str]:
     Walks ``content`` character by character, tracking parenthesis depth, and
     cuts on every ``;`` seen at depth 0 (so a ``;`` nested inside ``(...)`` --
     e.g. a mixfix argument grouping -- never splits a name).  Each resulting
-    segment is stripped; empty segments are dropped.  Shared verbatim by the
-    dead-import parser (``prune_unused_imports``) and the regex scanner
-    (``scan_dead_imports``) so the two agree on name boundaries.
+    segment is stripped; empty segments are dropped.  Used by the
+    grammar-complete open detector (``tools._agda_opens``) to split a
+    ``using``/``renaming`` clause into its individual names.
     """
     parts: list[str] = []
     depth = 0

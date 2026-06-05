@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Grammar-complete detection of Agda ``open``/``import`` directives.
 
-This is the substrate for the dead-import gate (:mod:`tools.warm_dead_imports`)
-and the IWYU narrower (:mod:`tools.iwyu_narrow`): what opens exist, and how is
-each classified (which names it lists explicitly, whether it is a wildcard)?
-Unlike :func:`tools.prune_unused_imports.parse_imports` (which only recognises
-top-level ``open import`` / ``import`` blocks), this module finds *every* open
-the Agda grammar permits, in *every* position, and classifies it.
+This is the substrate for the IWYU gates (:mod:`tools.iwyu_reader` dead-named
+imports + :mod:`tools.iwyu_narrow` wildcard narrowing): what opens exist, and
+how is each classified (which names it lists explicitly, whether it is a
+wildcard)?  It finds *every* open the Agda grammar permits, in *every* position
+(top-level, ``where``/``let``, non-``import`` ``open M``, open-module-macro),
+and classifies it — not just top-level ``open import`` / ``import`` blocks.
 
 Grounding (Agda ``src/full/Agda/Syntax/Parser/Parser.y``):
 
