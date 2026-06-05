@@ -39,8 +39,6 @@ open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
 open import Data.List using (List; []; _∷_; foldr; map; length)
   renaming (_++_ to _++ₗ_)
-open import Data.List.Properties
-  renaming ()
 open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
