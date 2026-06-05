@@ -36,7 +36,7 @@
 -- (colon-separated); they MUST match what wrote the interfaces.
 module Main (main) where
 
-import           Control.Monad (forM)
+import           Control.Monad (filterM, forM)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HMap
@@ -233,6 +233,26 @@ resolveQuery cache used hc scopes modS name = do
   else if synUsed   then pure Used        -- syntactic: referenced in the source beyond its import
   else combine <$> mapM (\q -> semDeep cache used q Set.empty) qs
 
+
+anyM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
+anyM p = foldr (\x acc -> p x >>= \b -> if b then pure True else acc) (pure False)
+
+
+-- The USED subset of a WILDCARD `open import M`'s exports: each export concrete
+-- name kept iff some QName it resolves to is used.  A wildcard contributes NO
+-- import-list token, so the syntactic threshold is 1 (any occurrence is a body
+-- use) — cf. the value query's threshold 2.  This is what narrowing replaces the
+-- wildcard with; the driver judges DEAD (empty) / REDUNDANT (subset of the
+-- explicit imports) / NARROWABLE from it.
+resolveWildcard :: Cache -> Set QName -> Map (String, Int) Int -> Map String Scope -> String -> TCM [String]
+resolveWildcard cache used hc scopes modS = case Map.lookup modS scopes of
+  Nothing -> pure []
+  Just sc -> map fst <$> filterM memberUsed (Map.toList (exportsOf sc))
+  where
+    memberUsed (_, qs)
+      | any (\q -> occurrences hc q >= 1) qs = pure True
+      | otherwise = anyM (\q -> (== Used) <$> semDeep cache used q Set.empty) qs
+
 -- ---- driver -----------------------------------------------------------------
 
 data Query = Query { qAgdai :: FilePath, qMod :: String, qName :: String }
@@ -261,9 +281,10 @@ main = do
           let used   = usedOf iface
               hc     = highlightCount iface
               scopes = scopeMap iface
-          forM qs $ \q -> do
-            v <- resolveQuery cache used hc scopes (qMod q) (qName q)
-            pure (verdictLine q v)
+          forM qs $ \q ->
+            if qName q == "*"
+              then wildcardLine q <$> resolveWildcard cache used hc scopes (qMod q)
+              else verdictLine q <$> resolveQuery cache used hc scopes (qMod q) (qName q)
   case res of
     Left _   -> putStr ""   -- a top-level TCM error: emit nothing (driver treats absent as oracle)
     Right ls -> mapM_ putStrLn (concat ls)
@@ -272,6 +293,13 @@ verdictLine :: Query -> V -> String
 verdictLine q v = jsonObj
   [ ("path", jsonStr (qAgdai q)), ("mod", jsonStr (qMod q))
   , ("name", jsonStr (qName q)), ("verdict", jsonStr (verdictStr v)) ]
+
+-- A wildcard query (`mod *`) reports the USED subset of M's exports instead of a
+-- single verdict, for the driver's narrowing / redundancy decision.
+wildcardLine :: Query -> [String] -> String
+wildcardLine q names = jsonObj
+  [ ("path", jsonStr (qAgdai q)), ("mod", jsonStr (qMod q))
+  , ("name", jsonStr "*"), ("used", jsonArr (map jsonStr names)) ]
 
 errLine :: Query -> String -> String
 errLine q msg = jsonObj
@@ -292,6 +320,9 @@ jsonStr s = '"' : concatMap esc s ++ "\""
 
 jsonObj :: [(String, String)] -> String
 jsonObj kvs = "{" ++ intercalate "," [ jsonStr k ++ ":" ++ v | (k, v) <- kvs ] ++ "}"
+
+jsonArr :: [String] -> String
+jsonArr xs = "[" ++ intercalate "," xs ++ "]"
 
 splitColon :: String -> [String]
 splitColon s = case break (== ':') s of

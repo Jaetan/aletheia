@@ -15,6 +15,13 @@ here.
 - `manifest.tsv` — `consumer ⇥ module ⇥ name ⇥ expected` rows; `expected` ∈
   `{USED, DEAD, UNRESOLVED}`. For a renamed import the manifest passes the
   ORIGINAL name (the elaborated term references the origin, never the alias).
+- `wildcard_manifest.tsv` — `consumer ⇥ module ⇥ used,comma,sep` rows; the
+  expected USED subset of a wildcard `open import module` (the reader query
+  `module *`), which narrowing/redundancy is judged from: empty → DEAD wildcard;
+  ⊆ the explicit imports → REDUNDANT; else NARROWABLE to `using (used)`. Covers
+  `ConsumerWild{Narrow,Redundant,Dead}` and `ConsumerWildInferred` (an instance
+  used only via instance search — caught by `namesIn`, missed by body-token
+  tools).
 
 ## What the matrix covers (and why each is an FN-risk)
 
