@@ -25,17 +25,16 @@ Invoke: `python -m tools.iwyu_fixture_test`.
 
 from __future__ import annotations
 
-import json
-import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import NamedTuple, cast
+from typing import NamedTuple
 
+from tools._agda_opens import find_opens
 from tools._common import emit, run_capture
-from tools.iwyu_reader import build_reader
+from tools.iwyu_narrow import classify_wildcard, explicit_from
+from tools.iwyu_reader import invoke_reader, verdict_fields, wildcard_fields
 from tools.prune_unused_imports import AGDA_BIN
 
 PKG = Path(__file__).resolve().parent / "agda-iwyu-reader"
@@ -54,11 +53,12 @@ class Row(NamedTuple):
 
 
 class WildRow(NamedTuple):
-    """One wildcard expectation: the USED subset of a wildcard-opened module."""
+    """One wildcard expectation: a module's USED subset and its narrowing finding."""
 
     consumer: str
     module: str
     used: frozenset[str]
+    finding: str
 
 
 def read_manifest() -> list[Row]:
@@ -73,14 +73,13 @@ def read_manifest() -> list[Row]:
 
 
 def read_wildcard_manifest() -> list[WildRow]:
-    """Parse `wildcard_manifest.tsv` (header then ``consumer⇥module⇥used,comma,sep``)."""
+    """Parse `wildcard_manifest.tsv` (header then ``consumer⇥module⇥used,csv⇥finding``)."""
     rows: list[WildRow] = []
     for i, line in enumerate(WILDCARD_MANIFEST.read_text(encoding="utf-8").splitlines()):
         if i == 0 or not line.strip():
             continue
-        consumer, module, *rest = line.split("\t")
-        used = rest[0] if rest else ""
-        rows.append(WildRow(consumer, module, frozenset(n for n in used.split(",") if n)))
+        consumer, module, used, finding = line.split("\t")
+        rows.append(WildRow(consumer, module, frozenset(n for n in used.split(",") if n), finding))
     return rows
 
 
@@ -106,57 +105,13 @@ def typecheck_fixtures(scratch: Path) -> None:
             raise RuntimeError(message)
 
 
-def _parse_verdict(line: str) -> tuple[tuple[str, str, str], str] | None:
-    """Decode one reader JSONL line into ((consumer-stem, mod, name), verdict)."""
-    line = line.strip()
-    if not line.startswith("{"):
-        return None
-    raw = cast("object", json.loads(line))
-    if not isinstance(raw, dict):
-        return None
-    obj = cast("dict[str, object]", raw)
-    path, mod, name, verdict = obj.get("path"), obj.get("mod"), obj.get("name"), obj.get("verdict")
-    if not all(isinstance(v, str) for v in (path, mod, name, verdict)):
-        return None
-    return (Path(cast("str", path)).stem, cast("str", mod), cast("str", name)), cast("str", verdict)
-
-
-def _parse_wildcard(line: str) -> tuple[tuple[str, str], frozenset[str]] | None:
-    """Decode one wildcard reader JSONL line into ((consumer-stem, mod), used-set)."""
-    line = line.strip()
-    if not line.startswith("{"):
-        return None
-    raw = cast("object", json.loads(line))
-    if not isinstance(raw, dict):
-        return None
-    obj = cast("dict[str, object]", raw)
-    path, mod, name, used = obj.get("path"), obj.get("mod"), obj.get("name"), obj.get("used")
-    if not (
-        isinstance(path, str) and isinstance(mod, str) and name == "*" and isinstance(used, list)
-    ):
-        return None
-    names = frozenset(u for u in cast("list[object]", used) if isinstance(u, str))
-    return (Path(path).stem, mod), names
-
-
-def run_reader(scratch: Path, query_lines: list[str]) -> list[str]:
-    """Run the reader over the given query lines; return its stdout lines."""
-    binary = build_reader()
-    env = {**os.environ, "AGDA_IWYU_INCLUDE_PATHS": str(scratch)}
-    result = subprocess.run(
-        [str(binary)],
-        input="\n".join(query_lines) + "\n",
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
-    return result.stdout.splitlines()
-
-
 def _check_verdicts(rows: list[Row], out: list[str]) -> int:
     """Assert each name query's verdict matches the manifest; return the fail count."""
-    verdicts = dict(p for line in out if (p := _parse_verdict(line)) is not None)
+    verdicts = {
+        (Path(f.path).stem, f.module, f.name): f.verdict
+        for line in out
+        if (f := verdict_fields(line)) is not None
+    }
     fails = 0
     for r in rows:
         actual = verdicts.get((r.consumer, r.module, r.name), "<none>")
@@ -167,13 +122,28 @@ def _check_verdicts(rows: list[Row], out: list[str]) -> int:
 
 
 def _check_wildcards(wrows: list[WildRow], out: list[str]) -> int:
-    """Assert each wildcard query's used subset matches the manifest; return fails."""
-    wilds = dict(p for line in out if (p := _parse_wildcard(line)) is not None)
+    """Assert each wildcard's used subset (reader) AND its narrowing finding (pure logic).
+
+    The used subset is the reader's; the finding is `classify_wildcard` over that
+    subset and the names the fixture imports explicitly from the module — so both
+    the impure extraction and the pure classification are validated synthetically.
+    """
+    wilds = {
+        (Path(f.path).stem, f.module): f.used
+        for line in out
+        if (f := wildcard_fields(line)) is not None
+    }
     fails = 0
     for w in wrows:
-        actual = wilds.get((w.consumer, w.module))
-        if actual != w.used:
-            emit(f"  FAIL {w.consumer} {w.module}=*: expected {sorted(w.used)}, got {actual}")
+        used = wilds.get((w.consumer, w.module))
+        if used is None or used != w.used:
+            emit(f"  FAIL {w.consumer} {w.module}=*: expected used {sorted(w.used)}, got {used}")
+            fails += 1
+            continue
+        opens = find_opens((FIXTURES / f"{w.consumer}.agda").read_text(encoding="utf-8"))
+        finding = classify_wildcard(used, explicit_from(opens, w.module)).kind
+        if finding != w.finding:
+            emit(f"  FAIL {w.consumer} {w.module}=*: expected finding {w.finding}, got {finding}")
             fails += 1
     return fails
 
@@ -191,7 +161,7 @@ def main() -> int:
         typecheck_fixtures(scratch)
         queries = [f"{scratch / (r.consumer + '.agdai')}\t{r.module}\t{r.name}" for r in rows]
         queries += [f"{scratch / (w.consumer + '.agdai')}\t{w.module}\t*" for w in wrows]
-        out = run_reader(scratch, queries)
+        out = invoke_reader(queries, (str(scratch),))
     fails = _check_verdicts(rows, out) + _check_wildcards(wrows, out)
     total = len(rows) + len(wrows)
     emit(f"=== iwyu-reader fixtures: {total - fails}/{total} pass ===")

@@ -1,5 +1,5 @@
-consumer	module	used
-ConsumerWildNarrow	WMod	Tw,mkw,wa,wb
-ConsumerWildRedundant	WMod	Tw,mkw,wa,wb
-ConsumerWildDead	WMod	
-ConsumerWildInferred	WInst	Ti,insti,needI
+consumer	module	used	finding
+ConsumerWildNarrow	WMod	Tw,mkw,wa,wb	NARROWABLE
+ConsumerWildRedundant	WMod	Tw,mkw,wa,wb	REDUNDANT
+ConsumerWildDead	WMod		DEAD
+ConsumerWildInferred	WInst	Ti,insti,needI	NARROWABLE
