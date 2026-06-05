@@ -54,28 +54,21 @@ fired". UNRESOLVED is reserved for a candidate that cannot be resolved in scope
 at all (which should not happen for a real candidate); the driver routes it to
 the recompile-confirm oracle, never to DEAD.
 
-## Running the validation (manual, until the runner lands)
+## Running the validation
 
 ```bash
-# 1. type-check the fixtures in a scratch dir (they need no stdlib).
-#    Run agda FROM the scratch dir: with no .agda-lib, agda derives the project
-#    root from the cwd, so a leaf module `Origin` must be reached as `Origin.agda`
-#    relative to cwd (else ModuleNameDoesntMatchFileName).
-mkdir -p /tmp/iwyu-fx && cp fixtures/*.agda /tmp/iwyu-fx/
-( cd /tmp/iwyu-fx && for f in *.agda; do
-    /home/nicolas/.cabal/bin/agda +RTS -N4 -M4G -RTS --safe --without-K "$f"; done )
-
-# 2. build the reader (links the prebuilt Agda from the cabal store)
-ghc -package-db ~/.cabal/store/ghc-$(ghc --numeric-version)/package.db \
-    -package Agda -package containers -package unordered-containers \
-    -outputdir /tmp/iwyu-build ../Main.hs -o /tmp/iwyu-reader
-
-# 3. feed queries (consumer.agdai ⇥ module ⇥ name) and compare to manifest
-AGDA_IWYU_INCLUDE_PATHS=/tmp/iwyu-fx /tmp/iwyu-reader <<EOF
-/tmp/iwyu-fx/ConsumerDeadMod.agdai	Mid2	InstR2
-EOF
-# -> {"path":...,"mod":"Mid2","name":"InstR2","verdict":"DEAD"}
+python -m tools.iwyu_fixture_test
+# -> === iwyu-reader fixtures: 25/25 pass ===   (exit 0; 1 on any mismatch)
 ```
 
-The whole matrix passes (23/23). A scripted runner that does steps 1–3 over
-`manifest.tsv` and asserts the verdicts is the next addition.
+The runner type-checks every fixture in a scratch dir (agda runs FROM that dir
+so its no-`.agda-lib` project root is the cwd — else a leaf module fails
+`ModuleNameDoesntMatchFileName`), builds the reader against the cabal-store Agda,
+runs it over every `manifest.tsv` query, and asserts each verdict — including the
+true-positive DEAD cases (a `using`-listed name that is never used). This is the
+synthetic, construction-known test of the reader's verdict logic; it does not
+read the live tree.
+
+Separately, `python -m tools.iwyu_reader --validate (--all | FILE.agda …)` runs
+the reader against the recompile-confirm **oracle** on real modules, to catch any
+false negative (reader DEAD yet removal fails) the synthetic matrix missed.
