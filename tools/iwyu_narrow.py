@@ -25,8 +25,10 @@ Duplicate-explicit redundancy (the same name imported twice) is NOT handled here
 the interface scope dedups providers, so it is not soundly detectable from the
 reader (it needs recompile-confirm).
 
-Invoke: `python -m tools.iwyu_narrow [--check] (--all | --diff | FILE.agda ...)`.
-With `--check` the exit code is 1 if any finding is reported (strict gate).
+Invoke: `python -m tools.iwyu_narrow [--check|--apply] (--all | --diff | FILE.agda ...)`.
+`--check` exits 1 if any finding is reported OR any wildcard was skipped (an
+unreadable `.agdai` — surfaced, never silently passed); `--apply` rewrites each
+finding in place, verifying it type-checks and restoring it otherwise.
 """
 
 from __future__ import annotations
@@ -129,7 +131,18 @@ def classify_wildcard(used: frozenset[Name], explicit: frozenset[Name]) -> Class
     return Classification(NARROWABLE, needed)
 
 
-def analyze(rels: list[RelPath]) -> list[Finding]:
+class Analysis(NamedTuple):
+    """The result of classifying a scope's wildcards: findings + the unreadable ones.
+
+    `skipped` are wildcard opens whose `.agdai` the reader could not read — surfaced
+    (not silently dropped), so the gate fails loud rather than under-reporting.
+    """
+
+    findings: list[Finding]
+    skipped: list[WildQuery]
+
+
+def analyze(rels: list[RelPath]) -> Analysis:
     """Classify every wildcard open across the scoped files (`.agdai` must be fresh)."""
     opens_by_rel = {rel: find_opens((SRC / rel).read_text(encoding="utf-8")) for rel in rels}
     queries = sorted(
@@ -141,13 +154,17 @@ def analyze(rels: list[RelPath]) -> list[Finding]:
         }
     )
     used_by = read_wildcards(queries)
-    findings: list[Finding] = []
-    for q in queries:
-        if q not in used_by:
-            continue  # reader could not read this `.agdai` — skip (no false claim)
-        c = classify_wildcard(used_by[q], explicit_from(opens_by_rel[q.rel], q.module))
-        findings.append(Finding(q.rel, q.module, c.kind, c.needed))
-    return findings
+    findings = [
+        Finding(
+            q.rel,
+            q.module,
+            *classify_wildcard(used_by[q], explicit_from(opens_by_rel[q.rel], q.module)),
+        )
+        for q in queries
+        if q in used_by
+    ]
+    skipped = [q for q in queries if q not in used_by]
+    return Analysis(findings, skipped)
 
 
 def rewrite(text: str, findings: dict[ModulePath, Finding]) -> str:
@@ -211,10 +228,10 @@ def _apply(agda: WarmAgda, findings: list[Finding]) -> int:
     return applied
 
 
-def _report(findings: list[Finding]) -> int:
-    """Print each actionable wildcard finding; return how many were reported."""
+def _report(result: Analysis) -> int:
+    """Print each actionable finding + any skipped wildcards; return findings count."""
     actionable = 0
-    for f in findings:
+    for f in result.findings:
         if f.kind == NARROWABLE:
             using = "; ".join(sorted(f.needed))
             emit(f"  NARROWABLE {f.rel}: open import {f.module} → using ({using})")
@@ -222,7 +239,13 @@ def _report(findings: list[Finding]) -> int:
         elif f.kind in (DEAD, REDUNDANT):
             emit(f"  {f.kind} {f.rel}: open import {f.module} (remove)")
             actionable += 1
-    emit(f"=== iwyu wildcards: {actionable} finding(s) across {len(findings)} wildcard open(s) ===")
+    for q in result.skipped:  # surfaced, never silently dropped
+        emit(f"  ⚠️ SKIPPED {q.rel}: open import {q.module} (reader could not read its .agdai)")
+    total = len(result.findings) + len(result.skipped)
+    emit(
+        f"=== iwyu wildcards: {actionable} finding(s), {len(result.skipped)} skipped, "
+        + f"across {total} wildcard open(s) ==="
+    )
     return actionable
 
 
@@ -231,8 +254,9 @@ def main() -> int:
 
     Scope mirrors the dead-import gate (`--all` / `--diff` / explicit paths).
     `--apply` rewrites each finding (verifying it type-checks, restoring on
-    failure); `--check` exits 1 if any finding is reported (and is ignored under
-    `--apply`).  Otherwise exit 0 after reporting.
+    failure); `--check` exits 1 if any finding is reported OR any wildcard was
+    skipped (fail loud — never silently pass an unreadable `.agdai`).  `--check`
+    is ignored under `--apply`.  Otherwise exit 0 after reporting.
     """
     flags = {"--check", "--apply"}
     args = [a for a in sys.argv[1:] if a not in flags]
@@ -246,12 +270,12 @@ def main() -> int:
     with agda_tree_lock(), WarmAgda() as agda:
         for rel in files:
             _ = agda.load(str(SRC / rel))  # refresh `.agdai` so the reader sees current interfaces
-        findings = analyze(files)
-        actionable = _report(findings)
+        result = analyze(files)
+        actionable = _report(result)
         if apply:
-            emit(f"=== applied {_apply(agda, findings)} file(s) ===")
+            emit(f"=== applied {_apply(agda, result.findings)} file(s) ===")
             return 0
-    return 1 if (check and actionable) else 0
+    return 1 if (check and (actionable or result.skipped)) else 0
 
 
 if __name__ == "__main__":
