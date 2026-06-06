@@ -4,7 +4,7 @@
 """Neutral warm-Agda infrastructure shared by the IWYU import tooling.
 
 Three concerns, none of them import *resolution* (that is the `.agdai` reader's
-job — :mod:`tools.iwyu_reader` / :mod:`tools.iwyu_narrow`):
+job — :mod:`tools.iwyu` via its engine :mod:`tools._iwyu`):
 
   * **paths** — the repo root, project ``src/`` dir, and the ``agda`` binary,
     resolved once at import;
@@ -436,8 +436,8 @@ def select_files(args: list[str]) -> list[RelPath] | None:
 def run_warm_gate(args: list[str], action: Callable[[WarmAgda, list[RelPath]], int]) -> int:
     """Resolve scope, warm-load each file (fresh `.agdai`), then run ``action``.
 
-    The shared CLI shell of the reader gates (:mod:`tools.iwyu_reader` and
-    :mod:`tools.iwyu_narrow`): scope selection (usage error → exit 2; empty scope
+    The shared CLI shell of the IWYU tool (:mod:`tools.iwyu` `--check` /
+    `--apply`): scope selection (usage error → exit 2; empty scope
     → exit 0 no-op), the agda-tree lock + one warm process, and a `Cmd_load` of
     every scoped file so the `.agdai` interfaces the reader reads are current.
     ``action(agda, files)`` does the per-tool work; its return is the exit code.

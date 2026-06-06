@@ -31,14 +31,15 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
      7. check-ffi-exports
      8. count-modules
   Branch-scoped IWYU gates (2):
-     9. dead-imports — `tools/iwyu_reader.py --diff`
-        on .agda files modified vs main.  The scope-aware `.agdai` reader
-        judges every `using`/`renaming` import USED/DEAD/UNRESOLVED; fails
-        if any is DEAD (unused) or UNRESOLVED (unjudgeable).  Empty diff ⇒
-        no-op.  Reference: memory/project_agda_iwyu.md.
-    10. iwyu-wildcards — `tools/iwyu_narrow.py --check --diff`
-        narrows / removes wildcard `open import M` (DEAD / REDUNDANT /
-        NARROWABLE) via the same reader; fails on any finding or skip.
+     9. iwyu — `tools/iwyu.py --check --diff`
+        on .agda files modified vs main.  The single `.agdai`-reader tool
+        judges BOTH named imports (`using`/`renaming` → USED/DEAD/UNRESOLVED)
+        and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) in one warm
+        process; fails on any finding.  Empty diff ⇒ no-op.  Reference:
+        memory/project_agda_iwyu.md.
+    10. iwyu-self-test — `tools/iwyu.py --self-test`
+        validates the reader against the synthetic fixture matrix (the
+        reader's correctness gate; it replaced the retired recompile oracle).
   Offline enforcers (6):
     11. check-changelog
     12. check-gate-claim
@@ -503,21 +504,21 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
     runner.step("count-modules", [*cabal, "count-modules"])
 
-    # ─── Steps 9-10: IWYU gates on branch-modified files ────────────────────
-    # Both do their own --diff scoping (git diff main...HEAD -- src/) and read
-    # the scope-aware `.agdai` interface (no recompile-confirm).  Step 9 flags
-    # DEAD/UNRESOLVED named imports; step 10 narrows or removes wildcard
-    # `open import M`.  Correctness is validated by the synthetic fixture matrix
-    # (tools/iwyu_fixture_test); empty diff ⇒ no-op.  Reference:
-    # memory/project_agda_iwyu.md.
+    # ─── Steps 9-10: the IWYU gate (one tool) on branch-modified files ──────
+    # Step 9 (`iwyu --check --diff`) judges BOTH named imports (DEAD/UNRESOLVED)
+    # and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware
+    # `.agdai` reader in one warm process — no recompile-confirm; --diff scoping
+    # (git diff main...HEAD -- src/); empty diff ⇒ no-op.  Step 10
+    # (`iwyu --self-test`) validates that reader against the synthetic fixture
+    # matrix (its correctness gate).  Reference: memory/project_agda_iwyu.md.
     runner.step(
-        "dead-imports",
-        [runner.python, "-m", "tools.iwyu_reader", "--diff"],
+        "iwyu",
+        [runner.python, "-m", "tools.iwyu", "--check", "--diff"],
         cwd=runner.repo_root,
     )
     runner.step(
-        "iwyu-wildcards",
-        [runner.python, "-m", "tools.iwyu_narrow", "--check", "--diff"],
+        "iwyu-self-test",
+        [runner.python, "-m", "tools.iwyu", "--self-test"],
         cwd=runner.repo_root,
     )
 

@@ -58,24 +58,22 @@ The reader decides a candidate by the union of three signals, all read from the
 **FN-safety property** (the bar): no *used*-case ever resolves to DEAD — every
 real use mechanism is covered by one of the three signals, so DEAD means "none
 fired". UNRESOLVED is reserved for a candidate that cannot be resolved in scope
-at all (which should not happen for a real candidate); the driver routes it to
-the recompile-confirm oracle, never to DEAD.
+at all (which should not happen for a real candidate); the tool surfaces it
+(keeps the import), never collapsing it to DEAD.
 
 ## Running the validation
 
 ```bash
-python -m tools.iwyu_fixture_test
-# -> === iwyu-reader fixtures: 25/25 pass ===   (exit 0; 1 on any mismatch)
+python -m tools.iwyu --self-test
+# -> === iwyu self-test: 31/31 fixtures pass ===   (exit 0; 1 on any mismatch)
 ```
 
-The runner type-checks every fixture in a scratch dir (agda runs FROM that dir
+The self-test type-checks every fixture in a scratch dir (agda runs FROM that dir
 so its no-`.agda-lib` project root is the cwd — else a leaf module fails
 `ModuleNameDoesntMatchFileName`), builds the reader against the cabal-store Agda,
 runs it over every `manifest.tsv` query, and asserts each verdict — including the
 true-positive DEAD cases (a `using`-listed name that is never used). This is the
 synthetic, construction-known test of the reader's verdict logic; it does not
-read the live tree.
-
-Separately, `python -m tools.iwyu_reader --validate (--all | FILE.agda …)` runs
-the reader against the recompile-confirm **oracle** on real modules, to catch any
-false negative (reader DEAD yet removal fails) the synthetic matrix missed.
+read the live tree. It is the reader's correctness gate (run_ci step 10), which
+replaced the retired recompile-confirm oracle, so a reader regression is caught
+in CI.

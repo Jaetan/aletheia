@@ -12,7 +12,7 @@ build-type:         Simple
 --   ghc -package-db ~/.cabal/store/ghc-<ver>/package.db \
 --       -package Agda -package containers -package unordered-containers \
 --       -outputdir <tmp> Main.hs -o agda-iwyu-reader
--- The Python driver (tools/iwyu_reader.py) builds it on demand this way.  The
+-- The Python engine (tools/_iwyu.py) builds it on demand this way.  The
 -- reader is version-locked to the Agda that wrote the interfaces (read == write
 -- version, by construction, since both come from the same install).
 executable agda-iwyu-reader

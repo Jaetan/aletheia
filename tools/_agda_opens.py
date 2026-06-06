@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Grammar-complete detection of Agda ``open``/``import`` directives.
 
-This is the substrate for the IWYU gates (:mod:`tools.iwyu_reader` dead-named
-imports + :mod:`tools.iwyu_narrow` wildcard narrowing): what opens exist, and
-how is each classified (which names it lists explicitly, whether it is a
+This is the substrate for the IWYU gate (:mod:`tools.iwyu`, via its engine
+:mod:`tools._iwyu` — both named-import and wildcard analysis): what opens exist,
+and how is each classified (which names it lists explicitly, whether it is a
 wildcard)?  It finds *every* open the Agda grammar permits, in *every* position
 (top-level, ``where``/``let``, non-``import`` ``open M``, open-module-macro),
 and classifies it — not just top-level ``open import`` / ``import`` blocks.
@@ -39,7 +39,7 @@ destination of a non-``public`` open.  A rename destination is prunable even
 with no ``using`` clause (delete just the ``a to b`` pair).  The complementary
 question — the full set a *wildcard* open injects — is not answered here: it
 needs the opened module's contents, which the scope-aware ``.agdai`` reader
-(:mod:`tools.iwyu_reader`) enumerates and :mod:`tools.iwyu_narrow` consumes.
+(:mod:`tools._iwyu`) enumerates for the IWYU tool :mod:`tools.iwyu`.
 """
 
 from __future__ import annotations

@@ -15,49 +15,51 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Pre-commit advisory | `tools/iwyu_reader.py` (via pre-commit hook) | `git commit` | IWYU `.agdai`-reader dead-import scan on staged `.agda` files (advisory only — never blocks) |
-| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **32 always-on steps** — Agda gates (incl. the two IWYU gates on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
+| Pre-commit advisory | `tools/iwyu.py --check` (via pre-commit hook) | `git commit` | IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files (advisory only — never blocks) |
+| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **32 always-on steps** — Agda gates (incl. the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
 The pre-push hook (installed by `tools/install_hooks.py`) is the principal
 correctness gate; the GHA workflows are intentionally narrow.
 
-## Pre-commit hook (advisory) — `tools/iwyu_reader.py`
+## Pre-commit hook (advisory) — `tools/iwyu.py --check`
 
-The scope-aware `.agdai` IWYU reader runs at every `git commit` against
-staged `.agda` files under `src/`.  DEAD / UNRESOLVED findings are printed
-as a WARNING; the commit always proceeds.
+The single scope-aware `.agdai` IWYU tool runs at every `git commit`
+against staged `.agda` files under `src/`.  Any finding (dead / redundant
+/ narrowable / unresolved import) is printed as a WARNING; the commit
+always proceeds.
 
 It is not sub-second (it warm-loads the staged files to refresh their
 `.agdai` interfaces), so it runs only when `.agda` files are staged.  The
 reader reads interfaces directly — no recompile-confirm — and its
 verdicts are validated by the synthetic fixture matrix
-(`tools/iwyu_fixture_test`), so there is no false-positive ignore list to
-maintain.  The same gates run blocking at pre-push.
+(`tools/iwyu.py --self-test`), so there is no false-positive ignore list
+to maintain.  The same gate runs blocking at pre-push.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
 Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **32 always-on**
 sequential steps, ~22-30 minutes warm (UBSan ctest promoted from opt-in
 to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
-`Rational::from_double` because the lane was opt-in; the two IWYU gates
-at steps 9-10 replaced the recompile dead-import gate post-R23).
+`Rational::from_double` because the lane was opt-in; the IWYU gate +
+its self-test at steps 9-10 replaced the recompile dead-import gate post-R23).
 Plus 3 opt-in lanes (reproducible build, stability bench, mutation
 testing) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
 `tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
 gate-claim-integrity evidence.
 
-Steps 9-10 — the IWYU gates — run on the set of `.agda` files modified
-vs `main` (`git diff main...HEAD -- src/`; empty diff ⇒ no-op).  Step 9
-(`tools/iwyu_reader.py --diff`) judges every `using`/`renaming` import via
-the scope-aware `.agdai` reader and fails if any is DEAD (unused) or
-UNRESOLVED (unjudgeable — surfaced, never silently passed).  Step 10
-(`tools/iwyu_narrow.py --check --diff`) narrows or removes wildcard
-`open import M` (DEAD / REDUNDANT / NARROWABLE) via the same reader.
-Neither recompiles; both read interfaces directly and run on every scoped
-file (no file-count skip).  Cross-file deadness (a name made dead by an
+Step 9 — the IWYU gate (`tools/iwyu.py --check --diff`) — runs on the set
+of `.agda` files modified vs `main` (`git diff main...HEAD -- src/`; empty
+diff ⇒ no-op).  In one warm process it judges BOTH named imports
+(`using`/`renaming` → DEAD/UNRESOLVED) and wildcard `open import M`
+(DEAD / REDUNDANT / NARROWABLE) via the scope-aware `.agdai` reader, and
+fails on any finding (UNRESOLVED is surfaced, never silently passed).
+Step 10 (`tools/iwyu.py --self-test`) validates that reader against the
+synthetic fixture matrix (its correctness gate, replacing the retired
+recompile oracle).  Neither recompiles; the gate reads interfaces directly
+and runs on every scoped file (no file-count skip).  Cross-file deadness (a name made dead by an
 edit in an UNCHANGED file) is caught by the periodic whole-tree
 (`--all`) run.
 
@@ -300,10 +302,9 @@ assertions, even if the pre-push hook didn't run.
 
 - [`tools/run_ci.py`](../../tools/run_ci.py) — offline correctness orchestrator (Phase 3).
 - [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-commit + pre-push hook installer.
-- [`tools/iwyu_reader.py`](../../tools/iwyu_reader.py) — scope-aware `.agdai` IWYU reader; dead-named-import gate (pre-commit advisory + pre-push step 9) + `read_wildcards` API.
-- [`tools/iwyu_narrow.py`](../../tools/iwyu_narrow.py) — wildcard `open import M` narrow/remove gate (pre-push step 10) with `--apply`.
-- [`tools/iwyu_fixture_test.py`](../../tools/iwyu_fixture_test.py) — synthetic fixture matrix validating the reader's verdicts.
-- [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store).
+- [`tools/iwyu.py`](../../tools/iwyu.py) — the single IWYU tool: `--check` (named + wildcard gate), `--apply` (wildcard narrow/remove), `--self-test` (fixture matrix). Pre-commit advisory + pre-push steps 9-10.
+- [`tools/_iwyu.py`](../../tools/_iwyu.py) — its engine (internal): the `.agdai` reader driver + both analyses.
+- [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store) + its `test/` fixture matrix.
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — UR-1 enforcement (Phase 1).
 - [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity (Phase 2).
 - [`memory/feedback_gate_claim_integrity.md`](../../../.claude/projects/-home-nicolas-dev-agda-aletheia/memory/feedback_gate_claim_integrity.md) — the discipline this enforces.

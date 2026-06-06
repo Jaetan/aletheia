@@ -7,18 +7,18 @@ Idempotent: safe to re-run.  Each hook is installed only if not already
 marked installed (detected by a hook-specific marker comment line).
 
 Hooks installed:
-  * pre-commit — runs ``tools/iwyu_reader.py`` (the scope-aware `.agdai`
-    IWYU reader) on staged .agda files as an ADVISORY check.  Prints any
-    DEAD / UNRESOLVED findings, but exits 0 so the commit proceeds.  It is
-    not sub-second (it warm-loads the staged files to refresh their
-    interfaces), so it runs only when .agda files are staged; the blocking
-    gate runs at pre-push.
+  * pre-commit — runs ``tools/iwyu.py --check`` (the single scope-aware
+    `.agdai` IWYU tool) on staged .agda files as an ADVISORY check.  Prints
+    any finding (dead / redundant / narrowable / unresolved import), but
+    exits 0 so the commit proceeds.  It is not sub-second (it warm-loads the
+    staged files to refresh their interfaces), so it runs only when .agda
+    files are staged; the blocking gate runs at pre-push.
 
   * pre-push — runs ``tools/run_ci.py`` before allowing push.  Refuses
     push on any non-zero exit.  Rationale: limited GitHub Actions monthly
     allotment; offline validation catches breakage before it lands on
-    origin.  The CI sweep includes the IWYU gates (``iwyu_reader`` +
-    ``iwyu_narrow``) on files modified in the branch.
+    origin.  The CI sweep includes the IWYU gate (``tools/iwyu.py``) on
+    files modified in the branch.
 
 Skip via::
 
@@ -102,21 +102,21 @@ if __name__ == "__main__":
 PRE_COMMIT_BODY = f'''\
 #!/usr/bin/env python3.14
 {PRE_COMMIT_MARKER}
-"""Aletheia pre-commit hook — IWYU dead-import advisory.
+"""Aletheia pre-commit hook — IWYU import advisory.
 
-For each staged .agda file under src/, runs the scope-aware `.agdai`
-IWYU reader (tools/iwyu_reader) and prints any DEAD / UNRESOLVED
-findings as a warning.  Always exits 0; the commit proceeds whether
-findings exist or not.
+For each staged .agda file under src/, runs the single scope-aware
+`.agdai` IWYU tool (`tools/iwyu.py --check`) and prints any finding
+(dead / redundant / narrowable / unresolved import) as a warning.
+Always exits 0; the commit proceeds whether findings exist or not.
 
 Rationale:
   - The `.agdai` reader is the project's trusted import-resolution tool;
     the regex scanner and recompile-confirm approaches are retired.  It
     is not sub-second (it warm-loads the staged files to refresh their
     interfaces), so this advisory runs only when .agda files are staged.
-  - The blocking gate runs at pre-push via tools/run_ci.py (steps 9-10:
-    iwyu_reader + iwyu_narrow on the branch diff).  If a finding slips
-    past this advisory, pre-push catches it.
+  - The blocking gate runs at pre-push via tools/run_ci.py (step 9:
+    `iwyu --check --diff` on the branch diff).  If a finding slips past
+    this advisory, pre-push catches it.
 
 Bypass: `git commit --no-verify`.
 """
@@ -153,20 +153,20 @@ def main() -> int:
     if not rels:
         return 0  # no staged Agda under src/ — nothing to check
 
-    # Advisory: the reader exits 1 on findings, but the commit always proceeds.
+    # Advisory: `--check` exits 1 on findings, but the commit always proceeds.
     result = subprocess.run(
-        [sys.executable, "-m", "tools.iwyu_reader", *rels],
+        [sys.executable, "-m", "tools.iwyu", "--check", *rels],
         capture_output=True, text=True, check=False, cwd=repo_root,
     )
     if result.returncode != 0:
         sys.stderr.write(
-            "\\npre-commit: IWYU reader flagged imports in staged .agda files:\\n\\n"
+            "\\npre-commit: IWYU flagged imports in staged .agda files:\\n\\n"
         )
         sys.stderr.write(result.stdout.strip() + "\\n\\n")
         sys.stderr.write(
             "pre-commit: ADVISORY ONLY — commit proceeds.  The pre-push gate\\n"
-            "(tools/run_ci.py) blocks on these.  Remove a DEAD import; narrow a\\n"
-            "wildcard `open import M` via `python -m tools.iwyu_narrow --apply`.\\n\\n"
+            "(tools/run_ci.py) blocks on these.  Remove a DEAD named import; fix\\n"
+            "wildcard `open import M` via `python -m tools.iwyu --apply`.\\n\\n"
         )
     return 0
 
@@ -233,7 +233,7 @@ def main() -> int:
         "pre-commit",
         PRE_COMMIT_BODY,
         PRE_COMMIT_MARKER,
-        "every `git commit` will run `tools/iwyu_reader.py` on staged "
+        "every `git commit` will run `tools/iwyu.py --check` on staged "
         + ".agda files (advisory only — never blocks)",
     )
     _install_hook(

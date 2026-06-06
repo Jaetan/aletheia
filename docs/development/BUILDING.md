@@ -378,7 +378,7 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 
 | Hook | When | What runs | Severity |
 |---|---|---|---|
-| `pre-commit` | `git commit` | `tools/iwyu_reader.py` on staged `.agda` files (scope-aware `.agdai` IWYU reader) | **Advisory** — prints warning, always proceeds |
+| `pre-commit` | `git commit` | `tools/iwyu.py --check` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool) | **Advisory** — prints warning, always proceeds |
 | `pre-push` | `git push` | `tools/run_ci.py` — the 32-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
@@ -388,7 +388,7 @@ git commit --no-verify   # skip pre-commit IWYU advisory
 git push   --no-verify   # skip pre-push CI sweep
 ```
 
-The pre-push sweep includes two IWYU gates on `.agda` files modified vs `main`: step 9 (`tools/iwyu_reader.py --diff`) fails on any DEAD (unused) or UNRESOLVED named import, and step 10 (`tools/iwyu_narrow.py --check --diff`) fails on any wildcard `open import M` that is DEAD, REDUNDANT, or NARROWABLE. Both read the scope-aware `.agdai` interface directly (no recompile) and run on every scoped file. Cross-file deadness is caught by the periodic whole-tree (`--all`) run.
+The pre-push sweep includes the IWYU gate on `.agda` files modified vs `main`: step 9 (`tools/iwyu.py --check --diff`) judges both named imports (DEAD/UNRESOLVED) and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware `.agdai` reader in one warm process and fails on any finding; step 10 (`tools/iwyu.py --self-test`) validates that reader against the synthetic fixture matrix. The gate reads interfaces directly (no recompile) and runs on every scoped file. Cross-file deadness is caught by the periodic whole-tree (`--all`) run.
 
 Both hooks are optional; the project is fully functional without them. They are strongly recommended for contributors because they catch many issues before they reach the maintainer's review.
 

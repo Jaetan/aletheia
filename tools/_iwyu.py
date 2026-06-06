@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Scope-aware `.agdai` IWYU reader: the dead-named-import gate + wildcard-read API.
+"""Engine for the `tools.iwyu` import gate — the scope-aware `.agdai` reader.
 
-Builds `tools/agda-iwyu-reader` on demand (linking the PREBUILT Agda from the
+The internal engine behind the one public IWYU tool (:mod:`tools.iwyu`).  It
+builds `tools/agda-iwyu-reader` on demand (linking the PREBUILT Agda from the
 cabal store, never a fresh solve) and asks it — by reading interfaces — whether
-each imported name is actually used.
+each imported name is actually used.  Two analyses, both pure data (the CLI
+reports / applies / exits):
 
-As a GATE (`python -m tools.iwyu_reader (--all | --diff | FILE.agda ...)`): for
-every prunable named import (a `using (n)` entry or a `renaming (src to dst)`
-destination), the reader returns USED / DEAD / UNRESOLVED.  A DEAD verdict is a
-finding — an unused import to remove.  UNRESOLVED means the reader could not
-judge the candidate (a missing `.agdai`); it is SURFACED, never silently passed,
-and never collapsed to DEAD.  Exits 1 if any DEAD or UNRESOLVED candidate is
-found.  Wildcard `open import M` narrowing is the sibling gate
-:mod:`tools.iwyu_narrow`.
-
-Also exposes `read_wildcards` (the USED subset of each wildcard `open import M`)
-for that narrowing driver.
+  * :func:`analyze_dead_imports` — for every prunable named import (a `using (n)`
+    entry or a `renaming (src to dst)` destination), the reader returns
+    USED / DEAD / UNRESOLVED.  DEAD = an unused import; UNRESOLVED = the reader
+    could not judge it (a missing `.agdai`), surfaced and never collapsed to DEAD.
+  * :func:`analyze_wildcards` — for every wildcard `open import M`, the USED
+    subset of M's exports (:func:`read_wildcards`) is classified DEAD / REDUNDANT
+    / NARROWABLE (:func:`classify_wildcard`); :func:`rewrite` applies a finding.
 
 The reader's correctness is validated by the synthetic fixture matrix
-(:mod:`tools.iwyu_fixture_test`), NOT by any recompile oracle — the brute-force
+(`tools.iwyu --self-test`), NOT by any recompile oracle — the brute-force
 import-resolution tools it superseded are retired.
 """
 
@@ -30,14 +28,16 @@ import functools
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
-from typing import NamedTuple, TypedDict, cast
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 from tools._agda_opens import ModulePath, find_opens
 from tools._common import emit, find_executable, run_capture
-from tools._warm import AGDA_BIN, SRC_DIR, Name, RelPath, run_warm_gate
+from tools._warm import AGDA_BIN, SRC_DIR, Name, RelPath
+
+if TYPE_CHECKING:
+    from tools._agda_opens import OpenInfo
 
 SRC = SRC_DIR
 REPO = SRC.parent
@@ -431,7 +431,7 @@ class GateResult(NamedTuple):
     unresolved: list[DeadImport]
 
 
-def analyze(rels: list[RelPath]) -> GateResult:
+def analyze_dead_imports(rels: list[RelPath]) -> GateResult:
     """Judge every prunable named import across the scoped files (`.agdai` must be fresh).
 
     Each file's `using`/`renaming` candidates (:func:`candidate_queries`) are put
@@ -458,28 +458,145 @@ def analyze(rels: list[RelPath]) -> GateResult:
     return GateResult(sorted(dead), sorted(unresolved))
 
 
-def _report(result: GateResult) -> int:
-    """Print each DEAD finding + any unresolved candidate; return findings+unresolved count."""
-    for d in result.dead:
-        emit(f"  DEAD {d.rel}: {d.name} (unused import — remove)")
-    for u in result.unresolved:  # surfaced, never silently dropped, never flagged DEAD
-        emit(f"  ⚠️ UNRESOLVED {u.rel}: {u.name} (reader could not read its .agdai)")
-    emit(
-        f"=== iwyu dead-imports: {len(result.dead)} dead, "
-        + f"{len(result.unresolved)} unresolved ==="
-    )
-    return len(result.dead) + len(result.unresolved)
+# ─── Wildcard `open import M` narrowing ────────────────────────────────────────
+
+# How a wildcard `open import M` is classified.
+type WildcardKind = str  # one of the three constants below
+DEAD = "DEAD"
+REDUNDANT = "REDUNDANT"
+NARROWABLE = "NARROWABLE"
 
 
-def main() -> int:
-    """Scope files, refresh their `.agdai`, judge every named import, report.
+class Classification(NamedTuple):
+    """A wildcard's verdict and, for NARROWABLE, the `using` set to narrow to."""
 
-    Scope mirrors the wildcard gate (`--all` / `--diff` / explicit paths).  Exits
-    1 if any candidate is DEAD (an unused import) OR UNRESOLVED (the reader could
-    not judge it — fail loud, never a silent pass); 0 otherwise.
+    kind: WildcardKind
+    needed: frozenset[Name]  # the names to narrow to (empty for DEAD / REDUNDANT)
+
+
+class Finding(NamedTuple):
+    """One classified wildcard open, located by file + module."""
+
+    rel: RelPath
+    module: ModulePath
+    kind: WildcardKind
+    needed: frozenset[Name]
+
+
+class LineEdit(NamedTuple):
+    """A pending source edit: the 0-based line of a wildcard open + its finding."""
+
+    line: int
+    finding: Finding
+
+
+def is_wildcard(open_info: OpenInfo) -> bool:
+    """Return True iff `open_info` is a bare wildcard ``open import M`` (a narrowing target).
+
+    Excludes `using`/`renaming`/`hiding`/`public` opens and bare `import M`
+    (qualified-only): only an unrestricted unqualified open brings M's whole
+    export set and is a narrowing candidate.
     """
-    return run_warm_gate(sys.argv[1:], lambda _agda, files: 1 if _report(analyze(files)) else 0)
+    return (
+        open_info.is_open
+        and open_info.is_import
+        and not open_info.has_using
+        and not open_info.renaming
+        and not open_info.hiding_names
+        and not open_info.has_public
+    )
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def explicit_from(opens: list[OpenInfo], module: ModulePath) -> frozenset[Name]:
+    """Names explicitly imported from `module` by NON-wildcard, non-public opens.
+
+    The `using (...)` entries (a ``module `` prefix stripped) plus `renaming`
+    destinations of every other open of the same module — the set a wildcard's
+    used names must be covered by for the wildcard to be REDUNDANT.
+    """
+    names: set[Name] = set()
+    for o in opens:
+        if o.module != module or o.has_public or is_wildcard(o):
+            continue
+        if o.is_open and (o.has_using or o.renaming):
+            names |= {
+                n[len("module ") :].strip() if n.startswith("module ") else n for n in o.using_names
+            }
+            names |= {dst for _src, dst in o.renaming}
+    return frozenset(names)
+
+
+def classify_wildcard(used: frozenset[Name], explicit: frozenset[Name]) -> Classification:
+    """Classify a wildcard from its used subset and the file's explicit imports.
+
+    Pure (validated synthetically): empty used → DEAD; every used name also
+    explicit → REDUNDANT; otherwise NARROWABLE to the used names not already
+    imported explicitly (narrowing to just those avoids creating a duplicate).
+    """
+    needed = used - explicit
+    if not used:
+        return Classification(DEAD, frozenset())
+    if not needed:
+        return Classification(REDUNDANT, frozenset())
+    return Classification(NARROWABLE, needed)
+
+
+class Analysis(NamedTuple):
+    """The result of classifying a scope's wildcards: findings + the unreadable ones.
+
+    `skipped` are wildcard opens whose `.agdai` the reader could not read — surfaced
+    (not silently dropped), so the gate fails loud rather than under-reporting.
+    """
+
+    findings: list[Finding]
+    skipped: list[WildQuery]
+
+
+def analyze_wildcards(rels: list[RelPath]) -> Analysis:
+    """Classify every wildcard open across the scoped files (`.agdai` must be fresh)."""
+    opens_by_rel = {rel: find_opens((SRC / rel).read_text(encoding="utf-8")) for rel in rels}
+    queries = sorted(
+        {
+            WildQuery(rel, o.module)
+            for rel, opens in opens_by_rel.items()
+            for o in opens
+            if is_wildcard(o)
+        }
+    )
+    used_by = read_wildcards(queries)
+    findings = [
+        Finding(
+            q.rel,
+            q.module,
+            *classify_wildcard(used_by[q], explicit_from(opens_by_rel[q.rel], q.module)),
+        )
+        for q in queries
+        if q in used_by
+    ]
+    skipped = [q for q in queries if q not in used_by]
+    return Analysis(findings, skipped)
+
+
+def rewrite(text: str, findings: dict[ModulePath, Finding]) -> str:
+    """Apply each module's finding to its wildcard open(s) in `text`.
+
+    NARROWABLE → `open import M using (needed)`; DEAD / REDUNDANT → delete the
+    line.  Edits are applied bottom-up so earlier line numbers stay valid, and
+    the original indentation is preserved.  Targets only line-leading wildcard
+    `open import M` directives (what `is_wildcard` matches).
+    """
+    lines = text.splitlines(keepends=True)
+    edits = [
+        LineEdit(text[: o.span[0]].count("\n"), findings[o.module])
+        for o in find_opens(text)
+        if is_wildcard(o) and o.module in findings
+    ]
+    for e in sorted(edits, key=lambda x: x.line, reverse=True):
+        line = lines[e.line]
+        indent = line[: len(line) - len(line.lstrip())]
+        if e.finding.kind == NARROWABLE:
+            using = "; ".join(sorted(e.finding.needed))
+            lines[e.line] = f"{indent}open import {e.finding.module} using ({using})\n"
+        else:  # DEAD / REDUNDANT — the wildcard provides nothing uniquely used
+            del lines[e.line]
+    return "".join(lines)
