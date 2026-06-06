@@ -268,7 +268,7 @@ class StreamingMixin(ABC):
         # restated wherever a frame crosses the backend boundary (here and the
         # testing double).  A forwarding helper only moves the kwarg list to its
         # call sites; a positional one re-trips PLR0913 on the eight fields (see
-        # the testing backend's ``# noqa: PLR0913``) — so the duplication is
+        # the testing backend's ``PLR0913`` suppression) — so the duplication is
         # structural, not removable by extraction.  The cached bound method is
         # passed through unchanged, so this is not a perf trade-off.
         # pylint: disable=duplicate-code

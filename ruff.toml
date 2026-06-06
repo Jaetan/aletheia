@@ -18,6 +18,11 @@
 target-version = "py314"  # matches python/pyproject.toml requires-python >=3.14
 line-length = 100         # matches [tool.pylint.format] max-line-length
 
+# `python/mutants/` is mutmut's GENERATED mutation-testing output (gitignored,
+# never authored) — exclude it so a `python/`-wide ruff scan (the run_ci gate)
+# does not lint thousands of throwaway mutant files.
+extend-exclude = ["python/mutants"]
+
 [lint]
 select = ["ALL"]
 # Intentional mathematical / typographic Unicode in docstrings and prose: the

@@ -19,7 +19,7 @@ cabal-install's ``dist-newstyle/`` flock when the parent process is itself
 ``cabal run``.  Direct invocation avoids the flock-recursion entirely.  See
 Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
-═══ ALWAYS-ON STEPS (32 total) ═══
+═══ ALWAYS-ON STEPS (33 total) ═══
 
   Agda gates (8):
      1. build           — produces libaletheia-ffi.so
@@ -57,21 +57,23 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
         "both lanes must stay green")
     21. Go test -race
     22. C++ ctest
-  Lints (6):
-    23. basedpyright (Python)
-    24. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
-    25. gofmt -l + go vet (Go)
-    26. clang-format --dry-run --Werror (C++)
-    27. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
-    28. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
+  Lints (7):
+    23. ruff check + format --check (Python — `select=["ALL"]`, whole tree
+        incl tools/: tools examples python conftest.py)
+    24. basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
+    25. pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
+    26. gofmt -l + go vet (Go)
+    27. clang-format --dry-run --Werror (C++)
+    28. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    29. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
         always-on after UB in Rational::from_double shipped undetected
         exactly because the lane was opt-in)
   GHA meta-checks (3):
-    29. actionlint (workflow YAML lint, skipped if not installed)
-    30. check-action-pins
-    31. check-workflow-permissions
+    30. actionlint (workflow YAML lint, skipped if not installed)
+    31. check-action-pins
+    32. check-workflow-permissions
   Source-hygiene gate (1):
-    32. check-spdx-headers (SPDX license header on every source/build file)
+    33. check-spdx-headers (SPDX license header on every source/build file)
 
 ═══ OPT-IN LANES (3 total) ═══
 
@@ -84,9 +86,9 @@ running in a context where one lane is too slow).
   ──────────────────────────────────────────────────────────────────────
   Flag           Env var                       Cost  Wires which step?
   ──────────────────────────────────────────────────────────────────────
-  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  33: check-reproducible-build
-  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   34: stability bench
-  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 35: mutation testing lane
+  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  34: check-reproducible-build
+  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   35: stability bench
+  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 36: mutation testing lane
   ──────────────────────────────────────────────────────────────────────
   --full         (all three above)             ~45m+ all opt-ins
 
@@ -152,8 +154,8 @@ POSIX_SHELL = "/bin/sh"
 FAILURE_TAIL_LINES = 50
 
 # Always-on step count (includes promoted UBSan lane + the two branch-scoped
-# IWYU gates + SPDX-header gate).
-BASE_STEPS = 32
+# IWYU gates + the ruff lint gate + SPDX-header gate).
+BASE_STEPS = 33
 
 _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -592,25 +594,34 @@ def _run_binding_tests(runner: Runner) -> None:
 
 
 def _run_lints(runner: Runner) -> None:
-    """Run steps 22-27: the Python / Go / C++ lint gates plus the UBSan ctest lane."""
-    # ─── Steps 20-24: Lints ────────────────────────────────────────────────
-    # ``benchmarks/`` joined the basedpyright gate 2026-05-09 and ``tests/`` on
-    # 2026-05-31; both closed the asymmetry against pylint's coverage that
-    # ``feedback_no_subsumption_asymmetry.md`` flagged — pylint already lints
-    # ``aletheia/ tests/ benchmarks/``, and basedpyright now matches it.
+    """Run steps 23-29: the Python / Go / C++ lint gates plus the UBSan ctest lane."""
+    # ─── Steps 23-29: Lints ────────────────────────────────────────────────
+    # ruff (`select=["ALL"]`, config in ruff.toml) over the WHOLE Python tree
+    # INCLUDING tools/ (repo-root gate scripts) — both `check` and
+    # `format --check`.  `python/mutants` (mutmut output) is excluded in
+    # ruff.toml.  Run from the repo root so the root ruff.toml is the config.
+    ruff_cmd = (
+        f"{shlex.quote(runner.python)} -m ruff check tools examples python conftest.py "
+        f"&& {shlex.quote(runner.python)} -m ruff format --check tools examples python conftest.py"
+    )
+    runner.step("ruff", ruff_cmd, cwd=runner.repo_root)
+
+    # ``benchmarks/`` joined the basedpyright gate 2026-05-09, ``tests/`` on
+    # 2026-05-31, and ``../tools/`` on 2026-06-06 (pyproject has a strict
+    # executionEnvironment for ../tools); pylint covers the same set, so the
+    # two stay symmetric (feedback_no_subsumption_asymmetry.md).
     runner.step(
         "basedpyright",
-        ["basedpyright", "aletheia/", "benchmarks/", "tests/"],
+        ["basedpyright", "aletheia/", "benchmarks/", "tests/", "../tools/"],
         cwd=runner.repo_root / "python",
     )
 
     # pylint SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
-    # ``benchmarks/`` joined the gate 2026-05-09 per
-    # ``feedback_no_subsumption_asymmetry.md`` — was previously ignored alongside
-    # ``tests/`` per the original 2026-04-12 ``[tool.pylint.main].ignore`` rule
-    # that ``feedback_pylint_10_mandatory`` later dropped only for ``tests/``.
+    # Covers aletheia/ tests/ benchmarks/ + ../tools/ (the repo-root gate scripts,
+    # held to the same 10.00 bar per feedback_tools_lint_standard.md); ``..`` is on
+    # the path via python/pyproject's pylint init-hook so tools' imports resolve.
     pylint_cmd = (
-        f"{shlex.quote(runner.python)} -m pylint aletheia/ tests/ benchmarks/ "
+        f"{shlex.quote(runner.python)} -m pylint aletheia/ tests/ benchmarks/ ../tools/ "
         "> /tmp/aletheia-pylint.out 2>&1; "
         "rc=$?; cat /tmp/aletheia-pylint.out; "
         "grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
@@ -678,12 +689,12 @@ def _run_gha_checks(runner: Runner) -> None:
 
 def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     """Run the always-on UBSan lane then the enabled repro / stability / mutation lanes."""
-    # ─── Opt-in lanes (numbered 33+ when enabled) ──────────────────────────
+    # ─── Opt-in lanes (numbered 34+ when enabled) ──────────────────────────
     # Each lane is appended to total_steps in __init__ via opts.enabled_count();
     # they share the same step counter as always-on steps so the "ALL N STEPS
     # PASSED" line in finalize() matches the actual count.
 
-    # Step 28 (always-on): UBSan lane (Cat 33a; promoted from opt-in to
+    # Step 29 (always-on): UBSan lane (Cat 33a; promoted from opt-in to
     # always-on after UB in Rational::from_double had previously shipped
     # undetected exactly because the lane was opt-in).  Builds the full
     # ctest battery against -DALETHEIA_SANITIZER=undefined and asserts
@@ -697,7 +708,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         cwd=runner.repo_root / "cpp",
     )
 
-    # Step 33 (opt-in): reproducible-build gate ────────────────────────────
+    # Step 34 (opt-in): reproducible-build gate ────────────────────────────
     if opts.repro:
         runner.step(
             "check-reproducible-build",
@@ -710,7 +721,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
             "set ALETHEIA_REPRO_CHECK=1 or pass --repro to enable",
         )
 
-    # Step 34 (opt-in): long-run stability bench ───────────────────────────
+    # Step 35 (opt-in): long-run stability bench ───────────────────────────
     # Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27.
     if opts.stability:
         runner.step(
@@ -724,7 +735,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
             "set ALETHEIA_STABILITY_CHECK=1 or pass --stability to enable",
         )
 
-    # Step 35 (opt-in): mutation testing across all 3 bindings ─────────────
+    # Step 36 (opt-in): mutation testing across all 3 bindings ─────────────
     # Cat 14g.  AGENTS.md: "Mutation testing runs as a separate CI lane
     # (cost is high) — once per PR is sufficient; per-commit is overkill."
     # Default OFF.  See docs/operations/MUTATION.md.
