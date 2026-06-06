@@ -363,9 +363,9 @@ func TestBuildFrame(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	payload, err := c.BuildFrame(ctx, sid, []aletheia.SignalValue{
+	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{
 		{Name: "Speed", Value: 120.5},
-	}, dlc)
+	})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
 	}
@@ -679,7 +679,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	_, err = c.BuildFrame(ctx, sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
+	_, err = c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: 100}})
 	requireErrorContains(t, err, "out of range")
 }
 
@@ -699,7 +699,7 @@ func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	payload, err := c.BuildFrame(ctx, sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
+	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: 100}})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
 	}

@@ -675,6 +675,27 @@ parameters; use `from aletheia.checks import signal, when` (no shadow at
 call sites) or `from aletheia import checks; checks.signal(...)` (no shadow
 where `signal` is a local).
 
+#### Changed — Go: `BuildFrame` argument order aligned to `(id, dlc, signals)` (R19P2-CL10-2 deferral closure)
+
+**BREAKING** — Go `Client.BuildFrame` changed from
+`BuildFrame(ctx, id, signals, dlc)` to `BuildFrame(ctx, id, dlc, signals)`.
+
+Caller migration:
+
+```go
+// Before
+payload, err := c.BuildFrame(ctx, id, signals, dlc)
+// After
+payload, err := c.BuildFrame(ctx, id, dlc, signals)
+```
+
+Why: `BuildFrame` was the lone outlier placing `signals` before `dlc`.
+`UpdateFrame(ctx, id, dlc, data, signals)` and both other bindings'
+`build_frame(id, dlc, signals)` (Python kwargs / C++ positional) already
+used `(id, dlc, …)`; Go now matches.  Reordered pre-release (no external
+users) per the no-backward-compat policy, closing the in-source
+`R19P2-CL10-2` DEFERRED block on `client.go`.
+
 #### Changed — Parsers: LittleEndian `bitLength = 0` now rejected at parse time (R5-B1 / R6-B7.1 closure)
 
 **BREAKING** — `validate_dbc` (and `parse_dbc` / `parse_dbc_text`) on a
