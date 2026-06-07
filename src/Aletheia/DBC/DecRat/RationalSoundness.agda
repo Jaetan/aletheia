@@ -46,7 +46,7 @@ open import Relation.Nullary using (yes; no)
 open import Function.Base using (_∋_)
 
 open import Aletheia.DBC.DecRat using
-  (DecRat; mkDecRat; toℚ; fromℚ?; fromℚ?-raw;
+  (DecRat; mkDecRat; toℚ; fromℚ?;
    canonicalize; canonicalizeDecRat; canonicalize-value-ℚᵘ;
    stripFactor-fuel; 2^a·5^b-NonZero)
 

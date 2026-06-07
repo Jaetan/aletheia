@@ -66,7 +66,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
    showNat-chars-head;
    showDecRat-chars-head-dash; showDecRat-chars-head-digit)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; stringLit; iso; many;
+  (Format; stringLit; iso;
    altSum; decRatFrac;
    intDecRat;
    emit; parse; EmitsOK; roundtrip)
