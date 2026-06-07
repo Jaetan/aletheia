@@ -57,6 +57,7 @@ from tools._iwyu import (
     ModulePath,
     analyze_dead_imports,
     analyze_wildcards,
+    candidate_queries,
     classify_wildcard,
     explicit_from,
     invoke_reader,
@@ -250,6 +251,33 @@ def _check_wildcards(wrows: list[WildRow], out: list[str]) -> int:
     return fails
 
 
+class AliasKey(NamedTuple):
+    """Identifies one fixture renaming candidate: fixture stem, source module, origin name.
+
+    The same (consumer, module, name) triple a manifest `Row` carries, so the
+    self-test can look up the alias position a `Row` needs.
+    """
+
+    consumer: str
+    module: ModulePath
+    name: str
+
+
+def _fixture_alias_positions() -> dict[AliasKey, int]:
+    """Map each fixture's renaming candidate to its alias source position.
+
+    Keyed the same way a manifest `Row` is identified, so the self-test sends the
+    reader the SAME alias position the production driver
+    (:func:`candidate_queries`) computes.  Non-renamed entries map to 0.
+    """
+    out: dict[AliasKey, int] = {}
+    for agda in FIXTURES.glob("*.agda"):
+        for refs in candidate_queries(agda.read_text(encoding="utf-8")).values():
+            for ref in refs:
+                out[AliasKey(agda.stem, ref.module, ref.name)] = ref.alias_pos
+    return out
+
+
 def _self_test() -> int:
     """Type-check the fixtures, run the reader, assert the verdict + wildcard manifests.
 
@@ -259,10 +287,21 @@ def _self_test() -> int:
     """
     rows = _read_manifest()
     wrows = _read_wildcard_manifest()
+    alias = _fixture_alias_positions()
     with tempfile.TemporaryDirectory() as tmp:
         scratch = Path(tmp)
         _typecheck_fixtures(scratch)
-        queries = [f"{scratch / (r.consumer + '.agdai')}\t{r.module}\t{r.name}" for r in rows]
+        queries = [
+            "\t".join(
+                [
+                    str(scratch / (r.consumer + ".agdai")),
+                    r.module,
+                    r.name,
+                    str(alias.get(AliasKey(r.consumer, r.module, r.name), 0)),
+                ]
+            )
+            for r in rows
+        ]
         queries += [f"{scratch / (w.consumer + '.agdai')}\t{w.module}\t*" for w in wrows]
         out = invoke_reader(queries, (str(scratch),))
     fails = _check_verdicts(rows, out) + _check_wildcards(wrows, out)

@@ -24,3 +24,6 @@ ConsumerRecUsed	RecLib	fstP	USED
 ConsumerAliasDup	Origin	idO	USED
 ConsumerIUsed	MidI	InstI	USED
 ConsumerIDead	MidI	InstI	DEAD
+ConsumerRenamePatUsed	PatLib	two	USED
+ConsumerRecMemberUsed	RecExpLib	Box	USED
+ConsumerModMemberUsed	ModExpLib	Reasoning	USED

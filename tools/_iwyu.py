@@ -27,6 +27,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -136,10 +137,19 @@ class WildQuery(NamedTuple):
 
 
 class ImportRef(NamedTuple):
-    """A name as brought in by one open: the source `module` and the original `name`."""
+    """A name as brought in by one open: the source `module` and the original `name`.
+
+    `alias_pos` is the 1-based codepoint position of a `renaming` alias's binding in
+    the consumer source (0 when not renamed).  The reader needs it because a renamed
+    name's *body* uses are attributed by Agda's highlighting to the alias's binding
+    site, not the origin def-site — so origin-keyed occurrence counting misses them
+    (and the elaborated signature can drop the origin entirely when it inlines a
+    transparent def / expands a pattern synonym).
+    """
 
     module: ModulePath
     name: Name
+    alias_pos: int = 0
 
 
 class DecodedVerdict(NamedTuple):
@@ -283,6 +293,24 @@ def _include_paths() -> tuple[IncludeDir, ...]:
     return tuple(paths)
 
 
+def _alias_pos(text: str, span: tuple[int, int], dst: Name) -> int:
+    """1-based codepoint position of a renaming alias `dst`'s binding in `text`.
+
+    Locates the `dst` token after its `to` keyword (skipping an optional fixity
+    annotation) within the open directive's `span`, so a chained
+    ``renaming (a to b; b to c)`` resolves each alias to the binding after *its*
+    `to`, not an earlier same-spelled source.  Returns 0 if not found.  The +1
+    converts Python's 0-based codepoint index to Agda's 1-based interface position
+    (matches the highlight `definitionSite` of the alias's body uses).
+    """
+    start, end = span
+    region = text[start:end]
+    pattern = r"\bto\b\s+(?:infix[lr]?\s+\d+\s+)?(" + re.escape(dst) + r")"
+    m = re.search(pattern, region)
+    idx = m.start(1) if m else region.find(dst)
+    return start + idx + 1 if idx >= 0 else 0
+
+
 def candidate_queries(text: str) -> QueryMap:
     """Map each prunable import name to the imports that resolve it (per file).
 
@@ -290,7 +318,8 @@ def candidate_queries(text: str) -> QueryMap:
     but keeps the module + original-name association the reader needs.  A
     ``using (n)`` entry yields ``ImportRef(module, n)`` (a ``module `` prefix
     stripped); a ``renaming (src to dst)`` candidate ``dst`` yields
-    ``ImportRef(module, src)`` — the elaborated term references the origin.
+    ``ImportRef(module, src, alias_pos)`` — the elaborated term references the
+    origin, but the alias's body uses are highlighted at `alias_pos`.
     """
     qmap: QueryMap = {}
     for open_info in find_opens(text):
@@ -305,7 +334,8 @@ def candidate_queries(text: str) -> QueryMap:
             name = raw[len("module ") :].strip() if raw.startswith("module ") else raw
             qmap.setdefault(name, []).append(ImportRef(open_info.module, name))
         for src, dst in open_info.renaming:
-            qmap.setdefault(dst, []).append(ImportRef(open_info.module, src))
+            pos = _alias_pos(text, open_info.span, dst)
+            qmap.setdefault(dst, []).append(ImportRef(open_info.module, src, pos))
     return qmap
 
 
@@ -347,17 +377,21 @@ def _decode_verdict(line: str, rel_by_path: dict[AgdaiPath, RelPath]) -> Decoded
     return DecodedVerdict(NameQuery(rel, f.module, f.name), f.verdict)
 
 
-def run_reader(queries: list[NameQuery]) -> Verdicts:
-    """Run the reader over name queries; map each to its verdict.
+def run_reader(queries: list[tuple[NameQuery, int]]) -> Verdicts:
+    """Run the reader over (name query, alias-position) pairs; map each to its verdict.
 
+    The alias position (0 unless the import is a `renaming`) rides as a 4th
+    tab-separated field; the verdict dict stays keyed by the 3-field `NameQuery`.
     Only queries whose file has a present `.agdai` are sent (the caller treats a
     missing verdict as "reader could not judge" → defer to the oracle).
     """
     if not queries:
         return {}
-    agdai = _present_agdai({q.rel for q in queries})
+    agdai = _present_agdai({q.rel for q, _ in queries})
     lines = [
-        f"{agdai.by_rel[q.rel]}\t{q.module}\t{q.name}" for q in queries if q.rel in agdai.by_rel
+        f"{agdai.by_rel[q.rel]}\t{q.module}\t{q.name}\t{pos}"
+        for q, pos in queries
+        if q.rel in agdai.by_rel
     ]
     if not lines:
         return {}
@@ -440,7 +474,7 @@ def analyze_dead_imports(rels: list[RelPath]) -> GateResult:
     """
     qmaps = {rel: candidate_queries((SRC / rel).read_text(encoding="utf-8")) for rel in rels}
     queries = [
-        NameQuery(rel, ref.module, ref.name)
+        (NameQuery(rel, ref.module, ref.name), ref.alias_pos)
         for rel, qmap in qmaps.items()
         for name in qmap
         for ref in qmap[name]

@@ -1,14 +1,16 @@
 {-# LANGUAGE PatternSynonyms #-}
 -- agda-iwyu-reader (Agda IWYU, Route A): scope-aware "is this import used?" from
 -- the .agdai interfaces.  Reads tab-separated query lines from stdin
---     <consumerAgdai> \t <module> \t <name>
+--     <consumerAgdai> \t <module> \t <name> [\t <aliasPos>]
 -- and emits one JSON object per query on stdout (JSONL):
 --     {"path":<agdai>,"mod":<module>,"name":<name>,"verdict":"USED"|"DEAD"|"UNRESOLVED"}
 -- For a renamed import (`renaming (orig to new)`) the driver passes the ORIGINAL
--- name -- the elaborated term references the origin, never the alias.
+-- name (the elaborated term references the origin) AND <aliasPos>, the 1-based
+-- codepoint position of the alias's binding in the consumer source (0 = not
+-- renamed).  See signal (4) for why the alias position is needed.
 --
 -- The verdict rule (validated against a synthetic fixture matrix; see
--- tools/agda-iwyu-reader/test/): a candidate is USED iff ANY of three signals,
+-- tools/agda-iwyu-reader/test/): a candidate is USED iff ANY of four signals,
 -- all read from the .agdai, fires for a QName it resolves to in scope:
 --   (1) SEMANTIC -- the QName is in `namesIn (iSignature)` (the elaborated
 --       terms): direct defs, re-exports, datatype/constructor copies, and the
@@ -26,7 +28,14 @@
 --       from q's OWN defining interface, auto-derived from its qnameModule (the
 --       file boundary is unmarked, so strip-retry the module-name prefix until
 --       one resolves AND contains q), cached by path.
--- DEAD means none of the three fired (every real use mechanism is covered, so
+--   (4) ALIAS-SITE -- for a `renaming (orig to alias)`, Agda highlights the
+--       alias's BODY uses against the alias's binding site in the consumer (not
+--       origin's def-site), and a transparent def inlined / pattern synonym
+--       expanded out of the signature leaves no origin trace at all.  So a body
+--       occurrence at (consumerModule, aliasPos) -- the alias decl itself does
+--       NOT contribute one -- is a use.  Without this, a renamed name used only
+--       in such an erased position is a FALSE POSITIVE (`_≟ᶜ_` in a `with ⌊…⌋`).
+-- DEAD means none of the four fired (every real use mechanism is covered, so
 -- this is the no-false-negative guarantee).  UNRESOLVED is reserved for a
 -- candidate that cannot be resolved in scope at all (should not happen for a
 -- real candidate); the driver routes it to the recompile-confirm oracle, never
@@ -60,11 +69,13 @@ import qualified Agda.Syntax.Concrete.Name as C
 import           Agda.Syntax.Internal (Abs (..), Clause (..), ConHead (..), Term (..))
 import           Agda.Syntax.Internal.Names (namesIn)
 import           Agda.Syntax.Position (posPos, rStart, rangeFileName, srcFile)
-import           Agda.Syntax.Scope.Base (AbstractName (..), Scope, allNamesInScope, scopeModules)
+import           Agda.Syntax.Scope.Base
+                   (AbstractModule (..), AbstractName (..), Scope, allNamesInScope, scopeModules)
 import           Agda.Syntax.TopLevelModuleName (rawTopLevelModuleNameForModuleName)
 import           Agda.TypeChecking.Monad.Base
                    (Definition, Interface, TCM, defCopy, funClauses, iHighlighting, iInsideScope,
-                    iSignature, pattern Function, runTCMTop, sigDefinitions, theDef)
+                    iSignature, iTopLevelModuleName, pattern Function, runTCMTop, sigDefinitions,
+                    theDef)
 import           Agda.TypeChecking.Monad.Options (setCommandLineOptions)
 import           Agda.TypeChecking.Monad.State (topLevelModuleName)
 import           Agda.Utils.FileName (AbsolutePath, absolute, filePath)
@@ -159,6 +170,19 @@ moduleExports scopes key = case Map.lookup key scopes of
   Nothing -> []
   Just sc -> concat (Map.elems (exportsOf sc))
 
+-- Resolve `name` as a MODULE in `modS`'s scope to its actual module path(s).
+-- Mirrors `valueLookup` but for the module namespace: a RE-EXPORTED module
+-- (`open Inner public`, a re-exported `module ≡-Reasoning`) has a real path that
+-- is NOT `modS.name`, so the reconstructed key misses its members; `amodName`
+-- gives the real path, under which the consumer's scope holds the members.
+moduleResolve :: Map String Scope -> String -> String -> [String]
+moduleResolve scopes modS name = case Map.lookup modS scopes of
+  Nothing -> []
+  Just sc -> [ prettyShow (amodName am)
+             | (cn, ams) <- Map.toList (allNamesInScope sc :: Map C.Name (List1 AbstractModule))
+             , prettyShow cn == name
+             , am <- List1.toList ams ]
+
 -- ---- copy -> origin bridge --------------------------------------------------
 
 isFunctionCopy :: Definition -> Bool
@@ -222,12 +246,27 @@ semDeep cache used q visited
 -- generalize to `importOccurrences(candidate) + 1` (the driver, which parses the
 -- opens, supplies that count) -- otherwise a used-once syntactic-only name from a
 -- wildcard open would count 1 < 2 and be a FALSE NEGATIVE.
-resolveQuery :: Cache -> Set QName -> Map (String, Int) Int -> Map String Scope -> String -> String -> TCM V
-resolveQuery cache used hc scopes modS name = do
+resolveQuery :: Cache -> Set QName -> Map (String, Int) Int -> Map String Scope -> String -> String -> String -> Int -> TCM V
+resolveQuery cache used hc scopes consumerMod modS name aliasPos = do
   let valQs = valueLookup scopes modS name                  -- import-listed: a body use needs count >= 2
-      modQs = moduleExports scopes (modS ++ "." ++ name)     -- members: any occurrence (>= 1) is a use
+      -- members of the name read as a module, by THREE keys, because a RE-EXPORT
+      -- (`open Inner public`, anonymous `module _`) gives the real module path
+      -- `M.Inner.X` / `M._.X`, NOT `modS.name`, so `X.member` uses hide under it:
+      --   (a) the RECONSTRUCTED key `modS.name` (the non-re-exported case);
+      --   (b) each resolved value's own QName as a module key — a re-exported
+      --       RECORD (`Equivalence.to`), whose record-module IS its QName;
+      --   (c) the name resolved as a MODULE in `modS`'s scope (`amodName`) — a
+      --       re-exported MODULE (`module ≡-Reasoning` opened for `begin`/`∎`).
+      modQs = moduleExports scopes (modS ++ "." ++ name)
+           ++ concatMap (\q -> moduleExports scopes (prettyShow q)) valQs
+           ++ concatMap (moduleExports scopes) (moduleResolve scopes modS name)
       qs    = valQs ++ modQs
-      synUsed = any (\q -> occurrences hc q >= 2) valQs
+      -- ALIAS-SITE (signal 4): a `renaming` alias's body uses are highlighted at
+      -- the alias binding (consumerMod, aliasPos), not origin's def-site; the decl
+      -- itself contributes none, so any occurrence there is a body use.
+      aliasUsed = aliasPos > 0 && Map.findWithDefault 0 (consumerMod, aliasPos) hc >= 1
+      synUsed = aliasUsed
+             || any (\q -> occurrences hc q >= 2) valQs
              || any (\q -> occurrences hc q >= 1) modQs
   if null qs        then pure Unresolved  -- not in scope at all (should not happen for a real candidate)
   else if synUsed   then pure Used        -- syntactic: referenced in the source beyond its import
@@ -255,12 +294,14 @@ resolveWildcard cache used hc scopes modS = case Map.lookup modS scopes of
 
 -- ---- driver -----------------------------------------------------------------
 
-data Query = Query { qAgdai :: FilePath, qMod :: String, qName :: String }
+data Query = Query { qAgdai :: FilePath, qMod :: String, qName :: String, qAliasPos :: Int }
 
 parseQuery :: String -> Maybe Query
 parseQuery l = case splitTab l of
-  (a : b : c : _) | not (null a) -> Just (Query a b c)
-  _                              -> Nothing
+  (a : b : c : d : _) | not (null a) -> Just (Query a b c (readPos d))
+  (a : b : c : _)     | not (null a) -> Just (Query a b c 0)  -- legacy 3-field (wildcard, no alias)
+  _                                  -> Nothing
+  where readPos s = case reads s of { [(n, _)] -> n; _ -> 0 }
 
 main :: IO ()
 main = do
@@ -278,13 +319,14 @@ main = do
       case miface of
         Nothing    -> pure [ errLine q "decode failed" | q <- qs ]
         Just iface -> do
-          let used   = usedOf iface
-              hc     = highlightCount iface
-              scopes = scopeMap iface
+          let used        = usedOf iface
+              hc          = highlightCount iface
+              scopes      = scopeMap iface
+              consumerMod = prettyShow (iTopLevelModuleName iface)
           forM qs $ \q ->
             if qName q == "*"
               then wildcardLine q <$> resolveWildcard cache used hc scopes (qMod q)
-              else verdictLine q <$> resolveQuery cache used hc scopes (qMod q) (qName q)
+              else verdictLine q <$> resolveQuery cache used hc scopes consumerMod (qMod q) (qName q) (qAliasPos q)
   case res of
     Left _   -> putStr ""   -- a top-level TCM error: emit nothing (driver treats absent as oracle)
     Right ls -> mapM_ putStrLn (concat ls)
