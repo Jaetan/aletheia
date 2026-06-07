@@ -56,45 +56,41 @@ from importlib.metadata import version as _pkg_version
 from aletheia.checks import CheckResult
 
 # pylint: disable=cyclic-import
-# __init__.py re-exports from submodules; ``client/_ffi.py`` lazily imports
-# ``from .. import _install_config`` (an install-time-generated module) which
+# The names below form the public surface but are *defined* inside the
+# internal ``aletheia.client`` sub-package. ``aletheia`` is the single
+# canonical public package — importing these names straight from
+# ``aletheia.client`` is unsupported. We source them from the concrete
+# ``_``-prefixed modules so importing ``aletheia`` does not eagerly pull the
+# whole sub-package via ``client/__init__.py``.
+#
+# Cyclic-import note: ``client/_ffi.py`` lazily imports
+# ``from .. import _install_config`` (an install-time-generated module), which
 # technically creates a cycle through this file. The cycle is benign because
 # the import is **deferred inside a function body** (see
 # ``client/_ffi.py:find_ffi_library``), so this file finishes executing before
-# the import is attempted.
-#
-# Boundary constraint: do NOT add a top-level ``from .client import ...`` name
-# that is reached during ``_install_config`` resolution, and do NOT make
-# ``_install_config`` import anything from ``aletheia`` or its submodules.
-# Either change breaks the deferred-import contract and will turn this benign
-# technical cycle into an ``ImportError`` at install-detection time.
-# DEFERRED:
-# Finding: AletheiaError (canonical at aletheia/client/_types.py:18) is exposed
-#   via two public paths: `from aletheia import AletheiaError` (re-exported
-#   here) AND `from aletheia.client import AletheiaError` (re-exported by
-#   client/__init__.py).  Documentation references the top-level form.
-# Why: Deprecating `aletheia.client.AletheiaError` is mechanically safe
-#   (re-export forwarder) but requires a deprecation warning + downstream user
-#   code review.  Project has no current external users so the warning-period
-#   is unnecessary, but the canonical-path decision is mostly cosmetic.
-# Revisit when: First external user lands, OR a documentation sweep clarifies
-#   the canonical import paths.
-from aletheia.client import (
-    AletheiaClient,
-    AletheiaError,
+# the import is attempted. Boundary constraint: do NOT make ``_install_config``
+# import anything from ``aletheia`` or its submodules, and do NOT add a
+# top-level client import reached during ``_install_config`` resolution —
+# either turns this benign technical cycle into an ``ImportError`` at
+# install-detection time.
+from aletheia.client._backend import (
     Backend,
-    BatchError,
     BinaryPathUnsupportedError,
-    CANFrameTuple,
     FFIBackend,
+    MockBackend,
+)
+from aletheia.client._client import AletheiaClient
+from aletheia.client._ffi import RTSState
+from aletheia.client._types import (
+    AletheiaError,
+    BatchError,
+    CANFrameTuple,
     FFIError,
     FrameResponse,
     FrameResult,
     InputBoundExceededError,
-    MockBackend,
     PropertyDiagnostic,
     ProtocolError,
-    RTSState,
     SignalExtractionResult,
     StateError,
     ValidationError,
@@ -163,12 +159,6 @@ except PackageNotFoundError:
 # those packages aren't installed; ``from aletheia import *`` in that case
 # raises ``AttributeError`` for the missing name, which is the documented
 # behaviour for missing extras.
-#
-# R0801: the re-export names below overlap a run in ``aletheia.client.__all__``
-# (this package re-exports the client's public API). ``__all__`` must stay a
-# sorted list literal for RUF022 and basedpyright re-export tracking, so the
-# shared run cannot be factored into a shared symbol — required by those tools.
-# pylint: disable=duplicate-code
 __all__ = [
     "AletheiaClient",
     "AletheiaError",
@@ -221,4 +211,3 @@ __all__ = [
     "signal_by_name",
     "signals_for_mux_value",
 ]
-# pylint: enable=duplicate-code

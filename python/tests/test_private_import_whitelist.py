@@ -10,14 +10,16 @@ accumulating an undeclared private-API surface area.
 
 How to extend:
     1. If the internal symbol has grown into genuine public API, promote
-       it to ``aletheia.client.__init__`` (and usually also to the
-       top-level ``aletheia`` package) in the same commit.
+       it to the top-level ``aletheia`` package (the single canonical
+       public surface) in the same commit.
     2. If it must stay private, add the (test_file, module, symbol)
        triple to ``_ALLOWED`` with a one-line justification above it.
 """
 
 import ast
 from pathlib import Path
+
+import aletheia.client
 
 _TESTS_DIR = Path(__file__).parent
 
@@ -201,4 +203,26 @@ def test_whitelist_has_no_stale_entries() -> None:
         "Whitelist declares private imports that no test file uses any "
         + "more — remove them:\n  "
         + "\n  ".join(f"{tf}: from {mod} import {sym}" for tf, mod, sym in sorted(stale))
+    )
+
+
+def test_client_package_exposes_no_public_reexports() -> None:
+    """``aletheia.client`` is internal — it must expose no public names.
+
+    The top-level ``aletheia`` package is the single canonical public
+    surface. A non-underscore name re-appearing on ``aletheia.client``
+    (or an ``__all__`` declaration) would silently re-introduce the dual
+    import path retired when the client sub-package was demoted to internal
+    plumbing — defeating the goal that every client name has exactly one
+    public import path.
+    """
+    public = sorted(name for name in vars(aletheia.client) if not name.startswith("_"))
+    assert not public, (
+        "aletheia.client must not expose public re-exports — import the client "
+        + "surface from the top-level ``aletheia`` package instead. Found: "
+        + ", ".join(public)
+    )
+    assert not hasattr(aletheia.client, "__all__"), (
+        "aletheia.client must not declare ``__all__``: it is internal "
+        + "implementation detail; the public surface lives in ``aletheia.__all__``."
     )

@@ -14,13 +14,12 @@ Per ``feedback_test_interface_via_di.md``: when a harness needs to call a
 alias module, never ``# pylint: disable=protected-access``.
 
 Note: ``MockBackend`` was promoted to a public class in R20 cluster P
-(commit ``4dd3c05``) and now lives at :class:`aletheia.client.MockBackend`
-with re-export at :class:`aletheia.MockBackend`; see
-``docs/FEATURE_MATRIX.yaml`` row ``mock_backend`` (entry
+(commit ``4dd3c05``) and is exported at :class:`aletheia.MockBackend`;
+see ``docs/FEATURE_MATRIX.yaml`` row ``mock_backend`` (entry
 ``aletheia.MockBackend``).  This ``aletheia.testing`` module is the
 benchmark / engine re-export surface and does NOT re-host
-``MockBackend`` — users import the mock directly from ``aletheia`` (or
-``aletheia.client``).  PY-S-17.2 closure (R21).
+``MockBackend`` — users import the mock directly from ``aletheia``.
+PY-S-17.2 closure (R21).
 """
 
 from __future__ import annotations

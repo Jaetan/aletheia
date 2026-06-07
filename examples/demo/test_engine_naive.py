@@ -34,7 +34,7 @@ from aletheia.protocols import DLCCode
 if TYPE_CHECKING:
     from engine_ecu_sim import CANFrame
 
-    from aletheia.client._types import SignalExtractionResult
+    from aletheia import SignalExtractionResult
 
 _RPM_MAX = 16383.75
 _TEMP_MIN = -40

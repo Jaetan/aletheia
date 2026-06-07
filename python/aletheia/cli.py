@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, NoReturn, cast
 from aletheia import __version__
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.checks_runner import CheckRunResult, Violation, run_checks
-from aletheia.client import (
-    AletheiaClient,
+from aletheia.client._client import AletheiaClient
+from aletheia.client._types import (
     AletheiaError,
     SignalExtractionResult,
     ValidationError,

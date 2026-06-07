@@ -7,7 +7,7 @@ Verifies that properties are correctly finalized when end_stream() is called.
 
 from _dbc_helpers import dbc, message, signal
 
-from aletheia.client import AletheiaClient
+from aletheia import AletheiaClient
 from aletheia.dsl import Signal
 from aletheia.protocols import DLCCode
 

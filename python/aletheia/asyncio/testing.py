@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from aletheia.client import Backend
+    from aletheia.client._backend import Backend
 
 
 class _CountingGateBackend:

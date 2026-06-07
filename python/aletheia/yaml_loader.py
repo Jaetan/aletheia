@@ -81,7 +81,7 @@ from aletheia._loader_utils import (
     get_str,
     reject_symlink_loader_path,
 )
-from aletheia.client import ValidationError, check_dbc_text_size_bound
+from aletheia.client._types import ValidationError, check_dbc_text_size_bound
 from aletheia.protocols import is_object_list, is_str_dict
 
 if TYPE_CHECKING:

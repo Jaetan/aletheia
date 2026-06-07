@@ -78,7 +78,7 @@ from aletheia._loader_utils import (
     is_str,
     reject_symlink_loader_path,
 )
-from aletheia.client import AletheiaError, ValidationError, check_dbc_text_size_bound
+from aletheia.client._types import AletheiaError, ValidationError, check_dbc_text_size_bound
 from aletheia.protocols import (
     DBCDefinition,
     DBCMessage,

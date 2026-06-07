@@ -617,6 +617,32 @@ step count: 27 → 28.
 
 ### Changed
 
+#### BREAKING — Python: `aletheia` is the sole public package; `aletheia.client` re-exports removed
+
+The `aletheia.client` sub-package no longer re-exports any public name. The
+client surface — `AletheiaClient`, the exception hierarchy (`AletheiaError`,
+`ValidationError`, `FFIError`, `ProtocolError`, `StateError`, `BatchError`,
+`InputBoundExceededError`), `Backend` / `FFIBackend` / `MockBackend` /
+`BinaryPathUnsupportedError`, `RTSState`, the response TypedDicts, and the
+`bytes_to_dlc` / `dlc_to_bytes` converters — is now importable **only** from the
+top-level `aletheia` package, the single canonical public surface.
+`aletheia.client` and its `_`-prefixed modules are internal implementation
+detail and may change between releases.
+
+Caller migration:
+
+```python
+# before
+from aletheia.client import AletheiaClient, AletheiaError, ValidationError
+# after
+from aletheia import AletheiaClient, AletheiaError, ValidationError
+```
+
+This closes the long-standing dual public import path — every client name was
+previously reachable from both `aletheia` and `aletheia.client`. Documentation
+and examples already used the top-level form exclusively, so user-visible
+breakage is limited to code that imported straight from `aletheia.client`.
+
 #### Changed — Build: `check-properties` type-checks proof modules in one warm agda process
 
 `cabal run shake -- check-properties` previously spawned one `agda Module.agda`

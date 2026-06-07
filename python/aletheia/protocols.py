@@ -70,11 +70,10 @@ if TYPE_CHECKING:
     from aletheia.issue_codes import ValidationIssue
 
 # ─── Public wire helpers ───────────────────────────────────────────────────
-# Promoted from ``client/_helpers.py`` so non-client modules
+# Promoted here from the client internals so non-client modules
 # (``cli.py``, ``dbc_converter.py``, ``excel_loader.py``) can reach a
-# public surface rather than ``aletheia.client._helpers`` (a private
-# implementation module).  ``client/_helpers.py`` re-imports these names
-# for backward-compat with client-internal callers.
+# public surface rather than the private ``aletheia.client._helpers``
+# package.
 
 
 class FractionJSONEncoder(json.JSONEncoder):

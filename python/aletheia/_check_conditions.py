@@ -10,7 +10,7 @@ and dispatch helpers so that the two loaders stay in sync.
 from typing import TYPE_CHECKING
 
 from aletheia import checks
-from aletheia.client import ValidationError
+from aletheia.client._types import ValidationError
 
 if TYPE_CHECKING:
     from aletheia.checks import CheckResult, WhenCondition, WhenSignal

@@ -25,8 +25,8 @@ from __future__ import annotations
 from fractions import Fraction
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
-from aletheia.client import ValidationError
 from aletheia.client._helpers.rational import float_to_rational
+from aletheia.client._types import ValidationError
 from aletheia.protocols import (
     AlwaysFormula,
     AndFormula,

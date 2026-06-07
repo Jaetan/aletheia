@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from aletheia.client import ValidationError
+from aletheia.client._types import ValidationError
 from aletheia.dsl import Predicate, Property, Signal, require_non_negative_time_ms
 
 if TYPE_CHECKING:

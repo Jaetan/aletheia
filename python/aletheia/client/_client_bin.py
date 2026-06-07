@@ -11,8 +11,8 @@ methods.
 
 Originally this module also hosted the ``BinaryFFI`` class that owned
 the ``ctypes`` plumbing for the three binary entry points; that
-responsibility moved to :class:`aletheia.client.FFIBackend` in
-``_backend.py`` so the Backend Protocol owns the FFI boundary uniformly.
+responsibility moved to :class:`aletheia.FFIBackend` (defined in
+``_backend.py``) so the Backend Protocol owns the FFI boundary uniformly.
 What remains here is wire-format parsing — independent of how the bytes
 were obtained.
 """

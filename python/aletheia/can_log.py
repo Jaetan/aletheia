@@ -21,7 +21,7 @@ Example:
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from aletheia.client import CANFrameTuple, ValidationError, bytes_to_dlc
+from aletheia.client._types import CANFrameTuple, ValidationError, bytes_to_dlc
 from aletheia.protocols import DLCByteCount, DLCCode
 
 if TYPE_CHECKING:

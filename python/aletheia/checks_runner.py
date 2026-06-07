@@ -21,14 +21,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
-from aletheia.client import AletheiaClient, AletheiaError, ValidationError
+from aletheia.client._client import AletheiaClient
+from aletheia.client._types import AletheiaError, ValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from fractions import Fraction
 
     from aletheia.checks import CheckResult
-    from aletheia.client import CANFrameTuple
+    from aletheia.client._types import CANFrameTuple
     from aletheia.protocols import (
         CompleteResponse,
         DBCDefinition,
