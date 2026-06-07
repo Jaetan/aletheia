@@ -42,8 +42,8 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, be
 
 ### Architecture (4)
 
-15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success, clear import path from `aletheia`
-16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI; no leaking of internal modules
+15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success. Import path: the top-level `aletheia` package is the single canonical public surface -- cross-cutting names (client, the exception hierarchy) flat there; domain interfaces in cohesive sub-namespaces (`aletheia.dbc` / `aletheia.dsl` / `aletheia.codes` / `aletheia.types` / the loaders)
+16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI. Every public submodule declares `__all__`; internal modules are `_`-prefixed and are never a supported public import path (e.g. `aletheia.client` is internal — its surface is re-exported only from the top-level package)
 17. **Extensibility** -- adding new predicates, loaders, or check types doesn't break existing callers
 18. **Dependency discipline** -- minimal external deps; cantools/openpyxl/python-can/pyyaml justified; no unnecessary additions
 
