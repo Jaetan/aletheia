@@ -269,6 +269,7 @@ proofModules =
     , "Aletheia/DBC/TextParser.agda"
     , "Aletheia/DBC/TextFormatter.agda"
     , "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
+    , "Aletheia/DBC/DecRat/RationalSoundness.agda"
     -- WellFormedText / ValueDescResolves / Format DSL: walk roots currently
     -- unimported by downstream proofs; explicit roots keep them from bit-rotting.
     , "Aletheia/DBC/Formatter/WellFormedText.agda"
