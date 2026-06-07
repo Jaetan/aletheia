@@ -305,7 +305,7 @@ The most common codes you'll see:
 | `unknown_message_sender` | `BU_` sender declared but not in node list. | warning |
 
 The 21 IssueCode names are the authoritative cross-binding identifiers — see
-`python/aletheia/issue_codes.py` (mirror) or `src/Aletheia/DBC/Types.agda`
+`python/aletheia/codes/_issue.py` (mirror) or `src/Aletheia/DBC/Types.agda`
 (SSOT) for the full enum. The full list lives in
 [`PROTOCOL.md`](../architecture/PROTOCOL.md#common-error-codes). The structured `code` field
 is the stable contract — `message` text is for humans and may change between

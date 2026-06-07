@@ -97,6 +97,7 @@ from aletheia.client._types import (
     bytes_to_dlc,
     dlc_to_bytes,
 )
+from aletheia.codes import ErrorCode, IssueCode, ValidationIssue
 from aletheia.dbc import (
     always_present_signals,
     convert_dbc_file,
@@ -112,8 +113,6 @@ from aletheia.dbc import (
     signals_for_mux_value,
 )
 from aletheia.dsl import Predicate, Property, Signal, eventually_always, infinitely_often, never
-from aletheia.error_codes import ErrorCode
-from aletheia.issue_codes import IssueCode, ValidationIssue
 from aletheia.protocols import (
     DBCDefinition,
     PropertyResultEntry,

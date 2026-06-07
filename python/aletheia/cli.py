@@ -37,6 +37,7 @@ from aletheia.client._types import (
     ValidationError,
     bytes_to_dlc,
 )
+from aletheia.codes import IssueSeverity, ValidationIssue
 from aletheia.dbc import (
     is_multiplexed,
     message_by_id,
@@ -45,7 +46,6 @@ from aletheia.dbc import (
     mux_values,
     signals_for_mux_value,
 )
-from aletheia.issue_codes import IssueSeverity, ValidationIssue
 from aletheia.protocols import (
     DBCDefinition,
     DBCMessage,

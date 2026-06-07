@@ -32,7 +32,7 @@ from aletheia.protocols import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from aletheia.issue_codes import ValidationIssue
+    from aletheia.codes import ValidationIssue
 
 _logger = logging.getLogger("aletheia")
 

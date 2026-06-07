@@ -40,7 +40,7 @@ class AletheiaError(Exception):
 
     Attributes:
         code: Machine-readable error code from the Agda core
-            (``aletheia.error_codes.ErrorCode``).  ``None`` for errors raised
+            (``aletheia.ErrorCode``).  ``None`` for errors raised
             purely client-side (e.g. "library not loaded", "null pointer
             from FFI") — those surface as a plain Python exception without
             an Agda wire value.

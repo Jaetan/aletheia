@@ -617,6 +617,26 @@ step count: 27 → 28.
 
 ### Changed
 
+#### BREAKING — Python: `aletheia.error_codes` + `aletheia.issue_codes` unified into `aletheia.codes`
+
+The two code-enumeration submodules are merged into a single `aletheia.codes`
+namespace: `ErrorCode` (runtime error codes) and `IssueCode` / `IssueSeverity`
+/ `ValidationIssue` (DBC validation issues). `from aletheia.error_codes import
+…` and `from aletheia.issue_codes import …` no longer resolve; use
+`from aletheia.codes import …`. The top-level convenience aliases are unchanged
+— `from aletheia import ErrorCode, IssueCode, ValidationIssue` still works
+(`IssueSeverity` remains available as `aletheia.codes.IssueSeverity`).
+
+Caller migration:
+
+```python
+# before
+from aletheia.error_codes import ErrorCode
+from aletheia.issue_codes import IssueSeverity, ValidationIssue
+# after
+from aletheia.codes import ErrorCode, IssueSeverity, ValidationIssue
+```
+
 #### BREAKING — Python: `aletheia.dbc_converter` + `aletheia.dbc_queries` unified into `aletheia.dbc`
 
 The two DBC submodules are merged into a single `aletheia.dbc` namespace

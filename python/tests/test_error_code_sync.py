@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from aletheia.error_codes import ErrorCode
+from aletheia.codes import ErrorCode
 
 _AGDA_FILE = Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "Error.agda"
 _AGDA_FILE_MISSING = not _AGDA_FILE.exists()

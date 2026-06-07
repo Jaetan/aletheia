@@ -67,7 +67,7 @@ from aletheia._dbc_types import (
 )
 
 if TYPE_CHECKING:
-    from aletheia.issue_codes import ValidationIssue
+    from aletheia.codes import ValidationIssue
 
 # ─── Public wire helpers ───────────────────────────────────────────────────
 # Promoted here from the client internals so non-client modules

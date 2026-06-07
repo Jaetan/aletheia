@@ -33,8 +33,8 @@ from aletheia import (
     limits,
 )
 from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.codes import ErrorCode
 from aletheia.dbc import dbc_to_json
-from aletheia.error_codes import ErrorCode
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
 from aletheia.yaml_loader import load_checks
 

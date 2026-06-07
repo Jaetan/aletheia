@@ -6,7 +6,7 @@ Mirror of the Agda ``IssueCode`` ADT and the Go ``Issue*`` constants in
 ``go/aletheia/result.go`` / C++ ``IssueCode`` enum in
 ``cpp/include/aletheia/validation.hpp``.  The public ``aletheia`` package
 re-exports ``IssueCode`` and ``ValidationIssue`` (see ``__init__.py``);
-``IssueSeverity`` is accessible as ``aletheia.issue_codes.IssueSeverity``.
+``IssueSeverity`` is accessible as ``aletheia.codes.IssueSeverity``.
 """
 
 from enum import StrEnum
