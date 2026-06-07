@@ -18,7 +18,7 @@ import argparse
 import statistics
 import sys
 import time
-from typing import TYPE_CHECKING, TextIO, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TextIO, TypedDict
 
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
@@ -147,17 +147,27 @@ def run_benchmark(
     }
 
 
+class NamedBenchmark(NamedTuple):
+    """A labelled throughput benchmark (name + a frames→fps runner)."""
+
+    name: str
+    run: Callable[[int], float]
+
+
 def _build_benchmarks(
     dbc: DBCDefinition,
     canfd_dbc: DBCDefinition,
-) -> list[tuple[str, Callable[[int], float]]]:
+) -> list[NamedBenchmark]:
     """Build the (name, partial_fn) list driving the benchmark loop.
 
     Extracted from ``main`` so its local-variable count stays under the
     pylint ``too-many-locals`` cap; also makes the benchmark inventory
     easy to spot independently of the run loop.
     """
-    return [
+    # Builder scratchpad: the explicit element type gives the lambdas their
+    # ``n: int`` context (pyright does not infer it through the NamedBenchmark
+    # constructor), then each pair is wrapped into the public NamedBenchmark.
+    raw: list[tuple[str, Callable[[int], float]]] = [
         # --- CAN 2.0B ---
         (
             "CAN 2.0B: Stream LTL (2 props)",
@@ -176,6 +186,7 @@ def _build_benchmarks(
         ),
         ("CAN-FD:   Frame Building", lambda n: benchmark_frame_building(canfd_dbc, n, CANFD_SPEC)),
     ]
+    return [NamedBenchmark(*_entry) for _entry in raw]
 
 
 def _print_summary(results: list[_BenchResult], file: TextIO) -> None:

@@ -30,7 +30,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from typing import IO, TYPE_CHECKING, TypedDict
+from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from benchmarks._common import (
@@ -231,20 +231,31 @@ def nested_until() -> list[LTLFormula]:
 # Benchmark runner
 # ============================================================================
 
-FORMULAS: list[tuple[str, Callable[[], list[LTLFormula]]]] = [
-    ("G(p)              simple safety", simple_safety),
-    ("G(p∧q)            compound safety", compound_safety),
-    ("G(p→q)            implication", implication_safety),
-    ("F(p)              liveness", simple_liveness),
-    ("G(F(p))           infinitely often", infinitely_often_pattern),
-    ("F(G(p))           stability", stability_pattern),
-    ("p U q             until (atomic)", until_atomic),
-    ("G(p) U q          until (temporal)", until_temporal),
-    ("p R q             release (atomic)", release_atomic),
-    ("G(p→q w/in 100)   bounded response", bounded_response),
-    ("G(p→q w/in 1000)  bounded active", bounded_response_active),
-    ("5×G(pᵢ)           multi-property", multi_property),
-    ("(p U q) ∧ G(p)    until + always", nested_until),
+
+class FormulaCase(NamedTuple):
+    """A labelled formula factory for the simplification sweep."""
+
+    label: str
+    build: Callable[[], list[LTLFormula]]
+
+
+FORMULAS: list[FormulaCase] = [
+    FormulaCase(*_entry)
+    for _entry in (
+        ("G(p)              simple safety", simple_safety),
+        ("G(p∧q)            compound safety", compound_safety),
+        ("G(p→q)            implication", implication_safety),
+        ("F(p)              liveness", simple_liveness),
+        ("G(F(p))           infinitely often", infinitely_often_pattern),
+        ("F(G(p))           stability", stability_pattern),
+        ("p U q             until (atomic)", until_atomic),
+        ("G(p) U q          until (temporal)", until_temporal),
+        ("p R q             release (atomic)", release_atomic),
+        ("G(p→q w/in 100)   bounded response", bounded_response),
+        ("G(p→q w/in 1000)  bounded active", bounded_response_active),
+        ("5×G(pᵢ)           multi-property", multi_property),
+        ("(p U q) ∧ G(p)    until + always", nested_until),
+    )
 ]
 
 
@@ -328,9 +339,7 @@ def main() -> int:
     print(f"{'Formula':<30}{size_headers}{'Ratio':>8}{'RSS MB':>8}", file=out)
     print("-" * (30 + 10 * len(sizes) + 16), file=out)
 
-    all_results = [
-        _run_one_formula(label, make_props, dbc, sizes, out) for label, make_props in FORMULAS
-    ]
+    all_results = [_run_one_formula(case.label, case.build, dbc, sizes, out) for case in FORMULAS]
 
     print("-" * (30 + 10 * len(sizes) + 16), file=out)
     print(file=out)

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import IO, TYPE_CHECKING, TypedDict
+from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from benchmarks._common import (
@@ -213,9 +213,16 @@ def benchmark_property_count_scaling(
     return results
 
 
-def _complexity_levels() -> list[tuple[str, list[LTLFormula]]]:
+class ComplexityLevel(NamedTuple):
+    """A labelled property bundle for the complexity-scaling sweep."""
+
+    label: str
+    properties: list[LTLFormula]
+
+
+def _complexity_levels() -> list[ComplexityLevel]:
     """Property bundles used by the complexity-scaling sweep."""
-    return [
+    raw = [
         (
             "Simple predicate",
             [Signal("EngineSpeed").less_than(8000).always().to_dict()],
@@ -250,6 +257,7 @@ def _complexity_levels() -> list[tuple[str, list[LTLFormula]]]:
             ],
         ),
     ]
+    return [ComplexityLevel(*_entry) for _entry in raw]
 
 
 def benchmark_property_complexity_scaling(
