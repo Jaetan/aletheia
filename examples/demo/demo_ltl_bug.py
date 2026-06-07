@@ -36,12 +36,12 @@ from typing import TYPE_CHECKING
 from engine_ecu_sim import ENGINE_DBC, generate_frozen_trace, generate_normal_trace
 
 from aletheia import AletheiaClient, Signal
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
     from engine_ecu_sim import CANFrame
 
-    from aletheia.protocols import LTLFormula, PropertyResultEntry
+    from aletheia.types import LTLFormula, PropertyResultEntry
 
 HEADER = "=" * 65
 

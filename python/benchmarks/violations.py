@@ -37,8 +37,8 @@ import can
 from aletheia import AletheiaClient
 from aletheia.checks import CheckResult, signal
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DBCDefinition, DLCCode
 from aletheia.testing import run_checks
+from aletheia.types import DBCDefinition, DLCCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable

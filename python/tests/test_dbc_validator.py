@@ -19,7 +19,7 @@ from _dbc_helpers import signal as _build_sig
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError
 
 if TYPE_CHECKING:
-    from aletheia.protocols import (
+    from aletheia.types import (
         Command,
         DBCMessage,
         DBCSignal,

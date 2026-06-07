@@ -27,7 +27,7 @@ from fractions import Fraction
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.client._helpers.rational import float_to_rational
 from aletheia.client._types import ValidationError
-from aletheia.protocols import (
+from aletheia.types import (
     AlwaysFormula,
     AndFormula,
     AtomicFormula,
@@ -125,7 +125,7 @@ class Signal:
          ``src/Aletheia/LTL/JSON/Format.agda``'s
          ``formatSignalPredicateFields`` (and its parser counterpart) so
          the JSON wire format recognises the new tag.
-      2. ``python/aletheia/protocols.py`` — add the matching member to
+      2. ``python/aletheia/types.py`` — add the matching member to
          ``PredicateType`` (Python mirror of the wire-format tag).
       3. This module — expose it as a method on ``Signal`` (or ``Predicate``)
          that emits ``{'predicate': PredicateType.NEW_KIND.value, ...}``.

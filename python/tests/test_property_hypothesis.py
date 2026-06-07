@@ -31,7 +31,7 @@ from hypothesis import strategies as st
 from aletheia import ProtocolError
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.client._helpers.rational import parse_rational
-from aletheia.protocols import (
+from aletheia.types import (
     ByteOrder,
     DBCDefinition,
     DBCMessage,

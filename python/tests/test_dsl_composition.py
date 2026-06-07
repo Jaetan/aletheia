@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, cast
 from aletheia.dsl import Property, Signal
 
 if TYPE_CHECKING:
-    from aletheia.protocols import (
+    from aletheia.types import (
         AlwaysFormula,
         AndFormula,
         AtomicFormula,

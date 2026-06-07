@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, cast
 from _stream_helpers import send_test_frame
 
 from aletheia import AletheiaClient, Signal
-from aletheia.protocols import DBCDefinition, DLCCode
+from aletheia.types import DBCDefinition, DLCCode
 
 if TYPE_CHECKING:
     from aletheia.dsl import UntilFormula

@@ -29,7 +29,7 @@ from pathlib import Path
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DBCDefinition, DLCCode, LTLFormula
+from aletheia.types import DBCDefinition, DLCCode, LTLFormula
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py
 # → ../../examples/.  Path is resolved once so re-importing this module

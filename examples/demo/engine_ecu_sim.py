@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition
+    from aletheia.types import DBCDefinition
 
 # CAN message ID for the Engine ECU
 ENGINE_STATUS_ID = 0x300  # 768

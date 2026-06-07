@@ -25,7 +25,7 @@ from drive_log import NORMAL_DRIVE, VEHICLE_DYNAMICS_ID
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
     from drive_log import CANFrame

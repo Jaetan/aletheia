@@ -23,7 +23,7 @@ import can
 from aletheia import CANFrameTuple
 from aletheia.can_log import convert_message
 from aletheia.client._types import encode_maybe_bool
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 
 class TestEncodeMaybeBool:

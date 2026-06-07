@@ -34,7 +34,7 @@ import pytest
 from _canonical_dbc import CANONICAL_DBC as _CANONICAL_DBC
 
 from aletheia import AletheiaClient, Signal, ValidationError
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 # Documented structural invariants — these mirror PROTOCOL.md's response
 # shape tables.  Each binding asserts the same expectations against its

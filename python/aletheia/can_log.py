@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from aletheia.client._types import CANFrameTuple, ValidationError, bytes_to_dlc
-from aletheia.protocols import DLCByteCount, DLCCode
+from aletheia.types import DLCByteCount, DLCCode
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

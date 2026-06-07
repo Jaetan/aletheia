@@ -256,7 +256,7 @@ paths_to_mutate = [
     "aletheia/dbc/_converter.py",
     "aletheia/yaml_loader.py",
     "aletheia/codes/_issue.py",
-    "aletheia/protocols.py",
+    "aletheia/types.py",
 ]
 also_copy = [
     "aletheia",

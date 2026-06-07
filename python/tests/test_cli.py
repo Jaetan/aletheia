@@ -33,7 +33,7 @@ from aletheia.testing import run_checks
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from aletheia.protocols import DBCDefinition
+    from aletheia.types import DBCDefinition
 
 # ============================================================================
 # Shared DBC content

@@ -1012,7 +1012,7 @@ Convert a `DBCDefinition` dict to DBC file text format.
 
 #### DBC Query Helpers
 
-Operate on `DBCMessage` / `DBCDefinition` TypedDicts from `aletheia.protocols`:
+Operate on `DBCMessage` / `DBCDefinition` TypedDicts from `aletheia.types`:
 
 ```python
 from aletheia import message_by_id, is_multiplexed, always_present_signals

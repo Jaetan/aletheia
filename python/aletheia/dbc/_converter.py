@@ -19,7 +19,7 @@ from pathlib import Path
 
 from aletheia.client._client import AletheiaClient
 from aletheia.client._types import ValidationError, check_dbc_text_size_bound
-from aletheia.protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
+from aletheia.types import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
 
 
 def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:

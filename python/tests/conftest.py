@@ -14,7 +14,7 @@ from aletheia import Signal
 
 if TYPE_CHECKING:
     from aletheia.dsl import Property
-    from aletheia.protocols import DBCDefinition
+    from aletheia.types import DBCDefinition
 
 # Make the repo root importable so tests can reach the ``tools`` package (the dev
 # tooling lives at ``<repo>/tools``, a sibling of ``python/``, not under it).

@@ -64,7 +64,7 @@ from aletheia.excel_loader import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from aletheia.protocols import DBCSignalAlways, DBCSignalMultiplexed
+    from aletheia.types import DBCSignalAlways, DBCSignalMultiplexed
 
 
 # ============================================================================

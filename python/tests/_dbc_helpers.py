@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING, TypedDict
 
 from aletheia import AletheiaClient
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.protocols import DLCByteCount, to_signal_fraction
+from aletheia.types import DLCByteCount, to_signal_fraction
 
 if TYPE_CHECKING:
     from fractions import Fraction
     from typing import Unpack
 
     from aletheia._dbc_types import ByteOrder, SignalPresence
-    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
+    from aletheia.types import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
 
 
 class SignalOverrides(TypedDict, total=False):

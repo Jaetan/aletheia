@@ -32,7 +32,7 @@ from aletheia.client._helpers.json_codec import (
 )
 from aletheia.client._types import validate_can_id
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 # --- White-box access note ----------------------------------------------------
 # This profiler must reach the raw FFI handles (``client._backend._lib`` +

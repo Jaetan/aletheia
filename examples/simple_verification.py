@@ -19,7 +19,7 @@ from pathlib import Path
 
 from aletheia import AletheiaClient, AletheiaError, Signal
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 
 def main() -> int:

@@ -3,14 +3,14 @@
 """Multiplexing query helpers and DBC definition lookup utilities.
 
 These functions operate on the DBCMessage / DBCDefinition TypedDicts
-from :mod:`aletheia.protocols` and provide the same functionality as the
+from :mod:`aletheia.types` and provide the same functionality as the
 Go ``DBCMessage`` methods (``IsMultiplexed``, ``AlwaysPresentSignals``, etc.).
 """
 
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
+    from aletheia.types import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
 
 
 def is_multiplexed(msg: DBCMessage) -> bool:

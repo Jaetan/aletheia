@@ -30,12 +30,12 @@ from drive_log import NORMAL_DRIVE, OVERSPEED_DRIVE
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DLCCode, dump_json
+from aletheia.types import DLCCode, dump_json
 
 if TYPE_CHECKING:
     from drive_log import CANFrame
 
-    from aletheia.protocols import PropertyResultEntry
+    from aletheia.types import PropertyResultEntry
 
 # Number of violations shown in the diagnostics section before eliding the rest.
 _MAX_SHOWN = 3

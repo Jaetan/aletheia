@@ -44,7 +44,7 @@ bindings:
       - python/aletheia/dbc/_converter.py
       - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
       - python/aletheia/codes/_issue.py      # NEW from Track E.11 (CHECK 23 IssueCode mirror)
-      - python/aletheia/protocols.py
+      - python/aletheia/types.py
     config:
       # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
       # See python/pyproject.toml for the actual config (`paths_to_mutate`,
@@ -57,7 +57,7 @@ bindings:
     baseline:
       # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch).
       # 496 surviving mutants out of 1478 total — concentrated in
-      # `aletheia/client/_client.py` and `aletheia/protocols.py` (boilerplate
+      # `aletheia/client/_client.py` and `aletheia/types.py` (boilerplate
       # type definitions and inert API surface).  Each surviving mutant is
       # itself a candidate finding (per AGENTS.md cat 14(g) "an unjustified
       # survivor is a test gap").  Eliminating the survivors is a separate

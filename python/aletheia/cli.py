@@ -46,7 +46,7 @@ from aletheia.dbc import (
     mux_values,
     signals_for_mux_value,
 )
-from aletheia.protocols import (
+from aletheia.types import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,

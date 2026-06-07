@@ -28,7 +28,7 @@ from aletheia.client._types import ProtocolError, SignalExtractionResult
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from aletheia.protocols import DLCCode
+    from aletheia.types import DLCCode
 
 # The binary extraction response opens with a three-``u16`` count header
 # (values / errors / absent); ``<HHH`` is 6 bytes.

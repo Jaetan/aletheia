@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from aletheia import AletheiaClient, BatchError, CANFrameTuple, ProtocolError
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 
 def _make_client() -> AletheiaClient:

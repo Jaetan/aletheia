@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from aletheia.client._helpers.rational import parse_rational
 from aletheia.client._types import ProtocolError
-from aletheia.protocols import is_str_dict
+from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

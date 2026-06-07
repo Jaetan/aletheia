@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, TypeGuard
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
 from aletheia.client._types import ValidationError
-from aletheia.protocols import is_str_dict
+from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
     from pathlib import Path

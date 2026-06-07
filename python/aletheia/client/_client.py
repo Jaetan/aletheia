@@ -31,7 +31,7 @@ from aletheia.client._types import (
     ValidationError,
 )
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, MAX_JSON_BYTES
-from aletheia.protocols import (
+from aletheia.types import (
     Command,
     DBCDefinition,
     ErrorResponse,

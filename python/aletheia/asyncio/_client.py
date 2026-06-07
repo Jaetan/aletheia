@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
     from aletheia.checks import CheckResult
     from aletheia.client._backend import Backend
-    from aletheia.protocols import (
+    from aletheia.types import (
         AckResponse,
         CompleteResponse,
         DBCDefinition,

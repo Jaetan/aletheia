@@ -57,7 +57,7 @@ from aletheia import (
 )
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dsl import Predicate, Property
-from aletheia.protocols import DLCByteCount, DLCCode
+from aletheia.types import DLCByteCount, DLCCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from typing import TypeAliasType
 
     from aletheia import CheckResult, DBCDefinition
-    from aletheia.protocols import DBCMessage, DBCSignalAlways
+    from aletheia.types import DBCMessage, DBCSignalAlways
 
 _REPO_ROOT = Path(__file__).parent
 

@@ -7,7 +7,7 @@ from fractions import Fraction
 
 from aletheia._loader_utils import is_pure_int
 from aletheia.client._types import ProtocolError, ValidationError
-from aletheia.protocols import RationalNumber, is_str_dict
+from aletheia.types import RationalNumber, is_str_dict
 
 # Shared bounds and scaling factors for the binary FFI rational encoding.
 # int64 bounds match the Haskell ``Int64`` numerator/denominator that the

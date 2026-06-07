@@ -18,7 +18,7 @@ from aletheia import ValidationError
 from aletheia.dsl import Property, Signal, eventually_always, infinitely_often, never
 
 if TYPE_CHECKING:
-    from aletheia.protocols import (
+    from aletheia.types import (
         AlwaysFormula,
         AndFormula,
         AtomicFormula,

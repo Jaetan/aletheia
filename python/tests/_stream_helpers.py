@@ -14,13 +14,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypedDict
 
 from aletheia import AletheiaClient, Signal
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
     from typing import Unpack
 
     from aletheia.dsl import Property
-    from aletheia.protocols import (
+    from aletheia.types import (
         AckResponse,
         DBCDefinition,
         ErrorResponse,

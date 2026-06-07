@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from aletheia.dsl import Property
-    from aletheia.protocols import DBCDefinition, LTLFormula
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 class _TraceSizeRow(TypedDict):

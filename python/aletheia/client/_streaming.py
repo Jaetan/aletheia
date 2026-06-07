@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from fractions import Fraction
 
     from aletheia.client._backend import Backend
-    from aletheia.protocols import (
+    from aletheia.types import (
         AckResponse,
         CompleteResponse,
         CompleteWarning,

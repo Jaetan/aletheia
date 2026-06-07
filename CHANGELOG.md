@@ -617,6 +617,26 @@ step count: 27 → 28.
 
 ### Changed
 
+#### BREAKING — Python: `aletheia.protocols` renamed to `aletheia.types`
+
+The wire-format type namespace (the response/command TypedDicts, the LTL
+formula and predicate types, the DBC structure types, the `DLCCode` /
+`ByteOrder` enums, `RationalNumber`, …) is renamed from `aletheia.protocols`
+to `aletheia.types` — the name now reflects its contents (type definitions)
+rather than reading like `typing.Protocol`. `from aletheia.protocols import …`
+no longer resolves; use `from aletheia.types import …`. The handful of names
+already mirrored at top-level (`DBCDefinition`, `PropertyResultEntry`) are
+unchanged.
+
+Caller migration:
+
+```python
+# before
+from aletheia.protocols import DBCDefinition, DLCCode, LTLFormula
+# after
+from aletheia.types import DBCDefinition, DLCCode, LTLFormula
+```
+
 #### BREAKING — Python: `aletheia.error_codes` + `aletheia.issue_codes` unified into `aletheia.codes`
 
 The two code-enumeration submodules are merged into a single `aletheia.codes`

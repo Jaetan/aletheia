@@ -7,7 +7,7 @@ This provides better type safety and IDE support.
 
 The DBC sub-schema lives in :mod:`aletheia._dbc_types`; this module
 re-exports its public names so consumers can keep importing from
-``aletheia.protocols`` directly.
+``aletheia.types`` directly.
 """
 
 import json

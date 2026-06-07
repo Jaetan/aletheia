@@ -15,10 +15,10 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.protocols import DLCByteCount
+from aletheia.types import DLCByteCount
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition, DBCMessage, DBCSignalAlways
+    from aletheia.types import DBCDefinition, DBCMessage, DBCSignalAlways
 
 CANONICAL_SIGNAL: DBCSignalAlways = {
     "name": "TestSignal",

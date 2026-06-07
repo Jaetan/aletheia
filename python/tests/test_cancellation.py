@@ -36,7 +36,7 @@ from aletheia import (
 )
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gated_backend
-from aletheia.protocols import (
+from aletheia.types import (
     AckResponse,
     DBCDefinition,
     DLCCode,

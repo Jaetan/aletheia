@@ -27,7 +27,7 @@ from aletheia import (
     load_checks_from_excel,
 )
 from aletheia.checks import signal, when
-from aletheia.protocols import dump_json
+from aletheia.types import dump_json
 
 # The 3 checks:
 #   1. VehicleSpeed never_exceeds 220

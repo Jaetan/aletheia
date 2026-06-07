@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from _dbc_helpers import SignalOverrides
 
-    from aletheia.protocols import (
+    from aletheia.types import (
         DBCDefinition,
         DBCEnvironmentVar,
         DBCMessage,

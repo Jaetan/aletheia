@@ -16,7 +16,7 @@ from aletheia import ValidationError
 from aletheia.dsl import Predicate, Property, Signal
 
 if TYPE_CHECKING:
-    from aletheia.protocols import (
+    from aletheia.types import (
         AndFormula,
         AtomicFormula,
         BetweenPredicate,

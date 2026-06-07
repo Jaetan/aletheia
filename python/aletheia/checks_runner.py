@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from aletheia.checks import CheckResult
     from aletheia.client._types import CANFrameTuple
-    from aletheia.protocols import (
+    from aletheia.types import (
         CompleteResponse,
         DBCDefinition,
         ErrorResponse,

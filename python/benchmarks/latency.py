@@ -37,7 +37,7 @@ from benchmarks._common import (
 from aletheia import AletheiaClient
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition, LTLFormula
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 class _LatencyStats(TypedDict):

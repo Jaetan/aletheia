@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
-from aletheia.protocols import is_str_dict
+from aletheia.types import is_str_dict
 
 
 def parse_json_object(s: str) -> dict[str, object]:

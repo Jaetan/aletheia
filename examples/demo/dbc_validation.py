@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, cast
 from aletheia import AletheiaClient, AletheiaError
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition
+    from aletheia.types import DBCDefinition
 
 # The demo DBCs are written in raw wire form (float factors, partial metadata,
 # some intentionally invalid) to exercise the parser's validation, so they are

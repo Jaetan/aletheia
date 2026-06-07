@@ -48,7 +48,7 @@ from aletheia.dsl import eventually_always, infinitely_often
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from aletheia.protocols import (
+    from aletheia.types import (
         DBCDefinition,
         LTLFormula,
         ReleaseFormula,

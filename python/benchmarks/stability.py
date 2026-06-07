@@ -42,7 +42,7 @@ from aletheia import AletheiaClient
 from aletheia.client._ffi import RTSState
 
 if TYPE_CHECKING:
-    from aletheia.protocols import DBCDefinition
+    from aletheia.types import DBCDefinition
 
 # Soft-threshold caps (empirically established 2026-05-08, WSL2 quiet host;
 # revise inline if a future reviewer runs the harness on a host that rejects

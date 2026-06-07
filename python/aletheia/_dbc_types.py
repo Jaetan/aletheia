@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""DBC structure TypedDicts (private — re-exported via ``aletheia.protocols``).
+"""DBC structure TypedDicts (private — re-exported via ``aletheia.types``).
 
 Holds the cross-binding DBC wire schema: the leaf type aliases
 (:data:`ByteOrder`, :data:`SignalPresence`, :data:`DLCByteCount`,
 :data:`DLCCode`) plus every ``DBC*`` TypedDict.  Split out of
 ``protocols.py`` once the latter crossed the 1000-line pylint C0302
-threshold; ``aletheia.protocols`` remains the canonical public surface
+threshold; ``aletheia.types`` remains the canonical public surface
 via re-export.
 """
 

@@ -17,7 +17,7 @@ from aletheia.client._helpers.dbc_normalize import normalize_dbc
 from aletheia.client._helpers.rational import validate_integer_rational
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
-from aletheia.protocols import (
+from aletheia.types import (
     AckResponse,
     ErrorResponse,
     ParsedDBCResponse,

@@ -28,7 +28,7 @@ from aletheia.client._types import ValidationError
 from aletheia.dsl import Predicate, Property, Signal, require_non_negative_time_ms
 
 if TYPE_CHECKING:
-    from aletheia.protocols import LTLFormula
+    from aletheia.types import LTLFormula
 
 
 def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:

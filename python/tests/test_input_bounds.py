@@ -40,7 +40,7 @@ from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
     from aletheia.dsl import Predicate
-    from aletheia.protocols import DBCDefinition, LTLFormula
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 def _path_exists_false(_self: Path) -> bool:

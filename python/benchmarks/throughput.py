@@ -45,7 +45,7 @@ from aletheia import AletheiaClient
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from aletheia.protocols import DBCDefinition, LTLFormula
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 class _BenchResult(TypedDict):

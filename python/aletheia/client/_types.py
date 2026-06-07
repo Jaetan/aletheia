@@ -4,14 +4,16 @@
 
 # DEFERRED:
 # Finding: This file (432 LOC, shrunk organically from a higher mark)
-#   mixes public-ish types (exception hierarchy) with client-internal scaffolding.
-#   Splitting into `python/aletheia/types.py` (public) + `python/aletheia/client/_internals.py`
-#   (internal) is the natural shape.
-# Why: Organic shrinkage reduced urgency.  Split would route public types via
-#   `aletheia.types` re-export which then needs the AletheiaError canonical-path
-#   decision co-decided (see DEFERRED block in `__init__.py`).
-# Revisit when: This file re-grows past ~600 LOC, OR the AletheiaError
-#   canonical-path decision is taken on (forces the co-decision).
+#   mixes the public exception hierarchy (already re-exported at the top-level
+#   `aletheia` package) with client-internal scaffolding.  If it regrows, the
+#   natural split is to move the internal scaffolding to a
+#   `python/aletheia/client/_internals.py`; the exception hierarchy stays
+#   re-exported from the top-level `aletheia` package — the sole public path
+#   (`aletheia.client` is internal, and `aletheia.types` is now the wire-types
+#   namespace, so neither is available as a split target).
+# Why: Organic shrinkage keeps urgency low; the AletheiaError canonical-path
+#   question is already resolved (top-level `aletheia` is the single public path).
+# Revisit when: This file re-grows past ~600 LOC.
 
 import dataclasses
 from dataclasses import dataclass
@@ -20,7 +22,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, cast, override
 
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
-from aletheia.protocols import (
+from aletheia.types import (
     AckResponse,
     DLCByteCount,
     DLCCode,

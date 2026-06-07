@@ -108,7 +108,7 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset(
             "aletheia.client._response_parsers",
             "parse_event_response",
         ),
-        # ``dump_json`` was promoted to ``aletheia.protocols`` in R23 PY-D-16.2
+        # ``dump_json`` was promoted to ``aletheia.types`` in R23 PY-D-16.2
         # so it's no longer a private-import; whitelist entry removed.
         # Strict-contract guard for the shared error-response builder —
         # exercised directly because the surface-level tests all go through
@@ -120,7 +120,7 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset(
             "aletheia.client._response_parsers",
             "build_error_response",
         ),
-        # ``FractionJSONEncoder`` was promoted to ``aletheia.protocols`` in
+        # ``FractionJSONEncoder`` was promoted to ``aletheia.types`` in
         # R23 PY-D-16.2 so it's no longer a private-import; whitelist entry
         # removed.
         # Enrichment helpers — pure functions used by the client to attach

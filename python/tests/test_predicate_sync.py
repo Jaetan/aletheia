@@ -3,7 +3,7 @@
 """Agda/Python ``PredicateType`` enum synchronization.
 
 Mirrors ``test_error_code_sync.py``: guards the Python
-``PredicateType`` enum in ``aletheia.protocols`` against drift from
+``PredicateType`` enum in ``aletheia.types`` against drift from
 Agda's signal-predicate JSON tags emitted by
 ``src/Aletheia/LTL/JSON/Format.agda``.
 
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from aletheia.protocols import PredicateType
+from aletheia.types import PredicateType
 
 _AGDA_FILE = (
     Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "LTL" / "JSON" / "Format.agda"
@@ -64,7 +64,7 @@ class TestPredicateTypeSync:
         assert not missing_in_python, (
             "Agda emits predicate tags that have no Python PredicateType "
             f"member: {sorted(missing_in_python)}. Add them to "
-            "``aletheia/protocols.py::PredicateType`` (and mirror in "
+            "``aletheia/types.py::PredicateType`` (and mirror in "
             "Go/C++)."
         )
 

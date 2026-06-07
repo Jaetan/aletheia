@@ -14,7 +14,7 @@ from aletheia import ProtocolError
 from aletheia.client._response_parsers import build_error_response
 
 if TYPE_CHECKING:
-    from aletheia.protocols import Response
+    from aletheia.types import Response
 
 
 class TestBuildErrorResponse:

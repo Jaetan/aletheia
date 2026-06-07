@@ -13,7 +13,7 @@ from _dbc_helpers import signal as dbc_signal
 
 from aletheia import AletheiaClient
 from aletheia.checks import signal
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 # Simple DBC for testing
 SIMPLE_DBC = dbc(

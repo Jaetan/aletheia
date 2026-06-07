@@ -24,7 +24,7 @@ from _atheris_runner import run
 with atheris.instrument_imports():
     import json
 
-    from aletheia.protocols import dump_json
+    from aletheia.types import dump_json
 
 
 def fuzz_one_input(data: bytes) -> None:

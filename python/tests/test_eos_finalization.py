@@ -9,7 +9,7 @@ from _dbc_helpers import dbc, message, signal
 
 from aletheia import AletheiaClient
 from aletheia.dsl import Signal
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 SIMPLE_DBC = dbc(
     [

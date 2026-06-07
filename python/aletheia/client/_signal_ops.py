@@ -34,13 +34,13 @@ from aletheia.client._types import (
     validate_can_id,
     validate_payload_length,
 )
-from aletheia.protocols import DLCCode, is_object_list
+from aletheia.types import DLCCode, is_object_list
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from fractions import Fraction
 
-    from aletheia.protocols import Response
+    from aletheia.types import Response
 
 _logger = logging.getLogger("aletheia")
 

@@ -50,7 +50,7 @@ independently.
 
 | Binding | Tool | Hot path (per AGENTS.md cat 14(g) + actual paths) |
 |---|---|---|
-| Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/protocols.py` |
+| Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
 | C++ | `Mull` 0.33.0 (LLVM 19) | `cpp/src/*.cpp` (full set, mock_backend.cpp + types.cpp excluded as test/type-defs) |
 

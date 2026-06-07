@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aletheia import AletheiaClient
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 CORPUS_DIR = Path(__file__).parent / "fixtures" / "dbc_corpus"
 

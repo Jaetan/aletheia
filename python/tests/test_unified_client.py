@@ -28,7 +28,7 @@ from _stream_helpers import send_test_frame
 
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, Signal, StateError
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DLCCode, LTLFormula
+from aletheia.types import DLCCode, LTLFormula
 
 
 @pytest.fixture(name="demo_dbc")

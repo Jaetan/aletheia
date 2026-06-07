@@ -11,7 +11,7 @@ from _dbc_helpers import message, mux_signal, signal
 from aletheia import AletheiaClient, ProtocolError, dbc_to_text
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dbc import dbc_to_json
-from aletheia.protocols import DBCDefinition, DLCByteCount
+from aletheia.types import DBCDefinition, DLCByteCount
 
 EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
 

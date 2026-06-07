@@ -32,7 +32,7 @@ from aletheia import AletheiaClient
 from aletheia._dbc_types import AttrScope, empty_dbc_tier2
 
 if TYPE_CHECKING:
-    from aletheia.protocols import (
+    from aletheia.types import (
         DBCAttrAssign,
         DBCAttrDef,
         DBCAttrDefault,

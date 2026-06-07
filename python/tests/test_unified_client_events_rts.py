@@ -27,7 +27,7 @@ from aletheia import (
     ValidationError,
 )
 from aletheia.client._response_parsers import parse_event_response
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 
 class TestSendErrorRemote:

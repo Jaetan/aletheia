@@ -19,7 +19,7 @@ import pytest
 from _dbc_helpers import dbc, message, mux_signal, signal
 
 from aletheia import AletheiaClient, Signal, ValidationError, dlc_to_bytes
-from aletheia.protocols import DBCDefinition, DLCCode
+from aletheia.types import DBCDefinition, DLCCode
 
 
 class TestCANFDFrames:

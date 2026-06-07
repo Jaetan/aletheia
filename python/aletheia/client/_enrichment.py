@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from fractions import Fraction
     from typing import TypeGuard
 
-    from aletheia.protocols import (
+    from aletheia.types import (
         AlwaysFormula,
         AndFormula,
         ComparisonPredicate,

@@ -113,7 +113,7 @@ from aletheia.dbc import (
     signals_for_mux_value,
 )
 from aletheia.dsl import Predicate, Property, Signal, eventually_always, infinitely_often, never
-from aletheia.protocols import (
+from aletheia.types import (
     DBCDefinition,
     PropertyResultEntry,
 )

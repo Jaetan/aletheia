@@ -29,7 +29,7 @@ import pytest
 from engine_ecu_sim import ENGINE_DBC, generate_frozen_trace
 
 from aletheia import AletheiaClient
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
     from engine_ecu_sim import CANFrame
