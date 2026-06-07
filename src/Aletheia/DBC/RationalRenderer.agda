@@ -85,13 +85,16 @@ maxDecimalPlaces = 18
 -- ============================================================================
 
 -- Drop leading characters equal to '0' from a list.  Used on the
--- reverse of the fractional digits to peel trailing zeros.
-private
-  dropLeadingZeros : List Char → List Char
-  dropLeadingZeros []       = []
-  dropLeadingZeros (c ∷ cs) with ⌊ c ≟ᶜ '0' ⌋
-  ... | true  = dropLeadingZeros cs
-  ... | false = c ∷ cs
+-- reverse of the fractional digits to peel trailing zeros.  Public (not
+-- `private`) so the renderer-faithfulness proof
+-- (`RationalRenderer.Faithful`) can establish its trailing-zero
+-- decomposition lemma by induction — a name a proof can't reference if
+-- it is `private`.  Visibility only; no runtime/semantic change.
+dropLeadingZeros : List Char → List Char
+dropLeadingZeros []       = []
+dropLeadingZeros (c ∷ cs) with ⌊ c ≟ᶜ '0' ⌋
+... | true  = dropLeadingZeros cs
+... | false = c ∷ cs
 
 -- Trim trailing '0' characters.  Implemented via two `reverse`s rather
 -- than direct end-walking because `reverse` is structural and stdlib
@@ -106,10 +109,15 @@ trimTrailingZeros cs = reverse (dropLeadingZeros (reverse cs))
 -- Append "." + fractional digits to the integer part — but only when the
 -- fractional list is non-empty (after trimming).  `Rational 42 1` → "42"
 -- (no decimal point); `Rational 1 2` → "0.5".
-private
-  joinIntFrac : List Char → List Char → List Char
-  joinIntFrac intPart []       = intPart
-  joinIntFrac intPart (c ∷ cs) = intPart ++ₗ ('.' ∷ c ∷ cs)
+--
+-- Public (not `private`) so the renderer-faithfulness proof
+-- (`RationalRenderer.Faithful`) can state its integer-vs-decimal
+-- dispatch lemma by induction on the (trimmed) fractional list — a name
+-- a proof can't reference if it is `private`.  Visibility only; no
+-- runtime/semantic change.
+joinIntFrac : List Char → List Char → List Char
+joinIntFrac intPart []       = intPart
+joinIntFrac intPart (c ∷ cs) = intPart ++ₗ ('.' ∷ c ∷ cs)
 
 -- Emit `absNum / (2^a · 5^b)` as a decimal `List Char` in cluster-Y
 -- shape.  When `a = b = 0` the value is integer; otherwise scale into a

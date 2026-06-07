@@ -264,6 +264,7 @@ proofModules =
     , "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
     -- RationalRenderer itself IS reached from Main (FFI shim); .Properties is not.
     , "Aletheia/DBC/RationalRenderer/Properties.agda"
+    , "Aletheia/DBC/RationalRenderer/Faithful.agda"
     -- TextParser / TextFormatter aggregators: not proofs, but pulling them in
     -- forces the full submodule tree to type-check (unreachable from Main).
     , "Aletheia/DBC/TextParser.agda"

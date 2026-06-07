@@ -108,7 +108,7 @@ Track narratives and per-step detail live in `memory/project_track_{c,e}_*.md`, 
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- 264 of 265 Agda modules use `--safe --without-K` (4 also use `--no-main`; 1 allowlisted `--without-K`-only `Substrate.Unsafe` hosts the two stdlib-equivalent `String ↔ List Char` bridging axioms + the universal `parseText (formatText d) ≡ inj₂ d` consumer)
+- 265 of 266 Agda modules use `--safe --without-K` (4 also use `--no-main`; 1 allowlisted `--without-K`-only `Substrate.Unsafe` hosts the two stdlib-equivalent `String ↔ List Char` bridging axioms + the universal `parseText (formatText d) ≡ inj₂ d` consumer)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state, metric operator window bounds)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`
