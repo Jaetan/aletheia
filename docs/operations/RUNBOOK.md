@@ -309,7 +309,7 @@ If the absence is expected for the workload (e.g., the property
 guards a fault path the test session deliberately avoided), the
 `Unresolved` verdict is the correct outcome and the warning is
 informational. If the absence is a surprise, cross-check the
-property's signal name against the DBC (`dbc_queries`
+property's signal name against the DBC (`aletheia.dbc`
 `signal_by_name` returns the message that hosts a given signal) and
 the producer side of the bus.
 

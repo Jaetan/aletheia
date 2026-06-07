@@ -617,6 +617,35 @@ step count: 27 → 28.
 
 ### Changed
 
+#### BREAKING — Python: `aletheia.dbc_converter` + `aletheia.dbc_queries` unified into `aletheia.dbc`
+
+The two DBC submodules are merged into a single `aletheia.dbc` namespace
+covering both conversion (`dbc_to_json`, `dbc_to_text`, `convert_dbc_file`)
+and structural queries (`message_by_id`, `signal_by_name`, `is_multiplexed`,
+…). `from aletheia.dbc_converter import …` and `from aletheia.dbc_queries
+import …` no longer resolve. The top-level convenience aliases are unchanged
+— `from aletheia import dbc_to_json, message_by_id` still works.
+
+Caller migration:
+
+```python
+# before
+from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc_queries import message_by_id
+# after
+from aletheia.dbc import dbc_to_json, message_by_id
+```
+
+#### Added — Python: namespace hygiene via `__all__` on public submodules
+
+`aletheia.can_log`, `aletheia.dsl`, `aletheia.excel_loader`, `aletheia.checks`,
+and `aletheia.yaml_loader` now declare `__all__`, so each module exposes only
+its intended public surface instead of leaking internal helpers (e.g.
+`can_log.convert_message`, `dsl.require_non_negative_time_ms`,
+`excel_loader.CellValue`, the `checks` fluent-builder intermediates). Explicit
+imports of those helpers still work; only `*`-import and tooling/doc surface
+narrow.
+
 #### BREAKING — Python: `aletheia` is the sole public package; `aletheia.client` re-exports removed
 
 The `aletheia.client` sub-package no longer re-exports any public name. The

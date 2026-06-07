@@ -345,7 +345,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         client state — this is a read-only check.
 
         Args:
-            dbc: DBC structure (use dbc_converter.dbc_to_json())
+            dbc: DBC structure (use aletheia.dbc.dbc_to_json())
 
         Returns:
             ValidationResponse with status, has_errors, and issues list

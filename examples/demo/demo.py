@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 from drive_log import NORMAL_DRIVE, OVERSPEED_DRIVE
 
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DLCCode, dump_json
 
 if TYPE_CHECKING:

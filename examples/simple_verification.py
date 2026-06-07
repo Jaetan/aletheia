@@ -18,7 +18,7 @@ Demonstrates:
 from pathlib import Path
 
 from aletheia import AletheiaClient, AletheiaError, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DLCCode
 
 

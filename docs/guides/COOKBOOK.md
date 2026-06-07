@@ -236,7 +236,7 @@ See [CLI Reference § Input Formats](../reference/CLI.md#input-formats) for the 
 ### Load DBC from a .dbc file
 
 ```python
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 dbc = dbc_to_json("vehicle.dbc")
 client.parse_dbc(dbc)
@@ -441,7 +441,7 @@ signals, which sub-formula? The enriched response carries all three.
 ```python
 import logging
 from aletheia import AletheiaClient, checks, iter_can_log
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 # Surface backend lifecycle + violation events. The `aletheia` logger emits
 # 16 structured event types — see PROTOCOL.md § Structured Logging.

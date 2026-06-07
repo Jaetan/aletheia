@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for dbc_queries multiplexing helpers and definition lookups."""
+"""Tests for the DBC query helpers — multiplexing and definition lookups."""
 
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.dbc_queries import (
+from aletheia.dbc import (
     always_present_signals,
     is_multiplexed,
     message_by_id,

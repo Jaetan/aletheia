@@ -39,7 +39,7 @@ import pytest
 import aletheia
 import aletheia.can_log
 import aletheia.checks
-import aletheia.dbc_converter
+import aletheia.dbc
 import aletheia.excel_loader
 import aletheia.yaml_loader
 from aletheia import (
@@ -309,15 +309,15 @@ def _make_globals() -> _DocGlobals:
 def pytest_sessionstart() -> None:
     """Replace loader functions project-wide with harness wrappers.
 
-    In-fence ``from aletheia.dbc_converter import dbc_to_json`` binds the
+    In-fence ``from aletheia.dbc import dbc_to_json`` binds the
     real function, bypassing the globals hook. Patching both the
     re-exports on ``aletheia`` and the definitions on their submodules
     ensures every import form lands on the fake.
     """
     aletheia.dbc_to_json = _harness_dbc_to_json
-    aletheia.dbc_converter.dbc_to_json = _harness_dbc_to_json
+    aletheia.dbc.dbc_to_json = _harness_dbc_to_json
     aletheia.convert_dbc_file = _harness_convert_dbc_file
-    aletheia.dbc_converter.convert_dbc_file = _harness_convert_dbc_file
+    aletheia.dbc.convert_dbc_file = _harness_convert_dbc_file
     aletheia.iter_can_log = _harness_iter_can_log
     aletheia.can_log.iter_can_log = _harness_iter_can_log
     aletheia.load_can_log = _harness_load_can_log

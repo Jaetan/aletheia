@@ -18,7 +18,7 @@
 
 ```python
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log   # `pip install aletheia[can]`
 
 # Load DBC file (converts .dbc to JSON automatically)
@@ -342,7 +342,7 @@ Signal("FaultCode").equals(0xFF).never()
 
 ```python
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 # Load DBC
 dbc = dbc_to_json("vehicle.dbc")
@@ -521,7 +521,7 @@ with AletheiaClient() as client:
 Load DBC structure from JSON dictionary. Must be called first.
 
 ```python
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 dbc = dbc_to_json("vehicle.dbc")  # Convert .dbc file to JSON
 response = client.parse_dbc(dbc)
@@ -690,7 +690,7 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 third-party dependency is required.
 
 ```python
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 # Convert .dbc file to Aletheia JSON format
 dbc_json = dbc_to_json("vehicle.dbc")
@@ -701,7 +701,7 @@ dbc_json = dbc_to_json("vehicle.dbc")
 Convert a `.dbc` file to Aletheia JSON format and optionally write it to a file. Returns the JSON string.
 
 ```python
-from aletheia.dbc_converter import convert_dbc_file
+from aletheia.dbc import convert_dbc_file
 
 # Convert and write to file
 convert_dbc_file("vehicle.dbc", "vehicle.json")

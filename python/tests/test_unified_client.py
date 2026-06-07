@@ -27,7 +27,7 @@ import pytest
 from _stream_helpers import send_test_frame
 
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, Signal, StateError
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DLCCode, LTLFormula
 
 

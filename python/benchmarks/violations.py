@@ -36,7 +36,7 @@ import can
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient
 from aletheia.checks import CheckResult, signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DBCDefinition, DLCCode
 from aletheia.testing import run_checks
 

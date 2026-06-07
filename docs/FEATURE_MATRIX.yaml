@@ -86,7 +86,7 @@ features:
       python:
         status: implemented
         entry: aletheia.AletheiaClient.parse_dbc_text
-        notes: "B.3.e/B.3.f/B.3.g — verified Agda parseText composed with the runtime validator. ``aletheia.dbc_converter.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped in B.3.g (no third-party Python dep required)."
+        notes: "B.3.e/B.3.f/B.3.g — verified Agda parseText composed with the runtime validator. ``aletheia.dbc.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped in B.3.g (no third-party Python dep required)."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#parse_dbc_text"

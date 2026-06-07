@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 r"""Atheris fuzz harness for ``dbc_to_json``.
 
-The Python binding owns ``dbc_converter.dbc_to_json`` which converts DBC
+The Python binding owns ``aletheia.dbc.dbc_to_json`` which converts DBC
 text to the wire-format JSON.  This harness drives that converter with
 arbitrary byte inputs to surface UB / silent corruption in the loader.
 
@@ -21,7 +21,7 @@ from _atheris_runner import run
 
 with atheris.instrument_imports():
     from aletheia import AletheiaError, InputBoundExceededError
-    from aletheia.dbc_converter import dbc_to_json
+    from aletheia.dbc import dbc_to_json
 
 
 def fuzz_one_input(data: bytes) -> None:

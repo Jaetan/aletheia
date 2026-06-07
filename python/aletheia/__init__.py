@@ -97,9 +97,11 @@ from aletheia.client._types import (
     bytes_to_dlc,
     dlc_to_bytes,
 )
-from aletheia.dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
-from aletheia.dbc_queries import (
+from aletheia.dbc import (
     always_present_signals,
+    convert_dbc_file,
+    dbc_to_json,
+    dbc_to_text,
     is_multiplexed,
     message_by_id,
     message_by_name,

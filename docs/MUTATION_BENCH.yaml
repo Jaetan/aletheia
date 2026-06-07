@@ -6,7 +6,7 @@
 # tooling and the canonical hot-path module list per binding; this file pins
 # the actual on-disk paths (which drift from AGENTS.md prose when modules are
 # split — e.g. Python `client.py` lives at `aletheia/client/_client.py` after
-# the protocols split, `dbc_loader.py` was subsumed by `dbc_converter.py` and
+# the protocols split, `dbc_loader.py` was subsumed by `dbc/_converter.py` and
 # `yaml_loader.py`).
 #
 # Static gate (`tools/check_mutation_setup.py`) verifies, for every binding,
@@ -41,7 +41,7 @@ bindings:
     hot_path:
       # AGENTS.md cat 14(g) Python list, mapped to actual on-disk paths.
       - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
-      - python/aletheia/dbc_converter.py
+      - python/aletheia/dbc/_converter.py
       - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
       - python/aletheia/issue_codes.py       # NEW from Track E.11 (CHECK 23 IssueCode mirror)
       - python/aletheia/protocols.py

@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DBCDefinition, DLCCode, LTLFormula
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py

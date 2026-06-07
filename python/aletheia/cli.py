@@ -37,7 +37,7 @@ from aletheia.client._types import (
     ValidationError,
     bytes_to_dlc,
 )
-from aletheia.dbc_queries import (
+from aletheia.dbc import (
     is_multiplexed,
     message_by_id,
     message_by_name,
@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 # function-scoped ``from .X import Y``) keeps pylint's
 # ``import-outside-toplevel`` check happy without suppressions.
 def _lazy_dbc_to_json() -> Callable[[str | Path], DBCDefinition]:
-    mod = importlib.import_module(".dbc_converter", __package__)
+    mod = importlib.import_module(".dbc", __package__)
     return cast("Callable[[str | Path], DBCDefinition]", mod.dbc_to_json)
 
 
@@ -243,7 +243,7 @@ def _find_message(
 ) -> DBCMessage | None:
     """Find a message by CAN ID + extended flag in a DBC definition.
 
-    Delegates to ``message_by_id`` from ``dbc_queries``.
+    Delegates to ``message_by_id`` from ``aletheia.dbc``.
     """
     return message_by_id(dbc, can_id, extended=extended)
 

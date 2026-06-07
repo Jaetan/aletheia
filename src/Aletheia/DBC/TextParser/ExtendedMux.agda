@@ -31,7 +31,7 @@
 --   still drop because no `DBCSignal` field consumes their data yet.)
 --
 --   cantools parity: the Python pipeline at
---   `python/aletheia/dbc_converter.py` also does not surface multi-value
+--   `python/aletheia/dbc/_converter.py` also does not surface multi-value
 --   mux ranges on the structural `DbcDefinition` — the `DBCSignal.presence`
 --   shape is always single-value after `dbc_to_json` today — so dropping
 --   this line at parse time matches the existing Python / C++ / Go

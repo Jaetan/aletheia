@@ -13,7 +13,7 @@
 --   leading nat (owning message's CAN ID) and trailing nat (repetitions
 --   count) are required by the grammar but dropped at the Agda boundary.
 --   Matches the existing Python pipeline: cantools'
---   `signal_group_to_json` in `python/aletheia/dbc_converter.py` drops
+--   `signal_group_to_json` in `python/aletheia/dbc/_converter.py` drops
 --   `repetitions` (docstring: "repetitions is dropped — it is a DBC-text-
 --   format concern with no verifier-side semantics") and flattens
 --   `message.signal_groups` into a top-level list, absorbing the message-

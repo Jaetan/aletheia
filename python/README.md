@@ -19,7 +19,7 @@ The Aletheia Python API provides a unified client with streaming LTL verificatio
 ```python
 from aletheia import AletheiaClient, Signal
 from aletheia.can_log import iter_can_log
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 # Load DBC specification
 dbc_json = dbc_to_json("vehicle.dbc")

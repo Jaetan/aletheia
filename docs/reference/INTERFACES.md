@@ -228,7 +228,7 @@ check.to_dict()       # LTL formula (same with or without metadata)
 
 ```python
 from aletheia import AletheiaClient, checks
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220),

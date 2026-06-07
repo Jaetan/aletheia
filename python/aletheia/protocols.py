@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 
 # ─── Public wire helpers ───────────────────────────────────────────────────
 # Promoted here from the client internals so non-client modules
-# (``cli.py``, ``dbc_converter.py``, ``excel_loader.py``) can reach a
+# (``cli.py``, ``dbc/_converter.py``, ``excel_loader.py``) can reach a
 # public surface rather than the private ``aletheia.client._helpers``
 # package.
 

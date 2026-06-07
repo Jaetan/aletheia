@@ -31,7 +31,7 @@ from aletheia.client._helpers.json_codec import (
     parse_values_list,
 )
 from aletheia.client._types import validate_can_id
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DLCCode
 
 # --- White-box access note ----------------------------------------------------

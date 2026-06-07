@@ -241,7 +241,7 @@ skip_covered = false
 # modules per AGENTS.md, mapped to the actual on-disk paths after the
 # protocols split (``client.py`` -> ``aletheia/client/_client.py``) and the
 # Track E.11 IssueCode extraction (``issue_codes.py`` is new).  ``dbc_loader.py``
-# from AGENTS.md was renamed/split into ``dbc_converter.py`` + ``yaml_loader.py``;
+# from AGENTS.md was renamed/split into ``dbc/_converter.py`` + ``yaml_loader.py``;
 # both included.  See ``docs/MUTATION_BENCH.yaml`` for the canonical list and
 # the static gate that enforces it.
 #
@@ -253,7 +253,7 @@ skip_covered = false
 # every ``from aletheia import ...`` resolves inside ``mutants/``.
 paths_to_mutate = [
     "aletheia/client/_client.py",
-    "aletheia/dbc_converter.py",
+    "aletheia/dbc/_converter.py",
     "aletheia/yaml_loader.py",
     "aletheia/issue_codes.py",
     "aletheia/protocols.py",

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from drive_log import NORMAL_DRIVE, VEHICLE_DYNAMICS_ID
 
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.protocols import DLCCode
 
 if TYPE_CHECKING:

@@ -30,7 +30,7 @@ For complete build instructions, troubleshooting, and development workflow, see 
 
 ```python
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log  # installed via `pip install aletheia[can]`
 
 # Load DBC specification (converts .dbc to JSON)

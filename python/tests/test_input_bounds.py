@@ -13,7 +13,7 @@ covers the binding-side short-circuit so a 100 MiB JSON does not
 allocate buffers in Python/ctypes before being rejected.
 
 Per-loader regression tests extend this: every parser-surface entry
-point (``yaml_loader._load_yaml``, ``dbc_converter.dbc_to_json``,
+point (``yaml_loader._load_yaml``, ``dbc.dbc_to_json``,
 ``excel_loader.load_dbc_from_excel``, ``excel_loader.load_checks_from_excel``)
 rejects oversize files with :class:`InputBoundExceededError` before
 allocating buffers / parsing.
@@ -33,7 +33,7 @@ from aletheia import (
     limits,
 )
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.error_codes import ErrorCode
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
 from aletheia.yaml_loader import load_checks
@@ -469,7 +469,7 @@ class TestPythonLoaderBoundChecks:
     """Per-loader bound checks fire and raise ``InputBoundExceededError``.
 
     Covers all four parser-surface loader entry points (yaml_loader,
-    dbc_converter, excel_loader x2).  Per
+    dbc, excel_loader x2).  Per
     ``feedback_cross_binding_wire_symmetry.md`` these tests close the
     binding-side observation gap left implicit when the cap was wired
     but not tested to fire.
@@ -513,7 +513,7 @@ class TestPythonLoaderBoundChecks:
         assert exc_info.value.limit == 100
 
     def test_dbc_converter_oversize(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """dbc_converter.dbc_to_json rejects DBC files larger than the cap."""
+        """dbc.dbc_to_json rejects DBC files larger than the cap."""
         monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 1024)
         f = tmp_path / "huge.dbc"
         f.write_bytes(b"x" * 2048)

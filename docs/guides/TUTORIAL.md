@@ -196,7 +196,7 @@ Use the fluent Check API for programmatic verification.
 
 ```python
 from aletheia import AletheiaClient, checks
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log
 
 # Define checks using industry vocabulary
