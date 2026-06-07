@@ -18,15 +18,26 @@ How to extend:
 
 import ast
 from pathlib import Path
+from typing import NamedTuple
 
 import aletheia.client
 
 _TESTS_DIR = Path(__file__).parent
 
-# (test_file_basename, private_module, symbol) triples. Each symbol is a
-# concrete reach-through that has been consciously accepted.
-_ALLOWED: frozenset[tuple[str, str, str]] = frozenset(
-    {
+
+class PrivateImport(NamedTuple):
+    """A sanctioned test reach-through into a private ``aletheia.client._*`` module."""
+
+    test_file: str
+    module: str
+    symbol: str
+
+
+# (test_file, private_module, symbol) triples. Each symbol is a concrete
+# reach-through that has been consciously accepted.
+_ALLOWED: frozenset[PrivateImport] = frozenset(
+    PrivateImport(*_entry)
+    for _entry in (
         # Structured-logging internals — per-event string catalogue is
         # implementation detail of Client.log_event; a drift test needs to
         # see the raw mapping to compare against the 15 wire events.
@@ -162,13 +173,13 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset(
         # code goes through ``send_frame(brs=…, esi=…)`` which calls this
         # transitively.
         ("test_canfd_brs_esi.py", "aletheia.client._types", "encode_maybe_bool"),
-    }
+    )
 )
 
 
-def _collect_private_imports() -> list[tuple[str, str, str]]:
+def _collect_private_imports() -> list[PrivateImport]:
     """Return every ``from aletheia.client._X import Y`` in tests/."""
-    found: list[tuple[str, str, str]] = []
+    found: list[PrivateImport] = []
     for test_file in _TESTS_DIR.glob("test_*.py"):
         source = test_file.read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -178,7 +189,7 @@ def _collect_private_imports() -> list[tuple[str, str, str]]:
             module = node.module or ""
             if not module.startswith("aletheia.client._"):
                 continue
-            found.extend((test_file.name, module, alias.name) for alias in node.names)
+            found.extend(PrivateImport(test_file.name, module, alias.name) for alias in node.names)
     return found
 
 
@@ -189,7 +200,9 @@ def test_private_imports_are_whitelisted() -> None:
     assert not undeclared, (
         "Test files import from ``aletheia.client._*`` private modules "
         + "without being declared in the whitelist:\n  "
-        + "\n  ".join(f"{tf}: from {mod} import {sym}" for tf, mod, sym in sorted(undeclared))
+        + "\n  ".join(
+            f"{i.test_file}: from {i.module} import {i.symbol}" for i in sorted(undeclared)
+        )
         + "\n\nPromote the symbol to a public API path, or add the triple "
         + "to ``_ALLOWED`` in this test with a one-line justification."
     )
@@ -202,7 +215,7 @@ def test_whitelist_has_no_stale_entries() -> None:
     assert not stale, (
         "Whitelist declares private imports that no test file uses any "
         + "more — remove them:\n  "
-        + "\n  ".join(f"{tf}: from {mod} import {sym}" for tf, mod, sym in sorted(stale))
+        + "\n  ".join(f"{i.test_file}: from {i.module} import {i.symbol}" for i in sorted(stale))
     )
 
 

@@ -248,7 +248,11 @@ def _find_message(
     return message_by_id(dbc, can_id, extended=extended)
 
 
-def _signal_units(msg: DBCMessage) -> dict[str, str]:
+type SignalUnitMap = dict[str, str]
+"""Mapping from signal name to its unit string."""
+
+
+def _signal_units(msg: DBCMessage) -> SignalUnitMap:
     """Extract signal name → unit mapping from a DBC message."""
     return {sig["name"]: sig["unit"] for sig in msg["signals"]}
 
