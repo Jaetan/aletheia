@@ -35,7 +35,9 @@ from aletheia.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
+
+    from aletheia.types import JSONValue
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
@@ -109,16 +111,17 @@ def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
 #   wider boundary-naming sweep (see DEFERRED block in
 #   `aletheia/_loader_utils.py`).
 # Revisit when: Co-decided with the _loader_utils.py deferral.
-def normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
+def normalize_signal(raw_sig: Mapping[str, JSONValue]) -> DBCSignal:
     """Normalize a single Agda signal dict into a DBCSignal."""
-    sig: dict[str, object] = dict(raw_sig)
+    sig: dict[str, object] = {}
+    sig.update(raw_sig)
     for field in _NUMERIC_SIGNAL_FIELDS:
         if field in sig:
             sig[field] = parse_rational(sig[field])
     return cast("DBCSignal", sig)
 
 
-def _normalize_signal_group(raw: dict[str, object]) -> DBCSignalGroup:
+def _normalize_signal_group(raw: Mapping[str, JSONValue]) -> DBCSignalGroup:
     """Normalize one ``signalGroups`` entry from Agda formatDBC output."""
     name = raw.get("name")
     if not isinstance(name, str):
@@ -145,7 +148,7 @@ def _normalize_var_type(raw: object) -> DBCVarType:
     return raw
 
 
-def _normalize_environment_var(raw: dict[str, object]) -> DBCEnvironmentVar:
+def _normalize_environment_var(raw: Mapping[str, JSONValue]) -> DBCEnvironmentVar:
     """Normalize one ``environmentVars`` entry from Agda formatDBC output."""
     name = raw.get("name")
     if not isinstance(name, str):
@@ -163,7 +166,7 @@ def _normalize_environment_var(raw: dict[str, object]) -> DBCEnvironmentVar:
     return cast("DBCEnvironmentVar", ev)
 
 
-def _normalize_value_entry(raw: dict[str, object]) -> DBCValueEntry:
+def _normalize_value_entry(raw: Mapping[str, JSONValue]) -> DBCValueEntry:
     """Normalize one ``entries`` item from a ``valueTables`` entry."""
     value_raw = raw.get("value")
     if not is_pure_int(value_raw) or value_raw < 0:
@@ -176,7 +179,7 @@ def _normalize_value_entry(raw: dict[str, object]) -> DBCValueEntry:
     return {"value": value_raw, "description": desc}
 
 
-def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
+def _normalize_value_table(raw: Mapping[str, JSONValue]) -> DBCValueTable:
     """Normalize one ``valueTables`` entry from Agda formatDBC output."""
     name = raw.get("name")
     if not isinstance(name, str):
@@ -195,7 +198,7 @@ def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
     return {"name": name, "entries": entries}
 
 
-def _normalize_raw_value_desc(raw: dict[str, object]) -> DBCRawValueDesc:
+def _normalize_raw_value_desc(raw: Mapping[str, JSONValue]) -> DBCRawValueDesc:
     """Normalize one ``unresolvedValueDescs`` entry from Agda formatDBC output.
 
     Track E.8 (Plan B): wire shape is ``{id, [extended], signalName, entries}``,
@@ -226,7 +229,7 @@ def _normalize_raw_value_desc(raw: dict[str, object]) -> DBCRawValueDesc:
 # ----------------------------------------------------------------------------
 
 
-def _require_str_field(raw: dict[str, object], field: str, context: str) -> str:
+def _require_str_field(raw: Mapping[str, JSONValue], field: str, context: str) -> str:
     v = raw.get(field)
     if not isinstance(v, str):
         msg = f"Expected {context} {field!r} to be str, got {type(v).__name__}"
@@ -234,7 +237,7 @@ def _require_str_field(raw: dict[str, object], field: str, context: str) -> str:
     return v
 
 
-def _require_int_field(raw: dict[str, object], field: str, context: str) -> int:
+def _require_int_field(raw: Mapping[str, JSONValue], field: str, context: str) -> int:
     v = raw.get(field)
     if not is_pure_int(v):
         msg = f"Expected {context} {field!r} to be int, got {type(v).__name__}"
@@ -242,7 +245,7 @@ def _require_int_field(raw: dict[str, object], field: str, context: str) -> int:
     return v
 
 
-def _optional_extended(raw: dict[str, object]) -> bool:
+def _optional_extended(raw: Mapping[str, JSONValue]) -> bool:
     """Accept an optional ``extended`` flag (default ``False``).
 
     Agda emits it only for 29-bit IDs, but the Python side always passes it
@@ -257,11 +260,11 @@ def _optional_extended(raw: dict[str, object]) -> bool:
     return v
 
 
-def _normalize_node(raw: dict[str, object]) -> DBCNode:
+def _normalize_node(raw: Mapping[str, JSONValue]) -> DBCNode:
     return {"name": _require_str_field(raw, "name", "node")}
 
 
-def _normalize_comment_target(raw: dict[str, object]) -> DBCCommentTarget:
+def _normalize_comment_target(raw: Mapping[str, JSONValue]) -> DBCCommentTarget:
     kind = _require_str_field(raw, "kind", "comment target")
     if kind == "network":
         return {"kind": "network"}
@@ -290,7 +293,7 @@ def _normalize_comment_target(raw: dict[str, object]) -> DBCCommentTarget:
     raise ProtocolError(msg)
 
 
-def _normalize_comment(raw: dict[str, object]) -> DBCComment:
+def _normalize_comment(raw: Mapping[str, JSONValue]) -> DBCComment:
     target_raw = raw.get("target")
     if not is_str_dict(target_raw):
         msg = "Expected comment 'target' to be a dict"
@@ -314,7 +317,7 @@ def _normalize_attr_scope(value: object) -> AttrScope:
     raise ProtocolError(msg)
 
 
-def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
+def _normalize_attr_type(raw: Mapping[str, JSONValue]) -> DBCAttrType:
     kind = _require_str_field(raw, "kind", "attribute type")
     if kind == "int":
         return {
@@ -355,7 +358,7 @@ def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
     raise ProtocolError(msg)
 
 
-def _normalize_attr_value(raw: dict[str, object]) -> DBCAttrValue:
+def _normalize_attr_value(raw: Mapping[str, JSONValue]) -> DBCAttrValue:
     kind = _require_str_field(raw, "kind", "attribute value")
     if kind == "int":
         return {"kind": "int", "value": _require_int_field(raw, "value", "attribute value int")}
@@ -376,7 +379,7 @@ def _normalize_attr_value(raw: dict[str, object]) -> DBCAttrValue:
 
 
 def _with_optional_extended(
-    raw: dict[str, object],
+    raw: Mapping[str, JSONValue],
     base: dict[str, object],
 ) -> dict[str, object]:
     if _optional_extended(raw):
@@ -385,7 +388,7 @@ def _with_optional_extended(
 
 
 def _normalize_attr_target_msg_id(
-    raw: dict[str, object],
+    raw: Mapping[str, JSONValue],
     kind: str,
 ) -> dict[str, object]:
     return _with_optional_extended(
@@ -403,7 +406,7 @@ _ATTR_TARGET_MSG_KINDS = frozenset({"message", "signal", "nodeMsg", "nodeSig"})
 
 def _normalize_attr_target_simple(
     kind: str,
-    raw: dict[str, object],
+    raw: Mapping[str, JSONValue],
 ) -> dict[str, object]:
     ctx = "attribute target"
     if kind == "network":
@@ -415,7 +418,7 @@ def _normalize_attr_target_simple(
 
 def _normalize_attr_target_msg(
     kind: str,
-    raw: dict[str, object],
+    raw: Mapping[str, JSONValue],
 ) -> dict[str, object]:
     ctx = "attribute target"
     base = _normalize_attr_target_msg_id(raw, kind)
@@ -426,7 +429,7 @@ def _normalize_attr_target_msg(
     return base
 
 
-def _normalize_attr_target(raw: dict[str, object]) -> DBCAttrTarget:
+def _normalize_attr_target(raw: Mapping[str, JSONValue]) -> DBCAttrTarget:
     kind = _require_str_field(raw, "kind", "attribute target")
     if kind in _ATTR_TARGET_SIMPLE_KINDS:
         return cast("DBCAttrTarget", _normalize_attr_target_simple(kind, raw))
@@ -436,7 +439,7 @@ def _normalize_attr_target(raw: dict[str, object]) -> DBCAttrTarget:
     raise ProtocolError(msg)
 
 
-def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
+def _normalize_attribute(raw: Mapping[str, JSONValue]) -> DBCAttribute:
     kind = _require_str_field(raw, "kind", "attribute")
     name = _require_str_field(raw, "name", "attribute")
     if kind == "definition":
@@ -483,7 +486,7 @@ def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
     raise ProtocolError(msg)
 
 
-def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
+def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
     """Normalize Agda's formatDBC JSON into a proper DBCDefinition.
 
     Agda's ``formatRational`` encodes non-integer rationals as
@@ -549,9 +552,9 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
 
 
 def _normalize_optional_list[T](
-    raw: dict[str, object],
+    raw: Mapping[str, JSONValue],
     key: str,
-    item_parser: Callable[[dict[str, object]], T],
+    item_parser: Callable[[Mapping[str, JSONValue]], T],
 ) -> list[T]:
     """Normalize a NotRequired metadata array: treat missing as empty."""
     if key not in raw:

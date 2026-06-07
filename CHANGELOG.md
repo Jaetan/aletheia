@@ -617,6 +617,17 @@ step count: 27 → 28.
 
 ### Changed
 
+#### Added — Python: `aletheia.types.JSONValue` type alias; loaders typed against it
+
+A canonical `JSONValue` alias (`str | int | float | bool | None | list[JSONValue]
+| dict[str, JSONValue]`) is exported from `aletheia.types` for JSON-/wire-derived
+data. The loader field accessors (`aletheia._loader_utils.get_str` / `get_int` /
+`get_number` / `get_bool` / `get_dict`) and `is_str_dict` now use it (covariant
+`Mapping[str, JSONValue]` inputs / `dict[str, JSONValue]` narrowing) instead of
+`dict[str, object]`, removing the lazy `object` annotations from the loader +
+JSON-dict surface (Excel cells keep the precise `CellValue`). Internal typing
+precision; no behaviour change.
+
 #### BREAKING — Python: `RationalNumber` dropped; `property_index` / `timestamp` are now `int`
 
 The `aletheia.types.RationalNumber` TypedDict (the wire `{numerator,

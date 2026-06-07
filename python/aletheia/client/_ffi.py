@@ -13,14 +13,14 @@ from pathlib import Path
 
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
-from aletheia.types import is_str_dict
+from aletheia.types import JSONValue, is_str_dict
 
 
-def parse_json_object(s: str) -> dict[str, object]:
+def parse_json_object(s: str) -> dict[str, JSONValue]:
     """Parse a JSON string that is expected to be an object.
 
     Wraps ``json.loads`` with validation and proper typing so
-    callers get ``dict[str, object]`` instead of ``dict[Unknown, Unknown]``.
+    callers get ``dict[str, JSONValue]`` instead of ``dict[Unknown, Unknown]``.
     """
     try:
         parsed: object = json.loads(s)

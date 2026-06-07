@@ -57,6 +57,8 @@ When/Then checks (causal)::
         severity: safety
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -85,7 +87,10 @@ from aletheia.client._types import ValidationError, check_dbc_text_size_bound
 from aletheia.types import is_object_list, is_str_dict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from aletheia.checks import CheckResult
+    from aletheia.types import JSONValue
 
 
 def _ctx(name: str) -> str:
@@ -93,7 +98,7 @@ def _ctx(name: str) -> str:
     return f"Check '{name}'"
 
 
-def _check_name(entry: dict[str, object]) -> str:
+def _check_name(entry: Mapping[str, JSONValue]) -> str:
     """Extract the check name for error messages."""
     name = entry.get("name")
     if isinstance(name, str):
@@ -182,7 +187,7 @@ def _load_yaml(source: str | Path) -> object:
     return yaml.safe_load(source)
 
 
-def _parse_check(entry: dict[str, object]) -> CheckResult:
+def _parse_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     """Parse a single check entry from the YAML."""
     if "when" in entry:
         result = _parse_when_then_check(entry)
@@ -208,7 +213,7 @@ def _parse_value_condition(
     name: str,
     signal: str,
     condition: str,
-    entry: dict[str, object],
+    entry: Mapping[str, JSONValue],
 ) -> CheckResult:
     """Parse a value-typed simple check (e.g. never_exceeds, never_below)."""
     if "value" not in entry:
@@ -221,7 +226,7 @@ def _parse_range_condition(
     name: str,
     signal: str,
     condition: str,
-    entry: dict[str, object],
+    entry: Mapping[str, JSONValue],
 ) -> CheckResult:
     """Parse a range-typed simple check (stays_between)."""
     if "min" not in entry or "max" not in entry:
@@ -236,7 +241,7 @@ def _parse_range_condition(
 def _parse_settles_condition(
     name: str,
     signal: str,
-    entry: dict[str, object],
+    entry: Mapping[str, JSONValue],
 ) -> CheckResult:
     """Parse a settles_between simple check."""
     if "min" not in entry or "max" not in entry:
@@ -258,7 +263,7 @@ def _parse_settles_condition(
 def _parse_equals_condition(
     name: str,
     signal: str,
-    entry: dict[str, object],
+    entry: Mapping[str, JSONValue],
 ) -> CheckResult:
     """Parse an equals simple check."""
     if "value" not in entry:
@@ -267,7 +272,7 @@ def _parse_equals_condition(
     return checks.signal(signal).equals(get_number(entry, "value", _ctx(name))).always()
 
 
-def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
+def _parse_simple_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     """Parse a simple single-signal check."""
     name = _check_name(entry)
     condition = entry.get("condition", "")
@@ -293,7 +298,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
     raise ValidationError(msg)
 
 
-def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
+def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     """Parse a when/then causal check."""
     name = _check_name(entry)
 

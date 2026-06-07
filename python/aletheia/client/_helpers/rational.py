@@ -2,12 +2,20 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """ℚ arithmetic + parsing + validation for the JSON / binary FFI wire."""
 
+from __future__ import annotations
+
 import math
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 from aletheia._loader_utils import is_pure_int
 from aletheia.client._types import ProtocolError, ValidationError
 from aletheia.types import is_str_dict
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from aletheia.types import JSONValue
 
 # Shared bounds and scaling factors for the binary FFI rational encoding.
 # int64 bounds match the Haskell ``Int64`` numerator/denominator that the
@@ -74,7 +82,7 @@ def coerce_to_rational(value: float | Fraction) -> tuple[int, int]:
 
 
 def extract_rational_from_dict(
-    d: dict[str, object],
+    d: Mapping[str, JSONValue],
     context: str,
 ) -> tuple[int, int]:
     """Extract (numerator, denominator) from a rational dict.

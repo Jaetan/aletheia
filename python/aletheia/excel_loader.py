@@ -47,6 +47,8 @@ signal is multiplexed; if both are empty, the signal is always-present.
     Within (ms) | Severity
 """
 
+from __future__ import annotations
+
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
@@ -90,6 +92,8 @@ from aletheia.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from openpyxl.worksheet.worksheet import Worksheet
 
     from aletheia.checks import CheckResult
@@ -196,7 +200,7 @@ def _row_ctx(row_num: int) -> str:
     return f"Row {row_num}"
 
 
-def _row_to_dict(headers: list[str], row: ExcelRow) -> dict[str, object]:
+def _row_to_dict(headers: list[str], row: ExcelRow) -> dict[str, CellValue]:
     """Zip headers with cell values, skipping None values."""
     return {h: v for h, v in zip(headers, row, strict=False) if v is not None}
 
@@ -206,7 +210,7 @@ def _headers_from_row(row: ExcelRow) -> list[str]:
     return [str(c) if c is not None else "" for c in row]
 
 
-def _parse_message_id(val: object, ctx: str) -> int:
+def _parse_message_id(val: CellValue, ctx: str) -> int:
     """Parse a message ID from an int or hex-string cell value."""
     if isinstance(val, int) and not isinstance(val, bool):
         return val
@@ -432,7 +436,7 @@ def _load_when_then_checks(ws: Worksheet) -> list[CheckResult]:
 # ============================================================================
 
 
-def _apply_metadata(result: CheckResult, d: dict[str, object]) -> CheckResult:
+def _apply_metadata(result: CheckResult, d: Mapping[str, CellValue]) -> CheckResult:
     """Apply optional name and severity from row data to a CheckResult."""
     name = d.get("Check Name")
     if is_str(name):
@@ -443,7 +447,7 @@ def _apply_metadata(result: CheckResult, d: dict[str, object]) -> CheckResult:
     return result
 
 
-def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
+def _parse_simple_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
     """Parse a Checks-sheet row into a CheckResult."""
     signal = get_str(d, "Signal", _row_ctx(row_num))
     condition = get_str(d, "Condition", _row_ctx(row_num))
@@ -487,7 +491,7 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
     return _apply_metadata(result, d)
 
 
-def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
+def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
     """Parse a When-Then-sheet row into a CheckResult."""
     # When clause
     when_signal = get_str(d, "When Signal", _row_ctx(row_num))
@@ -534,7 +538,7 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
 # ============================================================================
 
 
-def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
+def _parse_dbc_signal(row: Mapping[str, CellValue], row_num: int) -> DBCSignal:
     """Parse a single DBC signal row into a DBCSignal dict."""
     byte_order = get_str(row, "Byte Order", _row_ctx(row_num))
     if byte_order not in ("little_endian", "big_endian"):
@@ -589,7 +593,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     return always_signal
 
 
-def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
+def _parse_dbc_rows(rows: list[dict[str, CellValue]]) -> DBCDefinition:
     """Group DBC rows by message and build a DBCDefinition."""
     groups: dict[_MessageKey, list[int]] = defaultdict(list)
     insertion_order: list[_MessageKey] = []

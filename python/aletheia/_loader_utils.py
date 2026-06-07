@@ -8,6 +8,8 @@ helpful error messages, and (b) reject adversarial loader inputs
 explode or exhaust memory.  This module provides both surfaces.
 """
 
+from __future__ import annotations
+
 import os
 import stat
 from typing import TYPE_CHECKING, TypeGuard
@@ -24,10 +26,12 @@ from typing import TYPE_CHECKING, TypeGuard
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
 from aletheia.client._types import ValidationError
-from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
+
+    from aletheia.types import JSONValue
 
 
 def is_str(val: object) -> TypeGuard[str]:
@@ -46,7 +50,7 @@ def is_pure_int(v: object) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def get_str(d: dict[str, object], key: str, ctx: str) -> str:
+def get_str(d: Mapping[str, JSONValue], key: str, ctx: str) -> str:
     """Extract a required string field from *d*.
 
     Raises :class:`ValidationError` with *ctx* prefix if the key is
@@ -59,7 +63,7 @@ def get_str(d: dict[str, object], key: str, ctx: str) -> str:
     return val
 
 
-def get_number(d: dict[str, object], key: str, ctx: str) -> float:
+def get_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> float:
     """Extract a required numeric field from *d*.
 
     Booleans are rejected (``isinstance(True, int)`` is ``True`` in
@@ -72,7 +76,7 @@ def get_number(d: dict[str, object], key: str, ctx: str) -> float:
     raise ValidationError(msg)
 
 
-def get_int(d: dict[str, object], key: str, ctx: str) -> int:
+def get_int(d: Mapping[str, JSONValue], key: str, ctx: str) -> int:
     """Extract a required integer field from *d*."""
     val = d.get(key)
     if is_pure_int(val):
@@ -81,7 +85,7 @@ def get_int(d: dict[str, object], key: str, ctx: str) -> int:
     raise ValidationError(msg)
 
 
-def get_bool(d: dict[str, object], key: str, ctx: str) -> bool:
+def get_bool(d: Mapping[str, JSONValue], key: str, ctx: str) -> bool:
     """Extract a required boolean field from *d*.
 
     Accepts Python bools, integers ``1``/``0`` (Excel data_only mode),
@@ -105,13 +109,13 @@ def get_bool(d: dict[str, object], key: str, ctx: str) -> bool:
     raise ValidationError(msg)
 
 
-def get_dict(d: dict[str, object], key: str, ctx: str) -> dict[str, object]:
-    """Extract a required dict field from *d*."""
+def get_dict(d: Mapping[str, JSONValue], key: str, ctx: str) -> Mapping[str, JSONValue]:
+    """Extract a required nested mapping field from *d*."""
     val = d.get(key)
-    if not is_str_dict(val):
-        msg = f"{ctx}: missing or invalid '{key}' (expected mapping)"
-        raise ValidationError(msg)
-    return val
+    if isinstance(val, dict):
+        return val
+    msg = f"{ctx}: missing or invalid '{key}' (expected mapping)"
+    raise ValidationError(msg)
 
 
 # ===========================================================================

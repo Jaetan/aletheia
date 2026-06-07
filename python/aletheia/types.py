@@ -126,15 +126,28 @@ def to_signal_fraction(value: float | Fraction) -> Fraction:
 _DECIMAL_PRECISION_DEN_PROTOCOLS = 1_000_000_000  # mirrors client/_helpers.py
 
 
-def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
-    """Narrow ``object`` to ``dict[str, object]``.
+type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+"""A JSON value: the leaf scalars plus JSON arrays/objects.
+
+The canonical type for JSON-/wire-derived data — what ``json.loads`` and the
+FFI response envelopes produce. Use this (or covariant
+``Mapping[str, JSONValue]`` for read-only inputs) instead of ``object`` when a
+value's domain is "whatever the wire carried".
+"""
+
+
+def is_str_dict(val: object) -> TypeGuard[dict[str, JSONValue]]:
+    """Narrow ``object`` to ``dict[str, JSONValue]``.
 
     Returns:
-        ``True`` when *val* is a ``dict`` and every key is a ``str`` —
-        the precondition for safe ``dict.get(key)`` calls under
-        ``object`` keys.  The check is one ``isinstance`` plus a key
-        scan; not free for large dicts but the values are O(1) to
-        access afterwards under the narrowed type.
+        ``True`` when *val* is a ``dict`` and every key is a ``str``.  Used
+        exclusively on JSON-/wire-derived values, so the value type is
+        narrowed to :data:`JSONValue` (the precondition for safe
+        ``dict.get(key)`` calls with precisely-typed values).  The check is
+        one ``isinstance`` plus a key scan; the values are NOT recursively
+        validated — a ``TypeGuard`` asserts the container shape, and any
+        non-JSON leaf (e.g. a ``datetime`` from ``yaml.safe_load``) is
+        rejected downstream at field access.
 
     """
     return isinstance(val, dict) and all(
@@ -754,6 +767,7 @@ __all__ = [
     "GreaterThanOrEqualPredicate",
     "GreaterThanPredicate",
     # LTL formulas
+    "JSONValue",
     "LTLFormula",
     "LessThanOrEqualPredicate",
     "LessThanPredicate",
