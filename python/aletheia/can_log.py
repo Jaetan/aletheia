@@ -214,3 +214,6 @@ def normalize_data(data: bytearray | None, dlc: int) -> bytearray:
         return padded
 
     return bytearray(data[:dlc])
+
+
+__all__ = ["iter_can_log", "load_can_log"]

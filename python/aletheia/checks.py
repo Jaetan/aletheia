@@ -320,3 +320,6 @@ def when(signal_name: str) -> WhenSignal:
         when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
     """
     return WhenSignal(signal_name)
+
+
+__all__ = ["CheckResult", "signal", "when"]

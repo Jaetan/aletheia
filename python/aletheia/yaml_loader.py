@@ -342,3 +342,6 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
         )
 
     return then_result.within(within_ms)
+
+
+__all__ = ["load_checks"]
