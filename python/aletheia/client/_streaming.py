@@ -61,21 +61,12 @@ if TYPE_CHECKING:
         ErrorResponse,
         PropertyBatchResponse,
         PropertyResultEntry,
-        RationalNumber,
         Response,
         SuccessResponse,
     )
 
 
 _logger = logging.getLogger("aletheia")
-
-
-def _rational_index(r: RationalNumber, context: str) -> int:
-    """Convert a rational property_index to int, raising on zero denominator."""
-    if r["denominator"] == 0:
-        msg = f"Zero denominator in {context} property_index"
-        raise ProtocolError(msg)
-    return r["numerator"] // r["denominator"]
 
 
 class StreamingMixin(ABC):
@@ -136,7 +127,7 @@ class StreamingMixin(ABC):
         """
         if not self._diags:
             return
-        idx = _rational_index(result["property_index"], "violation")
+        idx = result["property_index"]
         diag = self._diags.get(idx)
         if diag is None:
             log_event(
@@ -636,7 +627,7 @@ class StreamingMixin(ABC):
         """Enrich an end-of-stream violation with signal diagnostics."""
         if not self._diags:
             return
-        idx = _rational_index(result["property_index"], "finalization")
+        idx = result["property_index"]
         diag = self._diags.get(idx)
         if diag is None:
             log_event(

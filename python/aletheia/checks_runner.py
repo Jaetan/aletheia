@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from aletheia.client._client import AletheiaClient
-from aletheia.client._types import AletheiaError, ValidationError
+from aletheia.client._types import AletheiaError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
         ErrorResponse,
         PropertyBatchResponse,
         PropertyResultEntry,
-        RationalNumber,
     )
 
 
@@ -74,15 +73,6 @@ class CheckRunResult:
     total_frames: int
 
 
-def rational_to_int(r: RationalNumber) -> int:
-    """Convert a RationalNumber {numerator, denominator} to int."""
-    denom = r["denominator"]
-    if denom == 0:
-        msg = f"Invalid rational: denominator is zero ({r!r})"
-        raise ValidationError(msg)
-    return r["numerator"] // denom
-
-
 def _lazy_iter_can_log() -> Callable[[str | Path], Iterator[CANFrameTuple]]:
     mod = importlib.import_module(".can_log", __package__)
     return cast("Callable[[str | Path], Iterator[CANFrameTuple]]", mod.iter_can_log)
@@ -111,7 +101,7 @@ def _build_violation(
     violation response.  The mid-stream path iterates the batch and calls
     this once per fails entry.
     """
-    prop_index = rational_to_int(response["property_index"])
+    prop_index = response["property_index"]
     check_name, severity = _check_meta(prop_index, checks)
 
     enrichment = response.get("enrichment")
@@ -132,8 +122,8 @@ def _build_violation(
 
     # PropertyResultEntry.timestamp is NotRequired (Holds entries omit it),
     # but a fails entry is required to carry one by the Agda kernel contract.
-    timestamp_rational = response.get("timestamp")
-    timestamp_us = 0 if timestamp_rational is None else rational_to_int(timestamp_rational)
+    ts = response.get("timestamp")
+    timestamp_us = 0 if ts is None else ts
     return {
         "check_index": prop_index,
         "check_name": check_name,
@@ -151,7 +141,7 @@ def _build_eos_violation(
     checks: list[CheckResult],
 ) -> Violation:
     """Extract violation details from an end-of-stream finalization result."""
-    prop_index = rational_to_int(result["property_index"])
+    prop_index = result["property_index"]
     check_name, severity = _check_meta(prop_index, checks)
 
     enrichment = result.get("enrichment")
@@ -277,6 +267,5 @@ def run_checks(
 __all__ = [
     "CheckRunResult",
     "Violation",
-    "rational_to_int",
     "run_checks",
 ]

@@ -394,10 +394,14 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data in trace:
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            prop_idx = response["property_index"]["numerator"]
-            ts = response["timestamp"]["numerator"]
-            print(f"Property {prop_idx} violated at {ts}us")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry["status"] == "fails":
+                    # property_index / timestamp are ints (microseconds)
+                    print(
+                        f"Property {entry['property_index']} violated "
+                        f"at {entry['timestamp']}us"
+                    )
 
     client.end_stream()
 ```
@@ -423,8 +427,10 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data in trace:
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            violations.append(response["timestamp"]["numerator"])
+        if response.get("type") == "property_batch":
+            violations.extend(
+                entry["timestamp"] for entry in response["results"] if entry["status"] == "fails"
+            )
 
     client.end_stream()
 
@@ -903,8 +909,8 @@ When checks are registered via `set_properties()` (or `add_checks()`), violation
 {
     "type": "property",
     "status": "fails",
-    "property_index": {"numerator": 0, "denominator": 1},
-    "timestamp": {"numerator": 4523000, "denominator": 1},
+    "property_index": 0,
+    "timestamp": 4523000,
     "reason": "Always violated",  # core_reason (raw Agda string)
     "enrichment": {
         "signals": {"VehicleSpeed": 225.5},                    # extracted signal values

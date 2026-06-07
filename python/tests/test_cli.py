@@ -21,7 +21,6 @@ import pytest
 
 from aletheia import ValidationError
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.checks_runner import rational_to_int
 from aletheia.cli import (
     format_timestamp,
     main,
@@ -193,36 +192,6 @@ class TestFormatTimestamp:
     def test_sub_millisecond(self) -> None:
         """Verify sub millisecond."""
         assert format_timestamp(500) == "0.500ms"
-
-
-# ============================================================================
-# Rational number conversion
-# ============================================================================
-
-
-class TestRationalToInt:
-    """Test rational_to_int: {numerator, denominator} -> int."""
-
-    def test_simple(self) -> None:
-        """Verify simple."""
-        assert rational_to_int({"numerator": 0, "denominator": 1}) == 0
-
-    def test_integer_value(self) -> None:
-        """Verify integer value."""
-        assert rational_to_int({"numerator": 42, "denominator": 1}) == 42
-
-    def test_floor_division(self) -> None:
-        """Verify floor division."""
-        assert rational_to_int({"numerator": 7, "denominator": 2}) == 3
-
-    def test_large_value(self) -> None:
-        """Verify large value."""
-        assert rational_to_int({"numerator": 1234500, "denominator": 1}) == 1234500
-
-    def test_zero_denominator_raises(self) -> None:
-        """Verify zero denominator raises."""
-        with pytest.raises(ValidationError, match="denominator is zero"):
-            rational_to_int({"numerator": 42, "denominator": 0})
 
 
 # ============================================================================

@@ -113,8 +113,7 @@ class TestAddChecks:
             violation = result["results"][-1]
             assert violation["status"] == "fails"
             # Default is property 0
-            prop_index = violation["property_index"]
-            assert prop_index["numerator"] // prop_index["denominator"] == 0
+            assert violation["property_index"] == 0
             client.end_stream()
 
     def test_session_violation_correct_index(self) -> None:
@@ -133,8 +132,7 @@ class TestAddChecks:
             violation = result["results"][-1]
             assert violation["status"] == "fails"
             # Session check is property 1 (after 1 default)
-            prop_index = violation["property_index"]
-            assert prop_index["numerator"] // prop_index["denominator"] == 1
+            assert violation["property_index"] == 1
             client.end_stream()
 
     def test_enrichment_with_defaults(self) -> None:

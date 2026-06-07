@@ -116,8 +116,8 @@ class TestSendFramesBatch:
                 {
                     "type": "property",
                     "status": "fails",
-                    "property_index": {"numerator": 0, "denominator": 1},
-                    "timestamp": {"numerator": 2000, "denominator": 1},
+                    "property_index": 0,
+                    "timestamp": 2000,
                 }
             ],
         }

@@ -7,7 +7,7 @@ from fractions import Fraction
 
 from aletheia._loader_utils import is_pure_int
 from aletheia.client._types import ProtocolError, ValidationError
-from aletheia.types import RationalNumber, is_str_dict
+from aletheia.types import is_str_dict
 
 # Shared bounds and scaling factors for the binary FFI rational encoding.
 # int64 bounds match the Haskell ``Int64`` numerator/denominator that the
@@ -103,38 +103,31 @@ def extract_rational_from_dict(
     return numerator, denominator
 
 
-def validate_rational(field_name: str, raw_value: object) -> RationalNumber:
-    """Validate and extract RationalNumber from response field."""
-    # is_pure_int over isinstance(raw_value, int) so a `true` on the
-    # wire (json deserialised as Python bool) is rejected rather than
-    # silently treated as numerator=1.
+def validate_integer_field(field_name: str, raw_value: object) -> int:
+    """Validate + extract an integer-valued response field as ``int``.
+
+    The field's Agda-side type is ``ℕ`` / ``ℤ`` (timestamps in microseconds,
+    property indices); it arrives on the wire either as a plain int or as
+    ``{"numerator": N, "denominator": 1}``, never with a fractional
+    component.  Returns ``N``.  A non-unit denominator indicates a
+    wire-format violation by the kernel and is rejected.
+    """
+    # is_pure_int over isinstance(raw_value, int) so a `true` on the wire
+    # (json deserialised as Python bool) is rejected rather than silently
+    # treated as numerator=1.
     if is_pure_int(raw_value):
-        return {"numerator": raw_value, "denominator": 1}
+        return raw_value
     if not is_str_dict(raw_value):
         msg = f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
         raise ProtocolError(msg)
-    n, d = extract_rational_from_dict(raw_value, field_name)
-    return {"numerator": n, "denominator": d}
-
-
-def validate_integer_rational(field_name: str, raw_value: object) -> RationalNumber:
-    """Validate a RationalNumber response field that must be integer-valued.
-
-    Same as :func:`validate_rational` plus a post-parse assertion that the
-    denominator is exactly ``1``.  Used for fields whose Agda-side type is
-    ``ℕ`` or ``ℤ`` (timestamps in microseconds, property indices) — they
-    arrive on the wire as a plain int or as ``{"numerator": N,
-    "denominator": 1}``, never with a fractional component.  A non-unit
-    denominator indicates a wire-format violation by the kernel.
-    """
-    rational = validate_rational(field_name, raw_value)
-    if rational["denominator"] != 1:
+    numerator, denominator = extract_rational_from_dict(raw_value, field_name)
+    if denominator != 1:
         msg = (
             f"Expected {field_name} to be an integer (denominator == 1), "
-            f"got {rational['numerator']}/{rational['denominator']}"
+            f"got {numerator}/{denominator}"
         )
         raise ProtocolError(msg)
-    return rational
+    return numerator
 
 
 def _parse_rational_str(value_raw: str) -> Fraction | None:

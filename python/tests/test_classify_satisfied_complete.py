@@ -222,8 +222,8 @@ def test_multi_event_frame_satisfaction_plus_violation(simple_dbc: DBCDefinition
         sat = results[0]
         viol = results[1]
         assert sat["status"] == "holds"
-        assert sat["property_index"] == {"numerator": 0, "denominator": 1}
+        assert sat["property_index"] == 0
         assert viol["status"] == "fails"
-        assert viol["property_index"] == {"numerator": 1, "denominator": 1}
+        assert viol["property_index"] == 1
 
         client.end_stream()

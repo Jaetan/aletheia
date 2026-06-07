@@ -501,8 +501,8 @@ class TestFrameResultShape:
         viol_entry: PropertyResultEntry = {
             "type": "property",
             "status": "fails",
-            "property_index": {"numerator": 0, "denominator": 1},
-            "timestamp": {"numerator": 1000, "denominator": 1},
+            "property_index": 0,
+            "timestamp": 1000,
         }
         batch_response: PropertyBatchResponse = {
             "type": "property_batch",

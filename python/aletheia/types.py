@@ -417,13 +417,6 @@ LTLFormula = (
 # ============================================================================
 
 
-class RationalNumber(TypedDict):
-    """Rational number representation from Agda."""
-
-    numerator: int
-    denominator: int
-
-
 class SignalValue(TypedDict):
     """Signal name-value pair from signal extraction (output from Agda).
 
@@ -591,8 +584,8 @@ class PropertyResultEntry(TypedDict):
 
     type: Literal["property"]
     status: Literal["fails", "holds", "unresolved"]
-    property_index: RationalNumber
-    timestamp: NotRequired[RationalNumber]  # Only for violations
+    property_index: int
+    timestamp: NotRequired[int]  # Only for violations
     reason: NotRequired[str]  # Only for violations and unresolved
     enrichment: NotRequired[ViolationEnrichment]  # Auto-derived diagnostic
 
@@ -778,8 +771,6 @@ __all__ = [
     "PredicateType",
     "PropertyBatchResponse",
     "PropertyResultEntry",
-    # Rational / signal values
-    "RationalNumber",
     "ReleaseFormula",
     # Responses
     "Response",

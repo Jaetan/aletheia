@@ -617,6 +617,27 @@ step count: 27 → 28.
 
 ### Changed
 
+#### BREAKING — Python: `RationalNumber` dropped; `property_index` / `timestamp` are now `int`
+
+The `aletheia.types.RationalNumber` TypedDict (the wire `{numerator,
+denominator}` shape) is removed. The two response fields that used it —
+`PropertyResultEntry.property_index` and `.timestamp` — are now parsed to
+`int` at the response boundary, matching what the Go and C++ bindings already
+expose (Python was the outlier, carrying the raw dict). The wire JSON is
+unchanged — the Agda kernel still emits the rational form; only the parsed
+Python shape changes. The now-redundant helpers `aletheia.checks_runner.
+rational_to_int` and the internal `validate_integer_rational` are removed
+(the boundary parser `validate_integer_field` returns `int` directly).
+
+Caller migration:
+
+```python
+# before
+idx = entry["property_index"]["numerator"] // entry["property_index"]["denominator"]
+# after
+idx = entry["property_index"]   # already an int
+```
+
 #### BREAKING — Python: `aletheia.protocols` renamed to `aletheia.types`
 
 The wire-format type namespace (the response/command TypedDicts, the LTL

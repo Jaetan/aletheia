@@ -14,7 +14,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from aletheia.client._helpers.dbc_normalize import normalize_dbc
-from aletheia.client._helpers.rational import validate_integer_rational
+from aletheia.client._helpers.rational import validate_integer_field
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
 from aletheia.types import (
@@ -230,14 +230,14 @@ def _parse_property_event(raw: dict[str, object]) -> PropertyResultEntry:
             " (expected 'fails', 'holds', or 'unresolved')"
         )
         raise ProtocolError(msg)
-    prop_index = validate_integer_rational("property_index", raw.get("property_index"))
+    prop_index = validate_integer_field("property_index", raw.get("property_index"))
     entry: PropertyResultEntry = {
         "type": "property",
         "status": inner_status,
         "property_index": prop_index,
     }
     if inner_status == "fails":
-        entry["timestamp"] = validate_integer_rational("timestamp", raw.get("timestamp"))
+        entry["timestamp"] = validate_integer_field("timestamp", raw.get("timestamp"))
     reason = raw.get("reason")
     if isinstance(reason, str):
         entry["reason"] = reason
@@ -326,7 +326,7 @@ def parse_finalization_results(
         if raw_prop_index is None:
             msg = "Missing 'property_index' in finalization result entry"
             raise ProtocolError(msg)
-        prop_index = validate_integer_rational("property_index", raw_prop_index)
+        prop_index = validate_integer_field("property_index", raw_prop_index)
         # entry_status is now narrowed to Literal["fails","holds","unresolved"]
         result_entry: PropertyResultEntry = {
             "type": "property",
@@ -336,7 +336,7 @@ def parse_finalization_results(
         if entry_status in ("fails", "unresolved"):
             ts = raw.get("timestamp")
             if ts is not None:
-                result_entry["timestamp"] = validate_integer_rational("timestamp", ts)
+                result_entry["timestamp"] = validate_integer_field("timestamp", ts)
             reason = raw.get("reason")
             if isinstance(reason, str):
                 result_entry["reason"] = reason
