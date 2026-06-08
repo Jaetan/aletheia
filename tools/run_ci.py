@@ -695,17 +695,17 @@ def _run_gha_checks(runner: Runner) -> None:
 
     runner.step(
         "check-action-pins",
-        [sys.executable, "-m", "tools.check_action_pins"],
+        [runner.python, "-m", "tools.check_action_pins"],
         cwd=runner.repo_root,
     )
     runner.step(
         "check-workflow-permissions",
-        [sys.executable, "-m", "tools.check_workflow_permissions"],
+        [runner.python, "-m", "tools.check_workflow_permissions"],
         cwd=runner.repo_root,
     )
     runner.step(
         "check-spdx-headers",
-        [sys.executable, "-m", "tools.check_spdx_headers"],
+        [runner.python, "-m", "tools.check_spdx_headers"],
         cwd=runner.repo_root,
     )
 
@@ -735,7 +735,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     if opts.repro:
         runner.step(
             "check-reproducible-build",
-            [sys.executable, "-m", "tools.check_reproducible_build"],
+            [runner.python, "-m", "tools.check_reproducible_build"],
             cwd=runner.repo_root,
         )
     else:
@@ -749,7 +749,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     if opts.stability:
         runner.step(
             "stability bench",
-            [sys.executable, "-m", "tools.stability_run"],
+            [runner.python, "-m", "tools.stability_run"],
             cwd=runner.repo_root,
         )
     else:
@@ -765,7 +765,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     if opts.mutation:
         runner.step(
             "mutation testing",
-            [sys.executable, "-m", "tools.mutation_run"],
+            [runner.python, "-m", "tools.mutation_run"],
             cwd=runner.repo_root,
         )
     else:
