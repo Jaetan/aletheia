@@ -31,8 +31,8 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
      7. check-ffi-exports
      8. count-modules
   Branch-scoped IWYU gates (2):
-     9. iwyu — `tools/iwyu.py --check --diff`
-        on .agda files modified vs main.  The single `.agdai`-reader tool
+     9. iwyu — `tools/iwyu.py --check --diff` (or `--all` under --iwyu-all,
+        the merge-gate scope) on .agda files.  The single `.agdai`-reader tool
         judges BOTH named imports (`using`/`renaming` → USED/DEAD/UNRESOLVED)
         and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) in one warm
         process; fails on any finding.  Empty diff ⇒ no-op.  Reference:
@@ -198,6 +198,12 @@ class OptInOptions:
     repro: bool
     stability: bool
     mutation: bool
+    # Mode flag, NOT a timing lane: switches the IWYU gate (step 9) from
+    # `--diff` (branch-scoped, fast — local pre-push-hook parity) to `--all`
+    # (whole-tree, airtight against cross-file deadness — the server-side
+    # merge gate).  Deliberately excluded from any_enabled / enabled_count:
+    # it adds no step and does not change total_steps.
+    iwyu_all: bool = False
 
     @property
     def any_enabled(self) -> bool:
@@ -279,6 +285,18 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         ),
     )
 
+    parser.add_argument(
+        "--iwyu-all",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the IWYU import gate (step 9) over the WHOLE tree (`--all`) "
+            "instead of the branch diff (`--diff`).  Airtight against "
+            "cross-file deadness; this is what the server-side PR merge gate "
+            "uses.  (env: ALETHEIA_IWYU_ALL=1)"
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     # --full sets every unset CLI flag to True; explicit --no-<lane> keeps False.
@@ -293,6 +311,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         repro=_resolve_flag(cli_value=args.repro, env_var="ALETHEIA_REPRO_CHECK"),
         stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
         mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
+        iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
     )
 
 
@@ -506,16 +525,20 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
     runner.step("count-modules", [*cabal, "count-modules"])
 
-    # ─── Steps 9-10: the IWYU gate (one tool) on branch-modified files ──────
-    # Step 9 (`iwyu --check --diff`) judges BOTH named imports (DEAD/UNRESOLVED)
-    # and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware
-    # `.agdai` reader in one warm process — no recompile-confirm; --diff scoping
-    # (git diff main...HEAD -- src/); empty diff ⇒ no-op.  Step 10
+    # ─── Steps 9-10: the IWYU gate (one tool) ───────────────────────────────
+    # Step 9 (`iwyu --check`) judges BOTH named imports (DEAD/UNRESOLVED) and
+    # wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware
+    # `.agdai` reader in one warm process — no recompile-confirm.  Scope is
+    # branch-diff by default (`--diff`: git diff main...HEAD -- src/; empty diff
+    # ⇒ no-op — local pre-push-hook parity), or the whole tree (`--all`) under
+    # `--iwyu-all` / ALETHEIA_IWYU_ALL=1 — airtight against cross-file deadness,
+    # which is what the server-side PR merge gate runs.  Step 10
     # (`iwyu --self-test`) validates that reader against the synthetic fixture
     # matrix (its correctness gate).  Reference: memory/project_agda_iwyu.md.
+    iwyu_scope = "--all" if runner.opts.iwyu_all else "--diff"
     runner.step(
         "iwyu",
-        [runner.python, "-m", "tools.iwyu", "--check", "--diff"],
+        [runner.python, "-m", "tools.iwyu", "--check", iwyu_scope],
         cwd=runner.repo_root,
     )
     runner.step(

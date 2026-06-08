@@ -107,5 +107,8 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
           sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
 
+      # --iwyu-all runs the import gate over the WHOLE tree (not just the PR
+      # diff) — airtight against cross-file deadness, the merge-gate scope.
+      # The local pre-push hook keeps the faster --diff default.
       - name: Run the full offline correctness sweep (tools/run_ci.py)
-        run: python/.venv/bin/python3 -m tools.run_ci
+        run: python/.venv/bin/python3 -m tools.run_ci --iwyu-all

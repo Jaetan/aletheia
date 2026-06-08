@@ -56,14 +56,24 @@ falsifiable, server-side evidence the gates ran.
 
 ## Rollout order (important)
 
+**Decision (2026-06-08): merge `ci-speed` first, then enable enforcement.**
+`ci-speed` merges via an *advisory-green* PR run; enforcement is turned on
+afterwards so it gates all *future* PRs. (The alternative — enable enforcement
+while `ci-speed`'s PR is open, so the branch gates itself — was considered and
+not chosen.)
+
 1. ✅ **Done** — the workflow (`.github/workflows/pr-full-ci.yml`) is committed.
-   It is **advisory** (runs, reports, but does not block merges) until step 4.
+   It is **advisory** (runs, reports, but does not block merges) until step 5.
 2. **Push + iterate to green.** Push `ci-speed` and open a PR `ci-speed → main`;
    the `pull_request` trigger fires the sweep. Read the red, fix the toolchain
    setup, push again. You cannot test a GHA workflow without pushing it; expect
    the C++/LLVM lane to go red first (see footguns).
-3. Only once the **`tools/run_ci.py (all gates)` check is green on a real PR**:
-4. Flip the `main` ruleset's **Enforcement status** to **Enabled** (next section).
+3. Once the **`tools/run_ci.py (all gates)` check is green on the `ci-speed`
+   PR**, **merge it** (advisory — the check is not yet required). This lands the
+   workflow + the `--iwyu-all` merge gate on `main`.
+4. Verify the same workflow runs green on the `push: main` event from that merge.
+5. *Then* flip the `main` ruleset's **Enforcement status** to **Enabled** (next
+   section), so every subsequent PR is gated.
 
 ## How to protect `main` (repo-admin — you must do this in GitHub)
 
@@ -89,8 +99,8 @@ code, so it cannot live in this repo.
      `main`; every change goes through a PR + the check).
    - **Require status checks to pass**, then **Add checks** and select
      **`tools/run_ci.py (all gates)`** (the job's `name:`). ⚠️ The check only
-     appears in that list **after it has run at least once** — that's why step 3
-     (a green PR run) comes first.
+     appears in that list **after it has run at least once** — that's why the
+     rollout merges `ci-speed` (a green workflow run) *before* this step.
 4. Leave the **Bypass list empty** — any actor in it could merge around the gate
    (the ruleset equivalent of an admin override), reopening the hole this closes.
 5. Set **Enforcement status: Enabled** (this repo's UI offers only **Disabled**
@@ -135,12 +145,15 @@ impossible on `main`.
 - **Cache key** = `{os, GHC 9.6.7, Agda 2.8.0, stdlib v2.3}`; accept a full
   rebuild on miss.
 
-## Open design choice
+## IWYU scope on the merge path (resolved)
 
-On the merge path the draft runs IWYU `--diff` (parity with the local pre-push
-hook — fast; "complete modulo a periodic `--all`"). To make the merge gate
-**airtight against cross-file deadness**, run `--all` instead — but that needs a
-small `run_ci` knob (it hardcodes `--diff` today). Default `--diff` matches local.
+The merge gate runs IWYU `--all` (whole tree — airtight against cross-file
+deadness), the local pre-push hook keeps `--diff` (branch-scoped — fast). The
+knob is `tools/run_ci.py --iwyu-all` (env `ALETHEIA_IWYU_ALL=1`); the PR
+workflow passes it, the hook does not. `--diff` only checks files that changed
+vs `main`, so a dead import created by *deleting the last consumer in another
+file* slips through it; `--all` catches that, at the cost of refreshing every
+`.agdai` (acceptable on the cached server runner).
 
 ## Already done (2026-06-06)
 
