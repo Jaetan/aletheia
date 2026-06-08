@@ -632,9 +632,15 @@ def _run_lints(runner: Runner) -> None:
     # 2026-05-31, and ``../tools/`` on 2026-06-06 (pyproject has a strict
     # executionEnvironment for ../tools); pylint covers the same set, so the
     # two stay symmetric (feedback_no_subsumption_asymmetry.md).
+    #
+    # Invoke via ``runner.python -m basedpyright`` (not the bare ``basedpyright``
+    # console script) for the same reason as ruff/pylint: CI launches this sweep
+    # as ``python/.venv/bin/python3 -m tools.run_ci``, which does NOT activate
+    # the venv, so the venv's ``bin/`` is not on PATH and a bare ``basedpyright``
+    # raises FileNotFoundError. ``-m`` runs the venv-installed package directly.
     runner.step(
         "basedpyright",
-        ["basedpyright", "aletheia/", "benchmarks/", "tests/", "../tools/"],
+        [runner.python, "-m", "basedpyright", "aletheia/", "benchmarks/", "tests/", "../tools/"],
         cwd=runner.repo_root / "python",
     )
 
