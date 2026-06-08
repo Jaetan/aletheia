@@ -27,3 +27,4 @@ ConsumerIDead	MidI	InstI	DEAD
 ConsumerRenamePatUsed	PatLib	two	USED
 ConsumerRecMemberUsed	RecExpLib	Box	USED
 ConsumerModMemberUsed	ModExpLib	Reasoning	USED
+ConsumerLocalAliasUsed	Helper	idh	USED

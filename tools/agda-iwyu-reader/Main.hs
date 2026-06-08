@@ -248,18 +248,23 @@ semDeep cache used q visited
 -- wildcard open would count 1 < 2 and be a FALSE NEGATIVE.
 resolveQuery :: Cache -> Set QName -> Map (String, Int) Int -> Map String Scope -> String -> String -> String -> Int -> TCM V
 resolveQuery cache used hc scopes consumerMod modS name aliasPos = do
-  let valQs = valueLookup scopes modS name                  -- import-listed: a body use needs count >= 2
-      -- members of the name read as a module, by THREE keys, because a RE-EXPORT
+  let -- The module the name is imported FROM may be written as a LOCAL ALIAS
+      -- (`open import M using (module N)` then `open N using (x)`): `N` is not a
+      -- top-level scope key, so resolve it to its real path(s) via the consumer
+      -- scope (`amodName`) and search those too, alongside `modS` as written.
+      modKeys = modS : moduleResolve scopes consumerMod modS
+      valQs = concatMap (\mk -> valueLookup scopes mk name) modKeys  -- body use needs count >= 2
+      -- members of the name read as a module, by several keys, because a RE-EXPORT
       -- (`open Inner public`, anonymous `module _`) gives the real module path
       -- `M.Inner.X` / `M._.X`, NOT `modS.name`, so `X.member` uses hide under it:
-      --   (a) the RECONSTRUCTED key `modS.name` (the non-re-exported case);
+      --   (a) the RECONSTRUCTED key `mk.name` (the non-re-exported case);
       --   (b) each resolved value's own QName as a module key — a re-exported
       --       RECORD (`Equivalence.to`), whose record-module IS its QName;
-      --   (c) the name resolved as a MODULE in `modS`'s scope (`amodName`) — a
+      --   (c) the name resolved as a MODULE in `mk`'s scope (`amodName`) — a
       --       re-exported MODULE (`module ≡-Reasoning` opened for `begin`/`∎`).
-      modQs = moduleExports scopes (modS ++ "." ++ name)
+      modQs = concatMap (\mk -> moduleExports scopes (mk ++ "." ++ name)) modKeys
            ++ concatMap (\q -> moduleExports scopes (prettyShow q)) valQs
-           ++ concatMap (moduleExports scopes) (moduleResolve scopes modS name)
+           ++ concatMap (\mk -> concatMap (moduleExports scopes) (moduleResolve scopes mk name)) modKeys
       qs    = valQs ++ modQs
       -- ALIAS-SITE (signal 4): a `renaming` alias's body uses are highlighted at
       -- the alias binding (consumerMod, aliasPos), not origin's def-site; the decl
