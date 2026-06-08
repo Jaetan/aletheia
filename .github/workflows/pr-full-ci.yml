@@ -43,6 +43,13 @@ jobs:
       - name: Set up GHC + cabal
         run: |
           set -euo pipefail
+          # Pin cabal to the legacy ~/.cabal layout.  cabal 3.12 otherwise
+          # defaults to the XDG store (~/.local/state/cabal/store), which
+          # mismatches this job's cache path, PATH (~/.cabal/bin), and the
+          # IWYU reader's _store_package_db() (it links Agda from
+          # ~/.cabal/store/ghc-<ver>/package.db).  Export for later steps too.
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
           cabal update
