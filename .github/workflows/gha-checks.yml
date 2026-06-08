@@ -88,5 +88,11 @@ jobs:
         with:
           python-version: '3.14'
 
+      # check_workflow_permissions parses workflow YAML via PyYAML; the bare
+      # runner Python lacks it (the project ships it in the dev venv, absent
+      # here).  Install just that one dependency for this meta-gate.
+      - name: Install PyYAML
+        run: python3 -m pip install pyyaml
+
       - name: Run check_workflow_permissions.py
         run: python3 -m tools.check_workflow_permissions
