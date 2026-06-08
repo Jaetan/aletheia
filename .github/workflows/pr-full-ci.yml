@@ -57,14 +57,18 @@ jobs:
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
       # Caches the prebuilt Agda library + executable so only the FIRST run
-      # builds Agda (~15-20 min on the 4-core runner); every later run (and
-      # every future PR, once this lands on main) restores it and the
-      # `cabal install Agda` below becomes a fast no-op.  Key bumped to -v2:
-      # the original run cached an empty store (cabal used the XDG location
-      # before CABAL_DIR was pinned) and cache keys are immutable, so a new
-      # key is required to store the now-correct ~/.cabal layout.
-      - name: Cache cabal store (Agda library + executable + deps)
-        uses: actions/cache@v4
+      # builds Agda (~15-20 min on the 4-core runner); later runs restore it
+      # and `cabal install Agda` becomes a fast no-op.  Split restore/save (not
+      # the combined `actions/cache`) because the combined action only saves on
+      # job SUCCESS — every failed iteration would otherwise re-build Agda.  The
+      # save runs right after the build, BEFORE the sweep, so a later gate
+      # failure still persists the build; placing it pre-sweep also means it is
+      # skipped automatically if `cabal install` itself fails (no broken cache).
+      # Key is -v2: the first run cached an empty store (cabal used the XDG
+      # location before CABAL_DIR was pinned) and cache keys are immutable.
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cabal/store
@@ -74,6 +78,16 @@ jobs:
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (persists the Agda build even if a later gate fails)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
         uses: actions/cache@v4
