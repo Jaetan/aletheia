@@ -127,7 +127,14 @@ typeCheckingMode = "strict"
 # unparenthesized ``except A, B`` syntax (which ruff's py314 formatter emits).
 pythonVersion = "3.14"
 stubPath = "stubs"
-venvPath = ".."
+# Resolve imports against the project venv at ``python/.venv`` (the venv CI
+# creates and runs pytest from).  venvPath is relative to this config's
+# directory (``python/``), so ``.`` + ``.venv`` -> ``python/.venv``.  It was
+# previously ``..`` -> ``<repo_root>/.venv``, which exists as a stray venv on
+# some dev machines (masking the bug) but NOT on CI, where basedpyright then
+# fell back to a pytest-less interpreter and failed with reportMissingImports
+# on ``pytest`` across tests/.
+venvPath = "."
 venv = ".venv"
 reportUnknownMemberType = "error"
 reportUnknownArgumentType = "error"
