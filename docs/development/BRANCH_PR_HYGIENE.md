@@ -63,49 +63,57 @@ falsifiable, server-side evidence the gates ran.
    setup, push again. You cannot test a GHA workflow without pushing it; expect
    the C++/LLVM lane to go red first (see footguns).
 3. Only once the **`tools/run_ci.py (all gates)` check is green on a real PR**:
-4. Enable branch protection on `main` (see next section).
+4. Flip the `main` ruleset's **Enforcement status** to **Enabled** (next section).
 
 ## How to protect `main` (repo-admin — you must do this in GitHub)
 
-Branch protection is the **load-bearing** part: the workflow enforces nothing
-until GitHub is told the check is *required*. It is a repo setting, not code, so
-it cannot live in this repo — only a repo admin (you) can set it. Two ways:
+`main` is protected by **repository rulesets** (Settings → Rules → Rulesets) —
+the modern mechanism, not classic branch-protection. Enforcement is the
+**load-bearing** part: a ruleset whose Enforcement status is **Disabled** does
+nothing at all. Only a repo admin (you) can change it; it is a repo setting, not
+code, so it cannot live in this repo.
+
+> Two rulesets exist on `main`:
+> - **`main force push / delete`** — Enforcement **Enabled** (blocks force-push
+>   and branch deletion). Leave it on.
+> - **`main`** — the gate ruleset, currently Enforcement **Disabled**. This is
+>   the one to configure + enable below. `Disabled` is the correct state until
+>   the workflow is green on a real PR.
 
 ### Via the GitHub web UI
 
-1. Go to **`https://github.com/Jaetan/aletheia/settings/branches`**
-   (repo → **Settings** → **Branches**).
-2. Under **Branch protection rules**, click **Add branch ruleset** (or "Add
-   rule" on the classic UI). Set **Branch name pattern** = `main`.
-3. Enable **Require a pull request before merging** (this blocks direct
-   `git push` to `main`, so every change goes through a PR + the check).
-4. Enable **Require status checks to pass before merging**, then in the search
-   box add the check named **`tools/run_ci.py (all gates)`** (the job's `name:`).
-   ⚠️ The check only appears in that list **after it has run at least once** —
-   that's why step 3 (a green PR run) comes first.
-5. Enable **Do not allow bypassing the above settings** (so even admins go
-   through the gate — otherwise `--no-verify`'s server-side equivalent, an admin
-   override, reopens the hole this is closing).
-6. Save.
+1. Repo → **Settings** → **Rules** → **Rulesets** → open the **`main`** ruleset.
+2. **Target:** branch; included = the default branch (`main`).
+3. Under **Rules**, enable:
+   - **Require a pull request before merging** (blocks direct `git push` to
+     `main`; every change goes through a PR + the check).
+   - **Require status checks to pass**, then **Add checks** and select
+     **`tools/run_ci.py (all gates)`** (the job's `name:`). ⚠️ The check only
+     appears in that list **after it has run at least once** — that's why step 3
+     (a green PR run) comes first.
+4. Leave the **Bypass list empty** — any actor in it could merge around the gate
+   (the ruleset equivalent of an admin override), reopening the hole this closes.
+5. Set **Enforcement status: Enabled** (this repo's UI offers only **Disabled**
+   and **Enabled**). **Do this last**, only after the check is green on a real
+   PR — `Enabled` + a never-run/red required check blocks *every* merge into
+   `main`.
+6. **Save**.
 
-### Via the `gh` CLI (equivalent, if you prefer)
+### Via the `gh` CLI (equivalent)
 
-Run after the check has appeared once (needs an admin token):
+Configure the rules in the UI (the rules payload is verbose over the API), then
+flip enforcement on the existing `main` ruleset:
 
 ```sh
-gh api -X PUT repos/Jaetan/aletheia/branches/main/protection \
-  -H "Accept: application/vnd.github+json" \
-  -f 'required_status_checks[strict]=true' \
-  -f 'required_status_checks[contexts][]=tools/run_ci.py (all gates)' \
-  -f 'enforce_admins=true' \
-  -F 'required_pull_request_reviews=null' \
-  -F 'restrictions=null'
+gh api repos/Jaetan/aletheia/rulesets            # list → note the `main` ruleset id
+gh api -X PUT repos/Jaetan/aletheia/rulesets/<id> \
+  -H "Accept: application/vnd.github+json" -f enforcement=active
 ```
 
-`required_status_checks.strict=true` = "require branches to be up to date before
-merging" (re-runs the gate against the latest `main`); `enforce_admins=true` =
-"do not allow bypassing". Verify with
-`gh api repos/Jaetan/aletheia/branches/main/protection`.
+The rulesets-API value `active` is what the UI labels **Enabled** (`disabled` =
+**Disabled**; a third API value `evaluate` — dry-run / log-only — exists but is
+**not** offered in this repo's UI). Verify with
+`gh api repos/Jaetan/aletheia/rulesets/<id>`.
 
 After this, a `--no-verify` push can still skip the *local* hook, but GitHub
 refuses to merge any PR whose `tools/run_ci.py (all gates)` check is not green —
