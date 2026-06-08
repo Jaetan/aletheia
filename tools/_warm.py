@@ -364,7 +364,7 @@ class WarmAgda:
         try:
             self.proc.stdin.close()
             _ = self.proc.wait(timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError, subprocess.TimeoutExpired:
             self.proc.kill()
 
 
