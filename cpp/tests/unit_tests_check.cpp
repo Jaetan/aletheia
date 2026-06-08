@@ -279,99 +279,38 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
 // Smart-fallback Rational renderer in format_formula
 // ===========================================================================
 
-TEST_CASE("format_formula renders non-terminating Rational as N/D", "[enrich][rational]") {
+// The renderer's MATH and SHAPE — decimal-vs-N/D fallback, trailing-zero
+// trimming, sign, the k>18 cross-binding guard, and exact (non-scientific,
+// non-{:g}-truncated) decimals — are proven and pinned ONCE in the Agda kernel
+// (RationalRenderer.Faithful.formatℚ-chars-represents + the
+// RationalRenderer.Properties shape golden), so they are no longer re-asserted
+// per binding (this used to triplicate the same value->string table across
+// C++/Go/Python).  What stays C++-specific: that the FFI plumbs through (both
+// output shapes) and that each formula-building path embeds the result.
+
+TEST_CASE("format_formula plumbs a non-terminating Rational (N/D shape)", "[enrich][rational]") {
     using namespace ltl;
     auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 3}}));
     CHECK(format_formula(f) == "S = 1/3");
 }
 
-TEST_CASE("format_formula renders signed non-terminating Rational", "[enrich][rational]") {
+TEST_CASE("format_formula plumbs a signed Rational (sign preserved)", "[enrich][rational]") {
     using namespace ltl;
     auto f = atomic(greater_than(SignalName{"S"}, PhysicalValue{Rational{-2, 7}}));
     CHECK(format_formula(f) == "S > -2/7");
 }
 
-TEST_CASE("format_formula reduces unreduced Rational before N/D", "[enrich][rational]") {
-    using namespace ltl;
-    // Direct Rational{2, 6} construction is allowed; renderer must reduce.
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{2, 6}}));
-    CHECK(format_formula(f) == "S = 1/3");
-}
-
-TEST_CASE("format_formula keeps terminating Rational as decimal", "[enrich][rational]") {
-    // No regression for the dominant DBC factor / offset case.
-    auto result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
-    auto f = result.to_formula();
-    REQUIRE(f);
-    CHECK(format_formula(*f) == "always(Voltage >= 11.5)");
-}
-
-TEST_CASE("format_formula renders between with both bounds non-terminating", "[enrich][rational]") {
+TEST_CASE("format_formula embeds Rationals in a between bound pair", "[enrich][rational]") {
     using namespace ltl;
     auto f = atomic(
         between(SignalName{"S"}, PhysicalValue{Rational{1, 3}}, PhysicalValue{Rational{2, 3}}));
     CHECK(format_formula(f) == "1/3 <= S <= 2/3");
 }
 
-TEST_CASE("format_formula renders large integer terminating Rational exactly",
+TEST_CASE("format_formula plumbs a terminating Rational (decimal shape) via the check builder",
           "[enrich][rational]") {
-    // Previously rendered as "1.23457e+06" via {:g} (lossy 6-sig-fig truncation).
-    // Now exact decimal — matches Go and Python.
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1234567, 1}}));
-    CHECK(format_formula(f) == "S = 1234567");
-}
-
-TEST_CASE("format_formula renders 9-sig-fig terminating decimal exactly", "[enrich][rational]") {
-    // Previously truncated to 6 sig figs via {:g} ("0.123457").  Now exact.
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{123456789, 1000000000}}));
-    CHECK(format_formula(f) == "S = 0.123456789");
-}
-
-TEST_CASE("format_formula renders small terminating Rational without scientific notation",
-          "[enrich][rational]") {
-    // {:g} would have switched to scientific at 1e-4; exact-decimal stays as "0.000001".
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 1000000}}));
-    CHECK(format_formula(f) == "S = 0.000001");
-}
-
-TEST_CASE("format_formula renders Rational{50, 100} as 0.5 (reduces and trims)",
-          "[enrich][rational]") {
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{50, 100}}));
-    CHECK(format_formula(f) == "S = 0.5");
-}
-
-TEST_CASE("format_formula renders k=18 boundary as exact decimal", "[enrich][rational]") {
-    // 1/2^18 = 1/262144 still fits the int64 multiplier (18 digits expansion).
-    // Boundary check: anything past k=18 falls through to N/D in Go and C++.
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 262144}}));
-    CHECK(format_formula(f) == "S = 0.000003814697265625");
-}
-
-TEST_CASE("format_formula renders k>18 power-of-2 as N/D for cross-binding parity",
-          "[enrich][rational]") {
-    // k > 18 is a conservative guard against int64 multiplier overflow in
-    // worst-case (rn, k) combinations.  Python uses arbitrary-precision ints
-    // and would emit the full decimal; it applies the same N/D fallback
-    // anyway so the three bindings produce byte-identical output.
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 524288}}));
-    CHECK(format_formula(f) == "S = 1/524288");
-}
-
-TEST_CASE("format_formula renders k>18 power-of-5 as N/D for cross-binding parity",
-          "[enrich][rational]") {
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 19073486328125}}));
-    CHECK(format_formula(f) == "S = 1/19073486328125");
-}
-
-TEST_CASE("format_formula renders k>18 negative as -N/D", "[enrich][rational]") {
-    using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{-1, 33554432}}));
-    CHECK(format_formula(f) == "S = -1/33554432");
+    auto result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always(Voltage >= 11.5)");
 }

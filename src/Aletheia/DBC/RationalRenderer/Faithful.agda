@@ -40,7 +40,8 @@ open import Data.Nat.Base
 open import Data.Nat.Properties
   using (m^n≢0; *-comm; *-assoc; *-identityʳ;
          +-comm; +-identityʳ; m∸n+n≡m; ^-distribˡ-+-*; *-distribʳ-+;
-         *-cancelʳ-≡; suc-pred; n≤0⇒n≡0; m≤m⊔n; m≤n⊔m)
+         *-cancelʳ-≡; suc-pred; n≤0⇒n≡0; m≤m⊔n; m≤n⊔m;
+         <ᵇ⇒<; <⇒<ᵇ; <⇒≱; ≮⇒≥)
 open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n)
 open import Data.Nat.Solver using (module +-*-Solver)
 open import Data.Integer.Base using (ℤ; +_; -[1+_])
@@ -48,13 +49,17 @@ import Data.Integer.Base as ℤ
 open import Data.Integer.Properties using (pos-*)
 open import Data.Product using (Σ-syntax; _×_; _,_; proj₁; proj₂)
 open import Data.Maybe.Base using (just; nothing)
-open import Data.Bool.Base using (true; false)
+open import Data.Maybe.Properties using (just-injective)
+open import Data.Bool.Base using (true; false; T)
+open import Data.Unit.Base using (⊤; tt)
+open import Data.Empty using (⊥-elim)
+open import Data.Sum.Base using (_⊎_; inj₁; inj₂)
 open import Data.Rational.Base using (ℚ; _/_; -_; ↥_; ↧ₙ_; fromℚᵘ)
 open import Data.Rational.Properties using (↥p/↧p≡p; fromℚᵘ-cong)
 import Data.Rational.Unnormalised.Base as ℚᵘ
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; subst; module ≡-Reasoning)
-open import Relation.Nullary using (yes; no)
+  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
+open import Relation.Nullary using (yes; no; ¬_)
 
 open import Aletheia.DBC.TextFormatter.Emitter using
   (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars)
@@ -68,6 +73,8 @@ open import Aletheia.DBC.RationalRenderer using
 open import Aletheia.DBC.DecRat using
   (DecRat; mkDecRat; toℚ; fromℚ?; 2^a·5^b-NonZero; fromℚᵘ-mkℚᵘ-/)
 open import Aletheia.DBC.DecRat.RationalSoundness using (toℚ-fromℚ?-sound)
+open import Aletheia.DBC.DecRat.RationalRoundtrip using
+  (fromℚ?-after-toℚ; ↥-toℚ-canonical; ↧ₙ-toℚ-canonical)
 
 ------------------------------------------------------------------------
 -- Standard-numeral semantics of a rendered string.
@@ -606,3 +613,149 @@ formatℚ-chars-represents q with fromℚ? q in fq-eq
                   (rep-neg (emitMagnitude-trimmed-chars (suc k) a b)
                            (_/_ (+ suc k) (2 ^ a * 5 ^ b) ⦃ 2^a·5^b-NonZero a b ⦄)
                            (emitMagnitude-represents (suc k) a b))
+
+------------------------------------------------------------------------
+-- SHAPE CANONICALITY: the renderer emits the UNIQUE canonical spelling.
+------------------------------------------------------------------------
+-- Faithfulness (above) pins the VALUE but not the spelling — `Represents`
+-- accepts `2/6`, `0.50`, `1/2` for the same value.  These theorems pin the
+-- SHAPE, so the per-binding golden examples are redundant:
+--   • a value renders as the reduced FRACTION `↥q / ↧ₙq` exactly when it is
+--     NOT a ≤ maxDecimalPlaces terminating decimal;
+--   • otherwise it renders as that terminating decimal of `↥q`.
+-- The branch is characterised purely by the `fromℚ?` soundness linchpin
+-- (`just d → toℚ d ≡ q`) and roundtrip (`fromℚ? (toℚ d) ≡ just d`) — DecRat
+-- values are canonical, so roundtrip returns the SAME `d`; no denominator
+-- prime-factorisation or minimal-exponent reasoning is needed.
+
+-- `q` is a terminating decimal of at most `maxDecimalPlaces` places.
+BoundedDec : ℚ → Set
+BoundedDec q =
+  Σ[ d ∈ DecRat ] (toℚ d ≡ q × (DecRat.twoExp d ⊔ DecRat.fiveExp d) ≤ maxDecimalPlaces)
+
+private
+  just≢nothing : ∀ {d : DecRat} → just d ≢ nothing
+  just≢nothing ()
+
+  -- fromℚ? q recovers any DecRat that maps to q (roundtrip + soundness, with
+  -- DecRat canonicity making the recovered value the SAME `d`).
+  fromℚ?-of-value : ∀ q d → toℚ d ≡ q → fromℚ? q ≡ just d
+  fromℚ?-of-value q d td≡q = trans (cong fromℚ? (sym td≡q)) (fromℚ?-after-toℚ d)
+
+  -- fromℚ? q ≡ nothing ⟹ no DecRat maps to q (so q is not terminating).
+  nothing→¬bounded : ∀ q → fromℚ? q ≡ nothing → ¬ BoundedDec q
+  nothing→¬bounded q eq (d , td≡q , _) =
+    just≢nothing (trans (sym (fromℚ?-of-value q d td≡q)) eq)
+
+  -- fromℚ? q's canonical d over the bound ⟹ no ≤bound DecRat maps to q
+  -- (roundtrip makes fromℚ?'s d the unique one).
+  overbound→¬bounded : ∀ q d → fromℚ? q ≡ just d →
+    maxDecimalPlaces < (DecRat.twoExp d ⊔ DecRat.fiveExp d) → ¬ BoundedDec q
+  overbound→¬bounded q d eq over (d′ , td′≡q , le) =
+    <⇒≱ over (subst (λ z → (DecRat.twoExp z ⊔ DecRat.fiveExp z) ≤ maxDecimalPlaces) d′≡d le)
+    where
+      d′≡d : d′ ≡ d
+      d′≡d = just-injective (trans (sym (fromℚ?-of-value q d′ td′≡q)) eq)
+
+  -- fromℚ? q's canonical d within the bound ⟹ q is a bounded terminating decimal.
+  within→bounded : ∀ q d → fromℚ? q ≡ just d →
+    (DecRat.twoExp d ⊔ DecRat.fiveExp d) ≤ maxDecimalPlaces → BoundedDec q
+  within→bounded q d eq le = d , toℚ-fromℚ?-sound q d eq , le
+
+-- A non-terminating (or over-bound) value renders as the REDUCED fraction
+-- `↥q / ↧ₙq` — pins both the fraction branch AND lowest terms (ℚ's `↥`/`↧ₙ`
+-- are coprime, so a regression emitting `2/6` for 1/3 would break this).
+formatℚ-fraction-form : ∀ q → ¬ BoundedDec q →
+  formatℚ-chars q ≡ emitNbyD-chars (↥ q) (↧ₙ q)
+formatℚ-fraction-form q ¬bd with fromℚ? q in eq
+... | nothing = refl
+... | just d@(mkDecRat n a b c) with maxDecimalPlaces <ᵇ (a ⊔ b) in beq
+...   | true  = cong₂ emitNbyD-chars n≡↥q den≡↧ₙq
+        where
+          td≡q : toℚ d ≡ q
+          td≡q = toℚ-fromℚ?-sound q d eq
+          n≡↥q : n ≡ ↥ q
+          n≡↥q = trans (sym (↥-toℚ-canonical n a b c)) (cong (λ x → ↥ x) td≡q)
+          den≡↧ₙq : 2 ^ a * 5 ^ b ≡ ↧ₙ q
+          den≡↧ₙq = trans (sym (↧ₙ-toℚ-canonical n a b c)) (cong (λ x → ↧ₙ x) td≡q)
+...   | false = ⊥-elim (¬bd (within→bounded q d eq
+                  (≮⇒≥ (λ lt → subst T beq (<⇒<ᵇ lt)))))
+
+-- A bounded terminating value renders as the trimmed decimal of `↥q` — pins
+-- the decimal branch (its trailing-zero trimming is in `formatℚ-trimmed`).
+formatℚ-decimal-form : ∀ q → BoundedDec q →
+  Σ[ a ∈ ℕ ] Σ[ b ∈ ℕ ] (formatℚ-chars q ≡ emitDecimal-trimmed-chars (↥ q) a b)
+formatℚ-decimal-form q bd with fromℚ? q in eq
+... | nothing = ⊥-elim (nothing→¬bounded q eq bd)
+... | just d@(mkDecRat n a b c) with maxDecimalPlaces <ᵇ (a ⊔ b) in beq
+...   | true  = ⊥-elim (overbound→¬bounded q d eq
+                  (<ᵇ⇒< maxDecimalPlaces (a ⊔ b) (subst T (sym beq) tt)) bd)
+...   | false = a , b , cong (λ x → emitDecimal-trimmed-chars x a b) n≡↥q
+        where
+          n≡↥q : n ≡ ↥ q
+          n≡↥q = trans (sym (↥-toℚ-canonical n a b c))
+                       (cong (λ x → ↥ x) (toℚ-fromℚ?-sound q d eq))
+
+------------------------------------------------------------------------
+-- TRIMMED: decimal outputs carry no trailing zero (the cluster-Y shape).
+------------------------------------------------------------------------
+-- Faithfulness + the branch theorems above leave one shape freedom: a decimal
+-- fractional part could carry a trailing `0` (`0.50` is value-faithful).  This
+-- pins it shut: every decimal the renderer emits has a trimmed fractional part.
+
+-- A character list whose first element is not '0' (vacuously true when empty).
+HeadNotZero : List Char → Set
+HeadNotZero []      = ⊤
+HeadNotZero (c ∷ _) = c ≢ '0'
+
+-- A list with no trailing '0' = its reverse has no leading '0'.
+NoTrailingZeros : List Char → Set
+NoTrailingZeros cs = HeadNotZero (reverse cs)
+
+private
+  -- `dropLeadingZeros` peels every leading '0', so its result starts non-'0'.
+  drop-noleading : ∀ ys → HeadNotZero (dropLeadingZeros ys)
+  drop-noleading []       = tt
+  drop-noleading (c ∷ cs) with c ≟ᶜ '0'
+  ... | yes _   = drop-noleading cs
+  ... | no  c≢0 = c≢0
+
+-- `trimTrailingZeros` (= reverse ∘ dropLeadingZeros ∘ reverse) leaves no
+-- trailing '0' — the lemma a regression dropping the trim step would break.
+trim-notrailing : ∀ cs → NoTrailingZeros (trimTrailingZeros cs)
+trim-notrailing cs =
+  subst HeadNotZero
+        (sym (reverse-involutive (dropLeadingZeros (reverse cs))))
+        (drop-noleading (reverse cs))
+
+-- Shape of the magnitude emitter: either a bare integer digit run, or
+-- `intPart "." frac` with the fractional part TRIMMED (no trailing '0').
+-- Mirrors `emitMagnitude-trimmed-chars`'s `with a ⊔ b` and `joinIntFrac`'s
+-- split, so a regression that stopped trimming the fractional part would fail
+-- to discharge the `NoTrailingZeros` obligation here.
+emitMagnitude-shape : ∀ absNum a b →
+  (Σ[ ip ∈ List Char ]
+     (emitMagnitude-trimmed-chars absNum a b ≡ ip × AllDigits ip))
+  ⊎ (Σ[ ip ∈ List Char ] Σ[ fr ∈ List Char ]
+       (emitMagnitude-trimmed-chars absNum a b ≡ ip ++ₗ '.' ∷ fr
+        × AllDigits ip × NoTrailingZeros fr))
+emitMagnitude-shape absNum a b with a ⊔ b
+... | zero    = inj₁ (showNat-chars absNum , refl , showNat-AllDigits absNum)
+... | suc m-1 =
+        let m          = suc m-1
+            instance
+              scale-NonZero : NonZero (10 ^ m)
+              scale-NonZero = m^n≢0 10 m
+            scaledNum  = absNum * 2 ^ (m ∸ₙ a) * 5 ^ (m ∸ₙ b)
+            intPart    = showNat-chars (scaledNum /ₙ 10 ^ m)
+            fracDigits = showℕ-padded-chars m (scaledNum %ₙ 10 ^ m)
+        in helper intPart fracDigits (trimTrailingZeros fracDigits)
+                  (showNat-AllDigits (scaledNum /ₙ 10 ^ m)) refl
+  where
+    helper : ∀ ip fd fr → AllDigits ip → trimTrailingZeros fd ≡ fr →
+      (Σ[ ip′ ∈ List Char ] (joinIntFrac ip fr ≡ ip′ × AllDigits ip′))
+      ⊎ (Σ[ ip′ ∈ List Char ] Σ[ fr′ ∈ List Char ]
+           (joinIntFrac ip fr ≡ ip′ ++ₗ '.' ∷ fr′ × AllDigits ip′ × NoTrailingZeros fr′))
+    helper ip fd []       allip teq = inj₁ (ip , refl , allip)
+    helper ip fd (c ∷ cs) allip teq =
+      inj₂ (ip , c ∷ cs , refl , allip , subst NoTrailingZeros teq (trim-notrailing fd))
