@@ -135,6 +135,16 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
           sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
           sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
+          # --install only REGISTERS the alternatives at priority 100; this runner
+          # ships clang-18 (see note above) whose alternatives outrank ours, so a
+          # bare `clang-tidy` would resolve to v18.  That exact bug hit the
+          # clang-format gate on PR #7 (v18 wraps trailing-return signatures
+          # differently than v19).  --set FORCES v19, the version this job installs.
+          sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-19
+          # NB: the clang-format gate no longer relies on this system binary — it
+          # runs the version-pinned `clang-format` from python[dev] via the venv
+          # (see tools/run_ci.py + python/pyproject.toml).  The apt clang-format-19
+          # above is kept only as a convenience for manual `clang-format` use.
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
       # / Catch2) for all three C++ build dirs.  Without it, every run

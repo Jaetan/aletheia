@@ -105,6 +105,15 @@ dev = [
     # opt-in via ``ALETHEIA_STABILITY_CHECK=1`` so the dependency only
     # surfaces in dev environments.
     "psutil>=7.2.2,<8",
+    # clang-format drives the C++ ``clang-format --dry-run --Werror`` gate.
+    # Pinned TIGHTER than the major-level bounds above (>=19.1.7,<19.2, not <20):
+    # clang-format output is version-specific — trailing-return signatures
+    # (``auto f(params) -> T``) wrap differently across 18/19, and the *system*
+    # clang-format on CI runners is whatever update-alternatives happens to
+    # select (often NOT the version apt installs).  Pinning the pip binary makes
+    # the gate byte-identical on every contributor + CI; run_ci routes the gate
+    # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
+    "clang-format>=19.1.7,<19.2",
 ]
 # AGENTS.md Python cat 34(c) (NEW R18) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;

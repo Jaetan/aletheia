@@ -666,13 +666,24 @@ def _run_lints(runner: Runner) -> None:
 
     # clang-format: exclude generated / third-party trees + sanitizer/mutation
     # build trees.
+    #
+    # Route through the venv-pinned clang-format (the ``clang-format`` pip pkg in
+    # [dev]) instead of a bare PATH lookup.  clang-format output is
+    # version-specific (trailing-return signatures wrap differently across
+    # 18/19), and the system clang-format on a CI runner is whatever
+    # update-alternatives selected — often NOT the version apt installs — so an
+    # unpinned binary makes the gate non-reproducible.  The venv binary is
+    # byte-identical on every contributor + CI; fall back to a PATH lookup only
+    # if the venv lacks it (e.g. a non-[dev] environment).
+    _clang_format = Path(runner.python).parent / "clang-format"
+    clang_format_bin = str(_clang_format) if _clang_format.exists() else "clang-format"
     clang_format_cmd = (
         "find . \\( -path ./build -o -path ./build-tidy "
         "-o -path ./build-asan -o -path ./build-ubsan "
         "-o -path ./build-mutation "
         "-o -path ./_deps -o -path './*/_deps' \\) -prune -o "
         "\\( -name '*.cpp' -o -name '*.hpp' \\) -print | "
-        "xargs clang-format --dry-run --Werror"
+        f"xargs {shlex.quote(clang_format_bin)} --dry-run --Werror"
     )
     runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
 
