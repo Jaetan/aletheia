@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 -- Same imports, but DOES use wrapR.  Correct verdict for InstR2: ALIVE.
 module ConsumerUsedMod where

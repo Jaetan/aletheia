@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 -- Discriminating origin: GenR.wrapR's TYPE references a QName (Tag), and the
 -- module application below passes Tag as the argument.  So namesIn(copy-def)

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# LANGUAGE PatternSynonyms #-}
 -- agda-iwyu-reader (Agda IWYU, Route A): scope-aware "is this import used?" from
 -- the .agdai interfaces.  Reads tab-separated query lines from stdin

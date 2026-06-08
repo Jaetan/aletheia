@@ -1,4 +1,6 @@
 cabal-version:      2.4
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 name:               agda-iwyu-reader
 version:            0.1.0.0
 synopsis:           Scope-aware IWYU verdicts from .agdai interfaces (Agda IWYU, Route A).

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 -- Imports `module InstR2` but NEVER uses wrapR.  It DOES use Tag/mk independently.
 -- Tag is in the copy wrapR's type/args, so blanket namesIn(copy-def) ∩ used would

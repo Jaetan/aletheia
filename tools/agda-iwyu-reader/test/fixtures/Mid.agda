@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 -- The "middle" module: re-exports a VALUE (open ... public, no copy) AND
 -- instantiates the parametrized module via a module application (open GenR X
