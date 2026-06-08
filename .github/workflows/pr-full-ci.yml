@@ -56,13 +56,21 @@ jobs:
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
-      - name: Cache cabal store (Agda library + deps)
+      # Caches the prebuilt Agda library + executable so only the FIRST run
+      # builds Agda (~15-20 min on the 4-core runner); every later run (and
+      # every future PR, once this lands on main) restores it and the
+      # `cabal install Agda` below becomes a fast no-op.  Key bumped to -v2:
+      # the original run cached an empty store (cabal used the XDG location
+      # before CABAL_DIR was pinned) and cache keys are immutable, so a new
+      # key is required to store the now-correct ~/.cabal layout.
+      - name: Cache cabal store (Agda library + executable + deps)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cabal/store
             ~/.cabal/packages
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
@@ -113,6 +121,21 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
           sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
           sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
+
+      # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
+      # / Catch2) for all three C++ build dirs.  Without it, every run
+      # re-downloads each tarball into each build tree — slow and exposed to
+      # transient source-server errors (a 504 fetching OpenXLSX failed the
+      # ctest step on the first real run).  Keyed on CMakeLists.txt, which
+      # pins the dependency versions, so a bump invalidates the cache.
+      - name: Cache C++ FetchContent deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            cpp/build/_deps
+            cpp/build-tidy/_deps
+            cpp/build-ubsan/_deps
+          key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
 
       # --iwyu-all runs the import gate over the WHOLE tree (not just the PR
       # diff) — airtight against cross-file deadness, the merge-gate scope.
