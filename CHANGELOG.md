@@ -1381,6 +1381,24 @@ callers that consumed a bare success acknowledgement need to access
 
 ### Fixed
 
+- **Python async cancellation use-after-free** (post-R23, `ci-speed`).
+  Cancelling or timing out an async streaming / iter operation
+  (`aletheia.asyncio.AletheiaClient.send_frames_iter`, batch `send_frames`,
+  etc.) could **SIGSEGV** the process: the cancelled coroutine's
+  `asyncio.to_thread` worker — which cannot be interrupted — kept running
+  inside an `aletheia_*` FFI call while the client tore down (`__aexit__`
+  → `aletheia_close` frees the `StreamState` `StablePtr`), so the
+  abandoned worker dereferenced freed memory. Order/timing-dependent
+  (surfaced by `pytest --random-order`, ~12% per full-suite run, in
+  `test_timeout_during_iter`). Fixed by serialising every FFI call on the
+  `StreamState` **and** `close()` through one per-client `threading.Lock`:
+  teardown now blocks until any in-flight — even abandoned — call completes
+  before freeing the pointer, honouring the cancellation contract's
+  "in-flight runs to completion; next call after" for the Python binding
+  (Go already serialised via its channel-token semaphore; C++ is
+  single-client-per-thread). Verified by 60 consecutive clean
+  `--random-order` runs of the reproducer that previously crashed at
+  iteration 8.
 - **Streaming runtime soundness** (R20 cluster W — AGDA-B-9.2-residual).
   Two related bugs are closed by the same structural fix
   (`classifyStepResult Satisfied _ = complete` — see corresponding

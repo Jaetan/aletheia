@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Self, cast, override
 
 from aletheia.client._backend import Backend, FFIBackend
@@ -159,6 +160,16 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         # Hot-path send_frame_binary bound method; rebound on __enter__,
         # cleared back to the stub on ``close()``.
         self._send_frame_binary: Callable[..., bytes] = _send_frame_unbound
+        # Serializes every FFI call on ``self._state`` (the StreamState
+        # StablePtr) against ``close()``.  An async op cancelled mid-flight
+        # abandons its ``to_thread`` worker, which can keep running inside an
+        # ``aletheia_*`` call while ``close()`` frees the StablePtr → use-
+        # after-free.  Because ``close()`` and every FFI op take this lock,
+        # teardown blocks until any in-flight call finishes (upholding the
+        # cancellation contract's "in-flight runs to completion; next call
+        # after").  Uncontended in the normal sequential path (~one atomic
+        # op); only cancellation/teardown ever contends.
+        self._ffi_lock = threading.Lock()
 
     def __enter__(self) -> Self:
         """Construct the FFIBackend (if not injected), initialize state."""
@@ -177,17 +188,24 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         return self
 
     def close(self) -> None:
-        """Free state and release RTS reference."""
-        try:
-            if self._backend is not None and self._state is not None:
-                self._backend.close(self._state)
-        finally:
-            self._state = None
-            self._send_frame_binary = _send_frame_unbound
-            # Only drop the backend reference when the Client constructed
-            # it; user-injected backends are caller-owned.
-            if self._make_backend is not None:
-                self._backend = None
+        """Free state and release RTS reference.
+
+        Acquires ``self._ffi_lock`` so teardown blocks until any in-flight FFI
+        call (e.g. a ``to_thread`` worker abandoned by a cancelled async op)
+        finishes before the StreamState StablePtr is freed — preventing a
+        use-after-free.  Idempotent and double-close safe.
+        """
+        with self._ffi_lock:
+            try:
+                if self._backend is not None and self._state is not None:
+                    self._backend.close(self._state)
+            finally:
+                self._state = None
+                self._send_frame_binary = _send_frame_unbound
+                # Only drop the backend reference when the Client constructed
+                # it; user-injected backends are caller-owned.
+                if self._make_backend is not None:
+                    self._backend = None
 
     @property
     def is_closed(self) -> bool:
@@ -219,10 +237,6 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         binding's short-circuit so we do not allocate a 100 MB ctypes
         buffer only to be rejected on the other side.
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
-
         json_bytes = dump_json(command).encode("utf-8")
         if len(json_bytes) > MAX_JSON_BYTES:
             raise InputBoundExceededError(
@@ -231,7 +245,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 MAX_JSON_BYTES,
                 code="input_bound_exceeded",
             )
-        result_bytes = self._backend.process(self._state, json_bytes)
+        with self._ffi_lock:
+            if self._backend is None or self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            result_bytes = self._backend.process(self._state, json_bytes)
         return cast("Response", parse_json_object(result_bytes.decode("utf-8")))
 
     def _resolve_signal_indices(
@@ -393,10 +411,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             ProtocolError: If no DBC is loaded or response is unexpected.
 
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
-        response_bytes = self._backend.format_dbc_binary(self._state)
+        with self._ffi_lock:
+            if self._backend is None or self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            response_bytes = self._backend.format_dbc_binary(self._state)
         response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
         status = response.get("status")
 

@@ -17,13 +17,14 @@ declarations.
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import TYPE_CHECKING, cast
 
 from aletheia.client._client_bin import FrameIdentity
 from aletheia.client._enrichment import format_enriched_reason
 from aletheia.client._ffi import parse_json_object
 from aletheia.client._log import LogEvent, log_event
+from aletheia.client._mixin_state import ClientHostState
 from aletheia.client._response_parsers import (
     build_error_response,
     parse_event_response,
@@ -69,7 +70,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger("aletheia")
 
 
-class StreamingMixin(ABC):
+class StreamingMixin(ClientHostState):
     """Streaming-mode frame I/O and violation enrichment.
 
     Mixed into :class:`aletheia.AletheiaClient` alongside
@@ -102,10 +103,14 @@ class StreamingMixin(ABC):
             SuccessResponse or ErrorResponse
 
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
-        response_bytes = self._backend.start_stream_binary(self._state)
+        # The lock makes close() wait for an in-flight FFI call before freeing
+        # the StablePtr; the None-check inside catches a close() that already
+        # completed (cancelled-async-op teardown racing this worker).
+        with self._ffi_lock:
+            if self._backend is None or self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            response_bytes = self._backend.start_stream_binary(self._state)
         response = parse_success_or_error(
             cast("Response", parse_json_object(response_bytes.decode("utf-8"))),
         )
@@ -243,9 +248,6 @@ class StreamingMixin(ABC):
             AckResponse, PropertyBatchResponse, or ErrorResponse
 
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
         if timestamp < 0:
             msg = "timestamp must be non-negative"
             raise ValidationError(msg)
@@ -263,16 +265,20 @@ class StreamingMixin(ABC):
         # structural, not removable by extraction.  The cached bound method is
         # passed through unchanged, so this is not a perf trade-off.
         # pylint: disable=duplicate-code
-        result_bytes = self._send_frame_binary(
-            self._state,
-            timestamp=timestamp,
-            can_id=can_id,
-            extended=extended,
-            dlc=dlc,
-            data=data,
-            brs=brs,
-            esi=esi,
-        )
+        with self._ffi_lock:
+            if self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            result_bytes = self._send_frame_binary(
+                self._state,
+                timestamp=timestamp,
+                can_id=can_id,
+                extended=extended,
+                dlc=dlc,
+                data=data,
+                brs=brs,
+                esi=esi,
+            )
         # pylint: enable=duplicate-code
 
         # Track last frame per CAN ID for EOS enrichment.
@@ -435,13 +441,14 @@ class StreamingMixin(ABC):
                 non-monotonic timestamp).
 
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
         if timestamp < 0:
             msg = "timestamp must be non-negative"
             raise ValidationError(msg)
-        result_bytes = self._backend.send_error_binary(self._state, timestamp)
+        with self._ffi_lock:
+            if self._backend is None or self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            result_bytes = self._backend.send_error_binary(self._state, timestamp)
         if result_bytes in self._ACK_RESPONSES:
             log_event(
                 _logger,
@@ -480,19 +487,20 @@ class StreamingMixin(ABC):
                 non-monotonic timestamp).
 
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
         if timestamp < 0:
             msg = "timestamp must be non-negative"
             raise ValidationError(msg)
         validate_can_id(can_id, extended=extended)
-        result_bytes = self._backend.send_remote_binary(
-            self._state,
-            timestamp=timestamp,
-            can_id=can_id,
-            extended=extended,
-        )
+        with self._ffi_lock:
+            if self._backend is None or self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            result_bytes = self._backend.send_remote_binary(
+                self._state,
+                timestamp=timestamp,
+                can_id=can_id,
+                extended=extended,
+            )
         if result_bytes in self._ACK_RESPONSES:
             log_event(
                 _logger,
@@ -526,10 +534,11 @@ class StreamingMixin(ABC):
         and ``core_reason`` when checks have been registered.
 
         """
-        if self._backend is None or self._state is None:
-            msg = "Client not initialized — use 'with' statement"
-            raise StateError(msg)
-        response_bytes = self._backend.end_stream_binary(self._state)
+        with self._ffi_lock:
+            if self._backend is None or self._state is None:
+                msg = "Client not initialized — use 'with' statement"
+                raise StateError(msg)
+            response_bytes = self._backend.end_stream_binary(self._state)
         response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
         status = response.get("status")
 
