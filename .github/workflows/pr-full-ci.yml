@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Server-side full correctness sweep for PR enforcement — the un-bypassable
+# backstop the local-first model (run_ci + opt-in pre-push hook) lacks.
+# See docs/development/BRANCH_PR_HYGIENE.md.  This workflow ENFORCES nothing
+# until `main` branch protection marks it a required status check; until then
+# it is advisory.  The first real runs will shake out toolchain setup (the
+# C++/LLVM lane is the expected first red — iterate to green BEFORE requiring).
+
+name: Full CI sweep (PR enforcement)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  full-sweep:
+    name: tools/run_ci.py (all gates)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GHC_VERSION: '9.6.7'
+      AGDA_VERSION: '2.8.0'
+      STDLIB_VERSION: 'v2.3'
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          cabal update
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Cache cabal store (Agda library + deps)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      # FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18; the build wants
+      # g++>=14 / clang>=21 and clang-tidy + ubsan use clang-19. If clang-19 is
+      # not in the default apt on the runner, add apt.llvm.org. Adjust on red runs.
+      - name: Install C++ toolchain (cmake, g++-14, clang-19 + tidy/format)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake g++-14 clang-19 clang-tidy-19 clang-format-19
+          sudo update-alternatives --install /usr/bin/clang        clang        /usr/bin/clang-19        100
+          sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
+          sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
+
+      - name: Run the full offline correctness sweep (tools/run_ci.py)
+        run: python/.venv/bin/python3 -m tools.run_ci

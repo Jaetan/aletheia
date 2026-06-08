@@ -3,12 +3,15 @@ SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 SPDX-License-Identifier: BSD-2-Clause
 -->
 
-# Branch & PR hygiene — server-side gate enforcement (DEFERRED / TO REVISIT)
+# Branch & PR hygiene — server-side gate enforcement
 
-> **Status: deferred.** This is a plan to revisit, not active infrastructure.
-> The workflow below is an **untested v1 draft** — well-formed and policy-
-> compliant, but never run in real GitHub Actions. Do **not** turn on branch
-> protection until the workflow is green on a real PR.
+> **Status: workflow committed (`.github/workflows/pr-full-ci.yml`), branch
+> protection NOT yet enabled.** The workflow is well-formed and passes the
+> repo's own GHA meta-gates (actionlint, action-pins, workflow-permissions),
+> but has not yet run in real GitHub Actions. It is **advisory until** `main`
+> branch protection marks it a required check. Do **not** turn on branch
+> protection until the workflow is green on a real PR (the C++/LLVM lane is the
+> expected first red — see footguns).
 
 ## Goal
 
@@ -53,13 +56,61 @@ falsifiable, server-side evidence the gates ran.
 
 ## Rollout order (important)
 
-1. Commit the workflow (below) — it does **nothing** until step 4.
-2. Push it on a branch; read the red; fix the toolchain setup; **iterate to
-   green**. You cannot test a GHA workflow without committing + pushing it.
-3. Only once it is **green on a real PR**:
-4. Repo settings → Branches → protect `main`: *Require status checks to pass*
-   → select this job; *Require a pull request before merging*; *Do not allow
-   bypassing*. (Marking it required while red would block every merge.)
+1. ✅ **Done** — the workflow (`.github/workflows/pr-full-ci.yml`) is committed.
+   It is **advisory** (runs, reports, but does not block merges) until step 4.
+2. **Push + iterate to green.** Push `ci-speed` and open a PR `ci-speed → main`;
+   the `pull_request` trigger fires the sweep. Read the red, fix the toolchain
+   setup, push again. You cannot test a GHA workflow without pushing it; expect
+   the C++/LLVM lane to go red first (see footguns).
+3. Only once the **`tools/run_ci.py (all gates)` check is green on a real PR**:
+4. Enable branch protection on `main` (see next section).
+
+## How to protect `main` (repo-admin — you must do this in GitHub)
+
+Branch protection is the **load-bearing** part: the workflow enforces nothing
+until GitHub is told the check is *required*. It is a repo setting, not code, so
+it cannot live in this repo — only a repo admin (you) can set it. Two ways:
+
+### Via the GitHub web UI
+
+1. Go to **`https://github.com/Jaetan/aletheia/settings/branches`**
+   (repo → **Settings** → **Branches**).
+2. Under **Branch protection rules**, click **Add branch ruleset** (or "Add
+   rule" on the classic UI). Set **Branch name pattern** = `main`.
+3. Enable **Require a pull request before merging** (this blocks direct
+   `git push` to `main`, so every change goes through a PR + the check).
+4. Enable **Require status checks to pass before merging**, then in the search
+   box add the check named **`tools/run_ci.py (all gates)`** (the job's `name:`).
+   ⚠️ The check only appears in that list **after it has run at least once** —
+   that's why step 3 (a green PR run) comes first.
+5. Enable **Do not allow bypassing the above settings** (so even admins go
+   through the gate — otherwise `--no-verify`'s server-side equivalent, an admin
+   override, reopens the hole this is closing).
+6. Save.
+
+### Via the `gh` CLI (equivalent, if you prefer)
+
+Run after the check has appeared once (needs an admin token):
+
+```sh
+gh api -X PUT repos/Jaetan/aletheia/branches/main/protection \
+  -H "Accept: application/vnd.github+json" \
+  -f 'required_status_checks[strict]=true' \
+  -f 'required_status_checks[contexts][]=tools/run_ci.py (all gates)' \
+  -f 'enforce_admins=true' \
+  -F 'required_pull_request_reviews=null' \
+  -F 'restrictions=null'
+```
+
+`required_status_checks.strict=true` = "require branches to be up to date before
+merging" (re-runs the gate against the latest `main`); `enforce_admins=true` =
+"do not allow bypassing". Verify with
+`gh api repos/Jaetan/aletheia/branches/main/protection`.
+
+After this, a `--no-verify` push can still skip the *local* hook, but GitHub
+refuses to merge any PR whose `tools/run_ci.py (all gates)` check is not green —
+the recurring "a gate that had to run wasn't run" failure becomes structurally
+impossible on `main`.
 
 ## Known footguns (baked into the draft, but the likely iteration points)
 
@@ -91,120 +142,15 @@ which `ModuleNotFound`s after the `python -m tools.X` migration (the migration
 missed the workflow). The action-pin + permissions meta-gates had therefore been
 erroring silently in GHA. Fixed to `python3 -m tools.<check>`.
 
-## The draft workflow
+## The workflow (committed)
 
-Drop this into `.github/workflows/pr-full-ci.yml` when enabling. It passes the
-repo's own `check_action_pins` + `check_workflow_permissions` meta-gates
-(ghcup is used directly so there is no third-party action to SHA-pin; a
-read-only `permissions:` block is declared).
-
-```yaml
-# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
-# SPDX-License-Identifier: BSD-2-Clause
-#
-# ⚠️ UNTESTED v1 DRAFT — server-side full correctness sweep for PR enforcement.
-# See docs/development/BRANCH_PR_HYGIENE.md. Pair with branch protection
-# (require this check + block direct pushes to main) ONLY once green on a PR.
-
-name: Full CI sweep (PR enforcement)
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: full-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-jobs:
-  full-sweep:
-    name: tools/run_ci.py (all gates)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      GHC_VERSION: '9.6.7'
-      AGDA_VERSION: '2.8.0'
-      STDLIB_VERSION: 'v2.3'
-    steps:
-      - name: Checkout (full history)
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Ensure a local `main` ref for `git diff main...HEAD`
-        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
-
-      - name: Set up GHC + cabal
-        run: |
-          set -euo pipefail
-          ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.12.1.0 --set
-          cabal update
-          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
-          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
-
-      - name: Cache cabal store (Agda library + deps)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cabal/store
-            ~/.cabal/packages
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}
-
-      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
-        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
-
-      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
-        uses: actions/cache@v4
-        with:
-          path: ~/.agda/agda-stdlib
-          key: agda-stdlib-${{ env.STDLIB_VERSION }}
-
-      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.agda
-          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
-            git clone --depth 1 --branch "${STDLIB_VERSION}" \
-              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
-          fi
-          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
-          echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-
-      - name: Create the dev venv (python/.venv)
-        run: |
-          set -euo pipefail
-          python3.14 -m venv python/.venv
-          python/.venv/bin/pip install --upgrade pip
-          python/.venv/bin/pip install -e 'python/.[dev]'
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
-      # ⚠️ FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18; the build wants
-      # g++>=14 / clang>=21 and clang-tidy + ubsan use clang-19. If clang-19 is
-      # not in the default apt on the runner, add apt.llvm.org. Adjust on red runs.
-      - name: Install C++ toolchain (cmake, g++-14, clang-19 + tidy/format)
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y cmake g++-14 clang-19 clang-tidy-19 clang-format-19
-          sudo update-alternatives --install /usr/bin/clang        clang        /usr/bin/clang-19        100
-          sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
-          sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
-          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
-
-      - name: Run the full offline correctness sweep (tools/run_ci.py)
-        run: python/.venv/bin/python3 -m tools.run_ci
-```
+The full sweep lives in
+[`.github/workflows/pr-full-ci.yml`](../../.github/workflows/pr-full-ci.yml)
+(it was the v1 draft formerly inlined here). It runs `tools/run_ci.py` (all
+gates) on `pull_request` + `push: main`, installs the toolchain via `ghcup`
+directly (no third-party action to SHA-pin), declares a read-only
+`permissions:` block, and caches the cabal store + agda-stdlib. It passes the
+repo's own GHA meta-gates locally (`actionlint`, `check_action_pins`,
+`check_workflow_permissions`) and `check-spdx-headers`. The toolchain steps —
+especially the C++/LLVM lane — are the expected iteration points on the first
+real PR run (see footguns above).
