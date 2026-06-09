@@ -275,6 +275,12 @@ proofModules =
     -- unimported by downstream proofs; explicit roots keep them from bit-rotting.
     , "Aletheia/DBC/Formatter/WellFormedText.agda"
     , "Aletheia/DBC/Formatter/WellFormedText/ValueDescResolves.agda"
+    -- E.2 bounded slice: derives the five per-section name-stop fields of
+    -- WellFormedTextDBCAgg from Identifier-validity (DEFERRED_ITEMS.md E.2).
+    -- Unimported — the FFI-boundary consumer is deferred along with the two
+    -- heavy fields (MessageWF / WFAttribute) — so an explicit root keeps it
+    -- from bit-rotting.
+    , "Aletheia/DBC/TextParser/Properties/WellFormedFromValidity.agda"
     , "Aletheia/DBC/TextParser/Format.agda"
     , "Aletheia/DBC/TextParser/Format/RegressionTests.agda"
     , "Aletheia/DBC/TextParser/Format/ValueTable.agda"
