@@ -129,6 +129,14 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: 'stable'
+          # The Go modules live under go/ and go/excel/, not the repo root, so
+          # setup-go's default go.sum probe misses and logs "Restore cache
+          # failed: Dependencies file is not found ... Supported file pattern:
+          # go.sum".  Point it at the real module checksums so module caching
+          # works and the benign-but-noisy warning goes away.
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
 
       # FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18, but the build is
       # Clang >= 19 ONLY (g++ dropped — see cpp/CMakeLists.txt).  Install clang-19
