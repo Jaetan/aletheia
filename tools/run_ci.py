@@ -618,7 +618,7 @@ def _run_binding_tests(runner: Runner) -> None:
         # version-pinned + installed by the workflow (no update-alternatives
         # roulette).
         "cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 "
-        "> /dev/null && cmake --build build && ctest --test-dir build",
+        + "> /dev/null && cmake --build build && ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
 
