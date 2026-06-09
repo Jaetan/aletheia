@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Sound compositionality combinators for four-valued monitoring soundness.
@@ -16,7 +18,7 @@
 --   sound-and-true-l, sound-and-true-r   — absorbing ∧ combinators
 module Aletheia.LTL.Adequacy.SoundOps where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (sym)
 open import Relation.Binary.PropositionalEquality using (subst₂)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)

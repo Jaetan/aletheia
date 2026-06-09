@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Extended-multiplex range parser for the DBC text format (Track B.3.c.8).
@@ -29,7 +31,7 @@
 --   still drop because no `DBCSignal` field consumes their data yet.)
 --
 --   cantools parity: the Python pipeline at
---   `python/aletheia/dbc_converter.py` also does not surface multi-value
+--   `python/aletheia/dbc/_converter.py` also does not surface multi-value
 --   mux ranges on the structural `DbcDefinition` — the `DBCSignal.presence`
 --   shape is always single-value after `dbc_to_json` today — so dropping
 --   this line at parse time matches the existing Python / C++ / Go

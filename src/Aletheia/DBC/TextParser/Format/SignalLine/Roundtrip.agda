@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.c-η — universal `signalLine-roundtrip`.
@@ -30,7 +32,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; sym)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
+  using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // make_mock_backend() — creates a MockBackend for testing.
 #include <aletheia/backend.hpp>

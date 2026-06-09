@@ -1,6 +1,8 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Agda/Python ``ErrorCode`` enum synchronization.
 
-Guards the Python ``ErrorCode`` enum in ``aletheia.protocols`` against
+Guards the Python ``ErrorCode`` enum in ``aletheia.types`` against
 drift from Agda's ``errorCode``/``parseErrorCode``/``frameErrorCode``/
 etc. families in ``src/Aletheia/Error.agda``.  The Agda source is the
 authoritative manifest; this test parses each of the six ``*ErrorCode``
@@ -20,12 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from aletheia.error_codes import ErrorCode
+from aletheia.codes import ErrorCode
 
-
-_AGDA_FILE = (
-    Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "Error.agda"
-)
+_AGDA_FILE = Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "Error.agda"
 _AGDA_FILE_MISSING = not _AGDA_FILE.exists()
 _SKIP_REASON = (
     f"Agda source required for ErrorCode drift test but not at {_AGDA_FILE}"
@@ -94,7 +93,7 @@ class TestErrorCodeSync:
         assert not missing_in_python, (
             f"Agda emits error codes that have no Python ErrorCode member: "
             f"{sorted(missing_in_python)}.  Add them to "
-            f"``aletheia/protocols.py::ErrorCode`` (and mirror in Go/C++)."
+            f"``aletheia/types.py::ErrorCode`` (and mirror in Go/C++)."
         )
 
     def test_every_python_code_is_in_agda(self) -> None:

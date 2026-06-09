@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K --no-main #-}
 
 -- JSON streaming protocol entry points.
@@ -24,7 +26,7 @@ open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers using (processStreamCommand)
 open import Aletheia.Error using
-  ( Error; DispatchErr
+  ( DispatchErr
   ; InputBoundExceeded
   ; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
   )

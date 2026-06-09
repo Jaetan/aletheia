@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.d 3c-B — DSL-side Format for the BA_DEF_DEF_ / BA_ /
@@ -52,7 +54,7 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; subst)
 
 open import Aletheia.Parser.Combinators
-  using (Position; Parser; mkResult; advancePositions)
+  using (Position; mkResult; advancePositions)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; intDecRatToℤ)
@@ -64,7 +66,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
    showNat-chars-head;
    showDecRat-chars-head-dash; showDecRat-chars-head-digit)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; stringLit; iso; many;
+  (Format; stringLit; iso;
    altSum; decRatFrac;
    intDecRat;
    emit; parse; EmitsOK; roundtrip)

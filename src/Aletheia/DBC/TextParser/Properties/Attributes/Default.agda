@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.2 — `parseRawAttrDefault` per-line construct
@@ -74,7 +76,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse; EmitsOK)
+  (emit; parse; EmitsOK)
 open import Aletheia.DBC.TextParser.Format.AttrValue using
   (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
    attrValueWireFmt;

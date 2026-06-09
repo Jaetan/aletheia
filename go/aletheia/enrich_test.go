@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 package aletheia_test
 
 import (
@@ -131,55 +134,27 @@ func TestFormatFormula_AllPredicates(t *testing.T) {
 	}
 }
 
-func TestFormatFormula_NonTerminatingRational(t *testing.T) {
+// FormatFormula embeds the FFI-rendered rational (aletheia_format_rational, the
+// shared Agda kernel) into each predicate type's display.  The renderer's
+// MATH and SHAPE — decimal-vs-N/D fallback, trailing-zero trimming, sign, the
+// k>18 cross-binding guard, exact (non-scientific) decimals — are proven and
+// pinned ONCE in the Agda kernel (RationalRenderer.Faithful.formatℚ-chars-
+// represents + the RationalRenderer.Properties shape golden), so they are no
+// longer re-asserted per binding (this used to triplicate the same value→string
+// table across Go/Python/C++).  What stays Go-specific: that the FFI plumbs
+// through (both output shapes) and that each predicate structure embeds it.
+func TestFormatFormula_RationalEmbedding(t *testing.T) {
 	tests := []struct {
 		name     string
 		pred     aletheia.Predicate
 		expected string
 	}{
-		{"equals 1/3", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 3}}, "S = 1/3"},
-		{"less_than 2/7", aletheia.LessThan{Signal: "S", Value: aletheia.Rational{Numerator: 2, Denominator: 7}}, "S < 2/7"},
-		{"greater_than -1/3", aletheia.GreaterThan{Signal: "S", Value: aletheia.Rational{Numerator: -1, Denominator: 3}}, "S > -1/3"},
-		{"between non-terminating", aletheia.Between{Signal: "S", Min: aletheia.Rational{Numerator: 1, Denominator: 3}, Max: aletheia.Rational{Numerator: 2, Denominator: 3}}, "1/3 <= S <= 2/3"},
-		{"reduces 2/6 → 1/3", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 2, Denominator: 6}}, "S = 1/3"},
-		{"changed_by 1/3", aletheia.ChangedBy{Signal: "S", Delta: aletheia.Rational{Numerator: 1, Denominator: 3}}, "ΔS >= 1/3"},
-		{"stable_within 1/7", aletheia.StableWithin{Signal: "S", Tolerance: aletheia.Rational{Numerator: 1, Denominator: 7}}, "|ΔS| <= 1/7"},
-		// k > 18 cases: terminating in decimal but the multiplier would
-		// overflow int64; render as N/D for cross-binding byte-identity
-		// with Python and C++ (which apply the same fallback).
-		{"k=19 power-of-2 → 1/524288", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 524288}}, "S = 1/524288"},
-		{"k=19 power-of-5 → 1/19073486328125", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 19073486328125}}, "S = 1/19073486328125"},
-		{"k=25 → -1/33554432 (negative, large k)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: -1, Denominator: 33554432}}, "S = -1/33554432"},
-	}
-	for _, tt := range tests {
-		f := aletheia.Atomic{Predicate: tt.pred}
-		got := aletheia.FormatFormula(f)
-		if got != tt.expected {
-			t.Errorf("%s: got %q, want %q", tt.name, got, tt.expected)
-		}
-	}
-}
-
-func TestFormatFormula_TerminatingRationalExact(t *testing.T) {
-	// Direct-construction Rational with terminating reduced denom renders as
-	// exact decimal in all three bindings (Go, C++, Python) — no precision
-	// loss to %g / :g defaults.  Includes large integers and high-precision
-	// decimals that previously diverged across bindings under the :g/%g path.
-	tests := []struct {
-		name     string
-		pred     aletheia.Predicate
-		expected string
-	}{
-		{"23/2 → 11.5", aletheia.LessThan{Signal: "V", Value: aletheia.Rational{Numerator: 23, Denominator: 2}}, "V < 11.5"},
-		{"7/8 → 0.875", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 7, Denominator: 8}}, "S = 0.875"},
-		{"42/1 → 42", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 42, Denominator: 1}}, "S = 42"},
-		{"-23/2 → -11.5", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: -23, Denominator: 2}}, "S = -11.5"},
-		{"1234567/1 → 1234567 (no scientific)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1234567, Denominator: 1}}, "S = 1234567"},
-		{"123456789/10^9 → 0.123456789 (9 sig figs exact)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 123456789, Denominator: 1000000000}}, "S = 0.123456789"},
-		{"1/1000000 → 0.000001 (small, no scientific)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 1000000}}, "S = 0.000001"},
-		{"50/100 → 0.5 (reduces, trims trailing zero)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 50, Denominator: 100}}, "S = 0.5"},
-		{"0/5 → 0 (zero)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 0, Denominator: 5}}, "S = 0"},
-		{"1/262144 → 0.000003814697265625 (k=18 boundary, last decimal)", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 262144}}, "S = 0.000003814697265625"},
+		{"equals, N/D shape", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 3}}, "S = 1/3"},
+		{"less_than, decimal shape", aletheia.LessThan{Signal: "V", Value: aletheia.Rational{Numerator: 23, Denominator: 2}}, "V < 11.5"},
+		{"greater_than, signed", aletheia.GreaterThan{Signal: "S", Value: aletheia.Rational{Numerator: -1, Denominator: 3}}, "S > -1/3"},
+		{"between, both bounds", aletheia.Between{Signal: "S", Min: aletheia.Rational{Numerator: 1, Denominator: 3}, Max: aletheia.Rational{Numerator: 2, Denominator: 3}}, "1/3 <= S <= 2/3"},
+		{"changed_by", aletheia.ChangedBy{Signal: "S", Delta: aletheia.Rational{Numerator: 1, Denominator: 3}}, "ΔS >= 1/3"},
+		{"stable_within", aletheia.StableWithin{Signal: "S", Tolerance: aletheia.Rational{Numerator: 1, Denominator: 7}}, "|ΔS| <= 1/7"},
 	}
 	for _, tt := range tests {
 		f := aletheia.Atomic{Predicate: tt.pred}

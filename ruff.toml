@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# ruff.toml — repository-root single source of truth for ruff (lint + format).
+#
+# Policy (user directive 2026-05-27): run the strongest practical static
+# ruleset and EARN a clean pass by fixing the code, never by suppressing.
+# `select = ["ALL"]` turns on every stable ruff rule.  The `ignore` list is
+# deliberately minimal: an entry exists only when a rule is physically
+# impossible to satisfy alongside another enabled rule / authoritative gate,
+# or encodes a policy this repository has deliberately not adopted.  Every
+# entry carries its rationale inline.
+#
+# Scope: the whole Python tree — tools/ (repo-root gate scripts), python/ (the
+# package + tests + benchmarks), benchmarks/, examples/, conftest.py.  pylint
+# and basedpyright configuration live in python/pyproject.toml; this file is
+# ruff-only (lint + format).
+
+target-version = "py314"  # matches python/pyproject.toml requires-python >=3.14
+line-length = 100         # matches [tool.pylint.format] max-line-length
+
+# `python/mutants/` is mutmut's GENERATED mutation-testing output (gitignored,
+# never authored) — exclude it so a `python/`-wide ruff scan (the run_ci gate)
+# does not lint thousands of throwaway mutant files.
+extend-exclude = ["python/mutants"]
+
+[lint]
+select = ["ALL"]
+# Intentional mathematical / typographic Unicode in docstrings and prose: the
+# domain is formal math (ℚ rationals, ℕ naturals, ℤ integers, → maps-to,
+# × product, − minus, — em-dash, – en-dash, σ trace/word, ∨ logical-or).
+# Whitelisting these keeps RUF001/002/003 active against genuine homoglyph
+# confusables while allowing the deliberate symbols (ASCII-ifying ℚ -> Q,
+# or σ -> o, would lose meaning).
+allowed-confusables = ["×", "—", "–", "→", "ℕ", "ℚ", "ℤ", "−", "σ", "∨"]
+ignore = [
+    # ── Mutually-exclusive pairs inside ALL (cannot satisfy both members) ──
+    "D203",    # one-blank-line-before-class — we keep its opposite D211 (no blank line before the class docstring)
+    "D213",    # multi-line-summary-second-line — we keep its opposite D212 (summary starts on the first physical line)
+    # ── Conflicts with an authoritative gate / the formatter ──
+    "ISC003",  # explicit-string-concatenation — basedpyright reportImplicitStringConcatenation=error REQUIRES the explicit '+' form; that gate is authoritative
+    "COM812",  # missing-trailing-comma — conflicts with `ruff format` (ruff's own documented recommendation)
+    "PYI021",  # docstring-in-stub — pylint C0114 (the AGENTS.md 10.00/10 gate) REQUIRES a module docstring and lints our single first-party stub (aletheia/_install_config.pyi); the two cannot coexist, and the 10/10 gate is authoritative
+    # ── Policy this repository has deliberately not adopted ──
+    "CPY001",  # missing-copyright-notice — no per-file copyright/SPDX header convention exists; adopting one across the tree is a licensing decision, not a lint fix
+    # ── No structural fix exists; the rule fires on every legitimate use ──
+    "S603",    # subprocess-without-shell-equals-true — fires on EVERY subprocess.run([...]) call regardless of arg safety; the tooling necessarily orchestrates git/agda/cabal/clang/go with hardcoded, trusted argument lists (never shell=True, never untrusted interpolation), so it carries no signal here. Its fixable sibling S607 (partial executable path) is NOT ignored — paths are resolved via shutil.which.
+]
+
+[lint.flake8-tidy-imports]
+# Ban every relative import, not just parent-relative (the rule's default).
+# The package uses fully-qualified absolute imports throughout (`from aletheia.x
+# import ...`), so a stray `from .x` / `from ..x` is the inconsistency TID252
+# should catch.  Earning this across the tree is the relative-imports cleanup.
+ban-relative-imports = "all"
+
+[lint.isort]
+# Classify `aletheia` as first-party so ruff's import-sorter (I001) groups it
+# in the first-party block — matching pylint's import-order check (C0411).
+# Without this, ruff infers `aletheia` as third-party (the package lives at
+# python/aletheia/ while this config and the tests sit elsewhere), so the two
+# tools demand different orderings and I001 / C0411 cannot both be satisfied.
+# This is a classification hint, NOT a suppression: I001 stays fully enforced.
+known-first-party = ["aletheia"]
+
+[lint.per-file-ignores]
+# pytest's bare `assert` is the only idiom for test assertions; rewriting to
+# unittest-style asserts would be a readability regression.  Tests also
+# intentionally carry no __init__.py — pytest discovers by path (see the
+# init-hook comment in python/pyproject.toml) — so the implicit-namespace
+# check cannot be satisfied without breaking discovery.  PLR2004 (magic-value
+# comparison) is the same category: `assert result.dlc == 8` compares against
+# the literal expected value, which is the assertion idiom — naming every test
+# literal as a constant is a readability regression.  PLR2004 stays active in
+# production code (aletheia/), where literal comparisons get named constants.
+"python/tests/**" = ["S101", "INP001", "PLR2004"]
+"conftest.py" = ["S101", "INP001"]
+# Type stubs (.pyi) mirror a THIRD-PARTY library's public API verbatim, so
+# function names must match upstream's casing (e.g. atheris' ``ConsumeBytes`` /
+# ``Setup`` / ``Fuzz``); renaming them to snake_case would make the stub stop
+# matching the real module.  N802 (non-lowercase function name) carries no
+# signal here.
+"python/stubs/**" = ["N802"]
+# A demo / benchmark script exists to print its results for a human reader:
+# stdout is the deliverable, so the no-print rule does not apply.  These are
+# runnable scripts, not importable packages, hence INP001 too.
+#
+# The top-level benchmarks/ profilers are white-box: they ``assert`` invariants
+# (S101) and deliberately reach into FFI internals (SLF001) to time each phase.
+# These mirror the per-binding profiling done by the C++/Go harnesses and carry
+# no signal here.  The basedpyright counterpart (reportPrivateUsage) is NOT
+# muffled dir-wide -- it stays on project-wide and is suppressed only inline, at
+# the exact white-box lines in profile_extraction.py (each with a rationale).
+"examples/**" = ["T201", "INP001", "S101"]
+"benchmarks/**" = ["T201", "INP001", "S101", "SLF001"]
+"python/benchmarks/**" = ["T201", "INP001"]
+
+[format]
+quote-style = "double"  # matches the existing double-quote convention (basedpyright/Black-ish)

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- ParseDBCText command handler — split from Handlers.agda.
@@ -12,7 +14,7 @@
 -- `processStreamCommand (ParseDBCText _) _` dispatch case.
 module Aletheia.Protocol.Handlers.ParseDBCText where
 
-open import Data.Char using (Char)
+open import Data.Char using ()
 open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)

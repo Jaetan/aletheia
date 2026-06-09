@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for formula enrichment: pretty-printer, signal collector, diagnostics."""
 
 from fractions import Fraction
@@ -10,7 +12,6 @@ from aletheia.client._enrichment import (
     format_formula,
 )
 from aletheia.dsl import Signal
-
 
 # ===========================================================================
 # Formula pretty-printer
@@ -50,18 +51,19 @@ class TestFormatFormula:
         f = Signal("Speed").less_than(220).next().to_dict()
         assert format_formula(f) == "next(Speed < 220)"
 
+    def test_weak_next(self) -> None:
+        """Verify weak_next (byte-parity with Go enrich.go / C++ enrich.cpp)."""
+        f = Signal("Speed").less_than(220).weak_next().to_dict()
+        assert format_formula(f) == "weak_next(Speed < 220)"
+
     def test_and(self) -> None:
         """Verify and."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500)).always().to_dict()
         assert format_formula(f) == "always(Speed < 220 and RPM > 500)"
 
     def test_or(self) -> None:
         """Verify or."""
-        f = Signal("Speed").less_than(220).or_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).or_(Signal("RPM").greater_than(500)).always().to_dict()
         assert format_formula(f) == "always(Speed < 220 or RPM > 500)"
 
     def test_until(self) -> None:
@@ -87,9 +89,7 @@ class TestFormatFormula:
     def test_not_non_atomic(self) -> None:
         # not(non-atomic) doesn't trigger Never pattern
         """Verify not non atomic."""
-        inner = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        )
+        inner = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500))
         f = inner.not_().always().to_dict()
         assert format_formula(f) == "always(not(Speed < 220 and RPM > 500))"
 
@@ -164,91 +164,49 @@ class TestFormatPredicate:
 
 
 class TestFormatRational:
-    """Test the smart-fallback Rational renderer (terminating decimal vs N/D).
+    """FFI plumbing + DSL float ingress for the rational renderer.
 
-    Cross-binding parity: every assertion here matches byte-for-byte with the
-    Go ``TestFormatFormula_*Rational*`` tests and C++ ``[enrich][rational]``
-    Catch2 cases.
+    The renderer's MATH and SHAPE — every ``(numerator, denominator) → string``
+    fact (decimal-vs-N/D fallback, trailing-zero trimming, sign, the k>18
+    cross-binding guard) — are proven and pinned ONCE in the Agda kernel:
+    ``RationalRenderer.Faithful.formatℚ-chars-represents`` (faithfulness) plus
+    the ``RationalRenderer.Properties`` shape golden.  All three bindings render
+    through that one kernel via ``aletheia_format_rational``, so the math is not
+    re-asserted per binding (it used to be triplicated across Python/Go/C++).
+    What stays here is binding-specific: that the FFI call plumbs a rendered
+    rational into formula display for both output shapes, and that the Python DSL
+    converts float inputs to exact Fractions before rendering.
     """
 
-    def test_non_terminating_rational_renders_as_fraction(self) -> None:
-        """Non-terminating Rational predicate value renders as N/D, not %g truncation."""
+    def test_ffi_plumbs_non_terminating_as_fraction(self) -> None:
+        """FFI plumbing: a non-terminating value reaches the formula in N/D shape."""
         f = Signal("S").equals(Fraction(1, 3)).always().to_dict()
         assert "S = 1/3" in format_formula(f)
 
-    def test_non_terminating_rational_signed(self) -> None:
-        """Negative non-terminating Rational keeps sign in N/D form."""
-        f = Signal("S").greater_than(Fraction(-2, 7)).always().to_dict()
-        assert "S > -2/7" in format_formula(f)
-
-    def test_terminating_rational_uses_decimal(self) -> None:
-        """Terminating Rational still renders compactly (no regression)."""
+    def test_ffi_plumbs_terminating_as_decimal(self) -> None:
+        """FFI plumbing: a terminating value reaches the formula in decimal shape."""
         f = Signal("Voltage").greater_than_or_equal(Fraction(23, 2)).always().to_dict()
         assert "Voltage >= 11.5" in format_formula(f)
 
-    def test_between_non_terminating(self) -> None:
-        """Between renders both bounds with smart fallback."""
-        f = Signal("S").between(Fraction(1, 3), Fraction(2, 3)).always().to_dict()
-        assert "1/3 <= S <= 2/3" in format_formula(f)
-
     def test_dsl_float_0_1_renders_as_decimal(self) -> None:
-        """Signal.equals(0.1) renders as exact "0.1", not the IEEE 754 binary fraction.
+        """DSL float ingress: Signal.equals(0.1) scales to Fraction(1, 10), not IEEE 754 noise.
 
-        DSL float-input conversion now uses 10^9 scaling (matching Go and C++),
-        so 0.1 becomes Fraction(1, 10) instead of Fraction(0.1) (the giant
-        IEEE 754 binary fraction).  Without A2 the renderer would emit a 56-char
-        exact-decimal string of the IEEE 754 noise.
+        Python's float→Fraction conversion uses 10^9 scaling (matching Go and
+        C++), so 0.1 becomes Fraction(1, 10); without it the renderer would emit
+        the 56-char exact decimal of the IEEE 754 binary fraction.
         """
         f = Signal("S").equals(0.1).always().to_dict()
         assert "S = 0.1" in format_formula(f)
 
     def test_dsl_large_integer_no_scientific(self) -> None:
-        """Large integer terminating values render exactly, no scientific notation.
-
-        Previously rendered as "1.23457e+06" via Python/C++ :g (lossy 6-sig-fig
-        truncation) or "1.234567e+06" via Go %g (exact scientific).  Now exact
-        decimal in all three bindings.
-        """
+        """DSL float ingress: large integer values stay exact, no scientific notation."""
         f = Signal("S").equals(1234567).always().to_dict()
         assert "S = 1234567" in format_formula(f)
 
     def test_dsl_high_precision_decimal_exact(self) -> None:
-        """Decimal values up to 9 sig figs render exactly via 10^9 scaling.
-
-        Previously truncated to 6 sig figs via :g ("0.123457").  Now exact.
-        """
+        """DSL float ingress: up to 9 significant figures convert exactly (10^9 scaling)."""
         f = Signal("S").equals(0.123456789).always().to_dict()
         assert "S = 0.123456789" in format_formula(f)
-
-    def test_k18_boundary_renders_as_decimal(self) -> None:
-        """k=18 is the last terminating denom that renders as exact decimal.
-
-        The k > 18 cross-binding guard kicks in immediately past this boundary
-        (see ``test_k_over_18_pow_2_renders_as_fraction``).
-        """
-        f = Signal("S").equals(Fraction(1, 262144)).always().to_dict()
-        assert "S = 0.000003814697265625" in format_formula(f)
-
-    def test_k_over_18_pow_2_renders_as_fraction(self) -> None:
-        """k=19 (denom = 2^19 = 524288) renders as N/D for cross-binding parity.
-
-        Python uses arbitrary-precision ints and could emit the full exact
-        decimal, but Go and C++ would risk int64 multiplier overflow at this
-        scale.  The conservative N/D fallback is uniform across all three
-        bindings so the same Rational always renders to byte-identical output.
-        """
-        f = Signal("S").equals(Fraction(1, 524288)).always().to_dict()
-        assert "S = 1/524288" in format_formula(f)
-
-    def test_k_over_18_pow_5_renders_as_fraction(self) -> None:
-        """k=19 (denom = 5^19) renders as N/D for cross-binding parity."""
-        f = Signal("S").equals(Fraction(1, 19073486328125)).always().to_dict()
-        assert "S = 1/19073486328125" in format_formula(f)
-
-    def test_k_over_18_negative_renders_as_signed_fraction(self) -> None:
-        """k > 18 negative numerator keeps sign in the N/D output."""
-        f = Signal("S").equals(Fraction(-1, 33554432)).always().to_dict()
-        assert "S = -1/33554432" in format_formula(f)
 
 
 # ===========================================================================
@@ -261,17 +219,13 @@ class TestCollectSignals:
 
     def test_multi_signal(self) -> None:
         """Verify multi signal."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500)).always().to_dict()
         signals = collect_signals(f)
         assert signals == ["Speed", "RPM"]
 
     def test_dedup(self) -> None:
         """Verify dedup."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("Speed").greater_than(0)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("Speed").greater_than(0)).always().to_dict()
         signals = collect_signals(f)
         assert signals == ["Speed"]
 
@@ -284,6 +238,12 @@ class TestCollectSignals:
     def test_never_pattern(self) -> None:
         """Verify never pattern."""
         f = Signal("Speed").greater_than(100).never().to_dict()
+        signals = collect_signals(f)
+        assert signals == ["Speed"]
+
+    def test_weak_next(self) -> None:
+        """Verify weak_next subtree signals are walked, not dropped."""
+        f = Signal("Speed").less_than(220).weak_next().to_dict()
         signals = collect_signals(f)
         assert signals == ["Speed"]
 
@@ -307,9 +267,7 @@ class TestBuildDiagnostic:
 
     def test_multi_signal(self) -> None:
         """Verify multi signal."""
-        f = Signal("Speed").less_than(220).and_(
-            Signal("RPM").greater_than(500)
-        ).always().to_dict()
+        f = Signal("Speed").less_than(220).and_(Signal("RPM").greater_than(500)).always().to_dict()
         diag = build_diagnostic(f)
         assert diag.signals == ("Speed", "RPM")
         assert "Speed" in diag.formula_desc
@@ -330,7 +288,7 @@ class TestFormatEnrichedReason:
             signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "formula:" in reason
@@ -342,7 +300,7 @@ class TestFormatEnrichedReason:
             signals=("Speed", "RPM"),
             formula_desc="always(Speed < 220 and RPM > 500)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0, "RPM": 3000.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245), "RPM": Fraction(3000)}
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "RPM = 3000" in reason
@@ -363,7 +321,7 @@ class TestFormatEnrichedReason:
             signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values, core_reason="liveness timeout")
         assert reason.endswith("[core: liveness timeout]")
         assert "Speed = 245" in reason
@@ -374,7 +332,7 @@ class TestFormatEnrichedReason:
             signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values, core_reason="")
         assert "[core:" not in reason
 
@@ -392,7 +350,7 @@ class TestFormatEnrichedReason:
         """DSL formula -> diagnostic -> enriched reason."""
         f = Signal("Speed").less_than(220).always().to_dict()
         diag = build_diagnostic(f)
-        values: dict[str, float | None] = {"Speed": 245.0}
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "always(Speed < 220)" in reason

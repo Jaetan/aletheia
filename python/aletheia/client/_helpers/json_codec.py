@@ -1,11 +1,16 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Protocol-level list parsers for the streaming response shape."""
 
-from collections.abc import Sequence
-from fractions import Fraction
+from typing import TYPE_CHECKING
 
-from ...protocols import is_str_dict
-from .._types import ProtocolError
-from .rational import parse_rational
+from aletheia.client._helpers.rational import parse_rational
+from aletheia.client._types import ProtocolError
+from aletheia.types import is_str_dict
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from fractions import Fraction
 
 
 def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:
@@ -13,10 +18,12 @@ def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:
     values: dict[str, Fraction] = {}
     for item in values_data:
         if not is_str_dict(item):
-            raise ProtocolError(f"Expected signal value to be dict, got {type(item)}")
+            msg = f"Expected signal value to be dict, got {type(item)}"
+            raise ProtocolError(msg)
         name_raw = item.get("name")
         if not isinstance(name_raw, str):
-            raise ProtocolError(f"Expected signal name to be str, got {type(name_raw)}")
+            msg = f"Expected signal name to be str, got {type(name_raw)}"
+            raise ProtocolError(msg)
         value_raw = item.get("value")
         values[name_raw] = parse_rational(value_raw)
     return values
@@ -27,13 +34,16 @@ def parse_errors_list(errors_data: Sequence[object]) -> dict[str, str]:
     errors: dict[str, str] = {}
     for item in errors_data:
         if not is_str_dict(item):
-            raise ProtocolError(f"Expected error item to be dict, got {type(item)}")
+            msg = f"Expected error item to be dict, got {type(item)}"
+            raise ProtocolError(msg)
         name_raw = item.get("name")
         if not isinstance(name_raw, str):
-            raise ProtocolError(f"Expected error signal name to be str, got {type(name_raw)}")
+            msg = f"Expected error signal name to be str, got {type(name_raw)}"
+            raise ProtocolError(msg)
         error_raw = item.get("error")
         if not isinstance(error_raw, str):
-            raise ProtocolError(f"Expected error message to be str, got {type(error_raw)}")
+            msg = f"Expected error message to be str, got {type(error_raw)}"
+            raise ProtocolError(msg)
         errors[name_raw] = error_raw
     return errors
 
@@ -43,6 +53,7 @@ def parse_absent_list(absent_data: Sequence[object]) -> list[str]:
     absent: list[str] = []
     for item in absent_data:
         if not isinstance(item, str):
-            raise ProtocolError(f"Expected absent signal name to be str, got {type(item)}")
+            msg = f"Expected absent signal name to be str, got {type(item)}"
+            raise ProtocolError(msg)
         absent.append(item)
     return absent

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 / Track E.5β — slim `parseValueDescription-roundtrip`
@@ -28,7 +30,6 @@ module Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc where
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length)
   renaming (_++_ to _++ₗ_)
-open import Data.List.Properties
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
@@ -54,8 +55,8 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 
 -- DSL framework + `ValueDescription-format` Format.
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
-  renaming (many to manyF)
+  (emit; parse)
+  renaming ()
 open import Aletheia.DBC.TextParser.Format.ValueDescription as FmtVD using
   (ValueDescription-format; RawValueDescNameStop)
 

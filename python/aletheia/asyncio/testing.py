@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Deterministic test scaffolding for async cancellation contracts.
 
 Public testing helpers used by ``python/tests/test_cancellation.py`` and
@@ -9,12 +11,11 @@ under ``tests/``) because:
    primitive (covered by its native ``context.WithCancel`` pattern); C++
    has ``std::stop_token`` directly.  Python's equivalent must be
    discoverable at the same level.
-2. Post-R20 cluster P: the gate wraps a public :class:`aletheia.Backend`
-   implementation (the DI seam) and is injected through
+2. The gate wraps a public :class:`aletheia.Backend` implementation
+   (the DI seam) and is injected through
    :class:`aletheia.AletheiaClient.__init__`'s ``backend=`` kwarg.  No
    ``setattr`` monkey-patching, no protected-attribute access, no
-   bound-method swap — closes PY-D-24.2 (asyncio.testing.gate_send_frame
-   ``setattr`` patch) by routing through the public Backend DI seam.
+   bound-method swap — instead, routes through the public Backend DI seam.
 
 Usage::
 
@@ -38,10 +39,13 @@ Usage::
 from __future__ import annotations
 
 import threading
-from collections.abc import Generator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
-from ..client import Backend
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from aletheia.client._backend import Backend
 
 
 class _CountingGateBackend:
@@ -60,8 +64,12 @@ class _CountingGateBackend:
     """
 
     def __init__(
-        self, inner: Backend, *, after_n: int,
-        started: threading.Event, proceed: threading.Event,
+        self,
+        inner: Backend,
+        *,
+        after_n: int,
+        started: threading.Event,
+        proceed: threading.Event,
     ) -> None:
         self._inner = inner
         self._after_n = after_n
@@ -76,22 +84,40 @@ class _CountingGateBackend:
 
     # --- gated method --------------------------------------------------
 
-    def send_frame_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool, dlc: int,
+    def send_frame_binary(  # noqa: PLR0913  # pylint: disable=too-many-arguments
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        brs: bool | None, esi: bool | None,
+        brs: bool | None,
+        esi: bool | None,
     ) -> bytes:
         """Count this call, block if it's the ``after_n``-th, then delegate."""
         self._counter += 1
         if self._counter == self._after_n:
             self._started.set()
             self._proceed.wait()
+        # R0801: forwarding ``send_frame_binary``'s eight-field wire signature,
+        # the same restatement as the sync streaming path.  A forwarding helper
+        # only moves the kwarg list to its call sites; a positional one re-trips
+        # the PLR0913 this method already carries — the duplication is structural,
+        # not removable by extraction.
+        # pylint: disable=duplicate-code
         return self._inner.send_frame_binary(
             state,
-            timestamp=timestamp, can_id=can_id, extended=extended,
-            dlc=dlc, data=data, brs=brs, esi=esi,
+            timestamp=timestamp,
+            can_id=can_id,
+            extended=extended,
+            dlc=dlc,
+            data=data,
+            brs=brs,
+            esi=esi,
         )
+        # pylint: enable=duplicate-code
 
     # --- pure delegation ----------------------------------------------
 
@@ -112,12 +138,19 @@ class _CountingGateBackend:
         return self._inner.send_error_binary(state, timestamp)
 
     def send_remote_binary(
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool,
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
     ) -> bytes:
         """Delegate to the inner backend."""
         return self._inner.send_remote_binary(
-            state, timestamp=timestamp, can_id=can_id, extended=extended,
+            state,
+            timestamp=timestamp,
+            can_id=can_id,
+            extended=extended,
         )
 
     def start_stream_binary(self, state: int) -> bytes:
@@ -133,55 +166,97 @@ class _CountingGateBackend:
         return self._inner.format_dbc_binary(state)
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Delegate to the inner backend."""
         return self._inner.extract_signals_binary(
-            state, can_id=can_id, extended=extended, dlc=dlc, data=data,
+            state,
+            can_id=can_id,
+            extended=extended,
+            dlc=dlc,
+            data=data,
         )
 
-    def build_frame_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+    def build_frame_bin(  # noqa: PLR0913  # pylint: disable=too-many-arguments
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Delegate to the inner backend."""
         return self._inner.build_frame_bin(
-            state, can_id=can_id, extended=extended, dlc=dlc,
-            indices=indices, numerators=numerators, denominators=denominators,
+            state,
+            can_id=can_id,
+            extended=extended,
+            dlc=dlc,
+            indices=indices,
+            numerators=numerators,
+            denominators=denominators,
             expected_bytes=expected_bytes,
         )
 
-    def update_frame_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
+    def update_frame_bin(  # noqa: PLR0913  # pylint: disable=too-many-arguments
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Delegate to the inner backend."""
         return self._inner.update_frame_bin(
-            state, can_id=can_id, extended=extended, dlc=dlc, data=data,
-            indices=indices, numerators=numerators, denominators=denominators,
+            state,
+            can_id=can_id,
+            extended=extended,
+            dlc=dlc,
+            data=data,
+            indices=indices,
+            numerators=numerators,
+            denominators=denominators,
             expected_bytes=expected_bytes,
         )
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Delegate to the inner backend."""
         return self._inner.extract_signals_bin(
-            state, can_id=can_id, extended=extended, dlc=dlc, data=data,
+            state,
+            can_id=can_id,
+            extended=extended,
+            dlc=dlc,
+            data=data,
         )
 
 
 @contextmanager
 def gated_backend(
-    inner: Backend, after_n: int,
-) -> Generator[tuple[Backend, threading.Event, threading.Event], None, None]:
+    inner: Backend,
+    after_n: int,
+) -> Generator[tuple[Backend, threading.Event, threading.Event]]:
     """Yield a Backend that blocks the *n*-th ``send_frame_binary`` call.
 
     Yields ``(backend, started, proceed)``.  The worker signals
@@ -213,7 +288,10 @@ def gated_backend(
     started = threading.Event()
     proceed = threading.Event()
     backend = _CountingGateBackend(
-        inner, after_n=after_n, started=started, proceed=proceed,
+        inner,
+        after_n=after_n,
+        started=started,
+        proceed=proceed,
     )
     try:
         yield backend, started, proceed

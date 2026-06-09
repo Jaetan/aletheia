@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.d — slim `parseEnvVar-roundtrip` derived from the
@@ -51,7 +53,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
 open import Aletheia.DBC.TextParser.Format.EnvVar as FmtEV using
   (envVarFmt; parseEnvVar-format-roundtrip)
 

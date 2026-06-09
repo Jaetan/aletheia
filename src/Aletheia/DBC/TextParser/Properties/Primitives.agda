@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Per-primitive roundtrip lemmas for the DBC text-format parser
@@ -55,7 +57,7 @@ open import Aletheia.Parser.Combinators using
    pure; _>>=_; _<|>_; _*>_; _<$>_; satisfy; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; mkIdentFromChars; mkIdentFromChars-on-valid;
+  (Identifier; mkIdentFromChars; mkIdentFromChars-on-valid;
    isIdentStart; isIdentCont; validIdentifierᵇ; allᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; buildIdent; fromMaybeIdent;

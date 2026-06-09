@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Warm-cache agreement: runtime cache ⇒ two-valued agreement theorem.
@@ -39,16 +41,16 @@
 -- case analysis.
 module Aletheia.Protocol.Adequacy.WarmCache where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _,_; _<_; _×_; _∷_; _≡_; _⊎_; cong; inj₁; inj₂; just; length; refl; suc; sym; trans; zero; ℕ)
 open import Data.Unit using (⊤)
 open import Data.Nat using (s≤s)
 open import Data.Product using (∃-syntax)
 open import Relation.Binary.PropositionalEquality using (subst; cong₂)
 
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Types using ()
 
 open import Aletheia.LTL.SignalPredicate using
-  (TruthVal; True; False; notTV; _∧TV_; _∨TV_;
+  (True; False; notTV; _∧TV_; _∨TV_;
    SignalPredicate; SignalCache)
 open import Aletheia.LTL.SignalPredicate.Cache using (lookupCache)
 open import Aletheia.LTL.SignalPredicate.Evaluation.Properties

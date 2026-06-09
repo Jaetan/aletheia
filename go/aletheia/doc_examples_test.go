@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Package aletheia_test — Track D.2 doc-example harness.
 //
 // Mirror of R17 C6 Python `pytest --markdown-docs`: every ```go fence in the

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Warning check severity proofs and soundness/completeness.
@@ -59,7 +61,7 @@ open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any; any?)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using () renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)

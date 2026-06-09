@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Latency Benchmark.
 
 Measures per-operation latency distribution through the Aletheia pipeline.
@@ -16,20 +17,26 @@ import argparse
 import sys
 import time
 from dataclasses import dataclass
-from typing import IO, TypedDict
+from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
+
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from benchmarks._common import (
+    CAN20_SPEC,
+    CANFD_SPEC,
+    DEFAULT_CAN20_PROPERTIES,
+    DEFAULT_CANFD_PROPERTIES,
+    FrameSpec,
+    emit_json_report,
+    load_canfd_dbc,
+    load_dbc,
+)
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient
-from aletheia.protocols import DBCDefinition, LTLFormula
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from ._common import (
-    CAN20_SPEC, CANFD_SPEC,
-    DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,
-    FrameSpec,
-    emit_json_report, load_canfd_dbc, load_dbc,
-)
+if TYPE_CHECKING:
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 class _LatencyStats(TypedDict):
@@ -150,7 +157,14 @@ def print_latency_stats(name: str, stats: _LatencyStats, file: IO[str] | None = 
     print(f"  Implied:  {1_000_000 / stats['mean_us']:,.0f} ops/sec (from mean)", file=out)
 
 
-def _bench_stream_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
+class NamedLatency(NamedTuple):
+    """A labelled latency-benchmark result (operation name + its stats)."""
+
+    name: str
+    stats: _LatencyStats
+
+
+def _bench_stream_lane(ctx: LatencyContext) -> NamedLatency:
     """Run streaming-mode latency for one frame type and return (name, stats)."""
     print(f"\nBenchmarking {ctx.label} streaming...", file=ctx.file)
     spec = ctx.spec
@@ -165,10 +179,10 @@ def _bench_stream_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
     stats = analyze_latencies(latencies)
     name = f"{ctx.label} Streaming LTL"
     print_latency_stats(name, stats, file=ctx.file)
-    return name, stats
+    return NamedLatency(name, stats)
 
 
-def _bench_extract_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
+def _bench_extract_lane(ctx: LatencyContext) -> NamedLatency:
     """Run extract-signals latency for one frame type and return (name, stats)."""
     print(f"\nBenchmarking {ctx.label} signal extraction...", file=ctx.file)
     spec = ctx.spec
@@ -180,10 +194,10 @@ def _bench_extract_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
     stats = analyze_latencies(latencies)
     name = f"{ctx.label} Signal Extraction"
     print_latency_stats(name, stats, file=ctx.file)
-    return name, stats
+    return NamedLatency(name, stats)
 
 
-def _bench_build_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
+def _bench_build_lane(ctx: LatencyContext) -> NamedLatency:
     """Run frame-build latency for one frame type and return (name, stats)."""
     print(f"\nBenchmarking {ctx.label} frame building...", file=ctx.file)
     spec = ctx.spec
@@ -195,10 +209,10 @@ def _bench_build_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
     stats = analyze_latencies(latencies)
     name = f"{ctx.label} Frame Building"
     print_latency_stats(name, stats, file=ctx.file)
-    return name, stats
+    return NamedLatency(name, stats)
 
 
-def run_latency_suite(ctx: LatencyContext) -> list[tuple[str, _LatencyStats]]:
+def run_latency_suite(ctx: LatencyContext) -> list[NamedLatency]:
     """Run streaming, extraction, and build latency for one frame type."""
     return [
         _bench_stream_lane(ctx),
@@ -207,7 +221,7 @@ def run_latency_suite(ctx: LatencyContext) -> list[tuple[str, _LatencyStats]]:
     ]
 
 
-def _print_summary(all_stats: list[tuple[str, _LatencyStats]], file: IO[str]) -> None:
+def _print_summary(all_stats: list[NamedLatency], file: IO[str]) -> None:
     """Print the formatted summary table to the given stream."""
     print("\n" + "=" * 70, file=file)
     print("Summary (all times in microseconds)", file=file)
@@ -257,16 +271,28 @@ def main() -> int:
     print(f"Operations: {args.ops:,}", file=out)
     print(f"Warmup: {args.warmup:,}", file=out)
 
-    all_stats = run_latency_suite(LatencyContext(
-        label="CAN 2.0B", dbc=load_dbc(), spec=CAN20_SPEC,
-        properties=DEFAULT_CAN20_PROPERTIES,
-        num_ops=args.ops, warmup=args.warmup, file=out,
-    ))
-    all_stats += run_latency_suite(LatencyContext(
-        label="CAN-FD", dbc=load_canfd_dbc(), spec=CANFD_SPEC,
-        properties=DEFAULT_CANFD_PROPERTIES,
-        num_ops=args.ops, warmup=args.warmup, file=out,
-    ))
+    all_stats = run_latency_suite(
+        LatencyContext(
+            label="CAN 2.0B",
+            dbc=load_dbc(),
+            spec=CAN20_SPEC,
+            properties=DEFAULT_CAN20_PROPERTIES,
+            num_ops=args.ops,
+            warmup=args.warmup,
+            file=out,
+        )
+    )
+    all_stats += run_latency_suite(
+        LatencyContext(
+            label="CAN-FD",
+            dbc=load_canfd_dbc(),
+            spec=CANFD_SPEC,
+            properties=DEFAULT_CANFD_PROPERTIES,
+            num_ops=args.ops,
+            warmup=args.warmup,
+            file=out,
+        )
+    )
 
     _print_summary(all_stats, out)
 

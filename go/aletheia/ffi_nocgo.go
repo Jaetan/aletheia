@@ -1,5 +1,8 @@
 //go:build !cgo || !linux
 
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 package aletheia
 
 import "unsafe"

@@ -1,4 +1,6 @@
-"""Hypothesis-driven property tests (R18 cluster 5 — Cat 34b).
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Hypothesis-driven property tests.
 
 Counterpart of go/aletheia/property_test.go and
 cpp/tests/unit_tests_property.cpp.  One @composite strategy per
@@ -16,17 +18,28 @@ unless ``--hypothesis-profile=ci`` is selected.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from fractions import Fraction
 
 import hypothesis
 import pytest
-from hypothesis import given, settings, strategies as st
-
 from _canonical_dbc import CANONICAL_SIGNAL
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from aletheia import ProtocolError
+from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.client._helpers.rational import parse_rational
-from aletheia.protocols import dump_json
-from aletheia.protocols import DBCDefinition
+from aletheia.types import (
+    ByteOrder,
+    DBCDefinition,
+    DBCMessage,
+    DBCSignal,
+    DBCSignalAlways,
+    DLCByteCount,
+    dump_json,
+)
 
 hypothesis.settings.register_profile("ci", max_examples=200)
 hypothesis.settings.register_profile("dev", max_examples=20)
@@ -37,16 +50,20 @@ hypothesis.settings.load_profile("dev")
 # Strategies
 # -----------------------------------------------------------------------------
 
+
 @st.composite
 def signal_name_strategy(draw: st.DrawFn) -> str:
     """Generate identifier-shaped strings (DBC signal naming rules)."""
     first = draw(st.sampled_from("ABCDEFGHIJKLMNOPQRSTUVWXYZ_"))
-    rest = draw(st.text(
-        alphabet=st.sampled_from(
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789abcdefghijklmnopqrstuvwxyz",
-        ),
-        min_size=0, max_size=15,
-    ))
+    rest = draw(
+        st.text(
+            alphabet=st.sampled_from(
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789abcdefghijklmnopqrstuvwxyz",
+            ),
+            min_size=0,
+            max_size=15,
+        )
+    )
     return first + rest
 
 
@@ -56,7 +73,7 @@ def can_id_strategy(draw: st.DrawFn) -> int:
     return draw(st.integers(min_value=0, max_value=0x7FF))
 
 
-def _make_signal(draw: st.DrawFn) -> dict[str, object]:
+def _make_signal(draw: st.DrawFn) -> DBCSignalAlways:
     """Generate one DBCSignalAlways from variable bit/byte-order/sign + canonical numerics.
 
     The numeric fields (factor/offset/min/max/unit/presence) are pinned to
@@ -65,11 +82,12 @@ def _make_signal(draw: st.DrawFn) -> dict[str, object]:
     the bits hypothesis actually varies (name, startBit, length, byteOrder,
     signed) come from the strategy draws.
     """
-    sig: dict[str, object] = dict(CANONICAL_SIGNAL)  # shallow copy is fine — values are scalars
+    sig = CANONICAL_SIGNAL.copy()  # shallow copy is fine — values are scalars
     sig["name"] = draw(signal_name_strategy())
     sig["startBit"] = draw(st.integers(min_value=0, max_value=63))
     sig["length"] = draw(st.integers(min_value=1, max_value=64))
-    sig["byteOrder"] = draw(st.sampled_from(["little_endian", "big_endian"]))
+    byte_orders: list[ByteOrder] = ["little_endian", "big_endian"]
+    sig["byteOrder"] = draw(st.sampled_from(byte_orders))
     sig["signed"] = draw(st.booleans())
     return sig
 
@@ -78,22 +96,23 @@ def _make_signal(draw: st.DrawFn) -> dict[str, object]:
 def dbc_strategy(draw: st.DrawFn) -> DBCDefinition:
     """Generate minimal DBC definitions with random signals."""
     n_messages = draw(st.integers(min_value=0, max_value=3))
-    messages = []
+    messages: list[DBCMessage] = []
     for i in range(n_messages):
         n_signals = draw(st.integers(min_value=0, max_value=4))
-        signals = [_make_signal(draw) for _ in range(n_signals)]
-        messages.append({
-            "id": draw(can_id_strategy()),
-            "name": f"Msg{i}",
-            "dlc": draw(st.integers(min_value=0, max_value=8)),
-            "sender": "ECU",
-            "signals": signals,
-        })
+        signals: list[DBCSignal] = [_make_signal(draw) for _ in range(n_signals)]
+        messages.append(
+            {
+                "id": draw(can_id_strategy()),
+                "name": f"Msg{i}",
+                "dlc": DLCByteCount(draw(st.integers(min_value=0, max_value=8))),
+                "sender": "ECU",
+                "signals": signals,
+            }
+        )
     return {
-        "version": "1.0", "messages": messages,
-        "signalGroups": [], "environmentVars": [], "valueTables": [],
-        "nodes": [], "comments": [], "attributes": [],
-        "unresolvedValueDescs": [],
+        "version": "1.0",
+        "messages": messages,
+        **empty_dbc_tier2(),
     }
 
 
@@ -112,16 +131,18 @@ def test_load_json_total_on_printable_ascii(payload: str) -> None:
     Errors are expected (not all printable ASCII is valid JSON); the
     contract is "no exception escape past the documented error types".
     """
-    try:
+    # documented error path, not a property failure
+    with contextlib.suppress(ValueError, TypeError, RuntimeError):
         json.loads(payload)
-    except (ValueError, TypeError, RuntimeError):
-        pass  # documented error path, not a property failure
 
 
-@given(numerator=st.integers(min_value=-(10**18), max_value=10**18),
-       denominator=st.integers(min_value=1, max_value=10**18))
+@given(
+    numerator=st.integers(min_value=-(10**18), max_value=10**18),
+    denominator=st.integers(min_value=1, max_value=10**18),
+)
 def test_parse_rational_accepts_positive_denominator(
-    numerator: int, denominator: int,
+    numerator: int,
+    denominator: int,
 ) -> None:
     """`parse_rational` accepts positive-denominator rationals exactly.
 
@@ -130,7 +151,7 @@ def test_parse_rational_accepts_positive_denominator(
     non-positive denominators on the wire (cross-binding parity with Go's
     ``validateRational`` and C++'s ``Rational::make``) — silent
     Fraction-sign-flipping a negative denominator would hide a wire-format
-    violation.  R20 cluster C tightened the Python side to match.
+    violation.
     """
     rational_dict = {"numerator": numerator, "denominator": denominator}
     parsed = parse_rational(rational_dict)
@@ -138,30 +159,34 @@ def test_parse_rational_accepts_positive_denominator(
     assert parsed == Fraction(numerator, denominator)
 
 
-@given(numerator=st.integers(min_value=-(10**18), max_value=10**18),
-       denominator=st.integers(min_value=-(10**18), max_value=0))
+@given(
+    numerator=st.integers(min_value=-(10**18), max_value=10**18),
+    denominator=st.integers(min_value=-(10**18), max_value=0),
+)
 def test_parse_rational_rejects_non_positive_denominator(
-    numerator: int, denominator: int,
+    numerator: int,
+    denominator: int,
 ) -> None:
     """`parse_rational` rejects non-positive denominator with ProtocolError.
 
-    Cross-binding parity (R20 cluster C): Go ``validateRational`` rejects
-    ``<= 0`` since R19 cluster 17; C++ ``Rational::make`` rejects the same;
+    Cross-binding parity: Go ``validateRational`` rejects
+    ``<= 0``; C++ ``Rational::make`` rejects the same;
     Python now rejects too instead of silently sign-flipping via Fraction.
     """
-    from aletheia import ProtocolError as _ProtocolError  # noqa: PLC0415
     rational_dict = {"numerator": numerator, "denominator": denominator}
     try:
         parse_rational(rational_dict)
-    except _ProtocolError:
+    except ProtocolError:
         pass
     else:
         msg = f"expected ProtocolError for denominator={denominator}"
         raise AssertionError(msg)
 
 
-@given(numerator=st.integers(min_value=-(10**18), max_value=10**18),
-       denominator=st.integers(min_value=1, max_value=10**18))
+@given(
+    numerator=st.integers(min_value=-(10**18), max_value=10**18),
+    denominator=st.integers(min_value=1, max_value=10**18),
+)
 def test_fraction_round_trips_through_json(numerator: int, denominator: int) -> None:
     """Fraction → JSON → Fraction preserves value across the wire form.
 

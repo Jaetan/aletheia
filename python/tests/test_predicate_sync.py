@@ -1,7 +1,9 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Agda/Python ``PredicateType`` enum synchronization.
 
 Mirrors ``test_error_code_sync.py``: guards the Python
-``PredicateType`` enum in ``aletheia.protocols`` against drift from
+``PredicateType`` enum in ``aletheia.types`` against drift from
 Agda's signal-predicate JSON tags emitted by
 ``src/Aletheia/LTL/JSON/Format.agda``.
 
@@ -17,16 +19,10 @@ from pathlib import Path
 
 import pytest
 
-from aletheia.protocols import PredicateType
-
+from aletheia.types import PredicateType
 
 _AGDA_FILE = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "Aletheia"
-    / "LTL"
-    / "JSON"
-    / "Format.agda"
+    Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "LTL" / "JSON" / "Format.agda"
 )
 _AGDA_FILE_MISSING = not _AGDA_FILE.exists()
 _SKIP_REASON = (
@@ -38,9 +34,7 @@ _SKIP_REASON = (
 # Lines like:    ("predicate" , JString (toList "equals")) ∷ ("signal" , JString s) ...
 # Post Path-A JSON-mirror: kind-discriminator literals are wrapped in `(toList "…")`
 # because `JString : List Char → JSON`.
-_PREDICATE_TAG_RE = re.compile(
-    r'"predicate"\s*,\s*JString\s+\(toList\s+"([^"\n]+)"\)'
-)
+_PREDICATE_TAG_RE = re.compile(r'"predicate"\s*,\s*JString\s+\(toList\s+"([^"\n]+)"\)')
 
 
 def _collect_agda_predicate_tags() -> set[str]:
@@ -56,9 +50,7 @@ class TestPredicateTypeSync:
     def test_agda_tags_parsed(self) -> None:
         """The Agda parser found *some* tags — fails fast on a broken regex."""
         agda_tags = _collect_agda_predicate_tags()
-        assert agda_tags, (
-            "parsed zero predicate tags — the regex or Agda layout changed"
-        )
+        assert agda_tags, "parsed zero predicate tags — the regex or Agda layout changed"
         # Smoke-check the well-known lattice endpoints.
         assert "equals" in agda_tags
         assert "between" in agda_tags
@@ -72,7 +64,7 @@ class TestPredicateTypeSync:
         assert not missing_in_python, (
             "Agda emits predicate tags that have no Python PredicateType "
             f"member: {sorted(missing_in_python)}. Add them to "
-            "``aletheia/protocols.py::PredicateType`` (and mirror in "
+            "``aletheia/types.py::PredicateType`` (and mirror in "
             "Go/C++)."
         )
 

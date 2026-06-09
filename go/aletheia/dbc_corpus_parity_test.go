@@ -1,5 +1,6 @@
 //go:build cgo && linux
 
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
 // B.3.j — DBC text parser cross-binding parity gate (Go side).

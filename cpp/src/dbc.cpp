@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // DbcMessage / DbcDefinition out-of-line query helpers.
 #include <aletheia/dbc.hpp>

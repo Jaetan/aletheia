@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — shared helpers for the per-target
@@ -23,7 +25,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
-open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat using ()
 open import Aletheia.DBC.TextFormatter.Emitter
   using (showDecRat-dec-chars; showInt-chars; showℕ-dec-chars; digitChar)
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)

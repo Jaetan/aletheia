@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Trace-event, format_dbc, and RTS-state tests for AletheiaClient.
 
 Split out of ``test_unified_client.py`` to keep that file under the
@@ -25,7 +27,7 @@ from aletheia import (
     ValidationError,
 )
 from aletheia.client._response_parsers import parse_event_response
-from aletheia.protocols import DLCCode
+from aletheia.types import DLCCode
 
 
 class TestSendErrorRemote:
@@ -67,27 +69,23 @@ class TestSendErrorRemote:
 
     def test_send_error_negative_timestamp_rejected(self) -> None:
         """send_error rejects negative timestamps via typed ValidationError."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValidationError, match="non-negative"):
-                client.send_error(timestamp=-1)
+        with AletheiaClient() as client, pytest.raises(ValidationError, match="non-negative"):
+            client.send_error(timestamp=-1)
 
     def test_send_remote_negative_timestamp_rejected(self) -> None:
         """send_remote rejects negative timestamps via typed ValidationError."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValidationError, match="non-negative"):
-                client.send_remote(timestamp=-1, can_id=256)
+        with AletheiaClient() as client, pytest.raises(ValidationError, match="non-negative"):
+            client.send_remote(timestamp=-1, can_id=256)
 
     def test_send_remote_invalid_can_id_rejected(self) -> None:
         """send_remote rejects out-of-range standard CAN IDs."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValidationError, match="Invalid"):
-                client.send_remote(timestamp=1000, can_id=0x800)
+        with AletheiaClient() as client, pytest.raises(ValidationError, match="Invalid"):
+            client.send_remote(timestamp=1000, can_id=0x800)
 
     def test_send_remote_extended_invalid_can_id_rejected(self) -> None:
         """send_remote rejects out-of-range extended CAN IDs."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValidationError, match="Invalid"):
-                client.send_remote(timestamp=1000, can_id=0x20000000, extended=True)
+        with AletheiaClient() as client, pytest.raises(ValidationError, match="Invalid"):
+            client.send_remote(timestamp=1000, can_id=0x20000000, extended=True)
 
     def test_send_error_error_response_raises_protocol_error(self) -> None:
         """parse_event_response raises ProtocolError for error_event errors."""
@@ -125,7 +123,9 @@ class TestSendErrorRemote:
             client.set_properties([])
             client.start_stream()
             response = client.send_remote(
-                timestamp=1000, can_id=0x1FFFFFFF, extended=True,
+                timestamp=1000,
+                can_id=0x1FFFFFFF,
+                extended=True,
             )
             assert response["status"] == "ack"
             client.end_stream()
@@ -140,12 +140,16 @@ class TestSendErrorRemote:
         """
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    Signal("TestSignal").less_than(1000).always().to_dict(),
+                ]
+            )
             client.start_stream()
             client.send_frame(
-                timestamp=5000, can_id=256, dlc=DLCCode(8),
+                timestamp=5000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             # Error events don't participate in data-frame monotonicity.
@@ -163,12 +167,16 @@ class TestSendErrorRemote:
         """
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
+            client.set_properties(
+                [
+                    Signal("TestSignal").less_than(1000).always().to_dict(),
+                ]
+            )
             client.start_stream()
             client.send_frame(
-                timestamp=5000, can_id=256, dlc=DLCCode(8),
+                timestamp=5000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             # Remote events don't participate in data-frame monotonicity.
@@ -195,9 +203,8 @@ class TestFormatDBC:
 
     def test_format_dbc_without_parse_raises(self) -> None:
         """format_dbc before parse_dbc returns an error."""
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError):
-                client.format_dbc()
+        with AletheiaClient() as client, pytest.raises(ProtocolError):
+            client.format_dbc()
 
 
 class TestRTSState:
@@ -220,8 +227,7 @@ class TestRTSState:
 
     def test_rts_cores_mismatch_warns(self, caplog: pytest.LogCaptureFixture) -> None:
         """Second client with different rts_cores logs a warning."""
-        with AletheiaClient(rts_cores=1):
-            with caplog.at_level("WARNING", logger="aletheia"):
-                with AletheiaClient(rts_cores=4):
-                    pass
+        with AletheiaClient(rts_cores=1), caplog.at_level("WARNING", logger="aletheia"):
+            with AletheiaClient(rts_cores=4):
+                pass
             assert "rts.cores_mismatch" in caplog.text

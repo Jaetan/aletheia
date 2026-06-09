@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-"""Aletheia Demo — Verified CAN Signal Analysis
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Aletheia Demo — Verified CAN Signal Analysis.
 
 Sections:
     1. Integration    — load DBC, define signals
@@ -14,12 +15,50 @@ Requirements:
     - Run from the examples/demo directory
 """
 
-import json
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from drive_log import NORMAL_DRIVE, OVERSPEED_DRIVE
 
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
-from drive_log import NORMAL_DRIVE, OVERSPEED_DRIVE
+from aletheia.dbc import dbc_to_json
+from aletheia.types import DLCCode, dump_json
+
+if TYPE_CHECKING:
+    from drive_log import CANFrame
+
+    from aletheia.types import PropertyResultEntry
+
+# Number of violations shown in the diagnostics section before eliding the rest.
+_MAX_SHOWN = 3
+
+
+def run_verification(
+    stream_client: AletheiaClient, frames: list[CANFrame]
+) -> list[PropertyResultEntry]:
+    """Stream ``frames`` and return the per-frame property-violation entries.
+
+    Each ``send_frame`` returns an ack, an error, or a property batch; only the
+    batch carries ``results``, and a ``status == "fails"`` entry is a violation.
+    """
+    results: list[PropertyResultEntry] = []
+    for frame in frames:
+        response = stream_client.send_frame(
+            timestamp=frame.timestamp_us,
+            can_id=frame.can_id,
+            dlc=DLCCode(len(frame.data)),
+            data=frame.data,
+        )
+        if "results" in response:
+            results.extend(e for e in response["results"] if e["status"] == "fails")
+    return results
 
 
 # =============================================================================
@@ -39,7 +78,7 @@ print(f"Messages: {[m['name'] for m in dbc['messages']]}")
 speed = Signal("VehicleSpeed")
 brake = Signal("BrakePressure")
 
-print(f"\nSignals:")
+print("\nSignals:")
 print(f"  - {speed.name} (from VehicleDynamics)")
 print(f"  - {brake.name} (from BrakeStatus)")
 
@@ -59,9 +98,7 @@ print("\nProperty 1 — Speed limit:")
 print("  speed.less_than(120).always()")
 
 # Temporal property: brake response time
-brake_response = speed.greater_than(80).implies(
-    brake.greater_than(0).within(500)
-).always()
+brake_response = speed.greater_than(80).implies(brake.greater_than(0).within(500)).always()
 
 print("\nProperty 2 — Brake response:")
 print("  speed.greater_than(80).implies(")
@@ -69,7 +106,7 @@ print("      brake.greater_than(0).within(500)")
 print("  ).always()")
 
 print("\nSerialized to JSON:")
-print(json.dumps(speed_limit.to_dict(), indent=2))
+print(dump_json(speed_limit.to_dict(), indent=2))
 
 
 # =============================================================================
@@ -87,13 +124,7 @@ with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
-
-    violations = []
-    for frame in NORMAL_DRIVE:
-        response = client.send_frame(frame.timestamp_us, frame.can_id, frame.data)
-        if response.get("status") == "fails":
-            violations.append(response)
-
+    violations = run_verification(client, NORMAL_DRIVE)
     client.end_stream()
 
 if not violations:
@@ -117,13 +148,7 @@ with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
-
-    violations = []
-    for frame in OVERSPEED_DRIVE:
-        response = client.send_frame(frame.timestamp_us, frame.can_id, frame.data)
-        if response.get("status") == "fails":
-            violations.append(response)
-
+    violations = run_verification(client, OVERSPEED_DRIVE)
     client.end_stream()
 
 if violations:
@@ -141,17 +166,18 @@ print("SECTION 5: Diagnostics")
 print("=" * 60)
 
 if violations:
-    for i, v in enumerate(violations[:3], 1):
-        ts = v.get("timestamp", {})
-        ts_us = ts.get("numerator", 0) if isinstance(ts, dict) else 0
+    for i, v in enumerate(violations[:_MAX_SHOWN], 1):
+        ts = v.get("timestamp")
+        ts_us = ts["numerator"] if ts is not None else 0
         print(f"\n  Violation {i}:")
         print(f"    Timestamp: {ts_us // 1000}ms")
-        print(f"    Property:  {v.get('property_index', {})}")
-        if "reason" in v:
-            print(f"    Reason:    {v['reason']}")
+        print(f"    Property:  {v['property_index']['numerator']}")
+        reason = v.get("reason")
+        if reason is not None:
+            print(f"    Reason:    {reason}")
 
-    if len(violations) > 3:
-        print(f"\n  ... and {len(violations) - 3} more")
+    if len(violations) > _MAX_SHOWN:
+        print(f"\n  ... and {len(violations) - _MAX_SHOWN} more")
 
 
 # =============================================================================

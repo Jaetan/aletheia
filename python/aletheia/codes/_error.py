@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Machine-readable error codes mirroring Agda's ``Error`` ADT.
 
 This module is the Python side of the cross-binding error-code contract.
@@ -12,14 +14,15 @@ the Agda source and asserts this enum is a reciprocal superset — drift
 either direction fails CI.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """Machine-readable error codes matching Agda Error ADT.
 
     Each code maps 1:1 to an Agda error constructor via errorCode.
     """
+
     # Parse errors
     PARSE_MISSING_FIELD = "parse_missing_field"
     PARSE_INVALID_BYTE_ORDER = "parse_invalid_byte_order"

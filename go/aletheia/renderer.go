@@ -1,5 +1,8 @@
 //go:build cgo && linux
 
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Package-level lazy-load + FFI dispatch for the cross-binding-identical
 // Rational pretty-printer (R20 cluster Y stage 2).
 //

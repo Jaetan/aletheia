@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 4c — TSG dispatcher under head-dispatched parseTopStmt.
@@ -20,12 +22,12 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure; _<|>_; _*>_)
+  (Position; mkResult; advancePositions;
+   _>>=_; pure; _*>_)
 
 open import Aletheia.DBC.Types using (SignalGroup)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSSignalGroup; TSSigValType; parseTopStmt)
+  (TSSignalGroup; TSSigValType; parseTopStmt)
 open import Aletheia.DBC.TextParser.SignalGroups using
   (parseSignalGroup)
 open import Aletheia.DBC.TextParser.ValueTypes using

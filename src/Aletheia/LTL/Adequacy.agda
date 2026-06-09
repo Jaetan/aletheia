@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Adequacy of stepL (formula progression) w.r.t. denotational LTLf semantics.
@@ -25,7 +27,7 @@
 -- monotonicity at runtime.
 module Aletheia.LTL.Adequacy where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _∘_; _∷_; _≡_; false; refl; suc; sym; true; ℕ)
 open import Data.Nat using (_≤ᵇ_)
 open import Relation.Binary.PropositionalEquality using (subst)
 

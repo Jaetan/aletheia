@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Correctness properties for the DBC JSON parser.
@@ -20,7 +22,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans
 
 open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject;
   lookupChars; lookupArray)
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Types using ()
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; parseMessageList;
   parseOptionalArray; parseSignalGroupList; parseEnvironmentVarList; parseValueTableList;
   parseNodeList; parseCommentList; parseAttributeList; parseRawValueDescList)

@@ -1,28 +1,31 @@
-"""DBC structure TypedDicts (private — re-exported via ``aletheia.protocols``).
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""DBC structure TypedDicts (private — re-exported via ``aletheia.types``).
 
 Holds the cross-binding DBC wire schema: the leaf type aliases
 (:data:`ByteOrder`, :data:`SignalPresence`, :data:`DLCByteCount`,
 :data:`DLCCode`) plus every ``DBC*`` TypedDict.  Split out of
-``protocols.py`` (R19 cluster 17 follow-up, 2026-05-12) once the latter
-crossed the 1000-line pylint C0302 threshold; ``aletheia.protocols``
-remains the canonical public surface via re-export.
+``protocols.py`` once the latter crossed the 1000-line pylint C0302
+threshold; ``aletheia.types`` remains the canonical public surface
+via re-export.
 """
 
-from fractions import Fraction
-from typing import Literal, NewType, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, NewType, NotRequired, TypedDict
 
+if TYPE_CHECKING:
+    from fractions import Fraction
 
 ByteOrder = Literal["little_endian", "big_endian"]
 
 SignalPresence = Literal["always", "multiplexed"]
 
 
-# R19 cluster 17 / PY-D-19.4: distinguish DLC byte count from DLC code at
-# the type level.  Both wrap ``int`` at runtime; JSON wire shape unchanged.
+# Distinguish DLC byte count from DLC code at the type level.
+# Both wrap ``int`` at runtime; JSON wire shape unchanged.
 # Go's ``aletheia.DLC`` + C++'s ``aletheia::DLC`` are the cross-binding
 # equivalents.  ``dlc_to_bytes`` / ``bytes_to_dlc`` mediate between them.
 DLCByteCount = NewType("DLCByteCount", int)  # bytes, {0..8, 12, 16, 20, 24, 32, 48, 64}
-DLCCode = NewType("DLCCode", int)            # 4-bit wire field, 0..15
+DLCCode = NewType("DLCCode", int)  # 4-bit wire field, 0..15
 
 
 class DBCSignalAlways(TypedDict):
@@ -35,6 +38,7 @@ class DBCSignalAlways(TypedDict):
     ``valueDescriptions`` carries the inline ``VAL_`` entries attached to
     this signal (empty list when no ``VAL_`` line names it).
     """
+
     name: str
     startBit: int
     length: int
@@ -47,7 +51,7 @@ class DBCSignalAlways(TypedDict):
     unit: str
     presence: SignalPresence
     receivers: NotRequired[list[str]]
-    valueDescriptions: NotRequired[list["DBCValueEntry"]]
+    valueDescriptions: NotRequired[list[DBCValueEntry]]
 
 
 class DBCSignalMultiplexed(TypedDict):
@@ -65,6 +69,7 @@ class DBCSignalMultiplexed(TypedDict):
     the ``DBCSignal`` union.  :class:`DBCSignalAlways` keeps the wider
     :data:`SignalPresence` type and so does not narrow on construction.
     """
+
     name: str
     startBit: int
     length: int
@@ -79,7 +84,7 @@ class DBCSignalMultiplexed(TypedDict):
     multiplexor: str
     multiplex_values: list[int]
     receivers: NotRequired[list[str]]
-    valueDescriptions: NotRequired[list["DBCValueEntry"]]
+    valueDescriptions: NotRequired[list[DBCValueEntry]]
 
 
 # Union type for all signal types
@@ -97,6 +102,7 @@ class DBCMessage(TypedDict):
     The JSON key name ``"dlc"`` matches the Agda parser's wire format
     (the NewType is type-level only — runtime is plain ``int``).
     """
+
     id: int
     name: str
     dlc: DLCByteCount
@@ -114,6 +120,7 @@ class DBCSignalGroup(TypedDict):
     because signal-name uniqueness is enforced globally by the validator,
     so reconstructing message context on format_dbc is unnecessary.
     """
+
     name: str
     signals: list[str]
 
@@ -131,6 +138,7 @@ class DBCEnvironmentVar(TypedDict):
     reason as ``DBCSignalAlways`` — the Agda core works in ℚ and exact
     rational precision has to survive the wire round-trip.
     """
+
     name: str
     varType: DBCVarType
     initial: Fraction
@@ -140,12 +148,14 @@ class DBCEnvironmentVar(TypedDict):
 
 class DBCValueEntry(TypedDict):
     """One entry in a DBC value table (numeric value → description)."""
+
     value: int
     description: str
 
 
 class DBCValueTable(TypedDict):
     """DBC value table (``VAL_TABLE_`` keyword)."""
+
     name: str
     entries: list[DBCValueEntry]
 
@@ -158,19 +168,26 @@ class DBCValueTable(TypedDict):
 # the Agda formatter exactly (see ``Formatter.agda`` ``formatCommentTarget`` /
 # ``formatAttribute``), so pyright narrows via ``Literal["kind"]``.
 
+
 class DBCNode(TypedDict):
-    """DBC network node (``BU_`` keyword). Only the declared name is modelled;
-    per-node attributes and comments live in the sibling arrays."""
+    """DBC network node (``BU_`` keyword).
+
+    Only the declared name is modelled; per-node attributes and comments live
+    in the sibling arrays.
+    """
+
     name: str
 
 
 class DBCCommentTargetNetwork(TypedDict):
     """Network-wide comment (``CM_ "..."``)."""
+
     kind: Literal["network"]
 
 
 class DBCCommentTargetNode(TypedDict):
     """Node comment (``CM_ BU_ <name> "..."``)."""
+
     kind: Literal["node"]
     node: str
 
@@ -181,6 +198,7 @@ class DBCCommentTargetMessage(TypedDict):
     ``extended`` follows the same convention as ``DBCMessage``: ``true`` for
     29-bit IDs, absent/``false`` for 11-bit IDs.
     """
+
     kind: Literal["message"]
     id: int
     extended: NotRequired[bool]
@@ -188,6 +206,7 @@ class DBCCommentTargetMessage(TypedDict):
 
 class DBCCommentTargetSignal(TypedDict):
     """Signal comment (``CM_ SG_ <id> <signal> "..."``)."""
+
     kind: Literal["signal"]
     id: int
     extended: NotRequired[bool]
@@ -196,21 +215,23 @@ class DBCCommentTargetSignal(TypedDict):
 
 class DBCCommentTargetEnvVar(TypedDict):
     """Environment-variable comment (``CM_ EV_ <name> "..."``)."""
+
     kind: Literal["envVar"]
     envVar: str
 
 
 DBCCommentTarget = (
-    DBCCommentTargetNetwork |
-    DBCCommentTargetNode |
-    DBCCommentTargetMessage |
-    DBCCommentTargetSignal |
-    DBCCommentTargetEnvVar
+    DBCCommentTargetNetwork
+    | DBCCommentTargetNode
+    | DBCCommentTargetMessage
+    | DBCCommentTargetSignal
+    | DBCCommentTargetEnvVar
 )
 
 
 class DBCComment(TypedDict):
     """A DBC ``CM_`` entry with its target and body."""
+
     target: DBCCommentTarget
     text: str
 
@@ -218,9 +239,7 @@ class DBCComment(TypedDict):
 # Attribute scope matches Agda ``AttrScope``. ``nodeMsg`` / ``nodeSig`` are
 # the relational scopes introduced by ``BA_DEF_REL_`` (``BU_BO_REL_`` /
 # ``BU_SG_REL_`` in DBC text).
-AttrScope = Literal[
-    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"
-]
+AttrScope = Literal["network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"]
 
 
 class DBCAttrTypeInt(TypedDict):
@@ -230,6 +249,7 @@ class DBCAttrTypeInt(TypedDict):
     of the Agda core — handlers that marshal them should use unbounded
     integers, not fixed-width.
     """
+
     kind: Literal["int"]
     min: int
     max: int
@@ -242,6 +262,7 @@ class DBCAttrTypeFloat(TypedDict):
     cantools emits ``float`` literals which the converter widens to
     ``Fraction`` for lossless round-trip.
     """
+
     kind: Literal["float"]
     min: Fraction
     max: Fraction
@@ -249,85 +270,93 @@ class DBCAttrTypeFloat(TypedDict):
 
 class DBCAttrTypeString(TypedDict):
     """String attribute definition (``STRING``)."""
+
     kind: Literal["string"]
 
 
 class DBCAttrTypeEnum(TypedDict):
     """Enum attribute definition (``ENUM "a","b",...``)."""
+
     kind: Literal["enum"]
     values: list[str]
 
 
 class DBCAttrTypeHex(TypedDict):
     """Hex attribute definition (``HEX min max``). Bounds are unsigned ℕ."""
+
     kind: Literal["hex"]
     min: int
     max: int
 
 
 DBCAttrType = (
-    DBCAttrTypeInt |
-    DBCAttrTypeFloat |
-    DBCAttrTypeString |
-    DBCAttrTypeEnum |
-    DBCAttrTypeHex
+    DBCAttrTypeInt | DBCAttrTypeFloat | DBCAttrTypeString | DBCAttrTypeEnum | DBCAttrTypeHex
 )
 
 
 class DBCAttrValueInt(TypedDict):
     """Integer attribute value (BA_/BA_DEF_DEF_/BA_REL_ for ``INT``)."""
+
     kind: Literal["int"]
     value: int
 
 
 class DBCAttrValueFloat(TypedDict):
-    """Float attribute value (``FLOAT``). ``Fraction`` mirrors
-    ``DBCAttrTypeFloat.min`` / ``max``."""
+    """Float attribute value (``FLOAT``).
+
+    ``Fraction`` mirrors ``DBCAttrTypeFloat.min`` / ``max``.
+    """
+
     kind: Literal["float"]
     value: Fraction
 
 
 class DBCAttrValueString(TypedDict):
     """String attribute value."""
+
     kind: Literal["string"]
     value: str
 
 
 class DBCAttrValueEnum(TypedDict):
-    """Enum attribute value: ``value`` is a 0-based index into the matching
-    definition's ``values`` list (ℕ on the Agda side), not the label."""
+    """Enum attribute value.
+
+    ``value`` is a 0-based index into the matching definition's ``values``
+    list (ℕ on the Agda side), not the label.
+    """
+
     kind: Literal["enum"]
     value: int
 
 
 class DBCAttrValueHex(TypedDict):
     """Hex attribute value (unsigned ℕ)."""
+
     kind: Literal["hex"]
     value: int
 
 
 DBCAttrValue = (
-    DBCAttrValueInt |
-    DBCAttrValueFloat |
-    DBCAttrValueString |
-    DBCAttrValueEnum |
-    DBCAttrValueHex
+    DBCAttrValueInt | DBCAttrValueFloat | DBCAttrValueString | DBCAttrValueEnum | DBCAttrValueHex
 )
 
 
 class DBCAttrTargetNetwork(TypedDict):
     """Network-scope attribute assignment (``BA_ "attr" value;``)."""
+
     kind: Literal["network"]
 
 
 class DBCAttrTargetNode(TypedDict):
     """Node-scope assignment (``BA_ "attr" BU_ <node> value;``)."""
+
     kind: Literal["node"]
     node: str
 
 
 class DBCAttrTargetMessage(TypedDict):
     """Message-scope assignment (``BA_ "attr" BO_ <id> value;``)."""
+
     kind: Literal["message"]
     id: int
     extended: NotRequired[bool]
@@ -335,6 +364,7 @@ class DBCAttrTargetMessage(TypedDict):
 
 class DBCAttrTargetSignal(TypedDict):
     """Signal-scope assignment (``BA_ "attr" SG_ <id> <sig> value;``)."""
+
     kind: Literal["signal"]
     id: int
     extended: NotRequired[bool]
@@ -343,12 +373,14 @@ class DBCAttrTargetSignal(TypedDict):
 
 class DBCAttrTargetEnvVar(TypedDict):
     """EnvVar-scope assignment (``BA_ "attr" EV_ <name> value;``)."""
+
     kind: Literal["envVar"]
     envVar: str
 
 
 class DBCAttrTargetNodeMsg(TypedDict):
     """Node-message relational assignment (``BA_REL_ ... BU_BO_REL_ ...``)."""
+
     kind: Literal["nodeMsg"]
     node: str
     id: int
@@ -357,6 +389,7 @@ class DBCAttrTargetNodeMsg(TypedDict):
 
 class DBCAttrTargetNodeSig(TypedDict):
     """Node-signal relational assignment (``BA_REL_ ... BU_SG_REL_ ...``)."""
+
     kind: Literal["nodeSig"]
     node: str
     id: int
@@ -365,18 +398,19 @@ class DBCAttrTargetNodeSig(TypedDict):
 
 
 DBCAttrTarget = (
-    DBCAttrTargetNetwork |
-    DBCAttrTargetNode |
-    DBCAttrTargetMessage |
-    DBCAttrTargetSignal |
-    DBCAttrTargetEnvVar |
-    DBCAttrTargetNodeMsg |
-    DBCAttrTargetNodeSig
+    DBCAttrTargetNetwork
+    | DBCAttrTargetNode
+    | DBCAttrTargetMessage
+    | DBCAttrTargetSignal
+    | DBCAttrTargetEnvVar
+    | DBCAttrTargetNodeMsg
+    | DBCAttrTargetNodeSig
 )
 
 
 class DBCAttrDef(TypedDict):
     """Attribute declaration (``BA_DEF_`` / ``BA_DEF_REL_``)."""
+
     kind: Literal["definition"]
     name: str
     scope: AttrScope
@@ -385,6 +419,7 @@ class DBCAttrDef(TypedDict):
 
 class DBCAttrDefault(TypedDict):
     """Attribute default (``BA_DEF_DEF_`` / ``BA_DEF_DEF_REL_``)."""
+
     kind: Literal["default"]
     name: str
     value: DBCAttrValue
@@ -392,6 +427,7 @@ class DBCAttrDefault(TypedDict):
 
 class DBCAttrAssign(TypedDict):
     """Attribute assignment (``BA_`` / ``BA_REL_``)."""
+
     kind: Literal["assignment"]
     name: str
     target: DBCAttrTarget
@@ -414,20 +450,22 @@ class DBCRawValueDesc(TypedDict):
     preserved verbatim so the validator's CHECK 23
     ``UnknownValueDescriptionTarget`` can warn at validation time.
     """
+
     id: int
     extended: NotRequired[bool]
     signalName: str
-    entries: list["DBCValueEntry"]
+    entries: list[DBCValueEntry]
 
 
 class DBCDefinition(TypedDict):
     """Complete DBC file structure.
 
-    R19 cluster 17 / PY-D-19.6 (2026-05-12): every metadata array is
-    REQUIRED to match Go/C++ struct shape (where fields are non-optional
-    by language idiom).  Use ``[]`` for sections the file has no entries
-    for; hand-written fixtures must enumerate all keys.
+    Every metadata array is REQUIRED to match Go/C++ struct shape
+    (where fields are non-optional by language idiom).  Use ``[]`` for
+    sections the file has no entries for; hand-written fixtures must
+    enumerate all keys.
     """
+
     version: str
     messages: list[DBCMessage]
     signalGroups: list[DBCSignalGroup]
@@ -446,8 +484,9 @@ class _DBCTier2Empty(TypedDict):
     ``DBCDefinition`` literal that supplies only ``version`` and
     ``messages``.  Exists to dedupe the ``[]``-default boilerplate that
     every hand-written fixture or normalisation site otherwise repeats
-    verbatim (pylint R0801 follow-up to PY-D-19.6 closure).
+    verbatim (pylint R0801 follow-up).
     """
+
     signalGroups: list[DBCSignalGroup]
     environmentVars: list[DBCEnvironmentVar]
     valueTables: list[DBCValueTable]

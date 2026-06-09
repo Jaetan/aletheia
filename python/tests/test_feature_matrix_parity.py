@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Feature matrix parity test — Python side.
 
 Reads ``docs/FEATURE_MATRIX.yaml`` and verifies:
@@ -25,12 +27,9 @@ from typing import cast
 
 import pytest
 import yaml
-
 from _yaml_shape import as_str_object_dict
 
-_VALID_STATUSES: frozenset[str] = frozenset(
-    {"implemented", "not_applicable", "planned"}
-)
+_VALID_STATUSES: frozenset[str] = frozenset({"implemented", "not_applicable", "planned"})
 _BINDINGS: tuple[str, ...] = ("python", "cpp", "go")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,9 +42,7 @@ def _load_matrix() -> list[dict[str, object]]:
         raw: object = yaml.safe_load(fh)
     root = as_str_object_dict(raw, "FEATURE_MATRIX.yaml root")
     features_raw: object = root.get("features")
-    assert isinstance(features_raw, list), (
-        "FEATURE_MATRIX.yaml must contain a 'features' list"
-    )
+    assert isinstance(features_raw, list), "FEATURE_MATRIX.yaml must contain a 'features' list"
     narrowed_list: list[object] = cast("list[object]", features_raw)
     assert narrowed_list, "FEATURE_MATRIX.yaml 'features' list is empty"
     validated: list[dict[str, object]] = []
@@ -86,7 +83,8 @@ def _resolve(dotted_path: str) -> object:
         except ImportError:
             continue
     if module is None:
-        raise ImportError(f"Could not import any prefix of {dotted_path!r}")
+        msg = f"Could not import any prefix of {dotted_path!r}"
+        raise ImportError(msg)
     obj: object = module
     for attr in parts[resolved_prefix_len:]:
         next_obj: object = getattr(obj, attr)
@@ -105,36 +103,36 @@ def test_feature_schema(feature: dict[str, object]) -> None:
     fid = _feature_id(feature)
 
     name = _get_str(feature, "name")
-    assert name and name.strip(), f"{fid}: missing name"
+    assert name, f"{fid}: missing name"
+    assert name.strip(), f"{fid}: missing name"
     description = _get_str(feature, "description")
-    assert description and description.strip(), f"{fid}: missing description"
+    assert description, f"{fid}: missing description"
+    assert description.strip(), f"{fid}: missing description"
 
     bindings = as_str_object_dict(feature.get("bindings"), f"{fid}.bindings")
 
     for binding_name in _BINDINGS:
-        binding = as_str_object_dict(
-            bindings.get(binding_name), f"{fid}.{binding_name}"
-        )
+        binding = as_str_object_dict(bindings.get(binding_name), f"{fid}.{binding_name}")
 
         status = _get_str(binding, "status")
         assert status in _VALID_STATUSES, (
-            f"{fid}.{binding_name}: status={status!r} "
-            f"not in {sorted(_VALID_STATUSES)}"
+            f"{fid}.{binding_name}: status={status!r} not in {sorted(_VALID_STATUSES)}"
         )
 
         if status == "implemented":
             entry = _get_str(binding, "entry")
-            assert entry and entry.strip(), (
-                f"{fid}.{binding_name}: status=implemented requires "
-                "non-empty entry"
-            )
+            entry_msg = f"{fid}.{binding_name}: status=implemented requires non-empty entry"
+            assert entry, entry_msg
+            assert entry.strip(), entry_msg
 
         if status == "not_applicable":
             reason = _get_str(binding, "reason")
-            assert reason and reason.strip(), (
+            reason_msg = (
                 f"{fid}.{binding_name}: status=not_applicable requires "
                 "non-empty reason — the escape hatch must stay honest"
             )
+            assert reason, reason_msg
+            assert reason.strip(), reason_msg
 
 
 def _is_python_implemented(feature: dict[str, object]) -> bool:
@@ -157,15 +155,11 @@ def _python_entry(feature: dict[str, object]) -> str:
     return entry
 
 
-_PYTHON_IMPLEMENTED: list[dict[str, object]] = [
-    f for f in _FEATURES if _is_python_implemented(f)
-]
+_PYTHON_IMPLEMENTED: list[dict[str, object]] = [f for f in _FEATURES if _is_python_implemented(f)]
 _PYTHON_IMPLEMENTED_IDS: list[str] = [_feature_id(f) for f in _PYTHON_IMPLEMENTED]
 
 
-@pytest.mark.parametrize(
-    "feature", _PYTHON_IMPLEMENTED, ids=_PYTHON_IMPLEMENTED_IDS
-)
+@pytest.mark.parametrize("feature", _PYTHON_IMPLEMENTED, ids=_PYTHON_IMPLEMENTED_IDS)
 def test_python_entry_resolves(feature: dict[str, object]) -> None:
     """Every Python ``implemented`` entry must resolve via importlib + getattr.
 
@@ -176,9 +170,5 @@ def test_python_entry_resolves(feature: dict[str, object]) -> None:
     try:
         resolved = _resolve(entry)
     except (ImportError, AttributeError) as exc:
-        pytest.fail(
-            f"{_feature_id(feature)}: Python entry {entry!r} did not resolve: {exc}"
-        )
-    assert resolved is not None, (
-        f"{_feature_id(feature)}: Python entry {entry!r} resolved to None"
-    )
+        pytest.fail(f"{_feature_id(feature)}: Python entry {entry!r} did not resolve: {exc}")
+    assert resolved is not None, f"{_feature_id(feature)}: Python entry {entry!r} resolved to None"

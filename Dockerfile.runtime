@@ -14,10 +14,10 @@
 # CICD-5.5: base image pinned by SHA-256 digest, not floating tag.  The tag
 # part stays for human readability; Docker resolves by the digest after `@`.
 # Refresh procedure (do this on a release-cut commit):
-#   docker manifest inspect python:3.13-slim       # multi-arch index digest
+#   docker buildx imagetools inspect python:3.14-slim   # multi-arch index digest
 # The digest below is the OCI multi-arch manifest list at last refresh —
 # pinning by digest makes `docker build` bit-reproducible at the base layer.
-FROM python:3.13-slim@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fde89ed5efe0a3d
+FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97
 
 # CICD-2.2: pin apt mirror to snapshot.debian.org and the libgmp10 package
 # version, so the install layer is reproducible against upstream Debian
@@ -28,15 +28,20 @@ FROM python:3.13-slim@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fd
 # image digest refresh):
 #   1. Bump DEBIAN_SNAPSHOT to a recent timestamp from
 #      https://snapshot.debian.org/archive/debian/  (date+time of the
-#      bookworm point you want to pin against).
+#      trixie point you want to pin against).  The python:N-slim image's own
+#      /etc/apt/sources.list.d/debian.sources carries a comment naming the
+#      snapshot it was built against — reuse that for an exact package match.
 #   2. Confirm libgmp10 version at that snapshot via
 #      https://snapshot.debian.org/package/gmp/  and update the
 #      `libgmp10=...` pin if Debian shipped a security update.
-ARG DEBIAN_SNAPSHOT=20250509T000000Z
-RUN sed -i "s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g; s|http://security.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g" /etc/apt/sources.list.d/debian.sources && \
+# NOTE: trixie's debian.sources serves BOTH the main and security suites from
+# deb.debian.org/debian{,-security}; the `-security` substitution must run
+# FIRST, else the general rule rewrites it to a bogus `.../debian/<snap>-security`.
+ARG DEBIAN_SNAPSHOT=20260518T000000Z
+RUN sed -i "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" /etc/apt/sources.list.d/debian.sources && \
     echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/10no-check-valid-until && \
     apt-get update && \
-    apt-get install -y --no-install-recommends libgmp10=2:6.2.1+dfsg1-1.1 && \
+    apt-get install -y --no-install-recommends libgmp10=2:6.3.0+dfsg-3 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built shared libraries and C header

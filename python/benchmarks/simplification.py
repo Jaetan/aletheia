@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Simplification Stress Benchmark.
 
 Tests whether Rosu formula simplification keeps the formula tree bounded
@@ -28,21 +29,30 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from typing import Callable, IO, TypedDict
+from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
+
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from benchmarks._common import (
+    CAN20_SPEC,
+    emit_json_report,
+    get_rss_mb,
+    load_dbc,
+)
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
-from aletheia.dsl import infinitely_often, eventually_always
-from aletheia.protocols import (
-    DBCDefinition, LTLFormula, ReleaseFormula, UntilFormula,
-)
+from aletheia.dsl import eventually_always, infinitely_often
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from ._common import (
-    CAN20_SPEC,
-    emit_json_report, get_rss_mb, load_dbc,
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from aletheia.types import (
+        DBCDefinition,
+        LTLFormula,
+        ReleaseFormula,
+        UntilFormula,
+    )
 
 
 class _FormulaResult(TypedDict):
@@ -60,6 +70,7 @@ class _SimplificationReport(TypedDict):
     trace_sizes: list[int]
     formulas: list[_FormulaResult]
 
+
 # Timestamp spacing: 10 time-units per frame.
 # Metric windows use the same unit, so within(1000) = 100 frames.
 TS_STEP = 10
@@ -75,6 +86,7 @@ TS_STEP = 10
 #   between(-40, 215) → True    less_than(50)   → False
 #   less_than(8000)   → True    greater_than(3000) → False
 
+
 def simple_safety() -> list[LTLFormula]:
     """G(speed ∈ [0,8000]) — Always absorption fires every frame."""
     return [Signal("EngineSpeed").between(0, 8000).always().to_dict()]
@@ -82,9 +94,7 @@ def simple_safety() -> list[LTLFormula]:
 
 def compound_safety() -> list[LTLFormula]:
     """G(speed ∈ [0,8000] ∧ temp ∈ [-40,215]) — And inside Always."""
-    p = Signal("EngineSpeed").between(0, 8000).and_(
-        Signal("EngineTemp").between(-40, 215)
-    ).always()
+    p = Signal("EngineSpeed").between(0, 8000).and_(Signal("EngineTemp").between(-40, 215)).always()
     return [p.to_dict()]
 
 
@@ -93,9 +103,7 @@ def implication_safety() -> list[LTLFormula]:
 
     Antecedent is False (speed=2000), so implication trivially True each frame.
     """
-    p = Signal("EngineSpeed").less_than(1000).implies(
-        Signal("EngineTemp").less_than(100)
-    ).always()
+    p = Signal("EngineSpeed").less_than(1000).implies(Signal("EngineTemp").less_than(100)).always()
     return [p.to_dict()]
 
 
@@ -169,8 +177,10 @@ def bounded_response() -> list[LTLFormula]:
 
     Antecedent False (speed=2000), so MetricEventually never activates.
     """
-    inner = Signal("EngineSpeed").greater_than(3000).implies(
-        Signal("EngineTemp").less_than(50).within(100)
+    inner = (
+        Signal("EngineSpeed")
+        .greater_than(3000)
+        .implies(Signal("EngineTemp").less_than(50).within(100))
     )
     p = inner.always()
     return [p.to_dict()]
@@ -182,8 +192,10 @@ def bounded_response_active() -> list[LTLFormula]:
     Antecedent True (speed=2000), MetricEventually activates but temp<50 never
     holds, so window expires and Violated. Tests metric operator churn.
     """
-    inner = Signal("EngineSpeed").less_than(8000).implies(
-        Signal("EngineTemp").less_than(50).within(1000)
+    inner = (
+        Signal("EngineSpeed")
+        .less_than(8000)
+        .implies(Signal("EngineTemp").less_than(50).within(1000))
     )
     p = inner.always()
     return [p.to_dict()]
@@ -218,20 +230,31 @@ def nested_until() -> list[LTLFormula]:
 # Benchmark runner
 # ============================================================================
 
-FORMULAS: list[tuple[str, Callable[[], list[LTLFormula]]]] = [
-    ("G(p)              simple safety", simple_safety),
-    ("G(p∧q)            compound safety", compound_safety),
-    ("G(p→q)            implication", implication_safety),
-    ("F(p)              liveness", simple_liveness),
-    ("G(F(p))           infinitely often", infinitely_often_pattern),
-    ("F(G(p))           stability", stability_pattern),
-    ("p U q             until (atomic)", until_atomic),
-    ("G(p) U q          until (temporal)", until_temporal),
-    ("p R q             release (atomic)", release_atomic),
-    ("G(p→q w/in 100)   bounded response", bounded_response),
-    ("G(p→q w/in 1000)  bounded active", bounded_response_active),
-    ("5×G(pᵢ)           multi-property", multi_property),
-    ("(p U q) ∧ G(p)    until + always", nested_until),
+
+class FormulaCase(NamedTuple):
+    """A labelled formula factory for the simplification sweep."""
+
+    label: str
+    build: Callable[[], list[LTLFormula]]
+
+
+FORMULAS: list[FormulaCase] = [
+    FormulaCase(*_entry)
+    for _entry in (
+        ("G(p)              simple safety", simple_safety),
+        ("G(p∧q)            compound safety", compound_safety),
+        ("G(p→q)            implication", implication_safety),
+        ("F(p)              liveness", simple_liveness),
+        ("G(F(p))           infinitely often", infinitely_often_pattern),
+        ("F(G(p))           stability", stability_pattern),
+        ("p U q             until (atomic)", until_atomic),
+        ("G(p) U q          until (temporal)", until_temporal),
+        ("p R q             release (atomic)", release_atomic),
+        ("G(p→q w/in 100)   bounded response", bounded_response),
+        ("G(p→q w/in 1000)  bounded active", bounded_response_active),
+        ("5×G(pᵢ)           multi-property", multi_property),
+        ("(p U q) ∧ G(p)    until + always", nested_until),
+    )
 ]
 
 
@@ -244,11 +267,19 @@ def bench_formula(dbc: DBCDefinition, properties: list[LTLFormula], num_frames: 
         client.start_stream()
 
         start = time.perf_counter()
+        # R0801 false positive: this per-frame send loop IS the throughput
+        # being measured; the only cross-benchmark difference is the timestamp
+        # expression. Extracting a shared helper would add a call per frame and
+        # skew the measurement, so the loop is kept inline in each benchmark.
+        # pylint: disable=duplicate-code
         for i in range(num_frames):
             client.send_frame(
                 timestamp=i * TS_STEP,
-                can_id=spec.can_id, dlc=spec.dlc, data=spec.payload,
+                can_id=spec.can_id,
+                dlc=spec.dlc,
+                data=spec.payload,
             )
+        # pylint: enable=duplicate-code
         elapsed = time.perf_counter() - start
 
         client.end_stream()
@@ -257,8 +288,11 @@ def bench_formula(dbc: DBCDefinition, properties: list[LTLFormula], num_frames: 
 
 
 def _run_one_formula(
-    label: str, make_props: Callable[[], list[LTLFormula]],
-    dbc: DBCDefinition, sizes: list[int], file: IO[str],
+    label: str,
+    make_props: Callable[[], list[LTLFormula]],
+    dbc: DBCDefinition,
+    sizes: list[int],
+    file: IO[str],
 ) -> _FormulaResult:
     """Sweep one formula across all trace sizes; print + return one row."""
     properties = make_props()
@@ -269,7 +303,7 @@ def _run_one_formula(
     print(f"{label:<30}{fps_strs}{ratio:>7.2f}x{rss:>7.1f}", file=file)
     return {
         "formula": label.strip(),
-        "fps": {f"{s // 1000}k": round(fps, 1) for s, fps in zip(sizes, fps_values)},
+        "fps": {f"{s // 1000}k": round(fps, 1) for s, fps in zip(sizes, fps_values, strict=True)},
         "ratio_last_first": round(ratio, 3),
         "rss_mb": round(rss, 1),
     }
@@ -304,10 +338,7 @@ def main() -> int:
     print(f"{'Formula':<30}{size_headers}{'Ratio':>8}{'RSS MB':>8}", file=out)
     print("-" * (30 + 10 * len(sizes) + 16), file=out)
 
-    all_results = [
-        _run_one_formula(label, make_props, dbc, sizes, out)
-        for label, make_props in FORMULAS
-    ]
+    all_results = [_run_one_formula(case.label, case.build, dbc, sizes, out) for case in FORMULAS]
 
     print("-" * (30 + 10 * len(sizes) + 16), file=out)
     print(file=out)

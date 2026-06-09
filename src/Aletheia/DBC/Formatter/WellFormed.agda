@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Well-formedness predicates and bridge lemmas for DBC formatter proofs.
@@ -12,7 +14,7 @@ open import Data.Nat.DivMod using (m%n<n)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
 open import Data.Nat.Properties using (<-≤-trans; *-monoˡ-≤)
 open import Data.Integer using (+_; -[1+_])
-open import Data.List using (List)
+open import Data.List using ()
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Empty as Empty using (⊥-elim)
 open import Data.Maybe using (just)

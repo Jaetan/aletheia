@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Structured logging schema for the Python binding.
 
 Mirrors the 16-event vocabulary used by the Go binding's ``slog`` calls and
@@ -24,12 +26,14 @@ Do NOT invent new event names in call sites — add the name here first,
 then use ``log_event(logger, LogEvent.NEW_NAME, ...)``.
 """
 
-import logging
-from enum import Enum
-from typing import Final
+from enum import StrEnum
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    import logging
 
 
-class LogEvent(str, Enum):
+class LogEvent(StrEnum):
     """Structured log event names shared with Go (``slog``) and C++ (``Logger``).
 
     Exactly 16 values — the set must stay identical across bindings.  Every
@@ -103,6 +107,7 @@ def log_event(
         level:   A standard ``logging`` level (``logging.INFO`` etc.).
         event:   A member of :class:`LogEvent` — the event name.
         **fields: Key/value pairs to attach to the record.
+
     """
     # Short-circuit before any allocation when the target level is disabled
     # (the default at DEBUG on the streaming hot path). Mirrors the stdlib
@@ -115,8 +120,5 @@ def log_event(
     # Go's ``slog`` attribute name so cross-binding log pipelines can parse
     # both streams with the same code.
     extra: dict[str, object] = {"event": event.value, **fields}
-    if fields:
-        msg = f"{event.value} {_format_fields(fields)}"
-    else:
-        msg = event.value
+    msg = f"{event.value} {_format_fields(fields)}" if fields else event.value
     logger.log(level, msg, extra=extra)

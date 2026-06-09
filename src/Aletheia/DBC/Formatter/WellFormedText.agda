@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Text-roundtrip-specific well-formedness predicates (Track B.3.d Layer 3
@@ -61,7 +63,7 @@ open import Relation.Nullary using (¬_)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
-  (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+  (DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedMessageRT)
 open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
 

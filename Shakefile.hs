@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 import Development.Shake
 import Development.Shake.FilePath
 import System.Directory (createDirectoryLink, removePathForcibly,
@@ -147,7 +149,7 @@ checkFFINames ffiFile = do
 
 -- | Parse the digest-pinned base image from Dockerfile.runtime.
 -- Returns the value after `FROM ` up to end-of-line (e.g.
--- `python:3.13-slim@sha256:...`).  Falls back to "unknown" if no
+-- `python:3.14-slim@sha256:...`).  Falls back to "unknown" if no
 -- `FROM` line is found.
 parseFromBase :: String -> String
 parseFromBase dockerfile =
@@ -207,10 +209,97 @@ checkPrerequisites = do
             , "  macOS:         brew install patchelf"
             , "  Fedora:        sudo dnf install patchelf"
             ]
-    Exit pyCode <- cmd Shell "python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)'"
+    Exit pyCode <- cmd Shell (bootstrapPython ++ " -c 'import sys; sys.exit(0 if sys.version_info >= (3,14) else 1)'")
     case pyCode of
         ExitSuccess -> return ()
-        ExitFailure _ -> error "Python 3.12+ is required. Check your python3 version."
+        ExitFailure _ -> error (bootstrapPython ++ " (Python 3.14+) is required; ensure python3.14 is on PATH.")
+
+-- | Proof-only modules — the SINGLE SOURCE for `check-properties`, type-checked
+-- in one warm `agda --interaction-json` process (tools.warm_check_properties).
+-- Each is unreachable from Main.agda's runtime closure, so the main
+-- build walk does not cover it; each is an explicit walk root, and dropping one
+-- silently stops type-checking its subtree (B.3.d Commit 4/6 shipped a latent
+-- `RawSignal : ℚ`-vs-DecRat mismatch in TextParser/Topology precisely because a
+-- root was missing).  Rationale per `feedback_check_properties_aggregator_walks`;
+-- per-module history is in this file's git log (pre-refactor inline comments).
+-- | Interpreters for build tooling.  The project requires Python 3.14 (PEP 758
+-- `except A, B` syntax lives in tools/, plus requires-python>=3.14), so bare
+-- `python3` -- often still 3.12/3.13 -- would `SyntaxError` on the 3.14-only
+-- tools.  Build-tooling invocations therefore run in the dev venv
+-- (`python/.venv`), which is 3.14 AND carries the project's runtime deps: some
+-- meta-checks `import yaml` (PyYAML), absent from a bare interpreter (cf.
+-- feedback_use_venv_for_gates).  Shake runs with cwd = repo root, so the
+-- relative venv path resolves.  `bootstrapPython` is the system 3.14 used only
+-- to create venvs and as the version-gate target.
+pythonBin :: String
+pythonBin = "python/.venv/bin/python3"
+
+bootstrapPython :: String
+bootstrapPython = "python3.14"
+
+proofModules :: [String]
+proofModules =
+    -- Parser / top-level JSON
+    [ "Aletheia/Parser/Properties.agda"
+    , "Aletheia/JSON/Properties.agda"
+    -- Protocol
+    , "Aletheia/Protocol/JSON/Properties.agda"
+    , "Aletheia/Protocol/ResponseFormat/Properties.agda"
+    , "Aletheia/Protocol/FrameProcessor/Properties.agda"
+    , "Aletheia/Protocol/Handlers/Properties.agda"
+    , "Aletheia/Protocol/Adequacy/WarmCache.agda"
+    -- CAN
+    , "Aletheia/CAN/Encoding/Properties.agda"
+    , "Aletheia/CAN/Batch/Properties.agda"
+    , "Aletheia/CAN/DLC/Properties.agda"
+    , "Aletheia/CAN/SignalExtraction/Properties.agda"
+    , "Aletheia/CAN/Endianness/Properties.agda"
+    -- DBC
+    , "Aletheia/DBC/Properties.agda"
+    , "Aletheia/DBC/JSONParser/Properties.agda"
+    , "Aletheia/DBC/Validity/Theorem.agda"
+    , "Aletheia/DBC/Formatter/Properties.agda"
+    , "Aletheia/DBC/Formatter/Bounded.agda"
+    , "Aletheia/DBC/TextParser/Properties.agda"
+    , "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
+    -- RationalRenderer itself IS reached from Main (FFI shim); .Properties is not.
+    , "Aletheia/DBC/RationalRenderer/Properties.agda"
+    , "Aletheia/DBC/RationalRenderer/Faithful.agda"
+    -- TextParser / TextFormatter aggregators: not proofs, but pulling them in
+    -- forces the full submodule tree to type-check (unreachable from Main).
+    , "Aletheia/DBC/TextParser.agda"
+    , "Aletheia/DBC/TextFormatter.agda"
+    , "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
+    , "Aletheia/DBC/DecRat/RationalSoundness.agda"
+    -- WellFormedText / ValueDescResolves / Format DSL: walk roots currently
+    -- unimported by downstream proofs; explicit roots keep them from bit-rotting.
+    , "Aletheia/DBC/Formatter/WellFormedText.agda"
+    , "Aletheia/DBC/Formatter/WellFormedText/ValueDescResolves.agda"
+    , "Aletheia/DBC/TextParser/Format.agda"
+    , "Aletheia/DBC/TextParser/Format/RegressionTests.agda"
+    , "Aletheia/DBC/TextParser/Format/ValueTable.agda"
+    , "Aletheia/DBC/CanonicalReceivers.agda"
+    , "Aletheia/DBC/TextParser/Format/Receivers.agda"
+    , "Aletheia/DBC/TextParser/Format/Receivers/Roundtrip.agda"
+    , "Aletheia/DBC/TextParser/Format/SignalLine.agda"
+    , "Aletheia/DBC/TextParser/Format/SignalLine/Roundtrip.agda"
+    , "Aletheia/DBC/TextParser/Format/Nodes.agda"
+    , "Aletheia/DBC/TextParser/Format/Preamble.agda"
+    -- This ONE root (Substrate/Unsafe, the sole non-`--safe` module) transitively
+    -- covers the entire Aggregator/Universal subtree (Dispatcher / ManyTopStmts /
+    -- Partition / Refine / BodyBridge / Foundations) — see the feedback file.
+    , "Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda"
+    -- LTL
+    , "Aletheia/LTL/JSON/Properties.agda"
+    , "Aletheia/LTL/Adequacy.agda"
+    , "Aletheia/LTL/Adequacy/Pipeline.agda"
+    , "Aletheia/LTL/Coalgebra/Properties.agda"
+    , "Aletheia/LTL/Semantics/MTL.agda"
+    , "Aletheia/LTL/Semantics/Duality.agda"
+    , "Aletheia/LTL/TruthVal/Properties.agda"
+    , "Aletheia/LTL/SignalPredicate/Cache/Properties.agda"
+    , "Aletheia/LTL/SignalPredicate/Evaluation/Properties.agda"
+    ]
 
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
@@ -228,150 +317,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need ["build/libaletheia-ffi.so"]
 
     phony "check-properties" $ do
-        putInfo "Type-checking proof-only modules..."
-        cores <- liftIO getNumProcessors
-        let rtsFlags = ["+RTS", "-N" ++ show cores, "-M16G", "-RTS"]
-        let agdaWithRTS mod' = cmd_ (Cwd "src") "agda" (rtsFlags ++ [mod'])
-        -- All Properties modules are explicitly invoked below (20 total).
-        -- Parser / top-level JSON
-        agdaWithRTS "Aletheia/Parser/Properties.agda"
-        agdaWithRTS "Aletheia/JSON/Properties.agda"
-        -- Protocol
-        agdaWithRTS "Aletheia/Protocol/JSON/Properties.agda"
-        agdaWithRTS "Aletheia/Protocol/ResponseFormat/Properties.agda"
-        agdaWithRTS "Aletheia/Protocol/FrameProcessor/Properties.agda"
-        agdaWithRTS "Aletheia/Protocol/Handlers/Properties.agda"
-        agdaWithRTS "Aletheia/Protocol/Adequacy/WarmCache.agda"
-        -- CAN
-        agdaWithRTS "Aletheia/CAN/Encoding/Properties.agda"
-        agdaWithRTS "Aletheia/CAN/Batch/Properties.agda"
-        agdaWithRTS "Aletheia/CAN/DLC/Properties.agda"
-        agdaWithRTS "Aletheia/CAN/SignalExtraction/Properties.agda"
-        agdaWithRTS "Aletheia/CAN/Endianness/Properties.agda"
-        -- DBC
-        agdaWithRTS "Aletheia/DBC/Properties.agda"
-        agdaWithRTS "Aletheia/DBC/JSONParser/Properties.agda"
-        agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
-        agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
-        agdaWithRTS "Aletheia/DBC/Formatter/Bounded.agda"
-        agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
-        agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
-        -- R20 cluster Y stage 2: cross-binding-identical Rational pretty-
-        -- printer's correctness properties.  `RationalRenderer` itself
-        -- IS reachable from Main.agda (the FFI shim calls it), but
-        -- `RationalRenderer.Properties` is a proof-only module unreached
-        -- by the runtime walk.  Walk-root rationale per
-        -- `feedback_check_properties_aggregator_walks.md`.
-        agdaWithRTS "Aletheia/DBC/RationalRenderer/Properties.agda"
-        -- TextParser / TextFormatter aggregator modules.  These are not
-        -- proof files themselves, but pulling them into `check-properties`
-        -- forces the full TextParser / TextFormatter submodule tree to be
-        -- type-checked (they're unreachable from Main.agda's transitive
-        -- closure, so the main build walk does not cover them).  B.3.d
-        -- Commit 4/6 shipped with a latent `RawSignal : ℚ`-vs-DecRat
-        -- mismatch in `TextParser/Topology.agda` precisely because this
-        -- guard was missing; Commit 5/6 added it.
-        agdaWithRTS "Aletheia/DBC/TextParser.agda"
-        agdaWithRTS "Aletheia/DBC/TextFormatter.agda"
-        agdaWithRTS "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
-        -- B.3.d Layer 3 Commit 3d.1: WellFormedText predicates.  Currently
-        -- unimported (3d.2+ per-construct proofs will pull it in); explicit
-        -- walk root keeps it from bit-rotting per
-        -- `feedback_check_properties_aggregator_walks.md`.  Remove this
-        -- root once a downstream proof imports it.
-        agdaWithRTS "Aletheia/DBC/Formatter/WellFormedText.agda"
-        -- Track E.8: `ValueDescResolves` predicate (Bool `resolvesᵇ` +
-        -- `Set` lift).  Currently unimported pending the A/B/C wiring
-        -- decision (E.11 validator API contract).  Remove this root once
-        -- E.11 wires it via the validator.
-        agdaWithRTS "Aletheia/DBC/Formatter/WellFormedText/ValueDescResolves.agda"
-        -- B.3.d Layer 3 3d.5.a: Format DSL framework core.  Currently
-        -- unimported (3d.5.b will use it for parseValueTable; 3d.5.d will
-        -- migrate 3a–3d.3 proofs onto it); same walk-root rationale as
-        -- WellFormedText above.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format.agda"
-        -- R22 continuation of R21 AGDA-D-15.1 closure: the L1-L9 regression
-        -- test bank that drift-checks the universal `roundtrip` was extracted
-        -- from `Format.agda` (to bring it under the 800-LOC trigger).  Walk
-        -- root keeps the drift-check active since nothing else imports it.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/RegressionTests.agda"
-        -- B.3.d Layer 3 3d.5.b: Format DSL gate-target — parseValueTable
-        -- expressed in the DSL (88 code-LOC vs the 613-LOC existing
-        -- proof, 86% reduction).  Same walk-root rationale; 3d.5.d
-        -- migration may consolidate by replacing the existing parser.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/ValueTable.agda"
-        -- B.3.d Layer 3 3d.5.c-γ.1: canonical receivers refinement type
-        -- (record + Bool predicate + smart constructor) — lives upstream
-        -- of `Types.agda` so the AST can reference it in γ.2.  Walk-root
-        -- because Main.agda doesn't reach it until γ.2 wires the AST.
-        agdaWithRTS "Aletheia/DBC/CanonicalReceivers.agda"
-        -- B.3.d Layer 3 3d.5.c-γ.1: DSL-side canonical receivers format.
-        -- Refines `List Identifier` to a record carrier excluding the
-        -- singleton-Vector__XXX placeholder; γ.2 retypes
-        -- `DBCSignal.receivers` to use it.  Walk-root for the same
-        -- reason as Format itself — γ.2 wires it in.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/Receivers.agda"
-        -- B.3.d Layer 3 3d.5.c-γ.3: DSL-based receivers roundtrip
-        -- (86 strict-code-LOC vs the existing 417 strict-code-LOC in
-        -- Properties/Topology/Receivers, ≈80% reduction).  Body is one
-        -- `roundtrip canonicalReceiversFmt` call backed by an EmitsOK
-        -- builder from the SuffixStops precondition.  δ migrates 3d.3
-        -- dispatchers to consume this in place of the existing
-        -- `parseReceiverList∘strip-roundtrip` API.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/Receivers/Roundtrip.agda"
-        -- B.3.d Layer 3 3d.5.c-η: DSL-side `signalLineFmt` and its
-        -- universal roundtrip.  Both are reachable from Main.agda via
-        -- `Topology.SignalLine` (production parser uses
-        -- `parse signalLineFmt`) and `Properties.Topology.Signal` (slim
-        -- dispatchers use `signalLine-roundtrip`); the explicit walk
-        -- roots match the pattern set for `Format.Receivers` and guard
-        -- against bit-rot if future migration ever detaches them from
-        -- the main walk (per `feedback_check_properties_aggregator_
-        -- walks.md`).
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/SignalLine.agda"
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/SignalLine/Roundtrip.agda"
-        -- B.3.d Layer 3 3d.5.d: DSL-side `nodeListFmt` (BU_ node-list line)
-        -- and the slim `parseBU-roundtrip` derived via the universal
-        -- roundtrip.  Same defensive walk-root pattern as the other
-        -- Format/* modules above.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/Nodes.agda"
-        -- B.3.d Layer 3 3d.5.d-3a: DSL-side preamble formats (VERSION,
-        -- BS_, NS_) and the slim `parseVersion-roundtrip` /
-        -- `parseBitTiming-roundtrip` / `parseNamespace-roundtrip`
-        -- proofs derived via the universal roundtrip.  Reachable from
-        -- Main.agda via `Properties.Preamble`; the explicit walk root
-        -- guards the Format module itself against bit-rot.
-        agdaWithRTS "Aletheia/DBC/TextParser/Format/Preamble.agda"
-        -- B.3.d Layer 4c: TopStmt-level aggregator dispatcher tree
-        -- (parseDBC universal roundtrip).  After 4c task E shipped, the
-        -- universal `parseText-on-formatText` lives in
-        -- `Substrate/Unsafe.agda` (the SOLE non-`--safe` module in the
-        -- project, by deliberate policy: the String-level wrap is the
-        -- ONLY consumer of `toList∘fromList`, so co-locating it with
-        -- the axiom keeps the trusted-surface count at one).  This walk
-        -- root transitively covers the entire Aggregator subtree:
-        --   * `Substrate/Unsafe` → `Aggregator/Universal` (`--safe`,
-        --     full `parseTextChars-on-formatChars` proof).
-        --   * `Universal` → `Dispatcher` / `ManyTopStmts` / `Partition`
-        --     / `Refine` / `BodyBridge` / `Foundations`.
-        --   * `Dispatcher` → `Dispatcher/Simple` (5 simple dispatchers)
-        --     + `Dispatcher/Attribute/TopStmt` (3-way TAT façade) +
-        --     `Dispatcher/Attribute/PrefixHead` (β prefix witness).
-        -- One walk root therefore covers what previously took 3.
-        -- Walk-root rationale per
-        -- `feedback_check_properties_aggregator_walks.md`.
-        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda"
-        -- LTL
-        agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
-        agdaWithRTS "Aletheia/LTL/Adequacy.agda"
-        agdaWithRTS "Aletheia/LTL/Adequacy/Pipeline.agda"
-        agdaWithRTS "Aletheia/LTL/Coalgebra/Properties.agda"
-        agdaWithRTS "Aletheia/LTL/Semantics/MTL.agda"
-        agdaWithRTS "Aletheia/LTL/Semantics/Duality.agda"
-        agdaWithRTS "Aletheia/LTL/TruthVal/Properties.agda"
-        agdaWithRTS "Aletheia/LTL/SignalPredicate/Cache/Properties.agda"
-        agdaWithRTS "Aletheia/LTL/SignalPredicate/Evaluation/Properties.agda"
-        putInfo "All proof modules type-checked successfully!"
+        -- Type-check every proof-only module in ONE warm `agda --interaction-json`
+        -- process (stdlib + shared deps load once) instead of one `agda Module.agda`
+        -- subprocess per module.  Catches proof-obligation failures (Status
+        -- checked:false) and writes `.agdai` so the downstream build reuses the
+        -- interfaces.  Replaces the former cold batch (one agda process per module,
+        -- ~13× slower: 629s -> ~48s); same `proofModules` single source of truth.
+        putInfo "Type-checking proof-only modules (one warm agda process)..."
+        cmd_ pythonBin ("-m" : "tools.warm_check_properties" : proofModules)
 
     phony "check-invariants" $ do
         -- Enforce "postulates and Unsafe modules are limited to the
@@ -814,7 +767,16 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- without rebuilding the Shake binary.  Branch-level granularity
         -- (one CHANGELOG commit covers any number of public-API commits
         -- on the same branch).
-        cmd_ "python3" "tools/check_changelog.py"
+        cmd_ pythonBin "-m" "tools.check_changelog"
+
+    phony "check-spdx-headers" $ do
+        -- SPDX license-header gate.  Every source/build file must carry the
+        -- two-line SPDX header (SPDX-FileCopyrightText 2025 Nicolas Pelletier +
+        -- SPDX-License-Identifier BSD-2-Clause).  The tool is an allowlist over
+        -- source/build extensions and excludes docs, archived review data,
+        -- comment-less files (JSON), binaries, and generated artefacts.  Repair
+        -- in place with `python -m tools.check_spdx_headers --apply`.
+        cmd_ pythonBin "-m" "tools.check_spdx_headers"
 
     phony "check-gate-claim" $ do
         -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
@@ -825,7 +787,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         --
         -- Defaults to HEAD-mode when invoked via Shake (pre-commit mode is
         -- only meaningful inside the actual pre-commit hook context).
-        cmd_ "python3" "tools/check_gate_claim.py" "HEAD"
+        cmd_ pythonBin "-m" "tools.check_gate_claim" "HEAD"
 
     phony "check-runbook" $ do
         -- Runbook coverage gate (R18 cluster 4).  AGENTS.md cat 22 mandates
@@ -834,7 +796,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- docs/LOG_EVENTS.yaml and verifies every event name appears as a
         -- `#### `<name>`` heading in the runbook.  Missing entries fail the
         -- gate — operators must not be left blind on an event the code emits.
-        cmd_ "python3" "tools/check_runbook_coverage.py"
+        cmd_ pythonBin "-m" "tools.check_runbook_coverage"
 
     phony "check-limits-parity" $ do
         -- Limits SSOT parity gate (post-R20 DEFERRALS sweep).  The Agda
@@ -849,7 +811,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- mirror, numeric value mismatch, BoundKind wire-string mismatch,
         -- or any side having an entry the other side lacks (with explicit
         -- categorisation in NAME_MAPPING).
-        cmd_ "python3" "tools/check_limits_parity.py"
+        cmd_ pythonBin "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do
         -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
@@ -861,7 +823,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- without running the harnesses.  The dynamic counterpart that
         -- actually runs the bench is `tools/stability_run.py`, gated
         -- behind ALETHEIA_STABILITY_CHECK=1 in `tools/run_ci.py`.
-        cmd_ "python3" "tools/check_stability_bench.py"
+        cmd_ pythonBin "-m" "tools.check_stability_bench"
 
     phony "check-mutation-setup" $ do
         -- Mutation-setup coverage gate (R18 cluster 7).  AGENTS.md cat 14(g)
@@ -874,7 +836,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Dynamic counterpart that actually runs mutmut / go-mutesting /
         -- Mull is `tools/mutation_run.py`, gated behind
         -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.
-        cmd_ "python3" "tools/check_mutation_setup.py"
+        cmd_ pythonBin "-m" "tools.check_mutation_setup"
 
     phony "check-bound-enforcement" $ do
         -- Adversarial-input bound enforcement gate (R20 cluster I /
@@ -886,7 +848,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- ADT and greps for `InputBoundExceeded <Ctor>` emit sites under
         -- `src/`; a ctor with zero sites is dead metadata (the wire code
         -- is unreachable) and fails the gate.
-        cmd_ "python3" "tools/check_bound_enforcement.py"
+        cmd_ pythonBin "-m" "tools.check_bound_enforcement"
 
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.
@@ -1079,7 +1041,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- source state, not wall-clock — required for artifact-level repro.
         putInfo "Generating SBOM..."
         let distGhcDeps = map (\dep -> distLib </> takeFileName dep) ghcDeps
-        cmd_ "python3" "tools/sbom_generate.py"
+        cmd_ pythonBin "-m" "tools.sbom_generate"
             "--repo" "."
             "--main-so" mainSoDist
             "--out" sbomFile
@@ -1221,7 +1183,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             distGhcDepsDocker = map (\dep -> distLibDocker </> takeFileName dep) ghcDepsDocker
         liftIO $ createDirectoryIfMissing True (takeDirectory imageSbomFile)
         putInfo $ "Generating image SBOM (" ++ imageSbomFile ++ ")..."
-        cmd_ "python3" "tools/sbom_generate.py"
+        cmd_ pythonBin "-m" "tools.sbom_generate"
             "--repo" "."
             "--main-so" (distLibDocker </> "libaletheia-ffi.so")
             "--out" imageSbomFile
@@ -1413,7 +1375,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
         -- Create Python venv
         putInfo "Creating Python virtual environment..."
-        cmd_ "python3" "-m" "venv" venvDir
+        cmd_ bootstrapPython "-m" "venv" venvDir
         cmd_ venvPip "install" "--upgrade" "pip" "setuptools" "wheel"
 
         -- Install aletheia Python package (non-editable)

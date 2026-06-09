@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.d — slim `parseBU-roundtrip` derived from the
@@ -46,7 +48,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; many-parseNewline-one-LF-stop)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.Nodes as FmtBU using
   (nodeListFmt; nodeEntry-format)

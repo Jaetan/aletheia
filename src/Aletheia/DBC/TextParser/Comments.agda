@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Comment parsers for the DBC text format (Track B.3.c.6, migrated to
@@ -46,7 +48,7 @@ open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
 open import Aletheia.DBC.Types using
-  ( CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
+  ( CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; DBCComment; mkComment
   )
 

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Rational::from_double — converts a double to an exact Rational.
 #include <aletheia/types.hpp>

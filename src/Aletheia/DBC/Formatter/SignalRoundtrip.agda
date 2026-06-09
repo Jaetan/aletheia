@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal-level roundtrip proofs for the DBC formatter.
@@ -21,7 +23,7 @@ open import Data.Char using (Char)
 open import Data.Nat using (ℕ; _+_; _∸_; _*_; _<_; _≤_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.List using (List; []; _∷_; map)
-open import Data.List.NonEmpty as List⁺ using (List⁺)
+open import Data.List.NonEmpty as List⁺ using ()
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)

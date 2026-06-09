@@ -1,0 +1,635 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Engine for the `tools.iwyu` import gate — the scope-aware `.agdai` reader.
+
+The internal engine behind the one public IWYU tool (:mod:`tools.iwyu`).  It
+builds `tools/agda-iwyu-reader` on demand (linking the PREBUILT Agda from the
+cabal store, never a fresh solve) and asks it — by reading interfaces — whether
+each imported name is actually used.  Two analyses, both pure data (the CLI
+reports / applies / exits):
+
+  * :func:`analyze_dead_imports` — for every prunable named import (a `using (n)`
+    entry or a `renaming (src to dst)` destination), the reader returns
+    USED / DEAD / UNRESOLVED.  DEAD = an unused import; UNRESOLVED = the reader
+    could not judge it (a missing `.agdai`), surfaced and never collapsed to DEAD.
+  * :func:`analyze_wildcards` — for every wildcard `open import M`, the USED
+    subset of M's exports (:func:`read_wildcards`) is classified DEAD / REDUNDANT
+    / NARROWABLE (:func:`classify_wildcard`); :func:`rewrite` applies a finding.
+
+The reader's correctness is validated by the synthetic fixture matrix
+(`tools.iwyu --self-test`), NOT by any recompile oracle — the brute-force
+import-resolution tools it superseded are retired.
+"""
+
+from __future__ import annotations
+
+import functools
+import json
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
+
+from tools._agda_opens import ModulePath, find_opens
+from tools._common import emit, find_executable, run_capture
+from tools._warm import AGDA_BIN, SRC_DIR, Name, RelPath
+
+if TYPE_CHECKING:
+    from tools._agda_opens import OpenInfo
+
+SRC = SRC_DIR
+REPO = SRC.parent
+AGDA = str(AGDA_BIN)
+PKG = Path(__file__).resolve().parent / "agda-iwyu-reader"
+
+# The filesystem path string of a compiled `.agdai`.
+type AgdaiPath = str
+# The reader's per-name answer.
+type Verdict = str  # one of "USED" | "DEAD" | "UNRESOLVED"
+# A tab-separated reader query: "<agdai>\t<module>\t<name>" (name "*" = wildcard).
+type QueryLine = str
+# A JSONL line the reader writes to stdout (a verdict / wildcard / error object).
+type OutputLine = str
+# An Agda include directory the reader needs to decode interfaces.
+type IncludeDir = str
+
+
+class ReaderLine(TypedDict, total=False):
+    """One JSONL line emitted by `agda-iwyu-reader` (the schema we author there).
+
+    Every line carries `path`/`mod`/`name`; then exactly one of `verdict` (a name
+    query), `used` (a wildcard query, `name == "*"`), or `error` (the file could
+    not be decoded).  `total=False` because each line sets only its own variant's
+    keys, so reads go through `.get`.
+    """
+
+    path: AgdaiPath
+    mod: ModulePath
+    name: Name  # the queried name, or "*" for a wildcard query
+    verdict: Verdict
+    used: list[Name]
+    error: str
+
+
+def parse_reader_line(line: str) -> ReaderLine | None:
+    """Parse one reader JSONL line into a `ReaderLine`, or None if it is not one.
+
+    A line starting with `{` that parses is a JSON object (the schema we author);
+    non-`{` lines and malformed JSON both yield None so the read loop can skip them.
+    """
+    line = line.strip()
+    if not line.startswith("{"):
+        return None
+    try:
+        return cast("ReaderLine", json.loads(line))
+    except json.JSONDecodeError:
+        return None
+
+
+def verdict_fields(line: str) -> VerdictFields | None:
+    """Extract a name-query line's fields, or None if it is not a verdict line.
+
+    Shared by the reader driver (which maps `path`→rel) and the fixture test
+    (which maps `path`→consumer stem), so the parse + None-check lives once.
+    """
+    obj = parse_reader_line(line)
+    if obj is None:
+        return None
+    path, mod, name, verdict = obj.get("path"), obj.get("mod"), obj.get("name"), obj.get("verdict")
+    if path is None or mod is None or name is None or verdict is None:
+        return None
+    return VerdictFields(path, mod, name, verdict)
+
+
+def wildcard_fields(line: str) -> WildcardFields | None:
+    """Extract a wildcard line's fields (`name == "*"`), or None otherwise."""
+    obj = parse_reader_line(line)
+    if obj is None:
+        return None
+    path, mod, name, used = obj.get("path"), obj.get("mod"), obj.get("name"), obj.get("used")
+    if path is None or mod is None or name != "*" or used is None:
+        return None
+    return WildcardFields(path, mod, frozenset(used))
+
+
+class NameQuery(NamedTuple):
+    """One import to ask the reader "is this used?" about.
+
+    `rel` is the consumer file; `module` is the module the name is imported from;
+    `name` is the name as it appears IN that module — for a `renaming (orig to
+    alias)` candidate this is `orig`, since the elaborated term references the
+    origin, never the alias.
+    """
+
+    rel: RelPath
+    module: ModulePath
+    name: Name
+
+
+class WildQuery(NamedTuple):
+    """A wildcard `open import module` in consumer file `rel`, asked for its used subset."""
+
+    rel: RelPath
+    module: ModulePath
+
+
+class ImportRef(NamedTuple):
+    """A name as brought in by one open: the source `module` and the original `name`.
+
+    `alias_pos` is the 1-based codepoint position of a `renaming` alias's binding in
+    the consumer source (0 when not renamed).  The reader needs it because a renamed
+    name's *body* uses are attributed by Agda's highlighting to the alias's binding
+    site, not the origin def-site — so origin-keyed occurrence counting misses them
+    (and the elaborated signature can drop the origin entirely when it inlines a
+    transparent def / expands a pattern synonym).
+    """
+
+    module: ModulePath
+    name: Name
+    alias_pos: int = 0
+
+
+class DecodedVerdict(NamedTuple):
+    """One parsed reader line: the name query it answers and its verdict."""
+
+    query: NameQuery
+    verdict: Verdict
+
+
+class DecodedWild(NamedTuple):
+    """One parsed reader line: the wildcard query it answers and the used subset."""
+
+    query: WildQuery
+    used: frozenset[Name]
+
+
+class VerdictFields(NamedTuple):
+    """The raw fields of a reader name-query line (path not yet mapped to a rel)."""
+
+    path: AgdaiPath
+    module: ModulePath
+    name: Name
+    verdict: Verdict
+
+
+class WildcardFields(NamedTuple):
+    """The raw fields of a reader wildcard line (path not yet mapped to a rel)."""
+
+    path: AgdaiPath
+    module: ModulePath
+    used: frozenset[Name]
+
+
+class AgdaiFiles(NamedTuple):
+    """The present `.agdai` files, in both lookup directions for reader I/O."""
+
+    by_rel: dict[RelPath, Path]  # src-rel → its `.agdai` path (only files that exist)
+    rel_by_path: dict[AgdaiPath, RelPath]  # `.agdai` path string → src-rel (maps output back)
+
+
+# A candidate name -> the import(s) that resolve it within one file (a `using (n)`
+# yields ImportRef(M, n); a `renaming (src to dst)` candidate `dst` yields
+# ImportRef(M, src)).
+type QueryMap = dict[Name, list[ImportRef]]
+# Reader verdict per name query.
+type Verdicts = dict[NameQuery, Verdict]
+# USED subset of a wildcard-opened module's exports, per wildcard query.
+type WildUsed = dict[WildQuery, frozenset[Name]]
+
+
+@functools.cache
+def _agda_version() -> str:
+    """Numeric Agda version (e.g. ``2.8.0``) — names the `_build/<ver>/` tree."""
+    return run_capture([AGDA, "--numeric-version"], check=True).stdout.strip()
+
+
+def _store_package_db() -> Path:
+    """Path to the cabal store package.db holding the prebuilt Agda library."""
+    ghc = find_executable("ghc")
+    ghc_version = run_capture([ghc, "--numeric-version"], check=True).stdout.strip()
+    return Path.home() / ".cabal" / "store" / f"ghc-{ghc_version}" / "package.db"
+
+
+def build_reader() -> Path:
+    """Build (if stale) and return the reader binary, linking the store's Agda.
+
+    A plain `cabal build` re-solves and rebuilds Agda (~15 min); this points ghc
+    at the store package.db so the prebuilt library is linked directly.  Rebuilds
+    only when the binary is missing or older than `Main.hs`.
+    """
+    binary, source = PKG / "agda-iwyu-reader", PKG / "Main.hs"
+    if binary.is_file() and binary.stat().st_mtime >= source.stat().st_mtime:
+        return binary
+    db = _store_package_db()
+    if not db.exists():
+        message = f"cabal store package.db not found: {db} (is Agda cabal-installed?)"
+        raise FileNotFoundError(message)
+    outdir = Path(tempfile.gettempdir()) / "agda-iwyu-build"
+    outdir.mkdir(exist_ok=True)
+    result = run_capture(
+        [
+            find_executable("ghc"),
+            "-package-db",
+            str(db),
+            "-package",
+            "Agda",
+            "-package",
+            "containers",
+            "-package",
+            "unordered-containers",
+            "-XPatternSynonyms",
+            "-outputdir",
+            str(outdir),
+            str(source),
+            "-o",
+            str(binary),
+        ],
+        cwd=PKG,
+    )
+    if result.returncode != 0:
+        emit(result.stdout)
+        emit(result.stderr)
+        message = "agda-iwyu-reader build failed"
+        raise RuntimeError(message)
+    return binary
+
+
+def _agdai_path(rel: RelPath) -> Path:
+    """Interface file for a src-relative module, under `_build/<ver>/agda/src/`."""
+    return REPO / "_build" / _agda_version() / "agda" / "src" / Path(rel).with_suffix(".agdai")
+
+
+def _lib_includes(libfile: Path) -> list[IncludeDir]:
+    """Absolute include dirs declared by an `.agda-lib` (resolved against its dir)."""
+    base = libfile.parent
+    includes: list[IncludeDir] = []
+    for raw in libfile.read_text(encoding="utf-8").splitlines():
+        line = raw.split("--", 1)[0].strip()
+        if line.startswith("include:"):
+            parts = line[len("include:") :].split()
+            includes.extend(str((base / part).resolve()) for part in parts)
+    return includes or [str(base)]
+
+
+@functools.cache
+def _include_paths() -> tuple[IncludeDir, ...]:
+    """Include dirs the reader needs to decode interfaces: project `src` + libraries.
+
+    Must match what wrote the interface, or `decode` fails (it resolves
+    module<->source via the include dirs).  Project `src` is `SRC` (the
+    `aletheia.agda-lib` `include: src`); library dirs come from `~/.agda/libraries`.
+    """
+    paths: list[IncludeDir] = [str(SRC)]
+    libraries = Path.home() / ".agda" / "libraries"
+    if libraries.is_file():
+        for raw in libraries.read_text(encoding="utf-8").splitlines():
+            entry = raw.split("--", 1)[0].strip()
+            libfile = Path(entry).expanduser()
+            if entry and libfile.is_file():
+                paths.extend(_lib_includes(libfile))
+    return tuple(paths)
+
+
+def _alias_pos(text: str, span: tuple[int, int], dst: Name) -> int:
+    """1-based codepoint position of a renaming alias `dst`'s binding in `text`.
+
+    Locates the `dst` token after its `to` keyword (skipping an optional fixity
+    annotation) within the open directive's `span`, so a chained
+    ``renaming (a to b; b to c)`` resolves each alias to the binding after *its*
+    `to`, not an earlier same-spelled source.  Returns 0 if not found.  The +1
+    converts Python's 0-based codepoint index to Agda's 1-based interface position
+    (matches the highlight `definitionSite` of the alias's body uses).
+    """
+    start, end = span
+    region = text[start:end]
+    pattern = r"\bto\b\s+(?:infix[lr]?\s+\d+\s+)?(" + re.escape(dst) + r")"
+    m = re.search(pattern, region)
+    idx = m.start(1) if m else region.find(dst)
+    return start + idx + 1 if idx >= 0 else 0
+
+
+def candidate_queries(text: str) -> QueryMap:
+    """Map each prunable import name to the imports that resolve it (per file).
+
+    Mirrors the gate's candidate set (:func:`tools._agda_opens.open_check_names`)
+    but keeps the module + original-name association the reader needs.  A
+    ``using (n)`` entry yields ``ImportRef(module, n)`` (a ``module `` prefix
+    stripped); a ``renaming (src to dst)`` candidate ``dst`` yields
+    ``ImportRef(module, src, alias_pos)`` — the elaborated term references the
+    origin, but the alias's body uses are highlighted at `alias_pos`.
+    """
+    qmap: QueryMap = {}
+    for open_info in find_opens(text):
+        is_candidate = (
+            open_info.is_open
+            and (open_info.has_using or bool(open_info.renaming))
+            and not open_info.has_public
+        )
+        if not is_candidate:
+            continue
+        for raw in open_info.using_names:
+            name = raw[len("module ") :].strip() if raw.startswith("module ") else raw
+            qmap.setdefault(name, []).append(ImportRef(open_info.module, name))
+        for src, dst in open_info.renaming:
+            pos = _alias_pos(text, open_info.span, dst)
+            qmap.setdefault(dst, []).append(ImportRef(open_info.module, src, pos))
+    return qmap
+
+
+def _present_agdai(rels: set[RelPath]) -> AgdaiFiles:
+    """Resolve each rel's `.agdai` (keeping only those that exist), both directions."""
+    by_rel = {rel: _agdai_path(rel) for rel in rels if _agdai_path(rel).is_file()}
+    return AgdaiFiles(by_rel, {str(p): rel for rel, p in by_rel.items()})
+
+
+def invoke_reader(
+    query_lines: list[QueryLine], include_paths: tuple[IncludeDir, ...]
+) -> list[OutputLine]:
+    """Run the reader binary over the query lines (with `include_paths`); stdout lines.
+
+    Shared by this module's driver (project + stdlib include paths) and the fixture
+    test (a scratch dir), so the build + subprocess call lives in one place.
+    """
+    binary = build_reader()
+    env = {**os.environ, "AGDA_IWYU_INCLUDE_PATHS": ":".join(include_paths)}
+    result = subprocess.run(
+        [str(binary)],
+        input="\n".join(query_lines) + "\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    return result.stdout.splitlines()
+
+
+def _decode_verdict(line: str, rel_by_path: dict[AgdaiPath, RelPath]) -> DecodedVerdict | None:
+    """Decode one reader JSONL line into its name query + verdict, or None to skip."""
+    f = verdict_fields(line)
+    if f is None:
+        return None
+    rel = rel_by_path.get(f.path)
+    if rel is None:
+        return None
+    return DecodedVerdict(NameQuery(rel, f.module, f.name), f.verdict)
+
+
+def run_reader(queries: list[tuple[NameQuery, int]]) -> Verdicts:
+    """Run the reader over (name query, alias-position) pairs; map each to its verdict.
+
+    The alias position (0 unless the import is a `renaming`) rides as a 4th
+    tab-separated field; the verdict dict stays keyed by the 3-field `NameQuery`.
+    Only queries whose file has a present `.agdai` are sent (the caller treats a
+    missing verdict as "reader could not judge" → defer to the oracle).
+    """
+    if not queries:
+        return {}
+    agdai = _present_agdai({q.rel for q, _ in queries})
+    lines = [
+        f"{agdai.by_rel[q.rel]}\t{q.module}\t{q.name}\t{pos}"
+        for q, pos in queries
+        if q.rel in agdai.by_rel
+    ]
+    if not lines:
+        return {}
+    verdicts: Verdicts = {}
+    for line in invoke_reader(lines, _include_paths()):
+        decoded = _decode_verdict(line, agdai.rel_by_path)
+        if decoded is not None:
+            verdicts[decoded.query] = decoded.verdict
+    return verdicts
+
+
+def _decode_wildcard(line: str, rel_by_path: dict[AgdaiPath, RelPath]) -> DecodedWild | None:
+    """Decode one wildcard reader JSONL line into its query + used subset, or None."""
+    f = wildcard_fields(line)
+    if f is None:
+        return None
+    rel = rel_by_path.get(f.path)
+    if rel is None:
+        return None
+    return DecodedWild(WildQuery(rel, f.module), f.used)
+
+
+def read_wildcards(queries: list[WildQuery]) -> WildUsed:
+    """Run wildcard queries; map each to the USED subset of its module's exports."""
+    if not queries:
+        return {}
+    agdai = _present_agdai({q.rel for q in queries})
+    lines = [f"{agdai.by_rel[q.rel]}\t{q.module}\t*" for q in queries if q.rel in agdai.by_rel]
+    if not lines:
+        return {}
+    out: WildUsed = {}
+    for line in invoke_reader(lines, _include_paths()):
+        parsed = _decode_wildcard(line, agdai.rel_by_path)
+        if parsed is not None:
+            out[parsed.query] = parsed.used
+    return out
+
+
+def _reader_verdict(rel: RelPath, name: Name, qmap: QueryMap, verdicts: Verdicts) -> Verdict:
+    """Aggregate a candidate's reader verdict across the imports that resolve it.
+
+    USED if any query is USED; DEAD only if all are DEAD; otherwise UNRESOLVED
+    (a missing or UNRESOLVED query → surfaced as "could not judge", never DEAD).
+    """
+    results = [verdicts.get(NameQuery(rel, ref.module, ref.name)) for ref in qmap.get(name, [])]
+    if not results or any(r is None for r in results):
+        return "UNRESOLVED"
+    if "USED" in results:
+        return "USED"
+    if all(r == "DEAD" for r in results):
+        return "DEAD"
+    return "UNRESOLVED"
+
+
+class DeadImport(NamedTuple):
+    """A prunable named import the reader judged on, located by file + name."""
+
+    rel: RelPath
+    name: Name
+
+
+class GateResult(NamedTuple):
+    """The gate's verdict over a scope: DEAD findings + the ones it could not judge.
+
+    `unresolved` are candidates whose `.agdai` the reader could not read (a
+    missing interface) — surfaced (never silently dropped, never collapsed to
+    DEAD), so the gate fails loud rather than under-reporting.
+    """
+
+    dead: list[DeadImport]
+    unresolved: list[DeadImport]
+
+
+def analyze_dead_imports(rels: list[RelPath]) -> GateResult:
+    """Judge every prunable named import across the scoped files (`.agdai` must be fresh).
+
+    Each file's `using`/`renaming` candidates (:func:`candidate_queries`) are put
+    to the reader; a candidate aggregating to DEAD is a finding, to UNRESOLVED is
+    surfaced, to USED is dropped.
+    """
+    qmaps = {rel: candidate_queries((SRC / rel).read_text(encoding="utf-8")) for rel in rels}
+    queries = [
+        (NameQuery(rel, ref.module, ref.name), ref.alias_pos)
+        for rel, qmap in qmaps.items()
+        for name in qmap
+        for ref in qmap[name]
+    ]
+    verdicts = run_reader(queries)
+    dead: list[DeadImport] = []
+    unresolved: list[DeadImport] = []
+    for rel, qmap in qmaps.items():
+        for name in qmap:
+            verdict = _reader_verdict(rel, name, qmap, verdicts)
+            if verdict == "DEAD":
+                dead.append(DeadImport(rel, name))
+            elif verdict == "UNRESOLVED":
+                unresolved.append(DeadImport(rel, name))
+    return GateResult(sorted(dead), sorted(unresolved))
+
+
+# ─── Wildcard `open import M` narrowing ────────────────────────────────────────
+
+# How a wildcard `open import M` is classified.
+type WildcardKind = str  # one of the three constants below
+DEAD = "DEAD"
+REDUNDANT = "REDUNDANT"
+NARROWABLE = "NARROWABLE"
+
+
+class Classification(NamedTuple):
+    """A wildcard's verdict and, for NARROWABLE, the `using` set to narrow to."""
+
+    kind: WildcardKind
+    needed: frozenset[Name]  # the names to narrow to (empty for DEAD / REDUNDANT)
+
+
+class Finding(NamedTuple):
+    """One classified wildcard open, located by file + module."""
+
+    rel: RelPath
+    module: ModulePath
+    kind: WildcardKind
+    needed: frozenset[Name]
+
+
+class LineEdit(NamedTuple):
+    """A pending source edit: the 0-based line of a wildcard open + its finding."""
+
+    line: int
+    finding: Finding
+
+
+def is_wildcard(open_info: OpenInfo) -> bool:
+    """Return True iff `open_info` is a bare wildcard ``open import M`` (a narrowing target).
+
+    Excludes `using`/`renaming`/`hiding`/`public` opens and bare `import M`
+    (qualified-only): only an unrestricted unqualified open brings M's whole
+    export set and is a narrowing candidate.
+    """
+    return (
+        open_info.is_open
+        and open_info.is_import
+        and not open_info.has_using
+        and not open_info.renaming
+        and not open_info.hiding_names
+        and not open_info.has_public
+    )
+
+
+def explicit_from(opens: list[OpenInfo], module: ModulePath) -> frozenset[Name]:
+    """Names explicitly imported from `module` by NON-wildcard, non-public opens.
+
+    The `using (...)` entries (a ``module `` prefix stripped) plus `renaming`
+    destinations of every other open of the same module — the set a wildcard's
+    used names must be covered by for the wildcard to be REDUNDANT.
+    """
+    names: set[Name] = set()
+    for o in opens:
+        if o.module != module or o.has_public or is_wildcard(o):
+            continue
+        if o.is_open and (o.has_using or o.renaming):
+            names |= {
+                n[len("module ") :].strip() if n.startswith("module ") else n for n in o.using_names
+            }
+            names |= {dst for _src, dst in o.renaming}
+    return frozenset(names)
+
+
+def classify_wildcard(used: frozenset[Name], explicit: frozenset[Name]) -> Classification:
+    """Classify a wildcard from its used subset and the file's explicit imports.
+
+    Pure (validated synthetically): empty used → DEAD; every used name also
+    explicit → REDUNDANT; otherwise NARROWABLE to the used names not already
+    imported explicitly (narrowing to just those avoids creating a duplicate).
+    """
+    needed = used - explicit
+    if not used:
+        return Classification(DEAD, frozenset())
+    if not needed:
+        return Classification(REDUNDANT, frozenset())
+    return Classification(NARROWABLE, needed)
+
+
+class Analysis(NamedTuple):
+    """The result of classifying a scope's wildcards: findings + the unreadable ones.
+
+    `skipped` are wildcard opens whose `.agdai` the reader could not read — surfaced
+    (not silently dropped), so the gate fails loud rather than under-reporting.
+    """
+
+    findings: list[Finding]
+    skipped: list[WildQuery]
+
+
+def analyze_wildcards(rels: list[RelPath]) -> Analysis:
+    """Classify every wildcard open across the scoped files (`.agdai` must be fresh)."""
+    opens_by_rel = {rel: find_opens((SRC / rel).read_text(encoding="utf-8")) for rel in rels}
+    queries = sorted(
+        {
+            WildQuery(rel, o.module)
+            for rel, opens in opens_by_rel.items()
+            for o in opens
+            if is_wildcard(o)
+        }
+    )
+    used_by = read_wildcards(queries)
+    findings = [
+        Finding(
+            q.rel,
+            q.module,
+            *classify_wildcard(used_by[q], explicit_from(opens_by_rel[q.rel], q.module)),
+        )
+        for q in queries
+        if q in used_by
+    ]
+    skipped = [q for q in queries if q not in used_by]
+    return Analysis(findings, skipped)
+
+
+def rewrite(text: str, findings: dict[ModulePath, Finding]) -> str:
+    """Apply each module's finding to its wildcard open(s) in `text`.
+
+    NARROWABLE → `open import M using (needed)`; DEAD / REDUNDANT → delete the
+    line.  Edits are applied bottom-up so earlier line numbers stay valid, and
+    the original indentation is preserved.  Targets only line-leading wildcard
+    `open import M` directives (what `is_wildcard` matches).
+    """
+    lines = text.splitlines(keepends=True)
+    edits = [
+        LineEdit(text[: o.span[0]].count("\n"), findings[o.module])
+        for o in find_opens(text)
+        if is_wildcard(o) and o.module in findings
+    ]
+    for e in sorted(edits, key=lambda x: x.line, reverse=True):
+        line = lines[e.line]
+        indent = line[: len(line) - len(line.lstrip())]
+        if e.finding.kind == NARROWABLE:
+            using = "; ".join(sorted(e.finding.needed))
+            lines[e.line] = f"{indent}open import {e.finding.module} using ({using})\n"
+        else:  # DEAD / REDUNDANT — the wildcard provides nothing uniquely used
+            del lines[e.line]
+    return "".join(lines)

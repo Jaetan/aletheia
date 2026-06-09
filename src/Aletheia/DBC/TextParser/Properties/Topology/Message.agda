@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.8 — `parseMessage`-roundtrip composer.
@@ -63,7 +65,7 @@ open import Aletheia.DBC.TextParser.Topology using
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace; parseNewline)
 open import Aletheia.DBC.TextParser.Format using
   (emit; parse; EmitsOK; ParseFailsAt; roundtrip)
-  renaming (many to manyF)
+  renaming ()
 open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 

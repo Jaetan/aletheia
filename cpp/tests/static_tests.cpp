@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // Layer 1: Compile-time tests.
 // If this file compiles, all static assertions pass. No runtime needed.
 

@@ -1,9 +1,10 @@
-#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/check_bound_enforcement.py — every BoundKind ctor must have at least one emit site.
 
-R20 cluster I — AGDA-D-32.5.  AGENTS.md universal rule "Adversarial-input
-bounds at parser surfaces" requires every adversarial bound to be rejected
-as a typed ``Error.InputBoundExceeded <BoundKind> observed limit``.  The
+AGENTS.md universal rule "Adversarial-input bounds at parser surfaces"
+requires every adversarial bound to be rejected as a typed
+``Error.InputBoundExceeded <BoundKind> observed limit``.  The
 ``BoundKind`` ADT in ``src/Aletheia/Limits.agda`` enumerates the supported
 kinds; each ctor must appear in at least one ``InputBoundExceeded <Ctor>``
 emit site under ``src/``.  A ctor declared but never emitted is dead
@@ -23,12 +24,14 @@ Exit codes:
   1 — at least one ctor has zero emit sites.
   2 — parse / I/O error.
 """
+
 from __future__ import annotations
 
 import re
 import sys
 from pathlib import Path
 
+from tools._common import emit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIMITS_PATH = REPO_ROOT / "src" / "Aletheia" / "Limits.agda"
@@ -67,7 +70,8 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
     match = decl_re.search(text)
     if not match:
         sys.stderr.write(
-            f"check-bound-enforcement: could not locate `data BoundKind : Set where` in {limits_path}\n"
+            "check-bound-enforcement: could not locate "
+            + f"`data BoundKind : Set where` in {limits_path}\n"
         )
         sys.exit(2)
     # Walk subsequent lines.  A ctor line looks like:
@@ -76,7 +80,7 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
     # (e.g., the `boundKindCode` definition).
     ctor_line_re = re.compile(r"^\s+([A-Z][A-Za-z0-9_-]*)\s*:\s*BoundKind\s*$")
     ctors: list[str] = []
-    for line in text[match.end():].splitlines():
+    for line in text[match.end() :].splitlines():
         if not line.strip():
             continue
         if line.lstrip().startswith("--"):
@@ -88,17 +92,15 @@ def _parse_boundkind_ctors(limits_path: Path) -> list[str]:
         # First non-blank, non-comment, non-ctor line ends the block.
         break
     if not ctors:
-        sys.stderr.write(
-            f"check-bound-enforcement: no BoundKind ctors parsed from {limits_path}\n"
-        )
+        sys.stderr.write(f"check-bound-enforcement: no BoundKind ctors parsed from {limits_path}\n")
         sys.exit(2)
     return ctors
 
 
 def _count_emit_sites(ctor: str, files: list[Path]) -> dict[Path, int]:
-    """For one ctor, return a dict of file → emit-site count.
+    r"""For one ctor, return a dict of file → emit-site count.
 
-    An emit site is the regex ``\\bInputBoundExceeded\\s+<Ctor>\\b``.
+    An emit site is the regex ``\bInputBoundExceeded\s+<Ctor>\b``.
     Comments are not stripped — a commented-out emit site would have the
     same shape and should be flagged either way (a commented-out emit
     site is not an emit site).
@@ -141,22 +143,20 @@ def main() -> int:
             missing.append(ctor)
     if missing:
         sys.stderr.write(
-            "check-bound-enforcement: BoundKind ctors with zero `InputBoundExceeded <Ctor>` emit sites:\n"
+            "check-bound-enforcement: BoundKind ctors with zero "
+            + "`InputBoundExceeded <Ctor>` emit sites:\n"
         )
         for c in missing:
             sys.stderr.write(f"  - {c}\n")
         sys.stderr.write(
             "\nEvery ctor in `data BoundKind` must be emitted at least once at a parser\n"
-            "or handler boundary.  AGENTS.md universal rule \"Adversarial-input bounds\n"
-            "at parser surfaces\" requires typed `Error.InputBoundExceeded` rejection;\n"
-            "a ctor with no emit site has an unreachable wire code.\n"
+            + 'or handler boundary.  AGENTS.md universal rule "Adversarial-input bounds\n'
+            + 'at parser surfaces" requires typed `Error.InputBoundExceeded` rejection;\n'
+            + "a ctor with no emit site has an unreachable wire code.\n"
         )
         return 1
     summary_pairs = ", ".join(f"{c}={per_ctor_counts[c]}" for c in ctors)
-    print(
-        f"check-bound-enforcement: all {len(ctors)} BoundKind ctors emitted "
-        f"({summary_pairs})"
-    )
+    emit(f"check-bound-enforcement: all {len(ctors)} BoundKind ctors emitted ({summary_pairs})")
     return 0
 
 

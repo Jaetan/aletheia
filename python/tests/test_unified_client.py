@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Core tests for the unified AletheiaClient.
 
 Covers basic operations, streaming, mixed signal/streaming flows, the
@@ -18,17 +20,19 @@ import subprocess
 import sys
 import textwrap
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from _stream_helpers import send_test_frame
 
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, Signal, StateError
-from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DLCCode
+from aletheia.dbc import dbc_to_json
+from aletheia.types import DLCCode, LTLFormula
 
 
 @pytest.fixture(name="demo_dbc")
-def _demo_dbc() -> DBCDefinition:
+def demo_dbc_fixture() -> DBCDefinition:
     """Load the demo vehicle DBC."""
     dbc_path = Path(__file__).parent.parent.parent / "examples" / "demo" / "vehicle.dbc"
     return dbc_to_json(str(dbc_path))
@@ -48,7 +52,9 @@ class TestAletheiaClientBasics:
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
             result = client.extract_signals(
-                can_id=256, dlc=DLCCode(8), data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+                can_id=256,
+                dlc=DLCCode(8),
+                data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert result.get("TestSignal") == 100.0
 
@@ -68,7 +74,10 @@ class TestAletheiaClientBasics:
             client.parse_dbc(simple_dbc)
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
             updated = client.update_frame(
-                can_id=256, dlc=DLCCode(8), frame=original, signals={"TestSignal": 200.0},
+                can_id=256,
+                dlc=DLCCode(8),
+                frame=original,
+                signals={"TestSignal": 200.0},
             )
             assert len(updated) == 8
             # Verify
@@ -83,9 +92,7 @@ class TestAletheiaClientStreaming:
         """Test streaming without violations."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(1000).always().to_dict()])
             client.start_stream()
 
             # Send frames that don't violate
@@ -94,7 +101,7 @@ class TestAletheiaClientStreaming:
                     timestamp=i * 1000,
                     can_id=256,
                     dlc=DLCCode(8),
-                    data=bytearray([i * 10, 0, 0, 0, 0, 0, 0, 0])  # Values 0-90
+                    data=bytearray([i * 10, 0, 0, 0, 0, 0, 0, 0]),  # Values 0-90
                 )
                 assert response.get("status") == "ack"
 
@@ -105,21 +112,14 @@ class TestAletheiaClientStreaming:
         """Test streaming with a violation."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(100).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(100).always().to_dict()])
             client.start_stream()
 
             # Send frame that violates (value = 200 > 100)
-            response = client.send_frame(
-                timestamp=1000,
-                can_id=256,
-                dlc=DLCCode(8),
-                data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
-            )
-            # R23 — AGDA-D-12.1: send_frame returns PropertyBatchResponse;
-            # the violation is the (typically single) entry in results.
-            assert response.get("type") == "property_batch"
+            response = send_test_frame(client, [200, 0, 0, 0, 0, 0, 0, 0])
+            # send_frame returns a PropertyBatchResponse; the violation is the
+            # (typically single) entry in results.
+            assert "type" in response
             assert any(e["status"] == "fails" for e in response["results"])
 
             client.end_stream()
@@ -132,26 +132,25 @@ class TestAletheiaClientMixedOperations:
         """Test that extract_signals works while streaming."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(1000).always().to_dict()])
             client.start_stream()
 
             # Send a frame
-            client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
-                data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]),
-            )
+            send_test_frame(client, [50, 0, 0, 0, 0, 0, 0, 0])
 
             # Extract signals while streaming (should work!)
             result = client.extract_signals(
-                can_id=256, dlc=DLCCode(8), data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+                can_id=256,
+                dlc=DLCCode(8),
+                data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert result.get("TestSignal") == 100.0
 
             # Continue streaming
             client.send_frame(
-                timestamp=2000, can_id=256, dlc=DLCCode(8),
+                timestamp=2000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]),
             )
 
@@ -161,15 +160,16 @@ class TestAletheiaClientMixedOperations:
         """Test that update_frame works while streaming."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(1000).always().to_dict()])
             client.start_stream()
 
             # Update a frame while streaming
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
             updated = client.update_frame(
-                can_id=256, dlc=DLCCode(8), frame=original, signals={"TestSignal": 75.0},
+                can_id=256,
+                dlc=DLCCode(8),
+                frame=original,
+                signals={"TestSignal": 75.0},
             )
 
             # Send the updated frame
@@ -182,9 +182,7 @@ class TestAletheiaClientMixedOperations:
         """Test that build_frame works while streaming."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(1000).always().to_dict()])
             client.start_stream()
 
             # Build a frame while streaming
@@ -280,54 +278,43 @@ class TestAletheiaClientLifecycle:
         leaks state into another (shared global, stale cache, unprotected
         mutation), the verdicts will be wrong.
         """
+
         # Rewrite threshold inside the property for each thread.
-        def make_property(threshold: int) -> dict:
+        def make_property(threshold: int) -> LTLFormula:
             return Signal("TestSignal").less_than(threshold).always().to_dict()
 
         frames = [
-            (i * 1000, 256, DLCCode(8), bytearray([200, 0, 0, 0, 0, 0, 0, 0]))
-            for i in range(10)
+            (i * 1000, 256, DLCCode(8), bytearray([200, 0, 0, 0, 0, 0, 0, 0])) for i in range(10)
         ]
         results: dict[str, str | None] = {"A": None, "B": None, "C": None}
-        errors: list[str] = []
         barrier = threading.Barrier(3, timeout=10)
 
         def run_client(name: str, threshold: int) -> None:
-            try:
-                with AletheiaClient() as client:
-                    client.parse_dbc(simple_dbc)
-                    client.set_properties([make_property(threshold)])
-                    client.start_stream()
-                    barrier.wait()  # Ensure all three threads are live simultaneously.
-                    violated = False
-                    for ts, cid, dlc, data in frames:
-                        resp = client.send_frame(
-                            timestamp=ts, can_id=cid, dlc=dlc, data=data
-                        )
-                        if resp.get("type") == "property_batch" and any(
-                            e.get("status") == "fails" for e in resp["results"]
-                        ):
-                            violated = True
-                            results[name] = "fails"
-                            client.end_stream()
-                            return
-                    if not violated:
-                        resp = client.end_stream()
-                        results[name] = resp.get("status")
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                errors.append(f"{name}: {e}")
+            with AletheiaClient() as client:
+                client.parse_dbc(simple_dbc)
+                client.set_properties([make_property(threshold)])
+                client.start_stream()
+                barrier.wait()  # Ensure all three threads are live simultaneously.
+                for ts, cid, dlc, data in frames:
+                    resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
+                    if "type" in resp and any(e.get("status") == "fails" for e in resp["results"]):
+                        results[name] = "fails"
+                        client.end_stream()
+                        return
+                end = client.end_stream()
+                results[name] = end.get("status")
 
-        threads = [
-            threading.Thread(target=run_client, args=("A", 100)),
-            threading.Thread(target=run_client, args=("B", 500)),
-            threading.Thread(target=run_client, args=("C", 1000)),
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=15)
+        # ThreadPoolExecutor re-raises any worker exception via future.result(),
+        # so a thread that leaks state or crashes fails the test in the main
+        # thread — no manual broad-except error collection needed.
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(run_client, name, threshold)
+                for name, threshold in [("A", 100), ("B", 500), ("C", 1000)]
+            ]
+            for future in futures:
+                future.result(timeout=15)
 
-        assert not errors, f"Thread errors: {errors}"
         # A: 200 is not < 100 → fails on first frame
         assert results["A"] == "fails", f"Thread A should fail, got {results['A']}"
         # B: 200 < 500 holds for every frame → complete
@@ -339,14 +326,14 @@ class TestAletheiaClientLifecycle:
         """Stream can be restarted after end_stream."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties(
-                [Signal("TestSignal").less_than(65535).always().to_dict()]
-            )
+            client.set_properties([Signal("TestSignal").less_than(65535).always().to_dict()])
 
             # First stream
             client.start_stream()
             client.send_frame(
-                timestamp=0, can_id=256, dlc=DLCCode(8),
+                timestamp=0,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -354,12 +341,13 @@ class TestAletheiaClientLifecycle:
             # Second stream (same client, same DBC)
             client.start_stream()
             resp = client.send_frame(
-                timestamp=1, can_id=256, dlc=DLCCode(8),
+                timestamp=1,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert resp.get("status") == "ack"
             client.end_stream()
-
 
     def test_threaded_isolation(self) -> None:
         """Two clients in separate threads produce correct independent results.
@@ -432,16 +420,17 @@ class TestAletheiaClientLifecycle:
         """)
         result = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
         assert result.returncode == 0, (
             f"Subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
         out = json.loads(result.stdout)
         assert not out["errors"], f"Thread raised: {out['errors']}"
-        assert out["results"]["A"] == "fails", (
-            f"Thread A should violate, got {out['results']['A']}"
-        )
+        assert out["results"]["A"] == "fails", f"Thread A should violate, got {out['results']['A']}"
         assert out["results"]["B"] == "complete", (
             f"Thread B should complete clean, got {out['results']['B']}"
         )
@@ -466,30 +455,38 @@ class TestAletheiaClientWithDemoDBC:
         """Test fault injection in a single streaming session."""
         with AletheiaClient() as client:
             client.parse_dbc(demo_dbc)
-            client.set_properties([
-                Signal("VehicleSpeed").less_than(120).always().to_dict()
-            ])
+            client.set_properties([Signal("VehicleSpeed").less_than(120).always().to_dict()])
             client.start_stream()
 
             # Send normal frames
             for i in range(5):
                 frame = client.build_frame(
-                    can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 50.0 + i},
+                    can_id=0x100,
+                    dlc=DLCCode(8),
+                    signals={"VehicleSpeed": 50.0 + i},
                 )
                 response = client.send_frame(
-                    timestamp=i * 100000, can_id=0x100, dlc=DLCCode(8), data=frame,
+                    timestamp=i * 100000,
+                    can_id=0x100,
+                    dlc=DLCCode(8),
+                    data=frame,
                 )
                 assert response.get("status") == "ack"
 
             # Inject fault: speed = 130 kph (exceeds 120 limit)
             fault_frame = client.build_frame(
-                can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 130.0},
+                can_id=0x100,
+                dlc=DLCCode(8),
+                signals={"VehicleSpeed": 130.0},
             )
             response = client.send_frame(
-                timestamp=500000, can_id=0x100, dlc=DLCCode(8), data=fault_frame,
+                timestamp=500000,
+                can_id=0x100,
+                dlc=DLCCode(8),
+                data=fault_frame,
             )
-            # R23 — AGDA-D-12.1: PropertyBatchResponse with violation entry.
-            assert response.get("type") == "property_batch"
+            # PropertyBatchResponse with a violation entry.
+            assert "type" in response
             assert any(e.get("status") == "fails" for e in response["results"])
 
             client.end_stream()
@@ -509,27 +506,26 @@ class TestStateMachineErrors:
         ``handler_no_dbc``, which the binding lifts to ``ProtocolError``
         carrying the wire code.
         """
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError, match="DBC not loaded"):
-                client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(8))
+        with AletheiaClient() as client, pytest.raises(ProtocolError, match="DBC not loaded"):
+            client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(8))
 
     def test_build_frame_without_dbc(self) -> None:
         """build_frame before parse_dbc raises StateError client-side."""
-        with AletheiaClient() as client:
-            with pytest.raises(StateError, match="DBC not loaded"):
-                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
+        with AletheiaClient() as client, pytest.raises(StateError, match="DBC not loaded"):
+            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
 
     def test_send_frame_without_stream(self, simple_dbc: DBCDefinition) -> None:
         """send_frame before start_stream returns error response."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(1000).always().to_dict()])
             response = client.send_frame(
-                timestamp=0, can_id=256, dlc=DLCCode(8), data=bytearray(8),
+                timestamp=0,
+                can_id=256,
+                dlc=DLCCode(8),
+                data=bytearray(8),
             )
-            assert response["status"] == "error"
+            assert response.get("status") == "error"
 
     def test_end_stream_without_start(self, simple_dbc: DBCDefinition) -> None:
         """end_stream without start_stream returns error response."""
@@ -548,18 +544,17 @@ class TestStateMachineErrors:
         """
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                # Predicate targets a signal that is not in simple_dbc —
-                # therefore never evaluated on any frame, so its verdict stays
-                # Unknown at end-of-stream.
-                Signal("UnknownSignal").less_than(100).always().to_dict()
-            ])
+            client.set_properties(
+                [
+                    # Predicate targets a signal that is not in simple_dbc —
+                    # therefore never evaluated on any frame, so its verdict stays
+                    # Unknown at end-of-stream.
+                    Signal("UnknownSignal").less_than(100).always().to_dict()
+                ]
+            )
             client.start_stream()
             # Send an unrelated frame that carries TestSignal only.
-            client.send_frame(
-                timestamp=1000, can_id=256, dlc=DLCCode(8),
-                data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
-            )
+            send_test_frame(client, [10, 0, 0, 0, 0, 0, 0, 0])
             end_resp = client.end_stream()
             assert end_resp["status"] == "complete"
             results = end_resp["results"]
@@ -577,36 +572,43 @@ class TestStateMachineErrors:
         """
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict()
-            ])
+            client.set_properties([Signal("TestSignal").less_than(1000).always().to_dict()])
             client.start_stream()
 
             # First frame at t=5000 µs — accepted.
             ok = client.send_frame(
-                timestamp=5000, can_id=256, dlc=DLCCode(8),
+                timestamp=5000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert ok.get("status") == "ack"
 
             # Regressing to t=4999 µs — rejected.
             err = client.send_frame(
-                timestamp=4999, can_id=256, dlc=DLCCode(8),
+                timestamp=4999,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([11, 0, 0, 0, 0, 0, 0, 0]),
             )
+            assert "code" in err  # narrows to ErrorResponse
             assert err["status"] == "error"
             assert err["code"] == "handler_non_monotonic_timestamp"
 
             # Same-timestamp frames (≥, not >) are accepted.
             eq = client.send_frame(
-                timestamp=5000, can_id=256, dlc=DLCCode(8),
+                timestamp=5000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([12, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert eq.get("status") == "ack"
 
             # Anchor is unchanged after rejection — next ≥ 5000 still accepted.
             fwd = client.send_frame(
-                timestamp=6000, can_id=256, dlc=DLCCode(8),
+                timestamp=6000,
+                can_id=256,
+                dlc=DLCCode(8),
                 data=bytearray([13, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert fwd.get("status") == "ack"

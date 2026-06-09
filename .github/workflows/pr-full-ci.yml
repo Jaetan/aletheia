@@ -1,0 +1,171 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Server-side full correctness sweep for PR enforcement — the un-bypassable
+# backstop the local-first model (run_ci + opt-in pre-push hook) lacks.
+# See docs/development/BRANCH_PR_HYGIENE.md.  This workflow ENFORCES nothing
+# until `main` branch protection marks it a required status check; until then
+# it is advisory.  The first real runs will shake out toolchain setup (the
+# C++/LLVM lane is the expected first red — iterate to green BEFORE requiring).
+
+name: Full CI sweep (PR enforcement)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  full-sweep:
+    name: tools/run_ci.py (all gates)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GHC_VERSION: '9.6.7'
+      AGDA_VERSION: '2.8.0'
+      STDLIB_VERSION: 'v2.3'
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          # Pin cabal to the legacy ~/.cabal layout.  cabal 3.12 otherwise
+          # defaults to the XDG store (~/.local/state/cabal/store), which
+          # mismatches this job's cache path, PATH (~/.cabal/bin), and the
+          # IWYU reader's _store_package_db() (it links Agda from
+          # ~/.cabal/store/ghc-<ver>/package.db).  Export for later steps too.
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          cabal update
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      # Caches the prebuilt Agda library + executable so only the FIRST run
+      # builds Agda (~15-20 min on the 4-core runner); later runs restore it
+      # and `cabal install Agda` becomes a fast no-op.  Split restore/save (not
+      # the combined `actions/cache`) because the combined action only saves on
+      # job SUCCESS — every failed iteration would otherwise re-build Agda.  The
+      # save runs right after the build, BEFORE the sweep, so a later gate
+      # failure still persists the build; placing it pre-sweep also means it is
+      # skipped automatically if `cabal install` itself fails (no broken cache).
+      # Key is -v2: the first run cached an empty store (cabal used the XDG
+      # location before CABAL_DIR was pinned) and cache keys are immutable.
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (persists the Agda build even if a later gate fails)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      # FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18, but the build is
+      # Clang >= 19 ONLY (g++ dropped — see cpp/CMakeLists.txt).  Install clang-19
+      # + libstdc++-14-dev: clang-19 needs a C++23 libstdc++ (std::expected /
+      # std::format) and auto-selects the gcc-14 toolchain — the g++-14 *compiler*
+      # is intentionally NOT installed (cgo + GHC use cc/gcc-13).  If clang-19 is
+      # not in the runner's default apt, add apt.llvm.org. Adjust on red runs.
+      - name: Install C++ toolchain (cmake, clang-19 + tidy/format, libstdc++-14)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-19 clang-tidy-19 clang-format-19 libstdc++-14-dev
+          sudo update-alternatives --install /usr/bin/clang        clang        /usr/bin/clang-19        100
+          sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
+          sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
+          # --install only REGISTERS the alternatives at priority 100; this runner
+          # ships clang-18 (see note above) whose alternatives outrank ours, so a
+          # bare `clang-tidy` would resolve to v18.  That exact bug hit the
+          # clang-format gate on PR #7 (v18 wraps trailing-return signatures
+          # differently than v19).  --set FORCES v19, the version this job installs.
+          sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-19
+          # NB: the clang-format gate no longer relies on this system binary — it
+          # runs the version-pinned `clang-format` from python[dev] via the venv
+          # (see tools/run_ci.py + python/pyproject.toml).  The apt clang-format-19
+          # above is kept only as a convenience for manual `clang-format` use.
+
+      # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
+      # / Catch2) for all three C++ build dirs.  Without it, every run
+      # re-downloads each tarball into each build tree — slow and exposed to
+      # transient source-server errors (a 504 fetching OpenXLSX failed the
+      # ctest step on the first real run).  Keyed on CMakeLists.txt, which
+      # pins the dependency versions, so a bump invalidates the cache.
+      - name: Cache C++ FetchContent deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            cpp/build/_deps
+            cpp/build-tidy/_deps
+            cpp/build-ubsan/_deps
+          key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+
+      # --iwyu-all runs the import gate over the WHOLE tree (not just the PR
+      # diff) — airtight against cross-file deadness, the merge-gate scope.
+      # The local pre-push hook keeps the faster --diff default.
+      - name: Run the full offline correctness sweep (tools/run_ci.py)
+        run: python/.venv/bin/python3 -m tools.run_ci --iwyu-all

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.d — slim `parseComment-roundtrip` derived from the
@@ -39,7 +41,7 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using
-  (ℕ; _≤_; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_; s≤s; z≤n)
+  (ℕ; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_; s≤s; z≤n)
 open import Data.Nat.Properties using
   (<-trans; ≤ᵇ⇒≤; ≤⇒≤ᵇ; <ᵇ⇒<; <⇒≱; m≤n+m; m+n∸n≡m)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)

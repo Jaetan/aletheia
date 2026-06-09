@@ -309,7 +309,7 @@ If the absence is expected for the workload (e.g., the property
 guards a fault path the test session deliberately avoided), the
 `Unresolved` verdict is the correct outcome and the warning is
 informational. If the absence is a surprise, cross-check the
-property's signal name against the DBC (`dbc_queries`
+property's signal name against the DBC (`aletheia.dbc`
 `signal_by_name` returns the message that hosts a given signal) and
 the producer side of the bus.
 
@@ -539,7 +539,7 @@ codified in `Aletheia.DBC.Validator`.
 **Action:** Run `aletheia validate --dbc <file>` (or the binding
 equivalent) to enumerate issues. Each issue carries a stable
 `IssueCode` mapped across all three bindings — see the
-`IssueCode` enum (`python/aletheia/issue_codes.py`,
+`IssueCode` enum (`python/aletheia/codes/_issue.py`,
 `go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.

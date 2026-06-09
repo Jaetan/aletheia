@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Foundations for the B.3.d Layer 3 Commit 3c attribute roundtrip
@@ -45,7 +47,6 @@ open import Aletheia.DBC.DecRat.Refinement using
 open import Aletheia.DBC.Types using
   ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
-  ; DBCAttribute
   )
 open import Aletheia.DBC.TextParser.Attributes using
   ( RawAttrValue; RavString; RavDecRat

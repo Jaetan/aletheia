@@ -18,7 +18,7 @@
 
 ```python
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log   # `pip install aletheia[can]`
 
 # Load DBC file (converts .dbc to JSON automatically)
@@ -342,7 +342,7 @@ Signal("FaultCode").equals(0xFF).never()
 
 ```python
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 # Load DBC
 dbc = dbc_to_json("vehicle.dbc")
@@ -394,10 +394,14 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data in trace:
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            prop_idx = response["property_index"]["numerator"]
-            ts = response["timestamp"]["numerator"]
-            print(f"Property {prop_idx} violated at {ts}us")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry["status"] == "fails":
+                    # property_index / timestamp are ints (microseconds)
+                    print(
+                        f"Property {entry['property_index']} violated "
+                        f"at {entry['timestamp']}us"
+                    )
 
     client.end_stream()
 ```
@@ -423,8 +427,10 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data in trace:
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            violations.append(response["timestamp"]["numerator"])
+        if response.get("type") == "property_batch":
+            violations.extend(
+                entry["timestamp"] for entry in response["results"] if entry["status"] == "fails"
+            )
 
     client.end_stream()
 
@@ -521,7 +527,7 @@ with AletheiaClient() as client:
 Load DBC structure from JSON dictionary. Must be called first.
 
 ```python
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 dbc = dbc_to_json("vehicle.dbc")  # Convert .dbc file to JSON
 response = client.parse_dbc(dbc)
@@ -690,7 +696,7 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 third-party dependency is required.
 
 ```python
-from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc import dbc_to_json
 
 # Convert .dbc file to Aletheia JSON format
 dbc_json = dbc_to_json("vehicle.dbc")
@@ -701,7 +707,7 @@ dbc_json = dbc_to_json("vehicle.dbc")
 Convert a `.dbc` file to Aletheia JSON format and optionally write it to a file. Returns the JSON string.
 
 ```python
-from aletheia.dbc_converter import convert_dbc_file
+from aletheia.dbc import convert_dbc_file
 
 # Convert and write to file
 convert_dbc_file("vehicle.dbc", "vehicle.json")
@@ -903,8 +909,8 @@ When checks are registered via `set_properties()` (or `add_checks()`), violation
 {
     "type": "property",
     "status": "fails",
-    "property_index": {"numerator": 0, "denominator": 1},
-    "timestamp": {"numerator": 4523000, "denominator": 1},
+    "property_index": 0,
+    "timestamp": 4523000,
     "reason": "Always violated",  # core_reason (raw Agda string)
     "enrichment": {
         "signals": {"VehicleSpeed": 225.5},                    # extracted signal values
@@ -1012,7 +1018,7 @@ Convert a `DBCDefinition` dict to DBC file text format.
 
 #### DBC Query Helpers
 
-Operate on `DBCMessage` / `DBCDefinition` TypedDicts from `aletheia.protocols`:
+Operate on `DBCMessage` / `DBCDefinition` TypedDicts from `aletheia.types`:
 
 ```python
 from aletheia import message_by_id, is_multiplexed, always_present_signals

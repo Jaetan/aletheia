@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal extraction and injection from CAN frames (bit-level operations).
@@ -16,7 +18,7 @@ open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; extractRaw; extractRaw-extractBits; injectBits)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.DBC.DecRat using (toℚ)
-open import Aletheia.Data.BitVec using (BitVec)
+open import Aletheia.Data.BitVec using ()
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; mkBoundedBitVec)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)

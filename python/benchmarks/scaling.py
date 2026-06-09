@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Scaling Benchmark.
 
 Measures how Aletheia performance scales with:
@@ -17,20 +18,28 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import IO, Callable, TypedDict
+from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
+
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from benchmarks._common import (
+    CAN20_SPEC,
+    CANFD_SPEC,
+    FrameSpec,
+    emit_json_report,
+    load_canfd_dbc,
+    load_dbc,
+    run_streaming_benchmark,
+)
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import Signal
-from aletheia.dsl import Property
-from aletheia.protocols import DBCDefinition, LTLFormula
 
-# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
-from ._common import (
-    CAN20_SPEC, CANFD_SPEC,
-    FrameSpec,
-    emit_json_report, load_canfd_dbc, load_dbc, run_streaming_benchmark,
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from aletheia.dsl import Property
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 class _TraceSizeRow(TypedDict):
@@ -69,21 +78,26 @@ class _ScalingResults(TypedDict):
 
 
 def benchmark_frames_per_sec(
-    dbc: DBCDefinition, num_frames: int, properties: list[LTLFormula],
+    dbc: DBCDefinition,
+    num_frames: int,
+    properties: list[LTLFormula],
     spec: FrameSpec,
 ) -> tuple[float, float]:
     """Benchmark streaming throughput. Returns (frames_per_sec, total_time)."""
     return run_streaming_benchmark(dbc, num_frames, spec, properties)
 
 
-def _trace_sizes(quick: bool) -> list[int]:
+def _trace_sizes(*, quick: bool) -> list[int]:
     """Return the trace-size sweep (smaller in --quick mode)."""
     return [1000, 5000, 10000, 50000] if quick else [1000, 5000, 10000, 50000, 100000]
 
 
 def _scan_trace_sizes(
-    dbc: DBCDefinition, spec: FrameSpec, properties: list[LTLFormula],
-    sizes: list[int], file: IO[str],
+    dbc: DBCDefinition,
+    spec: FrameSpec,
+    properties: list[LTLFormula],
+    sizes: list[int],
+    file: IO[str],
 ) -> list[_TraceSizeRow]:
     """Sweep trace sizes for one frame type and return per-size result rows."""
     print(f"{'Frames':>10} {'Time (s)':>10} {'Frames/sec':>12} {'Relative':>10}", file=file)
@@ -102,8 +116,11 @@ def _scan_trace_sizes(
     return results
 
 
-def test_trace_size_scaling(
-    dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+def benchmark_trace_size_scaling(
+    dbc: DBCDefinition,
+    *,
+    quick: bool = False,
+    file: IO[str] | None = None,
 ) -> list[_TraceSizeRow]:
     """Test how throughput scales with trace size (CAN 2.0B)."""
     out = file or sys.stdout
@@ -114,11 +131,14 @@ def test_trace_size_scaling(
     print("(Verifies O(1) memory and constant throughput)", file=out)
     print(file=out)
     properties = [Signal("EngineSpeed").between(0, 8000).always().to_dict()]
-    return _scan_trace_sizes(dbc, CAN20_SPEC, properties, _trace_sizes(quick), out)
+    return _scan_trace_sizes(dbc, CAN20_SPEC, properties, _trace_sizes(quick=quick), out)
 
 
-def test_trace_size_scaling_canfd(
-    canfd_dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+def benchmark_trace_size_scaling_canfd(
+    canfd_dbc: DBCDefinition,
+    *,
+    quick: bool = False,
+    file: IO[str] | None = None,
 ) -> list[_TraceSizeRow]:
     """Test how throughput scales with trace size (CAN-FD)."""
     out = file or sys.stdout
@@ -128,7 +148,7 @@ def test_trace_size_scaling_canfd(
     print("Testing CAN-FD throughput as trace size increases...", file=out)
     print(file=out)
     properties = [Signal("GPSSpeed").between(0, 655).always().to_dict()]
-    return _scan_trace_sizes(canfd_dbc, CANFD_SPEC, properties, _trace_sizes(quick), out)
+    return _scan_trace_sizes(canfd_dbc, CANFD_SPEC, properties, _trace_sizes(quick=quick), out)
 
 
 def _property_templates() -> list[Callable[[], Property]]:
@@ -147,8 +167,11 @@ def _property_templates() -> list[Callable[[], Property]]:
     ]
 
 
-def test_property_count_scaling(
-    dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+def benchmark_property_count_scaling(
+    dbc: DBCDefinition,
+    *,
+    quick: bool = False,
+    file: IO[str] | None = None,
 ) -> list[_PropertyCountRow]:
     """Test how throughput scales with number of properties."""
     out = file or sys.stdout
@@ -175,19 +198,30 @@ def test_property_count_scaling(
             baseline_fps = fps
         relative = fps / baseline_fps
         print(f"{count:>10} {fps:>12,.0f} {us_per_frame:>10.1f} {relative:>10.2f}x", file=out)
-        results.append({
-            "properties": count, "fps": round(fps, 1),
-            "us_per_frame": round(us_per_frame, 1), "relative": round(relative, 3),
-        })
+        results.append(
+            {
+                "properties": count,
+                "fps": round(fps, 1),
+                "us_per_frame": round(us_per_frame, 1),
+                "relative": round(relative, 3),
+            }
+        )
 
     print(file=out)
     print("Expected: Some degradation, but should be sub-linear", file=out)
     return results
 
 
-def _complexity_levels() -> list[tuple[str, list[LTLFormula]]]:
+class ComplexityLevel(NamedTuple):
+    """A labelled property bundle for the complexity-scaling sweep."""
+
+    label: str
+    properties: list[LTLFormula]
+
+
+def _complexity_levels() -> list[ComplexityLevel]:
     """Property bundles used by the complexity-scaling sweep."""
-    return [
+    raw = [
         (
             "Simple predicate",
             [Signal("EngineSpeed").less_than(8000).always().to_dict()],
@@ -213,15 +247,23 @@ def _complexity_levels() -> list[tuple[str, list[LTLFormula]]]:
         ),
         (
             "Implication",
-            [Signal("EngineSpeed").less_than(1000).implies(
-                Signal("EngineTemp").less_than(100)
-            ).always().to_dict()],
+            [
+                Signal("EngineSpeed")
+                .less_than(1000)
+                .implies(Signal("EngineTemp").less_than(100))
+                .always()
+                .to_dict()
+            ],
         ),
     ]
+    return [ComplexityLevel(*_entry) for _entry in raw]
 
 
-def test_property_complexity_scaling(
-    dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+def benchmark_property_complexity_scaling(
+    dbc: DBCDefinition,
+    *,
+    quick: bool = False,
+    file: IO[str] | None = None,
 ) -> list[_PropertyComplexityRow]:
     """Test how throughput scales with property complexity."""
     out = file or sys.stdout
@@ -245,10 +287,14 @@ def test_property_complexity_scaling(
             baseline_fps = fps
         relative = fps / baseline_fps
         print(f"{name:<25} {fps:>12,.0f} {us_per_frame:>10.1f} {relative:>10.2f}x", file=out)
-        results.append({
-            "complexity": name, "fps": round(fps, 1),
-            "us_per_frame": round(us_per_frame, 1), "relative": round(relative, 3),
-        })
+        results.append(
+            {
+                "complexity": name,
+                "fps": round(fps, 1),
+                "us_per_frame": round(us_per_frame, 1),
+                "relative": round(relative, 3),
+            }
+        )
 
     print(file=out)
     print("Expected: More complex properties should be slower", file=out)
@@ -279,10 +325,14 @@ def main() -> int:
     print("Done.", file=out)
 
     results: _ScalingResults = {
-        "trace_size_can20": test_trace_size_scaling(dbc, args.quick, file=out),
-        "trace_size_canfd": test_trace_size_scaling_canfd(canfd_dbc, args.quick, file=out),
-        "property_count": test_property_count_scaling(dbc, args.quick, file=out),
-        "property_complexity": test_property_complexity_scaling(dbc, args.quick, file=out),
+        "trace_size_can20": benchmark_trace_size_scaling(dbc, quick=args.quick, file=out),
+        "trace_size_canfd": benchmark_trace_size_scaling_canfd(
+            canfd_dbc, quick=args.quick, file=out
+        ),
+        "property_count": benchmark_property_count_scaling(dbc, quick=args.quick, file=out),
+        "property_complexity": benchmark_property_complexity_scaling(
+            dbc, quick=args.quick, file=out
+        ),
     }
 
     print("\n" + "=" * 70, file=out)

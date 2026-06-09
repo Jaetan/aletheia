@@ -1,8 +1,10 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Backend Protocol — FFI-boundary DI seam for the Aletheia client.
 
 Mirrors Go ``aletheia.Backend`` (``go/aletheia/backend.go``) and C++
-``aletheia::IBackend`` (``cpp/include/aletheia/backend.hpp``) to close
-the cross-binding parity gap flagged as ``PY-D-24.1`` in R20.
+``aletheia::IBackend`` (``cpp/include/aletheia/backend.hpp``) for
+cross-binding parity at the FFI boundary.
 
 Three implementations live here:
 
@@ -25,11 +27,14 @@ from __future__ import annotations
 
 import ctypes
 from collections import deque
-from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from ._ffi import RTSState, configure_ffi_signatures, find_ffi_library
-from ._types import AletheiaError, FFIError, ProtocolError, encode_maybe_bool
+from aletheia.client._enrichment import set_renderer_lib
+from aletheia.client._ffi import RTSState, configure_ffi_signatures, find_ffi_library
+from aletheia.client._types import AletheiaError, FFIError, ProtocolError, encode_maybe_bool
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class BinaryPathUnsupportedError(AletheiaError):
@@ -76,11 +81,22 @@ class Backend(Protocol):
         """Send a JSON command and return the JSON response bytes."""
         raise NotImplementedError
 
-    def send_frame_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool, dlc: int,
+    # send_frame_binary / build_frame_bin / update_frame_bin (here + on
+    # FFIBackend / MockBackend) carry a per-line PLR0913 noqa: arg lists are
+    # fixed by the binary-FFI wire contract + mirror Go/C++, and
+    # send_frame_binary is the per-frame hot path.  PLR0913 stays active for
+    # all other code.
+    def send_frame_binary(  # pylint: disable=too-many-arguments  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        brs: bool | None, esi: bool | None,
+        brs: bool | None,
+        esi: bool | None,
     ) -> bytes:
         """Send a CAN frame via the binary FFI; returns the JSON response.
 
@@ -94,8 +110,12 @@ class Backend(Protocol):
         raise NotImplementedError
 
     def send_remote_binary(
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool,
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
     ) -> bytes:
         """Send a CAN remote frame event (ID, no payload)."""
         raise NotImplementedError
@@ -113,34 +133,56 @@ class Backend(Protocol):
         raise NotImplementedError
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Extract signals — JSON response on output (binding-friendly)."""
         raise NotImplementedError
 
-    def build_frame_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+    def build_frame_bin(  # pylint: disable=too-many-arguments  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame returning raw payload bytes (no JSON)."""
         raise NotImplementedError
 
-    def update_frame_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
+    def update_frame_bin(  # pylint: disable=too-many-arguments  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Update specific signals in an existing frame returning raw payload bytes."""
         raise NotImplementedError
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Extract signals — packed binary on output (fast path).
 
@@ -167,14 +209,17 @@ def _decode_and_free_response(lib: ctypes.CDLL, ptr: int) -> bytes:
     try:
         raw = ctypes.cast(ptr, ctypes.c_char_p).value
         if raw is None:
-            raise ProtocolError("FFI returned null pointer")
+            msg = "FFI returned null pointer"
+            raise ProtocolError(msg)
         return raw
     finally:
         lib.aletheia_free_str(ptr)
 
 
 def _decode_out_err(
-    lib: ctypes.CDLL, out_err: ctypes.c_char_p, prefix: str,
+    lib: ctypes.CDLL,
+    out_err: ctypes.c_char_p,
+    prefix: str,
 ) -> ProtocolError:
     """Decode an ``out_err`` C-string and return a :class:`ProtocolError`.
 
@@ -216,7 +261,10 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
     """
 
     def __init__(
-        self, *, rts_cores: int = 1, lib_path: Path | None = None,
+        self,
+        *,
+        rts_cores: int = 1,
+        lib_path: Path | None = None,
     ) -> None:
         """Load ``libaletheia-ffi.so`` and acquire a GHC RTS reference.
 
@@ -234,17 +282,17 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             FileNotFoundError: ``lib_path`` is None and no library found.
             PermissionError: Resolved library path is a symlink or
                 group/world-writable (see :func:`._ffi._validate_lib_path`).
+
         """
         path = lib_path if lib_path is not None else find_ffi_library()
         self._lib: ctypes.CDLL = ctypes.CDLL(str(path))
         configure_ffi_signatures(self._lib)
         RTSState.acquire(self._lib, rts_cores)
         self._rts_cores = rts_cores
-        # Register this library as the Rational renderer (R20 cluster Y
-        # stage 2).  The renderer module also lazy-loads on demand for
-        # callers that bypass FFIBackend, so this registration is an
-        # eager optimisation rather than a strict requirement.
-        from ._enrichment import set_renderer_lib  # pylint: disable=import-outside-toplevel
+        # Register this library as the Rational renderer.  The renderer
+        # module also lazy-loads on demand for callers that bypass
+        # FFIBackend, so this registration is an eager optimisation rather
+        # than a strict requirement.
         set_renderer_lib(self._lib)
 
     @property
@@ -256,7 +304,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """Allocate a fresh Agda session and return the raw ``void*`` address."""
         raw = self._lib.aletheia_init()
         if not raw:
-            raise FFIError("aletheia_init() returned null — FFI initialization failed")
+            msg = "aletheia_init() returned null — FFI initialization failed"
+            raise FFIError(msg)
         return raw
 
     def close(self, state: int) -> None:
@@ -272,18 +321,24 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         result_ptr = self._lib.aletheia_process(ctypes.c_void_p(state), input_bytes)
         return _decode_and_free_response(self._lib, result_ptr)
 
-    def send_frame_binary(  # pylint: disable=too-many-arguments,too-many-locals
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool, dlc: int,
+    def send_frame_binary(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        brs: bool | None, esi: bool | None,
+        brs: bool | None,
+        esi: bool | None,
     ) -> bytes:
         """Send a CAN data frame via the binary FFI; returns the JSON response bytes."""
         # `from_buffer_copy` is a single C-level memcpy; the varargs form
         # `(c_uint8 * N)(*data)` does O(N) Python-level per-byte coercion.
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
-        brs_pres, brs_val = encode_maybe_bool(brs)
-        esi_pres, esi_val = encode_maybe_bool(esi)
+        brs_pres, brs_val = encode_maybe_bool(b=brs)
+        esi_pres, esi_val = encode_maybe_bool(b=esi)
         result_ptr = self._lib.aletheia_send_frame(
             ctypes.c_void_p(state),
             ctypes.c_uint64(timestamp),
@@ -302,13 +357,18 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
         """Send a CAN error event; returns the JSON response bytes."""
         result_ptr = self._lib.aletheia_send_error(
-            ctypes.c_void_p(state), ctypes.c_uint64(timestamp),
+            ctypes.c_void_p(state),
+            ctypes.c_uint64(timestamp),
         )
         return _decode_and_free_response(self._lib, result_ptr)
 
     def send_remote_binary(
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool,
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
     ) -> bytes:
         """Send a CAN remote frame; returns the JSON response bytes."""
         result_ptr = self._lib.aletheia_send_remote(
@@ -322,24 +382,32 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
     def start_stream_binary(self, state: int) -> bytes:
         """Begin streaming mode; returns the JSON response bytes."""
         return _decode_and_free_response(
-            self._lib, self._lib.aletheia_start_stream(ctypes.c_void_p(state)),
+            self._lib,
+            self._lib.aletheia_start_stream(ctypes.c_void_p(state)),
         )
 
     def end_stream_binary(self, state: int) -> bytes:
         """Finalize streaming; returns the JSON response bytes (per-property verdicts)."""
         return _decode_and_free_response(
-            self._lib, self._lib.aletheia_end_stream(ctypes.c_void_p(state)),
+            self._lib,
+            self._lib.aletheia_end_stream(ctypes.c_void_p(state)),
         )
 
     def format_dbc_binary(self, state: int) -> bytes:
         """Return the loaded DBC as JSON bytes (no JSON on input)."""
         return _decode_and_free_response(
-            self._lib, self._lib.aletheia_format_dbc(ctypes.c_void_p(state)),
+            self._lib,
+            self._lib.aletheia_format_dbc(ctypes.c_void_p(state)),
         )
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Extract signals via the JSON-out path (no JSON on input)."""
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
@@ -353,11 +421,17 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         )
         return _decode_and_free_response(self._lib, result_ptr)
 
-    def build_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+    def build_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame from signal values; returns the packed payload bytes."""
         out_buf = (ctypes.c_uint8 * expected_bytes)()
@@ -379,12 +453,18 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
             raise _decode_out_err(self._lib, out_err, "build_frame failed")
         return bytes(out_buf)
 
-    def update_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
+    def update_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Update specified signals in ``data``; returns the new packed frame bytes."""
         frame_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
@@ -410,13 +490,18 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         return bytes(out_buf)
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Extract signals via the binary path; returns the packed-binary buffer."""
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
         out_buf = ctypes.POINTER(ctypes.c_uint8)()
-        out_size = ctypes.c_uint32()
+        out_size = ctypes.c_uint32(0)
         out_err = ctypes.c_char_p()
         status = self._lib.aletheia_extract_signals_bin(
             ctypes.c_void_p(state),
@@ -434,7 +519,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         try:
             return bytes(
                 ctypes.cast(
-                    out_buf, ctypes.POINTER(ctypes.c_uint8 * out_size.value),
+                    out_buf,
+                    ctypes.POINTER(ctypes.c_uint8 * out_size.value),
                 ).contents
             )
         finally:
@@ -456,12 +542,12 @@ _MOCK_SENTINEL_STATE: int = 0xDEADBEEF  # Non-null sentinel; mock ignores state 
 
 
 class MockBackend:  # pylint: disable=too-many-public-methods
-    """In-memory :class:`Backend` replaying canned JSON responses.
+    r"""In-memory :class:`Backend` replaying canned JSON responses.
 
     Cross-binding parity with Go ``aletheia.MockBackend`` (mock.go) and
     C++ ``aletheia::MockBackend`` (``cpp/src/detail/mock_backend.hpp``).
-    Closes ``FEATURE_MATRIX.yaml`` row ``mock_backend`` for the Python
-    binding (R20 cluster P — PY-B-22.2).
+    Tracks ``FEATURE_MATRIX.yaml`` row ``mock_backend`` for the Python
+    binding.
 
     Usage::
 
@@ -473,7 +559,7 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         ])
         with AletheiaClient(backend=backend) as client:
             client.parse_dbc(dbc)
-            client.send_frame(0, 0x100, 0, b"\\x00")
+            client.send_frame(0, 0x100, 0, b"\x00")
 
         assert len(backend.inputs) == 2
 
@@ -495,6 +581,7 @@ class MockBackend:  # pylint: disable=too-many-public-methods
                 otherwise) so simple smoke tests work without explicit
                 priming.  Tests asserting on exact response shapes should
                 enqueue every expected call.
+
         """
         self._responses: deque[bytes] = deque(responses or [])
         self._inputs: list[bytes] = []
@@ -523,13 +610,17 @@ class MockBackend:  # pylint: disable=too-many-public-methods
     # binary-shim sentinels) that should default to ``{"status":"ack"}``
     # rather than ``{"status":"success"}``.
     _ACK_DEFAULT_MARKERS: tuple[bytes, ...] = (
-        b'"command":"sendFrame"', b'"command":"sendError"', b'"command":"sendRemote"',
-        b'<binary:sendFrame>', b'<binary:sendError>', b'<binary:sendRemote>',
+        b'"command":"sendFrame"',
+        b'"command":"sendError"',
+        b'"command":"sendRemote"',
+        b"<binary:sendFrame>",
+        b"<binary:sendError>",
+        b"<binary:sendRemote>",
     )
 
     @classmethod
     def default_response(cls, input_bytes: bytes) -> bytes:
-        """Default response when the queue is empty.
+        """Return the default response when the queue is empty.
 
         Mirrors C++ ``MockBackend::process`` default: fire-and-forget
         commands (``sendFrame`` / ``sendError`` / ``sendRemote`` — JSON
@@ -560,85 +651,117 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         del state
         return self._pop_or_default(input_bytes)
 
-    def send_frame_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool, dlc: int,
+    def send_frame_binary(  # pylint: disable=too-many-arguments  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        brs: bool | None, esi: bool | None,
+        brs: bool | None,
+        esi: bool | None,
     ) -> bytes:
         """Record a ``<binary:sendFrame>`` sentinel; return queued or default-ack."""
         del state, timestamp, can_id, extended, dlc, data, brs, esi
-        return self._pop_or_default(b'<binary:sendFrame>')
+        return self._pop_or_default(b"<binary:sendFrame>")
 
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
         """Record a ``<binary:sendError>`` sentinel; return queued or default-ack."""
         del state, timestamp
-        return self._pop_or_default(b'<binary:sendError>')
+        return self._pop_or_default(b"<binary:sendError>")
 
     def send_remote_binary(
-        self, state: int, *,
-        timestamp: int, can_id: int, extended: bool,
+        self,
+        state: int,
+        *,
+        timestamp: int,
+        can_id: int,
+        extended: bool,
     ) -> bytes:
         """Record a ``<binary:sendRemote>`` sentinel; return queued or default-ack."""
         del state, timestamp, can_id, extended
-        return self._pop_or_default(b'<binary:sendRemote>')
+        return self._pop_or_default(b"<binary:sendRemote>")
 
     def start_stream_binary(self, state: int) -> bytes:
         """Record a ``<binary:startStream>`` sentinel; return queued or success."""
         del state
-        return self._pop_or_default(b'<binary:startStream>')
+        return self._pop_or_default(b"<binary:startStream>")
 
     def end_stream_binary(self, state: int) -> bytes:
         """Record a ``<binary:endStream>`` sentinel; return queued or success."""
         del state
-        return self._pop_or_default(b'<binary:endStream>')
+        return self._pop_or_default(b"<binary:endStream>")
 
     def format_dbc_binary(self, state: int) -> bytes:
         """Record a ``<binary:formatDBC>`` sentinel; return queued or success."""
         del state
-        return self._pop_or_default(b'<binary:formatDBC>')
+        return self._pop_or_default(b"<binary:formatDBC>")
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Record a ``<binary:extractAllSignals>`` sentinel; return queued or success."""
         del state, can_id, extended, dlc, data
-        return self._pop_or_default(b'<binary:extractAllSignals>')
+        return self._pop_or_default(b"<binary:extractAllSignals>")
 
-    def build_frame_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+    def build_frame_bin(  # pylint: disable=too-many-arguments  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Pop a queued frame bytes; zero-fill to ``expected_bytes`` if empty."""
         del state, can_id, extended, dlc, indices, numerators, denominators
         # The next queued response is treated as the packed frame bytes;
         # without a queued response, zero-fill to expected_bytes so the
         # downstream length validation in update_frame passes.
-        self._inputs.append(b'<binary:buildFrameBin>')
+        self._inputs.append(b"<binary:buildFrameBin>")
         if self._responses:
             return self._responses.popleft()
         return bytes(expected_bytes)
 
-    def update_frame_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int,
+    def update_frame_bin(  # pylint: disable=too-many-arguments  # noqa: PLR0913
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
         data: bytes | bytearray,
-        indices: tuple[int, ...], numerators: tuple[int, ...],
-        denominators: tuple[int, ...], expected_bytes: int,
+        indices: tuple[int, ...],
+        numerators: tuple[int, ...],
+        denominators: tuple[int, ...],
+        expected_bytes: int,
     ) -> bytes:
         """Pop a queued frame bytes; zero-fill to ``expected_bytes`` if empty."""
         del state, can_id, extended, dlc, data, indices, numerators, denominators
-        self._inputs.append(b'<binary:updateFrameBin>')
+        self._inputs.append(b"<binary:updateFrameBin>")
         if self._responses:
             return self._responses.popleft()
         return bytes(expected_bytes)
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
-        self, state: int, *,
-        can_id: int, extended: bool, dlc: int, data: bytes | bytearray,
+        self,
+        state: int,
+        *,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data: bytes | bytearray,
     ) -> bytes:
         """Raise :class:`BinaryPathUnsupportedError` to trigger JSON fallback.
 

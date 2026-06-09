@@ -1,10 +1,12 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # Mutation Testing — per-binding SSOT (R18 cluster 7).
 #
 # Single source of truth for the mutation lane.  AGENTS.md cat 14(g) gives the
 # tooling and the canonical hot-path module list per binding; this file pins
 # the actual on-disk paths (which drift from AGENTS.md prose when modules are
 # split — e.g. Python `client.py` lives at `aletheia/client/_client.py` after
-# the protocols split, `dbc_loader.py` was subsumed by `dbc_converter.py` and
+# the protocols split, `dbc_loader.py` was subsumed by `dbc/_converter.py` and
 # `yaml_loader.py`).
 #
 # Static gate (`tools/check_mutation_setup.py`) verifies, for every binding,
@@ -39,10 +41,10 @@ bindings:
     hot_path:
       # AGENTS.md cat 14(g) Python list, mapped to actual on-disk paths.
       - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
-      - python/aletheia/dbc_converter.py
+      - python/aletheia/dbc/_converter.py
       - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
-      - python/aletheia/issue_codes.py       # NEW from Track E.11 (CHECK 23 IssueCode mirror)
-      - python/aletheia/protocols.py
+      - python/aletheia/codes/_issue.py      # NEW from Track E.11 (CHECK 23 IssueCode mirror)
+      - python/aletheia/types.py
     config:
       # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
       # See python/pyproject.toml for the actual config (`paths_to_mutate`,
@@ -55,7 +57,7 @@ bindings:
     baseline:
       # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch).
       # 496 surviving mutants out of 1478 total — concentrated in
-      # `aletheia/client/_client.py` and `aletheia/protocols.py` (boilerplate
+      # `aletheia/client/_client.py` and `aletheia/types.py` (boilerplate
       # type definitions and inert API surface).  Each surviving mutant is
       # itself a candidate finding (per AGENTS.md cat 14(g) "an unjustified
       # survivor is a test gap").  Eliminating the survivors is a separate

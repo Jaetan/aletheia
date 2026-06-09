@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
 // Catch2 GENERATE-based property tests (R18 cluster 5 — Cat 33c).

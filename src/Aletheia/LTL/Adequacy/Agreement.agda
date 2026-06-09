@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Two-valued agreement: full LTLf completeness for definite predicates.
@@ -50,7 +52,7 @@
 -- metavariables Agda cannot solve — see `feedback_overlapping_kleene_rewrite`).
 module Aletheia.LTL.Adequacy.Agreement where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _∷_; _≡_; _⊎_; cong; false; inj₁; inj₂; refl; suc; sym; trans; true; ℕ)
 open import Data.Nat using (_≤ᵇ_)
 open import Relation.Binary.PropositionalEquality using (subst; cong₂)
 

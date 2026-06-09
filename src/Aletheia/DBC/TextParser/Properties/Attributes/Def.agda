@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.d 3c-A — slim `parseAttrDef-roundtrip` /
@@ -20,7 +22,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Product using (_,_)
-open import Data.String using (String)
+open import Data.String using ()
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
@@ -38,7 +40,7 @@ open import Aletheia.DBC.TextParser.Attributes using
   (parseAttrDef; parseAttrDefRel)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitAttrDef-chars; emitAttrType-chars; isRelScope)
+  (emitAttrDef-chars; emitAttrType-chars)
 open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
@@ -47,7 +49,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
 open import Aletheia.DBC.TextParser.Format.AttrDef as FmtAD using
   ( RawStdScope; RssNet; RssNode; RssMsg; RssSig; RssEnv
   ; RawRelScope; RrsNodeMsg; RrsNodeSig

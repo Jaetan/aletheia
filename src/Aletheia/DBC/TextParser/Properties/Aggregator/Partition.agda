@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 4c task C — `partitionTopStmts` categorical preservation.
@@ -20,7 +22,7 @@
 -- so are not in scope.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Partition where
 
-open import Data.Char  using (Char)
+open import Data.Char  using ()
 open import Data.List  using (List; []; _∷_; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (foldr-++; map-++)
@@ -34,7 +36,7 @@ open import Aletheia.DBC.Types using
   )
 
 open import Aletheia.DBC.TextParser.Attributes using
-  (RawDBCAttribute)
+  ()
 open import Aletheia.DBC.TextParser.ValueTables using
   (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using
@@ -48,7 +50,7 @@ open import Aletheia.DBC.TextParser.TopLevel using
   )
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG; TVD
+  ( TVT; TM; TEV; TCM; TAT; TSG; TVD
   ; liftTopStmt; rawOf
   ; toTopStmtsTyped
   )

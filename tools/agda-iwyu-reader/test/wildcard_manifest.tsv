@@ -1,0 +1,7 @@
+consumer	module	used	finding
+ConsumerWildNarrow	WMod	Tw,mkw,wa,wb	NARROWABLE
+ConsumerWildRedundant	WMod	Tw,mkw,wa,wb	REDUNDANT
+ConsumerWildDead	WMod		DEAD
+ConsumerWildInferred	WInst	Ti,insti,needI	NARROWABLE
+ConsumerReExpNarrow	MidRX	Trx,mkrx,rxUsed	NARROWABLE
+ConsumerAppInferred	MidAX	Tax,BoxA,unboxA,boxA	NARROWABLE

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
 // SPDX-License-Identifier: Apache-2.0
 //
 // Track D.1 doc-example harness — C++ Catch2 mirror of Python's

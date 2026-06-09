@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 // Unit tests: violation enrichment, collect_signals, build_diagnostic, core-reason,
 // last-known values, and OOB property_index handling.

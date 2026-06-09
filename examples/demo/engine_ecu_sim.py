@@ -1,4 +1,6 @@
-"""Engine ECU Simulator with Staleness Bug
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Engine ECU Simulator with Staleness Bug.
 
 Simulates an Engine ECU that sends periodic CAN messages containing:
 - EngineRPM (16-bit, factor 0.25)
@@ -14,69 +16,83 @@ This is a real-world failure mode in automotive ECUs. The alive counter
 exists precisely to detect this, but naive value-range tests cannot catch it.
 """
 
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from aletheia.types import DBCDefinition
 
 # CAN message ID for the Engine ECU
 ENGINE_STATUS_ID = 0x300  # 768
 
-# DBC definition for the Engine ECU
-ENGINE_DBC = {
-    "version": "1.0",
-    "messages": [
-        {
-            "id": ENGINE_STATUS_ID,
-            "name": "EngineStatus",
-            "dlc": 8,
-            "sender": "EngineECU",
-            "signals": [
-                {
-                    "name": "EngineRPM",
-                    "startBit": 0,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 0.25,
-                    "offset": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 16383.75,
-                    "unit": "rpm",
-                    "presence": "always",
-                },
-                {
-                    "name": "CoolantTemp",
-                    "startBit": 16,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0,
-                    "offset": -40.0,
-                    "minimum": -40.0,
-                    "maximum": 215.0,
-                    "unit": "degC",
-                    "presence": "always",
-                },
-                {
-                    "name": "FrameCounter",
-                    "startBit": 24,
-                    "length": 4,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0,
-                    "offset": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 15.0,
-                    "unit": "",
-                    "presence": "always",
-                },
-            ],
-        }
-    ],
-}
+# DBC definition for the Engine ECU (raw wire form — float factors etc. — so it
+# is cast to DBCDefinition for the consumers that pass it to ``parse_dbc``).
+ENGINE_DBC = cast(
+    "DBCDefinition",
+    {
+        "version": "1.0",
+        "messages": [
+            {
+                "id": ENGINE_STATUS_ID,
+                "name": "EngineStatus",
+                "dlc": 8,
+                "sender": "EngineECU",
+                "signals": [
+                    {
+                        "name": "EngineRPM",
+                        "startBit": 0,
+                        "length": 16,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 0.25,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 16383.75,
+                        "unit": "rpm",
+                        "presence": "always",
+                    },
+                    {
+                        "name": "CoolantTemp",
+                        "startBit": 16,
+                        "length": 8,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": -40.0,
+                        "minimum": -40.0,
+                        "maximum": 215.0,
+                        "unit": "degC",
+                        "presence": "always",
+                    },
+                    {
+                        "name": "FrameCounter",
+                        "startBit": 24,
+                        "length": 4,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 15.0,
+                        "unit": "",
+                        "presence": "always",
+                    },
+                ],
+            }
+        ],
+    },
+)
 
 
 @dataclass
 class CANFrame:
     """A single CAN frame with timestamp."""
+
     timestamp_us: int
     can_id: int
     data: bytearray
@@ -94,13 +110,18 @@ def _encode_engine_frame(rpm: float, coolant_c: float, counter: int) -> bytearra
     raw_rpm = int(rpm / 0.25)
     raw_temp = int(coolant_c + 40)
     raw_counter = counter & 0x0F
-    return bytearray([
-        raw_rpm & 0xFF,
-        (raw_rpm >> 8) & 0xFF,
-        raw_temp & 0xFF,
-        raw_counter,
-        0, 0, 0, 0,
-    ])
+    return bytearray(
+        [
+            raw_rpm & 0xFF,
+            (raw_rpm >> 8) & 0xFF,
+            raw_temp & 0xFF,
+            raw_counter,
+            0,
+            0,
+            0,
+            0,
+        ]
+    )
 
 
 def generate_normal_trace(n_frames: int = 50) -> list[CANFrame]:
@@ -117,8 +138,7 @@ def generate_normal_trace(n_frames: int = 50) -> list[CANFrame]:
         rpm = 800 + (2200 * i / n_frames)
         coolant = 60 + (30 * i / n_frames)
         counter = (i + 1) % 16  # Start at 1: avoids |1 - 0| = 0 on first frame
-        frames.append(CANFrame(t_us, ENGINE_STATUS_ID,
-                               _encode_engine_frame(rpm, coolant, counter)))
+        frames.append(CANFrame(t_us, ENGINE_STATUS_ID, _encode_engine_frame(rpm, coolant, counter)))
     return frames
 
 
@@ -152,6 +172,5 @@ def generate_frozen_trace(
             coolant = 60 + (30 * freeze_at / n_frames)
             counter = frozen_counter  # STUCK!
 
-        frames.append(CANFrame(t_us, ENGINE_STATUS_ID,
-                               _encode_engine_frame(rpm, coolant, counter)))
+        frames.append(CANFrame(t_us, ENGINE_STATUS_ID, _encode_engine_frame(rpm, coolant, counter)))
     return frames

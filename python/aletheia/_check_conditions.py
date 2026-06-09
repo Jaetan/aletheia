@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Shared condition vocabulary for YAML and Excel check loaders.
 
 Both loaders accept the same set of condition keywords and dispatch them
@@ -5,27 +7,40 @@ through the same Check API builders.  This module defines the keyword sets
 and dispatch helpers so that the two loaders stay in sync.
 """
 
-from . import checks
-from .checks import CheckResult, WhenCondition, WhenSignal
-from .client import ValidationError
+from typing import TYPE_CHECKING
 
+from aletheia import checks
+from aletheia.client._types import ValidationError
+
+if TYPE_CHECKING:
+    from aletheia.checks import CheckResult, WhenCondition, WhenSignal
 
 # ============================================================================
 # Condition keyword sets
 # ============================================================================
 
-SIMPLE_VALUE_CONDITIONS = frozenset({
-    "never_exceeds", "never_below", "never_equals",
-})
-SIMPLE_RANGE_CONDITIONS = frozenset({
-    "stays_between",
-})
-SIMPLE_SETTLES_CONDITIONS = frozenset({
-    "settles_between",
-})
-SIMPLE_EQUALS_CONDITIONS = frozenset({
-    "equals",
-})
+SIMPLE_VALUE_CONDITIONS = frozenset(
+    {
+        "never_exceeds",
+        "never_below",
+        "never_equals",
+    }
+)
+SIMPLE_RANGE_CONDITIONS = frozenset(
+    {
+        "stays_between",
+    }
+)
+SIMPLE_SETTLES_CONDITIONS = frozenset(
+    {
+        "settles_between",
+    }
+)
+SIMPLE_EQUALS_CONDITIONS = frozenset(
+    {
+        "equals",
+    }
+)
 ALL_SIMPLE_CONDITIONS = (
     SIMPLE_VALUE_CONDITIONS
     | SIMPLE_RANGE_CONDITIONS
@@ -43,8 +58,11 @@ ALL_THEN_CONDITIONS = _THEN_VALUE_CONDITIONS | _THEN_RANGE_CONDITIONS
 # Dispatch helpers
 # ============================================================================
 
+
 def dispatch_when(
-    builder: WhenSignal, condition: str, value: float,
+    builder: WhenSignal,
+    condition: str,
+    value: float,
 ) -> WhenCondition:
     """Apply a when-condition to a WhenSignal builder."""
     if condition == "exceeds":
@@ -53,11 +71,14 @@ def dispatch_when(
         return builder.equals(value)
     if condition == "drops_below":
         return builder.drops_below(value)
-    raise ValidationError(f"Unknown when condition: {condition!r}")
+    msg = f"Unknown when condition: {condition!r}"
+    raise ValidationError(msg)
 
 
 def dispatch_simple(
-    signal: str, condition: str, value: float,
+    signal: str,
+    condition: str,
+    value: float,
 ) -> CheckResult:
     """Apply a simple single-signal, single-value condition (never_exceeds/below/equals)."""
     if condition == "never_exceeds":
@@ -66,4 +87,5 @@ def dispatch_simple(
         return checks.signal(signal).never_below(value)
     if condition == "never_equals":
         return checks.signal(signal).never_equals(value)
-    raise ValidationError(f"Unknown simple condition: {condition!r}")
+    msg = f"Unknown simple condition: {condition!r}"
+    raise ValidationError(msg)

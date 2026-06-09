@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # Aletheia Cross-Binding Feature Matrix
 #
 # Authoritative source for feature parity across Python, C++, Go.
@@ -84,7 +86,7 @@ features:
       python:
         status: implemented
         entry: aletheia.AletheiaClient.parse_dbc_text
-        notes: "B.3.e/B.3.f/B.3.g — verified Agda parseText composed with the runtime validator. ``aletheia.dbc_converter.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped in B.3.g (no third-party Python dep required)."
+        notes: "B.3.e/B.3.f/B.3.g — verified Agda parseText composed with the runtime validator. ``aletheia.dbc.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped in B.3.g (no third-party Python dep required)."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#parse_dbc_text"
@@ -119,7 +121,7 @@ features:
     bindings:
       python:
         status: implemented
-        entry: aletheia.protocols.DBCSignalGroup
+        entry: aletheia.types.DBCSignalGroup
         notes: "Tier 1 TypedDicts (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) land as NotRequired fields on DBCDefinition; populated by the Agda parser via dbc_to_json and round-tripped via format_dbc."
       cpp:
         status: implemented
@@ -137,7 +139,7 @@ features:
     bindings:
       python:
         status: implemented
-        entry: aletheia.protocols.DBCNode
+        entry: aletheia.types.DBCNode
         notes: "Tier 2 TypedDicts (DBCNode, DBCComment, DBCAttribute + tagged AttrType/AttrValue/AttrTarget unions) land as NotRequired fields on DBCDefinition; populated by dbc_to_json and round-tripped via format_dbc."
       cpp:
         status: implemented
@@ -155,7 +157,7 @@ features:
     bindings:
       python:
         status: implemented
-        entry: aletheia.protocols.DBCSignalAlways
+        entry: aletheia.types.DBCSignalAlways
         notes: "DBCSignalAlways/Multiplexed gain a NotRequired receivers: list[str]; populated by the Agda parser via dbc_to_json (Vector__XXX is treated as an empty list at the wire boundary); _signal_to_dbc_line re-emits Vector__XXX when empty."
       cpp:
         status: implemented
@@ -173,7 +175,7 @@ features:
     bindings:
       python:
         status: implemented
-        entry: aletheia.protocols.DBCSignalAlways
+        entry: aletheia.types.DBCSignalAlways
         notes: "Track E — DBCSignalAlways/Multiplexed gain a NotRequired valueDescriptions: list[DBCValueEntry]; populated by the Agda parser; round-tripped through format_dbc / format_dbc_text."
       cpp:
         status: implemented
@@ -191,7 +193,7 @@ features:
     bindings:
       python:
         status: implemented
-        entry: aletheia.protocols.DBCMessage
+        entry: aletheia.types.DBCMessage
         notes: "DBCMessage gains a NotRequired senders: list[str]; the Agda parser surfaces ``BO_TX_BU_`` additional transmitters in this list while ``sender`` carries the primary BO_ transmitter."
       cpp:
         status: implemented
@@ -306,7 +308,7 @@ features:
     name: EndStream uncached-atom diagnostics
     description: end_stream surfaces one `uncached_atom` warning per property atom whose target signal never appeared on the trace. Disambiguates the Unresolved verdict (sound Kleene Unknown vs cache-miss). R21 cluster 1 — AGDA-D-12.1.
     bindings:
-      python: { status: implemented, entry: aletheia.protocols.CompleteWarning }
+      python: { status: implemented, entry: aletheia.types.CompleteWarning }
       cpp:    { status: implemented, entry: "aletheia/response.hpp#StreamWarning" }
       go:     { status: implemented, entry: StreamWarning }
 

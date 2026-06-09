@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- ℚ ↔ DecRat roundtrip lemmas.
@@ -23,7 +25,7 @@ open import Data.Nat.Base
 open import Data.Nat.Properties
   using (*-identityʳ; *-identityˡ; *-assoc; *-comm;
          m^n≢0; m*n≢0; m^n>0;
-         suc-injective; suc-pred)
+         suc-pred)
   renaming (_≟_ to _≟ₙ_)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat.Divisibility
@@ -44,7 +46,7 @@ import Relation.Nullary.Decidable.Core as Dec
 open import Data.Nat.Coprimality
   using (Coprime)
 open import Data.Rational.Base
-  using (ℚ; mkℚ; normalize; -_; ↥_)
+  using (ℚ; mkℚ; normalize; ↥_)
 import Data.Rational.Base as ℚB
 open import Data.Rational.Properties
   using (normalize-coprime; normalize-cong)
@@ -396,7 +398,7 @@ n≤p^n p 2≤p (suc n) = ≤-trans step₁ step₂
 2∤5^b : ∀ b → 2 ∤ 5 ^ b
 2∤5^b b 2∣5^b = ⊥-elim (2≢1 (cnp-2-5^b (∣-refl , 2∣5^b)))
   where
-  open import Data.Nat.Properties using () renaming (suc-injective to sj)
+  open import Data.Nat.Properties using () renaming ()
 
   c2-5 : Coprime 2 5
   c2-5 = ∤-prime⇒coprime 2 5 prime[5] (>⇒∤ {n = 2} (s≤s (s≤s (s≤s z≤n))))

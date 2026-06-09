@@ -50,7 +50,7 @@ independently.
 
 | Binding | Tool | Hot path (per AGENTS.md cat 14(g) + actual paths) |
 |---|---|---|
-| Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc_converter.py`, `aletheia/yaml_loader.py`, `aletheia/issue_codes.py`, `aletheia/protocols.py` |
+| Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
 | C++ | `Mull` 0.33.0 (LLVM 19) | `cpp/src/*.cpp` (full set, mock_backend.cpp + types.cpp excluded as test/type-defs) |
 
@@ -127,9 +127,9 @@ clang-19 is required for the IR pass:
 sudo apt install clang-19   # provides /usr/bin/clang-19, /usr/bin/clang++-19
 ```
 
-The standard build (`cmake -B build`) keeps using whatever `clang++` /
-`g++` is on `$PATH`; the mutation lane uses `clang++-19` only inside its
-dedicated `cpp/build-mutation/` tree (set via `-DCMAKE_CXX_COMPILER=clang++-19`).
+The standard build (`cmake -B build`) now also requires `clang++-19` (the
+project is Clang >= 19 only; g++ unsupported); the mutation lane uses the same
+`clang++-19` inside its dedicated `cpp/build-mutation/` tree.
 
 ## Running the lane
 

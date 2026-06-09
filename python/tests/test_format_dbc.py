@@ -1,16 +1,17 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Tests for DBC pretty-printer (format_dbc + dbc_to_text)."""
 
 from fractions import Fraction
 from pathlib import Path
 
 import pytest
-
-from _dbc_helpers import message, signal
+from _dbc_helpers import message, mux_signal, signal
 
 from aletheia import AletheiaClient, ProtocolError, dbc_to_text
-from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition, DLCByteCount
-
+from aletheia._dbc_types import empty_dbc_tier2
+from aletheia.dbc import dbc_to_json
+from aletheia.types import DBCDefinition, DLCByteCount
 
 EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
 
@@ -18,6 +19,7 @@ EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
 # ============================================================================
 # dbc_to_text (pure Python, no FFI needed)
 # ============================================================================
+
 
 class TestDBCToText:
     """Tests for the Python dbc_to_text formatter."""
@@ -33,15 +35,29 @@ class TestDBCToText:
     def test_byte_order_encoding(self) -> None:
         """ByteOrder maps to correct DBC encoding (1=LE, 0=BE)."""
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
-            "messages": [message(1, "Msg", [
-                signal("SigLE", length=8, maximum=255.0, unit="V"),
-                signal(
-                    "SigBE", start_bit=8, length=8, byte_order="big_endian",
-                    signed=True, factor=0.5, offset=-10.0,
-                    minimum=-10.0, maximum=117.5, unit="A",
-                ),
-            ])],
+            "messages": [
+                message(
+                    1,
+                    "Msg",
+                    [
+                        signal("SigLE", length=8, maximum=255.0, unit="V"),
+                        signal(
+                            "SigBE",
+                            start_bit=8,
+                            length=8,
+                            byte_order="big_endian",
+                            signed=True,
+                            factor=0.5,
+                            offset=-10.0,
+                            minimum=-10.0,
+                            maximum=117.5,
+                            unit="A",
+                        ),
+                    ],
+                )
+            ],
         }
         text = dbc_to_text(dbc)
         # little_endian -> @1, unsigned -> +
@@ -56,11 +72,9 @@ class TestDBCToText:
 
     def test_multiplexed_signals(self) -> None:
         """Multiplexed signals get m<value> indicator."""
-        mux_sig = signal("MuxSig", length=8, maximum=255.0)
-        mux_sig.pop("presence")
-        mux_sig["multiplexor"] = "Selector"
-        mux_sig["multiplex_values"] = [3]
+        mux_sig = mux_signal("MuxSig", "Selector", [3])
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
             "messages": [message(1, "Msg", [mux_sig])],
         }
@@ -76,9 +90,7 @@ class TestDBCToText:
                 {"id": 2, "name": "M2", "dlc": DLCByteCount(8), "sender": "ECU_B", "signals": []},
                 {"id": 3, "name": "M3", "dlc": DLCByteCount(8), "sender": "ECU_A", "signals": []},
             ],
-            "signalGroups": [], "environmentVars": [], "valueTables": [],
-            "nodes": [], "comments": [], "attributes": [],
-            "unresolvedValueDescs": [],
+            **empty_dbc_tier2(),
         }
         text = dbc_to_text(dbc)
         assert "BU_: ECU_A ECU_B" in text
@@ -86,12 +98,23 @@ class TestDBCToText:
     def test_non_integer_factor(self) -> None:
         """Roundtrip a DBC with non-integer factor through Agda and dbc_to_text."""
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
-            "messages": [message(1, "Msg", [
-                signal(
-                    "Sig", factor=0.25, offset=-1.5, maximum=100.0, unit="rpm",
-                ),
-            ])],
+            "messages": [
+                message(
+                    1,
+                    "Msg",
+                    [
+                        signal(
+                            "Sig",
+                            factor=0.25,
+                            offset=-1.5,
+                            maximum=100.0,
+                            unit="rpm",
+                        ),
+                    ],
+                )
+            ],
         }
         with AletheiaClient() as client:
             client.parse_dbc(dbc)
@@ -112,23 +135,27 @@ class TestDBCToText:
         """Extended frames get bit 31 set in BO_ line."""
         ext_msg = message(0x100, "ExtMsg", [])
         ext_msg["extended"] = True
-        dbc: DBCDefinition = {"version": "", "messages": [ext_msg]}
+        dbc: DBCDefinition = {**empty_dbc_tier2(), "version": "", "messages": [ext_msg]}
         text = dbc_to_text(dbc)
         expected_id = 0x100 | 0x80000000  # CAN Extended Frame Format flag
         assert f"BO_ {expected_id} ExtMsg:" in text
 
     def test_multiplexor_m_indicator(self) -> None:
         """Multiplexor signal gets M indicator when referenced by multiplexed signals."""
-        muxed = signal("Muxed", start_bit=8, length=8, maximum=255.0)
-        muxed.pop("presence")
-        muxed["multiplexor"] = "Selector"
-        muxed["multiplex_values"] = [0]
+        muxed = mux_signal("Muxed", "Selector", [0], start_bit=8)
         dbc: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "",
-            "messages": [message(1, "Msg", [
-                signal("Selector", length=8, maximum=255.0),
-                muxed,
-            ])],
+            "messages": [
+                message(
+                    1,
+                    "Msg",
+                    [
+                        signal("Selector", length=8, maximum=255.0),
+                        muxed,
+                    ],
+                )
+            ],
         }
         text = dbc_to_text(dbc)
         assert "SG_ Selector M :" in text
@@ -137,10 +164,9 @@ class TestDBCToText:
     def test_empty_messages(self) -> None:
         """DBC with no messages produces valid output."""
         dbc: DBCDefinition = {
-            "version": "2.0", "messages": [],
-            "signalGroups": [], "environmentVars": [], "valueTables": [],
-            "nodes": [], "comments": [], "attributes": [],
-            "unresolvedValueDescs": [],
+            "version": "2.0",
+            "messages": [],
+            **empty_dbc_tier2(),
         }
         text = dbc_to_text(dbc)
         assert 'VERSION "2.0"' in text
@@ -153,9 +179,7 @@ class TestDBCToText:
         # test failure, not a silent skip.  A stale path would otherwise let
         # the Agda ↔ Python roundtrip regress without surfacing the problem.
         if not EXAMPLE_DBC.exists():
-            pytest.fail(
-                f"example.dbc required for this test but not found at {EXAMPLE_DBC}"
-            )
+            pytest.fail(f"example.dbc required for this test but not found at {EXAMPLE_DBC}")
         dbc_json = dbc_to_json(EXAMPLE_DBC)
         text = dbc_to_text(dbc_json)
         assert "BO_ 256 EngineStatus:" in text
@@ -170,14 +194,17 @@ class TestDBCToText:
 # format_dbc (FFI roundtrip through Agda)
 # ============================================================================
 
+
 class TestFormatDBC:
     """Tests for the Agda-side formatDBC via AletheiaClient."""
 
     def test_no_dbc_loaded(self) -> None:
         """format_dbc raises ProtocolError when no DBC is loaded."""
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError, match="FormatDBC: DBC not loaded"):
-                client.format_dbc()
+        with (
+            AletheiaClient() as client,
+            pytest.raises(ProtocolError, match="FormatDBC: DBC not loaded"),
+        ):
+            client.format_dbc()
 
     def test_roundtrip_json(self, sample_dbc: DBCDefinition) -> None:
         """parse_dbc -> format_dbc returns equivalent JSON structure."""
@@ -215,9 +242,7 @@ class TestFormatDBC:
         # test failure, not a silent skip.  A stale path would otherwise let
         # the Agda ↔ Python roundtrip regress without surfacing the problem.
         if not EXAMPLE_DBC.exists():
-            pytest.fail(
-                f"example.dbc required for this test but not found at {EXAMPLE_DBC}"
-            )
+            pytest.fail(f"example.dbc required for this test but not found at {EXAMPLE_DBC}")
 
         dbc_json = dbc_to_json(EXAMPLE_DBC)
 
@@ -231,7 +256,7 @@ class TestFormatDBC:
             assert len(formatted["messages"]) == len(dbc_json["messages"])
 
             # Check each message name and signal count
-            for orig, fmt in zip(dbc_json["messages"], formatted["messages"]):
+            for orig, fmt in zip(dbc_json["messages"], formatted["messages"], strict=False):
                 assert fmt["name"] == orig["name"]
                 assert len(fmt["signals"]) == len(orig["signals"])
 

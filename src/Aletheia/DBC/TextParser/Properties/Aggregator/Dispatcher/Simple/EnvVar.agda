@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 4c — TEV dispatcher under head-dispatched parseTopStmt.
@@ -16,12 +18,12 @@ open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
 open import Aletheia.Parser.Combinators using
-  (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure)
+  (Position; mkResult; advancePositions;
+   pure)
 
 open import Aletheia.DBC.Types using (EnvironmentVar)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSEnvVar; parseTopStmt)
+  (TSEnvVar; parseTopStmt)
 open import Aletheia.DBC.TextParser.EnvVars using
   (parseEnvVar)
 

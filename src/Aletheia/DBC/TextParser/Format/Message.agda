@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.8 — DSL-side `messageHeaderFmt`.
@@ -41,8 +43,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Format using
-  (Format; literal; ident; nat; pair; iso;
-   wsOpt; ws; withPrefix)
+  (Format; ident; nat; pair; iso;
+   withPrefix)
 open import Aletheia.DBC.TextParser.Format.SignalLine using
   (newlineFmt; withWS; withWSOpt)
 

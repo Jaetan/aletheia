@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-"""tools/check_gate_claim.py — Enforce gate-claim integrity (R18 cluster 1 phase 2).
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""tools/check_gate_claim.py — Enforce gate-claim integrity.
 
 Mechanical enforcer for ``memory/feedback_gate_claim_integrity.md``.  When
 a commit message contains a gate-clean assertion ("all gates clean",
@@ -40,36 +41,46 @@ v0 limitations (deliberate; documented for the v1+ artifact-based design):
     "check-properties ✓" don't match; only broader "all gates" / "gates
     green" / "All N gates" assertions trigger the freshness check.
 """
+
 from __future__ import annotations
 
 import argparse
 import datetime
 import re
-import subprocess
 import sys
 from pathlib import Path
 
+from tools._common import emit, find_executable, run_capture
+
+_GIT = find_executable("git")
+
 GATE_CLAIM_PATTERN = re.compile(
     r"([Aa]ll [0-9]* ?[Aa]gda gates (clean|green|passed))"
-    r"|([Aa]ll gates (clean|green|passed))"
-    r"|([Gg]ates? (green|clean)\b)"
-    r"|(All proof modules type-checked successfully)"
+    + r"|([Aa]ll gates (clean|green|passed))"
+    + r"|([Gg]ates? (green|clean)\b)"
+    + r"|(All proof modules type-checked successfully)",
 )
 
 BUILD_RELEVANT_PATTERN = re.compile(
     r"(^src/.*\.agda$)"
-    r"|(^Shakefile\.hs$)"
-    r"|(^haskell-shim/.*\.(hs|cabal)$)"
-    r"|(^aletheia\.agda-lib$)"
+    + r"|(^Shakefile\.hs$)"
+    + r"|(^haskell-shim/.*\.(hs|cabal)$)"
+    + r"|(^aletheia\.agda-lib$)",
 )
 
 SO_PATH = Path("build/libaletheia-ffi.so")
 
+_MTIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _format_mtime(epoch: float) -> str:
+    """Render a mtime epoch as a local-time ``YYYY-MM-DD HH:MM:SS`` string."""
+    aware = datetime.datetime.fromtimestamp(epoch, tz=datetime.UTC)
+    return aware.astimezone().strftime(_MTIME_FORMAT)
+
 
 def _git(*args: str) -> tuple[int, str]:
-    out = subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=False
-    )
+    out = run_capture([_GIT, *args])
     return out.returncode, out.stdout
 
 
@@ -83,33 +94,27 @@ def _resolve_mode(mode: str) -> tuple[str, list[str]]:
         msg = msg_file.read_text(encoding="utf-8")
         rc, files = _git("diff", "--name-only", "--cached")
         if rc != 0:
-            sys.stderr.write("check-gate-claim: failed to read staged diff\n")
+            _ = sys.stderr.write("check-gate-claim: failed to read staged diff\n")
             sys.exit(2)
         return msg, [line for line in files.splitlines() if line]
 
     if mode in ("HEAD", "post-commit"):
         rc, msg = _git("log", "-1", "--format=%B", "HEAD")
         if rc != 0:
-            sys.stderr.write("check-gate-claim: failed to read HEAD message\n")
+            _ = sys.stderr.write("check-gate-claim: failed to read HEAD message\n")
             sys.exit(2)
         rc, files = _git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
         if rc != 0:
-            sys.stderr.write("check-gate-claim: failed to read HEAD diff\n")
+            _ = sys.stderr.write("check-gate-claim: failed to read HEAD diff\n")
             sys.exit(2)
         return msg, [line for line in files.splitlines() if line]
 
     # Treat as a commit hash / ref
-    if (
-        subprocess.run(
-            ["git", "rev-parse", "--verify", mode],
-            capture_output=True,
-            check=False,
-        ).returncode
-        != 0
-    ):
-        sys.stderr.write(
-            f"check-gate-claim: usage: check_gate_claim.py "
-            f"[pre-commit|HEAD|<commit-hash>]  (got {mode!r})\n"
+    rc, _ = _git("rev-parse", "--verify", mode)
+    if rc != 0:
+        _ = sys.stderr.write(
+            "check-gate-claim: usage: check_gate_claim.py "
+            + f"[pre-commit|HEAD|<commit-hash>]  (got {mode!r})\n"
         )
         sys.exit(2)
     rc, msg = _git("log", "-1", "--format=%B", mode)
@@ -122,7 +127,10 @@ def _resolve_mode(mode: str) -> tuple[str, list[str]]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    """Run the gate-claim freshness check and return the process exit code."""
+    ap = argparse.ArgumentParser(
+        description="tools/check_gate_claim.py — Enforce gate-claim integrity.",
+    )
     ap.add_argument(
         "mode",
         nargs="?",
@@ -143,13 +151,13 @@ def main() -> int:
         return 0
 
     if not SO_PATH.is_file():
-        sys.stderr.write(
-            f"check-gate-claim: FAIL — commit claims gates clean but "
-            f"{SO_PATH} does not exist.\n\n"
-            "The gate runs in the commit message must have produced the .so artifact.\n"
-            "Run `cabal run shake -- build` to produce it, then re-run the gates\n"
-            "the message asserts.\n\n"
-            "Reference: memory/feedback_gate_claim_integrity.md\n"
+        _ = sys.stderr.write(
+            "check-gate-claim: FAIL — commit claims gates clean but "
+            + f"{SO_PATH} does not exist.\n\n"
+            + "The gate runs in the commit message must have produced the .so artifact.\n"
+            + "Run `cabal run shake -- build` to produce it, then re-run the gates\n"
+            + "the message asserts.\n\n"
+            + "Reference: memory/feedback_gate_claim_integrity.md\n"
         )
         return 1
 
@@ -163,35 +171,33 @@ def main() -> int:
                 stale.append((f, f_mtime))
 
     if stale:
-        so_mtime_str = datetime.datetime.fromtimestamp(so_mtime).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-        sys.stderr.write(
+        so_mtime_str = _format_mtime(so_mtime)
+        _ = sys.stderr.write(
             "check-gate-claim: FAIL — gate-clean claim made without fresh "
-            "build artifact.\n\n"
-            f"build/libaletheia-ffi.so mtime: {so_mtime_str}\n\n"
-            "Build-relevant source files NEWER than the .so:\n"
+            + "build artifact.\n\n"
+            + f"build/libaletheia-ffi.so mtime: {so_mtime_str}\n\n"
+            + "Build-relevant source files NEWER than the .so:\n"
         )
         for f, m in stale:
-            ts = datetime.datetime.fromtimestamp(m).strftime("%Y-%m-%d %H:%M:%S")
-            sys.stderr.write(f"  {f} (mtime {ts})\n")
-        sys.stderr.write(
+            ts = _format_mtime(m)
+            _ = sys.stderr.write(f"  {f} (mtime {ts})\n")
+        _ = sys.stderr.write(
             "\n"
-            "The gate runs the commit message asserts must have observed these source\n"
-            "files.  Re-run the affected gates BEFORE committing the claim:\n\n"
-            "  cabal run shake -- build\n"
-            "  cabal run shake -- check-properties\n"
-            "  cabal run shake -- check-invariants\n"
-            "  cabal run shake -- check-no-properties-in-runtime\n"
-            "  cabal run shake -- check-erasure\n"
-            "  cabal run shake -- check-fidelity\n"
-            "  cabal run shake -- check-ffi-exports\n"
-            "  cabal run shake -- count-modules\n\n"
-            "Reference: memory/feedback_gate_claim_integrity.md\n"
+            + "The gate runs the commit message asserts must have observed these source\n"
+            + "files.  Re-run the affected gates BEFORE committing the claim:\n\n"
+            + "  cabal run shake -- build\n"
+            + "  cabal run shake -- check-properties\n"
+            + "  cabal run shake -- check-invariants\n"
+            + "  cabal run shake -- check-no-properties-in-runtime\n"
+            + "  cabal run shake -- check-erasure\n"
+            + "  cabal run shake -- check-fidelity\n"
+            + "  cabal run shake -- check-ffi-exports\n"
+            + "  cabal run shake -- count-modules\n\n"
+            + "Reference: memory/feedback_gate_claim_integrity.md\n"
         )
         return 1
 
-    print("check-gate-claim: ok (.so mtime postdates all build-relevant staged files)")
+    emit("check-gate-claim: ok (.so mtime postdates all build-relevant staged files)")
     return 0
 
 

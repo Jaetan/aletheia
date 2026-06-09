@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- DBC validator output formatting and filtering.
@@ -9,7 +11,7 @@
 module Aletheia.DBC.Validator.Formatting where
 
 open import Aletheia.DBC.Types using
-  ( ValidationIssue; IssueSeverity; IsError; IsWarning )
+  ( ValidationIssue; IsError; IsWarning )
 open import Data.List using (List; []; _∷_)
 open import Data.List.Base using (filterᵇ)
 open import Data.Bool.ListAction using (any)

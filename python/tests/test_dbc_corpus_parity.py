@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 """B.3.j — DBC text parser cross-binding parity gate (Python side).
 
@@ -42,7 +43,7 @@ from pathlib import Path
 import pytest
 
 from aletheia import AletheiaClient
-from aletheia.protocols import FractionJSONEncoder
+from aletheia.types import FractionJSONEncoder
 
 CORPUS_DIR = Path(__file__).parent / "fixtures" / "dbc_corpus"
 PARITY_SNAPSHOT_DIR = CORPUS_DIR / "parity_snapshots"
@@ -58,9 +59,7 @@ def _parity_snapshot_path(dbc_path: Path) -> Path:
 
 def _canonical_dbc_json(dbc: object) -> str:
     """Canonical JSON image of a DBC body: sorted keys, 2-space indent, trailing newline."""
-    return (
-        json.dumps(dbc, cls=FractionJSONEncoder, sort_keys=True, indent=2) + "\n"
-    )
+    return json.dumps(dbc, cls=FractionJSONEncoder, sort_keys=True, indent=2) + "\n"
 
 
 @pytest.mark.parametrize("dbc_path", _corpus_files(), ids=lambda p: p.name)
@@ -69,9 +68,7 @@ def test_corpus_parses_to_parity_snapshot(dbc_path: Path) -> None:
     text = dbc_path.read_text(encoding="utf-8")
     with AletheiaClient() as client:
         resp = client.parse_dbc_text(text)
-    assert resp["status"] == "success", (
-        f"parse_dbc_text failed for {dbc_path.name}: {resp}"
-    )
+    assert resp["status"] == "success", f"parse_dbc_text failed for {dbc_path.name}: {resp}"
     actual = _canonical_dbc_json(resp["dbc"])
     snapshot = _parity_snapshot_path(dbc_path)
     if os.environ.get("ALETHEIA_UPDATE_SNAPSHOTS") == "1":
@@ -79,8 +76,7 @@ def test_corpus_parses_to_parity_snapshot(dbc_path: Path) -> None:
         snapshot.write_text(actual, encoding="utf-8")
         pytest.skip(f"Updated parity snapshot {snapshot.name}")
     assert snapshot.exists(), (
-        f"missing parity snapshot {snapshot}; rerun with "
-        "ALETHEIA_UPDATE_SNAPSHOTS=1 to bootstrap"
+        f"missing parity snapshot {snapshot}; rerun with ALETHEIA_UPDATE_SNAPSHOTS=1 to bootstrap"
     )
     expected = snapshot.read_text(encoding="utf-8")
     assert actual == expected, (

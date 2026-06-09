@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 — 3d.5.a — Format DSL framework — regression test bank.
@@ -30,7 +32,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Aletheia.Parser.Combinators
   using (mkResult; advancePositions)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
-open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat using ()
 open import Aletheia.DBC.TextParser.Lexer using (isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars; showDecRat-dec-chars)

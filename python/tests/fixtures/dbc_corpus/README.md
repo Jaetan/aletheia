@@ -57,7 +57,7 @@ coverage when these rows get wired:
 
 - **`SIG_VALTYPE_`** — `comments_groups.dbc` declares float32/float64 via
   `SIG_VALTYPE_ <msg_id> <sig> : 1;` (or `: 2;`). The current
-  `dbc_converter` doesn't emit the float-width into `DBCSignal`. Future
+  `aletheia.dbc` converter doesn't emit the float-width into `DBCSignal`. Future
   scope: decide whether to surface this as a `DBCSignal` field or leave
   encoding implicit in `factor`/`length`.
 - **`EV_DATA_` / `ENVVAR_DATA_`** — declared in `NS_` (keyword support)

@@ -1,13 +1,20 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Focused tests for ``aletheia.client._response_parsers``.
 
 Complements the per-surface tests in ``test_unified_client*`` by
 exercising edge-cases in the shared helpers directly.
 """
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
 
 from aletheia import ProtocolError
 from aletheia.client._response_parsers import build_error_response
+
+if TYPE_CHECKING:
+    from aletheia.types import Response
 
 
 class TestBuildErrorResponse:
@@ -32,21 +39,21 @@ class TestBuildErrorResponse:
     def test_missing_code_raises(self) -> None:
         """Absent ``code`` raises — empty-string default is disallowed."""
         with pytest.raises(ProtocolError, match="missing or non-string"):
-            build_error_response({"status": "error", "message": "oops"})
+            build_error_response(cast("Response", {"status": "error", "message": "oops"}))
 
     def test_non_string_code_raises(self) -> None:
         """A ``code`` that isn't a string is a protocol violation."""
         with pytest.raises(ProtocolError, match="missing or non-string"):
-            build_error_response({"status": "error", "code": 42, "message": "m"})
+            build_error_response(cast("Response", {"status": "error", "code": 42, "message": "m"}))
 
     def test_missing_message_raises(self) -> None:
         """Absent ``message`` raises — no invented default."""
         with pytest.raises(ProtocolError, match="missing or non-string 'message'"):
-            build_error_response({"status": "error", "code": "some_code"})
+            build_error_response(cast("Response", {"status": "error", "code": "some_code"}))
 
     def test_non_string_message_raises(self) -> None:
         """Non-string ``message`` is a protocol violation."""
         with pytest.raises(ProtocolError, match="missing or non-string 'message'"):
             build_error_response(
-                {"status": "error", "code": "some_code", "message": 123}
+                cast("Response", {"status": "error", "code": "some_code", "message": 123})
             )

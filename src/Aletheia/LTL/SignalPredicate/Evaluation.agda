@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal predicate evaluation with cache fallback.
@@ -9,7 +11,7 @@
 -- Role: Called by StreamState.Internals during incremental LTL checking.
 module Aletheia.LTL.SignalPredicate.Evaluation where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (Bool; List; Maybe; _∧_; if_then_else_; just; not; nothing; ℚ)
 open import Data.Char using (Char)
 open import Data.Rational as Rat using (∣_∣; 0ℚ; _≤ᵇ_)
 open import Data.Maybe using (_<∣>_)
@@ -20,8 +22,8 @@ open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
 open import Aletheia.CAN.ExtractionResult using (getValue)
 open import Aletheia.DBC.Types using (DBC)
 
-open import Aletheia.LTL.SignalPredicate.Types
-open import Aletheia.LTL.SignalPredicate.Cache
+open import Aletheia.LTL.SignalPredicate.Types using (Between; ChangedBy; DeltaP; DeltaPredicate; Equals; GreaterThan; GreaterThanOrEqual; LessThan; LessThanOrEqual; Pending; SignalPredicate; StableWithin; TruthVal; Unknown; ValueP; ValuePredicate; deltaPredicateSignal; fromBool; valuePredicateSignal)
+open import Aletheia.LTL.SignalPredicate.Cache using (CachedSignal; SignalCache; lookupCache)
 
 -- ============================================================================
 -- COMPARISON HELPERS

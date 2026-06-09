@@ -1,5 +1,6 @@
-"""Shared field accessors and path-hardening helpers for the YAML and
-Excel check loaders.
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Shared field accessors and path-hardening helpers for the YAML and Excel loaders.
 
 Both loaders need to (a) extract typed fields from untyped dicts with
 helpful error messages, and (b) reject adversarial loader inputs
@@ -7,25 +8,30 @@ helpful error messages, and (b) reject adversarial loader inputs
 explode or exhaust memory.  This module provides both surfaces.
 """
 
+from __future__ import annotations
+
 import os
 import stat
-from pathlib import Path
-from typing import TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 
-# DEFERRED — TRACKED (R19P2-CL16-3 — DEFER).
+# DEFERRED:
 # Finding: `is_str_dict` (in protocols/_dbc_types.py) and `is_object_list`
 #   (in this module, definition below) are internal TypeGuard helpers exposed
 #   publicly via no-underscore naming.  Project-internal usage only.
-# Why DEFER: Mechanical rename + import-site update across ~10 call sites;
+# Why: Mechanical rename + import-site update across ~10 call sites;
 #   gain is small (linter/dev-tooling clarity).
 # Revisit when: First external user lands, OR a `python -m aletheia._loader_utils`
 #   discovery surfaces the helpers as confusing public API.
-
 # Direct sub-module import avoids re-entering ``client/__init__.py`` when
 # this module is loaded transitively from ``client._helpers`` during package
 # initialization (would deadlock on a partially-initialized ``aletheia.client``).
-from .client._types import ValidationError
-from .protocols import is_str_dict
+from aletheia.client._types import ValidationError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
+    from aletheia.types import JSONValue
 
 
 def is_str(val: object) -> TypeGuard[str]:
@@ -44,7 +50,7 @@ def is_pure_int(v: object) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def get_str(d: dict[str, object], key: str, ctx: str) -> str:
+def get_str(d: Mapping[str, JSONValue], key: str, ctx: str) -> str:
     """Extract a required string field from *d*.
 
     Raises :class:`ValidationError` with *ctx* prefix if the key is
@@ -52,11 +58,12 @@ def get_str(d: dict[str, object], key: str, ctx: str) -> str:
     """
     val = d.get(key)
     if not isinstance(val, str):
-        raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected string)")
+        msg = f"{ctx}: missing or invalid '{key}' (expected string)"
+        raise ValidationError(msg)
     return val
 
 
-def get_number(d: dict[str, object], key: str, ctx: str) -> float:
+def get_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> float:
     """Extract a required numeric field from *d*.
 
     Booleans are rejected (``isinstance(True, int)`` is ``True`` in
@@ -65,18 +72,20 @@ def get_number(d: dict[str, object], key: str, ctx: str) -> float:
     val = d.get(key)
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return float(val)
-    raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected number)")
+    msg = f"{ctx}: missing or invalid '{key}' (expected number)"
+    raise ValidationError(msg)
 
 
-def get_int(d: dict[str, object], key: str, ctx: str) -> int:
+def get_int(d: Mapping[str, JSONValue], key: str, ctx: str) -> int:
     """Extract a required integer field from *d*."""
     val = d.get(key)
     if is_pure_int(val):
         return val
-    raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected integer)")
+    msg = f"{ctx}: missing or invalid '{key}' (expected integer)"
+    raise ValidationError(msg)
 
 
-def get_bool(d: dict[str, object], key: str, ctx: str) -> bool:
+def get_bool(d: Mapping[str, JSONValue], key: str, ctx: str) -> bool:
     """Extract a required boolean field from *d*.
 
     Accepts Python bools, integers ``1``/``0`` (Excel data_only mode),
@@ -96,20 +105,23 @@ def get_bool(d: dict[str, object], key: str, ctx: str) -> bool:
             return True
         if upper == "FALSE":
             return False
-    raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected TRUE/FALSE)")
+    msg = f"{ctx}: missing or invalid '{key}' (expected TRUE/FALSE)"
+    raise ValidationError(msg)
 
 
-def get_dict(d: dict[str, object], key: str, ctx: str) -> dict[str, object]:
-    """Extract a required dict field from *d*."""
+def get_dict(d: Mapping[str, JSONValue], key: str, ctx: str) -> Mapping[str, JSONValue]:
+    """Extract a required nested mapping field from *d*."""
     val = d.get(key)
-    if not is_str_dict(val):
-        raise ValidationError(f"{ctx}: missing or invalid '{key}' (expected mapping)")
-    return val
+    if isinstance(val, dict):
+        return val
+    msg = f"{ctx}: missing or invalid '{key}' (expected mapping)"
+    raise ValidationError(msg)
 
 
 # ===========================================================================
-# Path-hardening helper (R20 cluster N — PY-B-26.2 cross-binding mirror)
+# Path-hardening helper (cross-binding mirror)
 # ===========================================================================
+
 
 def reject_symlink_loader_path(p: Path, kind: str) -> None:
     """Reject *p* if it is a symbolic link.
@@ -128,6 +140,7 @@ def reject_symlink_loader_path(p: Path, kind: str) -> None:
 
     Raises:
         ValidationError: *p* exists but is a symbolic link.
+
     """
     link_st = os.lstat(p)
     if stat.S_ISLNK(link_st.st_mode):

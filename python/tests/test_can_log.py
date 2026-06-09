@@ -1,4 +1,6 @@
-"""Unit tests for CAN log reader
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Unit tests for CAN log reader.
 
 Tests cover:
 - Timestamp conversion: seconds (float) to microseconds (int)
@@ -11,115 +13,116 @@ Tests cover:
 """
 
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, Unpack
 
 import can
 import pytest
 
 from aletheia import ValidationError
 from aletheia.can_log import (
-    _convert_message,
-    _effective_extension,
-    _normalize_data,
-    _timestamp_to_us,
-    _validate_path,
+    convert_message,
+    effective_extension,
     iter_can_log,
     load_can_log,
+    normalize_data,
+    timestamp_to_us,
+    validate_path,
 )
-
 
 # ============================================================================
 # Timestamp conversion
 # ============================================================================
 
+
 class TestTimestampConversion:
-    """Test _timestamp_to_us: float seconds -> int microseconds."""
+    """Test timestamp_to_us: float seconds -> int microseconds."""
 
     def test_zero(self) -> None:
         """Verify zero."""
-        assert _timestamp_to_us(0.0) == 0
+        assert timestamp_to_us(0.0) == 0
 
     def test_one_second(self) -> None:
         """Verify one second."""
-        assert _timestamp_to_us(1.0) == 1_000_000
+        assert timestamp_to_us(1.0) == 1_000_000
 
     def test_one_microsecond(self) -> None:
         """Verify one microsecond."""
-        assert _timestamp_to_us(0.000001) == 1
+        assert timestamp_to_us(0.000001) == 1
 
     def test_fractional(self) -> None:
         """Verify fractional."""
-        assert _timestamp_to_us(1.5) == 1_500_000
+        assert timestamp_to_us(1.5) == 1_500_000
 
     def test_large_timestamp(self) -> None:
         """Verify large timestamp."""
-        assert _timestamp_to_us(3600.0) == 3_600_000_000
+        assert timestamp_to_us(3600.0) == 3_600_000_000
 
 
 # ============================================================================
 # Data normalization
 # ============================================================================
 
+
 class TestNormalizeData:
-    """Test _normalize_data: pad/truncate to DLC bytes."""
+    """Test normalize_data: pad/truncate to DLC bytes."""
 
     def test_exact_length_passthrough(self) -> None:
         """Verify exact length passthrough."""
         data = bytearray([1, 2, 3, 4, 5, 6, 7, 8])
-        result = _normalize_data(data, 8)
+        result = normalize_data(data, 8)
         assert result == bytearray([1, 2, 3, 4, 5, 6, 7, 8])
         assert isinstance(result, bytearray)
 
     def test_returns_copy(self) -> None:
         """Verify returns copy."""
         data = bytearray([1, 2, 3, 4, 5, 6, 7, 8])
-        result = _normalize_data(data, 8)
+        result = normalize_data(data, 8)
         assert result is not data
 
     def test_short_padded_with_zeros(self) -> None:
         """Verify short padded with zeros."""
         data = bytearray([0xAA, 0xBB, 0xCC])
-        result = _normalize_data(data, 8)
+        result = normalize_data(data, 8)
         assert result == bytearray([0xAA, 0xBB, 0xCC, 0, 0, 0, 0, 0])
 
     def test_long_truncated(self) -> None:
         """Verify long truncated."""
         data = bytearray([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        result = _normalize_data(data, 8)
+        result = normalize_data(data, 8)
         assert result == bytearray([1, 2, 3, 4, 5, 6, 7, 8])
 
     def test_none_returns_zeros(self) -> None:
         """Verify none returns zeros."""
-        result = _normalize_data(None, 8)
+        result = normalize_data(None, 8)
         assert result == bytearray(8)
 
     def test_empty_padded(self) -> None:
         """Verify empty padded."""
-        result = _normalize_data(bytearray(), 8)
+        result = normalize_data(bytearray(), 8)
         assert result == bytearray(8)
 
     def test_canfd_12_bytes(self) -> None:
         """Verify canfd 12 bytes."""
         data = bytearray(range(12))
-        result = _normalize_data(data, 12)
+        result = normalize_data(data, 12)
         assert result == data
         assert len(result) == 12
 
     def test_canfd_64_bytes(self) -> None:
         """Verify canfd 64 bytes."""
         data = bytearray(range(64))
-        result = _normalize_data(data, 64)
+        result = normalize_data(data, 64)
         assert result == data
         assert len(result) == 64
 
     def test_dlc_zero(self) -> None:
         """Verify dlc zero."""
-        result = _normalize_data(bytearray(), 0)
+        result = normalize_data(bytearray(), 0)
         assert result == bytearray()
 
     def test_none_with_dlc_zero(self) -> None:
         """Verify none with dlc zero."""
-        result = _normalize_data(None, 0)
+        result = normalize_data(None, 0)
         assert result == bytearray()
 
 
@@ -127,20 +130,34 @@ class TestNormalizeData:
 # Frame filtering
 # ============================================================================
 
+
+class _MsgOverrides(TypedDict, total=False):
+    """Per-field overrides for :meth:`TestFrameFiltering._make_msg`."""
+
+    data: bytearray
+    timestamp: float
+    arb_id: int
+    dlc: int
+    is_error: bool
+    is_remote: bool
+    is_extended: bool
+
+
 class TestFrameFiltering:
-    """Test _convert_message: skip/keep error and remote frames."""
+    """Test convert_message: skip/keep error and remote frames."""
 
     @staticmethod
-    def _make_msg(**overrides: Any) -> can.Message:
+    def _make_msg(**overrides: Unpack[_MsgOverrides]) -> can.Message:
         """Build a ``can.Message`` with test-friendly defaults; kwargs override."""
         data = overrides.get("data")
         if data is None:
             data = bytearray(8)
+        dlc = overrides.get("dlc")
         msg = can.Message()
         msg.timestamp = overrides.get("timestamp", 1.0)
         msg.arbitration_id = overrides.get("arb_id", 0x100)
         msg.data = data
-        msg.dlc = overrides.get("dlc") if overrides.get("dlc") is not None else len(data)
+        msg.dlc = len(data) if dlc is None else dlc
         msg.is_error_frame = overrides.get("is_error", False)
         msg.is_remote_frame = overrides.get("is_remote", False)
         msg.is_extended_id = overrides.get("is_extended", False)
@@ -149,9 +166,7 @@ class TestFrameFiltering:
     def test_normal_frame_converted(self) -> None:
         """Verify normal frame converted."""
         msg = self._make_msg(data=bytearray([0xDE, 0xAD, 0, 0, 0, 0, 0, 0]))
-        result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True
-        )
+        result = convert_message(msg, skip_error_frames=True, skip_remote_frames=True)
         assert result is not None
         assert result.timestamp == 1_000_000
         assert result.can_id == 0x100
@@ -166,50 +181,38 @@ class TestFrameFiltering:
     def test_error_frame_skipped(self) -> None:
         """Verify error frame skipped."""
         msg = self._make_msg(is_error=True)
-        result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True
-        )
+        result = convert_message(msg, skip_error_frames=True, skip_remote_frames=True)
         assert result is None
 
     def test_error_frame_kept(self) -> None:
         """Verify error frame kept."""
         msg = self._make_msg(is_error=True)
-        result = _convert_message(
-            msg, skip_error_frames=False, skip_remote_frames=True
-        )
+        result = convert_message(msg, skip_error_frames=False, skip_remote_frames=True)
         assert result is not None
 
     def test_remote_frame_skipped(self) -> None:
         """Verify remote frame skipped."""
         msg = self._make_msg(is_remote=True)
-        result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True
-        )
+        result = convert_message(msg, skip_error_frames=True, skip_remote_frames=True)
         assert result is None
 
     def test_remote_frame_kept(self) -> None:
         """Verify remote frame kept."""
         msg = self._make_msg(is_remote=True)
-        result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=False
-        )
+        result = convert_message(msg, skip_error_frames=True, skip_remote_frames=False)
         assert result is not None
 
     def test_extended_id_preserved(self) -> None:
         """Verify extended id preserved."""
         msg = self._make_msg(arb_id=0x18FEF100, is_extended=True)
-        result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True
-        )
+        result = convert_message(msg, skip_error_frames=True, skip_remote_frames=True)
         assert result is not None
         assert result[1] == 0x18FEF100
 
     def test_dlc_preserved(self) -> None:
         """Verify dlc preserved."""
         msg = self._make_msg(data=bytearray(12), dlc=12)
-        result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True
-        )
+        result = convert_message(msg, skip_error_frames=True, skip_remote_frames=True)
         assert result is not None
         assert result[2] == 9  # DLC code for 12-byte CAN-FD payload
         assert len(result[3]) == 12
@@ -218,6 +221,7 @@ class TestFrameFiltering:
 # ============================================================================
 # File validation
 # ============================================================================
+
 
 class TestFileValidation:
     """Test file path and extension validation."""
@@ -246,36 +250,38 @@ class TestFileValidation:
 # Extension detection
 # ============================================================================
 
+
 class TestExtensionDetection:
-    """Test _effective_extension: .asc.gz -> .asc."""
+    """Test effective_extension: .asc.gz -> .asc."""
 
     def test_simple_extension(self) -> None:
         """Verify simple extension."""
-        assert _effective_extension(Path("data.asc")) == ".asc"
+        assert effective_extension(Path("data.asc")) == ".asc"
 
     def test_gz_stripped(self) -> None:
         """Verify gz stripped."""
-        assert _effective_extension(Path("data.asc.gz")) == ".asc"
+        assert effective_extension(Path("data.asc.gz")) == ".asc"
 
     def test_blf_gz(self) -> None:
         """Verify blf gz."""
-        assert _effective_extension(Path("log.blf.gz")) == ".blf"
+        assert effective_extension(Path("log.blf.gz")) == ".blf"
 
     def test_no_extension(self) -> None:
         """Verify no extension."""
-        assert _effective_extension(Path("data")) == ""
+        assert effective_extension(Path("data")) == ""
 
     def test_path_validation_accepts_gz(self, tmp_path: Path) -> None:
         """Verify path validation accepts gz."""
         gz_file = tmp_path / "data.asc.gz"
         gz_file.touch()
         # Should not raise (extension is valid)
-        _validate_path(gz_file)
+        validate_path(gz_file)
 
 
 # ============================================================================
 # Round-trip: write ASC, read back
 # ============================================================================
+
 
 class TestLoadCanLog:
     """Write temporary ASC files, read back with load_can_log."""
@@ -312,10 +318,12 @@ class TestLoadCanLog:
         """Verify relative timing is preserved across messages."""
         asc_file = tmp_path / "timing.asc"
         messages = [
-            can.Message(timestamp=10.0, arbitration_id=0x100,
-                        data=bytearray(8), is_extended_id=False),
-            can.Message(timestamp=10.5, arbitration_id=0x100,
-                        data=bytearray(8), is_extended_id=False),
+            can.Message(
+                timestamp=10.0, arbitration_id=0x100, data=bytearray(8), is_extended_id=False
+            ),
+            can.Message(
+                timestamp=10.5, arbitration_id=0x100, data=bytearray(8), is_extended_id=False
+            ),
         ]
         self._write_asc(asc_file, messages)
 
@@ -393,6 +401,7 @@ class TestLoadCanLog:
 # ============================================================================
 # Lazy iteration
 # ============================================================================
+
 
 class TestIterCanLog:
     """Test iter_can_log returns same results as load_can_log."""

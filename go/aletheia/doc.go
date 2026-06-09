@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Package aletheia provides a Go client for the Aletheia formally verified
 // CAN frame analysis system. It wraps libaletheia-ffi.so via cgo/dlopen.
 //

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS_GHC -Wno-unused-imports -Wno-missing-signatures -Wno-missing-home-modules #-}
 
 -- | Binary FFI Smoke Test (R17-DEF-1: comprehensive unsafeCoerce drift guard)

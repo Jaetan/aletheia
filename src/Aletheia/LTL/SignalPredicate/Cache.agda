@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal value cache: association list mapping signal names to cached values,
@@ -9,7 +11,7 @@
 -- Role: Used by StreamState for incremental LTL evaluation with cache fallback.
 module Aletheia.LTL.SignalPredicate.Cache where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; Maybe; T; []; _,_; _×_; _∘_; _∷_; false; if_then_else_; just; nothing; proj₁; sym; true; tt; ℚ)
 open import Data.Bool using ()
 open import Data.Char using (Char)
 open import Data.Rational using ()

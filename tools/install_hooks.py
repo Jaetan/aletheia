@@ -1,46 +1,50 @@
-#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """tools/install_hooks.py — Install Aletheia's offline-CI git hooks.
 
 Idempotent: safe to re-run.  Each hook is installed only if not already
 marked installed (detected by a hook-specific marker comment line).
 
 Hooks installed:
-  * pre-commit — runs ``tools/scan_dead_imports.py`` on staged .agda files
-    as an ADVISORY check.  Prints findings if any, but exits 0 so the
-    commit proceeds.  The regex scanner has a non-trivial false-positive
-    rate (mixfix syntax sugar, sections, public re-exports — see
-    ``memory/feedback_agda_import_pruning_safety.md``); blocking commits
-    on its output would be too noisy.  The precise gate runs at pre-push.
+  * pre-commit — runs ``tools/iwyu.py --check`` (the single scope-aware
+    `.agdai` IWYU tool) on staged .agda files as an ADVISORY check.  Prints
+    any finding (dead / redundant / narrowable / unresolved import), but
+    exits 0 so the commit proceeds.  It is not sub-second (it warm-loads the
+    staged files to refresh their interfaces), so it runs only when .agda
+    files are staged; the blocking gate runs at pre-push.
 
   * pre-push — runs ``tools/run_ci.py`` before allowing push.  Refuses
     push on any non-zero exit.  Rationale: limited GitHub Actions monthly
     allotment; offline validation catches breakage before it lands on
-    origin.  The CI sweep includes the precise ``prune_unused_imports.py
-    --check-only`` gate on files modified in the branch.
+    origin.  The CI sweep includes the IWYU gate (``tools/iwyu.py``) on
+    files modified in the branch.
 
 Skip via::
 
     git commit --no-verify  # bypass pre-commit
     git push --no-verify    # bypass pre-push
 
-Reference: R18 cluster 1 phase 3 / memory/feedback_gate_claim_integrity.md.
+Reference: memory/feedback_gate_claim_integrity.md.
 """
+
 from __future__ import annotations
 
-import datetime
 import os
 import shutil
 import stat
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
-PRE_PUSH_MARKER = "# aletheia-pre-push-marker (R18 cluster 1 phase 3)"
-PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (dead-import scanner)"
+from tools._common import emit, find_executable
 
-PRE_PUSH_BODY = '''\
-#!/usr/bin/env python3
-{marker}
+PRE_PUSH_MARKER = "# aletheia-pre-push-marker (offline CI sweep)"
+PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (IWYU reader advisory)"
+
+PRE_PUSH_BODY = f'''\
+#!/usr/bin/env python3.14
+{PRE_PUSH_MARKER}
 """Aletheia pre-push hook.
 
 Runs the full offline CI sweep before allowing push.  Skip with
@@ -73,7 +77,9 @@ def main() -> int:
     sys.stderr.write("pre-push: running offline CI sweep (~12-15 min)...\\n")
     sys.stderr.write("pre-push: skip with `git push --no-verify` if needed\\n\\n")
 
-    rc = subprocess.run([sys.executable, str(runner)], check=False).returncode
+    rc = subprocess.run(
+        [sys.executable, "-m", "tools.run_ci"], cwd=repo_root, check=False
+    ).returncode
     if rc != 0:
         sys.stderr.write(
             "\\npre-push: CI sweep failed — push refused.\\n"
@@ -89,32 +95,31 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-'''.format(marker=PRE_PUSH_MARKER)
+'''
 
 
-PRE_COMMIT_BODY = '''\
-#!/usr/bin/env python3
-{marker}
-"""Aletheia pre-commit hook — fast dead-import scanner (advisory).
+PRE_COMMIT_BODY = f'''\
+#!/usr/bin/env python3.14
+{PRE_COMMIT_MARKER}
+"""Aletheia pre-commit hook — IWYU import advisory.
 
-For each staged .agda file, runs the regex scanner and prints findings
-as a warning.  Always exits 0; the commit proceeds whether findings
-exist or not.
+For each staged .agda file under src/, runs the single scope-aware
+`.agdai` IWYU tool (`tools/iwyu.py --check`) and prints any finding
+(dead / redundant / narrowable / unresolved import) as a warning.
+Always exits 0; the commit proceeds whether findings exist or not.
 
 Rationale:
-  - Pre-commit must be fast (sub-second target).  The regex scanner
-    meets this; the precise agda-driven tool (5-15 min/file) does not.
-  - The regex scanner has FPs (mixfix syntax sugar, sections, public
-    re-exports — see memory/feedback_agda_import_pruning_safety.md).
-    Blocking commits on noisy output erodes developer trust in the
-    hook system.
-  - The precise gate runs at pre-push via tools/run_ci.py.  If a real
-    dead import slipped past pre-commit, pre-push catches it.
+  - The `.agdai` reader is the project's trusted import-resolution tool;
+    the regex scanner and recompile-confirm approaches are retired.  It
+    is not sub-second (it warm-loads the staged files to refresh their
+    interfaces), so this advisory runs only when .agda files are staged.
+  - The blocking gate runs at pre-push via tools/run_ci.py (step 9:
+    `iwyu --check --diff` on the branch diff).  If a finding slips past
+    this advisory, pre-push catches it.
 
 Bypass: `git commit --no-verify`.
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -128,53 +133,46 @@ def main() -> int:
     if not repo_root:
         return 0
     repo_root = Path(repo_root)
+    src = repo_root / "src"
 
-    scanner = repo_root / "tools" / "scan_dead_imports.py"
-    if not scanner.is_file():
-        # Tool not present (perhaps an old branch); silently skip.
-        return 0
-
-    # Get staged .agda files (Added / Copied / Modified / Renamed).
+    # Staged .agda files under src/ (Added / Copied / Modified / Renamed).
     diff = subprocess.run(
         ["git", "diff", "--cached", "--name-only",
-         "--diff-filter=ACMR", "--", "*.agda"],
+         "--diff-filter=ACMR", "--", "src/*.agda"],
         capture_output=True, text=True, check=False,
     )
-    files = [
-        repo_root / p.strip()
-        for p in diff.stdout.splitlines()
-        if p.strip() and (repo_root / p.strip()).is_file()
-    ]
-    if not files:
-        return 0  # no Agda changes — nothing to check
+    rels = []
+    for p in diff.stdout.splitlines():
+        path = repo_root / p.strip()
+        if p.strip() and path.is_file():
+            try:
+                rels.append(str(path.relative_to(src)))
+            except ValueError:
+                continue
+    if not rels:
+        return 0  # no staged Agda under src/ — nothing to check
 
-    # Run the scanner.  Exit code is always 0; we only care about output.
+    # Advisory: `--check` exits 1 on findings, but the commit always proceeds.
     result = subprocess.run(
-        [sys.executable, str(scanner), "--summary"] + [str(f) for f in files],
-        capture_output=True, text=True, check=False,
+        [sys.executable, "-m", "tools.iwyu", "--check", *rels],
+        capture_output=True, text=True, check=False, cwd=repo_root,
     )
-    out = result.stdout.strip()
-    # If nothing was flagged, the scanner prints only its totals line
-    # ("Total: 0 dead candidates...").  Suppress that case.
-    has_findings = "Total: 0 dead" not in out
-    if has_findings:
+    if result.returncode != 0:
         sys.stderr.write(
-            "\\npre-commit: dead-import scanner found candidates in staged .agda files:\\n\\n"
+            "\\npre-commit: IWYU flagged imports in staged .agda files:\\n\\n"
         )
-        sys.stderr.write(out + "\\n\\n")
+        sys.stderr.write(result.stdout.strip() + "\\n\\n")
         sys.stderr.write(
-            "pre-commit: ADVISORY ONLY — commit proceeds.  Run\\n"
-            "  tools/prune_unused_imports.py --check-only "
-            + " ".join(str(f.relative_to(repo_root)) for f in files) + "\\n"
-            "to verify which are actually dead (the scanner has known FPs:\\n"
-            "see memory/feedback_agda_import_pruning_safety.md).\\n\\n"
+            "pre-commit: ADVISORY ONLY — commit proceeds.  The pre-push gate\\n"
+            "(tools/run_ci.py) blocks on these.  Remove a DEAD named import; fix\\n"
+            "wildcard `open import M` via `python -m tools.iwyu --apply`.\\n\\n"
         )
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-'''.format(marker=PRE_COMMIT_MARKER)
+'''
 
 
 def _install_hook(
@@ -184,29 +182,32 @@ def _install_hook(
     marker: str,
     description: str,
 ) -> bool:
-    """Install the named hook.  Returns True if newly installed (or
-    re-installed because the marker was missing), False if already current."""
+    """Install the named hook, returning whether it was (re)written.
+
+    Returns True if newly installed (or re-installed because the marker was
+    missing), False if the hook is already current.
+    """
     path = hooks_dir / name
     if path.is_file() and marker in path.read_text(encoding="utf-8"):
-        print(f"install-hooks: {name} already installed (marker found at {path})")
+        emit(f"install-hooks: {name} already installed (marker found at {path})")
         return False
     if path.is_file():
-        ts = int(datetime.datetime.now().timestamp())
+        ts = int(datetime.now(UTC).timestamp())
         backup = path.with_suffix(f".aletheia-backup-{ts}")
-        sys.stderr.write(
-            f"install-hooks: existing {name} hook backed up to {backup}\n"
-        )
+        sys.stderr.write(f"install-hooks: existing {name} hook backed up to {backup}\n")
         shutil.copy2(path, backup)
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    print(f"install-hooks: {name} hook installed at {path}")
-    print(f"install-hooks:   {description}")
+    emit(f"install-hooks: {name} hook installed at {path}")
+    emit(f"install-hooks:   {description}")
     return True
 
 
 def main() -> int:
+    """Install the pre-commit and pre-push hooks, returning a process exit code."""
+    git = find_executable("git")
     rc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        [git, "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
@@ -218,7 +219,7 @@ def main() -> int:
     os.chdir(repo_root)
 
     hooks_dir_str = subprocess.run(
-        ["git", "rev-parse", "--git-path", "hooks"],
+        [git, "rev-parse", "--git-path", "hooks"],
         capture_output=True,
         text=True,
         check=True,
@@ -227,11 +228,18 @@ def main() -> int:
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
     _install_hook(
-        hooks_dir, "pre-commit", PRE_COMMIT_BODY, PRE_COMMIT_MARKER,
-        "every `git commit` will run `tools/scan_dead_imports.py` on staged .agda files (advisory only — never blocks)",
+        hooks_dir,
+        "pre-commit",
+        PRE_COMMIT_BODY,
+        PRE_COMMIT_MARKER,
+        "every `git commit` will run `tools/iwyu.py --check` on staged "
+        + ".agda files (advisory only — never blocks)",
     )
     _install_hook(
-        hooks_dir, "pre-push", PRE_PUSH_BODY, PRE_PUSH_MARKER,
+        hooks_dir,
+        "pre-push",
+        PRE_PUSH_BODY,
+        PRE_PUSH_MARKER,
         "every `git push` will run `tools/run_ci.py` first; bypass with `--no-verify`",
     )
     return 0

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- PhysicalBitPos properties, startBit conversion roundtrips, and shared vec helpers.
@@ -11,7 +13,7 @@
 module Aletheia.CAN.Endianness.Properties.StartBit where
 
 open import Aletheia.CAN.Endianness using
-  ( ByteOrder; LittleEndian; BigEndian
+  ( LittleEndian; BigEndian
   ; lookupSafe; updateSafe
   ; swapBytes
   ; physicalBitPos

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """CLI entry point: ``python -m aletheia``.
 
 Mirrors the ``aletheia`` console script in ``pyproject.toml`` so the same
@@ -10,6 +12,6 @@ in some IDEs even though semantically they are equivalent.
 
 import sys
 
-from .cli import main
+from aletheia.cli import main
 
 sys.exit(main())

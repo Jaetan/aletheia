@@ -1,4 +1,6 @@
-"""Command-line interface for Aletheia CAN signal verification
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Command-line interface for Aletheia CAN signal verification.
 
 Subcommands:
     check      — run LTL checks against a CAN log file
@@ -25,19 +27,18 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast
 
-from . import __version__
-from ._time_units import MICROSECONDS_PER_MILLISECOND
-from .checks import CheckResult
-from .checks_runner import CheckRunResult, Violation, run_checks
-from .client import (
-    AletheiaClient,
+from aletheia import __version__
+from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
+from aletheia.checks_runner import CheckRunResult, Violation, run_checks
+from aletheia.client._client import AletheiaClient
+from aletheia.client._types import (
     AletheiaError,
     SignalExtractionResult,
     ValidationError,
     bytes_to_dlc,
 )
-from .protocols import dump_json
-from .dbc_queries import (
+from aletheia.codes import IssueSeverity, ValidationIssue
+from aletheia.dbc import (
     is_multiplexed,
     message_by_id,
     message_by_name,
@@ -45,17 +46,19 @@ from .dbc_queries import (
     mux_values,
     signals_for_mux_value,
 )
-from .issue_codes import IssueSeverity, ValidationIssue
-from .protocols import (
+from aletheia.types import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
+    dump_json,
 )
 
 if TYPE_CHECKING:
     # Type-only imports for the lazy helpers below — these are not available
     # at runtime when the corresponding optional dependency is not installed.
     from collections.abc import Callable
+
+    from aletheia.checks import CheckResult
 
 
 # Optional-dependency loaders: each CLI helper resolves its target via
@@ -66,7 +69,7 @@ if TYPE_CHECKING:
 # function-scoped ``from .X import Y``) keeps pylint's
 # ``import-outside-toplevel`` check happy without suppressions.
 def _lazy_dbc_to_json() -> Callable[[str | Path], DBCDefinition]:
-    mod = importlib.import_module(".dbc_converter", __package__)
+    mod = importlib.import_module(".dbc", __package__)
     return cast("Callable[[str | Path], DBCDefinition]", mod.dbc_to_json)
 
 
@@ -77,9 +80,7 @@ def _lazy_load_dbc_from_excel() -> Callable[[str | Path], DBCDefinition]:
 
 def _lazy_load_checks_from_excel() -> Callable[[str | Path], list[CheckResult]]:
     mod = importlib.import_module(".excel_loader", __package__)
-    return cast(
-        "Callable[[str | Path], list[CheckResult]]", mod.load_checks_from_excel
-    )
+    return cast("Callable[[str | Path], list[CheckResult]]", mod.load_checks_from_excel)
 
 
 def _lazy_load_yaml_checks() -> Callable[[str | Path], list[CheckResult]]:
@@ -100,16 +101,27 @@ _EXIT_ERROR = 2
 # Helpers
 # ============================================================================
 
+
+def _emit(text: str = "") -> None:
+    """Write a single line to stdout (CLI text output channel).
+
+    Routes through ``sys.stdout.write`` so the static gate (ruff T201)
+    treats this as the single sanctioned text-output entry-point.  All
+    human-readable CLI output flows through this helper.
+    """
+    sys.stdout.write(f"{text}\n")
+
+
 def _die(msg: str) -> NoReturn:
-    """Print error to stderr and exit with code 2.
+    """Write an error to stderr and exit with code 2.
 
     CLI-layer only: library callers must catch the underlying exception
-    (`AletheiaError` and its subclasses) and decide their own exit behaviour.
-    Call this strictly from `cli.py` argv-handling code, never from
-    `python/aletheia/` library modules — see the R19 layering inversion
-    (cli on top of library, not the other way round).
+    (``AletheiaError`` and its subclasses) and decide their own exit
+    behaviour.  Call this strictly from ``cli.py`` argv-handling code,
+    never from ``python/aletheia/`` library modules — the CLI sits on
+    top of the library, not the other way round.
     """
-    print(f"Error: {msg}", file=sys.stderr)
+    sys.stderr.write(f"Error: {msg}\n")
     sys.exit(_EXIT_ERROR)
 
 
@@ -124,6 +136,7 @@ def parse_can_id(s: str) -> int:
 
     Raises:
         ValidationError: If *s* is not a valid integer.
+
     """
     s = s.strip()
     try:
@@ -131,7 +144,8 @@ def parse_can_id(s: str) -> int:
             return int(s, 16)
         return int(s)
     except ValueError as exc:
-        raise ValidationError(f"Invalid CAN ID: {s!r}") from exc
+        msg = f"Invalid CAN ID: {s!r}"
+        raise ValidationError(msg) from exc
 
 
 def parse_hex_data(s: str) -> bytearray:
@@ -144,16 +158,19 @@ def parse_hex_data(s: str) -> bytearray:
 
     Raises:
         ValidationError: If *s* contains non-hex characters or has odd length.
+
     """
     cleaned = s.replace(" ", "").replace(":", "")
     if cleaned.lower().startswith("0x"):
         cleaned = cleaned[2:]
     if len(cleaned) % 2 != 0:
-        raise ValidationError(f"Hex data has odd number of characters: {s!r}")
+        msg = f"Hex data has odd number of characters: {s!r}"
+        raise ValidationError(msg)
     try:
         return bytearray.fromhex(cleaned)
     except ValueError as exc:
-        raise ValidationError(f"Invalid hex data: {s!r}") from exc
+        msg = f"Invalid hex data: {s!r}"
+        raise ValidationError(msg) from exc
 
 
 def format_timestamp(us: int) -> str:
@@ -219,23 +236,31 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 
 
 def _find_message(
-    dbc: DBCDefinition, can_id: int, extended: bool = False,
+    dbc: DBCDefinition,
+    can_id: int,
+    *,
+    extended: bool = False,
 ) -> DBCMessage | None:
     """Find a message by CAN ID + extended flag in a DBC definition.
 
-    Delegates to ``message_by_id`` from ``dbc_queries``.
+    Delegates to ``message_by_id`` from ``aletheia.dbc``.
     """
     return message_by_id(dbc, can_id, extended=extended)
 
 
-def _signal_units(msg: DBCMessage) -> dict[str, str]:
+type SignalUnitMap = dict[str, str]
+"""Mapping from signal name to its unit string."""
+
+
+def _signal_units(msg: DBCMessage) -> SignalUnitMap:
     """Extract signal name → unit mapping from a DBC message."""
     return {sig["name"]: sig["unit"] for sig in msg["signals"]}
 
 
 # ============================================================================
-# Subcommand: signals
+# Subcommand —signals
 # ============================================================================
+
 
 def _format_signal_line(sig: DBCSignal) -> str:
     """Format a single signal as a one-line summary."""
@@ -269,15 +294,15 @@ def _print_signals_text(dbc: DBCDefinition) -> None:
     for msg in messages:
         sender = msg["sender"]
         sender_part = f", sender {sender}" if sender else ""
-        print(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']}{sender_part})")
+        _emit(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']}{sender_part})")
 
         for sig in msg["signals"]:
             total_signals += 1
-            print(_format_signal_line(sig))
+            _emit(_format_signal_line(sig))
 
-        print()
+        _emit()
 
-    print(f"{len(messages)} messages, {total_signals} signals")
+    _emit(f"{len(messages)} messages, {total_signals} signals")
 
 
 def _cmd_signals(args: argparse.Namespace) -> int:
@@ -285,7 +310,7 @@ def _cmd_signals(args: argparse.Namespace) -> int:
     dbc = _load_dbc(args)
 
     if getattr(args, "json", False):
-        print(dump_json(dbc, indent=2))
+        _emit(dump_json(dbc, indent=2))
     else:
         _print_signals_text(dbc)
 
@@ -293,31 +318,32 @@ def _cmd_signals(args: argparse.Namespace) -> int:
 
 
 # ============================================================================
-# Subcommand: validate
+# Subcommand —validate
 # ============================================================================
 
-def _print_validation_text(issues: list[ValidationIssue], has_errors: bool) -> None:
+
+def _print_validation_text(issues: list[ValidationIssue], *, has_errors: bool) -> None:
     """Print validation issues in human-readable text format."""
     if not issues:
-        print("Validation passed: no issues found")
+        _emit("Validation passed: no issues found")
         return
 
     errors = [i for i in issues if i["severity"] == IssueSeverity.ERROR]
     warnings = [i for i in issues if i["severity"] == IssueSeverity.WARNING]
 
     if has_errors:
-        print(f"Validation FAILED: {len(errors)} errors, {len(warnings)} warnings")
+        _emit(f"Validation FAILED: {len(errors)} errors, {len(warnings)} warnings")
     else:
-        print(f"Validation passed with {len(warnings)} warnings")
-    print()
+        _emit(f"Validation passed with {len(warnings)} warnings")
+    _emit()
 
     for i, issue in enumerate(issues, 1):
         sev = issue["severity"].upper()
         code = issue["code"]
         detail = issue["detail"]
-        print(f"  {i}. [{sev}] {code}: {detail}")
+        _emit(f"  {i}. [{sev}] {code}: {detail}")
 
-    print()
+    _emit()
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
@@ -337,53 +363,56 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             "total_issues": len(issues),
             "issues": issues,
         }
-        print(dump_json(out, indent=2))
+        _emit(dump_json(out, indent=2))
     else:
-        _print_validation_text(issues, has_errors)
+        _print_validation_text(issues, has_errors=has_errors)
 
     return _EXIT_VIOLATIONS if has_errors else _EXIT_OK
 
 
 # ============================================================================
-# Subcommand: extract
+# Subcommand —extract
 # ============================================================================
 
+
 def _print_extract_text(
-    can_id: int, dbc: DBCDefinition, result: SignalExtractionResult,
+    can_id: int,
+    dbc: DBCDefinition,
+    result: SignalExtractionResult,
 ) -> None:
     """Print extraction results in human-readable text format."""
     msg = _find_message(dbc, can_id)
     units = _signal_units(msg) if msg is not None else {}
 
     name_part = f" ({msg['name']})" if msg is not None else ""
-    print(f"CAN ID 0x{can_id:X}{name_part}:")
-    print()
+    _emit(f"CAN ID 0x{can_id:X}{name_part}:")
+    _emit()
 
     if result.values:
         for name, value in result.values.items():
             unit = units.get(name, "")
             unit_part = f" {unit}" if unit else ""
-            print(f"  {name:<20s} = {value:g}{unit_part}")
+            _emit(f"  {name:<20s} = {value:g}{unit_part}")
     else:
-        print("  (no signals)")
+        _emit("  (no signals)")
 
-    print()
+    _emit()
     _print_extract_errors(result)
 
 
 def _print_extract_errors(result: SignalExtractionResult) -> None:
     """Print extraction error/absent sections."""
     if result.errors:
-        print("Errors:")
+        _emit("Errors:")
         for name, err in result.errors.items():
-            print(f"  {name}: {err}")
+            _emit(f"  {name}: {err}")
     else:
-        print("Errors: none")
+        _emit("Errors: none")
 
     if result.absent:
-        print(f"Absent: {', '.join(result.absent)}")
+        _emit(f"Absent: {', '.join(result.absent)}")
     else:
-        print("Absent: none")
+        _emit("Absent: none")
 
 
 def _cmd_extract(args: argparse.Namespace) -> int:
@@ -399,10 +428,9 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         id_kind = "extended" if extended else "standard"
         _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
     # ``msg["dlc"]`` is the payload byte count (DBC convention), not the
-    # raw DLC code — no conversion needed.  R19 cluster 17 / PY-D-19.4
-    # surfaced the latent ``dlc_to_bytes(byte_count)`` bug: for CAN-FD
-    # byte counts > 8, that call raised ``ValueError`` because 12/16/...
-    # are not valid DLC codes.
+    # raw DLC code — no conversion needed.  Going through
+    # ``dlc_to_bytes(byte_count)`` would raise ``ValueError`` for CAN-FD
+    # byte counts > 8, since 12/16/... are not valid DLC codes.
     expected_bytes = msg["dlc"]
     if len(data) != expected_bytes:
         _die(
@@ -417,7 +445,9 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         # ``extract_signals`` takes the DLC code (CAN frame wire convention),
         # not the byte count; convert via ``bytes_to_dlc``.
         result = client.extract_signals(
-            can_id=can_id, dlc=bytes_to_dlc(msg["dlc"]), data=data,
+            can_id=can_id,
+            dlc=bytes_to_dlc(msg["dlc"]),
+            data=data,
             extended=extended,
         )
 
@@ -429,7 +459,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             "errors": dict(result.errors),
             "absent": result.absent,
         }
-        print(dump_json(out, indent=2))
+        _emit(dump_json(out, indent=2))
     else:
         _print_extract_text(can_id, dbc, result)
 
@@ -437,35 +467,36 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 
 
 # ============================================================================
-# Subcommand: check
+# Subcommand —check
 # ============================================================================
+
 
 def _print_check_results(result: CheckRunResult, num_checks: int) -> None:
     """Print check results in human-readable text format."""
-    violations   = result.violations
-    unresolved   = result.unresolved
+    violations = result.violations
+    unresolved = result.unresolved
     total_frames = result.total_frames
-    print(f"Streaming {total_frames} frames...")
-    print()
+    _emit(f"Streaming {total_frames} frames...")
+    _emit()
 
     if violations:
-        print(f"RESULT: {len(violations)} violations found")
-        print()
+        _emit(f"RESULT: {len(violations)} violations found")
+        _emit()
         for i, v in enumerate(violations, 1):
             _print_violation(i, v)
     elif unresolved:
-        print(f"RESULT: no violations, {len(unresolved)} unresolved")
-        print()
+        _emit(f"RESULT: no violations, {len(unresolved)} unresolved")
+        _emit()
     else:
-        print("RESULT: all checks passed")
-        print()
+        _emit("RESULT: all checks passed")
+        _emit()
 
     if unresolved:
-        print(f"Unresolved ({len(unresolved)} — signal never observed or verdict Unknown):")
+        _emit(f"Unresolved ({len(unresolved)} — signal never observed or verdict Unknown):")
         for i, v in enumerate(unresolved, 1):
             _print_violation(i, v)
 
-    print(
+    _emit(
         f"Summary: {len(violations)} violations, {len(unresolved)} unresolved "
         + f"in {num_checks} checks, {total_frames} frames processed"
     )
@@ -475,10 +506,10 @@ def _print_violation(index: int, v: Violation) -> None:
     """Print a single violation entry."""
     sev_part = f" ({v['severity']})" if v["severity"] else ""
     ts_str = format_timestamp(v["timestamp_us"])
-    print(f"  {index}. [t={ts_str}] {v['check_name']}{sev_part}")
+    _emit(f"  {index}. [t={ts_str}] {v['check_name']}{sev_part}")
     if v["reason"]:
-        print(f"     {v['reason']}")
-    print()
+        _emit(f"     {v['reason']}")
+    _emit()
 
 
 def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
@@ -505,8 +536,8 @@ def _cmd_check(args: argparse.Namespace) -> int:
     except (FileNotFoundError, AletheiaError) as exc:
         _die(str(exc))
 
-    violations   = result.violations
-    unresolved   = result.unresolved
+    violations = result.violations
+    unresolved = result.unresolved
     total_frames = result.total_frames
 
     if getattr(args, "json", False):
@@ -524,31 +555,32 @@ def _cmd_check(args: argparse.Namespace) -> int:
             "violations": violations,
             "unresolved": unresolved,
         }
-        print(dump_json(out, indent=2))
+        _emit(dump_json(out, indent=2))
     else:
         dbc_label = getattr(args, "dbc", None) or getattr(args, "excel", None) or "?"
         checks_label = getattr(args, "checks", None) or getattr(args, "excel", None) or "?"
         total_checks = len(default_checks) + len(checks)
-        print("Aletheia — CAN Signal Verification")
-        print()
-        print(f"DBC:    {dbc_label}")
+        _emit("Aletheia — CAN Signal Verification")
+        _emit()
+        _emit(f"DBC:    {dbc_label}")
         if default_checks:
-            print(
+            _emit(
                 f"Checks: {checks_label} ({len(checks)} checks"
                 + f" + {len(default_checks)} defaults)"
             )
         else:
-            print(f"Checks: {checks_label} ({len(checks)} checks)")
-        print(f"Log:    {logfile}")
-        print()
+            _emit(f"Checks: {checks_label} ({len(checks)} checks)")
+        _emit(f"Log:    {logfile}")
+        _emit()
         _print_check_results(result, total_checks)
 
     return _EXIT_VIOLATIONS if violations else _EXIT_OK
 
 
 # ============================================================================
-# Subcommand: mux-query
+# Subcommand —mux-query
 # ============================================================================
+
 
 def _resolve_mux_message(args: argparse.Namespace, dbc: DBCDefinition) -> DBCMessage:
     """Resolve the target DBC message for ``mux-query`` from positional args.
@@ -579,37 +611,40 @@ def _resolve_mux_message(args: argparse.Namespace, dbc: DBCDefinition) -> DBCMes
 
 def _print_mux_summary_text(msg: DBCMessage) -> None:
     """Print the multiplex structure of a message in human-readable form."""
-    print(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']})")
-    print()
+    _emit(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']})")
+    _emit()
 
     if not is_multiplexed(msg):
-        print("  Not multiplexed — all signals are always present.")
+        _emit("  Not multiplexed — all signals are always present.")
         total = len(msg["signals"])
-        print(f"  Signals: {total}")
+        _emit(f"  Signals: {total}")
         return
 
     names = multiplexor_names(msg)
-    print(f"  Multiplexors: {', '.join(names) if names else '(none)'}")
-    print()
+    _emit(f"  Multiplexors: {', '.join(names) if names else '(none)'}")
+    _emit()
 
     for mux_name in names:
         values = mux_values(msg, mux_name)
-        print(f"  {mux_name}:")
+        _emit(f"  {mux_name}:")
         for v in values:
             sigs = [s["name"] for s in signals_for_mux_value(msg, mux_name, v)]
-            print(f"    value {v}: {len(sigs)} signals ({', '.join(sigs)})")
-        print()
+            _emit(f"    value {v}: {len(sigs)} signals ({', '.join(sigs)})")
+        _emit()
 
 
 def _print_mux_selection_text(
-    msg: DBCMessage, mux_name: str, value: int, sigs: list[DBCSignal],
+    msg: DBCMessage,
+    mux_name: str,
+    value: int,
+    sigs: list[DBCSignal],
 ) -> None:
     """Print signals active for a specific ``(multiplexor, value)`` selector."""
-    print(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']})")
-    print(f"Multiplexor {mux_name} = {value}: {len(sigs)} signals present")
-    print()
+    _emit(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']})")
+    _emit(f"Multiplexor {mux_name} = {value}: {len(sigs)} signals present")
+    _emit()
     for sig in sigs:
-        print(_format_signal_line(sig))
+        _emit(_format_signal_line(sig))
 
 
 def _cmd_format_dbc(args: argparse.Namespace) -> int:
@@ -625,7 +660,7 @@ def _cmd_format_dbc(args: argparse.Namespace) -> int:
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
         canonical = client.format_dbc()
-    print(dump_json(canonical, indent=2))
+    _emit(dump_json(canonical, indent=2))
     return _EXIT_OK
 
 
@@ -656,7 +691,7 @@ def _cmd_mux_query(args: argparse.Namespace) -> int:
                 "value": value,
                 "signals": [s["name"] for s in sigs],
             }
-            print(dump_json(out, indent=2))
+            _emit(dump_json(out, indent=2))
         else:
             _print_mux_selection_text(msg, mux_name, value, sigs)
         return _EXIT_OK
@@ -672,10 +707,7 @@ def _cmd_mux_query(args: argparse.Namespace) -> int:
                     "values": [
                         {
                             "value": v,
-                            "signals": [
-                                s["name"]
-                                for s in signals_for_mux_value(msg, name, v)
-                            ],
+                            "signals": [s["name"] for s in signals_for_mux_value(msg, name, v)],
                         }
                         for v in mux_values(msg, name)
                     ],
@@ -683,7 +715,7 @@ def _cmd_mux_query(args: argparse.Namespace) -> int:
                 for name in multiplexor_names(msg)
             ],
         }
-        print(dump_json(out, indent=2))
+        _emit(dump_json(out, indent=2))
     else:
         _print_mux_summary_text(msg)
     return _EXIT_OK
@@ -693,6 +725,7 @@ def _cmd_mux_query(args: argparse.Namespace) -> int:
 # Argument parser
 # ============================================================================
 
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser with subcommands."""
     parser = argparse.ArgumentParser(
@@ -700,7 +733,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Formally verified CAN signal analysis",
     )
     parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -812,5 +847,5 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as e:
         return e.code if isinstance(e.code, int) else _EXIT_ERROR
     except (AletheiaError, FileNotFoundError, ValueError) as e:
-        print(f"Error: {e}", file=sys.stderr)
+        sys.stderr.write(f"Error: {e}\n")
         return _EXIT_ERROR

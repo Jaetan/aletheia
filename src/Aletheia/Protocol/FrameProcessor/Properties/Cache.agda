@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal cache update properties.
@@ -28,7 +30,7 @@ open import Aletheia.DBC.Types using (DBCSignal; DBCMessage)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Data.Char using (Char)
-open import Data.String using (String)
+open import Data.String using ()
 open import Data.Bool using (true; false; T)
 open import Data.Unit using (tt)
 open import Data.Product using (_,_; ∃-syntax)

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 package aletheia
 
 import (
@@ -495,27 +498,14 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 	return parseExtractionResponse(resp)
 }
 
-// DEFERRED — TRACKED (R19P2-CL10-2 — DEFER).
-// Finding: BuildFrame(ctx, id, signals, dlc) and UpdateFrame(ctx, id, dlc, data, signals)
-//
-//	are positionally inconsistent — `dlc` slot differs; `signals` slot differs.
-//
-// Why DEFER: Stylistic cross-binding parity work; affects every Go call site (tests,
-//
-//	benchmarks, doc fences) and needs paired cross-binding rename to Python's
-//	build_frame(can_id=, dlc=, signals=) / C++'s build_frame(can_id, dlc, signals)
-//	shapes.  Project-wide migration scope per feedback_no_backward_compat.md is
-//	justifiable but not Phase 5.1-scope.
-//
-// Revisit when: A "Go API ergonomics" cluster is opened, OR a user reports the
-//
-//	asymmetry causes confusion.
-//
 // BuildFrame encodes signal values into a CAN frame payload.
 // Requires a prior ParseDBC call to populate the signal index.
 //
+// The argument order (id, dlc, signals) matches UpdateFrame and the Python /
+// C++ bindings' build_frame(id, dlc, signals) — see CHANGELOG 2.0.0.
+//
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
-func (c *Client) BuildFrame(ctx context.Context, id CANID, signals []SignalValue, dlc DLC) (FramePayload, error) {
+func (c *Client) BuildFrame(ctx context.Context, id CANID, dlc DLC, signals []SignalValue) (FramePayload, error) {
 	release, err := c.acquire(ctx, "BuildFrame")
 	if err != nil {
 		return nil, err

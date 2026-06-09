@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+// SPDX-License-Identifier: BSD-2-Clause
+
 // Aletheia Go Benchmark
 //
 // Measures throughput, latency, and scaling for CAN 2.0B and CAN-FD frames
@@ -356,7 +359,7 @@ func benchmarkBuilding(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition,
 
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.BuildFrame(ctx, id, signals, dlc); err != nil {
+		if _, err := client.BuildFrame(ctx, id, dlc, signals); err != nil {
 			return 0, err
 		}
 	}
@@ -559,7 +562,7 @@ func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinit
 	}
 
 	for i := 0; i < warmup; i++ {
-		if _, err := client.BuildFrame(ctx, id, signals, dlc); err != nil {
+		if _, err := client.BuildFrame(ctx, id, dlc, signals); err != nil {
 			return nil, err
 		}
 	}
@@ -567,7 +570,7 @@ func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinit
 	latencies := make([]float64, 0, numOps)
 	for i := 0; i < numOps; i++ {
 		start := time.Now()
-		if _, err := client.BuildFrame(ctx, id, signals, dlc); err != nil {
+		if _, err := client.BuildFrame(ctx, id, dlc, signals); err != nil {
 			return nil, err
 		}
 		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0)

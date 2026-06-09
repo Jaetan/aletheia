@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Top-level soundness and completeness theorems for DBC validation.
@@ -23,7 +25,6 @@ open import Aletheia.DBC.Validator using
   ; checkAllDuplicateAttributeNames; checkAllUnknownCommentTargets
   ; checkAllUnknownMessageSenders; checkAllUnknownSignalReceivers
   ; checkAllUnknownAdditionalSenders
-  ; checkAllUnknownValueDescriptionTargets
   )
 open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.Validity.Composition using

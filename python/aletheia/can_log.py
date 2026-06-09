@@ -1,4 +1,6 @@
-"""CAN log file reader
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""CAN log file reader.
 
 Read industry-standard CAN log files and convert frames for Aletheia analysis.
 Supports ASC, BLF, CSV, DB, candump .log, MF4, and TRC formats via python-can.
@@ -13,32 +15,46 @@ Example:
     # Lazy: iterate one frame at a time
     for ts, can_id, dlc, data, ext, brs, esi in iter_can_log("highway.asc"):
         response = client.send_frame(ts, can_id, dlc, data, extended=ext, brs=brs, esi=esi)
+
 """
 
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from .client import ValidationError
+from aletheia.client._types import CANFrameTuple, ValidationError, bytes_to_dlc
+from aletheia.types import DLCByteCount, DLCCode
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # python-can is an optional extra (`pip install aletheia[can]`).  Surface a
 # clear, narrow ImportError naming the optional install rather than letting
-# a bare `ModuleNotFoundError: No module named 'can'` bubble up.  R19
-# cluster 16 — PY-D-18.5; mirrors the narrow-swallow pattern in
-# aletheia.__init__ for openpyxl / yaml.
+# a bare `ModuleNotFoundError: No module named 'can'` bubble up.  Mirrors
+# the narrow-swallow pattern in aletheia.__init__ for openpyxl / yaml.
+_CAN_IMPORT_ERROR_MSG = (
+    "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
+)
+
 try:
     import can
 except ImportError as exc:
-    raise ImportError(
-        "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
-    ) from exc
+    # Preserve name="can" so aletheia.__init__'s `_missing_pkg(_, "can")` guard
+    # recognises this as the optional-extra-absent case and tolerates it; a bare
+    # ImportError(msg) would have name=None and make `import aletheia` hard-fail
+    # whenever python-can is not installed (e.g. the base runtime image).
+    raise ImportError(_CAN_IMPORT_ERROR_MSG, name="can") from exc
 
-from .client import CANFrameTuple, bytes_to_dlc
-from .protocols import DLCByteCount, DLCCode
-
-_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
-    ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",
-})
+_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".asc",
+        ".blf",
+        ".csv",
+        ".db",
+        ".log",
+        ".mf4",
+        ".trc",
+    }
+)
 
 
 def load_can_log(
@@ -58,13 +74,16 @@ def load_can_log(
 
     Returns:
         List of (timestamp_us, arbitration_id, dlc, data, extended) tuples
+
     """
-    return list(iter_can_log(
-        path,
-        skip_error_frames=skip_error_frames,
-        skip_remote_frames=skip_remote_frames,
-        on_error=on_error,
-    ))
+    return list(
+        iter_can_log(
+            path,
+            skip_error_frames=skip_error_frames,
+            skip_remote_frames=skip_remote_frames,
+            on_error=on_error,
+        )
+    )
 
 
 def iter_can_log(
@@ -84,20 +103,21 @@ def iter_can_log(
 
     Yields:
         (timestamp_us, arbitration_id, dlc, data, extended) tuples
+
     """
     resolved = Path(path)
-    _validate_path(resolved)
+    validate_path(resolved)
 
     reader = can.LogReader(str(resolved))
     try:
         for msg in reader:
             try:
-                result = _convert_message(
+                result = convert_message(
                     msg,
                     skip_error_frames=skip_error_frames,
                     skip_remote_frames=skip_remote_frames,
                 )
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 if on_error == "raise":
                     raise
                 continue
@@ -108,28 +128,29 @@ def iter_can_log(
         reader.stop()
 
 
-def _validate_path(path: Path) -> None:
+def validate_path(path: Path) -> None:
     """Validate that the file exists and has a supported extension."""
     if not path.exists():
-        raise FileNotFoundError(f"CAN log file not found: {path}")
+        msg = f"CAN log file not found: {path}"
+        raise FileNotFoundError(msg)
 
-    ext = _effective_extension(path)
+    ext = effective_extension(path)
     if ext not in _SUPPORTED_EXTENSIONS:
         raise ValidationError(
-            f"Unsupported CAN log format '{ext}'. " +
-            f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
+            f"Unsupported CAN log format '{ext}'. "
+            + f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
         )
 
 
-def _effective_extension(path: Path) -> str:
+def effective_extension(path: Path) -> str:
     """Get the effective file extension, stripping .gz if present."""
     suffixes = path.suffixes
-    if len(suffixes) >= 2 and suffixes[-1] == ".gz":
+    if len(suffixes) > 1 and suffixes[-1] == ".gz":
         return suffixes[-2]
     return path.suffix
 
 
-def _convert_message(
+def convert_message(
     msg: can.Message,
     *,
     skip_error_frames: bool,
@@ -144,12 +165,12 @@ def _convert_message(
     if skip_remote_frames and msg.is_remote_frame:
         return None
 
-    timestamp_us = _timestamp_to_us(msg.timestamp)
+    timestamp_us = timestamp_to_us(msg.timestamp)
     # ``msg.dlc`` from python-can is the byte count (cantools convention);
     # ``bytes_to_dlc`` converts to the 4-bit DLC code that ``CANFrameTuple``
     # carries (CAN wire convention).
     dlc: DLCCode = bytes_to_dlc(DLCByteCount(msg.dlc))
-    data = _normalize_data(msg.data, msg.dlc)
+    data = normalize_data(msg.data, msg.dlc)
     # python-can carries CAN-FD BRS / ESI as ``bitrate_switch`` /
     # ``error_state_indicator`` on every ``Message``; both default to
     # ``False`` for CAN 2.0B logs.  Surface them only when the frame is
@@ -159,17 +180,22 @@ def _convert_message(
     esi: bool | None = msg.error_state_indicator if msg.is_fd else None
 
     return CANFrameTuple(
-        timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id,
-        brs, esi,
+        timestamp_us,
+        msg.arbitration_id,
+        dlc,
+        data,
+        msg.is_extended_id,
+        brs,
+        esi,
     )
 
 
-def _timestamp_to_us(timestamp: float) -> int:
+def timestamp_to_us(timestamp: float) -> int:
     """Convert seconds (float) to microseconds (int)."""
     return int(timestamp * 1_000_000)
 
 
-def _normalize_data(data: bytearray | None, dlc: int) -> bytearray:
+def normalize_data(data: bytearray | None, dlc: int) -> bytearray:
     """Normalize CAN frame data to match the DLC byte count.
 
     - If data is None (remote frames), return dlc zero bytes
@@ -184,7 +210,10 @@ def _normalize_data(data: bytearray | None, dlc: int) -> bytearray:
 
     if len(data) < dlc:
         padded = bytearray(dlc)
-        padded[:len(data)] = data
+        padded[: len(data)] = data
         return padded
 
     return bytearray(data[:dlc])
+
+
+__all__ = ["iter_can_log", "load_can_log"]

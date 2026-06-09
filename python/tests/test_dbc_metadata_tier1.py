@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Structural roundtrip tests for Tier 1 DBC metadata.
 
 Tier 1 covers the three metadata arrays already modeled by the Agda ``DBC``
@@ -14,27 +16,34 @@ the way out, which matches the rest of the Python wire surface.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import TYPE_CHECKING, cast
 
 import pytest
-
 from _dbc_helpers import assert_non_terminating_rational, message, signal
 
 from aletheia import AletheiaClient
-from aletheia.protocols import (
-    DBCDefinition,
-    DBCEnvironmentVar,
-    DBCSignalGroup,
-    DBCValueEntry,
-    DBCValueTable,
-)
+from aletheia._dbc_types import empty_dbc_tier2
 
+if TYPE_CHECKING:
+    from typing import Literal
+
+    from _dbc_helpers import SignalOverrides
+
+    from aletheia.types import (
+        DBCDefinition,
+        DBCEnvironmentVar,
+        DBCMessage,
+        DBCSignalGroup,
+        DBCValueEntry,
+        DBCValueTable,
+    )
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-def _msg_two_signals() -> dict:
+def _msg_two_signals() -> DBCMessage:
     return message(
         0x100,
         "Engine",
@@ -76,28 +85,32 @@ def _full_dbc() -> DBCDefinition:
         "signalGroups": groups,
         "environmentVars": env_vars,
         "valueTables": value_tables,
+        "nodes": [],
+        "comments": [],
+        "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
 def _empty_metadata_dbc() -> DBCDefinition:
-    """DBC with explicit empty metadata arrays — proves the empty case
-    survives the wire even when keys are supplied."""
+    """DBC with explicit empty metadata arrays.
+
+    Proves the empty case survives the wire even when the keys are supplied.
+    """
     return {
         "version": "1.0",
         "messages": [_msg_two_signals()],
-        "signalGroups": [],
-        "environmentVars": [],
-        "valueTables": [],
+        **empty_dbc_tier2(),
     }
 
 
 def _no_metadata_keys_dbc() -> DBCDefinition:
-    """Pre-Tier-1 shape — no NotRequired keys at all. The parser has to treat
-    absent keys as empty and ``format_dbc`` has to still emit the arrays."""
-    return {
-        "version": "1.0",
-        "messages": [_msg_two_signals()],
-    }
+    """Pre-Tier-1 shape — no NotRequired keys at all.
+
+    The parser has to treat absent keys as empty and ``format_dbc`` has to
+    still emit the arrays.
+    """
+    return cast("DBCDefinition", {"version": "1.0", "messages": [_msg_two_signals()]})
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +151,11 @@ class TestDBCMetadataTier1Roundtrip:
         assert len(formatted["valueTables"]) == 0
 
     def test_absent_metadata_keys_default_to_empty(self) -> None:
-        """A pre-Tier-1 input (no NotRequired keys) is accepted and produces
-        empty arrays on the way out — the widened shape is backward-compatible
-        with hand-written fixtures."""
+        """A pre-Tier-1 input (no NotRequired keys) is accepted.
+
+        Produces empty arrays on the way out — the widened shape is
+        backward-compatible with hand-written fixtures.
+        """
         original = _no_metadata_keys_dbc()
         with AletheiaClient() as client:
             result = client.parse_dbc(original)
@@ -152,8 +167,10 @@ class TestDBCMetadataTier1Roundtrip:
         assert len(formatted["valueTables"]) == 0
 
     def test_numeric_env_var_fields_are_fractions(self) -> None:
-        """Environment-variable numeric fields use ``Fraction`` on the way out,
-        matching the ``DBCSignal`` wire contract (exact rational precision)."""
+        """Environment-variable numeric fields use ``Fraction`` on the way out.
+
+        Matches the ``DBCSignal`` wire contract (exact rational precision).
+        """
         original = _full_dbc()
         with AletheiaClient() as client:
             client.parse_dbc(original)
@@ -192,30 +209,36 @@ class TestDBCMetadataTier1Rejects:
 
     def test_invalid_var_type_rejected(self) -> None:
         """``varType`` outside {0, 1, 2} must be rejected by the Agda parser."""
-        bad: DBCDefinition = {
-            "version": "1.0",
-            "messages": [_msg_two_signals()],
-            "environmentVars": [
-                {
-                    "name": "Bad",
-                    "varType": 7,  # type: ignore[typeddict-item]  # intentional wire violation
-                    "initial": Fraction(0),
-                    "minimum": Fraction(0),
-                    "maximum": Fraction(1),
-                },
-            ],
-        }
+        bad = cast(
+            "DBCDefinition",
+            {
+                "version": "1.0",
+                "messages": [_msg_two_signals()],
+                "environmentVars": [
+                    {
+                        "name": "Bad",
+                        "varType": 7,  # intentional wire violation: varType must be 0/1/2
+                        "initial": Fraction(0),
+                        "minimum": Fraction(0),
+                        "maximum": Fraction(1),
+                    },
+                ],
+            },
+        )
         with AletheiaClient() as client:
             result = client.parse_dbc(bad)
         assert result["status"] == "error"
 
     def test_non_terminating_rational_rejected(self) -> None:
-        """EV_ numeric fields must have terminating decimal expansions —
+        """EV_ numeric fields must have terminating decimal expansions.
+
         ``Fraction(1, 3)`` (denominator 3) has no ``2^a·5^b`` form, so
         ``fromℚ?`` returns ``nothing`` and the parser emits
         ``parse_non_terminating_rational``. Prevents silent precision
-        loss when users hand-build rationals outside DBC's decimal grammar."""
+        loss when users hand-build rationals outside DBC's decimal grammar.
+        """
         bad: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_two_signals()],
             "environmentVars": [
@@ -234,29 +257,38 @@ class TestDBCMetadataTier1Rejects:
         assert result["code"] == "parse_non_terminating_rational"
 
     @pytest.mark.parametrize("field", ["factor", "offset", "minimum", "maximum"])
-    def test_signal_non_terminating_rational_rejected(self, field: str) -> None:
-        """SG_ (SignalDef) numeric fields must have terminating decimal
-        expansions. ``Fraction(1, 3)`` in ``factor``/``offset``/``minimum``/
-        ``maximum`` has no ``2^a·5^b`` form, so ``fromℚ?`` returns
-        ``nothing`` and the parser emits ``parse_non_terminating_rational``."""
+    def test_signal_non_terminating_rational_rejected(
+        self, field: Literal["factor", "offset", "minimum", "maximum"]
+    ) -> None:
+        """SG_ (SignalDef) numeric fields must have terminating decimal expansions.
+
+        ``Fraction(1, 3)`` in ``factor``/``offset``/``minimum``/``maximum``
+        has no ``2^a·5^b`` form, so ``fromℚ?`` returns ``nothing`` and the
+        parser emits ``parse_non_terminating_rational``.
+        """
         # Build a signal with the targeted field set to a non-terminating
         # rational; keep the others on sensible defaults.
-        overrides = {field: Fraction(1, 3)}
+        overrides: SignalOverrides = {}
+        overrides[field] = Fraction(1, 3)
         # `minimum` and `maximum` defaults would conflict with factor 1/3 +
         # offset 0 producing a physical range outside [0, 65535]; ignore the
         # mismatch — the parser rejects before any validator check runs.
         bad: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [message(0x100, "Engine", [signal("Rpm", **overrides)])],
         }
         assert_non_terminating_rational(bad, field)
 
     def test_signal_group_referring_to_unknown_signal_accepted(self) -> None:
-        """The Agda parser does not cross-check group signal references against
-        message signals — the field is opaque, so dangling references round-
-        trip unchanged. (Validation of references, if added later, is a
-        validator concern, not a parser concern.)"""
+        """The Agda parser does not cross-check group signal references against message signals.
+
+        The field is opaque, so dangling references round-trip unchanged.
+        (Validation of references, if added later, is a validator concern,
+        not a parser concern.)
+        """
         dangling: DBCDefinition = {
+            **empty_dbc_tier2(),
             "version": "1.0",
             "messages": [_msg_two_signals()],
             "signalGroups": [
@@ -266,9 +298,7 @@ class TestDBCMetadataTier1Rejects:
         with AletheiaClient() as client:
             result = client.parse_dbc(dangling)
             if result["status"] != "success":
-                pytest.fail(
-                    f"Expected opaque acceptance, got error: {result}"
-                )
+                pytest.fail(f"Expected opaque acceptance, got error: {result}")
             formatted = client.format_dbc()
 
         assert formatted["signalGroups"] == dangling["signalGroups"]
@@ -287,6 +317,7 @@ def test_value_table_description_with_spaces() -> None:
     preserves whatever cantools produced.
     """
     spacey: DBCDefinition = {
+        **empty_dbc_tier2(),
         "version": "1.0",
         "messages": [_msg_two_signals()],
         "valueTables": [

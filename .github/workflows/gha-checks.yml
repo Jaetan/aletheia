@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # GHA infrastructure checks — meta-gates that have no offline equivalent.
 #
 # Aletheia's CI is local-first (see docs/development/CI_LOCAL.md): the
@@ -48,7 +50,11 @@ jobs:
           ACTIONLINT_SHA256: '023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757'
         run: |
           set -euo pipefail
-          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          # --retry-all-errors retries on transient HTTP failures (e.g. a 504
+          # from GitHub's release CDN, observed on PR #7); the SHA-256 check
+          # below still guards integrity, so retrying is safe.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -O \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           echo "${ACTIONLINT_SHA256}  actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
           tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
           chmod +x actionlint
@@ -65,8 +71,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
       - name: Run check_action_pins.py
-        run: python3 tools/check_action_pins.py
+        run: python3 -m tools.check_action_pins
 
   permissions-check:
     name: Verify minimal workflow permissions
@@ -76,5 +87,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # check_workflow_permissions parses workflow YAML via PyYAML; the bare
+      # runner Python lacks it (the project ships it in the dev venv, absent
+      # here).  Install just that one dependency for this meta-gate.
+      - name: Install PyYAML
+        run: python3 -m pip install pyyaml
+
       - name: Run check_workflow_permissions.py
-        run: python3 tools/check_workflow_permissions.py
+        run: python3 -m tools.check_workflow_permissions

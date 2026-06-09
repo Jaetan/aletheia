@@ -1,0 +1,11 @@
+# Build artifacts — the reader is built on demand against the cabal store
+# (see agda-iwyu-reader.cabal); only the source is tracked.
+/agda-iwyu-reader
+*.hi
+*.o
+dist-newstyle/
+
+# Fixture interfaces are produced by type-checking; the runner does this in a
+# scratch dir, but guard against in-place type-checks polluting the repo.
+test/fixtures/*.agdai
+test/fixtures/_build/

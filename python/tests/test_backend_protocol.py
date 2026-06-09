@@ -1,7 +1,9 @@
-"""R20 cluster P — Backend Protocol + MockBackend + DI seam coverage.
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Backend Protocol + MockBackend + DI seam coverage.
 
-Closes PY-D-24.1 (Backend Protocol DI seam) + PY-B-22.2 (MockBackend
-documented but not provided).  Cross-binding parity tests with Go
+Covers the Backend Protocol DI seam and the MockBackend (documented but
+not previously provided).  Cross-binding parity tests with Go
 ``go/aletheia/concurrent_test.go`` + C++ ``cpp/tests/unit_tests_validation.cpp``
 which exercise the same matrix of Backend behaviors (canned responses,
 captured inputs, init/close lifecycle).
@@ -10,6 +12,7 @@ captured inputs, init/close lifecycle).
 from __future__ import annotations
 
 import pytest
+from _dbc_helpers import dbc, message, signal
 
 from aletheia import (
     AletheiaClient,
@@ -18,10 +21,10 @@ from aletheia import (
     FFIBackend,
     MockBackend,
     Signal,
+    StateError,
 )
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.protocols import DBCDefinition, DLCCode
-
+from aletheia.types import DBCDefinition, DLCCode
 
 # -----------------------------------------------------------------------------
 # Backend Protocol structural conformance
@@ -56,10 +59,12 @@ def test_mockbackend_init_close_lifecycle() -> None:
 
 def test_mockbackend_process_returns_canned_queue_in_order() -> None:
     """``process()`` pops the queue front-to-back."""
-    backend = MockBackend([
-        b'{"status":"success","first":true}',
-        b'{"status":"success","second":true}',
-    ])
+    backend = MockBackend(
+        [
+            b'{"status":"success","first":true}',
+            b'{"status":"success","second":true}',
+        ]
+    )
     state = backend.init()
     assert backend.process(state, b'{"command":"a"}') == b'{"status":"success","first":true}'
     assert backend.process(state, b'{"command":"b"}') == b'{"status":"success","second":true}'
@@ -75,7 +80,7 @@ def test_mockbackend_records_all_inputs() -> None:
     assert backend.inputs == [
         b'{"command":"alpha"}',
         b'{"command":"beta"}',
-        b'<binary:sendError>',
+        b"<binary:sendError>",
     ]
 
 
@@ -101,8 +106,8 @@ def test_mockbackend_queue_response_appends() -> None:
     backend.queue_response(b'{"status":"success","first":true}')
     backend.queue_response(b'{"status":"success","second":true}')
     state = backend.init()
-    assert b'first' in backend.process(state, b'{}')
-    assert b'second' in backend.process(state, b'{}')
+    assert b"first" in backend.process(state, b"{}")
+    assert b"second" in backend.process(state, b"{}")
 
 
 def test_mockbackend_clear_resets_queue_and_inputs() -> None:
@@ -127,7 +132,11 @@ def test_mockbackend_extract_signals_bin_raises_unsupported() -> None:
     state = backend.init()
     with pytest.raises(BinaryPathUnsupportedError):
         backend.extract_signals_bin(
-            state, can_id=0x100, extended=False, dlc=DLCCode(8), data=bytes(8),
+            state,
+            can_id=0x100,
+            extended=False,
+            dlc=DLCCode(8),
+            data=bytes(8),
         )
 
 
@@ -138,10 +147,12 @@ def test_mockbackend_extract_signals_bin_raises_unsupported() -> None:
 
 def test_client_accepts_injected_mockbackend() -> None:
     """Passing ``backend=MockBackend()`` skips real FFI loading entirely."""
-    backend = MockBackend([
-        # parseDBC response (empty body).
-        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',
-    ])
+    backend = MockBackend(
+        [
+            # parseDBC response (empty body).
+            b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',
+        ]
+    )
     with AletheiaClient(backend=backend) as client:
         # Should not require libaletheia-ffi.so on disk.
         result = client.parse_dbc({"version": "", "messages": [], **empty_dbc_tier2()})
@@ -166,25 +177,23 @@ def test_client_default_backend_is_ffibackend() -> None:
 
 def test_client_send_frame_routes_through_backend() -> None:
     """``send_frame`` invokes the injected backend's ``send_frame_binary``."""
-    backend = MockBackend([
-        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parseDBC
-        b'{"status":"success"}',                          # setProperties
-        b'{"status":"success"}',                          # startStream
-        # send_frame default fires the ack default.
-    ])
+    backend = MockBackend(
+        [
+            b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parseDBC
+            b'{"status":"success"}',  # setProperties
+            b'{"status":"success"}',  # startStream
+            # send_frame default fires the ack default.
+        ]
+    )
     with AletheiaClient(backend=backend) as client:
-        client.parse_dbc({
-            "version": "", "messages": [], "signalGroups": [],
-            "environmentVars": [], "valueTables": [], "nodes": [],
-            "comments": [], "attributes": [], "unresolvedValueDescs": [],
-        })
+        client.parse_dbc({"version": "", "messages": [], **empty_dbc_tier2()})
         client.set_properties([])
         client.start_stream()
         ack = client.send_frame(timestamp=0, can_id=0x100, dlc=DLCCode(8), data=bytes(8))
         assert ack == {"status": "ack"}
 
     # MockBackend recorded the send_frame_binary call via its sentinel input.
-    assert b'<binary:sendFrame>' in backend.inputs
+    assert b"<binary:sendFrame>" in backend.inputs
 
 
 def test_client_user_injected_backend_not_dropped_on_close() -> None:
@@ -209,31 +218,7 @@ def test_client_user_injected_backend_not_dropped_on_close() -> None:
 
 def _simple_dbc() -> DBCDefinition:
     """Minimal DBC: one message with one signal at byte 0."""
-    return {
-        "version": "",
-        "messages": [{
-            "id": 0x100,
-            "name": "Msg",
-            "dlc": 8,
-            "extended": False,
-            "sender": "Vector__XXX",
-            "senders": [],
-            "signals": [{
-                "name": "Sig",
-                "startBit": 0, "length": 8,
-                "byteOrder": "little_endian", "signed": False,
-                "factor": {"numerator": 1, "denominator": 1},
-                "offset": {"numerator": 0, "denominator": 1},
-                "minimum": {"numerator": 0, "denominator": 1},
-                "maximum": {"numerator": 255, "denominator": 1},
-                "unit": "",
-                "presence": "always",
-                "receivers": [],
-                "valueDescriptions": [],
-            }],
-        }],
-        **empty_dbc_tier2(),
-    }
+    return dbc([message(0x100, "Msg", [signal("Sig")])])
 
 
 def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None:
@@ -243,17 +228,19 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
     code path that closes the ``extract_signals_bin`` fallback contract
     in Go's MockBackend implementation).
     """
-    backend = MockBackend([
-        # parseDBC: one message at can_id=0x100 with one signal "Sig" so that
-        # _signal_lookup gets populated; otherwise the client short-circuits
-        # to the JSON path BEFORE ever calling extract_signals_bin (the path
-        # we want to exercise).
-        b'{"status":"success","dbc":{"version":"",'
-        b'"messages":[{"id":256,"extended":false,"signals":[{"name":"Sig"}]}]'
-        b'},"warnings":[]}',
-        # extract_signals_binary JSON fallback returns success + empty lists.
-        b'{"status":"success","values":[],"errors":[],"absent":[]}',
-    ])
+    backend = MockBackend(
+        [
+            # parseDBC: one message at can_id=0x100 with one signal "Sig" so that
+            # _signal_lookup gets populated; otherwise the client short-circuits
+            # to the JSON path BEFORE ever calling extract_signals_bin (the path
+            # we want to exercise).
+            b'{"status":"success","dbc":{"version":"",'
+            + b'"messages":[{"id":256,"extended":false,"signals":[{"name":"Sig"}]}]'
+            + b'},"warnings":[]}',
+            # extract_signals_binary JSON fallback returns success + empty lists.
+            b'{"status":"success","values":[],"errors":[],"absent":[]}',
+        ]
+    )
     with AletheiaClient(backend=backend) as client:
         client.parse_dbc(_simple_dbc())
         # signal_lookup has been populated; binary path tried; mock raises
@@ -263,7 +250,7 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
         assert result.errors == {}
         assert result.absent == ()
     # Last recorded input is the JSON extract call (binary attempt left no record).
-    assert b'<binary:extractAllSignals>' in backend.inputs
+    assert b"<binary:extractAllSignals>" in backend.inputs
 
 
 # -----------------------------------------------------------------------------
@@ -273,9 +260,11 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
 
 def test_protocol_error_from_mock_propagates() -> None:
     """A mock-injected error response surfaces as ProtocolError to the user."""
-    backend = MockBackend([
-        b'{"status":"error","message":"injected error","code":"protocol_invalid_command"}',
-    ])
+    backend = MockBackend(
+        [
+            b'{"status":"error","message":"injected error","code":"protocol_invalid_command"}',
+        ]
+    )
     with AletheiaClient(backend=backend) as client:
         # parse_dbc translates the error response into a typed return.
         result = client.parse_dbc({"version": "", "messages": [], **empty_dbc_tier2()})
@@ -286,7 +275,7 @@ def test_protocol_error_from_mock_propagates() -> None:
 def test_uninitialized_client_send_frame_raises_state_error() -> None:
     """Calling send_frame without entering the context raises StateError."""
     client = AletheiaClient(backend=MockBackend())
-    with pytest.raises(Exception):  # StateError
+    with pytest.raises(StateError):
         client.send_frame(timestamp=0, can_id=0x100, dlc=DLCCode(8), data=bytes(8))
 
 
@@ -297,14 +286,16 @@ def test_uninitialized_client_send_frame_raises_state_error() -> None:
 
 def test_full_streaming_session_through_mock() -> None:
     """End-to-end mock session: parse, set, start, send, end."""
-    backend = MockBackend([
-        b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',   # parseDBC
-        b'{"status":"success"}',                           # setProperties
-        b'{"status":"success"}',                           # startStream
-        b'{"status":"ack"}',                               # send_frame #1
-        b'{"status":"ack"}',                               # send_frame #2
-        b'{"status":"complete","results":[]}',             # endStream
-    ])
+    backend = MockBackend(
+        [
+            b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parseDBC
+            b'{"status":"success"}',  # setProperties
+            b'{"status":"success"}',  # startStream
+            b'{"status":"ack"}',  # send_frame #1
+            b'{"status":"ack"}',  # send_frame #2
+            b'{"status":"complete","results":[]}',  # endStream
+        ]
+    )
     prop = Signal("Sig").less_than(255).always()
     with AletheiaClient(backend=backend) as client:
         client.parse_dbc(_simple_dbc())
@@ -324,6 +315,6 @@ def test_full_streaming_session_through_mock() -> None:
     # behavior; assertions are space-tolerant.
     assert any(b'"command": "parseDBC"' in i for i in backend.inputs)
     assert any(b'"command": "setProperties"' in i for i in backend.inputs)
-    assert backend.inputs.count(b'<binary:startStream>') == 1
-    assert backend.inputs.count(b'<binary:sendFrame>') == 2
-    assert b'<binary:endStream>' in backend.inputs
+    assert backend.inputs.count(b"<binary:startStream>") == 1
+    assert backend.inputs.count(b"<binary:sendFrame>") == 2
+    assert b"<binary:endStream>" in backend.inputs

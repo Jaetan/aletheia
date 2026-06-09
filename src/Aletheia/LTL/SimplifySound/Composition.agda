@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Main soundness theorem for Rosu simplification — sections 6-8.
@@ -15,7 +17,7 @@
 --   Adequacy.Pipeline-facing soundness theorem.
 module Aletheia.LTL.SimplifySound.Composition where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (T; []; _∷_; _≡_; false; refl; sym; trans; true; tt)
 open import Data.Bool using ()
 open import Data.Unit using ()
 open import Relation.Binary.PropositionalEquality using (subst)

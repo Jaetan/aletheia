@@ -617,6 +617,145 @@ step count: 27 → 28.
 
 ### Changed
 
+#### Added — Python: `aletheia.types.JSONValue` type alias; loaders typed against it
+
+A canonical `JSONValue` alias (`str | int | float | bool | None | list[JSONValue]
+| dict[str, JSONValue]`) is exported from `aletheia.types` for JSON-/wire-derived
+data. The loader field accessors (`aletheia._loader_utils.get_str` / `get_int` /
+`get_number` / `get_bool` / `get_dict`) and `is_str_dict` now use it (covariant
+`Mapping[str, JSONValue]` inputs / `dict[str, JSONValue]` narrowing) instead of
+`dict[str, object]`, removing the lazy `object` annotations from the loader +
+JSON-dict surface (Excel cells keep the precise `CellValue`). Internal typing
+precision; no behaviour change.
+
+#### BREAKING — Python: `RationalNumber` dropped; `property_index` / `timestamp` are now `int`
+
+The `aletheia.types.RationalNumber` TypedDict (the wire `{numerator,
+denominator}` shape) is removed. The two response fields that used it —
+`PropertyResultEntry.property_index` and `.timestamp` — are now parsed to
+`int` at the response boundary, matching what the Go and C++ bindings already
+expose (Python was the outlier, carrying the raw dict). The wire JSON is
+unchanged — the Agda kernel still emits the rational form; only the parsed
+Python shape changes. The now-redundant helpers `aletheia.checks_runner.
+rational_to_int` and the internal `validate_integer_rational` are removed
+(the boundary parser `validate_integer_field` returns `int` directly).
+
+Caller migration:
+
+```python
+# before
+idx = entry["property_index"]["numerator"] // entry["property_index"]["denominator"]
+# after
+idx = entry["property_index"]   # already an int
+```
+
+#### BREAKING — Python: `aletheia.protocols` renamed to `aletheia.types`
+
+The wire-format type namespace (the response/command TypedDicts, the LTL
+formula and predicate types, the DBC structure types, the `DLCCode` /
+`ByteOrder` enums, `RationalNumber`, …) is renamed from `aletheia.protocols`
+to `aletheia.types` — the name now reflects its contents (type definitions)
+rather than reading like `typing.Protocol`. `from aletheia.protocols import …`
+no longer resolves; use `from aletheia.types import …`. The handful of names
+already mirrored at top-level (`DBCDefinition`, `PropertyResultEntry`) are
+unchanged.
+
+Caller migration:
+
+```python
+# before
+from aletheia.protocols import DBCDefinition, DLCCode, LTLFormula
+# after
+from aletheia.types import DBCDefinition, DLCCode, LTLFormula
+```
+
+#### BREAKING — Python: `aletheia.error_codes` + `aletheia.issue_codes` unified into `aletheia.codes`
+
+The two code-enumeration submodules are merged into a single `aletheia.codes`
+namespace: `ErrorCode` (runtime error codes) and `IssueCode` / `IssueSeverity`
+/ `ValidationIssue` (DBC validation issues). `from aletheia.error_codes import
+…` and `from aletheia.issue_codes import …` no longer resolve; use
+`from aletheia.codes import …`. The top-level convenience aliases are unchanged
+— `from aletheia import ErrorCode, IssueCode, ValidationIssue` still works
+(`IssueSeverity` remains available as `aletheia.codes.IssueSeverity`).
+
+Caller migration:
+
+```python
+# before
+from aletheia.error_codes import ErrorCode
+from aletheia.issue_codes import IssueSeverity, ValidationIssue
+# after
+from aletheia.codes import ErrorCode, IssueSeverity, ValidationIssue
+```
+
+#### BREAKING — Python: `aletheia.dbc_converter` + `aletheia.dbc_queries` unified into `aletheia.dbc`
+
+The two DBC submodules are merged into a single `aletheia.dbc` namespace
+covering both conversion (`dbc_to_json`, `dbc_to_text`, `convert_dbc_file`)
+and structural queries (`message_by_id`, `signal_by_name`, `is_multiplexed`,
+…). `from aletheia.dbc_converter import …` and `from aletheia.dbc_queries
+import …` no longer resolve. The top-level convenience aliases are unchanged
+— `from aletheia import dbc_to_json, message_by_id` still works.
+
+Caller migration:
+
+```python
+# before
+from aletheia.dbc_converter import dbc_to_json
+from aletheia.dbc_queries import message_by_id
+# after
+from aletheia.dbc import dbc_to_json, message_by_id
+```
+
+#### Added — Python: namespace hygiene via `__all__` on public submodules
+
+`aletheia.can_log`, `aletheia.dsl`, `aletheia.excel_loader`, `aletheia.checks`,
+and `aletheia.yaml_loader` now declare `__all__`, so each module exposes only
+its intended public surface instead of leaking internal helpers (e.g.
+`can_log.convert_message`, `dsl.require_non_negative_time_ms`,
+`excel_loader.CellValue`, the `checks` fluent-builder intermediates). Explicit
+imports of those helpers still work; only `*`-import and tooling/doc surface
+narrow.
+
+#### BREAKING — Python: `aletheia` is the sole public package; `aletheia.client` re-exports removed
+
+The `aletheia.client` sub-package no longer re-exports any public name. The
+client surface — `AletheiaClient`, the exception hierarchy (`AletheiaError`,
+`ValidationError`, `FFIError`, `ProtocolError`, `StateError`, `BatchError`,
+`InputBoundExceededError`), `Backend` / `FFIBackend` / `MockBackend` /
+`BinaryPathUnsupportedError`, `RTSState`, the response TypedDicts, and the
+`bytes_to_dlc` / `dlc_to_bytes` converters — is now importable **only** from the
+top-level `aletheia` package, the single canonical public surface.
+`aletheia.client` and its `_`-prefixed modules are internal implementation
+detail and may change between releases.
+
+Caller migration:
+
+```python
+# before
+from aletheia.client import AletheiaClient, AletheiaError, ValidationError
+# after
+from aletheia import AletheiaClient, AletheiaError, ValidationError
+```
+
+This closes the long-standing dual public import path — every client name was
+previously reachable from both `aletheia` and `aletheia.client`. Documentation
+and examples already used the top-level form exclusively, so user-visible
+breakage is limited to code that imported straight from `aletheia.client`.
+
+#### Changed — Build: `check-properties` type-checks proof modules in one warm agda process
+
+`cabal run shake -- check-properties` previously spawned one `agda Module.agda`
+subprocess per proof module (~45 processes, each reloading the standard library
+and shared interfaces). It now type-checks every module in a single warm
+`agda --interaction-json` process (`tools.warm_check_properties`), loading the
+stdlib once — roughly 13× faster (629s → ~48s) with identical verdicts: a
+proof-obligation failure still surfaces as `Status{checked:false}`, and the run
+writes `.agdai` so the downstream build reuses the interfaces. The former cold
+batch and the separate `check-properties-warm` target are removed (folded in);
+the `proofModules` list in `Shakefile.hs` remains the single source of truth.
+
 #### Changed — Python + C++: Check entry points migrated from class statics to free functions (R23 — CPP-D-15.2)
 
 **BREAKING** — The `Check` class (Python `aletheia.Check`, C++ `aletheia::Check`)
@@ -662,6 +801,27 @@ generic and would shadow the stdlib `signal` module or local `signal`
 parameters; use `from aletheia.checks import signal, when` (no shadow at
 call sites) or `from aletheia import checks; checks.signal(...)` (no shadow
 where `signal` is a local).
+
+#### Changed — Go: `BuildFrame` argument order aligned to `(id, dlc, signals)` (R19P2-CL10-2 deferral closure)
+
+**BREAKING** — Go `Client.BuildFrame` changed from
+`BuildFrame(ctx, id, signals, dlc)` to `BuildFrame(ctx, id, dlc, signals)`.
+
+Caller migration:
+
+```go
+// Before
+payload, err := c.BuildFrame(ctx, id, signals, dlc)
+// After
+payload, err := c.BuildFrame(ctx, id, dlc, signals)
+```
+
+Why: `BuildFrame` was the lone outlier placing `signals` before `dlc`.
+`UpdateFrame(ctx, id, dlc, data, signals)` and both other bindings'
+`build_frame(id, dlc, signals)` (Python kwargs / C++ positional) already
+used `(id, dlc, …)`; Go now matches.  Reordered pre-release (no external
+users) per the no-backward-compat policy, closing the in-source
+`R19P2-CL10-2` DEFERRED block on `client.go`.
 
 #### Changed — Parsers: LittleEndian `bitLength = 0` now rejected at parse time (R5-B1 / R6-B7.1 closure)
 
@@ -1221,6 +1381,24 @@ callers that consumed a bare success acknowledgement need to access
 
 ### Fixed
 
+- **Python async cancellation use-after-free** (post-R23, `ci-speed`).
+  Cancelling or timing out an async streaming / iter operation
+  (`aletheia.asyncio.AletheiaClient.send_frames_iter`, batch `send_frames`,
+  etc.) could **SIGSEGV** the process: the cancelled coroutine's
+  `asyncio.to_thread` worker — which cannot be interrupted — kept running
+  inside an `aletheia_*` FFI call while the client tore down (`__aexit__`
+  → `aletheia_close` frees the `StreamState` `StablePtr`), so the
+  abandoned worker dereferenced freed memory. Order/timing-dependent
+  (surfaced by `pytest --random-order`, ~12% per full-suite run, in
+  `test_timeout_during_iter`). Fixed by serialising every FFI call on the
+  `StreamState` **and** `close()` through one per-client `threading.Lock`:
+  teardown now blocks until any in-flight — even abandoned — call completes
+  before freeing the pointer, honouring the cancellation contract's
+  "in-flight runs to completion; next call after" for the Python binding
+  (Go already serialised via its channel-token semaphore; C++ is
+  single-client-per-thread). Verified by 60 consecutive clean
+  `--random-order` runs of the reproducer that previously crashed at
+  iteration 8.
 - **Streaming runtime soundness** (R20 cluster W — AGDA-B-9.2-residual).
   Two related bugs are closed by the same structural fix
   (`classifyStepResult Satisfied _ = complete` — see corresponding

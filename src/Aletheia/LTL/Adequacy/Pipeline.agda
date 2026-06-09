@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Pipeline adequacy: the production pipeline (stepL → simplify → repeat)
@@ -10,7 +12,7 @@
 
 module Aletheia.LTL.Adequacy.Pipeline where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _∷_; _≡_; refl; sym; trans; ℕ)
 open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False)

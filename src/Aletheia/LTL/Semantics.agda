@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Denotational LTLf semantics (De Giacomo & Vardi 2013).
@@ -25,7 +27,7 @@
 -- (and similarly for the other metric operators).
 module Aletheia.LTL.Semantics where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (List; []; _∷_; _∸_; false; true; ℕ)
 open import Data.Nat using (_≤ᵇ_)
 
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)

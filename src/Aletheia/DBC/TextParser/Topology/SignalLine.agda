@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal-line subset of `Aletheia.DBC.TextParser.Topology` (B.3.d ε.2).
@@ -23,7 +25,7 @@ open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Bool using (if_then_else_)
 open import Data.List using (List; []; _∷_)
-open import Data.List.NonEmpty as List⁺ using (List⁺)
+open import Data.List.NonEmpty as List⁺ using ()
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _%_; _≤ᵇ_)
 open import Data.Product using (proj₁; proj₂)

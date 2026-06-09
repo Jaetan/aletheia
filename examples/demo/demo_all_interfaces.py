@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-"""Four-Tier Equivalence Demo
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Four-Tier Equivalence Demo.
 
 Defines the same 3 checks using all four interface tiers and proves
 they produce identical LTL formulas:
@@ -9,7 +10,11 @@ they produce identical LTL formulas:
 No FFI or Agda build required.
 """
 
-import json
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
 import tempfile
 from pathlib import Path
 
@@ -20,7 +25,8 @@ from aletheia import (
     load_checks,
     load_checks_from_excel,
 )
-
+from aletheia.checks import signal, when
+from aletheia.types import dump_json
 
 # The 3 checks:
 #   1. VehicleSpeed never_exceeds 220
@@ -28,13 +34,27 @@ from aletheia import (
 #   3. BrakePedal > 50 => BrakeLight = 1 within 100ms
 
 CHECKS_HEADERS = [
-    "Check Name", "Signal", "Condition", "Value", "Min", "Max",
-    "Time (ms)", "Severity",
+    "Check Name",
+    "Signal",
+    "Condition",
+    "Value",
+    "Min",
+    "Max",
+    "Time (ms)",
+    "Severity",
 ]
 WHEN_THEN_HEADERS = [
-    "Check Name", "When Signal", "When Condition", "When Value",
-    "Then Signal", "Then Condition", "Then Value", "Then Min", "Then Max",
-    "Within (ms)", "Severity",
+    "Check Name",
+    "When Signal",
+    "When Condition",
+    "When Value",
+    "Then Signal",
+    "Then Condition",
+    "Then Value",
+    "Then Min",
+    "Then Max",
+    "Within (ms)",
+    "Severity",
 ]
 
 
@@ -49,7 +69,8 @@ print("=" * 60)
 dsl_1 = Signal("VehicleSpeed").less_than(220).always().to_dict()
 dsl_2 = Signal("BatteryVoltage").between(11.5, 14.5).always().to_dict()
 dsl_3 = (
-    Signal("BrakePedal").greater_than(50)
+    Signal("BrakePedal")
+    .greater_than(50)
     .implies(Signal("BrakeLight").equals(1).within(100))
     .always()
     .to_dict()
@@ -71,12 +92,7 @@ print("=" * 60)
 
 api_1 = signal("VehicleSpeed").never_exceeds(220).to_dict()
 api_2 = signal("BatteryVoltage").stays_between(11.5, 14.5).to_dict()
-api_3 = (
-    when("BrakePedal").exceeds(50)
-    .then("BrakeLight").equals(1)
-    .within(100)
-    .to_dict()
-)
+api_3 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
 
 print("\n  signal('VehicleSpeed').never_exceeds(220)")
 print("  signal('BatteryVoltage').stays_between(11.5, 14.5)")
@@ -92,7 +108,7 @@ print("\n" + "=" * 60)
 print("TIER 3: YAML (test engineer)")
 print("=" * 60)
 
-yaml_src = """
+YAML_SRC = """
 checks:
   - signal: VehicleSpeed
     condition: never_exceeds
@@ -114,12 +130,12 @@ checks:
     within_ms: 100
 """
 
-yaml_checks = load_checks(yaml_src)
+yaml_checks = load_checks(YAML_SRC)
 yaml_1 = yaml_checks[0].to_dict()
 yaml_2 = yaml_checks[1].to_dict()
 yaml_3 = yaml_checks[2].to_dict()
 
-for line in yaml_src.strip().split("\n"):
+for line in YAML_SRC.strip().split("\n"):
     print(f"  {line}")
 
 
@@ -142,7 +158,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     ws_wt = wb.create_sheet("When-Then")
     ws_wt.append(WHEN_THEN_HEADERS)
-    ws_wt.append([None, "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, None])
+    ws_wt.append(
+        [None, "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, None]
+    )
 
     xlsx_path = Path(tmpdir) / "checks.xlsx"
     wb.save(str(xlsx_path))
@@ -169,21 +187,21 @@ all_pass = True
 
 match_1 = dsl_1 == api_1 == yaml_1 == excel_1
 all_pass = all_pass and match_1
-print(f"\n  1. VehicleSpeed never_exceeds 220")
+print("\n  1. VehicleSpeed never_exceeds 220")
 print(f"     DSL == Check API == YAML == Excel: {match_1}")
 
 match_2 = dsl_2 == api_2 == yaml_2 == excel_2
 all_pass = all_pass and match_2
-print(f"\n  2. BatteryVoltage stays_between 11.5, 14.5")
+print("\n  2. BatteryVoltage stays_between 11.5, 14.5")
 print(f"     DSL == Check API == YAML == Excel: {match_2}")
 
 match_3 = dsl_3 == api_3 == yaml_3 == excel_3
 all_pass = all_pass and match_3
-print(f"\n  3. BrakePedal > 50 => BrakeLight = 1 within 100ms")
+print("\n  3. BrakePedal > 50 => BrakeLight = 1 within 100ms")
 print(f"     DSL == Check API == YAML == Excel: {match_3}")
 
-print(f"\n  Shared formula:")
-print(f"  {json.dumps(dsl_1, indent=2)}")
+print("\n  Shared formula:")
+print(f"  {dump_json(dsl_1, indent=2)}")
 
 
 # =============================================================================

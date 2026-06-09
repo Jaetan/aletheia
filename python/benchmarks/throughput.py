@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Throughput Benchmark.
 
 Measures frames per second through the full Aletheia pipeline:
@@ -16,25 +17,34 @@ import argparse
 import statistics
 import sys
 import time
-from typing import Callable, TextIO, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TextIO, TypedDict
+
+# Shared benchmark vocabulary — frame specs, default property bundles, JSON
+# envelope, system info.  Consolidated in ``_common.py`` to keep the suite
+# files thin; see PY-31-1.
+from benchmarks._common import (
+    CAN20_SPEC,
+    CANFD_SPEC,
+    DEFAULT_CAN20_PROPERTIES,
+    DEFAULT_CANFD_PROPERTIES,
+    BenchmarkConfig,
+    FrameSpec,
+    emit_json_report,
+    load_canfd_dbc,
+    load_dbc,
+    run_streaming_benchmark,
+)
 
 # Benchmarks import the *installed* package (``pip install -e .[dev]``) so
 # that any wheel/setuptools shim overhead shows up in the numbers — matches
 # how end users measure Aletheia in production.  Do not reintroduce
 # ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
 from aletheia import AletheiaClient
-from aletheia.protocols import DBCDefinition, LTLFormula
 
-# Shared benchmark vocabulary — frame specs, default property bundles, JSON
-# envelope, system info.  Consolidated in ``_common.py`` to keep the suite
-# files thin; see PY-31-1.
-from ._common import (
-    CAN20_SPEC, CANFD_SPEC,
-    BenchmarkConfig,
-    DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,
-    FrameSpec,
-    emit_json_report, load_canfd_dbc, load_dbc, run_streaming_benchmark,
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from aletheia.types import DBCDefinition, LTLFormula
 
 
 class _BenchResult(TypedDict):
@@ -68,8 +78,11 @@ class _JsonPayload(TypedDict):
 # parameter list narrow (was 4-5 args; now 3).
 # ============================================================================
 
+
 def benchmark_streaming(
-    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
+    dbc: DBCDefinition,
+    num_frames: int,
+    spec: FrameSpec,
     properties: list[LTLFormula],
 ) -> float:
     """Benchmark streaming throughput. Returns frames per second."""
@@ -78,7 +91,9 @@ def benchmark_streaming(
 
 
 def benchmark_signal_extraction(
-    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
+    dbc: DBCDefinition,
+    num_frames: int,
+    spec: FrameSpec,
 ) -> float:
     """Benchmark signal extraction throughput. Returns extractions per second."""
     with AletheiaClient() as client:
@@ -91,7 +106,9 @@ def benchmark_signal_extraction(
 
 
 def benchmark_frame_building(
-    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
+    dbc: DBCDefinition,
+    num_frames: int,
+    spec: FrameSpec,
 ) -> float:
     """Benchmark frame building throughput. Returns builds per second."""
     with AletheiaClient() as client:
@@ -107,8 +124,11 @@ def benchmark_frame_building(
 # Runner
 # ============================================================================
 
+
 def run_benchmark(
-    name: str, func: Callable[[int], float], cfg: BenchmarkConfig,
+    name: str,
+    func: Callable[[int], float],
+    cfg: BenchmarkConfig,
 ) -> _BenchResult:
     """Run a benchmark multiple times and collect statistics."""
     for _ in range(cfg.warmup_runs):
@@ -126,31 +146,46 @@ def run_benchmark(
     }
 
 
+class NamedBenchmark(NamedTuple):
+    """A labelled throughput benchmark (name + a frames→fps runner)."""
+
+    name: str
+    run: Callable[[int], float]
+
+
 def _build_benchmarks(
-    dbc: DBCDefinition, canfd_dbc: DBCDefinition,
-) -> list[tuple[str, Callable[[int], float]]]:
+    dbc: DBCDefinition,
+    canfd_dbc: DBCDefinition,
+) -> list[NamedBenchmark]:
     """Build the (name, partial_fn) list driving the benchmark loop.
 
     Extracted from ``main`` so its local-variable count stays under the
     pylint ``too-many-locals`` cap; also makes the benchmark inventory
     easy to spot independently of the run loop.
     """
-    return [
+    # Builder scratchpad: the explicit element type gives the lambdas their
+    # ``n: int`` context (pyright does not infer it through the NamedBenchmark
+    # constructor), then each pair is wrapped into the public NamedBenchmark.
+    raw: list[tuple[str, Callable[[int], float]]] = [
         # --- CAN 2.0B ---
-        ("CAN 2.0B: Stream LTL (2 props)", lambda n: benchmark_streaming(
-            dbc, n, CAN20_SPEC, DEFAULT_CAN20_PROPERTIES)),
-        ("CAN 2.0B: Signal Extraction", lambda n: benchmark_signal_extraction(
-            dbc, n, CAN20_SPEC)),
-        ("CAN 2.0B: Frame Building", lambda n: benchmark_frame_building(
-            dbc, n, CAN20_SPEC)),
+        (
+            "CAN 2.0B: Stream LTL (2 props)",
+            lambda n: benchmark_streaming(dbc, n, CAN20_SPEC, DEFAULT_CAN20_PROPERTIES),
+        ),
+        ("CAN 2.0B: Signal Extraction", lambda n: benchmark_signal_extraction(dbc, n, CAN20_SPEC)),
+        ("CAN 2.0B: Frame Building", lambda n: benchmark_frame_building(dbc, n, CAN20_SPEC)),
         # --- CAN-FD ---
-        ("CAN-FD:   Stream LTL (3 props)", lambda n: benchmark_streaming(
-            canfd_dbc, n, CANFD_SPEC, DEFAULT_CANFD_PROPERTIES)),
-        ("CAN-FD:   Signal Extraction", lambda n: benchmark_signal_extraction(
-            canfd_dbc, n, CANFD_SPEC)),
-        ("CAN-FD:   Frame Building", lambda n: benchmark_frame_building(
-            canfd_dbc, n, CANFD_SPEC)),
+        (
+            "CAN-FD:   Stream LTL (3 props)",
+            lambda n: benchmark_streaming(canfd_dbc, n, CANFD_SPEC, DEFAULT_CANFD_PROPERTIES),
+        ),
+        (
+            "CAN-FD:   Signal Extraction",
+            lambda n: benchmark_signal_extraction(canfd_dbc, n, CANFD_SPEC),
+        ),
+        ("CAN-FD:   Frame Building", lambda n: benchmark_frame_building(canfd_dbc, n, CANFD_SPEC)),
     ]
+    return [NamedBenchmark(*_entry) for _entry in raw]
 
 
 def _print_summary(results: list[_BenchResult], file: TextIO) -> None:

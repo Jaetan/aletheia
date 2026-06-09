@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Byte/bitvec roundtrip proofs and extract-inject roundtrip.
@@ -9,8 +11,7 @@
 module Aletheia.CAN.Endianness.Properties.Roundtrip where
 
 open import Aletheia.CAN.Endianness using
-  ( ByteOrder; LittleEndian; BigEndian
-  ; lookupSafe; updateSafe
+  ( lookupSafe; updateSafe
   ; byteToBitVec; bitVecToByte
   ; extractBits; injectBits
   ; swapBytes

@@ -57,6 +57,8 @@ Python provides cancellation through two distinct primitives — `asyncio.Cancel
 
 **`aletheia.asyncio.AletheiaClient`** is the asynchronous mirror. It exposes the same set of methods as the sync client, each as `async def`, implemented as `asyncio.to_thread` wrappers around the sync FFI call. Cancellation works through the standard `asyncio.CancelledError` mechanism: cancelling the awaiting task raises `CancelledError` at the next `await` point. For batch and iter operations, that next `await` is between frames, so cancellation fires at frame boundaries.
 
+Because an `asyncio.to_thread` worker cannot itself be cancelled, a cancelled async op leaves its FFI call running on the executor thread until that call returns. To keep this safe, the client serialises **every** FFI call on the `StreamState` — and `close()` — through one per-client lock: a teardown or a subsequent operation blocks until the in-flight (possibly abandoned) call completes before it touches or frees the `StreamState`. This is the Python analogue of the Go binding's channel-token semaphore, and it is what makes the "in-flight runs to completion; next call after" guarantee hold even when cancellation desequences the awaiting coroutine from its still-running worker.
+
 The two clients share the same underlying `StablePtr` to the Agda `StreamState`, so they cannot be used together on the same client instance — a process picks sync OR async per client. This mirrors the `httpx.Client` / `httpx.AsyncClient` and `redis.Redis` / `redis.asyncio.Redis` patterns that Python users already know.
 
 ### 2.2 Go

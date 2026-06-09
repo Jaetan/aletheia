@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Signal predicate types and TruthVal logic.
@@ -10,7 +12,7 @@
 -- Role: Core types imported by LTL modules, Cache, and Evaluation.
 module Aletheia.LTL.SignalPredicate.Types where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (Bool; List; false; true; ℚ)
 open import Data.Char using (Char)
 open import Data.Rational using ()
 open import Aletheia.DBC.Identifier using (Identifier)

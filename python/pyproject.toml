@@ -1,5 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +9,7 @@ name = "aletheia"
 version = "1.1.1"
 description = "Formally verified CAN frame analysis with LTL"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = {text = "BSD-2-Clause"}
 authors = [
     {name = "Nicolas Pelletier"}
@@ -19,7 +21,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 # The core package has no runtime dependencies outside the standard library —
@@ -56,7 +58,7 @@ aletheia = ["py.typed", "*.pyi"]
 [project.optional-dependencies]
 can = ["python-can>=4.0"]
 yaml = ["pyyaml>=6.0"]
-excel = ["openpyxl>=3.1"]
+excel = ["openpyxl>=3.1.5"]
 # Self-reference the individual extras so version pins live in exactly one
 # place (SSOT). Editing can/yaml/excel above automatically flows through
 # to ``aletheia[all]`` without manual string duplication.
@@ -71,14 +73,17 @@ dev = [
     # Gate mapping (which upper bound protects which CI check):
     #   pylint<5              — protects the ``pylint aletheia/`` 10.00/10 gate
     #   basedpyright<2        — protects the ``basedpyright aletheia/`` 0/0/0 gate
-    #   pytest<9              — protects the ``pytest tests/`` exit code
-    #   pytest-cov<7          — protects coverage report shape (AGENTS.md R/N)
+    #   ruff<0.16             — protects the ``ruff check`` / ``ruff format`` (select=ALL)
+    #                           gate; ruff is pre-1.0 so new lint rules land in minor
+    #                           bumps — hence a minor-level upper bound, not major-level
+    #   pytest<10             — protects the ``pytest tests/`` exit code
+    #   pytest-cov<8          — protects coverage report shape (AGENTS.md R/N)
     #   pytest-markdown-docs<1 — protects the AGENTS.md Cat 32 doc-example gate
     #                             (repo-root ``conftest.py`` injects globals / loader
     #                             fakes so every ``python`` fence across README /
     #                             docs/** runs end-to-end against the real FFI).
-    "pytest>=7.0,<9",
-    "pytest-cov>=4.0,<7",
+    "pytest>=9,<10",
+    "pytest-cov>=7.1.0,<8",
     "pytest-markdown-docs>=0.9.2,<1",
     # AGENTS.md Python cat 14(f) (NEW R18) requires test-isolation runs via
     # ``pytest --random-order --random-order-bucket=package`` alongside the
@@ -88,14 +93,27 @@ dev = [
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
     "hypothesis>=6.0,<7",
-    "pylint>=4.0,<5",
+    "pylint>=4.0.5,<5",
     "basedpyright>=1.0,<2",
+    # ruff drives the ruff(ALL) lint + format gate; minor-level pin (pre-1.0,
+    # new rules land in minor bumps) per the gate mapping above.  Bumped to 0.15
+    # for STABLE py314 lint-target support (0.13.x had it preview-only).
+    "ruff>=0.15,<0.16",
     # AGENTS.md Python cat 25 long-run sub-check (NEW R18) — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
     # opt-in via ``ALETHEIA_STABILITY_CHECK=1`` so the dependency only
     # surfaces in dev environments.
-    "psutil>=5.0,<8",
+    "psutil>=7.2.2,<8",
+    # clang-format drives the C++ ``clang-format --dry-run --Werror`` gate.
+    # Pinned TIGHTER than the major-level bounds above (>=19.1.7,<19.2, not <20):
+    # clang-format output is version-specific — trailing-return signatures
+    # (``auto f(params) -> T``) wrap differently across 18/19, and the *system*
+    # clang-format on CI runners is whatever update-alternatives happens to
+    # select (often NOT the version apt installs).  Pinning the pip binary makes
+    # the gate byte-identical on every contributor + CI; run_ci routes the gate
+    # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
+    "clang-format>=19.1.7,<19.2",
 ]
 # AGENTS.md Python cat 34(c) (NEW R18) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
@@ -113,8 +131,19 @@ mutation = ["mutmut>=3.5,<4"]
 [tool.basedpyright]
 # Strict type checking for code we control
 typeCheckingMode = "strict"
+# Pin the target Python explicitly (matches requires-python).  basedpyright does
+# NOT reliably infer 3.14 from the venv, and without this it rejects PEP 758
+# unparenthesized ``except A, B`` syntax (which ruff's py314 formatter emits).
+pythonVersion = "3.14"
 stubPath = "stubs"
-venvPath = ".."
+# Resolve imports against the project venv at ``python/.venv`` (the venv CI
+# creates and runs pytest from).  venvPath is relative to this config's
+# directory (``python/``), so ``.`` + ``.venv`` -> ``python/.venv``.  It was
+# previously ``..`` -> ``<repo_root>/.venv``, which exists as a stray venv on
+# some dev machines (masking the bug) but NOT on CI, where basedpyright then
+# fell back to a pytest-less interpreter and failed with reportMissingImports
+# on ``pytest`` across tests/.
+venvPath = "."
 venv = ".venv"
 reportUnknownMemberType = "error"
 reportUnknownArgumentType = "error"
@@ -123,6 +152,34 @@ reportExplicitAny = "error"  # Force explicit structure definitions instead of A
 reportPrivateUsage = "error"  # Disallow accessing private members
 reportMissingModuleSource = false  # _install_config.py is generated at install time
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation
+
+# tools/ lives at the repository root (one level up from this config) and its
+# scripts import siblings as ``from tools.X import ...`` -- the package is run
+# as ``python -m tools.X`` (see tools/__init__.py).  Add the repo root to the
+# import search path for files under ../tools so basedpyright resolves those
+# intra-package imports; the strict typeCheckingMode above is inherited.
+[[tool.basedpyright.executionEnvironments]]
+root = "../tools"
+extraPaths = [".."]
+
+# Tests under ``tests/`` may import the repo-root ``tools`` package (e.g. the
+# Agda open-grammar regression test imports ``tools._agda_opens``).  Like the
+# ../tools env above, add the repo root (``..``) so basedpyright resolves those
+# imports; ``.`` keeps ``aletheia`` and the in-tests siblings (``_canonical_dbc``)
+# resolvable under this environment.
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["..", "."]
+
+# The example demos under ../examples/demo run as scripts (``python
+# examples/demo/demo.py``), so they import their siblings as bare modules
+# (``import drive_log`` / ``from engine_ecu_sim import ...``).  Add the demo
+# directory itself to the search path so basedpyright resolves those sibling
+# imports; ``aletheia`` still resolves via the project root.  Pure import-path
+# resolution (mirrors the ../tools env), NOT a check relaxation.
+[[tool.basedpyright.executionEnvironments]]
+root = "../examples/demo"
+extraPaths = ["."]
 
 [tool.pylint.main]
 # Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` /
@@ -144,8 +201,11 @@ source-roots = ["."]
 # ``tests/`` isn't a package (no ``__init__.py`` — pytest discovers by
 # path), but tests import siblings (``_dbc_helpers``, ``conftest``)
 # directly.  pytest adds the test dir to ``sys.path`` automatically;
-# pylint needs this ``init-hook`` to do the same.
-init-hook = 'import sys; sys.path.insert(0, "tests")'
+# pylint needs this ``init-hook`` to do the same.  ``..`` (the repo root) is
+# added so tests that import the repo-root ``tools`` package (e.g. the Agda
+# open-grammar regression test) resolve it — mirroring the conftest sys.path
+# insert and the basedpyright ``tests`` execution environment.
+init-hook = 'import sys; sys.path.insert(0, "tests"); sys.path.insert(0, "..")'
 # ctypes lacks full stubs; pyright handles the real type checks, so silence
 # pylint's redundant no-member/import-error noise for it. Revisit if upstream
 # gains complete type stubs — at that point pylint can infer members directly
@@ -196,8 +256,8 @@ skip_covered = false
 # AGENTS.md Python cat 14(g) (NEW R18) — mutation testing config.  Hot-path
 # modules per AGENTS.md, mapped to the actual on-disk paths after the
 # protocols split (``client.py`` -> ``aletheia/client/_client.py``) and the
-# Track E.11 IssueCode extraction (``issue_codes.py`` is new).  ``dbc_loader.py``
-# from AGENTS.md was renamed/split into ``dbc_converter.py`` + ``yaml_loader.py``;
+# Track E.11 IssueCode extraction (``codes/_issue.py`` is new).  ``dbc_loader.py``
+# from AGENTS.md was renamed/split into ``dbc/_converter.py`` + ``yaml_loader.py``;
 # both included.  See ``docs/MUTATION_BENCH.yaml`` for the canonical list and
 # the static gate that enforces it.
 #
@@ -209,10 +269,10 @@ skip_covered = false
 # every ``from aletheia import ...`` resolves inside ``mutants/``.
 paths_to_mutate = [
     "aletheia/client/_client.py",
-    "aletheia/dbc_converter.py",
+    "aletheia/dbc/_converter.py",
     "aletheia/yaml_loader.py",
-    "aletheia/issue_codes.py",
-    "aletheia/protocols.py",
+    "aletheia/codes/_issue.py",
+    "aletheia/types.py",
 ]
 also_copy = [
     "aletheia",

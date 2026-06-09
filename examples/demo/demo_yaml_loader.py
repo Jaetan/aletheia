@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-"""YAML Loader Demo
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""YAML Loader Demo.
 
 Load signal checks from a YAML file — version-controllable, CI/CD-friendly
 check definitions without writing Python.
@@ -7,12 +8,16 @@ check definitions without writing Python.
 No FFI or Agda build required — this demo only generates formulas.
 """
 
+# Standalone teaching demos intentionally repeat small setup/teardown
+# patterns (a local CANFrame, the send-frame loop, the __main__ guard) so
+# each script reads and runs in isolation; deduplicating would couple them.
+# pylint: disable=duplicate-code
+
 import json
 from pathlib import Path
 
 from aletheia import load_checks
 from aletheia.checks import signal, when
-
 
 # =============================================================================
 # SECTION 1: Load Checks from File
@@ -70,12 +75,7 @@ api_speed = signal("VehicleSpeed").never_exceeds(220).to_dict()
 print(f"\n  YAML 'Speed limit' == Check API: {yaml_speed == api_speed}")
 
 yaml_brake = checks[6].to_dict()
-api_brake = (
-    when("BrakePedal").exceeds(50)
-    .then("BrakeLight").equals(1)
-    .within(100)
-    .to_dict()
-)
+api_brake = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
 print(f"  YAML 'Brake light response' == Check API: {yaml_brake == api_brake}")
 
 

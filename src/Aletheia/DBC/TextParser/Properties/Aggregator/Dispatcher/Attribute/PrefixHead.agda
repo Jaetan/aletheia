@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 4c — `emit*-chars` `'B'∷'A'∷` prefix lemmas + generalized
@@ -52,7 +54,7 @@ open import Aletheia.DBC.TextFormatter.Attributes using
 open import Aletheia.DBC.TextParser.Attributes using
   (RawDBCAttribute; parseAttrLine)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSAttribute; parseTopStmt)
+  (TSAttribute; parseTopStmt)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute using
   (parseTopStmt-on-BA-head)

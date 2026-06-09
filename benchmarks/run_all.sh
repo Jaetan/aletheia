@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # Cross-Language Benchmark Runner
 #
 # Builds all bindings and runs throughput benchmarks for Python, C++, and Go.
@@ -10,7 +12,7 @@
 # Prerequisites:
 #     - libaletheia-ffi.so built (cabal run shake -- build)
 #     - Python venv activated with aletheia installed
-#     - C++ benchmark built (cd cpp && cmake -B build && cmake --build build)
+#     - C++ benchmark built (cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 && cmake --build build)
 #     - Go benchmark built (cd go && go build -o benchmarks/benchmark ./benchmarks/)
 
 set -euo pipefail
@@ -146,7 +148,7 @@ if [[ -f "$CPP_BIN" ]]; then
             echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
             echo "       Debug builds produce unoptimized benchmarks." >&2
             echo "       Reconfigure with:" >&2
-            echo "         rm -rf cpp/build && cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build cpp/build" >&2
+            echo "         rm -rf cpp/build && cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 && cmake --build cpp/build" >&2
             exit 1
         fi
     fi

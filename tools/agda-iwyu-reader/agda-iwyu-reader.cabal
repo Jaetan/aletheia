@@ -1,0 +1,28 @@
+cabal-version:      2.4
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
+name:               agda-iwyu-reader
+version:            0.1.0.0
+synopsis:           Scope-aware IWYU verdicts from .agdai interfaces (Agda IWYU, Route A).
+license:            BSD-2-Clause
+build-type:         Simple
+
+-- IMPORTANT: this links the PREBUILT Agda library from the cabal STORE, not a
+-- fresh cabal solve (which would rebuild Agda + deps, ~15 min).  A plain
+-- `cabal build` re-solves and rebuilds; build it instead with ghc pointed at the
+-- store package.db, e.g.
+--   ghc -package-db ~/.cabal/store/ghc-<ver>/package.db \
+--       -package Agda -package containers -package unordered-containers \
+--       -outputdir <tmp> Main.hs -o agda-iwyu-reader
+-- The Python engine (tools/_iwyu.py) builds it on demand this way.  The
+-- reader is version-locked to the Agda that wrote the interfaces (read == write
+-- version, by construction, since both come from the same install).
+executable agda-iwyu-reader
+    main-is:          Main.hs
+    build-depends:    base
+                    , containers
+                    , unordered-containers
+                    , Agda ==2.8.0
+    default-language: Haskell2010
+    default-extensions: PatternSynonyms
+    ghc-options:      -Wall

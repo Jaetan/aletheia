@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Long-run resource-leakage stability harness (R18 cluster 6 / Python cat 25).
 
 Exercises the FFI surface for ``cycles × frames`` (default 10 × 100_000 = 1M
@@ -31,20 +33,16 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import psutil
+from benchmarks._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc
 
-# Ensure the in-tree binding wins over any installed copy.
-_REPO_PYTHON = Path(__file__).resolve().parent.parent
-if str(_REPO_PYTHON) not in sys.path:
-    sys.path.insert(0, str(_REPO_PYTHON))
-
-# pylint: disable=wrong-import-position
 from aletheia import AletheiaClient
 from aletheia.client._ffi import RTSState
-from aletheia.protocols import DBCDefinition
 
-from ._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc
+if TYPE_CHECKING:
+    from aletheia.types import DBCDefinition
 
 # Soft-threshold caps (empirically established 2026-05-08, WSL2 quiet host;
 # revise inline if a future reviewer runs the harness on a host that rejects
@@ -81,12 +79,12 @@ def _real_fd_count() -> int:
     count = 0
     for entry in fd_dir.iterdir():
         try:
-            target = os.readlink(entry)
+            target = entry.readlink()
         except OSError:
             # FD vanished between iterdir and readlink — common for the
             # transient FD iterdir itself opens.  Skip.
             continue
-        if target.startswith("anon_inode:"):
+        if str(target).startswith("anon_inode:"):
             continue
         count += 1
     return count
@@ -124,15 +122,18 @@ def _run_cycle(frames_per_cycle: int, dbc: DBCDefinition) -> None:
         client.end_stream()
         # Pre-close invariant: not yet closed (we're still inside ``with``).
         if client.is_closed:
-            raise RuntimeError("state cleared inside client context")
+            msg = "state cleared inside client context"
+            raise RuntimeError(msg)
     # Post-close invariant.
     if not client.is_closed:
-        raise RuntimeError("state not cleared after Client.close()")
+        msg = "state not cleared after Client.close()"
+        raise RuntimeError(msg)
     if RTSState.refcount != refcount_before:
-        raise RuntimeError(
+        msg = (
             "RTSState.refcount drift mid-cycle: "
             + f"before={refcount_before} after={RTSState.refcount}"
         )
+        raise RuntimeError(msg)
 
 
 def _build_sub_checks(start: dict[str, int], end: dict[str, int]) -> list[dict[str, object]]:
@@ -150,28 +151,35 @@ def _build_sub_checks(start: dict[str, int], end: dict[str, int]) -> list[dict[s
         {
             "name": "rss",
             "gate": "soft_threshold",
-            "start": start["rss"], "end": end["rss"], "delta": rss_delta,
+            "start": start["rss"],
+            "end": end["rss"],
+            "delta": rss_delta,
             "threshold": RSS_DELTA_BYTES_CAP,
             "passed": abs(rss_delta) <= RSS_DELTA_BYTES_CAP,
         },
         {
             "name": "fd_count",
             "gate": "hard_zero",
-            "start": start["num_fds"], "end": end["num_fds"], "delta": fd_delta,
+            "start": start["num_fds"],
+            "end": end["num_fds"],
+            "delta": fd_delta,
             "threshold": 0,
             "passed": fd_delta == 0,
         },
         {
             "name": "ctypes_handles",
             "gate": "hard_zero",
-            "start": start["rts_refcount"], "end": end["rts_refcount"], "delta": rts_delta,
+            "start": start["rts_refcount"],
+            "end": end["rts_refcount"],
+            "delta": rts_delta,
             "threshold": 0,
             "passed": rts_delta == 0,
         },
         {
             "name": "logger_handlers",
             "gate": "hard_zero",
-            "start": start["logger_handlers"], "end": end["logger_handlers"],
+            "start": start["logger_handlers"],
+            "end": end["logger_handlers"],
             "delta": handler_delta,
             "threshold": 0,
             "passed": handler_delta == 0,

@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Command handlers for the streaming protocol.
@@ -49,7 +51,7 @@ open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
-  ( Error; HandlerErr; WithContext; ParseErr
+  ( HandlerErr; WithContext; ParseErr
   ; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
   ; PropertyParseFailed; ValidationFailed
@@ -64,7 +66,7 @@ open import Aletheia.Limits using
   ; max-properties-per-stream
   ; max-identifier-length
   )
-open import Data.Char using (Char)
+open import Data.Char using ()
 
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
 open import Aletheia.Protocol.StreamState using

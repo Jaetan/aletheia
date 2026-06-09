@@ -1,13 +1,16 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Multiplexing query helpers and DBC definition lookup utilities.
 
 These functions operate on the DBCMessage / DBCDefinition TypedDicts
-from :mod:`aletheia.protocols` and provide the same functionality as the
+from :mod:`aletheia.types` and provide the same functionality as the
 Go ``DBCMessage`` methods (``IsMultiplexed``, ``AlwaysPresentSignals``, etc.).
 """
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from .protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
+if TYPE_CHECKING:
+    from aletheia.types import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed
 
 
 def is_multiplexed(msg: DBCMessage) -> bool:
@@ -16,9 +19,7 @@ def is_multiplexed(msg: DBCMessage) -> bool:
     A multiplexed signal is one whose presence in a frame depends on the
     value of a multiplexor signal (DBC ``M`` / ``m<value>`` annotations).
     """
-    return any(
-        s.get("multiplexor") is not None for s in msg["signals"]
-    )
+    return any(s.get("multiplexor") is not None for s in msg["signals"])
 
 
 def always_present_signals(msg: DBCMessage) -> list[DBCSignal]:
@@ -69,16 +70,14 @@ def mux_values(msg: DBCMessage, multiplexor: str) -> list[int]:
     out: list[int] = []
     for s in msg["signals"]:
         if s.get("multiplexor") == multiplexor:
-            for v in cast(DBCSignalMultiplexed, s)["multiplex_values"]:
+            for v in cast("DBCSignalMultiplexed", s)["multiplex_values"]:
                 if v not in seen:
                     seen.add(v)
                     out.append(v)
     return out
 
 
-def signals_for_mux_value(
-    msg: DBCMessage, multiplexor: str, value: int
-) -> list[DBCSignal]:
+def signals_for_mux_value(msg: DBCMessage, multiplexor: str, value: int) -> list[DBCSignal]:
     """Return the signals present when *multiplexor* has *value*.
 
     Includes every always-present signal plus the multiplexed signals
@@ -89,16 +88,14 @@ def signals_for_mux_value(
     out: list[DBCSignal] = []
     for s in msg["signals"]:
         mux = s.get("multiplexor")
-        if mux is None:
-            out.append(s)
-        elif mux == multiplexor and value in cast(DBCSignalMultiplexed, s)["multiplex_values"]:
+        if mux is None or (
+            mux == multiplexor and value in cast("DBCSignalMultiplexed", s)["multiplex_values"]
+        ):
             out.append(s)
     return out
 
 
-def message_by_id(
-    dbc: DBCDefinition, can_id: int, *, extended: bool = False
-) -> DBCMessage | None:
+def message_by_id(dbc: DBCDefinition, can_id: int, *, extended: bool = False) -> DBCMessage | None:
     """Look up a message by its CAN ID + extended flag.
 
     Returns the first matching ``DBCMessage`` dict by linear scan, or

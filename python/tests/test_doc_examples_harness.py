@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Cat 32 gate: every ``python`` fence in the published docs must run.
 
 Per AGENTS.md § Python Cat 32 and the doc-example harness in the repo-root
@@ -25,8 +27,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,7 +61,7 @@ DOC_FILES: tuple[str, ...] = (
 _PYTHON_FENCE_RE = re.compile(r"^(\s*)```python\b(.*)$")
 
 
-def _iter_python_fences(text: str):
+def _iter_python_fences(text: str) -> Iterator[tuple[int, str]]:
     """Yield ``(lineno, options)`` for every ``python`` opening fence.
 
     ``options`` is the trailing portion of the info string after

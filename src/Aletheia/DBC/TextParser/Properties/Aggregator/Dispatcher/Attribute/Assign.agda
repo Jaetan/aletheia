@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 4c — AttrAssign-level dispatcher.
@@ -35,7 +37,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions)
 
-open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat using ()
 open import Aletheia.DBC.Types using
   ( AttrDef
   ; AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar

@@ -1,28 +1,38 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Client types, exceptions, and result containers."""
 
-# DEFERRED — TRACKED (R19P2-CL16-1 — DEFER).
-# Finding: This file (432 LOC, shrunk organically from ~600 pre-cluster-17)
-#   mixes public-ish types (exception hierarchy) with client-internal scaffolding.
-#   Splitting into `python/aletheia/types.py` (public) + `python/aletheia/client/_internals.py`
-#   (internal) was deferred from R19 Phase 2 cluster 16.
-# Why DEFER: Organic shrinkage during cluster 17 reduced urgency.  Split would
-#   route public types via `aletheia.types` re-export which then needs the
-#   AletheiaError canonical-path decision (R19P2-CL16-2) co-decided.
-# Revisit when: This file re-grows past ~600 LOC, OR R19P2-CL16-2 is taken on
-#   (forces the co-decision on AletheiaError canonical path).
+# DEFERRED:
+# Finding: This file (432 LOC, shrunk organically from a higher mark)
+#   mixes the public exception hierarchy (already re-exported at the top-level
+#   `aletheia` package) with client-internal scaffolding.  If it regrows, the
+#   natural split is to move the internal scaffolding to a
+#   `python/aletheia/client/_internals.py`; the exception hierarchy stays
+#   re-exported from the top-level `aletheia` package — the sole public path
+#   (`aletheia.client` is internal, and `aletheia.types` is now the wire-types
+#   namespace, so neither is available as a split target).
+# Why: Organic shrinkage keeps urgency low; the AletheiaError canonical-path
+#   question is already resolved (top-level `aletheia` is the single public path).
+# Revisit when: This file re-grows past ~600 LOC.
 
 import dataclasses
-from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
-from typing import NamedTuple, cast, override
+from typing import TYPE_CHECKING, NamedTuple, cast, override
 
-from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
-from ..protocols import (
-    AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyBatchResponse,
+from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
+from aletheia.types import (
+    AckResponse,
+    DLCByteCount,
+    DLCCode,
+    ErrorResponse,
+    PropertyBatchResponse,
     PropertyResultEntry,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
 
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 
@@ -32,10 +42,11 @@ class AletheiaError(Exception):
 
     Attributes:
         code: Machine-readable error code from the Agda core
-            (``aletheia.error_codes.ErrorCode``).  ``None`` for errors raised
+            (``aletheia.ErrorCode``).  ``None`` for errors raised
             purely client-side (e.g. "library not loaded", "null pointer
             from FFI") — those surface as a plain Python exception without
             an Agda wire value.
+
     """
 
     code: str | None
@@ -79,14 +90,15 @@ class ProtocolError(AletheiaError):
 
 
 class ValidationError(AletheiaError):
-    """Caller-supplied argument failed a Python-side validity check
-    (e.g. negative timestamp, malformed CAN ID, unknown signal name,
-    payload length mismatch).
+    """Caller-supplied argument failed a Python-side validity check.
+
+    Examples: negative timestamp, malformed CAN ID, unknown signal name,
+    payload length mismatch.
 
     Mirrors Go ``ErrValidation`` and C++ ``ErrorKind::Validation`` —
     cross-binding parity for argument-rejection paths.  Replaces ad-hoc
     ``ValueError`` raises that escaped the typed ``AletheiaError``
-    hierarchy (R19 cluster 10 — PY-D-15.6).
+    hierarchy.
     """
 
 
@@ -103,12 +115,11 @@ class InputBoundExceededError(AletheiaError):
     keep the three surfaces in sync.
     """
 
-    kind:     str
+    kind: str
     observed: int
-    limit:    int
+    limit: int
 
-    def __init__(self, kind: str, observed: int, limit: int,
-                 code: str | None = None) -> None:
+    def __init__(self, kind: str, observed: int, limit: int, code: str | None = None) -> None:
         message = f"{kind} {observed} exceeds limit {limit}"
         super().__init__(message, code=code)
         self.kind = kind
@@ -121,8 +132,8 @@ def check_dbc_text_size_bound(observed: int) -> None:
 
     Defense-in-depth size cap shared by every parser surface that reads DBC
     text, YAML check definitions, or Excel workbooks.  Re-exported from
-    :mod:`aletheia.limits` (PY-D-16.2) — non-client modules should import
-    via the public path; this canonical definition stays here so
+    :mod:`aletheia.limits` — non-client modules should import via the
+    public path; this canonical definition stays here so
     InputBoundExceededError lives next to its raiser.
     """
     if observed > MAX_DBC_TEXT_BYTES:
@@ -131,7 +142,6 @@ def check_dbc_text_size_bound(observed: int) -> None:
             observed,
             MAX_DBC_TEXT_BYTES,
         )
-
 
 
 class BatchError(AletheiaError):
@@ -145,6 +155,7 @@ class BatchError(AletheiaError):
             because every committed result was already yielded to the consumer
             — duplicating them here would invite double-handling.
         frame_index: Zero-based index of the frame that caused the error.
+
     """
 
     cause: Exception
@@ -176,11 +187,11 @@ def raise_on_error_response(
     been yielded to the consumer; batch-mode callers pass the live results
     list. See the ``BatchError`` docstring for the per-call contract.
     """
-    # R23 — AGDA-D-12.1: PropertyBatchResponse has no top-level "status"
-    # field (it discriminates on `type == "property_batch"`), so use
-    # ``.get()`` to avoid KeyError on non-error batches.
+    # PropertyBatchResponse has no top-level "status" field (it
+    # discriminates on `type == "property_batch"`), so use ``.get()``
+    # to avoid KeyError on non-error batches.
     if resp.get("status") == "error":
-        err_resp = cast(ErrorResponse, resp)
+        err_resp = cast("ErrorResponse", resp)
         err = ProtocolError(
             f"error code={err_resp['code']}: {err_resp['message']}",
             code=err_resp["code"],
@@ -192,7 +203,7 @@ def raise_on_error_response(
 def call_send_frame(
     send_fn: Callable[..., FrameResponse],
     frame_index: int,
-    frame: "CANFrameTuple",
+    frame: CANFrameTuple,
     partial: Sequence[AckResponse | PropertyBatchResponse],
 ) -> AckResponse | PropertyBatchResponse:
     """Send one frame via ``send_fn`` and return the committed response.
@@ -204,8 +215,15 @@ def call_send_frame(
     the narrowed AckResponse / PropertyBatchResponse otherwise.
     """
     try:
-        resp = send_fn(frame.timestamp, frame.can_id, frame.dlc, frame.data,
-                       extended=frame.extended, brs=frame.brs, esi=frame.esi)
+        resp = send_fn(
+            frame.timestamp,
+            frame.can_id,
+            frame.dlc,
+            frame.data,
+            extended=frame.extended,
+            brs=frame.brs,
+            esi=frame.esi,
+        )
     except Exception as exc:
         raise BatchError(exc, partial, frame_index=frame_index) from exc
     return raise_on_error_response(resp, partial, frame_index)
@@ -246,6 +264,7 @@ class FrameResult:
             if result.violation is not None:
                 handle(result.violation)
     """
+
     frame_index: int
     timestamp: int
     can_id: int
@@ -256,16 +275,16 @@ class FrameResult:
     def violation(self) -> PropertyResultEntry | None:
         """The first violating event from the batch, else None.
 
-        R23 — AGDA-D-12.1: a frame's response may now carry multiple
-        property events (any mid-stream satisfactions that completed
-        before a halting violation, in source-order, followed by the
-        violation).  Per the Agda invariant in dispatchIterResult,
-        violations always close a batch — there is at most one
-        violation per frame, and if present it is the last result.
+        A frame's response may carry multiple property events (any
+        mid-stream satisfactions that completed before a halting
+        violation, in source-order, followed by the violation).  Per
+        the Agda invariant in dispatchIterResult, violations always
+        close a batch — there is at most one violation per frame, and
+        if present it is the last result.
         """
         if self.response.get("type") != "property_batch":
             return None
-        results = cast(PropertyBatchResponse, self.response).get("results", [])
+        results = cast("PropertyBatchResponse", self.response).get("results", [])
         for entry in results:
             if entry.get("status") == "fails":
                 return entry
@@ -273,7 +292,7 @@ class FrameResult:
 
     @property
     def satisfactions(self) -> list[PropertyResultEntry]:
-        """Mid-stream satisfaction events from the batch (R23 — AGDA-D-12.1).
+        """Mid-stream satisfaction events from the batch.
 
         Properties that completed (became Satisfied) on this frame are
         surfaced here in source-order.  Empty list for ack-only frames
@@ -281,8 +300,30 @@ class FrameResult:
         """
         if self.response.get("type") != "property_batch":
             return []
-        return [entry for entry in cast(PropertyBatchResponse, self.response).get("results", [])
-                if entry.get("status") == "holds"]
+        return [
+            entry
+            for entry in cast("PropertyBatchResponse", self.response).get("results", [])
+            if entry.get("status") == "holds"
+        ]
+
+
+def make_frame_result(
+    frame_index: int,
+    frame: CANFrameTuple,
+    response: AckResponse | PropertyBatchResponse,
+) -> FrameResult:
+    """Build a :class:`FrameResult` from a source frame's identity + response.
+
+    Shared by the sync (``send_frames_iter``) and async per-frame generators,
+    which otherwise restate the same five-field construction on every yield.
+    """
+    return FrameResult(
+        frame_index=frame_index,
+        timestamp=frame.timestamp,
+        can_id=frame.can_id,
+        extended=frame.extended,
+        response=response,
+    )
 
 
 class SignalExtractionResult:
@@ -341,6 +382,7 @@ MAX_EXTRACT_CACHE: int = 256
 @dataclass(slots=True)
 class StreamCaches:
     """Per-stream mutable caches, cleared together on start_stream/parse_dbc."""
+
     extraction: ExtractionCache = dataclasses.field(default_factory=dict)
     last_frames: dict[LastFrameKey, LastFrameData] = dataclasses.field(default_factory=dict)
 
@@ -367,6 +409,7 @@ class CANFrameTuple(NamedTuple):
             if the transmitter is in error-passive state, ``False`` if
             error-active, ``None`` for CAN 2.0B frames.
     """
+
     timestamp: int
     can_id: int
     dlc: DLCCode
@@ -379,6 +422,7 @@ class CANFrameTuple(NamedTuple):
     brs: bool | None = None
     esi: bool | None = None
 
+
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID
 _MAX_EXTENDED_ID = (1 << 29) - 1  # 29-bit CAN ID
 
@@ -388,18 +432,32 @@ def validate_can_id(can_id: int, *, extended: bool) -> None:
 
     Raises:
         ValidationError: If can_id is outside the valid range.
+
     """
     max_id = _MAX_EXTENDED_ID if extended else _MAX_STANDARD_ID
     kind = "extended" if extended else "standard"
     if can_id < 0 or can_id > max_id:
-        raise ValidationError(
-            f"Invalid {kind} CAN ID: {can_id} (must be 0-{max_id})"
-        )
+        msg = f"Invalid {kind} CAN ID: {can_id} (must be 0-{max_id})"
+        raise ValidationError(msg)
 
 
 _DLC_TO_BYTES: dict[int, int] = {
-    0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
-    9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64,
+    0: 0,
+    1: 1,
+    2: 2,
+    3: 3,
+    4: 4,
+    5: 5,
+    6: 6,
+    7: 7,
+    8: 8,
+    9: 12,
+    10: 16,
+    11: 20,
+    12: 24,
+    13: 32,
+    14: 48,
+    15: 64,
 }
 
 
@@ -411,19 +469,22 @@ def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
 
     Raises:
         ValidationError: If dlc is outside 0-15.
+
     """
     try:
         return DLCByteCount(_DLC_TO_BYTES[dlc])
     except KeyError:
-        raise ValidationError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
+        msg = f"Invalid DLC code: {dlc} (must be 0-15)"
+        raise ValidationError(msg) from None
 
 
 _BYTES_TO_DLC: dict[int, int] = {v: k for k, v in _DLC_TO_BYTES.items()}
 
 
-def encode_maybe_bool(b: bool | None) -> tuple[int, int]:
-    """Encode an Optional[bool] as the (present, value) byte pair used by
-    the binary FFI for CAN-FD BRS / ESI metadata.
+def encode_maybe_bool(*, b: bool | None) -> tuple[int, int]:
+    """Encode an Optional[bool] as the (present, value) byte pair.
+
+    Used by the binary FFI for CAN-FD BRS / ESI metadata.
 
     ``None`` → ``(0, 0)`` (the bit is absent on the wire);
     ``False`` → ``(1, 0)``; ``True`` → ``(1, 1)``.
@@ -444,19 +505,20 @@ def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
 
     Raises:
         ValidationError: If byte_count is not one of the valid lengths above.
+
     """
     try:
         return DLCCode(_BYTES_TO_DLC[byte_count])
     except KeyError:
         raise ValidationError(
-            f"Invalid byte count: {byte_count}"
-            + " (must be 0-8, 12, 16, 20, 24, 32, 48, or 64)"
+            f"Invalid byte count: {byte_count}" + " (must be 0-8, 12, 16, 20, 24, 32, 48, or 64)"
         ) from None
 
 
 @dataclass(slots=True, frozen=True)
 class PropertyDiagnostic:
     """Per-property diagnostic metadata for violation enrichment."""
+
     signals: tuple[str, ...]
     formula_desc: str
 
@@ -469,5 +531,6 @@ class SignalLookup:
     signal list; ``names`` is the parallel array used to resolve indices
     back to names when decoding the binary extraction response.
     """
+
     names: tuple[str, ...]
     indices: dict[str, int]

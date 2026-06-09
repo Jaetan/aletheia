@@ -1,4 +1,6 @@
-"""Cancellation contract tests — Track C.1 + C.2.
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+"""Cancellation contract tests.
 
 Covers the four scenarios called out in docs/architecture/CANCELLATION.md:
 
@@ -18,12 +20,14 @@ durable in stream state" half of the contract is actually exercised.
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterable, Iterable
+from typing import TYPE_CHECKING
 
 import pytest
 
 from aletheia import (
     AletheiaClient as SyncClient,
+)
+from aletheia import (
     BatchError,
     CANFrameTuple,
     FFIBackend,
@@ -32,13 +36,23 @@ from aletheia import (
 )
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gated_backend
-from aletheia.protocols import (
-    AckResponse, DBCDefinition, DLCCode, PropertyBatchResponse,
+from aletheia.types import (
+    AckResponse,
+    DBCDefinition,
+    DLCCode,
+    PropertyBatchResponse,
+    PropertyResultEntry,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterable, Iterable
 
 
 def _make_frames(
-    n: int, *, can_id: int = 256, start_ts: int = 1000,
+    n: int,
+    *,
+    can_id: int = 256,
+    start_ts: int = 1000,
 ) -> list[CANFrameTuple]:
     """Build n monotonically-timestamped frames with payload (i, 0, 0, …)."""
     return [
@@ -139,7 +153,8 @@ class TestSyncIter:
             assert result["status"] == "complete"
 
     def test_error_mid_iter_raises_batcherror_with_empty_partial(
-        self, simple_dbc: DBCDefinition,
+        self,
+        simple_dbc: DBCDefinition,
     ) -> None:
         """Non-monotonic timestamp on frame 2 raises BatchError(partial_results=[])."""
         prop = Signal("TestSignal").less_than(1000).always()
@@ -150,15 +165,14 @@ class TestSyncIter:
 
             # Frames: ts 1000, 2000, 500 (regression — Agda rejects).
             bad: list[CANFrameTuple] = [
-                CANFrameTuple(1000, 256, DLCCode(8), bytearray(8), False),
-                CANFrameTuple(2000, 256, DLCCode(8), bytearray(8), False),
-                CANFrameTuple(500, 256, DLCCode(8), bytearray(8), False),
+                CANFrameTuple(1000, 256, DLCCode(8), bytearray(8), extended=False),
+                CANFrameTuple(2000, 256, DLCCode(8), bytearray(8), extended=False),
+                CANFrameTuple(500, 256, DLCCode(8), bytearray(8), extended=False),
             ]
 
             yielded: list[FrameResult] = []
             with pytest.raises(BatchError) as exc_info:
-                for r in client.send_frames_iter(bad):
-                    yielded.append(r)
+                yielded.extend(client.send_frames_iter(bad))
 
             err = exc_info.value
             assert err.frame_index == 2
@@ -178,7 +192,7 @@ class TestSyncIter:
         def lazy_source() -> Iterable[CANFrameTuple]:
             for i in range(100):
                 consumed_from_source.append(i)
-                yield CANFrameTuple(1000 + i * 1000, 256, DLCCode(8), bytearray(8), False)
+                yield CANFrameTuple(1000 + i * 1000, 256, DLCCode(8), bytearray(8), extended=False)
 
         with SyncClient() as client:
             client.parse_dbc(simple_dbc)
@@ -220,7 +234,11 @@ class TestAsyncSmoke:
                 start_resp = await client.start_stream()
                 assert start_resp["status"] == "success"
                 ack = await client.send_frame(1000, 256, DLCCode(8), bytearray(8))
-                assert ack["status"] in ("ack", "fails")
+                # Non-violating frame acks; a violation returns a property_batch.
+                if "type" in ack:
+                    assert ack["type"] == "property_batch"
+                else:
+                    assert ack["status"] == "ack"
                 end_resp = await client.end_stream()
                 return end_resp["status"]
 
@@ -334,8 +352,8 @@ class TestAsyncBatchCancellation:
     def test_cancel_during_close_does_not_leak_state(self) -> None:
         """Cancellation delivered while ``__aexit__`` is closing must not leak FFI state.
 
-        R19 cluster 11 — PY-B-12.1 / PY-D-15.2 / PY-D-20.2: ``__aexit__`` /
-        ``close()`` wrap their ``asyncio.to_thread(self._sync.close)`` in
+        ``__aexit__`` / ``close()`` wrap their
+        ``asyncio.to_thread(self._sync.close)`` in
         ``asyncio.shield`` so the underlying close runs to completion even
         if the awaiting coroutine is cancelled.  Verified by cancelling
         the task running ``client.close()`` after the shielded coroutine
@@ -388,8 +406,10 @@ class TestAsyncIterCancellation:
     """Async iter ops surface ``CancelledError`` at the yield boundary."""
 
     def test_timeout_during_iter(self, simple_dbc: DBCDefinition) -> None:
-        """Timeout during ``async for`` — committed prefix durable, async-iter
-        wraps cancellation in TimeoutError per asyncio.timeout semantics.
+        """Timeout during ``async for`` surfaces as ``TimeoutError``.
+
+        The committed prefix stays durable; async-iter wraps cancellation
+        in ``TimeoutError`` per ``asyncio.timeout`` semantics.
 
         Deterministic via ``gated_backend``: the worker blocks inside
         frame 1's ``send_frame_binary`` after committing it; the test
@@ -428,7 +448,8 @@ class TestAsyncIterCancellation:
         asyncio.run(_run())
 
     def test_async_iter_yields_frame_result_with_index(
-        self, simple_dbc: DBCDefinition,
+        self,
+        simple_dbc: DBCDefinition,
     ) -> None:
         """Smoke: full async-iter consumption yields one FrameResult per frame."""
         prop = Signal("TestSignal").less_than(1000).always()
@@ -438,9 +459,9 @@ class TestAsyncIterCancellation:
                 await client.parse_dbc(simple_dbc)
                 await client.set_properties([prop.to_dict()])
                 await client.start_stream()
-                results: list[FrameResult] = []
-                async for r in client.send_frames_iter(_make_frames(5)):
-                    results.append(r)
+                results: list[FrameResult] = [
+                    r async for r in client.send_frames_iter(_make_frames(5))
+                ]
                 await client.end_stream()
                 return results
 
@@ -472,16 +493,16 @@ class TestFrameResultShape:
     def test_fails_response_returns_violation(self) -> None:
         """FrameResult.violation returns the first fails entry in the batch.
 
-        R23 — AGDA-D-12.1: ``FrameResult.response`` now carries the
-        per-frame ``PropertyBatchResponse``; ``.violation`` extracts
+        ``FrameResult.response`` carries the per-frame
+        ``PropertyBatchResponse``; ``.violation`` extracts
         the first ``status == "fails"`` entry rather than the response
         as a whole.
         """
-        viol_entry = {
+        viol_entry: PropertyResultEntry = {
             "type": "property",
             "status": "fails",
-            "property_index": {"numerator": 0, "denominator": 1},
-            "timestamp": {"numerator": 1000, "denominator": 1},
+            "property_index": 0,
+            "timestamp": 1000,
         }
         batch_response: PropertyBatchResponse = {
             "type": "property_batch",

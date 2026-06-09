@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 """Adversarial-input bounds — Python mirror of ``Aletheia.Limits`` (Agda).
 
 Single source of truth: ``src/Aletheia/Limits.agda`` (numeric values are
@@ -29,13 +31,13 @@ from typing import Final
 
 # Wire codes — must match ``boundKindCode`` in ``Aletheia.Limits`` (Agda).
 BOUND_KIND_INPUT_LENGTH_BYTES: Final[str] = "input_length_bytes"
-BOUND_KIND_NESTING_DEPTH:      Final[str] = "nesting_depth"
-BOUND_KIND_ARRAY_CARDINALITY:  Final[str] = "array_cardinality"
-BOUND_KIND_IDENTIFIER_LENGTH:  Final[str] = "identifier_length"
-BOUND_KIND_STRING_LENGTH:      Final[str] = "string_length"
-BOUND_KIND_ATOM_COUNT:         Final[str] = "atom_count"
-BOUND_KIND_FRAME_BYTE_COUNT:   Final[str] = "frame_byte_count"
-BOUND_KIND_PROPERTY_COUNT:     Final[str] = "property_count"
+BOUND_KIND_NESTING_DEPTH: Final[str] = "nesting_depth"
+BOUND_KIND_ARRAY_CARDINALITY: Final[str] = "array_cardinality"
+BOUND_KIND_IDENTIFIER_LENGTH: Final[str] = "identifier_length"
+BOUND_KIND_STRING_LENGTH: Final[str] = "string_length"
+BOUND_KIND_ATOM_COUNT: Final[str] = "atom_count"
+BOUND_KIND_FRAME_BYTE_COUNT: Final[str] = "frame_byte_count"
+BOUND_KIND_PROPERTY_COUNT: Final[str] = "property_count"
 
 # ============================================================================
 # BOUND CONSTANTS
@@ -80,24 +82,24 @@ MAX_FRAME_BYTE_COUNT: Final[int] = 64
 
 
 __all__ = [
-    "BOUND_KIND_INPUT_LENGTH_BYTES",
-    "BOUND_KIND_NESTING_DEPTH",
     "BOUND_KIND_ARRAY_CARDINALITY",
-    "BOUND_KIND_IDENTIFIER_LENGTH",
-    "BOUND_KIND_STRING_LENGTH",
     "BOUND_KIND_ATOM_COUNT",
     "BOUND_KIND_FRAME_BYTE_COUNT",
-    "MAX_DBC_TEXT_BYTES",
-    "MAX_JSON_BYTES",
-    "MAX_NESTING_DEPTH",
-    "MAX_MESSAGES_PER_FILE",
-    "MAX_SIGNALS_PER_MESSAGE",
-    "MAX_ATTRIBUTES_PER_FILE",
-    "MAX_VALUE_DESCRIPTIONS_PER_FILE",
-    "MAX_IDENTIFIER_LENGTH",
-    "MAX_STRING_LENGTH_BYTES",
-    "MAX_ATOM_COUNT_PER_PROPERTY",
-    "MAX_PROPERTIES_PER_STREAM",
+    "BOUND_KIND_IDENTIFIER_LENGTH",
+    "BOUND_KIND_INPUT_LENGTH_BYTES",
+    "BOUND_KIND_NESTING_DEPTH",
     "BOUND_KIND_PROPERTY_COUNT",
+    "BOUND_KIND_STRING_LENGTH",
+    "MAX_ATOM_COUNT_PER_PROPERTY",
+    "MAX_ATTRIBUTES_PER_FILE",
+    "MAX_DBC_TEXT_BYTES",
     "MAX_FRAME_BYTE_COUNT",
+    "MAX_IDENTIFIER_LENGTH",
+    "MAX_JSON_BYTES",
+    "MAX_MESSAGES_PER_FILE",
+    "MAX_NESTING_DEPTH",
+    "MAX_PROPERTIES_PER_STREAM",
+    "MAX_SIGNALS_PER_MESSAGE",
+    "MAX_STRING_LENGTH_BYTES",
+    "MAX_VALUE_DESCRIPTIONS_PER_FILE",
 ]

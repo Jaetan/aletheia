@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 3d.5.d — slim `parseValueTable-roundtrip` derived from
@@ -25,7 +27,7 @@
 module Aletheia.DBC.TextParser.Properties.ValueTables.ValueTable where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; foldr; concatMap; length)
+open import Data.List using (List; []; _∷_; foldr; length)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
@@ -54,7 +56,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
 open import Aletheia.DBC.TextParser.Format using
-  (Format; emit; parse)
+  (emit; parse)
   renaming (many to manyF)
 open import Aletheia.DBC.TextParser.Format.ValueTable as FmtVT using
   (ValueTable-format; ValueEntry-format)

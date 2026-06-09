@@ -121,15 +121,16 @@ agda test.agda
 
 #### 5. Python
 
-**Minimum version: 3.13** (required by `python/pyproject.toml` — `requires-python = ">=3.13"`)
-**Recommended: 3.13+** (Docker images use 3.13; 3.14 works but is not in the Dockerfile base images yet)
+**Minimum version: 3.14** (required by `python/pyproject.toml` — `requires-python = ">=3.14"`)
+**The build tooling invokes `python3.14`** for the dev venv; the project uses 3.14-only syntax (PEP 758).
+(Note: the Dockerfile / reproducible-build base images still pin 3.13 and are pending a bump to 3.14.)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
 ```bash
-# Check if Python is installed (must be 3.13+)
-python3 --version
-# Should output: Python 3.13.0 or higher
+# Check if Python is installed (must be 3.14+)
+python3.14 --version
+# Should output: Python 3.14.0 or higher
 
 # If you need to install a newer Python:
 # - On Ubuntu 26.04+: python3.14 is available via apt (no PPA needed)
@@ -298,7 +299,7 @@ For integrating `libaletheia-ffi.so` into C, C++, or Go projects, see [DISTRIBUT
 
 For deployment outside the git repository (Docker, CI/CD, shared servers), Aletheia can be installed
 as a self-contained bundle with all GHC runtime libraries included. No GHC or Agda is needed at
-runtime — only Python 3.13+.
+runtime — only Python 3.14+.
 
 #### Prerequisites
 
@@ -329,7 +330,7 @@ $PREFIX/
 ├── lib/aletheia/
 │   ├── libaletheia-ffi.so              # patched RPATH=$ORIGIN
 │   ├── libHSbase-*.so, libHSrts-*.so   # bundled GHC runtime (~31 MB)
-│   ├── venv/                           # Python 3.13+ venv with aletheia
+│   ├── venv/                           # Python 3.14+ venv with aletheia
 │   └── manifest.txt                    # for uninstall
 ├── share/doc/aletheia/                 # documentation
 └── share/aletheia/examples/            # example scripts
@@ -367,7 +368,7 @@ For Docker deployment (Dockerfiles, build commands, runtime image), see [DISTRIB
 
 ### 8. Install Git Hooks (Recommended for Contributors)
 
-Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs an advisory dead-import scan on staged `.agda` files. Install both with:
+Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs an advisory IWYU dead-import scan on staged `.agda` files. Install both with:
 
 ```bash
 tools/install_hooks.py
@@ -377,17 +378,17 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 
 | Hook | When | What runs | Severity |
 |---|---|---|---|
-| `pre-commit` | `git commit` | `tools/scan_dead_imports.py` on staged `.agda` files (regex, ~1s/file) | **Advisory** — prints warning, always proceeds |
-| `pre-push` | `git push` | `tools/run_ci.py` — the 30-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
+| `pre-commit` | `git commit` | `tools/iwyu.py --check` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool) | **Advisory** — prints warning, always proceeds |
+| `pre-push` | `git push` | `tools/run_ci.py` — the 32-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 
 ```bash
-git commit --no-verify   # skip pre-commit scanner
+git commit --no-verify   # skip pre-commit IWYU advisory
 git push   --no-verify   # skip pre-push CI sweep
 ```
 
-The pre-push sweep includes a dead-import gate (step 9) that runs `tools/prune_unused_imports.py --check-only` on `.agda` files modified vs `main`. It blocks the push if any branch-introduced dead imports remain. Skipped automatically when more than 30 files have been modified vs `main` (signal that the branch is review-scale — rely on the periodic full sweep instead). Override the skip with `ALETHEIA_PRUNE_GATE_NOLIMIT=1`.
+The pre-push sweep includes the IWYU gate on `.agda` files modified vs `main`: step 9 (`tools/iwyu.py --check --diff`) judges both named imports (DEAD/UNRESOLVED) and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware `.agdai` reader in one warm process and fails on any finding; step 10 (`tools/iwyu.py --self-test`) validates that reader against the synthetic fixture matrix. The gate reads interfaces directly (no recompile) and runs on every scoped file. Cross-file deadness is caught by the periodic whole-tree (`--all`) run.
 
 Both hooks are optional; the project is fully functional without them. They are strongly recommended for contributors because they catch many issues before they reach the maintainer's review.
 
@@ -459,7 +460,7 @@ deactivate
 
 **Error**: `pip: command not found` after activating venv
 
-**Solution**: Ensure venv was created with a supported Python version (3.13+):
+**Solution**: Ensure venv was created with a supported Python version (3.14+):
 ```bash
 rm -rf .venv
 python3 -m venv .venv
@@ -537,16 +538,15 @@ cabal run shake -- build
 
 After install, run `cabal run shake -- clean && cabal run shake -- build`.
 
-### Clang / GCC Version Mismatch for C++ Binding
+### Clang Version / C++23 Standard Library for C++ Binding
 
 **Error**: `std::expected` / `std::format` / spaceship operator not found when building `cpp/`, or `error: no member named 'byte' in namespace 'std'`.
 
-**Solution**: The C++ binding targets g++ ≥ 14 and clang ≥ 21 (C++23). Older toolchains compile Aletheia up to the `-std=c++20` cutoff but trip over `<expected>` / `<format>`. Check with:
+**Solution**: The C++ binding is **Clang ≥ 19 only** — g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23; Clang < 19 mis-handles libstdc++-14's `<expected>`. Check with:
 
 ```bash
-g++ --version     # expect 14.x or newer
-clang++ --version # expect 21.x or newer
-cmake -B cpp/build -DCMAKE_CXX_COMPILER=g++-14  # pin explicitly if needed
+clang++-19 --version   # expect 19.x or newer
+cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
 ```
 
 ### Python Venv Version Drift (`ImportError` on Known-Good Code)
@@ -648,7 +648,7 @@ cd cpp && cmake -B build && cmake --build build
 
 **Error**: `error: use of undeclared identifier 'std::format'`
 
-**Solution**: C++23 is required. Ensure g++ >= 14 or clang >= 21.
+**Solution**: C++23 is required. Use Clang ≥ 19 with a libstdc++/libc++ that supports C++23.
 
 ### Go Build/Test Fails
 

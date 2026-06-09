@@ -1,11 +1,12 @@
 ## Python (34 categories)
 
-Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, and benchmark scripts in `python/benchmarks/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
+Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, benchmark scripts in `python/benchmarks/`, the repo-root `conftest.py`, and developer tooling in `tools/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
 
 **Tooling gates (hard requirements):**
 - `pylint` score must stay **10.00/10**. Any score drop is a blocking finding.
 - `basedpyright` must produce **zero errors and zero warnings**. Any new diagnostic is a blocking finding.
 - **Adding any suppression annotation** (`# type: ignore`, `# pylint: disable`, `# noqa`, `# pyright: ignore`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
+- **`tools/` is in scope, same bar, no exceptions** (user directive 2026-05-26): every `tools/*.py` gate/helper script must reach pylint 10.00 / basedpyright 0/0/0 **by FIXING the code, never by suppressing or ignoring what the linters report**. The suppression rule above applies in full; for `tools/` the standing answer is fix-don't-suppress. Existing debt is NOT grandfathered — it gets fixed (remove any `# pylint: disable=...`, then fix the underlying issue), not waived. Worked example: the IWYU stack (`iwyu.py` / `_iwyu.py` / `_warm.py` / `warm_check_properties.py`) all sit at 10.00 / 0/0/0 with zero suppressions.
 
 ### Hygiene/Style (6)
 
@@ -37,12 +38,12 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, an
     - (d) **Real-vs-mock divergence testing**: for operations where the mock response differs from the real FFI, there must be a test that exercises the real FFI format via the real `.so` integration tests. A mock chosen for convenience rather than fidelity is a finding.
     - (e) **Regression test discipline**: every bug fix must be accompanied by a test that fails without the fix and passes with it. A fix landed without a guarding test re-opens the regression surface the next time the file is refactored.
     - (f) **Test isolation**: `pytest --random-order --random-order-bucket=package` (plugin pinned in dev deps) must pass — order-dependent flakes (shared tempdir, module-import side effects, fixture leakage between tests, `os.environ` mutation outside `monkeypatch`, ctypes handle retained between tests) are findings. Each test must clean up via `tmp_path` fixtures, register cleanup via fixture teardown or `addfinalizer`, and never mutate global state without a paired restore. The `--random-order` lane runs in CI alongside the deterministic lane; both must be green.
-    - (g) **Mutation testing**: `mutmut` (or `cosmic-ray`) on hot-path modules (`client.py`, `dbc_converter.py`, `dbc_loader.py`, `validation.py`, `protocols.py`) — surviving mutants on operational logic are findings. Justify any survivor with a comment block at the source site; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient.
+    - (g) **Mutation testing**: `mutmut` (or `cosmic-ray`) on hot-path modules (`client.py`, `dbc/_converter.py`, `dbc_loader.py`, `validation.py`, `protocols.py`) — surviving mutants on operational logic are findings. Justify any survivor with a comment block at the source site; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient.
 
 ### Architecture (4)
 
-15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success, clear import path from `aletheia`
-16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI; no leaking of internal modules
+15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success. Import path: the top-level `aletheia` package is the single canonical public surface -- cross-cutting names (client, the exception hierarchy) flat there; domain interfaces in cohesive sub-namespaces (`aletheia.dbc` / `aletheia.dsl` / `aletheia.codes` / `aletheia.types` / the loaders)
+16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI. Every public submodule declares `__all__`; internal modules are `_`-prefixed and are never a supported public import path (e.g. `aletheia.client` is internal — its surface is re-exported only from the top-level package)
 17. **Extensibility** -- adding new predicates, loaders, or check types doesn't break existing callers
 18. **Dependency discipline** -- minimal external deps; cantools/openpyxl/python-can/pyyaml justified; no unnecessary additions
 
@@ -97,6 +98,7 @@ cd python && basedpyright aletheia/ benchmarks/  # benchmarks/ joined the gate 2
 cd python && pylint aletheia/
 cd python && pylint tests/ ../conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
 cd python && pylint benchmarks/  # same 10.00/10 gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
+pylint tools/ && basedpyright tools/  # tools/*.py — same 10.00 / 0/0/0 gate, fix-don't-suppress (user directive 2026-05-26); run from repo root
 # Cat 32 doc-example harness — runs every ``python`` fence across the
 # user-facing docs against the real FFI. Must be run from the repo root
 # so pytest picks up the repo-root ``conftest.py`` (which provides the

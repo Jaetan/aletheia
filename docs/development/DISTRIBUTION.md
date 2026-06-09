@@ -176,7 +176,7 @@ int main(void) {
 
 ### C++ (with the aletheia-cpp binding)
 
-The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime — pass the `.so` path to `make_ffi_backend()`. Requires CMake 3.25+ and a C++23 compiler (g++ 14+ or clang 21+).
+The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime — pass the `.so` path to `make_ffi_backend()`. Requires CMake 3.25+ and Clang ≥ 19 with a libstdc++/libc++ that supports C++23 (`<expected>`); g++ is not supported.
 
 #### CMake integration
 

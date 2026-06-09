@@ -1,5 +1,25 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 cmake_minimum_required(VERSION 3.25)
 project(aletheia-cpp VERSION 1.1.1 LANGUAGES CXX)
+
+# ── Compiler policy: Clang >= 19 ONLY (g++ support dropped 2026-06-09) ───────
+# The sanitizer lanes require clang's -fsanitize-ignorelist (g++ has no
+# equivalent), and the codebase uses C++23 library features (std::expected), so
+# the project pins ONE compiler — unit tests, sanitizers, and the mutation lane
+# then all sanitize the same compilation.  Clang < 19 mis-handles libstdc++-14's
+# <expected>.  The active standard library (libstdc++ OR libc++) MUST provide
+# C++23 (notably <expected>).
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR
+        "aletheia-cpp is Clang-only (got ${CMAKE_CXX_COMPILER_ID} "
+        "${CMAKE_CXX_COMPILER_VERSION}); g++ is not supported.  Configure with: "
+        "cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19")
+elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
+    message(FATAL_ERROR
+        "aletheia-cpp requires Clang >= 19 (got Clang ${CMAKE_CXX_COMPILER_VERSION}); "
+        "earlier Clang mis-handles libstdc++-14's C++23 <expected>.")
+endif()
 
 # Default to Release when no build type is specified (avoids -O0 benchmarks)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

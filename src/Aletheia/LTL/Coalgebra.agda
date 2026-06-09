@@ -1,3 +1,5 @@
+-- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+-- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
 -- Defunctionalized LTL coalgebra with ℕ-indexed predicates.
@@ -21,13 +23,12 @@
 
 module Aletheia.LTL.Coalgebra where
 
-open import Aletheia.Prelude
+open import Aletheia.Prelude using (_∸_; false; suc; true; ℕ)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart; mapLTL)
 open import Aletheia.LTL.Incremental using
   ( StepResult; Continue; Violated; Satisfied
-  ; Counterexample; mkCounterexample
+  ; mkCounterexample
   ; FinalVerdict; Holds; Fails; Unsure
-  ; LTLReason
   ; AtomicFailed; NotStepSatisfied; MetricEventuallyExpired; MetricUntilExpired
   ; NotEosSatisfied; NextNoFrame; EventuallyUnsatisfied; UntilUnsatisfied
   ; MetricEventuallyUnsatisfied; MetricUntilUnsatisfied
