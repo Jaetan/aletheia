@@ -199,7 +199,10 @@ cd aletheia
 
 **IMPORTANT**: Always use a virtual environment to avoid conflicts with system Python packages.
 ```bash
-# Create virtual environment
+# Create the virtual environment under python/ (where all the tooling
+# expects it — run_ci.py, the mutation/stability runners, and basedpyright's
+# venvPath all resolve python/.venv).
+cd python
 python3 -m venv .venv
 
 # Activate the virtual environment
@@ -207,19 +210,20 @@ source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 
 # Verify you're in the virtual environment
 which python3
-# Should show: /path/to/aletheia/.venv/bin/python3
+# Should show: /path/to/aletheia/python/.venv/bin/python3
 
 # Upgrade pip in the virtual environment
 pip install --upgrade pip setuptools wheel
+cd ..  # back to the project root for the build steps below
 ```
 
 **Note**: You need to activate the virtual environment every time you work on the project:
 ```bash
 cd /path/to/aletheia
-source .venv/bin/activate          # fish: source .venv/bin/activate.fish
+source python/.venv/bin/activate   # fish: source python/.venv/bin/activate.fish
 ```
 
-**If you see `ModuleNotFoundError: No module named 'aletheia'`** when running tests or `python3 -m aletheia`, you likely forgot to activate the venv. Run `source .venv/bin/activate` (or `source .venv/bin/activate.fish` for fish) and try again.
+**If you see `ModuleNotFoundError: No module named 'aletheia'`** when running tests or `python3 -m aletheia`, you likely forgot to activate the venv. Run `source python/.venv/bin/activate` (or `source python/.venv/bin/activate.fish` for fish) and try again.
 
 To deactivate when done:
 ```bash
@@ -260,7 +264,7 @@ ls -la build/libaletheia-ffi.so
 ```bash
 # Verify virtual environment is active
 which python3
-# Should show: /path/to/aletheia/.venv/bin/python3
+# Should show: /path/to/aletheia/python/.venv/bin/python3
 
 # Install Python package using Shake
 cabal run shake -- install-python
@@ -278,7 +282,7 @@ python3 -c "import aletheia; print(aletheia.__version__)"
 ### 6. Run Tests
 ```bash
 # Python tests
-source .venv/bin/activate          # fish: source .venv/bin/activate.fish
+source python/.venv/bin/activate   # fish: source python/.venv/bin/activate.fish
 cd python && pip install -e ".[dev]"
 python3 -m pytest tests/ -v
 
@@ -400,7 +404,7 @@ See [`docs/development/CI_LOCAL.md`](CI_LOCAL.md) for the full CI architecture.
 cd /path/to/aletheia
 
 # Activate Python virtual environment (for Python commands)
-source .venv/bin/activate
+source python/.venv/bin/activate
 
 # Build commands
 cabal run shake -- build              # Full pipeline: Agda → Haskell → libaletheia-ffi.so
@@ -425,7 +429,7 @@ alias shake='cabal run shake --'
 
 # Function to activate aletheia environment
 aletheia-env() {
-    cd /path/to/aletheia && source .venv/bin/activate
+    cd /path/to/aletheia && source python/.venv/bin/activate
 }
 
 # Reload shell
@@ -441,7 +445,7 @@ shake clean       # Clean build
 ```bash
 # Starting a work session
 cd /path/to/aletheia
-source .venv/bin/activate
+source python/.venv/bin/activate
 
 # Make changes to Agda/Haskell/Python code
 # ... edit files ...
@@ -462,10 +466,12 @@ deactivate
 
 **Solution**: Ensure venv was created with a supported Python version (3.14+):
 ```bash
+cd python
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
+cd ..
 ```
 
 **Error**: Python packages installed in wrong location
@@ -473,7 +479,7 @@ pip install --upgrade pip
 **Solution**: Verify virtual environment is active:
 ```bash
 which python3
-# Should show: .../aletheia/.venv/bin/python3
+# Should show: .../aletheia/python/.venv/bin/python3
 # NOT: /usr/bin/python3 or similar system path
 ```
 
@@ -557,10 +563,12 @@ cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
 
 ```bash
 deactivate  # if already active
+cd python
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e 'python[all,dev]'
+pip install -e '.[all,dev]'
+cd ..
 ```
 
 ### Go Build With `CGO_ENABLED=0`
@@ -698,15 +706,17 @@ If you encounter issues not covered here:
 ## Summary of Key Commands
 ```bash
 # Initial setup (once)
+cd python
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip setuptools wheel
-cd python && pip install -e ".[dev]" && cd ..
+pip install -e ".[dev]"
+cd ..
 cabal update
 
 # Regular development workflow
 cd /path/to/aletheia
-source .venv/bin/activate         # Activate Python environment
+source python/.venv/bin/activate  # Activate Python environment
 cabal run shake -- build          # Full pipeline → build/libaletheia-ffi.so
 cd python && python3 -m pytest tests/ -v  # Run tests
 
@@ -718,7 +728,7 @@ deactivate                       # Deactivate virtual environment
 
 1. **Always activate** the virtual environment before running Python commands
 2. **Never commit** the `.venv/` directory to git (already in `.gitignore`)
-3. **Recreate venv** if you upgrade Python: `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
+3. **Recreate venv** if you upgrade Python: `cd python && rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]" && cd ..`
 4. **Document dependencies**: When adding Python packages, update `python/pyproject.toml`
 
 ---
