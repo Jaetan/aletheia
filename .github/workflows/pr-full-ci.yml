@@ -179,6 +179,30 @@ jobs:
             cpp/build-ubsan/_deps
           key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
 
+      # actionlint is the one GHA meta-check run_ci runs only when the binary is
+      # present — it is an OPTIONAL local tool (gated behind `shutil.which`, see
+      # CLAUDE.md), so without it installed here the enforced sweep silently
+      # SKIPS it ("actionlint skipped (binary not installed)").  The sibling
+      # meta-checks (check-action-pins, check-workflow-permissions) run
+      # unconditionally via `python -m`, so actionlint was the lone hole in the
+      # required gate's GHA coverage.  Install it on PATH so run_ci's actionlint
+      # step runs.  SHA-pinned + verified, mirroring gha-checks.yml's install
+      # (CICD-1.7: the tool that enforces the SHA-pin policy must itself be
+      # fetched verifiably).  Keep ACTIONLINT_VERSION / ACTIONLINT_SHA256 in
+      # sync with .github/workflows/gha-checks.yml.
+      - name: Install actionlint (so run_ci's actionlint gate runs, not skips)
+        env:
+          ACTIONLINT_VERSION: '1.7.7'
+          ACTIONLINT_SHA256: '023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -O \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
+          tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
+          sudo install -m 0755 actionlint /usr/local/bin/actionlint
+          actionlint --version
+
       # --iwyu-all runs the import gate over the WHOLE tree (not just the PR
       # diff) — airtight against cross-file deadness, the merge-gate scope.
       # The local pre-push hook keeps the faster --diff default.
