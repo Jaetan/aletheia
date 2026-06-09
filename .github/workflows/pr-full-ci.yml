@@ -126,7 +126,7 @@ jobs:
           python/.venv/bin/pip install -e 'python/.[dev]'
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 'stable'
 
