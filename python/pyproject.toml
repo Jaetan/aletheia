@@ -57,7 +57,7 @@ aletheia = ["py.typed", "*.pyi"]
 
 [project.optional-dependencies]
 can = ["python-can>=4.0"]
-yaml = ["pyyaml>=6.0"]
+yaml = ["pyyaml>=6.0.3"]
 excel = ["openpyxl>=3.1.5"]
 # Self-reference the individual extras so version pins live in exactly one
 # place (SSOT). Editing can/yaml/excel above automatically flows through
