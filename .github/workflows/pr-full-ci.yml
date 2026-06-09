@@ -123,14 +123,17 @@ jobs:
         with:
           go-version: 'stable'
 
-      # FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18; the build wants
-      # g++>=14 / clang>=21 and clang-tidy + ubsan use clang-19. If clang-19 is
-      # not in the default apt on the runner, add apt.llvm.org. Adjust on red runs.
-      - name: Install C++ toolchain (cmake, g++-14, clang-19 + tidy/format)
+      # FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18, but the build is
+      # Clang >= 19 ONLY (g++ dropped — see cpp/CMakeLists.txt).  Install clang-19
+      # + libstdc++-14-dev: clang-19 needs a C++23 libstdc++ (std::expected /
+      # std::format) and auto-selects the gcc-14 toolchain — the g++-14 *compiler*
+      # is intentionally NOT installed (cgo + GHC use cc/gcc-13).  If clang-19 is
+      # not in the runner's default apt, add apt.llvm.org. Adjust on red runs.
+      - name: Install C++ toolchain (cmake, clang-19 + tidy/format, libstdc++-14)
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y cmake g++-14 clang-19 clang-tidy-19 clang-format-19
+          sudo apt-get install -y cmake clang-19 clang-tidy-19 clang-format-19 libstdc++-14-dev
           sudo update-alternatives --install /usr/bin/clang        clang        /usr/bin/clang-19        100
           sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
           sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
