@@ -75,7 +75,7 @@ jobs:
       # location before CABAL_DIR was pinned) and cache keys are immutable.
       - name: Restore cabal store (Agda library + executable + deps)
         id: cabal-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cabal/store
@@ -88,7 +88,7 @@ jobs:
 
       - name: Save cabal store (persists the Agda build even if a later gate fails)
         if: steps.cabal-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.cabal/store
@@ -97,7 +97,7 @@ jobs:
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.agda/agda-stdlib
           key: agda-stdlib-${{ env.STDLIB_VERSION }}
@@ -114,7 +114,7 @@ jobs:
           echo "standard-library" > ~/.agda/defaults
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.14'
 
@@ -126,7 +126,7 @@ jobs:
           python/.venv/bin/pip install -e 'python/.[dev]'
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 'stable'
 
@@ -163,7 +163,7 @@ jobs:
       # ctest step on the first real run).  Keyed on CMakeLists.txt, which
       # pins the dependency versions, so a bump invalidates the cache.
       - name: Cache C++ FetchContent deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             cpp/build/_deps
