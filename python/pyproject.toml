@@ -92,7 +92,7 @@ dev = [
     # AGENTS.md Python cat 34(b) (NEW R18) — hypothesis-driven property
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
-    "hypothesis>=6.0,<7",
+    "hypothesis>=6.155.2,<7",
     "pylint>=4.0.5,<5",
     "basedpyright>=1.0,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin (pre-1.0,
