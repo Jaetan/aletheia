@@ -127,9 +127,9 @@ clang-19 is required for the IR pass:
 sudo apt install clang-19   # provides /usr/bin/clang-19, /usr/bin/clang++-19
 ```
 
-The standard build (`cmake -B build`) keeps using whatever `clang++` /
-`g++` is on `$PATH`; the mutation lane uses `clang++-19` only inside its
-dedicated `cpp/build-mutation/` tree (set via `-DCMAKE_CXX_COMPILER=clang++-19`).
+The standard build (`cmake -B build`) now also requires `clang++-19` (the
+project is Clang >= 19 only; g++ unsupported); the mutation lane uses the same
+`clang++-19` inside its dedicated `cpp/build-mutation/` tree.
 
 ## Running the lane
 

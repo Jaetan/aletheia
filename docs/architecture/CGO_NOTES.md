@@ -106,7 +106,7 @@ The canonical sanitizer-lane invocation therefore uses clang:
 
 ```
 cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+    -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
 cmake --build build-ubsan
 ctest --test-dir build-ubsan
 ```
@@ -114,11 +114,11 @@ ctest --test-dir build-ubsan
 `tools/run_ci.py` wires this exactly as an always-on step (promoted
 from opt-in R21 CPP-SYS-32.2 — UB in `Rational::from_double` had
 previously shipped undetected exactly because the lane was opt-in).
-When clang is unavailable, the always-on step fails loudly rather than
-silently degrading — the project's primary compiler is g++ (per
-`project_cpp_compilers.md`); the sanitizer build is a separate
-clang-driven artifact that must be present for `tools/run_ci.py` to
-return a green report.
+When clang-19 is unavailable, the always-on step fails loudly rather than
+silently degrading.  The project is Clang >= 19 only (g++ dropped 2026-06-09;
+see `project_cpp_compilers.md`), so the sanitizer build uses the same clang
+toolchain as the unit-test build and must be present for `tools/run_ci.py`
+to return a green report.
 
 ## Sanitizer lane decisions (R18 cluster 5, advisor option (d))
 

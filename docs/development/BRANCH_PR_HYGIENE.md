@@ -133,8 +133,8 @@ impossible on `main`.
 ## Known footguns (baked into the draft, but the likely iteration points)
 
 - **C++/LLVM is the #1 risk.** `ubuntu-24.04` defaults to `gcc-13` / `clang-18`,
-  but the build targets `g++≥14` / `clang≥21` and the clang-tidy + ubsan lanes
-  use `clang-19`. If `clang-19` is not in the runner's default apt, add
+  but the build is `clang≥19` only (g++ dropped) and every C++ lane (ctest,
+  clang-tidy, ubsan) pins `clang-19`. If `clang-19` is not in the runner's default apt, add
   `apt.llvm.org`. Expect this section to go red first.
 - **Diff base.** `run_ci`'s IWYU `--diff` and `changed_agda_files` do
   `git diff main...HEAD`; the checkout needs `fetch-depth: 0` **and** a local

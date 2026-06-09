@@ -538,16 +538,15 @@ cabal run shake -- build
 
 After install, run `cabal run shake -- clean && cabal run shake -- build`.
 
-### Clang / GCC Version Mismatch for C++ Binding
+### Clang Version / C++23 Standard Library for C++ Binding
 
 **Error**: `std::expected` / `std::format` / spaceship operator not found when building `cpp/`, or `error: no member named 'byte' in namespace 'std'`.
 
-**Solution**: The C++ binding targets g++ ≥ 14 and clang ≥ 21 (C++23). Older toolchains compile Aletheia up to the `-std=c++20` cutoff but trip over `<expected>` / `<format>`. Check with:
+**Solution**: The C++ binding is **Clang ≥ 19 only** — g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23; Clang < 19 mis-handles libstdc++-14's `<expected>`. Check with:
 
 ```bash
-g++ --version     # expect 14.x or newer
-clang++ --version # expect 21.x or newer
-cmake -B cpp/build -DCMAKE_CXX_COMPILER=g++-14  # pin explicitly if needed
+clang++-19 --version   # expect 19.x or newer
+cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
 ```
 
 ### Python Venv Version Drift (`ImportError` on Known-Good Code)
@@ -649,7 +648,7 @@ cd cpp && cmake -B build && cmake --build build
 
 **Error**: `error: use of undeclared identifier 'std::format'`
 
-**Solution**: C++23 is required. Ensure g++ >= 14 or clang >= 21.
+**Solution**: C++23 is required. Use Clang ≥ 19 with a libstdc++/libc++ that supports C++23.
 
 ### Go Build/Test Fails
 
