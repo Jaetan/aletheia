@@ -17,8 +17,8 @@ Before the five-minute walkthrough below, the Agda → Haskell shared library ne
 2. **First build** (~60s the first time, cached after):
    ```bash
    cabal run shake -- build        # builds libaletheia-ffi.so from Agda
-   python3 -m venv .venv && source .venv/bin/activate
-   pip install -e python           # editable install of the Python binding
+   cd python && python3 -m venv .venv && source .venv/bin/activate
+   pip install -e . && cd ..        # editable install of the Python binding
    ```
 3. **Verify**: `python3 -c "from aletheia import AletheiaClient"` — no output means the `.so` was found and the binding loaded.
 

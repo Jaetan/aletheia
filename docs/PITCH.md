@@ -339,9 +339,11 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 git clone <repository>
 cd aletheia
 cabal run shake -- build
+cd python
 python3 -m venv .venv
 source .venv/bin/activate        # fish: source .venv/bin/activate.fish
-cd python && pip install -e . && cd ..
+pip install -e .
+cd ..
 python3 examples/simple_verification.py
 ```
 

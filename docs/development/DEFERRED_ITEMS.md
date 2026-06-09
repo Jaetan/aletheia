@@ -240,8 +240,17 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   ```python fences (per `conftest.py`), not the ```bash venv blocks.
 - **Blockers / deps** — none; the convention is already settled (`python/.venv`
   is canonical across all tooling + CLAUDE.md).
-- **Verdict** — `DO` as a **dedicated post-merge docs PR** (user decision
-  2026-06-09: align as a follow-up, keep `ci-speed` focused on PR #7 green).
+- **Verdict** — ✅ **DONE** (2026-06-10, post-merge cleanup PR). Every
+  *tracked* doc standardized on `python/.venv` (`cd python && python3 -m venv
+  .venv` for setup; `source python/.venv/bin/activate` for activation from the
+  repo root): `BUILDING.md` (all setup / troubleshooting / summary blocks),
+  `PITCH.md`, `BENCHMARKS.md`, and `QUICKSTART.md`. The audit surfaced
+  `QUICKSTART.md` beyond the prepared list above; it was fixed. `MUTATION.md`
+  / `MUTATION_BENCH.yaml` / `CI_LOCAL.md` already used the correct
+  `cd python && .venv/…` form and were left unchanged. `docs/presentation/index.html`
+  carries the same repo-root form but is a **gitignored, untracked** local
+  artifact (`.gitignore:57 docs/presentation/`) — out of scope for a committed
+  fix; corrected in the working tree only.
 
 ---
 
@@ -256,8 +265,8 @@ Cheapest / highest-confidence first, so early wins de-risk the harder items:
 4. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
 5. **C.1 / D.1 / F.1 / F.2** — accepted/blocked; no action unless constraints change.
 
-**G.1** runs on its own track — a docs-only PR independent of the Agda backlog
-above, scheduled for right after the `ci-speed` merge.
+**G.1** was resolved in the post-merge cleanup PR (2026-06-10) — a docs-only
+change independent of the Agda backlog above; see its ✅ DONE verdict.
 
 > Each item graduates from this doc to a real task only after a per-item
 > decision with the user. This file is the backlog + rationale, not a commitment.
