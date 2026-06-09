@@ -50,6 +50,13 @@ jobs:
           # ~/.cabal/store/ghc-<ver>/package.db).  Export for later steps too.
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
           export CABAL_DIR="${HOME}/.cabal"
+          # The runner ships a root-owned ghcup (/usr/local/.ghcup), so ghcup's
+          # attempts to refresh its own cache-file timestamps warn with
+          # "setFileTimes: permission denied" — benign but noisy, which trains
+          # readers to ignore the log.  Take ownership first so the warning
+          # disappears and real warnings stay meaningful.  Tolerant: never fail
+          # the build over log hygiene if the path differs on a future runner.
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
           cabal update
