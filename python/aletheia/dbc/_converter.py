@@ -46,7 +46,10 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     """
     path = Path(dbc_path)
     check_dbc_text_size_bound(path.stat().st_size)
-    text = path.read_text(encoding="utf-8")
+    # read_text's encoding is NOT droppable (default is the locale, not utf-8);
+    # "UTF-8" is a codec-name alias of "utf-8" → both the case and the None
+    # mutant are runtime-equivalent here (pragma).
+    text = path.read_text(encoding="utf-8")  # pragma: no mutate
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":
@@ -99,6 +102,8 @@ def convert_dbc_file(
     json_str = dump_json(dbc_json, indent=2)
 
     if output_path:
-        _ = Path(output_path).write_text(json_str, encoding="utf-8")
+        # write_text's encoding is NOT droppable (locale default); "UTF-8" is a
+        # codec-name alias → both the case and None mutant are equivalent (pragma).
+        _ = Path(output_path).write_text(json_str, encoding="utf-8")  # pragma: no mutate
 
     return json_str

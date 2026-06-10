@@ -316,6 +316,60 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
     CHECK(result->values[0].value == PhysicalValue{Rational{1, 3}});
 }
 
+// ── Mutation-kill tests for the binding-layer Rational JSON parsing ──────────
+// The Agda core is proven; the C++ wire-parsing is only tested.  These close
+// real Mull-19 survivors in json_parse.cpp's parse_rational_dict /
+// parse_rational_as_int (each test names the mutant it kills).
+
+TEST_CASE("parse_extraction normalizes a negative-denominator rational",
+          "[json][parse][mutation]") {
+    // {1,-3} must normalize to {-1,3}.  Kills cxx_minus_to_noop at
+    // json_parse.cpp:212-213 (num=-num / den=-den): drop either and the result
+    // is {1,3} (wrong sign) or the Rational den>0 ctor rejects den=-3.
+    auto result = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "Ratio", "value": {"numerator": 1, "denominator": -3}}],
+        "errors": [],
+        "absent": []
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->values[0].value == PhysicalValue{Rational{-1, 3}});
+}
+
+TEST_CASE("parse_frame_response integer property_index uses exact division",
+          "[json][parse][mutation]") {
+    // property_index {6,3} -> 2 (integer field: num / den).  Kills cxx_div_to_mul
+    // at json_parse.cpp:289 (return num / den): the * mutant yields 18.
+    auto result = detail::parse_frame_response(R"({
+        "type": "property_batch",
+        "results": [{"type": "property", "status": "fails",
+                     "property_index": {"numerator": 6, "denominator": 3},
+                     "timestamp": {"numerator": 3000000, "denominator": 1}}]
+    })");
+    REQUIRE(result.has_value());
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    CHECK(v->property_index == PropertyIndex{2});
+}
+
+TEST_CASE("parse_frame_response accepts a zero timestamp", "[json][parse][mutation]") {
+    // timestamp 0 is the legal lower boundary (>= 0).  Kills cxx_lt_to_le at
+    // json_parse.cpp:830 (if ts_val < 0 throw): the <= mutant wrongly rejects 0.
+    auto result = detail::parse_frame_response(R"({
+        "type": "property_batch",
+        "results": [{"type": "property", "status": "fails",
+                     "property_index": {"numerator": 1, "denominator": 1},
+                     "timestamp": {"numerator": 0, "denominator": 1}}]
+    })");
+    REQUIRE(result.has_value());
+    auto& b = std::get<PropertyBatch>(*result);
+    auto* v = b.first_violation();
+    REQUIRE(v != nullptr);
+    REQUIRE(v->timestamp.has_value());
+    CHECK(*v->timestamp == Timestamp{0});
+}
+
 TEST_CASE("parse_frame_data response", "[json][parse]") {
     auto result = detail::parse_frame_data(R"({
         "status": "success",
@@ -1170,7 +1224,10 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
         "errors": [], "absent": []
     })");
     CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("denominator"));
+    // Assert the specific "Zero denominator" wording, not just "denominator":
+    // the latter also matches the Rational ctor's "denominator must be positive",
+    // so a den == 0 check that fell through to {num, 0} would pass a loose match.
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Zero denominator"));
 }
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {

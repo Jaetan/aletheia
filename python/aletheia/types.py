@@ -105,7 +105,20 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
     byte-identical with them (cross-binding wire-byte parity).
     """
-    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
+    return json.dumps(
+        value,
+        cls=FractionJSONEncoder,
+        indent=indent,
+        # ensure_ascii=False is pinned for cross-binding wire-byte parity.  The
+        # False→None mutant is an irreducible equivalent (None is falsy, so
+        # json.dumps treats it identically to False).  mutmut attributes a
+        # multi-line call-arg mutation to the call-open line, so a per-arg
+        # `# pragma: no mutate` cannot isolate it without collaterally excluding
+        # the killable value/cls/indent args; it is therefore the single
+        # documented survivor (python baseline = 1, docs/MUTATION_BENCH.yaml).
+        # The False→True mutant IS killed (the non-ASCII serialization test).
+        ensure_ascii=False,
+    )
 
 
 def to_signal_fraction(value: float | Fraction) -> Fraction:
@@ -113,13 +126,13 @@ def to_signal_fraction(value: float | Fraction) -> Fraction:
 
     Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
     decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
-    IEEE-754 approximation's monstrous denominator.  Int and existing
-    Fraction inputs flow through unchanged.
+    IEEE-754 approximation's monstrous denominator.  Existing Fraction inputs
+    flow through unchanged; integers are exact via the general path
+    (``limit_denominator`` is a no-op on an integer value — its denominator is
+    already 1, well under the cap), so no separate int branch is needed.
     """
     if isinstance(value, Fraction):
         return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
     return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN_PROTOCOLS)
 
 
@@ -151,7 +164,9 @@ def is_str_dict(val: object) -> TypeGuard[dict[str, JSONValue]]:
 
     """
     return isinstance(val, dict) and all(
-        isinstance(k, str) for k in cast("dict[object, object]", val)
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+        isinstance(k, str)
+        for k in cast("dict[object, object]", val)  # pragma: no mutate
     )
 
 

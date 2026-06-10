@@ -204,13 +204,19 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
 static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
     auto num = j.at("numerator").get<std::int64_t>();
     auto den = j.at("denominator").get<std::int64_t>();
-    if (den == 0)
-        throw std::runtime_error("Zero denominator in rational: " + j.dump());
+    // Branch on sign first: a negative denominator is normalized (num/den both
+    // negated, with the asymmetric INT64_MIN guard); a zero denominator is
+    // rejected in the non-negative arm.  Ordering the den == 0 check after the
+    // den < 0 branch keeps the "< 0" boundary observable — routing den == 0
+    // through normalization would yield {num, 0}, which every caller rejects
+    // (Rational ctor) or crashes on (num % 0), distinct from this clean throw.
     if (den < 0) {
         if (num == std::numeric_limits<std::int64_t>::min())
             throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
         num = -num;
         den = -den;
+    } else if (den == 0) {
+        throw std::runtime_error("Zero denominator in rational: " + j.dump());
     }
     return {num, den};
 }

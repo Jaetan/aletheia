@@ -208,6 +208,7 @@ add_library(aletheia-cpp
     src/backend.cpp
     src/client.cpp
     src/dbc.cpp
+    src/detail/ffi_logic.cpp
     src/detail/loader_utils.cpp
     src/detail/rts_init.cpp
     src/enrich.cpp
@@ -342,7 +343,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         tests/unit_tests_log.cpp
         tests/unit_tests_cancel.cpp
         tests/unit_tests_input_bounds.cpp
-        tests/unit_tests_property.cpp)
+        tests/unit_tests_property.cpp
+        tests/unit_tests_ffi_logic.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)

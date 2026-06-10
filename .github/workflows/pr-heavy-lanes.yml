@@ -1,0 +1,357 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Phase 2 of the skipped-gate cleanup (Phase 1 = actionlint in pr-full-ci.yml).
+# The three heavy opt-in lanes that `tools/run_ci.py` skips by default —
+# reproducible-build, stability bench, mutation testing — run here as separate
+# PARALLEL jobs, OFF the required sweep's critical path (ready-time = max, not
+# sum).  Each invokes the lane TOOL directly (not `run_ci --<lane>`, which would
+# redundantly re-run the whole ~36-min base sweep already covered by
+# pr-full-ci.yml).
+#
+# Enforcement split (see docs/development/DEFERRED_ITEMS.md + BRANCH_PR_HYGIENE):
+#   * reproducible-build — DETERMINISTIC (two clean builds, sha256 compare);
+#     intended to become a REQUIRED check.  Runs on every PR event so the
+#     required status always reflects the latest commit.
+#   * stability bench / mutation testing — ADVISORY (timing-flaky / score-
+#     squishy).  NOT required.  Run on EVERY PR commit-state (incl.
+#     synchronize) so the advisory result reflects the latest commit — a
+#     `synchronize`-skip froze them at the PR's first (often broken) commit.
+#     Per-job `cancel-in-progress` collapses rapid iteration to ~one run on
+#     the settled state, which is how AGENTS.md cat 14g's "once per PR, not
+#     per-commit" is honored (cancellation, not a skip).  `workflow_dispatch`
+#     remains for manual re-runs.
+#
+# Toolchain steps are copied verbatim from pr-full-ci.yml (same cache keys, so
+# these jobs hit the Agda store that workflow already populated).
+
+name: Heavy lanes (PR)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GHC_VERSION: '9.6.7'
+  AGDA_VERSION: '2.8.0'
+  STDLIB_VERSION: 'v2.3'
+
+jobs:
+  # ── Lane 1: reproducible-build (REQUIRED-intended; deterministic) ──────────
+  # Self-building: tools.check_reproducible_build runs `cabal run shake -- build`
+  # twice and compares sha256(build/libaletheia-ffi.so).  Needs only the Agda
+  # toolchain + a 3.14 python to invoke the tool (no venv extras, no C++/Go).
+  reproducible-build:
+    name: reproducible-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Push-iteration hygiene: a new commit cancels the stale repro run.  Its
+    # OWN group, so it never cancels the long advisory lanes below.
+    concurrency:
+      group: heavy-repro-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          cabal update
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Reproducible-build hash gate (two clean builds, sha256 compare)
+        run: python3 -m tools.check_reproducible_build
+
+  # ── Lane 2: stability bench (ADVISORY; once per PR) ────────────────────────
+  stability:
+    name: stability bench (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Runs on every PR commit-state so the advisory result reflects the latest
+    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
+    # settled state.  Own group so it never cancels the repro / mutation lanes.
+    concurrency:
+      group: heavy-stability-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          cabal update
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      - name: Install C++ toolchain (cmake, clang-19, libstdc++-14)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-19 libstdc++-14-dev
+          sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-19   100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+
+      # stability_run errors if these are absent (build/libaletheia-ffi.so and
+      # cpp/build/stability_bench).  Build them up front; the Go harness is
+      # built/run by the runner itself.
+      - name: Build the FFI library + C++ stability harness
+        run: |
+          set -euo pipefail
+          cabal run shake -- build
+          # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
+          # default source dir when only -B is given).  The first run failed
+          # with "source directory does not contain CMakeLists.txt".
+          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 > /dev/null
+          cmake --build cpp/build --target stability_bench
+
+      - name: Stability bench (advisory)
+        env:
+          ALETHEIA_STABILITY_CHECK: '1'
+        run: python/.venv/bin/python3 -m tools.stability_run
+
+  # ── Lane 3: mutation testing (ADVISORY; once per PR) ───────────────────────
+  mutation:
+    name: mutation testing (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # Runs on every PR commit-state so the advisory result reflects the latest
+    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
+    # settled state.  Own group so it never cancels the repro / stability lanes.
+    concurrency:
+      group: heavy-mutation-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          cabal update
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv with the [mutation] extra (mutmut)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
+
+      - name: Set up Go + gremlins
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      - name: Install gremlins (Go mutation tool)
+        run: |
+          set -euo pipefail
+          go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+          echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
+
+      - name: Install C++ toolchain (cmake, clang-19, libstdc++-14)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-19 libstdc++-14-dev
+          sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-19   100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+
+      # Mull-19 (matches LLVM 19 / clang-19).  Extract the release deb locally
+      # to ~/.local/bin (no system install needed).  Mirrors CLAUDE.md.
+      - name: Install Mull-19 (C++ mutation engine)
+        env:
+          MULL_DEB: 'Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb'
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.local/bin"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -O \
+            "https://github.com/mull-project/mull/releases/download/0.33.0/${MULL_DEB}"
+          dpkg-deb -x "${MULL_DEB}" /tmp/mull-extract
+          cp /tmp/mull-extract/usr/bin/mull-runner-19   "${HOME}/.local/bin/"
+          cp /tmp/mull-extract/usr/bin/mull-reporter-19 "${HOME}/.local/bin/"
+          cp /tmp/mull-extract/usr/lib/mull-ir-frontend-19 "${HOME}/.local/bin/"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
+        run: cabal run shake -- build
+
+      - name: Mutation testing across the three bindings (advisory)
+        env:
+          ALETHEIA_MUTATION_CHECK: '1'
+        run: python/.venv/bin/python3 -m tools.mutation_run

@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger("aletheia")
 
 
-def _send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
+def send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
     """Stub assigned to ``_send_frame_binary`` before ``__enter__`` runs.
 
     Replaced in :meth:`AletheiaClient.__enter__` with the backend's actual
@@ -123,7 +123,10 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
     def __init__(
         self,
         default_checks: list[CheckResult] | None = None,
-        rts_cores: int = 1,
+        # rts_cores feeds FFIBackend's once-per-process GHC RTS init; the global
+        # RTS is already initialized by an earlier client in-suite, so the
+        # default value is not observable by any in-process test.
+        rts_cores: int = 1,  # pragma: no mutate
         *,
         backend: Backend | None = None,
     ) -> None:
@@ -154,12 +157,18 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         # Backend factory: non-None iff the Client owns the backend
         # lifecycle (closes over rts_cores; cleared on ``close()``).
         # User-injected backends are caller-owned: factory stays None.
+        # The FFIBackend(rts_cores=...) value feeds the process-global GHC RTS
+        # init, so (like the rts_cores default) it is unobservable in-suite.
         self._make_backend: Callable[[], Backend] | None = (
-            None if backend is not None else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))
+            None
+            if backend is not None
+            else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))  # pragma: no mutate
         )
         # Hot-path send_frame_binary bound method; rebound on __enter__,
-        # cleared back to the stub on ``close()``.
-        self._send_frame_binary: Callable[..., bytes] = _send_frame_unbound
+        # cleared back to the stub on ``close()``.  The stub-vs-None initial
+        # value is a defensive default that send_frame's own _state guard
+        # shadows on every public path → the `= None` mutant is unobservable.
+        self._send_frame_binary: Callable[..., bytes] = send_frame_unbound  # pragma: no mutate
         # Serializes every FFI call on ``self._state`` (the StreamState
         # StablePtr) against ``close()``.  An async op cancelled mid-flight
         # abandons its ``to_thread`` worker, which can keep running inside an
@@ -175,9 +184,15 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Construct the FFIBackend (if not injected), initialize state."""
         if self._backend is None:
             make_backend = self._make_backend
-            if make_backend is None:  # invariant: factory set whenever backend unset
+            # Unreachable invariant: the factory is set whenever backend is unset
+            # (see __init__), and close() never clears it — so this guard cannot
+            # fire via any public path.  Kept as a defensive assertion; its
+            # mutants are therefore unobservable.
+            # pragma: no mutate start
+            if make_backend is None:
                 msg = "Client backend factory missing — constructed without a backend?"
                 raise StateError(msg)
+            # pragma: no mutate end
             self._backend = make_backend()
         self._state = self._backend.init()
         # Cache the hot-path bound method to skip per-frame
@@ -201,7 +216,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                     self._backend.close(self._state)
             finally:
                 self._state = None
-                self._send_frame_binary = _send_frame_unbound
+                # Defensive reset (same shadowed-by-_state-guard rationale as the
+                # __init__ default above) → the `= None` mutant is unobservable.
+                self._send_frame_binary = send_frame_unbound  # pragma: no mutate
                 # Only drop the backend reference when the Client constructed
                 # it; user-injected backends are caller-owned.
                 if self._make_backend is not None:
@@ -237,7 +254,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         binding's short-circuit so we do not allocate a 100 MB ctypes
         buffer only to be rejected on the other side.
         """
-        json_bytes = dump_json(command).encode("utf-8")
+        json_bytes = dump_json(command).encode()  # str.encode defaults to utf-8
         if len(json_bytes) > MAX_JSON_BYTES:
             raise InputBoundExceededError(
                 BOUND_KIND_INPUT_LENGTH_BYTES,
@@ -250,7 +267,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             result_bytes = self._backend.process(self._state, json_bytes)
-        return cast("Response", parse_json_object(result_bytes.decode("utf-8")))
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour
+        # (the bytes.decode default is utf-8, so no explicit codec to mutate).
+        return cast("Response", parse_json_object(result_bytes.decode()))  # pragma: no mutate
 
     def _resolve_signal_indices(
         self,
@@ -290,7 +309,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Refresh the per-message signal name/index cache from a DBC body."""
         self._signal_lookup.clear()
         for msg in dbc["messages"]:
-            msg_ext = bool(msg.get("extended", False))
+            # `bool(.get("extended"))` already yields False when absent
+            # (bool(None) is False), so the explicit False default is redundant —
+            # dropping it removes the default-value equivalent mutants while the
+            # key-name mutants stay killable (the extended-lookup test).
+            msg_ext = bool(msg.get("extended"))
             sig_map: dict[str, int] = {}
             names: list[str] = []
             for i, sig in enumerate(msg["signals"]):
@@ -345,7 +368,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         separately; the additional inner cap matches the Agda kernel's
         two-layer enforcement in ``handleParseDBCText``.
         """
-        text_bytes = text.encode("utf-8")
+        text_bytes = text.encode()  # str.encode defaults to utf-8
         if len(text_bytes) > MAX_DBC_TEXT_BYTES:
             raise InputBoundExceededError(
                 BOUND_KIND_INPUT_LENGTH_BYTES,
@@ -378,7 +401,8 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         status = response.get("status")
 
         if status == "validation":
-            vresp = cast("ValidationResponse", response)
+            # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+            vresp = cast("ValidationResponse", response)  # pragma: no mutate
             return {
                 "status": "validation",
                 "has_errors": vresp["has_errors"],
@@ -416,7 +440,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.format_dbc_binary(self._state)
-        response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour
+        # (the bytes.decode default is utf-8, so no explicit codec to mutate).
+        response = cast("Response", parse_json_object(response_bytes.decode()))  # pragma: no mutate
         status = response.get("status")
 
         if status == "success":
