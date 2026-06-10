@@ -29,10 +29,12 @@
 --      msg-id uniqueness.  The crux.
 --   4. Layer 2/3 — `attachToMessageSenders-on-collected`: per-message attach.
 --   5. Layer 4 — `attachSenders-on-collectSenders`: list-level base bridge.
---
--- The lifted form for the universal aggregator
--- (`attachSenders (collectSenders msgs) (map clearSendersMsg msgs) ≡ msgs`)
--- is a subsequent file addition (the A.2 E.9a analogue).
+--   6. Lifted form — `attachSenders-on-clearSendersMsgs-collectSenders`: the
+--      bridge the universal aggregator actually needs (parsed messages carry
+--      `senders = []`, so the attach runs over `map clearSendersMsg msgs`).
+--      The A.2 analogue of VAL_'s E.9a `clearVds` lifted form — simpler here
+--      (message-level, so no `map clearVds` over signals / map-map fusion of
+--      the inner signal list).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.Senders where
 
 open import Data.Empty using (⊥-elim)
@@ -49,7 +51,7 @@ open import Relation.Nullary using (yes; no)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.Types using (DBCMessage)
+open import Aletheia.DBC.Types using (DBCMessage; clearSendersMsg)
 open import Aletheia.DBC.TextParser.Senders using
   ( RawMsgSenders; mkRawMsgSenders
   ; lookup-senders; attachWithMaybeSenders; attachToMessageSenders; attachSenders
@@ -234,3 +236,80 @@ attachSenders-on-collectSenders msgs msg-uniq =
   map-≡-id msgs
     (attachToMessageSenders (collectSenders msgs))
     (λ m m∈ → attachToMessageSenders-on-collected msgs m m∈ msg-uniq)
+
+-- ============================================================================
+-- LIFTED FORM — attach onto cleared-senders messages (the A.2 E.9a analogue)
+-- ============================================================================
+--
+-- `parseMessage` produces messages with `senders = []`; the BO_TX_BU_
+-- section arrives separately and is stitched back in by `attachSenders`.  The
+-- universal aggregator therefore needs the variant where the attach runs over
+-- `map clearSendersMsg msgs` rather than `msgs`.
+
+-- attachWithMaybeSenders against the singletonFromSenders output, with the
+-- target message already cleared, recovers the original.  In the cons branch
+-- the double record-update `record (record m { senders = [] }) { senders = … }`
+-- collapses definitionally to a single update on the same field, so both
+-- branches share the `record m { senders = … }` cong shape.
+attachWithMaybeSenders-clearSenders-on-singletonFromSenders :
+    ∀ (m : DBCMessage) (snds : List Identifier)
+  → DBCMessage.senders m ≡ snds
+  → attachWithMaybeSenders (clearSendersMsg m) (singletonFromSenders snds) ≡ m
+attachWithMaybeSenders-clearSenders-on-singletonFromSenders m []        eq =
+  trans (cong (λ z → record m { senders = z }) (sym eq)) record-η-senders
+  where
+    record-η-senders : record m { senders = DBCMessage.senders m } ≡ m
+    record-η-senders = refl
+attachWithMaybeSenders-clearSenders-on-singletonFromSenders m (x ∷ snds) eq =
+  trans (cong (λ z → record m { senders = z }) (sym eq)) record-η-senders
+  where
+    record-η-senders : record m { senders = DBCMessage.senders m } ≡ m
+    record-η-senders = refl
+
+-- Per-message lifted bridge.  `clearSendersMsg m` only changes `senders`, so
+-- `DBCMessage.id (clearSendersMsg m) ≡ DBCMessage.id m` definitionally and the
+-- lookup is keyed by `m`'s original id against the original collection.
+attachToMessageSenders-clearSendersMsg-on-collected :
+    ∀ (msgs : List DBCMessage) (m : DBCMessage)
+  → m ∈ msgs
+  → AllPairs _≢_ (map DBCMessage.id msgs)
+  → attachToMessageSenders (collectSenders msgs) (clearSendersMsg m) ≡ m
+attachToMessageSenders-clearSendersMsg-on-collected msgs m m∈ msg-uniq =
+  trans
+    (cong (attachWithMaybeSenders (clearSendersMsg m))
+      (lookup-senders-on-collected msgs m m∈ msg-uniq))
+    (attachWithMaybeSenders-clearSenders-on-singletonFromSenders m
+       (DBCMessage.senders m) refl)
+
+-- List-level lifted bridge — the universal target.  Composes the per-message
+-- lifted bridge pointwise via `map-≡-id`, after fusing the two `map`s.
+attachSenders-on-clearSendersMsgs-collectSenders :
+    ∀ (msgs : List DBCMessage)
+  → AllPairs _≢_ (map DBCMessage.id msgs)
+  → attachSenders (collectSenders msgs) (map clearSendersMsg msgs) ≡ msgs
+attachSenders-on-clearSendersMsgs-collectSenders msgs msg-uniq =
+  trans
+    (map-map-fusion-clearSendersMsg msgs (collectSenders msgs))
+    (map-≡-id msgs
+      (λ m → attachToMessageSenders (collectSenders msgs) (clearSendersMsg m))
+      (λ m m∈ → attachToMessageSenders-clearSendersMsg-on-collected msgs m m∈ msg-uniq))
+  where
+    -- map (attachToMessageSenders rms) (map clearSendersMsg ms)
+    -- ≡ map (λ m → attachToMessageSenders rms (clearSendersMsg m)) ms
+    map-map-fusion-clearSendersMsg :
+        ∀ (ms : List DBCMessage) (rms : List RawMsgSenders)
+      → map (attachToMessageSenders rms) (map clearSendersMsg ms)
+        ≡ map (λ m → attachToMessageSenders rms (clearSendersMsg m)) ms
+    map-map-fusion-clearSendersMsg []       _   = refl
+    map-map-fusion-clearSendersMsg (m ∷ ms) rms =
+      cong (attachToMessageSenders rms (clearSendersMsg m) ∷_)
+           (map-map-fusion-clearSendersMsg ms rms)
+
+-- Unfolded form (`attachSenders` reduced to `map`) — the shape the universal
+-- aggregator's goal takes once `buildDBC` unfolds `attachSenders`.
+map-attachToMessageSenders-on-clearSendersMsgs-collected :
+    ∀ (msgs : List DBCMessage)
+  → AllPairs _≢_ (map DBCMessage.id msgs)
+  → map (attachToMessageSenders (collectSenders msgs)) (map clearSendersMsg msgs) ≡ msgs
+map-attachToMessageSenders-on-clearSendersMsgs-collected =
+  attachSenders-on-clearSendersMsgs-collectSenders

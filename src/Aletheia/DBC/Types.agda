@@ -131,6 +131,15 @@ clearVds s = record s { valueDescriptions = [] }
 clearVdsMsg : DBCMessage → DBCMessage
 clearVdsMsg m = record m { signals = map clearVds (DBCMessage.signals m) }
 
+-- Drop the `senders` field on a message.  The A.2 (BO_TX_BU_) analogue of
+-- `clearVdsMsg`: `parseMessage` produces messages with `senders = []`
+-- (BO_TX_BU_ lines arrive at DBC-level via top-stmts and are stitched back
+-- in by `attachSenders`), so the per-message proof claims its result equals
+-- `clearSendersMsg msg`, NOT `msg`.  The Universal bridges via
+-- `attachSenders (collectSenders msgs) (map clearSendersMsg msgs) ≡ msgs`.
+clearSendersMsg : DBCMessage → DBCMessage
+clearSendersMsg m = record m { senders = [] }
+
 -- ============================================================================
 -- NODE (DBC BU_ keyword)
 -- ============================================================================
