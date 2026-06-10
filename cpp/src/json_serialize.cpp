@@ -44,10 +44,12 @@ static auto rational_to_json(const Rational& r) -> Json {
     }
     auto num = r.numerator();
     auto den = r.denominator();
-    if (den < 0) {
-        num = -num;
-        den = -den;
-    }
+    // The den < 0 normalization here was unreachable dead code: `r` is a
+    // Rational, whose ctor enforces den > 0 (throws otherwise), so
+    // r.denominator() is always positive.  Removed — it harbored untestable
+    // surviving mutants under Mull (json_serialize.cpp cxx_lt_to_le /
+    // cxx_minus_to_noop).  The INT64_MIN guard above is the only reachable
+    // defensive branch (num can legitimately be INT64_MIN).
     if (den == 0) {
         // Mirrored at the `Rational::make` invariant; emit raw to surface
         // the bug rather than masking it.
