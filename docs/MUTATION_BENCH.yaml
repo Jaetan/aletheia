@@ -155,15 +155,17 @@ bindings:
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:
-      # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch,
-      # post-cluster-6 head).  17 surviving mutants distributed across
-      # `cpp/src/{json_parse.cpp,json_serialize.cpp,client.cpp,...}` —
-      # see `benchmarks/mutation/<short-sha>/cpp.raw.txt` from a fresh
-      # `tools/run_ci.py --mutation` for the per-line list.  Each
-      # surviving mutant is itself a candidate finding (per AGENTS.md cat
-      # 14(g) "an unjustified survivor is a test gap"); they are tracked
-      # individually as follow-up backlog and addressed in their own PRs.
-      survivors: 17
-      total_mutants: 39
-      score_pct: 56
-      run_at: "2026-05-09"
+      # Re-recorded 2026-06-10.  The prior 2026-05-09 baseline (17/39/56%)
+      # was stale: `json_parse.cpp`/`json_serialize.cpp` saw 21 commits since
+      # then (the R23 cluster-C fixes + the `Rational` struct→class promotion
+      # `8aff66b` + the Fraction-pipeline work), so the Mull mutant surface
+      # changed (39 → 56 total mutants).  Current sound Mull-19 measurement:
+      # 33 killed / 23 survived / 59% (score up from 56%).  Survivors are
+      # concentrated in the Rational num/den normalization edges
+      # (negative-denominator, `-num`, `/`↔`*`) of json_parse/json_serialize;
+      # each is a candidate finding (AGENTS.md cat 14(g)) tracked for the
+      # separate survivor-elimination backlog.  This baseline pins the floor.
+      survivors: 23
+      total_mutants: 56
+      score_pct: 59
+      run_at: "2026-06-10"
