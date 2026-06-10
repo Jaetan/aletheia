@@ -21,12 +21,12 @@
 --
 -- `BO_TX_BU_` arrives here instead of in `TextParser.Topology` because it
 -- lives at the top level (sibling of `BO_`), not nested under a message.
--- It is drop-parsed for now — the B.3.b skeleton leaves `senders = []` on
--- `parseMessage`'s output (see `TextParser.Topology` lines 45, 348), and
--- B.3.c.k does not promote senders end-to-end yet.  Wire-syntactic
--- recognition still fires so malformed lines reject the whole file,
--- matching the parse-and-drop stance used for `VAL_` / `SIG_VALTYPE_` /
--- `SG_MUL_VAL_`.
+-- It is captured as a `RawMsgSenders` (A.2, via the Format DSL `MsgSenders-
+-- format`) but is currently still DROPPED at partition (`consTop (TSBOTxBu
+-- _)` is a no-op) — `parseMessage` leaves `senders = []` and the captured
+-- list is stitched back into `DBCMessage.senders` by `attachSenders` at
+-- `buildDBC` in a later A.2 sub-commit.  Until then the parse-and-drop
+-- stance matches `SIG_VALTYPE_` / `SG_MUL_VAL_`.
 --
 -- Dispatch ordering — longest-first where prefixes collide:
 --   1. Attribute family via `parseAttrLine` (which itself is longest-
@@ -49,8 +49,10 @@
 -- inside `parseAttrLine` today.
 --
 -- `TopStmt` projection constraints (enforced by the drop-parsers):
---   * Every parsed `BO_TX_BU_` line collapses to `TSBOTxBu`; the
---     `senders` field on every `DBCMessage` stays `[]`.
+--   * Every parsed `BO_TX_BU_` line carries a `RawMsgSenders` via
+--     `TSBOTxBu` (A.2); it is currently dropped at partition, so the
+--     `senders` field on every `DBCMessage` still emerges `[]` until the
+--     `attachSenders` wiring lands.
 --   * Every parsed `SG_MUL_VAL_` line collapses to `TSSigMulVal`; every
 --     `DBCSignal.presence` in the output is either `Always` or
 --     `When _ (v ∷ [])` (single-value selector).
@@ -65,16 +67,21 @@ module Aletheia.DBC.TextParser.TopLevel where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (nothing)
-open import Data.Product using (_×_; _,_)
-open import Data.Unit using (⊤; tt)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Unit using (⊤)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; _<|>_; _*>_;
-   char; string; many)
+   fail; many)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseWS; parseWSOpt; parseNewline;
-   parseNatural)
+  (parseNewline)
+open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.TextParser.Format using (parse)
+open import Aletheia.DBC.TextParser.Format.MessageSenders using (MsgSenders-format)
+open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
+open import Aletheia.DBC.TextParser.Senders using (RawMsgSenders; mkRawMsgSenders)
 open import Aletheia.DBC.TextParser.Preamble using
   (parseVersion; parseNamespace; parseBitTiming)
 open import Aletheia.DBC.TextParser.Topology using
@@ -98,47 +105,47 @@ open import Aletheia.DBC.Types using
   (DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup; Node)
 
 -- ============================================================================
--- BO_TX_BU_ DROP PARSER
+-- BO_TX_BU_ LINE PARSER
 -- ============================================================================
 
--- `BO_TX_BU_ ws nat ws? ":" ws? identifier ("," ws? identifier)* ws? ";"
---  newline` + trailing blank-line tolerance via `many parseNewline`.
+-- `BO_TX_BU_ <id> : n1,n2,…;` + trailing blank-line tolerance.  Derived from
+-- the Format DSL `MsgSenders-format` (parallels `parseValueDescription`): the
+-- DSL parses the raw `(ℕ , Identifier , List Identifier)` line shape, and the
+-- wrapper decodes the CAN ID via `buildCANId` (out-of-range IDs reject the
+-- whole file, mirroring `parseMessage` / `parseValueDescription`) and consumes
+-- optional trailing blank lines.
 --
--- Scope — parsed but discarded: `DBCMessage.senders` stays `[]` on the
--- message produced by `parseMessage` (see `TextParser.Topology` line 348).
--- Promoting the sender list requires cross-line coordination with the
--- message table (match by CAN ID), which is a separate future sub-commit.
-parseBOTxBu : Parser ⊤
+-- The captured `RawMsgSenders` is currently still DROPPED at partition
+-- (`consTop (TSBOTxBu _)` is a no-op) — the A.2 senders section is stitched
+-- into `buildDBC` via `attachSenders` in a later sub-commit.  Capturing it
+-- here (vs the prior `Parser ⊤` drop) is the parser-side half of that wiring.
+buildSendersResult : Maybe CANId → List Identifier → Parser RawMsgSenders
+buildSendersResult nothing      _    = fail
+buildSendersResult (just canId) snds = pure (mkRawMsgSenders canId snds)
+
+parseBOTxBu : Parser RawMsgSenders
 parseBOTxBu = do
-  _ ← string "BO_TX_BU_"
-  _ ← parseWS
-  _ ← parseNatural       -- owning message's CAN ID, discarded
-  _ ← parseWSOpt
-  _ ← char ':'
-  _ ← parseWSOpt
-  _ ← parseIdentifier    -- first sender, discarded
-  _ ← many (char ',' *> parseWSOpt *> parseIdentifier)
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure tt
+  triple ← parse MsgSenders-format
+  _      ← many parseNewline
+  buildSendersResult (buildCANId (proj₁ triple))
+                     (proj₁ (proj₂ triple) ∷ proj₂ (proj₂ triple))
 
 -- ============================================================================
 -- TOP-STATEMENT SUM
 -- ============================================================================
 
 -- One top-level DBC statement as parsed from the input.  Payload
--- constructors carry the per-construct parser's output; drop
--- constructors (`TSBOTxBu` / `TSSigValType` / `TSSigMulVal`) carry no
--- payload — they mark presence of a syntactically-valid but
--- structurally-dropped line so the refinement layer can skip them
--- without re-parsing.  `TSValueDesc` carries `RawValueDesc` post-E.4;
--- E.5's refine pass routes it into `DBCSignal.valueDescriptions`.
+-- constructors carry the per-construct parser's output; the remaining drop
+-- constructors (`TSSigValType` / `TSSigMulVal`) carry no payload — they mark
+-- presence of a syntactically-valid but structurally-dropped line so the
+-- refinement layer can skip them without re-parsing.  `TSValueDesc` carries
+-- `RawValueDesc` post-E.4; E.5's refine pass routes it into `DBCSignal.
+-- valueDescriptions`.  `TSBOTxBu` carries `RawMsgSenders` (A.2); its refine
+-- pass (`attachSenders`) routes it into `DBCMessage.senders` once wired.
 data TopStmt : Set where
   TSValueTable  : ValueTable      → TopStmt
   TSMessage     : DBCMessage      → TopStmt
-  TSBOTxBu      :                   TopStmt
+  TSBOTxBu      : RawMsgSenders   → TopStmt
   TSEnvVar      : EnvironmentVar  → TopStmt
   TSComment     : DBCComment      → TopStmt
   TSAttribute   : RawDBCAttribute → TopStmt
@@ -185,8 +192,8 @@ private
   parseTopStmt-BA = parseAttrLine >>= λ a → pure (TSAttribute a)
 
   parseTopStmt-BO : Parser TopStmt
-  parseTopStmt-BO = (parseBOTxBu  *> pure TSBOTxBu)
-                <|> (parseMessage >>= λ m → pure (TSMessage m))
+  parseTopStmt-BO = (parseBOTxBu  >>= λ rms → pure (TSBOTxBu rms))
+                <|> (parseMessage >>= λ m   → pure (TSMessage m))
 
   parseTopStmt-SI : Parser TopStmt
   parseTopStmt-SI = (parseSigValType  *> pure TSSigValType)
@@ -243,7 +250,7 @@ consTop (TSValueTable vt)  c =
   record c { valueTables     = vt ∷ CollectedTop.valueTables     c }
 consTop (TSMessage m)      c =
   record c { messages        = m  ∷ CollectedTop.messages        c }
-consTop TSBOTxBu           c = c
+consTop (TSBOTxBu _)       c = c
 consTop (TSEnvVar e)       c =
   record c { environmentVars = e  ∷ CollectedTop.environmentVars c }
 consTop (TSComment cm)     c =
