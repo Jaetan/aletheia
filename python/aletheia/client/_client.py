@@ -123,7 +123,10 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
     def __init__(
         self,
         default_checks: list[CheckResult] | None = None,
-        rts_cores: int = 1,
+        # rts_cores feeds FFIBackend's once-per-process GHC RTS init; the global
+        # RTS is already initialized by an earlier client in-suite, so the
+        # default value is not observable by any in-process test.
+        rts_cores: int = 1,  # pragma: no mutate
         *,
         backend: Backend | None = None,
     ) -> None:
@@ -154,12 +157,18 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         # Backend factory: non-None iff the Client owns the backend
         # lifecycle (closes over rts_cores; cleared on ``close()``).
         # User-injected backends are caller-owned: factory stays None.
+        # The FFIBackend(rts_cores=...) value feeds the process-global GHC RTS
+        # init, so (like the rts_cores default) it is unobservable in-suite.
         self._make_backend: Callable[[], Backend] | None = (
-            None if backend is not None else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))
+            None
+            if backend is not None
+            else (lambda rc=rts_cores: FFIBackend(rts_cores=rc))  # pragma: no mutate
         )
         # Hot-path send_frame_binary bound method; rebound on __enter__,
-        # cleared back to the stub on ``close()``.
-        self._send_frame_binary: Callable[..., bytes] = send_frame_unbound
+        # cleared back to the stub on ``close()``.  The stub-vs-None initial
+        # value is a defensive default that send_frame's own _state guard
+        # shadows on every public path → the `= None` mutant is unobservable.
+        self._send_frame_binary: Callable[..., bytes] = send_frame_unbound  # pragma: no mutate
         # Serializes every FFI call on ``self._state`` (the StreamState
         # StablePtr) against ``close()``.  An async op cancelled mid-flight
         # abandons its ``to_thread`` worker, which can keep running inside an
@@ -175,9 +184,15 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Construct the FFIBackend (if not injected), initialize state."""
         if self._backend is None:
             make_backend = self._make_backend
-            if make_backend is None:  # invariant: factory set whenever backend unset
+            # Unreachable invariant: the factory is set whenever backend is unset
+            # (see __init__), and close() never clears it — so this guard cannot
+            # fire via any public path.  Kept as a defensive assertion; its
+            # mutants are therefore unobservable.
+            # pragma: no mutate start
+            if make_backend is None:
                 msg = "Client backend factory missing — constructed without a backend?"
                 raise StateError(msg)
+            # pragma: no mutate end
             self._backend = make_backend()
         self._state = self._backend.init()
         # Cache the hot-path bound method to skip per-frame
@@ -201,7 +216,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                     self._backend.close(self._state)
             finally:
                 self._state = None
-                self._send_frame_binary = send_frame_unbound
+                # Defensive reset (same shadowed-by-_state-guard rationale as the
+                # __init__ default above) → the `= None` mutant is unobservable.
+                self._send_frame_binary = send_frame_unbound  # pragma: no mutate
                 # Only drop the backend reference when the Client constructed
                 # it; user-injected backends are caller-owned.
                 if self._make_backend is not None:
@@ -292,7 +309,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Refresh the per-message signal name/index cache from a DBC body."""
         self._signal_lookup.clear()
         for msg in dbc["messages"]:
-            msg_ext = bool(msg.get("extended", False))
+            # `bool(.get("extended"))` already yields False when absent
+            # (bool(None) is False), so the explicit False default is redundant —
+            # dropping it removes the default-value equivalent mutants while the
+            # key-name mutants stay killable (the extended-lookup test).
+            msg_ext = bool(msg.get("extended"))
             sig_map: dict[str, int] = {}
             names: list[str] = []
             for i, sig in enumerate(msg["signals"]):

@@ -277,6 +277,14 @@ paths_to_mutate = [
 also_copy = [
     "aletheia",
 ]
+# Honour ``# pragma: no mutate`` on EVERY line.  mutmut's CST visitor attaches
+# trailing-comment pragmas only to statement lines (and start/end blocks),
+# missing expression-internal positions (param defaults, call kwargs,
+# comprehension elements).  This regex pattern catches those too, so a
+# documented genuine-equivalent on any line is excluded uniformly.  Every use
+# carries a one-line equivalence/defensive rationale at the site (see
+# memory/feedback_mutation_no_defense_removal — never delete a guard).
+do_not_mutate_patterns = ["# pragma: no mutate"]
 tests_dir = ["tests/"]
 # pytest invocation used to verify each mutant: keep cheap by skipping the
 # slowest non-mutation gates (the doc-example harness, the random-order lane,

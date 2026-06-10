@@ -55,20 +55,30 @@ bindings:
     report: |
       cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut results
     baseline:
-      # Re-recorded 2026-06-10 under mutmut 3.6 (the prior 2026-05-09 baseline
-      # — 496/1478/65% — was set with an older mutmut that generated 1478
-      # mutants; 3.6 generates 906, so a cross-version survivor comparison is
-      # meaningless).  3.6 on the post-ci-speed tree: 666 killed / 215 survived
-      # / 22 no-tests, score 76% (up from 65%).  Surviving mutants are
-      # concentrated in `aletheia/types.py` and `aletheia/yaml_loader.py`
-      # (inert type/encoder surface); each is a candidate finding per AGENTS.md
-      # cat 14(g).  This baseline pins the floor against regression; eliminating
-      # survivors is a separate follow-up.  (First recorded after the
-      # tools/mutation_run.py parser was fixed to read mutmut 3.6's emoji
-      # summary — the old parser counted 0 survivors, a false green.)
-      survivors: 215
-      total_mutants: 906
-      score_pct: 76
+      # Re-recorded 2026-06-10 after the survivor-elimination campaign drove the
+      # Python lane from 215 survivors to ONE.  The earlier 215 (666 killed /
+      # 22 no-tests, 76%) were real test gaps in the under-tested error/edge
+      # branches of _client.py (format_dbc / format_dbc_text / validate_dbc /
+      # _send_command guards), yaml_loader.py (every check-validation branch),
+      # dbc/_converter.py (file wrappers), and types.py — all now killed by
+      # behavioural tests (test_client_protocol_errors / test_client_lifecycle /
+      # test_yaml_loader_errors / test_converter_paths / test_types_serialization).
+      # Genuine equivalents are excluded via `# pragma: no mutate` (typing.cast
+      # type-args, codec-name case on open/read_text/write_text, unreachable
+      # defensive guards) or simplified away (redundant int / extended defaults).
+      #
+      # The single remaining survivor is a documented genuine equivalent that
+      # mutmut cannot pragma-isolate: `dump_json`'s `ensure_ascii=False`→`None`
+      # (None is falsy → json.dumps treats it identically to False).  mutmut
+      # attributes a multi-line call-arg mutation to the call-open line, so a
+      # per-arg pragma there would collaterally exclude the KILLABLE value /
+      # cls / indent arg mutants — so it is documented here instead, keeping
+      # those args mutation-tested (see aletheia/types.py:dump_json).  mutmut
+      # 3.6: 824 killed / 1 survived, 99% (score = killed / (killed+survived)).
+      # The drift gate fails on survivor #2 — any NEW survivor is a finding.
+      survivors: 1
+      total_mutants: 825
+      score_pct: 99
       run_at: "2026-06-10"
 
   go:

@@ -177,7 +177,10 @@ def _load_yaml(source: str | Path) -> object:
     if isinstance(source, Path):
         reject_symlink_loader_path(source, "YAML")
         check_dbc_text_size_bound(source.stat().st_size)
-        with source.open(encoding="utf-8") as f:
+        # open()'s encoding is NOT droppable (its default is the locale, not
+        # utf-8), and "UTF-8" is a codec-name alias of "utf-8" → both the
+        # case and the None mutant are runtime-equivalent here (pragma).
+        with source.open(encoding="utf-8") as f:  # pragma: no mutate
             return yaml.safe_load(f)
     # source: str — the public ``load_checks`` signature constrains this
     # branch by type; basedpyright/pyright catches non-(str|Path) callers
@@ -294,8 +297,14 @@ def _parse_simple_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     if condition in SIMPLE_EQUALS_CONDITIONS:
         return _parse_equals_condition(name, signal, entry)
 
+    # Unreachable: the dispatch above is exhaustive over ALL_SIMPLE_CONDITIONS
+    # (the union of the VALUE / RANGE / SETTLES / EQUALS sub-sets), which the
+    # `condition not in ALL_SIMPLE_CONDITIONS` guard already enforced.  Kept as
+    # a type-required defensive fallback against the sub-sets drifting.
+    # pragma: no mutate start
     msg = f"Check '{name}': unknown condition '{condition}'"
     raise ValidationError(msg)
+    # pragma: no mutate end
 
 
 def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:

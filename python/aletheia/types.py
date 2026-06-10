@@ -109,9 +109,15 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
         value,
         cls=FractionJSONEncoder,
         indent=indent,
-        # None is falsy → json.dumps treats it identically to False, so the
-        # False→None mutant is a runtime no-op (the False→True mutant is killed).
-        ensure_ascii=False,  # pragma: no mutate
+        # ensure_ascii=False is pinned for cross-binding wire-byte parity.  The
+        # False→None mutant is an irreducible equivalent (None is falsy, so
+        # json.dumps treats it identically to False).  mutmut attributes a
+        # multi-line call-arg mutation to the call-open line, so a per-arg
+        # `# pragma: no mutate` cannot isolate it without collaterally excluding
+        # the killable value/cls/indent args; it is therefore the single
+        # documented survivor (python baseline = 1, docs/MUTATION_BENCH.yaml).
+        # The False→True mutant IS killed (the non-ASCII serialization test).
+        ensure_ascii=False,
     )
 
 
