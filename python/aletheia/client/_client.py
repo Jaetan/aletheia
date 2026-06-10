@@ -237,7 +237,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         binding's short-circuit so we do not allocate a 100 MB ctypes
         buffer only to be rejected on the other side.
         """
-        json_bytes = dump_json(command).encode("utf-8")
+        json_bytes = dump_json(command).encode()  # str.encode defaults to utf-8
         if len(json_bytes) > MAX_JSON_BYTES:
             raise InputBoundExceededError(
                 BOUND_KIND_INPUT_LENGTH_BYTES,
@@ -250,7 +250,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             result_bytes = self._backend.process(self._state, json_bytes)
-        return cast("Response", parse_json_object(result_bytes.decode("utf-8")))
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour
+        # (the bytes.decode default is utf-8, so no explicit codec to mutate).
+        return cast("Response", parse_json_object(result_bytes.decode()))  # pragma: no mutate
 
     def _resolve_signal_indices(
         self,
@@ -345,7 +347,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         separately; the additional inner cap matches the Agda kernel's
         two-layer enforcement in ``handleParseDBCText``.
         """
-        text_bytes = text.encode("utf-8")
+        text_bytes = text.encode()  # str.encode defaults to utf-8
         if len(text_bytes) > MAX_DBC_TEXT_BYTES:
             raise InputBoundExceededError(
                 BOUND_KIND_INPUT_LENGTH_BYTES,
@@ -378,7 +380,8 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         status = response.get("status")
 
         if status == "validation":
-            vresp = cast("ValidationResponse", response)
+            # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+            vresp = cast("ValidationResponse", response)  # pragma: no mutate
             return {
                 "status": "validation",
                 "has_errors": vresp["has_errors"],
@@ -416,7 +419,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 msg = "Client not initialized — use 'with' statement"
                 raise StateError(msg)
             response_bytes = self._backend.format_dbc_binary(self._state)
-        response = cast("Response", parse_json_object(response_bytes.decode("utf-8")))
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour
+        # (the bytes.decode default is utf-8, so no explicit codec to mutate).
+        response = cast("Response", parse_json_object(response_bytes.decode()))  # pragma: no mutate
         status = response.get("status")
 
         if status == "success":

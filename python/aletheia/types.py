@@ -105,7 +105,14 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
     byte-identical with them (cross-binding wire-byte parity).
     """
-    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
+    return json.dumps(
+        value,
+        cls=FractionJSONEncoder,
+        indent=indent,
+        # None is falsy → json.dumps treats it identically to False, so the
+        # False→None mutant is a runtime no-op (the False→True mutant is killed).
+        ensure_ascii=False,  # pragma: no mutate
+    )
 
 
 def to_signal_fraction(value: float | Fraction) -> Fraction:
@@ -113,13 +120,13 @@ def to_signal_fraction(value: float | Fraction) -> Fraction:
 
     Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
     decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
-    IEEE-754 approximation's monstrous denominator.  Int and existing
-    Fraction inputs flow through unchanged.
+    IEEE-754 approximation's monstrous denominator.  Existing Fraction inputs
+    flow through unchanged; integers are exact via the general path
+    (``limit_denominator`` is a no-op on an integer value — its denominator is
+    already 1, well under the cap), so no separate int branch is needed.
     """
     if isinstance(value, Fraction):
         return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
     return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN_PROTOCOLS)
 
 
@@ -151,7 +158,8 @@ def is_str_dict(val: object) -> TypeGuard[dict[str, JSONValue]]:
 
     """
     return isinstance(val, dict) and all(
-        isinstance(k, str) for k in cast("dict[object, object]", val)
+        # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+        isinstance(k, str) for k in cast("dict[object, object]", val)  # pragma: no mutate
     )
 
 

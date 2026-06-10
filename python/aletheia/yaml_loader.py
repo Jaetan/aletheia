@@ -183,7 +183,7 @@ def _load_yaml(source: str | Path) -> object:
     # branch by type; basedpyright/pyright catches non-(str|Path) callers
     # statically, so a runtime defensive ``isinstance(source, str)`` would
     # be dead code and is not added.
-    check_dbc_text_size_bound(len(source.encode("utf-8")))
+    check_dbc_text_size_bound(len(source.encode()))  # str.encode defaults to utf-8
     return yaml.safe_load(source)
 
 
