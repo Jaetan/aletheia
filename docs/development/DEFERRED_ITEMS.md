@@ -66,21 +66,27 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Where** — `src/Aletheia/DBC/TextFormatter/Topology.agda:188`;
   `src/Aletheia/DBC/TextParser/Topology.agda:59`.
 - **Origin** — Track B.3.c (text round-trip).
-- **Today** — `senders = []` on the **text** round-trip; `BO_TX_BU_` lines are
-  not emitted/parsed by the topology path. NB message senders **are** modelled
-  and shipped on the binary/JSON path (`FEATURE_MATRIX dbc_message_senders`,
-  B.1.x commit-3) — so this is a text-surface gap, not a missing capability.
+- **Was** — `senders = []` on the **text** round-trip; `BO_TX_BU_` lines were
+  not emitted/parsed by the topology path. (Senders were already modelled on the
+  binary/JSON path — `FEATURE_MATRIX dbc_message_senders`, B.1.x commit-3 — so
+  this was a text-surface gap, not a missing capability.)
 - **Done looks like** — formatter emits `BO_TX_BU_ <id> <node>,…;`, parser
   reads it back into `DBCMessage.senders`, round-trip proven.
-- **Cost / risk** — **Medium.** Self-contained: a single line shape, list of
-  identifiers, no cross-line correlation. The round-trip lemma mirrors the
-  existing receiver-list pattern (`parseReceiverList∘strip-roundtrip`).
-- **Blockers / deps** — none material; the data already exists on `DBCMessage`.
-- **Verdict** — `ACTIVE` (taken standalone 2026-06-10, on branch
-  `agda/e1-isidentstart-hspace-bridge`).  The cheapest text-round-trip item;
-  the receiver-list precedent makes the proof tractable.  Shipped for its own
-  text-surface value (closes the `BO_TX_BU_` gap) — NOT to close E.2 (the E.2
-  full-closure scoping found ~7 independent walls; see E.2).
+- **Verdict** — `DONE` (2026-06-11, branch `agda/e1-isidentstart-hspace-bridge`).
+  Wired as an 8th synthesized top-level section (`BO_TX_BU_`) in the universal
+  text round-trip, mirroring VAL_: a Format DSL `MsgSenders-format` + a senders
+  inverse-bridge (`attachSenders ∘ collectSenders`) composed with the VAL_
+  inverse over `clearBothMsg` parse output.  The universal theorem
+  `parseText (formatText d) ≡ inj₂ d` now holds with senders round-tripping;
+  `WellFormedTextDBCAgg` is strictly weaker (`MessageWF.senders-empty` removed,
+  no new obligation).  Runtime behaviour flipped: external `BO_TX_BU_` lines now
+  attach to `DBCMessage.senders` (keyed by CAN ID) instead of being dropped —
+  cross-binding corpus parity snapshot (`kitchen_sink.json`) regenerated to
+  match.  Shipped for its own text-surface value — NOT to close E.2 (the E.2
+  full-closure scoping found ~7 independent walls; see E.2).  Note: the
+  formatter-side `Formatter.WellFormedText.WellFormedTextMessage.senders-empty`
+  is now vestigial (the record has no consumer); left in place (off the
+  universal-theorem path, which reaches messages via `MessageWF`).
 
 ### A.3 — Nested multiplexors `m<N>M`
 

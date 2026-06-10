@@ -270,7 +270,10 @@
       "id": 256,
       "name": "EngineStatus",
       "sender": "Engine",
-      "senders": [],
+      "senders": [
+        "Engine",
+        "Gateway"
+      ],
       "signals": [
         {
           "byteOrder": "little_endian",
