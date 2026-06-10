@@ -297,6 +297,10 @@ proofModules =
     , "Aletheia/DBC/CanonicalReceivers.agda"
     , "Aletheia/DBC/TextParser/Format/Receivers.agda"
     , "Aletheia/DBC/TextParser/Format/Receivers/Roundtrip.agda"
+    -- A.2 BO_TX_BU_ line Format DSL + roundtrip (mirrors ValueDescription).
+    -- Unimported until the parser/formatter integration; explicit root keeps
+    -- the DSL roundtrip green in the interim.
+    , "Aletheia/DBC/TextParser/Format/MessageSenders.agda"
     , "Aletheia/DBC/TextParser/Format/SignalLine.agda"
     , "Aletheia/DBC/TextParser/Format/SignalLine/Roundtrip.agda"
     , "Aletheia/DBC/TextParser/Format/Nodes.agda"
