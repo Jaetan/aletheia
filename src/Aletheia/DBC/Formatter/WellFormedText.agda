@@ -40,11 +40,9 @@
 --    the first `IsMux` it sees on the parser side, and the formatter's
 --    `findMuxMaster` returns the first `When` clause's master name).
 --
--- 4. `WellFormedTextMessage` extends `WellFormedMessageRT` with these
---    plus an `senders ≡ []` constraint (the `BO_TX_BU_` line is not yet
---    emitted by `TextFormatter.Topology.emitMessage-chars`, so the
---    in-memory `senders` list is dropped on the format path; for the
---    roundtrip to close, the input must already have empty `senders`).
+-- 4. `WellFormedTextMessage` extends `WellFormedMessageRT` with these.
+--    (A.2 removed the former `senders ≡ []` constraint: `BO_TX_BU_` now
+--    round-trips, with `senders` restored at DBC level by `attachSenders`.)
 --
 -- All predicates are `Set`-valued data types or records, no proofs.
 -- 3d.2+ will discharge them in the per-construct roundtrip lemmas.
@@ -171,10 +169,11 @@ record WellFormedTextMessage (m : DBCMessage) : Set where
     msg-wf-rt     : WellFormedMessageRT m
     sigs-text-wf  : All WellFormedTextSignal (DBCMessage.signals m)
     master-coh    : MasterCoherent (DBCMessage.signals m)
-    -- BO_TX_BU_ is not yet emitted (see TextFormatter.Topology header
-    -- §"BO_TX_BU_ deferred"); the in-memory `senders` list must be empty
-    -- for the text roundtrip to close.
-    senders-empty : DBCMessage.senders m ≡ []
+    -- A.2: the `senders-empty` field was removed — `BO_TX_BU_` now
+    -- round-trips (the universal aggregator restores `senders` via
+    -- `attachSenders`), so the in-memory `senders` list no longer has to be
+    -- empty.  (This record is now used only via the parser-side `MessageWF`
+    -- which re-uses its `WellFormedTextPresence` / `MasterCoherent` pieces.)
 
 
 -- DBC-level text-roundtrip well-formedness lives in
