@@ -14,9 +14,13 @@
 #     intended to become a REQUIRED check.  Runs on every PR event so the
 #     required status always reflects the latest commit.
 #   * stability bench / mutation testing — ADVISORY (timing-flaky / score-
-#     squishy).  NOT required.  Run ONCE PER PR (AGENTS.md cat 14g: "once per
-#     PR is sufficient; per-commit is overkill") via the `synchronize`-excluding
-#     `if:` below, plus `workflow_dispatch` for manual re-runs after fixes.
+#     squishy).  NOT required.  Run on EVERY PR commit-state (incl.
+#     synchronize) so the advisory result reflects the latest commit — a
+#     `synchronize`-skip froze them at the PR's first (often broken) commit.
+#     Per-job `cancel-in-progress` collapses rapid iteration to ~one run on
+#     the settled state, which is how AGENTS.md cat 14g's "once per PR, not
+#     per-commit" is honored (cancellation, not a skip).  `workflow_dispatch`
+#     remains for manual re-runs.
 #
 # Toolchain steps are copied verbatim from pr-full-ci.yml (same cache keys, so
 # these jobs hit the Agda store that workflow already populated).
@@ -117,11 +121,14 @@ jobs:
   # ── Lane 2: stability bench (ADVISORY; once per PR) ────────────────────────
   stability:
     name: stability bench (advisory)
-    # Once per PR, not per-commit: skip the `synchronize` (push) event; still
-    # fires on PR open/reopen/ready_for_review and on manual workflow_dispatch.
-    if: github.event.action != 'synchronize'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    # Runs on every PR commit-state so the advisory result reflects the latest
+    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
+    # settled state.  Own group so it never cancels the repro / mutation lanes.
+    concurrency:
+      group: heavy-stability-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -227,9 +234,14 @@ jobs:
   # ── Lane 3: mutation testing (ADVISORY; once per PR) ───────────────────────
   mutation:
     name: mutation testing (advisory)
-    if: github.event.action != 'synchronize'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # Runs on every PR commit-state so the advisory result reflects the latest
+    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
+    # settled state.  Own group so it never cancels the repro / stability lanes.
+    concurrency:
+      group: heavy-mutation-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
