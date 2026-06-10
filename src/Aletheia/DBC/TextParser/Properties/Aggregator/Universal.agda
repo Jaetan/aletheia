@@ -83,7 +83,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   ; emitTopStmt-chars; liftTopStmt
   )
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher using
-  (TopStmtTypedWF; wfTVT; wfTM; wfTEV; wfTCM; wfTAT; wfTSG; wfTVD)
+  (TopStmtTypedWF; wfTVT; wfTM; wfTEV; wfTCM; wfTAT; wfTSG; wfTVD; wfTBO)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.ManyTopStmts using
   (parseTopStmts-roundtrip)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Partition using
@@ -91,12 +91,18 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Partition using
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine using
   (refineAttributes-on-rawOf)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions using
-  (map-attachToMessage-on-clearVdsMsgs-collected;
-   collectFromMessages-stops)
-open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions.UnresolvedRVDs using
-  (unresolvedRVDs-on-clearVdsMsgs-collectFromMessages)
+  (collectFromMessages-stops)
+-- A.2: messages-field + unresolved-field bridges compose the senders inverse
+-- with the VAL_ inverse over the doubly-cleared (`clearBothMsg`) parse output.
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.SendersCompose using
+  (attachSenders-attachValueDescs-on-clearBothMsgs-collected;
+   unresolvedRVDs-on-clearBothMsgs-collectFromMessages)
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.MsgSenders using
+  (collectSenders-stops)
 open import Aletheia.DBC.TextParser.ValueDescriptions using
   (collectFromMessages)
+open import Aletheia.DBC.TextParser.Senders using
+  (collectSenders)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.BodyBridge using
   (formatChars-body; formatChars-body-bridge)
 open import Aletheia.DBC.TextFormatter.Attributes using
@@ -133,18 +139,19 @@ toTopStmtsTyped-wf d wf =
                          (WellFormedTextDBCAgg.vt-stops wf) wfTVT))
       (++⁺ (map⁺ (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
                               (WellFormedTextDBCAgg.msg-wfs wf) wfTM))
-           (++⁺ tvd-wf
-                (++⁺ (map⁺ (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
-                                        (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
-                     (++⁺ (map⁺ (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
-                                             (WellFormedTextDBCAgg.cm-stops wf) wfTCM))
-                          (++⁺ (map⁺ (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
-                                                  (WellFormedTextDBCAgg.attr-wfs wf) wfTAT))
-                               (map⁺ (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
-                                                  (WellFormedTextDBCAgg.sg-wfs wf) wfTSG)))))))
+           (++⁺ tbo-wf
+                (++⁺ tvd-wf
+                     (++⁺ (map⁺ (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
+                                             (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
+                          (++⁺ (map⁺ (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
+                                                  (WellFormedTextDBCAgg.cm-stops wf) wfTCM))
+                               (++⁺ (map⁺ (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
+                                                       (WellFormedTextDBCAgg.attr-wfs wf) wfTAT))
+                                    (map⁺ (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
+                                                       (WellFormedTextDBCAgg.sg-wfs wf) wfTSG))))))))
   where
     open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-      (TVT; TM; TVD; TEV; TCM; TAT; TSG)
+      (TVT; TM; TVD; TEV; TCM; TAT; TSG; TBO)
 
     defs = collectDefs (DBC.attributes d)
 
@@ -174,6 +181,16 @@ toTopStmtsTyped-wf d wf =
                        (collectFromMessages (DBC.messages d))
                        (collectFromMessages-stops (DBC.messages d))
                        wfTVD)
+
+    -- A.2: TBO arm.  `collectSenders-stops` derives `All RawMsgSendersStop
+    -- (collectSenders msgs)` from each sender `Identifier`'s validity (head
+    -- non-isHSpace), mirroring `tvd-wf`.  `lift-stops` routes through `wfTBO`.
+    tbo-wf : All (TopStmtTypedWF defs) (map TBO (collectSenders (DBC.messages d)))
+    tbo-wf =
+      map⁺ (lift-stops TBO (TopStmtTypedWF defs)
+                       (collectSenders (DBC.messages d))
+                       (collectSenders-stops (DBC.messages d))
+                       wfTBO)
 
 -- ============================================================================
 -- BRIDGE — `parseTopStmt pos [] ≡ nothing`  (terminator obligation for `many`)
@@ -515,11 +532,11 @@ finalizeParse-on-mkResult-clean d pos-end wf
   = cong₂
       (λ msgs unres → inj₂ (record d { messages             = msgs
                                      ; unresolvedValueDescs = unres }))
-      (map-attachToMessage-on-clearVdsMsgs-collected (DBC.messages d)
+      (attachSenders-attachValueDescs-on-clearBothMsgs-collected (DBC.messages d)
          (WellFormedTextDBCAgg.msg-ids-unique wf)
          (WellFormedTextDBCAgg.msg-wfs wf))
       (trans
-        (unresolvedRVDs-on-clearVdsMsgs-collectFromMessages (DBC.messages d))
+        (unresolvedRVDs-on-clearBothMsgs-collectFromMessages (DBC.messages d))
         (sym (WellFormedTextDBCAgg.unresolved-empty wf)))
 
 parseTextChars-on-formatChars :

@@ -25,7 +25,7 @@ open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions;
    _>>=_; pure)
 
-open import Aletheia.DBC.Types using (DBCMessage; clearVdsMsg)
+open import Aletheia.DBC.Types using (DBCMessage; clearBothMsg)
 open import Aletheia.DBC.TextParser.TopLevel using
   (TSMessage; TSBOTxBu; parseTopStmt; parseBOTxBu)
 open import Aletheia.DBC.TextParser.Topology using
@@ -46,8 +46,8 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (alt-right-nothing)
 
--- E.9a: result is `mkResult (TSMessage (clearVdsMsg msg)) …` because
--- `parseMessage-roundtrip-bundled` returns `mkResult (clearVdsMsg msg) …`.
+-- E.9a: result is `mkResult (TSMessage (clearBothMsg msg)) …` because
+-- `parseMessage-roundtrip-bundled` returns `mkResult (clearBothMsg msg) …`.
 -- The Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
 -- post-buildDBC to recover the original messages.
 parseTopStmt-on-emit-TM-eq :
@@ -55,7 +55,7 @@ parseTopStmt-on-emit-TM-eq :
   → MessageWF msg
   → SuffixStops isNewlineStart outer
   → parseTopStmt pos (emitMessage-chars msg ++ₗ outer)
-    ≡ just (mkResult (TSMessage (clearVdsMsg msg))
+    ≡ just (mkResult (TSMessage (clearBothMsg msg))
                      (advancePositions pos (emitMessage-chars msg))
                      outer)
 parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
@@ -74,10 +74,10 @@ parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
     botxbu-fail : (parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) pos input ≡ nothing
     botxbu-fail = refl
 
-    p-msg-eq : parseMessage pos input ≡ just (mkResult (clearVdsMsg msg) pos-msg outer)
+    p-msg-eq : parseMessage pos input ≡ just (mkResult (clearBothMsg msg) pos-msg outer)
     p-msg-eq = parseMessage-roundtrip-bundled pos msg outer wf nl-stop
 
     alt-msg-eq : (parseMessage >>= λ m → pure (TSMessage m)) pos input
-                 ≡ just (mkResult (TSMessage (clearVdsMsg msg)) pos-msg outer)
+                 ≡ just (mkResult (TSMessage (clearBothMsg msg)) pos-msg outer)
     alt-msg-eq = bind-just-step parseMessage (λ m → pure (TSMessage m))
-                   pos input (clearVdsMsg msg) pos-msg outer p-msg-eq
+                   pos input (clearBothMsg msg) pos-msg outer p-msg-eq

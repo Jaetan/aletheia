@@ -22,11 +22,11 @@
 -- `BO_TX_BU_` arrives here instead of in `TextParser.Topology` because it
 -- lives at the top level (sibling of `BO_`), not nested under a message.
 -- It is captured as a `RawMsgSenders` (A.2, via the Format DSL `MsgSenders-
--- format`) but is currently still DROPPED at partition (`consTop (TSBOTxBu
--- _)` is a no-op) — `parseMessage` leaves `senders = []` and the captured
--- list is stitched back into `DBCMessage.senders` by `attachSenders` at
--- `buildDBC` in a later A.2 sub-commit.  Until then the parse-and-drop
--- stance matches `SIG_VALTYPE_` / `SG_MUL_VAL_`.
+-- format`), bucketed by `consTop (TSBOTxBu rms)` into `CollectedTop.
+-- rawMsgSenders`, and stitched back into `DBCMessage.senders` by
+-- `attachSenders` at `buildDBC` (keyed by CAN ID).  `parseMessage` leaves
+-- `senders = []`; the BO_TX_BU_ section restores it — the message-level
+-- analogue of how VAL_ restores per-signal `valueDescriptions`.
 --
 -- Dispatch ordering — longest-first where prefixes collide:
 --   1. Attribute family via `parseAttrLine` (which itself is longest-
@@ -50,9 +50,9 @@
 --
 -- `TopStmt` projection constraints (enforced by the drop-parsers):
 --   * Every parsed `BO_TX_BU_` line carries a `RawMsgSenders` via
---     `TSBOTxBu` (A.2); it is currently dropped at partition, so the
---     `senders` field on every `DBCMessage` still emerges `[]` until the
---     `attachSenders` wiring lands.
+--     `TSBOTxBu` (A.2); `partitionTopStmts` buckets it into `rawMsgSenders`
+--     and `buildDBC`'s `attachSenders` distributes it onto the owning
+--     message's `DBCMessage.senders` (keyed by CAN ID).
 --   * Every parsed `SG_MUL_VAL_` line collapses to `TSSigMulVal`; every
 --     `DBCSignal.presence` in the output is either `Always` or
 --     `When _ (v ∷ [])` (single-value selector).
@@ -115,10 +115,9 @@ open import Aletheia.DBC.Types using
 -- whole file, mirroring `parseMessage` / `parseValueDescription`) and consumes
 -- optional trailing blank lines.
 --
--- The captured `RawMsgSenders` is currently still DROPPED at partition
--- (`consTop (TSBOTxBu _)` is a no-op) — the A.2 senders section is stitched
--- into `buildDBC` via `attachSenders` in a later sub-commit.  Capturing it
--- here (vs the prior `Parser ⊤` drop) is the parser-side half of that wiring.
+-- The captured `RawMsgSenders` is bucketed by `consTop` into `CollectedTop.
+-- rawMsgSenders` and stitched into `DBCMessage.senders` by `attachSenders`
+-- at `buildDBC` (keyed by CAN ID).
 buildSendersResult : Maybe CANId → List Identifier → Parser RawMsgSenders
 buildSendersResult nothing      _    = fail
 buildSendersResult (just canId) snds = pure (mkRawMsgSenders canId snds)
@@ -239,9 +238,10 @@ record CollectedTop : Set where
     rawAttributes   : List RawDBCAttribute
     signalGroups    : List SignalGroup
     rawValueDescs   : List RawValueDesc
+    rawMsgSenders   : List RawMsgSenders
 
 emptyCollected : CollectedTop
-emptyCollected = mkCollectedTop [] [] [] [] [] [] []
+emptyCollected = mkCollectedTop [] [] [] [] [] [] [] []
 
 -- Cons one `TopStmt` onto its matching bucket.  Drop constructors pass
 -- the accumulator through unchanged.
@@ -250,7 +250,8 @@ consTop (TSValueTable vt)  c =
   record c { valueTables     = vt ∷ CollectedTop.valueTables     c }
 consTop (TSMessage m)      c =
   record c { messages        = m  ∷ CollectedTop.messages        c }
-consTop (TSBOTxBu _)       c = c
+consTop (TSBOTxBu rms)     c =
+  record c { rawMsgSenders   = rms ∷ CollectedTop.rawMsgSenders   c }
 consTop (TSEnvVar e)       c =
   record c { environmentVars = e  ∷ CollectedTop.environmentVars c }
 consTop (TSComment cm)     c =

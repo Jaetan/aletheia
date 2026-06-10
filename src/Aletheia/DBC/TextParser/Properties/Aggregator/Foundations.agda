@@ -42,7 +42,7 @@ open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; NatDecRat; natDecRatToℕ)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; clearVdsMsg
+  ; clearBothMsg
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrDef; AttrDefault; AttrAssign
@@ -66,7 +66,7 @@ open import Aletheia.DBC.TextParser.TopLevel using
   ; TSAttribute; TSSignalGroup
   ; TSValueDesc; TSBOTxBu
   )
-open import Aletheia.DBC.TextParser.Senders using (RawMsgSenders)
+open import Aletheia.DBC.TextParser.Senders using (RawMsgSenders; collectSenders)
 open import Aletheia.DBC.TextFormatter.MessageSenders using (emitMsgSenders-line-chars)
 
 open import Aletheia.DBC.TextFormatter.Topology    using (emitMessage-chars)
@@ -191,21 +191,22 @@ data TopStmtTyped : Set where
   TBO : RawMsgSenders  → TopStmtTyped
 
 -- Lift typed shadow → parser-side `TopStmt`.  Attributes are routed
--- through `rawOf defs`; non-attributes are constructor-renames.
--- E.9a: TM case lifts `m` through `clearVdsMsg`.  `parseMessage` produces
--- signals with `vds = []` (because `buildSignal` hardcodes the field —
--- VAL_ entries arrive at DBC level via TVD top-stmts), so the per-message
--- dispatcher slim claims the parsed result equals `TSMessage (clearVdsMsg
--- m)`.  Aligning `liftTopStmt`'s TM case keeps the body bridge's RHS
--- (typed shadow lifted to `TopStmt`) coincident with the parser-produced
--- list.  At the Universal layer, `partitionTopStmts` extracts
--- `CollectedTop.messages = map clearVdsMsg d.messages`; `buildDBC`
--- composes with `attachValueDescs (collectFromMessages d.messages)
--- (map clearVdsMsg d.messages) ≡ d.messages` (E.6 + E.9a bridge) to
--- recover the original.
+-- through `rawOf defs`; non-attributes are constructor-renames; the BO
+-- section lifts `TBO rms` to `TSBOTxBu rms`.
+-- A.2: the TM case lifts `m` through `clearBothMsg`.  `parseMessage` produces
+-- signals with `vds = []` AND `senders = []` (`buildSignal`/`buildMessage`
+-- hardcode them — VAL_ entries arrive via TVD top-stmts, BO_TX_BU_ senders
+-- via TBO top-stmts), so the per-message dispatcher slim claims the parsed
+-- result equals `TSMessage (clearBothMsg m)`.  Aligning `liftTopStmt`'s TM
+-- case keeps the body bridge's RHS coincident with the parser-produced list.
+-- At the Universal layer, `partitionTopStmts` extracts `CollectedTop.messages
+-- = map clearBothMsg d.messages`; `buildDBC` composes `attachSenders
+-- (collectSenders d.messages) (attachValueDescs (collectFromMessages
+-- d.messages) (map clearBothMsg d.messages)) ≡ d.messages` (PC-A) to recover
+-- the original.
 liftTopStmt : List AttrDef → TopStmtTyped → TopStmt
 liftTopStmt _    (TVT vt)  = TSValueTable vt
-liftTopStmt _    (TM  m)   = TSMessage (clearVdsMsg m)
+liftTopStmt _    (TM  m)   = TSMessage (clearBothMsg m)
 liftTopStmt _    (TEV ev)  = TSEnvVar ev
 liftTopStmt _    (TCM cm)  = TSComment cm
 liftTopStmt defs (TAT a)   = TSAttribute (rawOf defs a)
@@ -247,6 +248,7 @@ toTopStmtsTyped : DBC → List TopStmtTyped
 toTopStmtsTyped d =
   map TVT (DBC.valueTables     d) ++ₗ
   map TM  (DBC.messages        d) ++ₗ
+  map TBO (collectSenders      (DBC.messages d)) ++ₗ
   map TVD (collectFromMessages (DBC.messages d)) ++ₗ
   map TEV (DBC.environmentVars d) ++ₗ
   map TCM (DBC.comments        d) ++ₗ
