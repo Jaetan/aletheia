@@ -281,6 +281,11 @@ proofModules =
     -- heavy fields (MessageWF / WFAttribute) — so an explicit root keeps it
     -- from bit-rotting.
     , "Aletheia/DBC/TextParser/Properties/WellFormedFromValidity.agda"
+    -- A.2 BO_TX_BU_ inverse-bridge: `attachSenders (collectSenders msgs) msgs
+    -- ≡ msgs` under msg-id uniqueness (DEFERRED_ITEMS.md A.2).  Unimported
+    -- until the formatter/parser integration lands the senders section on the
+    -- text wire — explicit root keeps the base bridge from bit-rotting.
+    , "Aletheia/DBC/TextParser/Properties/Aggregator/Refine/Senders.agda"
     , "Aletheia/DBC/TextParser/Format.agda"
     , "Aletheia/DBC/TextParser/Format/RegressionTests.agda"
     , "Aletheia/DBC/TextParser/Format/ValueTable.agda"
