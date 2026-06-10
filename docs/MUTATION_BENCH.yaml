@@ -155,17 +155,21 @@ bindings:
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:
-      # Re-recorded 2026-06-10.  The prior 2026-05-09 baseline (17/39/56%)
-      # was stale: `json_parse.cpp`/`json_serialize.cpp` saw 21 commits since
-      # then (the R23 cluster-C fixes + the `Rational` struct→class promotion
-      # `8aff66b` + the Fraction-pipeline work), so the Mull mutant surface
-      # changed (39 → 56 total mutants).  Current sound Mull-19 measurement:
-      # 33 killed / 23 survived / 59% (score up from 56%).  Survivors are
-      # concentrated in the Rational num/den normalization edges
-      # (negative-denominator, `-num`, `/`↔`*`) of json_parse/json_serialize;
-      # each is a candidate finding (AGENTS.md cat 14(g)) tracked for the
-      # separate survivor-elimination backlog.  This baseline pins the floor.
-      survivors: 23
-      total_mutants: 56
-      score_pct: 59
+      # Re-recorded 2026-06-10 — ZERO survivors.  The full C++ mutation surface
+      # is killed.  The survivor-elimination pass: closed the json-lane test
+      # gaps (negate / integer-division / timestamp-boundary value tests in
+      # unit_tests_json.cpp); made the parse_rational_dict den<0 boundary
+      # observable (reorder so den==0 is rejected after the sign branch, with a
+      # message-specific test); dropped the two no-observable-effect reserve()
+      # hints on the non-hot serialize paths; and lifted the FfiBackend RTS-init
+      # + FFI-error branches (status!=0 / err_str!=nullptr ternaries, the
+      # rts_cores>1 / mismatch guards) into pure unit-tested helpers
+      # (src/detail/ffi_logic.cpp), which also collapsed the error block that
+      # was triplicated across the three _bin methods.  Mull-19: 45 killed /
+      # 0 survived / 100%.  This zero-survivor baseline is the strictest
+      # possible floor — any new survivor on a future commit fails the lane
+      # (matching the Go binding's standard above).
+      survivors: 0
+      total_mutants: 45
+      score_pct: 100
       run_at: "2026-06-10"

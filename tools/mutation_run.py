@@ -440,13 +440,21 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     #   [info] Mutation score: 56%
     #   [info] Surviving mutants: 17
     #   [info] Total execution time: 273ms
-    # Older / other Mull versions also emit "Killed: N" / "Skipped: N";
-    # try both shapes.  When only score+survived are present, compute killed
-    # from killed = round(survived * score_pct / (100 - score_pct)).
+    # When NOTHING survives, Mull omits the "Surviving mutants:" line entirely
+    # and prints "All mutations have been killed" with a 100% score instead, so
+    # a missing survivor line is the 0-survivor case — not a parse failure.
     survived_m = re.search(r"Surviving mutants:\s*(\d+)", raw) or re.search(
         r"Survived[^:\n]*:\s*(\d+)", raw
     )
-    if not survived_m:
+    all_killed = bool(
+        re.search(r"All mutations have been killed", raw)
+        or re.search(r"Mutation score:\s*100\s*%", raw)
+    )
+    if survived_m:
+        survived = int(survived_m.group(1))
+    elif all_killed:
+        survived = 0
+    else:
         return MutationReport(
             "cpp",
             "mull",
@@ -458,8 +466,12 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
                 f"(see cpp.raw.txt; exit {runner_proc.returncode})"
             ),
         )
-    survived = int(survived_m.group(1))
-    return MutationReport("cpp", "mull", _killed_from_mull(raw, survived), survived, raw)
+    # Prefer the exact total from Mull's "<n>/<n>. Finished" progress tail
+    # (killed = total - survived); fall back to the score-based estimate when
+    # the progress line is absent (older Mull / piped output).
+    finished = re.findall(r"\d+/(\d+)\.\s*Finished", raw)
+    killed = int(finished[-1]) - survived if finished else _killed_from_mull(raw, survived)
+    return MutationReport("cpp", "mull", killed, survived, raw)
 
 
 # (skip-env-var, runner) per binding, in the order reports are produced.

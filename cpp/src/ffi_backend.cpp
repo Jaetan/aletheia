@@ -11,6 +11,7 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/limits.hpp>
 
+#include "detail/ffi_logic.hpp"
 #include "detail/rts_init.hpp"
 
 #include <dlfcn.h>
@@ -204,25 +205,22 @@ public:
             auto& rts = detail::rts_init_state();
             const std::lock_guard lock(rts.mu);
             if (!rts.initialized) {
-                if (rts_cores > 1) {
-                    // hs_init requires char** (non-const) for argv. We hold the backing
-                    // storage as std::string so .data() returns char* without const_cast.
-                    std::string arg0 = "aletheia";
-                    std::string arg1 = "+RTS";
-                    std::string arg2 = "-N" + std::to_string(rts_cores);
-                    std::string arg3 = "-RTS";
-                    std::array<char*, 4> args = {arg0.data(), arg1.data(), arg2.data(),
-                                                 arg3.data()};
-                    auto argc = static_cast<int>(args.size());
-                    auto* argv = args.data();
+                if (auto args = detail::rts_init_args(rts_cores)) {
+                    // hs_init requires char** (non-const) for argv. The backing
+                    // std::string storage (owned by `args`, alive for this block)
+                    // gives char* via .data() without const_cast.
+                    std::array<char*, 4> argv_storage = {(*args)[0].data(), (*args)[1].data(),
+                                                         (*args)[2].data(), (*args)[3].data()};
+                    auto argc = static_cast<int>(argv_storage.size());
+                    auto* argv = argv_storage.data();
                     hs_init(&argc, &argv);
                 } else {
                     hs_init(nullptr, nullptr);
                 }
                 rts.cores = rts_cores;
                 rts.initialized = true;
-            } else if (rts_cores != rts.cores) {
-                rts_mismatch_ = std::make_pair(rts.cores, rts_cores);
+            } else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
+                rts_mismatch_ = *mismatch;
             }
         } catch (...) {
             // RTS was never started — safe to release the library handle.
@@ -377,12 +375,8 @@ public:
         const auto status = build_frame_bin_fn_(state, can_id, extended, dlc.value(), signals.count,
                                                 signals.indices, signals.numerators,
                                                 signals.denominators, as_u8(buf.data()), &err_str);
-        if (status != 0) {
-            const std::string msg = err_str != nullptr ? err_str : "Unknown error";
-            if (err_str != nullptr)
-                free_str_fn_(err_str);
-            return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
-        }
+        if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+            return std::unexpected(*err);
         return buf;
     }
 
@@ -403,12 +397,8 @@ public:
         const auto status = update_frame_bin_fn_(
             state, can_id, extended, dlc.value(), as_u8(data.data()), data_len, signals.count,
             signals.indices, signals.numerators, signals.denominators, as_u8(buf.data()), &err_str);
-        if (status != 0) {
-            const std::string msg = err_str != nullptr ? err_str : "Unknown error";
-            if (err_str != nullptr)
-                free_str_fn_(err_str);
-            return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
-        }
+        if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+            return std::unexpected(*err);
         return buf;
     }
 
@@ -429,12 +419,8 @@ public:
         const auto status =
             extract_signals_bin_fn_(state, can_id, extended, dlc.value(), as_u8(data.data()),
                                     data_len, &out_buf, &out_size, &err_str);
-        if (status != 0) {
-            const std::string msg = err_str != nullptr ? err_str : "Unknown error";
-            if (err_str != nullptr)
-                free_str_fn_(err_str);
-            return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
-        }
+        if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+            return std::unexpected(*err);
         // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
         // copy) still frees the Haskell-allocated buffer. A bare free call
         // after the copy would leak on that path.

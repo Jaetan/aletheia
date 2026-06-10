@@ -321,7 +321,8 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
 // real Mull-19 survivors in json_parse.cpp's parse_rational_dict /
 // parse_rational_as_int (each test names the mutant it kills).
 
-TEST_CASE("parse_extraction normalizes a negative-denominator rational", "[json][parse][mutation]") {
+TEST_CASE("parse_extraction normalizes a negative-denominator rational",
+          "[json][parse][mutation]") {
     // {1,-3} must normalize to {-1,3}.  Kills cxx_minus_to_noop at
     // json_parse.cpp:212-213 (num=-num / den=-den): drop either and the result
     // is {1,3} (wrong sign) or the Rational den>0 ctor rejects den=-3.
@@ -335,7 +336,8 @@ TEST_CASE("parse_extraction normalizes a negative-denominator rational", "[json]
     CHECK(result->values[0].value == PhysicalValue{Rational{-1, 3}});
 }
 
-TEST_CASE("parse_frame_response integer property_index uses exact division", "[json][parse][mutation]") {
+TEST_CASE("parse_frame_response integer property_index uses exact division",
+          "[json][parse][mutation]") {
     // property_index {6,3} -> 2 (integer field: num / den).  Kills cxx_div_to_mul
     // at json_parse.cpp:289 (return num / den): the * mutant yields 18.
     auto result = detail::parse_frame_response(R"({
