@@ -287,11 +287,14 @@ tests_dir = ["tests/"]
 pytest_add_cli_args = [
     "--no-header",
     "-x",
-    # Tests that fail under mutmut's mutated-tree cwd because they expect
-    # repo-root paths (find_repo_root() / ../../docs/FEATURE_MATRIX.yaml /
-    # ../../docs/LOG_EVENTS.yaml etc.); they are infrastructure-coverage
-    # tests, NOT hot-path coverage, so excluding them does not weaken the
-    # mutation lane's signal on the 5 modules above.
+    # Tests that fail under mutmut's mutated-tree cwd because they reach
+    # OUTSIDE the copied python/ work-tree: either expecting repo-root paths
+    # (find_repo_root() / ../../docs/FEATURE_MATRIX.yaml / ../../docs/
+    # LOG_EVENTS.yaml etc.) or importing the repo-root `tools` package (the
+    # agda-opens grammar tests).  All are infrastructure-coverage tests, NOT
+    # hot-path coverage, so excluding them does not weaken the mutation lane's
+    # signal on the 5 modules above.  (mutmut copies only python/ + also_copy
+    # into mutants/, so `import tools` ModuleNotFound-aborts collection there.)
     "--ignore=tests/test_doc_examples_harness.py",
     "--ignore=tests/test_property_hypothesis.py",
     "--ignore=tests/test_cross_binding_integration.py",
@@ -299,4 +302,6 @@ pytest_add_cli_args = [
     "--ignore=tests/test_log_events_parity.py",
     "--ignore=tests/test_unified_client.py",
     "--ignore=tests/test_format_dbc.py",
+    "--ignore=tests/test_agda_open_grammar.py",
+    "--ignore=tests/test_agda_open_grammar_generated.py",
 ]

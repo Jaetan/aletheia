@@ -213,7 +213,10 @@ jobs:
         run: |
           set -euo pipefail
           cabal run shake -- build
-          cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 > /dev/null
+          # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
+          # default source dir when only -B is given).  The first run failed
+          # with "source directory does not contain CMakeLists.txt".
+          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 > /dev/null
           cmake --build cpp/build --target stability_bench
 
       - name: Stability bench (advisory)
