@@ -192,9 +192,7 @@ def _parse_mutmut(raw: str) -> MutmutCounts:
     )
     if summary:
         killed, no_tests, timeout, _suspicious, survived = (int(x) for x in summary[-1])
-        return MutmutCounts(
-            killed=killed, survived=survived, timeout=timeout, skipped=no_tests
-        )
+        return MutmutCounts(killed=killed, survived=survived, timeout=timeout, skipped=no_tests)
     # Fallback: count per-mutant status lines emitted by `mutmut results`.
     survived = len(re.findall(r":\s*survived\s*$", raw, re.MULTILINE))
     no_tests = len(re.findall(r":\s*no tests\s*$", raw, re.MULTILINE))

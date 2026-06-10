@@ -159,7 +159,8 @@ def is_str_dict(val: object) -> TypeGuard[dict[str, JSONValue]]:
     """
     return isinstance(val, dict) and all(
         # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
-        isinstance(k, str) for k in cast("dict[object, object]", val)  # pragma: no mutate
+        isinstance(k, str)
+        for k in cast("dict[object, object]", val)  # pragma: no mutate
     )
 
 

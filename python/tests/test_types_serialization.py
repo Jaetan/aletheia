@@ -29,7 +29,7 @@ def test_dump_json_compact_by_default() -> None:
 
 
 def test_dump_json_preserves_non_ascii() -> None:
-    """Emit non-ASCII as raw UTF-8 (ensure_ascii=False), not \\uXXXX escapes."""
+    r"""Emit non-ASCII as raw UTF-8 (ensure_ascii=False), not \uXXXX escapes."""
     result = dump_json({"name": "café"})
     assert "café" in result
     assert "\\u" not in result
