@@ -301,6 +301,11 @@ proofModules =
     -- Unimported until the parser/formatter integration; explicit root keeps
     -- the DSL roundtrip green in the interim.
     , "Aletheia/DBC/TextParser/Format/MessageSenders.agda"
+    -- A.2 BO_TX_BU_ dispatcher slim + section stops + emit bridge (mirrors
+    -- Dispatcher.Simple.ValueDesc).  Transitively covers the formatter emitter
+    -- (TextFormatter.MessageSenders).  Unimported until the atomic integration
+    -- wires the TBO dispatch arm; explicit root keeps it green meanwhile.
+    , "Aletheia/DBC/TextParser/Properties/Aggregator/Dispatcher/Simple/MsgSenders.agda"
     , "Aletheia/DBC/TextParser/Format/SignalLine.agda"
     , "Aletheia/DBC/TextParser/Format/SignalLine/Roundtrip.agda"
     , "Aletheia/DBC/TextParser/Format/Nodes.agda"
