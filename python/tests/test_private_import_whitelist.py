@@ -131,6 +131,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "build_error_response",
         ),
+        # Pre-__enter__ send-frame stub — a defensive raise shadowed by
+        # send_frame's own _state guard, so a direct call is the only way to
+        # exercise (and mutation-test) it.
+        (
+            "test_client_lifecycle.py",
+            "aletheia.client._client",
+            "send_frame_unbound",
+        ),
         # ``FractionJSONEncoder`` was promoted to ``aletheia.types`` in
         # R23 PY-D-16.2 so it's no longer a private-import; whitelist entry
         # removed.

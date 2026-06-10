@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger("aletheia")
 
 
-def _send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
+def send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
     """Stub assigned to ``_send_frame_binary`` before ``__enter__`` runs.
 
     Replaced in :meth:`AletheiaClient.__enter__` with the backend's actual
@@ -159,7 +159,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         )
         # Hot-path send_frame_binary bound method; rebound on __enter__,
         # cleared back to the stub on ``close()``.
-        self._send_frame_binary: Callable[..., bytes] = _send_frame_unbound
+        self._send_frame_binary: Callable[..., bytes] = send_frame_unbound
         # Serializes every FFI call on ``self._state`` (the StreamState
         # StablePtr) against ``close()``.  An async op cancelled mid-flight
         # abandons its ``to_thread`` worker, which can keep running inside an
@@ -201,7 +201,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                     self._backend.close(self._state)
             finally:
                 self._state = None
-                self._send_frame_binary = _send_frame_unbound
+                self._send_frame_binary = send_frame_unbound
                 # Only drop the backend reference when the Client constructed
                 # it; user-injected backends are caller-owned.
                 if self._make_backend is not None:
