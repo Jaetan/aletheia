@@ -64,8 +64,10 @@ open import Aletheia.DBC.TextFormatter.Attributes using
 open import Aletheia.DBC.TextParser.TopLevel using
   ( TopStmt; TSValueTable; TSMessage; TSEnvVar; TSComment
   ; TSAttribute; TSSignalGroup
-  ; TSValueDesc
+  ; TSValueDesc; TSBOTxBu
   )
+open import Aletheia.DBC.TextParser.Senders using (RawMsgSenders)
+open import Aletheia.DBC.TextFormatter.MessageSenders using (emitMsgSenders-line-chars)
 
 open import Aletheia.DBC.TextFormatter.Topology    using (emitMessage-chars)
 open import Aletheia.DBC.TextFormatter.ValueTables  using
@@ -183,6 +185,10 @@ data TopStmtTyped : Set where
   -- `toTopStmtsTyped` via `collectFromMessages` per the C1 sort key
   -- `(message-index, signal-index, val-desc-index)`.
   TVD : RawValueDesc   → TopStmtTyped
+  -- A.2: BO_TX_BU_ payload at the typed-shadow level.  `TBO rms` mirrors
+  -- `TopStmt.TSBOTxBu rms`; the section is sourced via `collectSenders` per
+  -- message ID, the inverse of `attachSenders` at `buildDBC`.
+  TBO : RawMsgSenders  → TopStmtTyped
 
 -- Lift typed shadow → parser-side `TopStmt`.  Attributes are routed
 -- through `rawOf defs`; non-attributes are constructor-renames.
@@ -205,6 +211,7 @@ liftTopStmt _    (TCM cm)  = TSComment cm
 liftTopStmt defs (TAT a)   = TSAttribute (rawOf defs a)
 liftTopStmt _    (TSG sg)  = TSSignalGroup sg
 liftTopStmt _    (TVD rvd) = TSValueDesc rvd
+liftTopStmt _    (TBO rms) = TSBOTxBu rms
 
 -- ============================================================================
 -- TYPED TopStmt EMITTER
@@ -223,6 +230,7 @@ emitTopStmt-chars _    (TCM cm)  = emitComment-chars cm
 emitTopStmt-chars defs (TAT a)   = emitAttribute-chars defs a
 emitTopStmt-chars _    (TSG sg)  = emitSignalGroup-chars sg
 emitTopStmt-chars _    (TVD rvd) = emitValueDescription-chars rvd
+emitTopStmt-chars _    (TBO rms) = emitMsgSenders-line-chars rms
 
 -- ============================================================================
 -- DBC → typed top-stmt list (formatChars order).

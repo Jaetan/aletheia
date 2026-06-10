@@ -54,10 +54,12 @@ open import Aletheia.DBC.TextParser.Properties.SignalGroups using
   (SignalGroupWF)
 open import Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc using
   (RawValueDescStop)
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.MsgSenders using
+  (RawMsgSendersStop; parseTopStmt-on-emit-TBO-eq)
 
 -- Foundations: typed shadow + lift + emitter + WFAttribute.
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG; TVD
+  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG; TVD; TBO
   ; emitTopStmt-chars
   ; liftTopStmt
   ; WFAttribute
@@ -118,6 +120,7 @@ data TopStmtTypedWF (defs : List AttrDef) : TopStmtTyped → Set where
   wfTAT : ∀ a   → WFAttribute defs a    → TopStmtTypedWF defs (TAT a)
   wfTSG : ∀ sg  → SignalGroupWF sg      → TopStmtTypedWF defs (TSG sg)
   wfTVD : ∀ rvd → RawValueDescStop rvd  → TopStmtTypedWF defs (TVD rvd)
+  wfTBO : ∀ rms → RawMsgSendersStop rms → TopStmtTypedWF defs (TBO rms)
 
 -- ============================================================================
 -- COMBINED PER-SECTION DISPATCHER
@@ -153,6 +156,8 @@ parseTopStmt-on-emitTopStmt-chars defs pos (TSG sg)  outer (wfTSG _ wf)  ss-NL =
 -- slim parseValueDescription-roundtrip).  Replaces E.5α's absurd-elim.
 parseTopStmt-on-emitTopStmt-chars defs pos (TVD rvd) outer (wfTVD _ rs) ss-NL =
   parseTopStmt-on-emit-TVD-eq pos rvd outer rs ss-NL
+parseTopStmt-on-emitTopStmt-chars defs pos (TBO rms) outer (wfTBO _ st) ss-NL =
+  parseTopStmt-on-emit-TBO-eq pos rms outer st ss-NL
 
 -- ============================================================================
 -- EMITTER-SHAPE LEMMAS — uniform over `TopStmtTyped`
@@ -177,6 +182,8 @@ emitTopStmt-chars-nonzero _    (TSG sg)  = emitSignalGroup-chars-nonzero sg
 -- Track E.5α: `emitValueDescription-chars rvd` starts with `toList
 -- "VAL_ " = 'V' ∷ 'A' ∷ 'L' ∷ '_' ∷ ' ' ∷ []`, so length is at least 5.
 emitTopStmt-chars-nonzero _    (TVD _)   = s≤s z≤n
+-- A.2: `emitMsgSenders-line-chars` opens with `toList "BO_TX_BU_ "`, length ≥ 10.
+emitTopStmt-chars-nonzero _    (TBO _)   = s≤s z≤n
 
 emitTopStmt-chars-head-not-newline :
     ∀ defs (t : TopStmtTyped) (suffix : List Char)
@@ -207,4 +214,7 @@ emitTopStmt-chars-head-not-newline _    (TSG sg)  suffix =
 -- Track E.5α: head of `emitValueDescription-chars rvd ++ suffix` is `'V'`,
 -- not a newline-start.
 emitTopStmt-chars-head-not-newline _    (TVD _)   _      = ∷-stop refl
+  where open import Aletheia.DBC.TextParser.DecRatParse.Properties using (∷-stop)
+-- A.2: head of `emitMsgSenders-line-chars rms ++ suffix` is `'B'`.
+emitTopStmt-chars-head-not-newline _    (TBO _)   _      = ∷-stop refl
   where open import Aletheia.DBC.TextParser.DecRatParse.Properties using (∷-stop)

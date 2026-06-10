@@ -33,6 +33,9 @@ open import Aletheia.DBC.Types using
 
 open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
+open import Aletheia.DBC.TextParser.Senders using (RawMsgSenders)
+open import Aletheia.DBC.TextFormatter.MessageSenders using
+  (emitMsgSenders-line-chars; emitMsgSenders-rmss-chars)
 
 open import Aletheia.DBC.TextFormatter.ValueTables  using
   ( emitValueTable-chars; emitValueTables-chars
@@ -45,7 +48,7 @@ open import Aletheia.DBC.TextFormatter.SignalGroups using (emitSignalGroup-chars
 open import Aletheia.DBC.TextFormatter.Attributes   using (emitAttribute-chars; emitAttributes-chars; collectDefs)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( TopStmtTyped; TVT; TM; TVD; TEV; TCM; TAT; TSG
+  ( TopStmtTyped; TVT; TM; TVD; TEV; TCM; TAT; TSG; TBO
   ; emitTopStmt-chars
   ; toTopStmtsTyped
   )
@@ -117,6 +120,17 @@ emit-map-TVD-eq :
     ≡ emitValueDescriptions-rvds-chars rvds
 emit-map-TVD-eq defs rvds =
   foldr-emit-map-iso defs TVD emitValueDescription-chars rvds (λ _ → refl)
+
+-- A.2: TBO per-section bridge.  Bridges the `RawMsgSenders` list (the
+-- post-`collectSenders` form); the wrapper `emitMessageSenders-chars msgs =
+-- emitMsgSenders-rmss-chars (collectSenders msgs)` collapses by `refl` at the
+-- call site.
+emit-map-TBO-eq :
+    ∀ defs (rmss : List RawMsgSenders)
+  → foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TBO rmss)
+    ≡ emitMsgSenders-rmss-chars rmss
+emit-map-TBO-eq defs rmss =
+  foldr-emit-map-iso defs TBO emitMsgSenders-line-chars rmss (λ _ → refl)
 
 emit-map-TEV-eq :
     ∀ defs (evs : List EnvironmentVar)
