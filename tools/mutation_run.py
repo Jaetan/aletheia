@@ -169,30 +169,45 @@ def load_spec() -> Spec:
 
 
 def _parse_mutmut(raw: str) -> MutmutCounts:
-    """Tally per-status mutant counts from ``mutmut run`` / ``results`` output."""
-    sections: dict[str, int] = {}
-    # mutmut 3.x prints sections per status (killed/survived/timeout/...).
-    # Each section header is e.g. "survived: N items" or with a colon-separated
-    # newline-list following.  We count by scanning for section headers.
-    section_re = re.compile(
-        r"^(killed|survived|timeout|suspicious|skipped)\s*\(\s*(\d+)",
-        re.MULTILINE,
+    """Tally per-status mutant counts from ``mutmut run`` / ``results`` output.
+
+    mutmut 3.x's authoritative tally is the live progress line that ``mutmut
+    run`` overwrites in place; its final state is emoji-keyed::
+
+        <spinner> N/Total  🎉 <killed>  🫥 <no-tests>  ⏰ <timeout>
+                           🤔 <suspicious>  🙁 <survived>  ...
+
+    (`mutmut results` lists ONLY the non-killed mutants, one per line —
+    ``module.x__mutmut_K: survived`` — so the killed count is NOT recoverable
+    from ``results`` alone; the run summary is the only source for killed.)
+
+    Primary: parse the last emoji summary.  Fallback (summary shape changed):
+    count the per-mutant ``: survived`` / ``: no tests`` lines from ``results``
+    — that keeps the gate-critical SURVIVOR count correct even if the killed
+    count (score only) is lost.  Legacy ``X/Y mutants`` last.
+    """
+    summary = re.findall(
+        r"🎉\s*(\d+)\s+🫥\s*(\d+)\s+⏰\s*(\d+)\s+🤔\s*(\d+)\s+🙁\s*(\d+)",
+        raw,
     )
-    for match in section_re.finditer(raw):
-        sections[match.group(1)] = int(match.group(2))
-    # Fallback parse: the older "X/Y mutants" line.
-    if not sections:
-        legacy = re.search(r"(\d+)\s*/\s*(\d+)\s*mutants?", raw)
-        if legacy:
-            killed = int(legacy.group(1))
-            total = int(legacy.group(2))
-            sections = {"killed": killed, "survived": total - killed}
-    return MutmutCounts(
-        killed=sections.get("killed", 0),
-        survived=sections.get("survived", 0),
-        timeout=sections.get("timeout", 0),
-        skipped=sections.get("skipped", 0),
-    )
+    if summary:
+        killed, no_tests, timeout, _suspicious, survived = (int(x) for x in summary[-1])
+        return MutmutCounts(
+            killed=killed, survived=survived, timeout=timeout, skipped=no_tests
+        )
+    # Fallback: count per-mutant status lines emitted by `mutmut results`.
+    survived = len(re.findall(r":\s*survived\s*$", raw, re.MULTILINE))
+    no_tests = len(re.findall(r":\s*no tests\s*$", raw, re.MULTILINE))
+    timeout = len(re.findall(r":\s*timeout\s*$", raw, re.MULTILINE))
+    if survived or no_tests or timeout:
+        # killed is not listed by `mutmut results`; left 0 (score-only loss).
+        return MutmutCounts(killed=0, survived=survived, timeout=timeout, skipped=no_tests)
+    # Legacy parse: the older "X/Y mutants" line.
+    legacy = re.search(r"(\d+)\s*/\s*(\d+)\s*mutants?", raw)
+    if legacy:
+        killed, total = int(legacy.group(1)), int(legacy.group(2))
+        return MutmutCounts(killed=killed, survived=total - killed, timeout=0, skipped=0)
+    return MutmutCounts(killed=0, survived=0, timeout=0, skipped=0)
 
 
 def _check_python_tools() -> tuple[Path, Path] | str:
