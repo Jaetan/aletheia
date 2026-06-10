@@ -578,8 +578,8 @@ record MessageWF (msg : DBCMessage) : Set where
     -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
     -- signals with the same name would have their per-signal VAL_
     -- entries collapse onto whichever signal `lookup-vd` finds first,
-    -- breaking the round-trip.  Validator's CHECK 23 enforces this at
-    -- DBC-load time.
+    -- breaking the round-trip.  Validator's CHECK 2 (`DuplicateSignalName`,
+    -- an error-class check) enforces this at DBC-load time.
     sig-names-unique : AllPairs _≢_ (map DBCSignal.name (DBCMessage.signals msg))
 
 

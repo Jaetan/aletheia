@@ -76,8 +76,11 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   identifiers, no cross-line correlation. The round-trip lemma mirrors the
   existing receiver-list pattern (`parseReceiverList∘strip-roundtrip`).
 - **Blockers / deps** — none material; the data already exists on `DBCMessage`.
-- **Verdict** — `DO` (if any text-round-trip item is taken first, this is the
-  cheapest). The receiver-list precedent makes the proof tractable.
+- **Verdict** — `ACTIVE` (taken standalone 2026-06-10, on branch
+  `agda/e1-isidentstart-hspace-bridge`).  The cheapest text-round-trip item;
+  the receiver-list precedent makes the proof tractable.  Shipped for its own
+  text-surface value (closes the `BO_TX_BU_` gap) — NOT to close E.2 (the E.2
+  full-closure scoping found ~7 independent walls; see E.2).
 
 ### A.3 — Nested multiplexors `m<N>M`
 
@@ -229,15 +232,38 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   non-round-trippable DBCs, yielding the weaker-but-honest guarantee
   "`format_dbc_text` round-trips, or tells you it can't."  Both are materially
   larger, separate decisions — E.2's strengthening is *gated on one of them*.
-- **The two technically-dischargeable fields** (`msg-ids-unique` ← validator
-  Check 1 `DuplicateMessageIds`; `unresolved-empty` ← JSON-parser default,
-  comment-asserted, not yet verified) are deliberately **not** done standalone:
-  7/9 hypotheses on a helper that still cannot close to
-  `validateDBC ⇒ WellFormedTextDBCAgg` is fewer arguments, not a milestone.
-- **Verdict** — `HOLD at 5/9` (bounded slice ✅, committed).  Correctness
-  question **resolved (no gap)**; the boundary-guarantee strengthening is gated
-  on the A.1/A.2/A.3 text-completeness program **or** a reject-path redesign —
-  a separate decision, not incremental proof work.
+- **Full-closure scoping, 2026-06-10 (two-agent audit, source-ground-truthed).**
+  The precondition is `errorIssues (validateDBCFull d) ≡ []` → `ValidDBC d`,
+  built from **only the 8 error-class checks** (`Validity/Theorem.agda:68`);
+  warning-class checks contribute nothing to the hypothesis.  Of the 4 residual
+  obligations, validateDBC-clean discharges **only `msg-ids-unique`** (CHECK 1,
+  error).  The other three are WALLS:
+  - `unresolved-empty` — CHECK 23 is **warn-only** and only fires on
+    *unknown-target*, never asserts `≡ []`.  The earlier "JSON-parser default,
+    technically dischargeable" framing was **WRONG against the source** — there
+    is no validateDBC-clean route to this field.
+  - `attr-wfs` (WFAttribute) — BA_DEF_ value↔type matching, enum-label
+    uniqueness, and name-resolution are checked **nowhere** (CHECK 18 is a
+    warn-only duplicate-name check).  A **second, fully-unchecked wall** —
+    distinct from A.2.
+  - `msg-wfs` (`All MessageWF`) — one unenforced field collapses the record:
+    `senders-empty` (lossy, A.2), `wfps`+`item-pres.presence` (mux single-value
+    only, A.1), `wf-sigs` (CHECK 15/16 are warnings), `pvs` (BE `msb-ge-len`
+    has no check and the predicate is *distinct* from CHECK 8's `BitsInFrame`),
+    `mc` (CHECK 4/5 give mux resolvability/acyclicity, not `MasterCoherent`'s
+    single-master / master-`Always` shape).
+  Cleanly closeable: `msg-ids-unique` + `sig-names-unique` (CHECK 1/2, errors),
+  `fb-bound` (DLC type bound), `name-pre`/`send-pre` (Identifier validity).
+  Standalone reaches ~6/12 — fewer hypotheses on a helper that still cannot
+  close.  Stale source mis-cites found: `WellFormed.agda` cites `msg-ids-unique`
+  as "CHECK 18" (it is **CHECK 1**); `Topology/Message.agda` cites
+  `sig-names-unique` as "CHECK 23" (it is **CHECK 2**) — both corrected.
+- **Verdict** — `HOLD at 5/9` (bounded slice ✅).  Correctness question
+  **resolved (no gap)**.  Full closure is a **multi-front program** (A.1/A.2/A.3
+  text-completeness + *new* validator error-checks for attribute-typing /
+  presence / master-coherence / physical-validity + proof bridges + a validator
+  contract change) **or** a reject-path redesign — NOT incremental proof work.
+  **A.2 is being taken standalone** (text-surface value; see A.2), not to close E.2.
 
 ---
 
