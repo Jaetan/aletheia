@@ -140,6 +140,20 @@ clearVdsMsg m = record m { signals = map clearVds (DBCMessage.signals m) }
 clearSendersMsg : DBCMessage → DBCMessage
 clearSendersMsg m = record m { senders = [] }
 
+-- Drop BOTH the per-signal `valueDescriptions` and the message `senders`.
+-- `parseMessage` produces messages with `vds = []` on every signal AND
+-- `senders = []` (neither the VAL_ entries nor the BO_TX_BU_ senders are
+-- recoverable from the BO_/SG_ block alone — both arrive at DBC level as
+-- separate top-statements).  Once the BO_TX_BU_ section is wired (A.2), the
+-- per-message text-roundtrip claim becomes `parseMessage … ≡ clearBothMsg
+-- msg`, and the Universal bridges via the composition
+-- `attachSenders (collectSenders msgs)
+--    (attachValueDescs (collectFromMessages msgs) (map clearBothMsg msgs))
+--  ≡ msgs`.  Defined as `clearSendersMsg ∘ clearVdsMsg`; the two updates
+-- touch disjoint fields, so the order is immaterial (definitionally equal).
+clearBothMsg : DBCMessage → DBCMessage
+clearBothMsg m = clearSendersMsg (clearVdsMsg m)
+
 -- ============================================================================
 -- NODE (DBC BU_ keyword)
 -- ============================================================================

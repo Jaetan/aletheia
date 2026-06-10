@@ -286,6 +286,11 @@ proofModules =
     -- until the formatter/parser integration lands the senders section on the
     -- text wire — explicit root keeps the base bridge from bit-rotting.
     , "Aletheia/DBC/TextParser/Properties/Aggregator/Refine/Senders.agda"
+    -- A.2 composition: nests the senders bridge with the VAL_ value-desc
+    -- bridge over `clearBothMsg` parse output — the form `buildDBC` presents
+    -- once the senders section is wired.  Also unimported until integration;
+    -- explicit root keeps the composition green in the interim.
+    , "Aletheia/DBC/TextParser/Properties/Aggregator/Refine/SendersCompose.agda"
     , "Aletheia/DBC/TextParser/Format.agda"
     , "Aletheia/DBC/TextParser/Format/RegressionTests.agda"
     , "Aletheia/DBC/TextParser/Format/ValueTable.agda"
