@@ -517,9 +517,10 @@ auto serialize_format_dbc_text(const DbcDefinition& dbc) -> std::string {
 
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string {
-    // Direct string construction like serialize_send_frame.
+    // Direct string construction like serialize_send_frame.  No reserve(): this
+    // is the JSON (non-binary) extract path, not the streaming hot path, and the
+    // reserve sized only a discarded local — no observable effect to test.
     std::string data_str;
-    data_str.reserve(data.size() * 4);
     for (std::size_t i = 0; i < data.size(); ++i) {
         if (i > 0)
             data_str += ',';
@@ -554,8 +555,7 @@ auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<cons
     // 2.0B frames (ISO 11898-1:2015 §10.4.2/3 — CAN-FD only).  The Agda
     // data-event parser ignores unknown fields; this is additive
     // observability for cross-binding-test parity.
-    std::string data_str;
-    data_str.reserve(data.size() * 4); // "255," = 4 chars max per byte
+    std::string data_str; // no reserve(): mock/test serializer, not the hot path
     for (std::size_t i = 0; i < data.size(); ++i) {
         if (i > 0)
             data_str += ',';

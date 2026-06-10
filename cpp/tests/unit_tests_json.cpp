@@ -1222,7 +1222,10 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
         "errors": [], "absent": []
     })");
     CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("denominator"));
+    // Assert the specific "Zero denominator" wording, not just "denominator":
+    // the latter also matches the Rational ctor's "denominator must be positive",
+    // so a den == 0 check that fell through to {num, 0} would pass a loose match.
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Zero denominator"));
 }
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
