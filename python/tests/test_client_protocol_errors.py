@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING
 import pytest
 from _dbc_helpers import dbc, message, signal
 
-from aletheia import AletheiaClient, MockBackend, ProtocolError, StateError
+from aletheia import AletheiaClient, InputBoundExceededError, MockBackend, ProtocolError, StateError
+from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES
 
 if TYPE_CHECKING:
     from aletheia.types import DBCDefinition, JSONValue
@@ -174,3 +175,58 @@ class TestValidateDbcErrorPaths:
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
         assert str(excinfo.value) == _UNEXPECTED_VALIDATION
+
+
+class TestSendCommandGuards:
+    """_send_command guards: the not-initialized check and the JSON size bound.
+
+    Driven through ``validate_dbc`` (the thinnest public method that routes
+    straight through ``_send_command`` with no inner cap of its own).
+    """
+
+    def test_not_initialized_raises_state_error(self) -> None:
+        """Reject a command sent before ``__enter__`` with the guard StateError."""
+        client = AletheiaClient(backend=MockBackend())
+        with pytest.raises(StateError) as excinfo:
+            client.validate_dbc(_sample_dbc())
+        assert str(excinfo.value) == "Client not initialized — use 'with' statement"
+
+    def test_oversize_command_raises_input_bound_exceeded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reject a command whose JSON exceeds MAX_JSON_BYTES before the FFI call.
+
+        Patches the limit small so a normal command trips it without building a
+        64 MiB payload; asserts every structured field (kind / observed / limit /
+        code) so the InputBoundExceededError construction args are all pinned.
+        """
+        monkeypatch.setattr("aletheia.client._client.MAX_JSON_BYTES", 50)
+        backend = MockBackend()
+        with AletheiaClient(backend=backend) as client:
+            with pytest.raises(InputBoundExceededError) as excinfo:
+                client.validate_dbc(_sample_dbc())
+            err = excinfo.value
+            assert err.kind == BOUND_KIND_INPUT_LENGTH_BYTES
+            assert err.observed > 50
+            assert err.limit == 50
+            assert err.code == "input_bound_exceeded"
+        # The bound short-circuits before the backend is ever consulted.
+        assert not backend.inputs
+
+    def test_command_exactly_at_limit_is_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A command whose JSON is EXACTLY MAX_JSON_BYTES is allowed (bound is `>`, not `>=`).
+
+        The first call (default limit) records the exact serialized command size via
+        ``backend.inputs``; patching the limit to that size makes the second call sit
+        precisely on the boundary, where ``> limit`` admits it but ``>= limit`` would reject.
+        """
+        valid = _resp({"status": "validation", "has_errors": False, "issues": []})
+        sample = _sample_dbc()
+        backend = MockBackend([valid, valid])
+        with AletheiaClient(backend=backend) as client:
+            client.validate_dbc(sample)
+            exact = len(backend.inputs[0])
+            monkeypatch.setattr("aletheia.client._client.MAX_JSON_BYTES", exact)
+            result = client.validate_dbc(sample)
+        assert result["status"] == "validation"
+        assert len(backend.inputs) == 2  # the boundary command DID reach the backend
