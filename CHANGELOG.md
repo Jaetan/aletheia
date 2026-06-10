@@ -617,6 +617,24 @@ step count: 27 → 28.
 
 ### Changed
 
+#### Changed — Python: mutation-lane hardening (internal; no behavior change)
+
+The Python mutation lane (`mutmut`) was driven from 215 survivors to 1 by
+closing real test gaps in the under-tested error/edge branches of
+`aletheia.client._client` (`format_dbc` / `format_dbc_text` / `validate_dbc` /
+`_send_command` guards + lifecycle), `aletheia.yaml_loader` (check-validation
+branches), `aletheia.dbc._converter` (file wrappers), and `aletheia.types`
+(`dump_json` / encoder).  The only source-visible changes are
+behaviour-preserving simplifications (`to_signal_fraction` drops a redundant
+integer branch; `_populate_signal_lookup` drops a redundant `False` default;
+`str.encode`/`bytes.decode` drop the explicit `"utf-8"` default) and
+`# pragma: no mutate` annotations on genuine equivalents / unreachable
+defensive guards.  The internal stub `aletheia.client._client._send_frame_unbound`
+was renamed to `send_frame_unbound` (still module-private — not exported).  No
+observable behaviour or public-API change.  The one remaining survivor is a
+documented genuine equivalent (`dump_json`'s `ensure_ascii=False`→`None`); see
+`docs/MUTATION_BENCH.yaml`.
+
 #### Added — Python: `aletheia.types.JSONValue` type alias; loaders typed against it
 
 A canonical `JSONValue` alias (`str | int | float | bool | None | list[JSONValue]
