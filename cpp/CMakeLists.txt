@@ -358,6 +358,16 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # are the actual mutation surface.
     if(ALETHEIA_MUTATION)
         target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
+        # Cover the real FfiBackend (dlopen glue) in the mutation surface: the
+        # Mock-only unit sources never execute ffi_backend.cpp, so its mutants
+        # are UNCOVERED (Mull-22 reports uncovered mutants; Mull-19 did not, hence
+        # the historical 0 baseline).  Fold the real-.so integration tests into
+        # the mutation binary so FfiBackend's FFI-boundary guards are exercised
+        # and killed.  (Mutation build only — the normal unit_tests stays
+        # Mock-only / .so-free for speed.)
+        find_package(Threads REQUIRED)
+        target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
+        target_link_libraries(unit_tests PRIVATE Threads::Threads)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 

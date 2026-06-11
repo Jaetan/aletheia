@@ -123,18 +123,27 @@ bindings:
 
   cpp:
     tool: mull
-    version: "0.33.0 LLVM-19"
+    version: "0.34.0 LLVM-22"
     install: |
-      # mull-runner-19, mull-reporter-19, mull-ir-frontend-19 from the Mull-19
-      # release deb (matches LLVM 19.1.7 / clang-19 already installed via
-      # apt).  Local extract to ~/.local/bin avoids needing sudo:
-      #   curl -fsSLO https://github.com/mull-project/mull/releases/download/0.33.0/Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb
-      #   mkdir -p /tmp/mull-extract
-      #   dpkg-deb -x Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb /tmp/mull-extract
-      #   cp /tmp/mull-extract/usr/bin/mull-{runner,reporter}-19 ~/.local/bin/
-      #   cp /tmp/mull-extract/usr/lib/mull-ir-frontend-19      ~/.local/bin/
-      # clang-19 from the Debian apt repo:
-      #   sudo apt install clang-19
+      # No prebuilt Mull deb ships for LLVM 22 (release debs stop at LLVM-15),
+      # and we support only the latest stable Clang (22) — testing clang-19
+      # mutants while shipping clang-22 is a real gap, not cosmetic, since UB
+      # can change between compiler versions.  So Mull is built FROM SOURCE
+      # against the system LLVM-22, cached in CI.  Grounded recipe:
+      #   sudo apt install clang-22 llvm-22-dev      # system LLVM-22
+      #   git clone --branch 0.34.0 https://github.com/mull-project/mull /tmp/mull
+      #   cd /tmp/mull
+      #   # Mull's MODULE.bazel OS map caps ubuntu:24.04 at LLVM-20 — add "22":
+      #   sed -i 's/\("ubuntu:24.04": \[\)/\1"22", /' MODULE.bazel
+      #   bazel build //rust/mull-tools:mull-runner-22 \
+      #               //rust/mull-tools:mull-reporter-22 //:mull-ir-frontend-22
+      #   # bazelisk reads .bazelversion (8.6.0); system LLVM via
+      #   # new_local_repository(/usr/lib/llvm-22) — no LLVM download.
+      #   cp bazel-bin/.../mull-{runner,reporter}-22 ~/.local/bin/
+      #   cp bazel-bin/mull-ir-frontend-22           ~/.local/bin/
+      # mull-runner / mull-reporter are Rust binaries; ir-frontend is a C++
+      # clang plugin .so.  Full recipe + cache keys: pr-heavy-lanes.yml mutation
+      # lane and memory/feedback_support_latest_toolchain.md.
     hot_path:
       # AGENTS.md cat 14(g) C++ list: `cpp/src/*.cpp` — Mull mutates all of
       # them via the `-fpass-plugin` clang option in the dedicated build tree.
@@ -151,35 +160,49 @@ bindings:
     config:
       build_dir: cpp/build-mutation
       cmake_flag: ALETHEIA_MUTATION
-      compiler: clang-19
-      ir_plugin: ~/.local/bin/mull-ir-frontend-19
-      runner: mull-runner-19
+      compiler: clang-22
+      ir_plugin: ~/.local/bin/mull-ir-frontend-22
+      runner: mull-runner-22
     invocation: |
+      # The ALETHEIA_MUTATION build folds tests/integration_tests.cpp into the
+      # unit_tests binary so the real FfiBackend (dlopen glue) is on the
+      # mutation surface — those tests dlopen build/libaletheia-ffi.so, so
+      # `cabal run shake -- build` must have produced it first.
       cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-        -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 \
+        -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
         > /dev/null && \
-        cmake --build build-mutation && \
-        mull-runner-19 ./build-mutation/unit_tests
+        cmake --build build-mutation --target unit_tests && \
+        mull-runner-22 ./build-mutation/unit_tests
     report: |
-      # mull-runner-19 prints a per-mutant table to stdout; runner parses
+      # mull-runner-22 prints a per-mutant table to stdout; runner parses
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:
-      # Re-recorded 2026-06-10 — ZERO survivors.  The full C++ mutation surface
-      # is killed.  The survivor-elimination pass: closed the json-lane test
-      # gaps (negate / integer-division / timestamp-boundary value tests in
-      # unit_tests_json.cpp); made the parse_rational_dict den<0 boundary
-      # observable (reorder so den==0 is rejected after the sign branch, with a
-      # message-specific test); dropped the two no-observable-effect reserve()
-      # hints on the non-hot serialize paths; and lifted the FfiBackend RTS-init
-      # + FFI-error branches (status!=0 / err_str!=nullptr ternaries, the
-      # rts_cores>1 / mismatch guards) into pure unit-tested helpers
-      # (src/detail/ffi_logic.cpp), which also collapsed the error block that
-      # was triplicated across the three _bin methods.  Mull-19: 45 killed /
-      # 0 survived / 100%.  This zero-survivor baseline is the strictest
-      # possible floor — any new survivor on a future commit fails the lane
-      # (matching the Go binding's standard above).
+      # Re-recorded 2026-06-11 under clang-22 / Mull 0.34.0 (LLVM-22) — ZERO
+      # survivors, 60/60.  Re-baselined from the Mull-19 era (45 killed / 0):
+      # the compiler version changes the mutation surface — clang-22 + Mull-22
+      # generate 60 mutants where Mull-19 generated 45, concrete proof that
+      # "test the clang-19 mutants while shipping clang-22" was a real gap.
+      #
+      # Two-part close.  (1) The Mull-19 survivor-elimination pass still holds:
+      # json-lane value tests (negate / integer-division / timestamp boundary);
+      # the parse_rational_dict den==0-after-sign-branch reorder + message test;
+      # dropping no-observable-effect reserve() hints; and lifting the FfiBackend
+      # RTS-init / FFI-error branches into pure unit-tested helpers
+      # (src/detail/ffi_logic.cpp).  (2) NEW under clang-22: the Mock-only
+      # unit_tests never executed ffi_backend.cpp, so Mull-22 reported its
+      # mutants as UNCOVERED (Mull-19 silently omitted uncovered mutants, hence
+      # the old 45).  Fix: fold tests/integration_tests.cpp into the mutation
+      # binary (ALETHEIA_MUTATION-only) so the real FfiBackend runs.  That
+      # auto-killed the dlsym/result null guards and the <=64 payload mutants
+      # via normal ≤64-byte traffic; the four `>64`→`>=64`/`<=64` boundary
+      # mutants (send_frame / extract-bin / extract-JSON / update — guards
+      # behind the client's data.size()==dlc_to_bytes(dlc) pre-check, reachable
+      # only at exactly 64) needed an exactly-64-byte CAN-FD call each — see
+      # the "[boundary]" integration test.  This zero-survivor baseline is the
+      # strictest possible floor — any new survivor on a future commit fails
+      # the lane (matching the Go binding's standard above).
       survivors: 0
-      total_mutants: 45
+      total_mutants: 60
       score_pct: 100
-      run_at: "2026-06-10"
+      run_at: "2026-06-11"
