@@ -634,7 +634,7 @@ def _run_lints(runner: Runner) -> None:
     # but file not executable") that a fresh CI run catches — making the local
     # sweep / pre-push hook give a false green.  ruff is sub-second, so running
     # cache-free here costs nothing and keeps local == CI.  See
-    # memory feedback_no_shebang_in_tools.
+    # memory/feedback_no_shebang_in_tools.md.
     ruff_cmd = (
         f"{shlex.quote(runner.python)} -m ruff check --no-cache tools examples python conftest.py "
         f"&& {shlex.quote(runner.python)} -m ruff format --check tools examples python conftest.py"
