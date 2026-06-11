@@ -98,7 +98,7 @@ the regular cross-language run:
 ## Methodology and Variance
 
 Benchmarks are measured on an Intel Core Ultra 9 285K (24 cores), Linux 6.6
-(WSL2), with C++ clang++-19 `-O3`, Go 1.26.2, Python 3.14.5 (exact versions
+(WSL2), with C++ clang++-22 `-O3`, Go 1.26.3, Python 3.14.5 (exact versions
 printed in each JSON output under `system`).
 
 The ±10% inter-run variance gate and the ~2–4% steady-state noise floor are

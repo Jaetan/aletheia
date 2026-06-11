@@ -85,28 +85,28 @@ Track narratives and per-step detail live in `memory/project_track_{c,e}_*.md`, 
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
-*Benchmarks: 10,000 frames × 5 runs, Intel Core Ultra 9 285K (24 cores), Linux 6.6 (WSL2). C++ clang++-19 (19.1.7) -O3, Go 1.26.2 (benchmark host; required floor is Go 1.24+ per BUILDING.md / `go.mod`), Python 3.14.5. Measured 2026-06-11.*
+*Benchmarks: 10,000 frames × 5 runs, Intel Core Ultra 9 285K (24 cores), Linux 6.6 (WSL2). C++ clang++-22 (22.1.6) -O3, Go 1.26.3 (benchmark host; required floor is Go 1.24+ per BUILDING.md / `go.mod`), Python 3.14.5. Measured 2026-06-11.*
 
 | Benchmark | C++ (fps) | Go (fps) | Python (fps) | Measured |
 |---|---:|---:|---:|---|
-| CAN 2.0B: Stream LTL (2 props) | **241,051** | 225,252 | 141,761 | 2026-06-11 |
-| CAN 2.0B: Signal Extraction | **383,826** | 331,923 | 139,254 | 2026-06-11 |
-| CAN 2.0B: Frame Building | **129,404** | 124,547 | 87,756 | 2026-06-11 |
-| CAN-FD: Stream LTL (3 props) | **108,840** | 106,087 | 75,930 | 2026-06-11 |
-| CAN-FD: Signal Extraction | **27,716** | 26,678 | 19,505 | 2026-06-11 |
-| CAN-FD: Frame Building | **32,681** | 31,883 | 26,647 | 2026-06-11 |
+| CAN 2.0B: Stream LTL (2 props) | **249,945** | 223,855 | 143,227 | 2026-06-11 |
+| CAN 2.0B: Signal Extraction | **401,897** | 337,441 | 138,843 | 2026-06-11 |
+| CAN 2.0B: Frame Building | **133,308** | 125,573 | 88,609 | 2026-06-11 |
+| CAN-FD: Stream LTL (3 props) | **108,679** | 106,670 | 79,078 | 2026-06-11 |
+| CAN-FD: Signal Extraction | **27,697** | 26,477 | 19,498 | 2026-06-11 |
+| CAN-FD: Frame Building | **32,252** | 31,836 | 27,147 | 2026-06-11 |
 
-All six rows were re-measured 2026-06-11 on the current host. The ~2× lift over the prior 2026-04-06 baseline (AMD Ryzen 9 5950X, g++-15) is the CPU change (now Intel Core Ultra 9 285K), not a code or compiler effect — the lift is uniform across all three bindings. Per-lane run-to-run stdev was ≤4.6% (mostly 1–2%).
+All six rows were re-measured 2026-06-11 on the current host under clang-22, the supported toolchain. Moving from clang-19 to clang-22 is performance-neutral: every lane lands within run-to-run noise of the prior clang-19 numbers (C++ CAN 2.0B +3–5%, CAN-FD within ±1.3%; Go and Python — which the C++ compiler cannot affect — within ±2%, the control that confirms the measurement is clean). The ~2× lift over the prior 2026-04-06 baseline (AMD Ryzen 9 5950X, g++-15) is the CPU change (now Intel Core Ultra 9 285K), not a code or compiler effect. Numbers are the best of two clean back-to-back batches; per-lane intra-batch stdev was ≤2.6% (one Python lane 6.3%).
 
 > **Frame Building regression (resolved 2026-04-08).** An earlier 30–65% regression on Frame Building (commit `5aa345e`, the `physicallyDisjoint?` Dec-valued check in `BatchFrameBuilding.hasOverlaps`) was traced via `git worktree` bisection and fixed by a Bool-valued fast path with formal equivalence proofs in `DBC/Properties.agda` (`signalsPhysicallyOverlapᵇ`, `physicallyOverlapᵇ-sound`, `physicallyOverlapᵇ-complete`): per-signal physical bit lists are precomputed once in `hasOverlaps` and the O(m²) pair loop runs over cached lists with primitive ℕ equality — no `Dec` allocations on the hot path. The canonical numbers above (2026-06-11) reflect the post-fix steady state. See `project_frame_building_regression_2026_04_07.md` and AGENTS.md Category 16 for the cost-model lesson.
 
-> **Note on C++ vs Go on Frame Building.** Frame Building is the narrowest C++/Go margin — in the 2026-06-11 run C++ leads it by only ~3–4% (CAN 2.0B), versus ~7–16% on the other CAN 2.0B lanes, and on the prior host Go had occasionally edged ahead. This is benchmark geometry, not a C++-vs-Go truth: Frame Building does the *least* Agda work per call and the *most* binding-side work, so per-call glibc `malloc` for the three scratch `std::vector`s in `AletheiaClient::build_frame` plus `std::unordered_map<SignalKey, uint32>` lookups are most visible relative to Go's per-P bump allocator and built-in map. Stream LTL and Signal Extraction remain clearly C++-dominant. Future C++ optimizations (thread-local scratch buffers, small-vector, `ankerl::unordered_dense` / `absl::flat_hash_map`) would widen the Frame Building lead but are not scheduled. See `project_cpp_vs_go_frame_building.md` for details.
+> **Note on C++ vs Go on Frame Building.** Frame Building is the narrowest C++/Go margin — in the 2026-06-11 clang-22 run C++ leads it by only ~6% (CAN 2.0B), versus ~12–19% on the other CAN 2.0B lanes, and on the prior host Go had occasionally edged ahead. This is benchmark geometry, not a C++-vs-Go truth: Frame Building does the *least* Agda work per call and the *most* binding-side work, so per-call glibc `malloc` for the three scratch `std::vector`s in `AletheiaClient::build_frame` plus `std::unordered_map<SignalKey, uint32>` lookups are most visible relative to Go's per-P bump allocator and built-in map. Stream LTL and Signal Extraction remain clearly C++-dominant. Future C++ optimizations (thread-local scratch buffers, small-vector, `ankerl::unordered_dense` / `absl::flat_hash_map`) would widen the Frame Building lead but are not scheduled. See `project_cpp_vs_go_frame_building.md` for details.
 
 - Build time: 0.26s (no-op), ~11s (incremental)
 - Per-frame latency: ~4 us (CAN 2.0B streaming, C++; 2026-06-11 host)
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
 - **Binary FFI**: All hot-path operations use binary FFI (no JSON parsing): `aletheia_send_frame` (streaming), `aletheia_extract_signals_bin`, `aletheia_build_frame_bin`, `aletheia_update_frame_bin`. All three bindings call the binary endpoints directly.
-- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 5 Mbit/s requires ~6,000 fps — all operations exceed this across all bindings (minimum: 12,143 fps Python CAN-FD extraction, 2x headroom).
+- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 5 Mbit/s requires ~6,000 fps — all operations exceed this across all bindings (minimum: 19,498 fps Python CAN-FD extraction, ~3x headroom).
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
