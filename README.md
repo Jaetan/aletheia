@@ -24,6 +24,23 @@ cabal run shake -- build
 
 For complete build instructions, troubleshooting, and development workflow, see [Building Guide](docs/development/BUILDING.md).
 
+### Command-line usage (no Python required)
+
+The fastest way to run checks — no code to write. After installing, run `aletheia`
+from any shell against a CAN log:
+
+```bash
+# Run YAML/Excel-defined checks against a recorded trace
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+
+# Other subcommands: validate a DBC, extract one frame, list signals, …
+aletheia validate --dbc vehicle.dbc
+aletheia signals --dbc vehicle.dbc
+```
+
+Exit code `0` = all checks passed, `1` = violations found, `2` = error. Full
+subcommand + flag reference: **[CLI Guide](docs/reference/CLI.md)**.
+
 ### Basic Usage
 
 > **Which style should I use?** New users should start with the **Check API** or YAML/Excel loaders shown under [Higher-Level Interfaces](#higher-level-interfaces) below — they cover the common cases. The raw DSL (`Signal`, `set_properties`) shown here is the escape hatch for full LTL control (e.g., metric operators, custom predicates). See the [Interface Guide](docs/reference/INTERFACES.md) for an end-to-end comparison.

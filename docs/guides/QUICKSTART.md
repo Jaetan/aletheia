@@ -49,7 +49,7 @@ checks:
 ## 2. Run Against a CAN Log
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ## 3. Interpret Results

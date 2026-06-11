@@ -169,7 +169,7 @@ checks.when("FuelLevel").drops_below(10) \
 ### Read a BLF file and check it (CLI)
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ### Read a CAN log in Python (eager)
@@ -220,7 +220,7 @@ sudo ip link set up vcan0
 candump -L vcan0 > drive.log
 
 # Replay through Aletheia
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
 ```
 
 See [CLI Reference § Capturing CAN traffic on Linux](../reference/CLI.md#capturing-can-traffic-on-linux) for rotating captures and the `vcan` setup details.
@@ -254,13 +254,13 @@ client.parse_dbc(dbc)
 ### List all signals in a DBC (CLI)
 
 ```bash
-python3 -m aletheia signals --dbc vehicle.dbc
+aletheia signals --dbc vehicle.dbc
 ```
 
 ### List signals as JSON
 
 ```bash
-python3 -m aletheia signals --dbc vehicle.dbc --json
+aletheia signals --dbc vehicle.dbc --json
 ```
 
 ---
@@ -270,7 +270,7 @@ python3 -m aletheia signals --dbc vehicle.dbc --json
 ### Check a DBC for structural issues (CLI)
 
 ```bash
-python3 -m aletheia validate --dbc vehicle.dbc
+aletheia validate --dbc vehicle.dbc
 ```
 
 The CLI exits **non-zero** when the DBC contains at least one `error`-severity
@@ -281,7 +281,7 @@ gating step.
 ### Interpret validation errors
 
 ```bash
-python3 -m aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
+aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
 ```
 
 ```json
@@ -329,7 +329,7 @@ print(f"Absent: {result.absent}")
 ### Extract signals from CLI
 
 ```bash
-python3 -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
+aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ```
 
 ### Build a frame from signal values
@@ -359,7 +359,7 @@ client.end_stream()
 ### Run checks in CI/CD (exit codes + JSON)
 
 ```bash
-python3 -m aletheia check \
+aletheia check \
     --dbc vehicle.dbc \
     --checks checks.yaml \
     --json \
@@ -372,20 +372,20 @@ echo "Exit code: $?"
 ### Decode a single frame
 
 ```bash
-python3 -m aletheia extract --dbc vehicle.dbc 0x100 "40 1F 7D 00 00 00 00 00"
+aletheia extract --dbc vehicle.dbc 0x100 "40 1F 7D 00 00 00 00 00"
 ```
 
 ### Use Excel workbook for everything
 
 ```bash
 # DBC + checks from the same .xlsx
-python3 -m aletheia check --excel vehicle_checks.xlsx drive.blf
+aletheia check --excel vehicle_checks.xlsx drive.blf
 ```
 
 ### Mix DBC from .dbc with checks from .yaml
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ---
