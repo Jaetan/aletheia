@@ -213,7 +213,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 
 ## Implementation Phases
 
-[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity); post-R17 parity-plan Tracks A–E all complete (matrix gates / DBC text parser / cancellation / doc harness / VAL_ promotion). **No active phase**; Phase 6 (Extensions & New Protocols — CLI parity stretch + python-can replacement + GHC native bignum + SOME/IP) is the candidate next track, goal-set pinned 2026-05-07 but not started.
+[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity); post-R17 parity-plan Tracks A–E all complete (matrix gates / DBC text parser / cancellation / doc harness / VAL_ promotion). **No active phase**; Phase 6 (Extensions & New Protocols — CLI parity stretch + Rust/Haskell bindings (Haskell native; Rust via .so) + python-can replacement + GHC native bignum + SOME/IP) is the candidate next track, goal-set pinned 2026-05-07 but not started.
 
 ---
 
@@ -261,7 +261,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **Post-merge cleanup** (branch `post-merge-cleanup`, 2026-06-10): ghcup-dir `chown` for CI log hygiene; new `docs/development/DEFERRED_ITEMS.md` (the in-source-deferral backlog + per-item re-examination); venv-convention docs standardized on `python/.venv` (closes DEFERRED_ITEMS **G.1**); this UPD.  Open backlog now lives in `DEFERRED_ITEMS.md` — `E.1` (owed bridge lemma), `A.2` (`BO_TX_BU_` text senders) are the DO/INVESTIGATE candidates; **`E.2` (`WellFormedTextDBCAgg` discharge) is IN PROGRESS** on branch `agda/e1-isidentstart-hspace-bridge` (bounded slice `8758236`); the rest are HOLD/CAN'T or parked by prior user decision.
 
-**No active phase.**  Phase 5.1 complete; Phase 6 (Extensions & New Protocols — CLI parity stretch + python-can replacement + GHC native bignum + SOME/IP) is the candidate next track (goal-set pinned 2026-05-07, not started).
+**No active phase.**  Phase 5.1 complete; Phase 6 (Extensions & New Protocols — CLI parity stretch + Rust/Haskell bindings (Haskell native; Rust via .so) + python-can replacement + GHC native bignum + SOME/IP) is the candidate next track (goal-set pinned 2026-05-07, not started).
 
 **Standard gates** (all run by `tools/run_ci.py`): `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, check-bound-enforcement, count-modules, check-runbook, check-changelog, check-limits-parity}` + Python `pytest tests/` + Go `go test ./aletheia/ -race` + C++ `ctest --test-dir cpp/build` (Clang ≥ 19) + lint (ruff/pylint/basedpyright tree-wide) + IWYU (`tools/iwyu.py --check` + `--self-test`) + GHA meta (actionlint / check-action-pins / check-workflow-permissions) + SPDX headers.
 
