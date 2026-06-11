@@ -203,7 +203,7 @@ public:
             // initialized with cores=1, dropping the user's `rts_cores`
             // argument without firing the `rts.cores_mismatch` warning.
             auto& rts = detail::rts_init_state();
-            const std::lock_guard lock(rts.mu);
+            const std::scoped_lock lock(rts.mu);
             if (!rts.initialized) {
                 if (auto args = detail::rts_init_args(rts_cores)) {
                     // hs_init requires char** (non-const) for argv. The backing

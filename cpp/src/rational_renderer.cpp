@@ -91,7 +91,7 @@ auto find_library_path() -> std::filesystem::path {
     // R21 cluster 2: registered path from FfiBackend ctor.
     {
         auto& d = default_path_state();
-        const std::lock_guard lk{d.mu};
+        const std::scoped_lock lk{d.mu};
         if (!d.path.empty()) {
             const fs::path p{d.path};
             if (fs::exists(p))
@@ -157,7 +157,7 @@ void init_renderer() {
     auto hs_init = reinterpret_cast<HsInitFn>(hs_init_sym);
     {
         auto& rts = detail::rts_init_state();
-        const std::lock_guard lk{rts.mu};
+        const std::scoped_lock lk{rts.mu};
         if (!rts.initialized) {
             hs_init(nullptr, nullptr);
             rts.initialized = true;
@@ -206,7 +206,7 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
 
 void register_default_lib_path(const std::filesystem::path& lib_path) {
     auto& d = default_path_state();
-    const std::lock_guard lk{d.mu};
+    const std::scoped_lock lk{d.mu};
     if (d.path.empty()) // first-write-wins
         d.path = lib_path.string();
 }

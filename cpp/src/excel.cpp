@@ -380,7 +380,7 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     if (has_muxor) {
         auto mux_val = get_int(cells, "Multiplex Value", ctx_str);
         if (mux_val < 0 ||
-            mux_val > static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()))
+            std::cmp_greater(mux_val ,std::numeric_limits<std::uint32_t>::max()))
             throw std::runtime_error(ctx_str + ": 'Multiplex Value' out of range [0, " +
                                      std::to_string(std::numeric_limits<std::uint32_t>::max()) +
                                      "]: " + std::to_string(mux_val));
@@ -392,12 +392,12 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     }
 
     auto start_bit_val = get_int(cells, "Start Bit", ctx_str);
-    if (start_bit_val < 0 || start_bit_val > std::numeric_limits<std::uint16_t>::max())
+    if (start_bit_val < 0 || std::cmp_greater(start_bit_val , std::numeric_limits<std::uint16_t>::max()))
         throw std::runtime_error(ctx_str + ": 'Start Bit' out of range [0, " +
                                  std::to_string(std::numeric_limits<std::uint16_t>::max()) +
                                  "]: " + std::to_string(start_bit_val));
     auto bit_length_val = get_int(cells, "Length", ctx_str);
-    if (bit_length_val < 0 || bit_length_val > std::numeric_limits<std::uint8_t>::max())
+    if (bit_length_val < 0 || std::cmp_greater(bit_length_val , std::numeric_limits<std::uint8_t>::max()))
         throw std::runtime_error(ctx_str + ": 'Length' out of range [0, " +
                                  std::to_string(std::numeric_limits<std::uint8_t>::max()) +
                                  "]: " + std::to_string(bit_length_val));
