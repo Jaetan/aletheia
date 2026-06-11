@@ -30,6 +30,8 @@ Complete API documentation:
 
 - **[Interface Guide](reference/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
 - **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
+- **[C++ API Guide](reference/CPP_API.md)** - `AletheiaClient`, Check API, and the `ltl::` DSL
+- **[Go API Guide](reference/GO_API.md)** - `Client`, Check API, and the LTL DSL
 - **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query
 - **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
@@ -129,6 +131,8 @@ aletheia/
 │   ├── reference/
 │   │   ├── INTERFACES.md              # Check API, YAML, Excel
 │   │   ├── PYTHON_API.md              # Raw DSL and AletheiaClient
+│   │   ├── CPP_API.md                 # C++ AletheiaClient + Check/ltl DSL
+│   │   ├── GO_API.md                  # Go Client + Check/LTL DSL
 │   │   └── CLI.md                     # CLI subcommands (check / validate / extract / signals / format-dbc / mux-query)
 │   │
 │   ├── architecture/
