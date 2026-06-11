@@ -125,9 +125,9 @@ endif()
 # mixed with the standard build:
 #
 #   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-#         -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+#         -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
 #   cmake --build build-mutation --target unit_tests
-#   mull-runner-19 ./build-mutation/unit_tests
+#   mull-runner-22 ./build-mutation/unit_tests
 #
 # Requires Mull-22 (LLVM 22) built from source (see docs/operations/MUTATION.md §
 # Installation) and clang-22.  Mull's IR pass uses LLVM version-specific APIs, so
