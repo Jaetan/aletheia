@@ -8,6 +8,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Security
+
+- Rotated the release-signing cosign key to a passphrase-protected key.
+  The prior key (active 2026-05-08 – 2026-06-12) had no passphrase, so the
+  key file alone could produce signatures; it is **retired, not
+  compromised**. `keys/cosign.pub` now holds the new public key.
+- Re-signed the v2.0.0 release artifacts with the new key. The release's
+  primary `aletheia-2.0.0-linux-x86_64.tar.gz.sig` now verifies against the
+  current `keys/cosign.pub`; the original retired-key signature is retained
+  on the release as `aletheia-2.0.0-linux-x86_64.tar.gz.legacy-key.sig`.
+  Verify any release against the current `keys/cosign.pub` on `main` — a
+  tag's committed copy stays on the key that signed it (see
+  `keys/README.md` § Key history).
+
 ## [2.0.0] — 2026-06-11
 
 This release bundles ~5 weeks of work since v1.1.1 (2026-04-03): the
