@@ -1,24 +1,26 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 cmake_minimum_required(VERSION 3.25)
-project(aletheia-cpp VERSION 1.1.1 LANGUAGES CXX)
+project(aletheia-cpp VERSION 2.0.0 LANGUAGES CXX)
 
-# ── Compiler policy: Clang >= 19 ONLY (g++ support dropped 2026-06-09) ───────
-# The sanitizer lanes require clang's -fsanitize-ignorelist (g++ has no
-# equivalent), and the codebase uses C++23 library features (std::expected), so
-# the project pins ONE compiler — unit tests, sanitizers, and the mutation lane
-# then all sanitize the same compilation.  Clang < 19 mis-handles libstdc++-14's
-# <expected>.  The active standard library (libstdc++ OR libc++) MUST provide
-# C++23 (notably <expected>).
+# ── Compiler policy: Clang only; supported = latest stable Clang ────────────
+# Supported toolchain: the latest stable Clang (currently 22; moves to 23 when
+# it ships).  g++ is NOT supported — the sanitizer lanes need clang's
+# -fsanitize-ignorelist (no g++ equivalent), and the codebase uses C++23
+# library features (std::expected / std::format).  CI builds + tests against
+# the latest stable only; older Clang may work but is unsupported (Clang < 19
+# mis-handles libstdc++-14's C++23 <expected>).  The active standard library
+# (libstdc++ OR libc++) MUST provide C++23.
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     message(FATAL_ERROR
         "aletheia-cpp is Clang-only (got ${CMAKE_CXX_COMPILER_ID} "
         "${CMAKE_CXX_COMPILER_VERSION}); g++ is not supported.  Configure with: "
-        "cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19")
-elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
-    message(FATAL_ERROR
-        "aletheia-cpp requires Clang >= 19 (got Clang ${CMAKE_CXX_COMPILER_VERSION}); "
-        "earlier Clang mis-handles libstdc++-14's C++23 <expected>.")
+        "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22")
+elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 22)
+    message(WARNING
+        "aletheia-cpp is supported on the latest stable Clang (22); got Clang "
+        "${CMAKE_CXX_COMPILER_VERSION}.  Older Clang may work but is unsupported "
+        "(Clang < 19 mis-handles libstdc++-14's C++23 <expected>).")
 endif()
 
 # Default to Release when no build type is specified (avoids -O0 benchmarks)
@@ -123,15 +125,15 @@ endif()
 # mixed with the standard build:
 #
 #   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-#         -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+#         -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
 #   cmake --build build-mutation --target unit_tests
-#   mull-runner-19 ./build-mutation/unit_tests
+#   mull-runner-22 ./build-mutation/unit_tests
 #
-# Requires Mull-19 (LLVM 19) installed (see docs/operations/MUTATION.md §
-# Installation) and clang-19 from the apt repo.  Mull's IR pass uses LLVM
-# version-specific APIs, so the compiler version MUST match the Mull binary
-# version (mull-ir-frontend-19 ↔ clang-19; the next Mull release will be
-# Mull-20 ↔ clang-20).  -O0 -g is mandatory: optimisations elide AST nodes
+# Requires Mull-22 (LLVM 22) built from source (see docs/operations/MUTATION.md §
+# Installation) and clang-22.  Mull's IR pass uses LLVM version-specific APIs, so
+# the compiler version MUST match the Mull binary version (mull-ir-frontend-22 ↔
+# clang-22 — the supported toolchain; tracks the latest stable Clang).  -O0 -g is
+# mandatory: optimisations elide AST nodes
 # Mull would otherwise mutate, debug info pins source locations in the
 # survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
 # target_compile_options() calls below (next to the add_library /
@@ -141,15 +143,15 @@ set(ALETHEIA_MUTATION_FLAGS "")
 if(ALETHEIA_MUTATION)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         message(FATAL_ERROR
-            "ALETHEIA_MUTATION requires clang-19 (got ${CMAKE_CXX_COMPILER_ID}); "
-            "use a separate build dir: -DCMAKE_C_COMPILER=clang-19 "
-            "-DCMAKE_CXX_COMPILER=clang++-19")
+            "ALETHEIA_MUTATION requires clang-22 (got ${CMAKE_CXX_COMPILER_ID}); "
+            "use a separate build dir: -DCMAKE_C_COMPILER=clang-22 "
+            "-DCMAKE_CXX_COMPILER=clang++-22")
     endif()
-    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-19")
+    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-22")
     if(NOT EXISTS "${MULL_PLUGIN}")
         message(FATAL_ERROR
             "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
-            "install Mull-19 per docs/operations/MUTATION.md § Installation")
+            "install Mull-22 per docs/operations/MUTATION.md § Installation")
     endif()
     message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
     set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0)
@@ -356,6 +358,16 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # are the actual mutation surface.
     if(ALETHEIA_MUTATION)
         target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
+        # Cover the real FfiBackend (dlopen glue) in the mutation surface: the
+        # Mock-only unit sources never execute ffi_backend.cpp, so its mutants
+        # are UNCOVERED (Mull-22 reports uncovered mutants; Mull-19 did not, hence
+        # the historical 0 baseline).  Fold the real-.so integration tests into
+        # the mutation binary so FfiBackend's FFI-boundary guards are exercised
+        # and killed.  (Mutation build only — the normal unit_tests stays
+        # Mock-only / .so-free for speed.)
+        find_package(Threads REQUIRED)
+        target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
+        target_link_libraries(unit_tests PRIVATE Threads::Threads)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 

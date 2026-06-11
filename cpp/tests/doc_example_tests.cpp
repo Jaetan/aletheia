@@ -54,11 +54,12 @@ namespace fs = std::filesystem;
 namespace {
 
 // Tracked markdown files (mirror Go/Python lists).
-constexpr std::array<std::string_view, 5> kDocFiles = {
+constexpr std::array<std::string_view, 6> kDocFiles = {
     "README.md",
     "docs/PITCH.md",
     "docs/architecture/CANCELLATION.md",
     "docs/reference/INTERFACES.md",
+    "docs/reference/CPP_API.md",
     "docs/development/DISTRIBUTION.md",
 };
 

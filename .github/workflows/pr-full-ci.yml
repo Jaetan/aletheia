@@ -138,31 +138,35 @@ jobs:
             go/go.sum
             go/excel/go.sum
 
-      # FRAGILE: ubuntu-24.04 defaults to gcc-13/clang-18, but the build is
-      # Clang >= 19 ONLY (g++ dropped — see cpp/CMakeLists.txt).  Install clang-19
-      # + libstdc++-14-dev: clang-19 needs a C++23 libstdc++ (std::expected /
-      # std::format) and auto-selects the gcc-14 toolchain — the g++-14 *compiler*
-      # is intentionally NOT installed (cgo + GHC use cc/gcc-13).  If clang-19 is
-      # not in the runner's default apt, add apt.llvm.org. Adjust on red runs.
-      - name: Install C++ toolchain (cmake, clang-19 + tidy/format, libstdc++-14)
+      # ubuntu-24.04 pre-installs only clang ≤19, but the supported toolchain is
+      # the latest stable Clang (22 — see cpp/CMakeLists.txt + AGENTS/cpp.md), so
+      # install clang-22 from apt.llvm.org.  libstdc++-14-dev provides the C++23
+      # libstdc++ (std::expected / std::format) clang auto-selects; g++ is NOT
+      # installed (cgo + GHC use cc/gcc-13).  run_ci invokes clang-22 /
+      # clang-tidy-22 explicitly and routes clang-format through the venv-pinned
+      # binary, so no update-alternatives is needed.  Adjust on red runs.
+      - name: Cache clang-22 .debs (Clang is a large download)
+        uses: actions/cache@v5
+        with:
+          path: ~/llvm-cache
+          key: clang22-noble-v1
+      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
         run: |
           set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
           sudo apt-get update
-          sudo apt-get install -y cmake clang-19 clang-tidy-19 clang-format-19 libstdc++-14-dev
-          sudo update-alternatives --install /usr/bin/clang        clang        /usr/bin/clang-19        100
-          sudo update-alternatives --install /usr/bin/clang++      clang++      /usr/bin/clang++-19      100
-          sudo update-alternatives --install /usr/bin/clang-tidy   clang-tidy   /usr/bin/clang-tidy-19   100
-          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100
-          # --install only REGISTERS the alternatives at priority 100; this runner
-          # ships clang-18 (see note above) whose alternatives outrank ours, so a
-          # bare `clang-tidy` would resolve to v18.  That exact bug hit the
-          # clang-format gate on PR #7 (v18 wraps trailing-return signatures
-          # differently than v19).  --set FORCES v19, the version this job installs.
-          sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-19
-          # NB: the clang-format gate no longer relies on this system binary — it
-          # runs the version-pinned `clang-format` from python[dev] via the venv
-          # (see tools/run_ci.py + python/pyproject.toml).  The apt clang-format-19
-          # above is kept only as a convenience for manual `clang-format` use.
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            # Cache miss: download clang-22 + deps into the user-owned cache dir.
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 clang-tidy-22 libstdc++-14-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
       # / Catch2) for all three C++ build dirs.  Without it, every run

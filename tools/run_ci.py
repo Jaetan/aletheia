@@ -610,14 +610,13 @@ def _run_binding_tests(runner: Runner) -> None:
     )
     runner.step(
         "ctest",
-        # Pin to clang-19 — the SAME compiler the sanitizer lanes (ubsan below,
-        # mutation per CMakeLists) require, so unit tests sanitize the same
-        # compilation. Bare `clang`/default cc resolves to the runner's clang-18
-        # / g++, and clang-18 mis-handles libstdc++-14's <expected> (C++23) — the
-        # std::expected compile failure that hit the ubsan lane. clang-19 is
-        # version-pinned + installed by the workflow (no update-alternatives
-        # roulette).
-        "cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 "
+        # Pin to clang-22 — the supported toolchain (latest stable), the SAME
+        # compiler the sanitizer + mutation lanes use, so unit tests sanitize the
+        # same compilation we ship. Bare `clang`/default cc resolves to the
+        # runner's clang-18 / g++ (clang < 19 mis-handles libstdc++-14's C++23
+        # <expected>); clang-22 is version-pinned + installed by the workflow via
+        # apt.llvm.org (no update-alternatives roulette).
+        "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 "
         + "> /dev/null && cmake --build build && ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
@@ -698,7 +697,7 @@ def _run_lints(runner: Runner) -> None:
     # clang-tidy: AGENTS.md L580 canonical scope (src/*.cpp).
     runner.step(
         "clang-tidy",
-        "clang-tidy -p build src/*.cpp",
+        "clang-tidy-22 -p build src/*.cpp",
         cwd=runner.repo_root / "cpp",
     )
 
@@ -749,11 +748,13 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
     runner.step(
         "ubsan ctest",
-        # clang-19 (version-pinned, matches the regular ctest + mutation lanes):
-        # bare `clang++` resolves to the runner's clang-18, which fails to compile
+        # clang-22 (the supported toolchain — matches the regular ctest + mutation
+        # lanes).  UB can differ between compiler versions, so the sanitizer lane
+        # MUST exercise the shipped compiler's codegen, not an older clang; bare
+        # `clang++` also resolves to the runner's clang-18, which fails to compile
         # libstdc++-14's <expected> (std::expected, C++23).
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
-        + "-DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 > /dev/null"
+        + "-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null"
         + " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
         cwd=runner.repo_root / "cpp",
     )

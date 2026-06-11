@@ -169,7 +169,7 @@ checks.when("FuelLevel").drops_below(10) \
 ### Read a BLF file and check it (CLI)
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ### Read a CAN log in Python (eager)
@@ -220,7 +220,7 @@ sudo ip link set up vcan0
 candump -L vcan0 > drive.log
 
 # Replay through Aletheia
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
 ```
 
 See [CLI Reference § Capturing CAN traffic on Linux](../reference/CLI.md#capturing-can-traffic-on-linux) for rotating captures and the `vcan` setup details.
@@ -254,13 +254,13 @@ client.parse_dbc(dbc)
 ### List all signals in a DBC (CLI)
 
 ```bash
-python3 -m aletheia signals --dbc vehicle.dbc
+aletheia signals --dbc vehicle.dbc
 ```
 
 ### List signals as JSON
 
 ```bash
-python3 -m aletheia signals --dbc vehicle.dbc --json
+aletheia signals --dbc vehicle.dbc --json
 ```
 
 ---
@@ -270,7 +270,7 @@ python3 -m aletheia signals --dbc vehicle.dbc --json
 ### Check a DBC for structural issues (CLI)
 
 ```bash
-python3 -m aletheia validate --dbc vehicle.dbc
+aletheia validate --dbc vehicle.dbc
 ```
 
 The CLI exits **non-zero** when the DBC contains at least one `error`-severity
@@ -281,15 +281,14 @@ gating step.
 ### Interpret validation errors
 
 ```bash
-python3 -m aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
+aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
 ```
 
 ```json
 {
-  "code": "signal_overlaps_another",
   "severity": "error",
-  "message": "EngineSpeed [bits 0:16] overlaps Throttle [bits 8:8] in EngineCmd",
-  "context": {"message": "EngineCmd", "signals": ["EngineSpeed", "Throttle"]}
+  "code": "signal_overlap",
+  "detail": "EngineSpeed [bits 0:16] overlaps Throttle [bits 8:8] in EngineCmd"
 }
 ```
 
@@ -308,7 +307,7 @@ The 21 IssueCode names are the authoritative cross-binding identifiers — see
 `python/aletheia/codes/_issue.py` (mirror) or `src/Aletheia/DBC/Types.agda`
 (SSOT) for the full enum. The full list lives in
 [`PROTOCOL.md`](../architecture/PROTOCOL.md#common-error-codes). The structured `code` field
-is the stable contract — `message` text is for humans and may change between
+is the stable contract — `detail` text is for humans and may change between
 releases.
 
 ---
@@ -319,7 +318,7 @@ releases.
 
 ```python
 result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
-speed = result.get("VehicleSpeed", default=0.0)
+speed = result.get("VehicleSpeed")  # Fraction — extraction values are exact
 
 # Check for errors and absent (multiplexed) signals
 if result.has_errors():
@@ -330,7 +329,7 @@ print(f"Absent: {result.absent}")
 ### Extract signals from CLI
 
 ```bash
-python3 -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
+aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ```
 
 ### Build a frame from signal values
@@ -360,7 +359,7 @@ client.end_stream()
 ### Run checks in CI/CD (exit codes + JSON)
 
 ```bash
-python3 -m aletheia check \
+aletheia check \
     --dbc vehicle.dbc \
     --checks checks.yaml \
     --json \
@@ -373,20 +372,20 @@ echo "Exit code: $?"
 ### Decode a single frame
 
 ```bash
-python3 -m aletheia extract --dbc vehicle.dbc 0x100 "40 1F 7D 00 00 00 00 00"
+aletheia extract --dbc vehicle.dbc 0x100 "40 1F 7D 00 00 00 00 00"
 ```
 
 ### Use Excel workbook for everything
 
 ```bash
 # DBC + checks from the same .xlsx
-python3 -m aletheia check --excel vehicle_checks.xlsx drive.blf
+aletheia check --excel vehicle_checks.xlsx drive.blf
 ```
 
 ### Mix DBC from .dbc with checks from .yaml
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ---
@@ -405,12 +404,14 @@ client.add_checks(check_list)
 
 ```python
 response = client.send_frame(ts, can_id, dlc, data)
-if response.get("status") == "fails":
-    enrichment = response.get("enrichment", {})
-    signals = enrichment.get("signals", {})
-    formula = enrichment.get("formula_desc", "")
-    reason = enrichment.get("enriched_reason", "")
-    print(f"{reason}  signals={signals}")
+if response.get("type") == "property_batch":
+    for entry in response["results"]:
+        if entry.get("status") == "fails":
+            enrichment = entry.get("enrichment", {})
+            signals = enrichment.get("signals", {})
+            formula = enrichment.get("formula_desc", "")
+            reason = enrichment.get("enriched_reason", "")
+            print(f"{reason}  signals={signals}")
 ```
 
 ### Custom violation formatting
@@ -422,14 +423,14 @@ from aletheia import iter_can_log
 violations = []
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
     response = client.send_frame(ts, can_id, dlc, data)
-    if response.get("status") == "fails":
-        violations.append(response)
+    if response.get("type") == "property_batch":
+        violations.extend(e for e in response["results"] if e.get("status") == "fails")
 
-for v in violations:
-    ts_ms = v["timestamp"]["numerator"] / 1000  # µs → ms
-    idx = v["property_index"]["numerator"]
-    name = checks[idx].name or f"Check #{idx}"
-    reason = v.get("enrichment", {}).get("enriched_reason", "?")
+for entry in violations:
+    ts_ms = entry["timestamp"] / 1000  # µs → ms (timestamp is a plain int)
+    idx = entry["property_index"]        # plain int — registration order
+    name = check_list[idx].name or f"Check #{idx}"
+    reason = entry.get("enrichment", {}).get("enriched_reason", "?")
     print(f"[{ts_ms:.1f}ms] {name}: {reason}")
 ```
 
@@ -457,11 +458,14 @@ with AletheiaClient() as client:
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
-        if response.get("status") != "fails":
+        if response.get("type") != "property_batch":
+            continue
+        fails = [entry for entry in response["results"] if entry.get("status") == "fails"]
+        if not fails:
             continue
 
-        # Three things to look at, in order:
-        e = response["enrichment"]
+        # Three things to look at, in order (first fails entry):
+        e = fails[0]["enrichment"]
 
         # 1. Which signals contributed (their decoded physical values).
         print("signals at violation:", e["signals"])

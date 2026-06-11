@@ -31,7 +31,7 @@ summary.json     Aggregated verdict
 artifacts.  The spec defining what each binding's harness MUST measure
 lives at `docs/STABILITY_BENCH.yaml`; the static gate
 `tools/check_stability_bench.py` (Shake target `check-stability-bench` /
-`tools/run_ci.py` step 12) verifies every (binding, sub_check) pair's
+`tools/run_ci.py` step 15) verifies every (binding, sub_check) pair's
 `source_marker` is present in the harness source.
 
 ## Tuning the run
@@ -160,10 +160,10 @@ Each harness was forward-revert-verified at ship time (R18 cluster 6,
 
 The static grep gate (`tools/check_stability_bench.py`) is always-on:
 * Shake `phony "check-stability-bench"`.
-* `tools/run_ci.py` step 12 (offline enforcers section).
+* `tools/run_ci.py` step 15 (offline enforcers section).
 
 The dynamic run (`tools/stability_run.py`) is opt-in:
-* `tools/run_ci.py` step 29 — set `ALETHEIA_STABILITY_CHECK=1`.
+* `tools/run_ci.py` opt-in lane (step 35 when enabled) — set `ALETHEIA_STABILITY_CHECK=1` (or pass `--stability`).
 
 A 1M-frame full run is ~5-10 min on a quiet host; the static gate is
 sub-second.  Default-on the cheap one, default-off the expensive one.

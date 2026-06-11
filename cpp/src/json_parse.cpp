@@ -139,7 +139,7 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 // ...)`, which is the right semantic class (malformed/corrupted server reply).
 static auto parse_bounded(std::string_view input) -> Json {
     auto callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
-        if (static_cast<std::uint64_t>(depth) > max_nesting_depth) {
+        if (std::cmp_greater(depth, max_nesting_depth)) {
             throw std::runtime_error("JSON nesting depth " + std::to_string(depth) +
                                      " exceeds limit " + std::to_string(max_nesting_depth));
         }
@@ -770,8 +770,8 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
         std::vector<SignalValue> values;
         for (const auto& v : j.value("values", Json::array()))
-            values.push_back({SignalName{v.at("name").get<std::string>()},
-                              PhysicalValue{parse_signal_value(v.at("value"))}});
+            values.push_back({.name = SignalName{v.at("name").get<std::string>()},
+                              .value = PhysicalValue{parse_signal_value(v.at("value"))}});
 
         std::vector<std::pair<SignalName, std::string>> errors;
         for (const auto& e : j.value("errors", Json::array()))

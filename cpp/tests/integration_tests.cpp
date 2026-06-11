@@ -270,6 +270,61 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     CHECK(extracted->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(1500.0));
 }
 
+TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
+          "[integration][boundary]") {
+    // Each FfiBackend method that takes a payload re-checks `data.size() > 64`
+    // (the CAN-FD maximum) at the FFI boundary, behind the client's own
+    // `data.size() == dlc_to_bytes(dlc)` pre-check.  That makes the backend
+    // guard defense-in-depth: a >64-byte payload is intercepted by the client
+    // first, so the guard is only ever *reached* at exactly 64 — where it must
+    // pass.  Mutating `> 64` to `>= 64` or `<= 64` flips that boundary call
+    // from accept to reject; these exactly-64 calls — one per guarded method —
+    // are what kill those mutants.  Covered guards:
+    //   send_frame_binary       (ffi_backend.cpp:299) — streaming send
+    //   extract_signals_bin     (ffi_backend.cpp:410) — binary path, known id
+    //   extract_signals_binary  (ffi_backend.cpp:358) — JSON path, unknown id
+    //   update_frame_bin        (ffi_backend.cpp:389) — frame mutation
+    // Some guards report by throwing (send / JSON-extract), others by
+    // returning std::unexpected (binary-extract / update); the helper covers
+    // both.  Per the no-defense-removal rule, the guard stays — this is the
+    // test-the-defense complement that proves it accepts the legal maximum.
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    const std::vector<std::byte> data64(64, std::byte{0});
+    const auto dlc = Dlc::create(15).value();                      // CAN-FD DLC 15 = 64 bytes
+    const auto known = CanId{StandardId::create(0x100).value()};   // in the DBC → binary path
+    const auto unknown = CanId{StandardId::create(0x7FF).value()}; // not in DBC → JSON fallback
+    const std::vector<SignalValue> signals{{SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}}};
+
+    const auto mentions_exceeds = [](std::string_view msg) {
+        return msg.find("data length exceeds") != std::string_view::npos;
+    };
+    // A 64-byte call must NOT produce the >64 guard error, whether the guard
+    // reports by throwing or by returning std::unexpected.  The original
+    // passes the guard (any non-exceeds outcome is fine); both mutants reject
+    // with "data length exceeds …", failing the check.
+    const auto accepts_64 = [&](auto&& call) {
+        try {
+            auto result = call();
+            if (!result.has_value())
+                CHECK_FALSE(mentions_exceeds(result.error().message()));
+        } catch (const AletheiaException& e) {
+            CHECK_FALSE(mentions_exceeds(e.what()));
+        }
+    };
+
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    accepts_64([&] {
+        return client.send_frame(std::stop_token{}, Timestamp{1'000'000}, known, dlc, data64);
+    });
+    accepts_64([&] { return client.extract_signals(std::stop_token{}, known, dlc, data64); });
+    accepts_64([&] { return client.extract_signals(std::stop_token{}, unknown, dlc, data64); });
+    accepts_64([&] { return client.update_frame(std::stop_token{}, known, dlc, data64, signals); });
+}
+
 TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);

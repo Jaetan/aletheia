@@ -10,9 +10,10 @@ Queryable via `tools/review_db.py` (see below).
 |-------|--------|--------|--------|--------------|--------|----------------|------------|
 | R20   | merged | 2026-05-12 | 2026-05-17 (`2477d5c`) | 671          | 88     | 1              | 22         |
 | R21   | merged | 2026-05-17 | 2026-05-18 (`315c1a3`) | 241          | 48     | 0              | 17         |
-| R22   | open   | 2026-05-18 | —                      | 0 *          | 3      | 0              | 1          |
+| R22   | merged | 2026-05-18 | 2026-05-22 (`3ebfc37`) | 0 *          | 4      | 0              | 1          |
+| R23   | merged | 2026-05-22 | 2026-05-26 (`4cb5220`) | 219          | 57     | 1              | 8          |
 
-\* R22 is a carry-over round; no fresh Step-1/Step-2 agent fleet was launched.  Its work-to-date is exclusively closure of R21 carry-over items (AGDA-A-1.1 dead-import sweep #4, AGDA-D-12.1 end-of-stream warning emission, Assign.agda b15 marker retirement) plus the review-process meta-review (this archive infrastructure).
+\* R22 is a carry-over round; no fresh Step-1/Step-2 agent fleet was launched.  Its work-to-date is exclusively closure of R21 carry-over items (AGDA-A-1.1 dead-import sweep #4, AGDA-D-12.1 end-of-stream warning emission, AGDA-D-15.1 `Format/AttrLine` split, Assign.agda b15 marker retirement) plus the review-process meta-review (this archive infrastructure).  R23 launched a fresh Step-1/Step-2 fleet on the new protocol.
 
 Earlier rounds (R6 — R19) are narrated in `memory/project_review_round{N}.md` and PROJECT_STATUS.md; their per-finding YAMLs were not retroactively backfilled — the YAML archive begins at R20.
 

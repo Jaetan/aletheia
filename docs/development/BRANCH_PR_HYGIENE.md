@@ -5,13 +5,11 @@ SPDX-License-Identifier: BSD-2-Clause
 
 # Branch & PR hygiene — server-side gate enforcement
 
-> **Status: workflow committed (`.github/workflows/pr-full-ci.yml`), branch
-> protection NOT yet enabled.** The workflow is well-formed and passes the
-> repo's own GHA meta-gates (actionlint, action-pins, workflow-permissions),
-> but has not yet run in real GitHub Actions. It is **advisory until** `main`
-> branch protection marks it a required check. Do **not** turn on branch
-> protection until the workflow is green on a real PR (the C++/LLVM lane is the
-> expected first red — see footguns).
+> **Status: ENFORCED (2026-06-10).** `main` branch protection requires the
+> `tools/run_ci.py (all gates)` check (`.github/workflows/pr-full-ci.yml`);
+> merges are squash/rebase only with linear history, and the ruleset has run
+> green on real PRs (#7 / #13 / #16 merged through it). Required approving
+> reviews are set to **0** — the green CI sweep is the gate.
 
 ## Goal
 
@@ -22,7 +20,7 @@ Guarantee that **no code lands on `main` without passing every gate** — as
 
 Aletheia's CI is **local-first** (see [CI_LOCAL.md](CI_LOCAL.md)):
 
-- The full 32-step sweep — `tools/run_ci.py`, including the IWYU import gate
+- The full 33-step sweep — `tools/run_ci.py`, including the IWYU import gate
   (steps 9-10) — runs in the **pre-push hook** on the contributor's machine.
 - GitHub Actions runs only `gha-checks.yml`: three narrow meta-checks
   (actionlint, action-pin policy, workflow-permissions) that need only Python.
@@ -56,11 +54,10 @@ falsifiable, server-side evidence the gates ran.
 
 ## Rollout order (important)
 
-**Decision (2026-06-08): merge `ci-speed` first, then enable enforcement.**
-`ci-speed` merges via an *advisory-green* PR run; enforcement is turned on
-afterwards so it gates all *future* PRs. (The alternative — enable enforcement
-while `ci-speed`'s PR is open, so the branch gates itself — was considered and
-not chosen.)
+**Completed (2026-06-10).** `ci-speed` was merged first via an *advisory-green*
+PR run (PR #7, 2026-06-09); enforcement was then enabled so it gates all
+*future* PRs. The steps below are retained as a record of the rollout that was
+followed.
 
 1. ✅ **Done** — the workflow (`.github/workflows/pr-full-ci.yml`) is committed.
    It is **advisory** (runs, reports, but does not block merges) until step 5.
@@ -133,9 +130,11 @@ impossible on `main`.
 ## Known footguns (baked into the draft, but the likely iteration points)
 
 - **C++/LLVM is the #1 risk.** `ubuntu-24.04` defaults to `gcc-13` / `clang-18`,
-  but the build is `clang≥19` only (g++ dropped) and every C++ lane (ctest,
-  clang-tidy, ubsan) pins `clang-19`. If `clang-19` is not in the runner's default apt, add
-  `apt.llvm.org`. Expect this section to go red first.
+  but the build uses `clang-22` (the supported toolchain — see
+  [BUILDING.md § Toolchain support policy](BUILDING.md#toolchain-support-policy)),
+  and every C++ lane (ctest, clang-tidy, ubsan) pins it. `clang-22` is not in
+  the runner's default apt, so the workflows install it from `apt.llvm.org`
+  (cached). Expect this section to go red first.
 - **Diff base.** `run_ci`'s IWYU `--diff` and `changed_agda_files` do
   `git diff main...HEAD`; the checkout needs `fetch-depth: 0` **and** a local
   `main` ref (the draft fetches it explicitly) or the import gate silently sees

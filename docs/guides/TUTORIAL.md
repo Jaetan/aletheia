@@ -62,7 +62,7 @@ For causal checks like "when X happens, Y must follow within T ms":
 ### Step 5: Run Checks
 
 ```bash
-python3 -m aletheia check --excel checks.xlsx drive.blf
+aletheia check --excel checks.xlsx drive.blf
 ```
 
 The `--excel` flag loads DBC, Checks, and When-Then from the same workbook.
@@ -150,13 +150,13 @@ in an Excel workbook (see Path 1).
 ### Step 3: Run Checks
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ### Step 4: JSON Output for CI/CD
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json
 ```
 
 ```json
@@ -172,7 +172,7 @@ Use exit codes in CI: `0` = pass, `1` = violations, `2` = error.
 
 ```bash
 # In CI script:
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json > results.json
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json > results.json
 if [ $? -ne 0 ]; then echo "Verification failed"; exit 1; fi
 ```
 
@@ -180,10 +180,10 @@ if [ $? -ne 0 ]; then echo "Verification failed"; exit 1; fi
 
 ```bash
 # See what signals are available in the DBC
-python3 -m aletheia signals --dbc vehicle.dbc
+aletheia signals --dbc vehicle.dbc
 
 # Decode a single frame
-python3 -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
+aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ```
 
 ---
@@ -257,10 +257,12 @@ with AletheiaClient() as client:
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
-        if response.get("status") == "fails":
-            enrichment = response.get("enrichment", {})
-            print(f"VIOLATION: {enrichment.get('enriched_reason')}")
-            print(f"  Signals: {enrichment.get('signals')}")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    enrichment = entry.get("enrichment", {})
+                    print(f"VIOLATION: {enrichment.get('enriched_reason')}")
+                    print(f"  Signals: {enrichment.get('signals')}")
 
     client.end_stream()
 ```
@@ -338,7 +340,7 @@ brake.implies(decel.within(100))
 
 # Until: start button never active until ACC mode
 power_off = Signal("PowerMode").equals(0)
-power_acc = Signal("PowerMode").equals(2)
+power_acc = Signal("PowerMode").equals(2).eventually()  # a Property (until's arg)
 start_btn = Signal("StartButton").equals(1)
 power_off.implies(start_btn.never().until(power_acc))
 ```

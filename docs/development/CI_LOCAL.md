@@ -16,7 +16,7 @@ minutes.
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
 | Pre-commit advisory | `tools/iwyu.py --check` (via pre-commit hook) | `git commit` | IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files (advisory only — never blocks) |
-| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **32 always-on steps** — Agda gates (incl. the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
+| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **33 always-on steps** — Agda gates (incl. the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
@@ -39,7 +39,7 @@ to maintain.  The same gate runs blocking at pre-push.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **32 always-on**
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **33 always-on**
 sequential steps, ~22-30 minutes warm (UBSan ctest promoted from opt-in
 to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
 `Rational::from_double` because the lane was opt-in; the IWYU gate +
@@ -71,7 +71,7 @@ tools/install_hooks.py
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them
 up).  After install, every `git commit` runs the pre-commit IWYU advisory
-and every `git push` runs the 32-step sweep (blocking).
+and every `git push` runs the 33-step sweep (blocking).
 Bypass either hook with `--no-verify`:
 
 ```bash
@@ -123,7 +123,8 @@ build` already requires.  The opt-in lanes need additional installs.
 `-fsanitize-ignorelist=` flag (which g++ doesn't support).  Most distros'
 default `clang` package is sufficient; verify with `clang --version`.  No
 extra install if you already use `tools/run_ci.py` for the mutation lane
-(clang-19 / clang-21 are both fine for sanitizers).  Promoted from opt-in
+(the supported clang-22 covers sanitizers too; older clang also works here).
+Promoted from opt-in
 to always-on R21 CPP-SYS-32.2; if clang is absent the step fails loudly
 rather than silently skipping — install clang or run the sweep on a host
 that has it.
@@ -152,18 +153,12 @@ cd python && .venv/bin/pip install -e '.[mutation]'
 # because zimmski's repo is unmaintained since 2021 (panics on Go 1.26).
 go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 
-# C++: Mull-19 (matches LLVM 19 / clang-19 from the apt repo).  The deb
-# is extracted to ~/.local/bin/ — no sudo needed.
-sudo apt install clang-19    # one-time; provides /usr/bin/clang-19
-curl -fsSLO https://github.com/mull-project/mull/releases/download/0.33.0/Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb
-mkdir -p /tmp/mull-extract
-dpkg-deb -x Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb /tmp/mull-extract
-cp /tmp/mull-extract/usr/bin/mull-runner-19 \
-   /tmp/mull-extract/usr/bin/mull-reporter-19 \
-   /tmp/mull-extract/usr/lib/mull-ir-frontend-19 ~/.local/bin/
+# C++: Mull 0.34.0 built from source against system LLVM-22 (no prebuilt deb
+# ships for LLVM 22).  The full grounded recipe (apt deps, Bazel targets, the
+# MODULE.bazel ubuntu:24.04 patch) lives in docs/operations/MUTATION.md § C++.
 
 # Verify all three are discoverable
-which mutmut gremlins mull-runner-19  # mutmut is in python/.venv/bin/
+which mutmut gremlins mull-runner-22  # mutmut is in python/.venv/bin/
 ```
 
 Each tool's absence is detected by `tools/mutation_run.py` and surfaces
@@ -255,7 +250,7 @@ provides; treat `act` as an opt-in workflow-development tool.
 For a CI-style local replay, run both:
 
 ```bash
-tools/run_ci.py    # correctness gates (30 always-on steps, ~22-30 min warm)
+tools/run_ci.py    # correctness gates (33 always-on steps, ~22-30 min warm)
 act push           # GHA meta-gates (workflows, ~1-2 min)
 ```
 
@@ -285,7 +280,7 @@ from GHA's amd64 runners.
 
 ### Pre-push hook is slow / blocking work
 
-The pre-push hook runs the full 30-step always-on sweep (~22-30 min warm). If you need to
+The pre-push hook runs the full 33-step always-on sweep (~22-30 min warm). If you need to
 push iteratively (e.g., a doc-only fix that doesn't affect gates), bypass
 with:
 

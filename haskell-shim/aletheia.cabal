@@ -2,7 +2,7 @@ cabal-version:      2.4
 -- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 -- SPDX-License-Identifier: BSD-2-Clause
 name:               aletheia
-version:            1.1.1.0
+version:            2.0.0.0
 synopsis:           Formally verified CAN frame analysis
 description:        
     Aletheia provides proven-correct CAN frame encoding/decoding and

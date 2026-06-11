@@ -24,6 +24,23 @@ cabal run shake -- build
 
 For complete build instructions, troubleshooting, and development workflow, see [Building Guide](docs/development/BUILDING.md).
 
+### Command-line usage (no Python required)
+
+The fastest way to run checks — no code to write. After installing, run `aletheia`
+from any shell against a CAN log:
+
+```bash
+# Run YAML/Excel-defined checks against a recorded trace
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+
+# Other subcommands: validate a DBC, extract one frame, list signals, …
+aletheia validate --dbc vehicle.dbc
+aletheia signals --dbc vehicle.dbc
+```
+
+Exit code `0` = all checks passed, `1` = violations found, `2` = error. Full
+subcommand + flag reference: **[CLI Guide](docs/reference/CLI.md)**.
+
 ### Basic Usage
 
 > **Which style should I use?** New users should start with the **Check API** or YAML/Excel loaders shown under [Higher-Level Interfaces](#higher-level-interfaces) below — they cover the common cases. The raw DSL (`Signal`, `set_properties`) shown here is the escape hatch for full LTL control (e.g., metric operators, custom predicates). See the [Interface Guide](docs/reference/INTERFACES.md) for an end-to-end comparison.
@@ -55,9 +72,12 @@ with AletheiaClient() as client:
 
     for timestamp_us, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(timestamp_us, can_id, dlc, data)
-        if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"Violation at {ts}us")
+        # A frame that produces verdicts returns a property_batch envelope;
+        # each fails entry is a violation. timestamp is an int (microseconds).
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    print(f"Violation at {entry['timestamp']}us")
 
     client.end_stream()
 ```
@@ -99,7 +119,7 @@ with AletheiaClient() as client:
 
     # Extract signals from a frame
     result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
-    speed = result.get("Speed", default=0.0)  # 72.0
+    speed = result.get("Speed")  # Fraction(72) — extraction values are exact Fractions
 
     # Update specific signals in a frame
     modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130.0})
@@ -165,7 +185,9 @@ aletheia/
 ### Reference
 - [Interface Guide](docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders
 - [Python API Guide](docs/reference/PYTHON_API.md) - Raw DSL and AletheiaClient reference
-- [CLI Reference](docs/reference/CLI.md) - `python3 -m aletheia` subcommands
+- [C++ API Guide](docs/reference/CPP_API.md) - `AletheiaClient`, Check API, and the `ltl::` DSL
+- [Go API Guide](docs/reference/GO_API.md) - `Client`, Check API, and the LTL DSL
+- [CLI Reference](docs/reference/CLI.md) - `aletheia` subcommands
 
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture

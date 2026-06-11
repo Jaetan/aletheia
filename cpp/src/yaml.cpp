@@ -20,13 +20,11 @@
 
 namespace aletheia {
 
-namespace {
-
 // ---------------------------------------------------------------------------
 // YAML field extractors with error context
 // ---------------------------------------------------------------------------
 
-auto get_str(const YAML::Node& node, const std::string& key, const std::string& ctx)
+static auto get_str(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::string {
     auto child = node[key];
     if (!child || !child.IsScalar())
@@ -34,7 +32,8 @@ auto get_str(const YAML::Node& node, const std::string& key, const std::string& 
     return child.as<std::string>();
 }
 
-auto get_number(const YAML::Node& node, const std::string& key, const std::string& ctx) -> double {
+static auto get_number(const YAML::Node& node, const std::string& key, const std::string& ctx)
+    -> double {
     auto child = node[key];
     if (!child || !child.IsScalar())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
@@ -50,7 +49,7 @@ auto get_number(const YAML::Node& node, const std::string& key, const std::strin
     }
 }
 
-auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
+static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::int64_t {
     auto child = node[key];
     if (!child || !child.IsScalar())
@@ -62,7 +61,8 @@ auto get_int(const YAML::Node& node, const std::string& key, const std::string& 
     }
 }
 
-auto get_map(const YAML::Node& node, const std::string& key, const std::string& ctx) -> YAML::Node {
+static auto get_map(const YAML::Node& node, const std::string& key, const std::string& ctx)
+    -> YAML::Node {
     auto child = node[key];
     if (!child || !child.IsMap())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected mapping)");
@@ -73,14 +73,14 @@ auto get_map(const YAML::Node& node, const std::string& key, const std::string& 
 // Check name extraction
 // ---------------------------------------------------------------------------
 
-auto check_name(const YAML::Node& entry) -> std::string {
+static auto check_name(const YAML::Node& entry) -> std::string {
     auto name_node = entry["name"];
     if (name_node && name_node.IsScalar())
         return name_node.as<std::string>();
     return "<unnamed>";
 }
 
-auto ctx(const std::string& name) -> std::string {
+static auto ctx(const std::string& name) -> std::string {
     return "Check '" + name + "'";
 }
 
@@ -88,7 +88,7 @@ auto ctx(const std::string& name) -> std::string {
 // Simple check parser
 // ---------------------------------------------------------------------------
 
-auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
+static auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
     auto condition = get_str(entry, "condition", ctx(name));
     auto signal = get_str(entry, "signal", ctx(name));
 
@@ -136,7 +136,7 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
 // When/Then check parser
 // ---------------------------------------------------------------------------
 
-auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
+static auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
     if (!entry["then"])
         throw std::runtime_error(ctx(name) + ": must have 'signal' or 'when'/'then'");
     if (!entry["within_ms"])
@@ -185,7 +185,7 @@ auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> 
 // Single check entry parser
 // ---------------------------------------------------------------------------
 
-auto parse_check(const YAML::Node& entry) -> CheckResult {
+static auto parse_check(const YAML::Node& entry) -> CheckResult {
     auto name = check_name(entry);
 
     CheckResult result = [&] {
@@ -211,7 +211,7 @@ auto parse_check(const YAML::Node& entry) -> CheckResult {
 // Top-level YAML parser
 // ---------------------------------------------------------------------------
 
-auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult>> {
+static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult>> {
     if (!root || !root.IsMap() || !root["checks"])
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "YAML must contain a 'checks' list"});
@@ -234,8 +234,6 @@ auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult
     }
     return results;
 }
-
-} // namespace
 
 // ---------------------------------------------------------------------------
 // Public API

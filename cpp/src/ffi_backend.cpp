@@ -73,6 +73,7 @@ using AletheiaExtractBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t,
                                              const std::uint8_t*, std::uint8_t, std::uint8_t**,
                                              std::uint32_t*, char**);
 using AletheiaFreeBufFn = void (*)(std::uint8_t*);
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Byte ↔ uint8_t pointer aliasing at the FFI boundary.
@@ -81,23 +82,25 @@ using AletheiaFreeBufFn = void (*)(std::uint8_t*);
 // std::byte>, while the Haskell FFI signatures expect const std::uint8_t* and
 // std::uint8_t*. The reinterpret_cast here is well-defined: [basic.types]
 // guarantees std::byte is layout-compatible with unsigned char, and std::
-// uint8_t is unsigned char on every platform we target (g++>=14, clang>=21
-// on Linux x86_64/ARM64). The NOLINTs below are centralised so the FFI call
+// uint8_t is unsigned char on every platform we target (Clang 22 on Linux
+// x86_64/ARM64). The NOLINTs below are centralised so the FFI call
 // sites stay free of noise; every byte-cast flows through these three fns.
-auto as_u8(const std::byte* p) -> const std::uint8_t* {
+static auto as_u8(const std::byte* p) -> const std::uint8_t* {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     return reinterpret_cast<const std::uint8_t*>(p);
 }
 
-auto as_u8(std::byte* p) -> std::uint8_t* {
+static auto as_u8(std::byte* p) -> std::uint8_t* {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     return reinterpret_cast<std::uint8_t*>(p);
 }
 
-auto as_byte(const std::uint8_t* p) -> const std::byte* {
+static auto as_byte(const std::uint8_t* p) -> const std::byte* {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     return reinterpret_cast<const std::byte*>(p);
 }
+
+namespace {
 
 // Backend wrapping libaletheia-ffi.so via dlopen.  Lifecycle invariant:
 // the GHC RTS is process-global, so the destructor must NOT call
@@ -203,7 +206,7 @@ public:
             // initialized with cores=1, dropping the user's `rts_cores`
             // argument without firing the `rts.cores_mismatch` warning.
             auto& rts = detail::rts_init_state();
-            const std::lock_guard lock(rts.mu);
+            const std::scoped_lock lock(rts.mu);
             if (!rts.initialized) {
                 if (auto args = detail::rts_init_args(rts_cores)) {
                     // hs_init requires char** (non-const) for argv. The backing

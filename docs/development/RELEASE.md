@@ -204,10 +204,15 @@ Before tagging a release:
 - [ ] Working tree clean (`git status --porcelain` empty).  A dirty
       tree shows up as `Git tree: dirty` in the MANIFEST and signals
       that the dist may not match any committed source.
-- [ ] `tools/run_ci.py` passes end-to-end (27 always-on steps, ~17-22 min warm).
+- [ ] `tools/run_ci.py` passes end-to-end (33 always-on steps, ~22-30 min warm).
 - [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
 - [ ] `CHANGELOG.md` has an entry under `## [X.Y.Z] — Unreleased`
       describing the release.
+- [ ] Version bumped to `X.Y.Z` in every package-metadata file:
+      `python/pyproject.toml` (`version = "X.Y.Z"`),
+      `haskell-shim/aletheia.cabal` (`version: X.Y.Z.0` — note the 4-part form),
+      `cpp/CMakeLists.txt` (`project(aletheia-cpp VERSION X.Y.Z ...)`).
+      (Go derives its version from the git tag — no in-file semver to bump.)
 - [ ] Cosign keypair is the current key (`keys/cosign.pub` matches
       `~/.config/aletheia/cosign.key`).
 - [ ] `ALETHEIA_COSIGN_TLOG=1` exported (release flow uses Rekor).

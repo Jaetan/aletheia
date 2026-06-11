@@ -9,13 +9,17 @@ See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) and [../d
 Quick start:
 ```bash
 cabal run shake -- build      # Build Agda + Haskell + libaletheia-ffi.so
-cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
+cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build && ctest --test-dir build
 ```
 
 ## Compilers
 
-C++23, targeting **g++ ≥ 14** and **clang ≥ 21**. Use any C++23 feature both
-support. Build settings: `.clang-format`, `.clang-tidy`, `CMakeLists.txt`.
+C++23, built and tested with **Clang 22** — configure with
+`-DCMAKE_CXX_COMPILER=clang++-22`. The toolchain's libstdc++/libc++ must provide
+C++23 (`<expected>`, `<format>`). For the full support policy (why Clang 22, g++
+dropped, older-Clang stance) see
+[BUILDING.md § Toolchain support policy](../docs/development/BUILDING.md#toolchain-support-policy).
+Build settings: `.clang-format`, `.clang-tidy`, `CMakeLists.txt`.
 
 ## Usage
 
@@ -41,7 +45,7 @@ client.start_stream(stop);
 
 for (auto const& f : frames) {  // aletheia::Frame { timestamp, id, dlc, data, brs, esi }
     auto resp = client.send_frame(stop, f);
-    if (resp && std::holds_alternative<aletheia::PropertyViolationResponse>(*resp)) {
+    if (resp && std::holds_alternative<aletheia::PropertyBatch>(*resp)) {
         // ...
     }
 }
@@ -68,4 +72,4 @@ ctest --test-dir build
 - [Interface Guide](../docs/reference/INTERFACES.md) — Check API
 - [Distribution Guide](../docs/development/DISTRIBUTION.md) — packaging the `.so`
 - [Cancellation Contract](../docs/architecture/CANCELLATION.md) — `std::stop_token` semantics
-- [Mutation Testing](../docs/operations/MUTATION.md) — Mull-19 lane
+- [Mutation Testing](../docs/operations/MUTATION.md) — Mull 0.34.0 (LLVM 22)

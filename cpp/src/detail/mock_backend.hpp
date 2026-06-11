@@ -56,12 +56,10 @@ public:
         // Tests that care about the specific status should queue_response()
         // explicitly; the default below only fires when no response is queued.
         const bool is_fire_and_forget =
-            input.find(R"("command":"sendFrame")") != std::string_view::npos ||
-            input.find(R"("command":"sendError")") != std::string_view::npos ||
-            input.find(R"("command":"sendRemote")") != std::string_view::npos ||
-            input.find(R"("type":"data")") != std::string_view::npos ||
-            input.find(R"("type":"error")") != std::string_view::npos ||
-            input.find(R"("type":"remote")") != std::string_view::npos;
+            input.contains(R"("command":"sendFrame")") ||
+            input.contains(R"("command":"sendError")") ||
+            input.contains(R"("command":"sendRemote")") || input.contains(R"("type":"data")") ||
+            input.contains(R"("type":"error")") || input.contains(R"("type":"remote")");
         if (is_fire_and_forget)
             return R"({"status": "ack"})";
         return R"({"status": "success"})";

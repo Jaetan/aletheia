@@ -16,6 +16,39 @@ This document provides step-by-step instructions for building Aletheia from sour
 > the listed versions, then check whether this document has been updated more
 > recently than your last build.
 
+## Contents
+
+- [Toolchain support policy](#toolchain-support-policy)
+- [Prerequisites](#prerequisites)
+- [Building Aletheia](#building-aletheia)
+- [Common Build Commands](#common-build-commands)
+- [Creating Convenient Aliases (Optional)](#creating-convenient-aliases-optional)
+- [Troubleshooting](#troubleshooting)
+- [Development Build Tips](#development-build-tips)
+- [Platform-Specific Notes](#platform-specific-notes)
+- [Build Performance](#build-performance)
+- [Next Steps](#next-steps)
+- [Getting Help](#getting-help)
+- [Summary of Key Commands](#summary-of-key-commands)
+- [Virtual Environment Best Practices](#virtual-environment-best-practices)
+
+---
+
+## Toolchain support policy
+
+**This section is the single source of truth for the compiler/runtime support
+policy; other docs link here rather than restating it.**
+
+Aletheia is built and tested against the **latest stable** compilers — currently
+**Clang 22**, **Python 3.14**, and **Go 1.26**. Older releases may work, but they
+are not supported: the project tracks the latest stable toolchain and moves
+forward (e.g. to Clang 23) when it ships, rather than promising a
+minimum-version floor. g++ is not supported for the C++ binding (the sanitizer
+lanes need clang's `-fsanitize-ignorelist`, and UB can differ between compiler
+versions, so the shipped compiler is pinned). Two caveats are hard requirements,
+not "may work": Python 3.14 (PEP 758 syntax is used) and a C++23 standard library
+for the C++ binding (`<expected>` / `<format>`).
+
 ## Prerequisites
 
 ### System Requirements
@@ -123,7 +156,7 @@ agda test.agda
 
 **Minimum version: 3.14** (required by `python/pyproject.toml` — `requires-python = ">=3.14"`)
 **The build tooling invokes `python3.14`** for the dev venv; the project uses 3.14-only syntax (PEP 758).
-(Note: the Dockerfile / reproducible-build base images still pin 3.13 and are pending a bump to 3.14.)
+(The `Dockerfile` and `Dockerfile.runtime` base images use `python:3.14-slim`.)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
@@ -276,7 +309,7 @@ cd ..
 
 # Verify installation
 python3 -c "import aletheia; print(aletheia.__version__)"
-# Should output: 1.1.1
+# Should output: 2.0.0
 ```
 
 ### 6. Run Tests
@@ -383,7 +416,7 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 | Hook | When | What runs | Severity |
 |---|---|---|---|
 | `pre-commit` | `git commit` | `tools/iwyu.py --check` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool) | **Advisory** — prints warning, always proceeds |
-| `pre-push` | `git push` | `tools/run_ci.py` — the 32-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
+| `pre-push` | `git push` | `tools/run_ci.py` — the 33-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 
@@ -439,23 +472,6 @@ source ~/.bashrc  # or source ~/.zshrc
 aletheia-env      # cd to project and activate venv
 shake build       # Build project
 shake clean       # Clean build
-```
-
-## Workflow Summary
-```bash
-# Starting a work session
-cd /path/to/aletheia
-source python/.venv/bin/activate
-
-# Make changes to Agda/Haskell/Python code
-# ... edit files ...
-
-# Build and test
-cabal run shake -- build
-cd python && python3 -m pytest tests/ -v
-
-# When done
-deactivate
 ```
 
 ## Troubleshooting
@@ -548,11 +564,11 @@ After install, run `cabal run shake -- clean && cabal run shake -- build`.
 
 **Error**: `std::expected` / `std::format` / spaceship operator not found when building `cpp/`, or `error: no member named 'byte' in namespace 'std'`.
 
-**Solution**: The C++ binding is **Clang ≥ 19 only** — g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23; Clang < 19 mis-handles libstdc++-14's `<expected>`. Check with:
+**Solution**: The C++ binding supports the **latest stable Clang only** (currently 22) — g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23 (`<expected>`); older Clang may work but is unsupported. Check with:
 
 ```bash
-clang++-19 --version   # expect 19.x or newer
-cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+clang++-22 --version   # expect 22.x (latest stable)
+cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
 ```
 
 ### Python Venv Version Drift (`ImportError` on Known-Good Code)
@@ -656,7 +672,7 @@ cd cpp && cmake -B build && cmake --build build
 
 **Error**: `error: use of undeclared identifier 'std::format'`
 
-**Solution**: C++23 is required. Use Clang ≥ 19 with a libstdc++/libc++ that supports C++23.
+**Solution**: C++23 is required. Use the latest stable Clang (currently 22) with a libstdc++/libc++ that supports C++23.
 
 ### Go Build/Test Fails
 

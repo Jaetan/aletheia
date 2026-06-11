@@ -34,8 +34,8 @@ See [Building Guide](../docs/development/BUILDING.md) for build instructions.
 
 ```bash
 # Activate venv
-source .venv/bin/activate.fish  # fish
-# source .venv/bin/activate      # bash/zsh
+source python/.venv/bin/activate.fish  # fish
+# source python/.venv/bin/activate      # bash/zsh
 
 # Four-tier demos (no build required)
 python3 examples/demo/demo_check_api.py

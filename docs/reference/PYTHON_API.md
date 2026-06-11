@@ -14,6 +14,26 @@
 
 ---
 
+## Contents
+
+- [Quick Start](#quick-start)
+- [Python DSL Reference](#python-dsl-reference)
+- [Complete Examples](#complete-examples)
+- [AletheiaClient API](#aletheiaclient-api)
+- [Signal Operations](#signal-operations)
+- [Converting .dbc Files](#converting-dbc-files)
+- [Error Handling](#error-handling)
+- [Performance Tips](#performance-tips)
+- [DSL Class Reference](#dsl-class-reference)
+- [CAN Log Reader](#can-log-reader)
+- [Enriched Violations](#enriched-violations)
+- [Structured Logging](#structured-logging)
+- [Exceptions](#exceptions)
+- [Utility Functions](#utility-functions)
+- [See Also](#see-also)
+
+---
+
 ## Quick Start
 
 ```python
@@ -522,7 +542,7 @@ with AletheiaClient() as client:
 # close() called automatically on exit
 ```
 
-#### `parse_dbc(dbc: DBCDefinition) -> SuccessResponse | ErrorResponse`
+#### `parse_dbc(dbc: DBCDefinition) -> ParsedDBCResponse | ErrorResponse`
 
 Load DBC structure from JSON dictionary. Must be called first.
 
@@ -596,7 +616,7 @@ response = client.start_stream()
 assert response["status"] == "success"
 ```
 
-#### `send_frame(timestamp: int, can_id: int, dlc: int, data: bytearray, *, extended: bool = False) -> AckResponse | PropertyViolationResponse | ErrorResponse`
+#### `send_frame(timestamp: int, can_id: int, dlc: int, data: bytearray, *, extended: bool = False, brs: bool | None = None, esi: bool | None = None) -> AckResponse | PropertyBatchResponse | ErrorResponse`
 
 Send a CAN frame for incremental checking.
 
@@ -606,15 +626,17 @@ Send a CAN frame for incremental checking.
 - `dlc`: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
 - `data`: Payload as `bytearray` (must match `dlc_to_bytes(dlc)`; mismatch raises `ValidationError` client-side)
 - `extended`: `True` for 29-bit extended CAN IDs (default `False`)
+- `brs`: CAN-FD Bit Rate Switch (`None` on CAN 2.0B frames)
+- `esi`: CAN-FD Error State Indicator (`None` on CAN 2.0B frames)
 
 **Returns** (acknowledged):
 ```text
 {"status": "ack"}
 ```
 
-**Returns** (violation): A property response with `status`, `property_index`, `timestamp`, and `reason`. When checks are registered via `add_checks()`, violations are automatically enriched with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
+**Returns** (verdicts): A `property_batch` response — `{"type": "property_batch", "results": [...]}` — where each entry carries `status` (`fails`/`holds`/`unresolved`), `property_index`, `timestamp`, and (when checks are registered via `add_checks()`) an `enrichment` block with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
 
-#### `send_frames(frames: list[CANFrameTuple]) -> list[AckResponse | PropertyViolationResponse]`
+#### `send_frames(frames: list[CANFrameTuple]) -> list[AckResponse | PropertyBatchResponse]`
 
 Send multiple CAN frames in a batch. Processing stops at the first error, raising `BatchError` with `partial_results` and `frame_index`.
 
@@ -632,13 +654,74 @@ violations = [r for r in responses if r["status"] == "fails"]
 **Parameters**: List of `CANFrameTuple(timestamp, can_id, dlc, data, extended, brs, esi)`. The trailing `brs` / `esi` default to `None` for CAN 2.0B frames; supply `True` / `False` for CAN-FD when surfacing the Bit Rate Switch and Error State Indicator (ISO 11898-1:2015 §10.4.2 / §10.4.3).
 **Returns**: List of responses in same order as input frames.
 
+#### `send_frames_iter(frames: Iterable[CANFrameTuple]) -> Generator[FrameResult]`
+
+Stream frames **lazily**, yielding one `FrameResult` per accepted frame — for live producers (a queue, socket, or generator) where materializing the whole batch first is wasteful or impossible. Cancellation is observed at frame boundaries via the generator protocol: breaking the `for` loop (or calling `.close()` on the generator) raises `GeneratorExit` and stops cleanly, with every already-yielded result committed in the stream state (the commit-prefix contract of [CANCELLATION.md](../architecture/CANCELLATION.md)). Violations are normal yielded results (`result.violation is not None`); a non-cancellation error (e.g. a non-monotonic timestamp) raises `BatchError` with an empty `partial_results` — the committed prefix was already yielded.
+
+```python continuation
+def live_frames():
+    yield CANFrameTuple(3000, 0x100, 8, bytearray(8), False)
+    yield CANFrameTuple(4000, 0x100, 8, bytearray(8), False)
+
+for result in client.send_frames_iter(live_frames()):
+    # result.violation is None for an accepted frame, or a property_batch verdict
+    if result.violation is not None:
+        _ = result.violation        # inspect / record the verdict
+```
+
+#### `send_error(timestamp: int) -> AckResponse`
+
+Record a CAN **error event** (no ID, no payload) at the given microsecond timestamp — a controller-detected bus error. It is acknowledged without LTL evaluation (there is no payload to extract signals from). Raises `ProtocolError` if the core rejects it (e.g. a non-monotonic timestamp).
+
+```python continuation
+ack = client.send_error(5000)
+assert ack["status"] == "ack"
+```
+
+#### `send_remote(timestamp: int, can_id: int, *, extended: bool = False) -> AckResponse`
+
+Record a CAN **remote frame** (ID but no payload) — a request to transmit the data frame with a matching ID (CAN 2.0B only; deprecated in CAN-FD). Acknowledged without LTL evaluation. Pass `extended=True` for a 29-bit ID.
+
+```python continuation
+ack = client.send_remote(6000, 0x200)
+assert ack["status"] == "ack"
+```
+
 #### `end_stream() -> CompleteResponse | ErrorResponse`
 
-End streaming and get final results.
+End streaming and get the final per-property results plus any diagnostics.
 
 ```python continuation
 response = client.end_stream()
 assert response["status"] == "complete"
+results = response["results"]      # one finalization entry per registered property
+warnings = response["warnings"]    # non-fatal diagnostics (usually empty)
+```
+
+The `warnings` list carries non-fatal kernel diagnostics. The only kind today is `uncached_atom` — emitted when a property references a signal that never appeared in the trace, so it could not be evaluated against that signal:
+
+```text
+{"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
+```
+
+New warning kinds are additive on the wire, so treat `kind` as an open string.
+
+### Async client (`aletheia.asyncio`)
+
+`aletheia.asyncio.AletheiaClient` mirrors the sync client with `async def` methods and an `async with` context manager — for `asyncio` applications. Cancellation propagates as `asyncio.CancelledError` at the same commit-prefix frame boundaries the sync client uses (see [Cancellation Contract](../architecture/CANCELLATION.md)).
+
+```python
+import asyncio
+from aletheia.asyncio import AletheiaClient as AsyncClient
+
+async def main() -> None:
+    async with AsyncClient() as client:
+        await client.parse_dbc(dbc)
+        await client.start_stream()
+        await client.send_frame(1000, 0x100, 8, bytearray(8))
+        await client.end_stream()
+
+asyncio.run(main())
 ```
 
 ---
@@ -936,7 +1019,7 @@ Every record carries:
 - `record.event` — the same name as a structured attribute, so JSON/OTel handlers can parse it.
 - Additional `LogRecord` attributes for the event's fields (e.g. `frames`, `properties`, `reason`).
 
-The event set is the source of truth in `aletheia.client._log.LogEvent` (15 values) and is kept identical across Python, C++ (`aletheia::Logger`), and Go (`slog`) so a single log pipeline can consume all three bindings.
+The event set is the source of truth in `aletheia.client._log.LogEvent` (16 values) and is kept identical across Python, C++ (`aletheia::Logger`), and Go (`slog`) so a single log pipeline can consume all three bindings.
 
 ```python
 import logging

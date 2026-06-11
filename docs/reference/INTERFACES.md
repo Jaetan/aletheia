@@ -7,6 +7,19 @@
 
 ---
 
+## Contents
+
+- [Overview](#overview)
+- [Check API](#check-api)
+- [YAML Loader](#yaml-loader)
+- [Excel Loader](#excel-loader)
+- [Condition Reference](#condition-reference)
+- [Equivalence](#equivalence)
+- [Structured Logging](#structured-logging)
+- [See Also](#see-also)
+
+---
+
 ## Overview
 
 Aletheia provides four interface tiers. All compile to the same verified LTL
@@ -37,8 +50,8 @@ following table summarizes feature availability per binding:
 |---|---|---|---|
 | Check API (`checks.signal(...).never_exceeds(...)`) | ✅ (`aletheia.checks.signal(...)`) | ✅ (`aletheia::check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
 | Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`aletheia.Always{Inner: ...}` struct literals) |
-| YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
-| Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
+| YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::load_checks_from_yaml`) | ✅ (`aletheia.LoadChecksFromYAMLFile`) |
+| Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::load_checks_from_excel`) | ✅ (separate `go/excel/` module) |
 | DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
 | DBC text (`.dbc`) parsing | ✅ (`parse_dbc_text` / `dbc_to_json`) | ✅ (`parse_dbc_text`) | ✅ (`ParseDBCText`) |
 | DBC text (`.dbc`) formatting | ✅ (`format_dbc_text` / `dbc_to_text`) | ✅ (`format_dbc_text`) | ✅ (`FormatDBCText`) |

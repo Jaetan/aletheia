@@ -24,7 +24,7 @@ benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ```
 
 The static gate (`tools/check_mutation_setup.py`) runs always-on as step
-13 of `tools/run_ci.py`; it fires when a hot-path source file is renamed
+16 of `tools/run_ci.py`; it fires when a hot-path source file is renamed
 or deleted without updating the YAML.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
@@ -52,7 +52,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
-| C++ | `Mull` 0.33.0 (LLVM 19) | `cpp/src/*.cpp` (full set, mock_backend.cpp + types.cpp excluded as test/type-defs) |
+| C++ | `Mull` 0.34.0 (LLVM 22, from source) | `cpp/src/*.cpp` (full set, mock_backend.cpp + types.cpp excluded as test/type-defs) |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -100,36 +100,45 @@ which gremlins    # expect: ~/go/bin/gremlins
 
 ### C++ — `Mull`
 
-Mull is installed locally to `~/.local/bin/` (no sudo).  The Mull-19
-release matches the LLVM-19 toolchain installed via the standard Debian
-apt repo (`apt install clang-19`).  The next major Mull release will be
-Mull-20 ↔ clang-20; pin to whichever pair is present locally.
+The project supports only the latest stable Clang (22), and UB can differ
+between compiler versions — so the mutation lane MUST test clang-22 codegen.
+No prebuilt Mull deb ships for LLVM 22 (Mull's release debs stop at LLVM-15),
+so Mull is **built from source** against the system LLVM-22.  The binaries
+land in `~/.local/bin/` (no sudo for the copy), which the project assumes is
+on `$PATH` (see CLAUDE.md § Development Environment).
 
 ```bash
-# Download the LLVM-19 deb from the Mull GitHub release (~32 MB).
-curl -fsSLO https://github.com/mull-project/mull/releases/download/0.33.0/Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb
+# System LLVM-22 + clang-22 (one-time; apt.llvm.org on Debian/Ubuntu).
+sudo apt install clang-22 llvm-22-dev libclang-22-dev
 
-# Local extract (no sudo) — mull binaries land in ~/.local/bin/, which
-# the project assumes is on $PATH (see CLAUDE.md § Development Environment).
-mkdir -p /tmp/mull-extract
-dpkg-deb -x Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb /tmp/mull-extract
-cp /tmp/mull-extract/usr/bin/mull-runner-19 ~/.local/bin/
-cp /tmp/mull-extract/usr/bin/mull-reporter-19 ~/.local/bin/
-cp /tmp/mull-extract/usr/lib/mull-ir-frontend-19 ~/.local/bin/
+# Build Mull 0.34.0 from source.  bazelisk reads Mull's .bazelversion (8.6.0);
+# the build uses the system LLVM via new_local_repository(/usr/lib/llvm-22) —
+# no LLVM download.
+curl -fsSL -o ~/.local/bin/bazel \
+  https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64
+chmod +x ~/.local/bin/bazel
+git clone --depth 1 --branch 0.34.0 --recursive \
+  https://github.com/mull-project/mull /tmp/mull
+cd /tmp/mull
+# Mull's MODULE.bazel OS map caps ubuntu:24.04 at LLVM-20 — add "22":
+sed -i 's/        "ubuntu:24.04": \[/        "ubuntu:24.04": [\n            "22",/' MODULE.bazel
+bazel build //rust/mull-tools:mull-runner-22 \
+            //rust/mull-tools:mull-reporter-22 //:mull-ir-frontend-22
+cp -L bazel-bin/rust/mull-tools/mull-runner-22   ~/.local/bin/
+cp -L bazel-bin/rust/mull-tools/mull-reporter-22 ~/.local/bin/
+cp -L bazel-bin/mull-ir-frontend-22              ~/.local/bin/
 
 # Verify
-mull-runner-19 --version    # expect: mull-runner 0.33.0  LLVM: 19.1.7
+mull-runner-22 --version    # expect: mull-runner 0.34.0  LLVM: 22.x
 ```
 
-clang-19 is required for the IR pass:
-
-```bash
-sudo apt install clang-19   # provides /usr/bin/clang-19, /usr/bin/clang++-19
-```
-
-The standard build (`cmake -B build`) now also requires `clang++-19` (the
-project is Clang >= 19 only; g++ unsupported); the mutation lane uses the same
-`clang++-19` inside its dedicated `cpp/build-mutation/` tree.
+`mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-22` is a
+C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
+`clang++-22` (the project supports the latest stable Clang only; g++
+unsupported); the mutation lane uses the same `clang++-22` inside its dedicated
+`cpp/build-mutation/` tree.  CI caches both the clang-22 debs and the
+from-source Mull build (keyed on the Mull tag + LLVM version) — see
+`.github/workflows/pr-heavy-lanes.yml`.
 
 ## Running the lane
 
@@ -154,12 +163,14 @@ cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
 # Go
 cd go && gremlins unleash ./aletheia
 
-# C++
+# C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
+# real-.so integration tests into unit_tests to cover FfiBackend, so run
+# `cabal run shake -- build` first).
 cd cpp
 cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-      -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+      -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
 cmake --build build-mutation --target unit_tests
-mull-runner-19 ./build-mutation/unit_tests
+mull-runner-22 ./build-mutation/unit_tests
 ```
 
 Per-binding skip env vars (useful for partial runs):
@@ -234,7 +245,7 @@ ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 
 | Step | Frequency | Cost | Trigger |
 |---|---|---|---|
-| Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on, step 13 of `run_ci.py` |
+| Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on, step 16 of `run_ci.py` |
 | Dynamic gate (`mutation testing`) | Per PR | ~30 min - 2 hrs | Opt-in via `--mutation` / `ALETHEIA_MUTATION_CHECK=1` |
 
 The static gate guards against silent rename / removal of a hot-path file

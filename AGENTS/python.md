@@ -22,7 +22,7 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, be
 7. **Type annotation coverage** -- all public functions fully annotated; basedpyright strict mode clean; TypedDict/Protocol/Literal used correctly
 8. **Strong type usage** -- sub-checks:
     - (a) **Domain types over primitives**: no bare `dict`/`list`/`Any` where a TypedDict, Protocol, or domain type exists; validated constructors over raw `int`/`str` at boundaries.
-    - (b) **Tightness**: type hints must be as tight as the underlying value permits. basedpyright accepts any supertype (including `object`), so loose annotations silently pass the gate — reviewer must check that each annotation reflects the narrowest type the value can hold. If a third-party library produces a more specific type (e.g. cantools' `NamedSignalValue`, `Fraction` over `float`, `Literal[0, 1, 2]` over `int`), use that; do not fall back to `object` just because it type-checks.
+    - (b) **Tightness**: type hints must be as tight as the underlying value permits. basedpyright accepts any supertype (including `object`), so loose annotations silently pass the gate — reviewer must check that each annotation reflects the narrowest type the value can hold. If a third-party library produces a more specific type (e.g. `Fraction` over `float`, `Literal[0, 1, 2]` over `int`), use that; do not fall back to `object` just because it type-checks.
 9. **Error handling** -- exceptions are specific (not bare `except`), raised with context, documented in docstrings; no silent swallowing
 10. **Resource safety** -- ctypes handles cleaned up, file handles closed, context managers used where appropriate
 
@@ -38,14 +38,14 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, be
     - (d) **Real-vs-mock divergence testing**: for operations where the mock response differs from the real FFI, there must be a test that exercises the real FFI format via the real `.so` integration tests. A mock chosen for convenience rather than fidelity is a finding.
     - (e) **Regression test discipline**: every bug fix must be accompanied by a test that fails without the fix and passes with it. A fix landed without a guarding test re-opens the regression surface the next time the file is refactored.
     - (f) **Test isolation**: `pytest --random-order --random-order-bucket=package` (plugin pinned in dev deps) must pass — order-dependent flakes (shared tempdir, module-import side effects, fixture leakage between tests, `os.environ` mutation outside `monkeypatch`, ctypes handle retained between tests) are findings. Each test must clean up via `tmp_path` fixtures, register cleanup via fixture teardown or `addfinalizer`, and never mutate global state without a paired restore. The `--random-order` lane runs in CI alongside the deterministic lane; both must be green.
-    - (g) **Mutation testing**: `mutmut` (or `cosmic-ray`) on hot-path modules (`client.py`, `dbc/_converter.py`, `dbc_loader.py`, `validation.py`, `protocols.py`) — surviving mutants on operational logic are findings. Justify any survivor with a comment block at the source site; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient.
+    - (g) **Mutation testing**: `mutmut` (or `cosmic-ray`) on hot-path modules (`client/_client.py`, `dbc/_converter.py`, `yaml_loader.py`, `codes/_issue.py`, `types.py` — the `[tool.mutmut] paths_to_mutate` set) — surviving mutants on operational logic are findings. Justify any survivor with a comment block at the source site; an unjustified survivor is a test gap. Mutation testing runs as a separate CI lane (cost is high) — once per PR is sufficient.
 
 ### Architecture (4)
 
 15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success. Import path: the top-level `aletheia` package is the single canonical public surface -- cross-cutting names (client, the exception hierarchy) flat there; domain interfaces in cohesive sub-namespaces (`aletheia.dbc` / `aletheia.dsl` / `aletheia.codes` / `aletheia.types` / the loaders)
 16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI. Every public submodule declares `__all__`; internal modules are `_`-prefixed and are never a supported public import path (e.g. `aletheia.client` is internal — its surface is re-exported only from the top-level package)
 17. **Extensibility** -- adding new predicates, loaders, or check types doesn't break existing callers
-18. **Dependency discipline** -- minimal external deps; cantools/openpyxl/python-can/pyyaml justified; no unnecessary additions
+18. **Dependency discipline** -- minimal external deps; openpyxl/python-can/pyyaml justified; no unnecessary additions
 
 ### Specification/Design (4)
 

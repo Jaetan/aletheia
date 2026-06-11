@@ -6,9 +6,16 @@
 
 ## Overview
 
+The CLI is the no-Python-required entry point: install the package, then run
+`aletheia` from any shell. You do **not** need to write Python to use it.
+
+```bash
+pip install aletheia        # provides the `aletheia` command
+aletheia <subcommand> [options]
 ```
-python3 -m aletheia <subcommand> [options]
-```
+
+> If the `aletheia` command isn't on your `PATH` (e.g. a virtualenv that isn't
+> activated), the exact equivalent is `python3 -m aletheia <subcommand> [options]`.
 
 Six subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query`.
 
@@ -24,7 +31,7 @@ Six subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-q
 Run LTL checks against a CAN log file.
 
 ```
-python3 -m aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LOGFILE
+aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LOGFILE
 ```
 
 **Arguments**:
@@ -91,7 +98,7 @@ Enriched fields (`signal_name`, `actual_value`, `condition`) are populated when 
 Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.).
 
 ```
-python3 -m aletheia validate [--dbc FILE] [--excel FILE] [--json]
+aletheia validate [--dbc FILE] [--excel FILE] [--json]
 ```
 
 **Arguments**:
@@ -144,7 +151,7 @@ Validation passed: no issues found
 Decode signals from a single CAN frame.
 
 ```
-python3 -m aletheia extract --dbc FILE CAN_ID DATA
+aletheia extract --dbc FILE CAN_ID DATA
 ```
 
 **Arguments**:
@@ -155,6 +162,7 @@ python3 -m aletheia extract --dbc FILE CAN_ID DATA
 | `DATA` | yes | Frame data as hex (see formats below) |
 | `--dbc FILE` | yes | .dbc or .xlsx file |
 | `--json` | no | Output as JSON |
+| `--extended` | no | Treat CAN ID as 29-bit extended |
 
 **Hex data formats** (all equivalent):
 ```
@@ -192,7 +200,7 @@ Absent: none
 List all signals defined in a DBC file.
 
 ```
-python3 -m aletheia signals [--dbc FILE] [--excel FILE] [--json]
+aletheia signals [--dbc FILE] [--excel FILE] [--json]
 ```
 
 **Arguments**:
@@ -224,7 +232,7 @@ Message 0x200 BrakeStatus (DLC 8, sender ECU)
 Re-export a DBC as canonical JSON via the Agda core. Loads the DBC, parses it through the FFI, then re-exports via `aletheia_format_dbc` — producing a normalized representation where numeric fields are exact rationals matching the Agda core. Equivalent to `AletheiaClient.format_dbc()`.
 
 ```
-python3 -m aletheia format-dbc [--dbc FILE] [--excel FILE]
+aletheia format-dbc [--dbc FILE] [--excel FILE]
 ```
 
 **Arguments**:
@@ -294,7 +302,7 @@ candump -l vcan0   # writes candump-YYYY-MM-DD_hhmmss.log
 Feed the capture straight into Aletheia:
 
 ```bash
-python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
+aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
 ```
 
 Wireshark can also capture from SocketCAN, but it writes `pcap`, which is **not** a supported Aletheia input. Use `candump` when Aletheia is the target.
@@ -318,7 +326,7 @@ All formats in the table above carry the timing and metadata Aletheia needs, so 
 Inspect the multiplexor structure of a DBC message.
 
 ```
-python3 -m aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NAME --value N] [--json] MESSAGE
+aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NAME --value N] [--json] MESSAGE
 ```
 
 `MESSAGE` is a CAN ID (hex `0x100` or decimal `256`) or a message name.
@@ -342,7 +350,7 @@ python3 -m aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NA
 
 ```bash
 # Show multiplexor structure for message 0x100
-$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100
+$ aletheia mux-query --dbc vehicle.dbc 0x100
 Message 0x100 EngineCmd (DLC 8)
 
   Multiplexors: Mode
@@ -353,7 +361,7 @@ Message 0x100 EngineCmd (DLC 8)
     value 5: 2 signals (Diag_FaultCode, Diag_FaultData)
 
 # List signals when multiplexor "Mode" has value 5
-$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
+$ aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
 Message 0x100 EngineCmd (DLC 8)
 Multiplexor Mode = 5: 2 signals present
 
@@ -361,7 +369,7 @@ Multiplexor Mode = 5: 2 signals present
   Diag_FaultData       bits[24:32]   LE  unsigned    x1 +0           [0, 4294967295]
 
 # JSON output (summary)
-$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --json
+$ aletheia mux-query --dbc vehicle.dbc 0x100 --json
 {
   "message_id": 256,
   "message_name": "EngineCmd",
@@ -379,7 +387,7 @@ $ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --json
 }
 
 # Non-multiplexed message
-$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x200
+$ aletheia mux-query --dbc vehicle.dbc 0x200
 Message 0x200 EngineStatus (DLC 8)
 
   Not multiplexed — all signals are always present.

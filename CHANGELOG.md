@@ -8,7 +8,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
-## [2.0.0] — Unreleased
+## [2.0.0] — 2026-06-11
 
 This release bundles ~5 weeks of work since v1.1.1 (2026-04-03): the
 verified Agda DBC text parser and formatter, the cross-binding cancellation
@@ -1074,6 +1074,22 @@ so existing `std::string_view{name}` direct-init sites for `SignalName` /
 aliases now read `Strong<..., std::string>` instead of `StrongString<...>`.
 Out-of-tree consumers that referenced the `StrongString` template name must
 substitute `Strong<Tag, std::string>`. Closes CPP-D-15.3.
+
+#### BREAKING — C++: g++ dropped; latest stable Clang only (currently 22)
+
+The C++ binding is now built and tested only against the **latest stable
+Clang** (currently **Clang 22**). g++ is no longer supported (dropped
+2026-06-09), and the previously-documented "Clang ≥ 19" floor is retired —
+older Clang releases may still compile but are not supported. The project
+tracks the latest stable toolchain and moves forward (e.g. to Clang 23 when it
+ships) rather than promising a minimum-version range; UB can differ between
+compiler versions, so the shipped compiler is pinned. Consumers building the
+C++ binding from source with g++ or an older Clang must switch to clang-22
+(`-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22`); the
+libstdc++/libc++ must provide C++23 (`<expected>` / `<format>`). CI (ctest /
+clang-tidy / ubsan / mutation) and `tools/run_ci.py` build with clang-22, and
+the mutation lane builds Mull 0.34.0 from source against LLVM-22. See
+docs/development/BUILDING.md § Toolchain support policy.
 
 #### Added — C++: `Strong<Tag, T>::of(...)` perfect-forwarding factory (R20 cluster X — CPP-D-15.2)
 

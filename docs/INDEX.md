@@ -30,6 +30,8 @@ Complete API documentation:
 
 - **[Interface Guide](reference/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
 - **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
+- **[C++ API Guide](reference/CPP_API.md)** - `AletheiaClient`, Check API, and the `ltl::` DSL
+- **[Go API Guide](reference/GO_API.md)** - `Client`, Check API, and the LTL DSL
 - **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query
 - **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
@@ -40,6 +42,8 @@ Complete API documentation:
 Understand how Aletheia works:
 
 - **[Design Overview](architecture/DESIGN.md)** - Three-layer architecture, design decisions, and rationale
+- **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level FFI protocol + the IssueCode error-code reference
+- **[CAN ID Representation](architecture/CANID_REPRESENTATION.md)** - Standard (11-bit) vs extended (29-bit) IDs and the validated `CANID` newtype
 - **[Cancellation Contract](architecture/CANCELLATION.md)** - Cross-binding async/sync cancellation semantics (Python `asyncio`, Go `context.Context`, C++ `std::stop_token`)
 - **[cgo / dlopen Notes](architecture/CGO_NOTES.md)** - Go binding's cgo + dlopen rationale, GHC RTS thread pinning, build constraints
 
@@ -59,15 +63,17 @@ For deployment and on-call:
 
 Build and contribute:
 
-1. **[Building Guide](development/BUILDING.md)** - Setup, installation, and development workflow
+1. **[Building Guide](development/BUILDING.md)** - Setup, installation, the development workflow, and the [toolchain support policy](development/BUILDING.md#toolchain-support-policy)
 2. **[Distribution Guide](development/DISTRIBUTION.md)** - Packaging and integrating `libaletheia-ffi.so` into C, C++, and Go projects
 3. **[Local CI](development/CI_LOCAL.md)** - Three-layer CI architecture (always-on / opt-in / external); pre-push hook; orchestrator (`tools/run_ci.py`)
-4. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
-5. **[Parity Plan](development/PARITY_PLAN.md)** - Cross-binding feature parity roadmap (Tracks A–E + post-R17 follow-ups); paired with `docs/FEATURE_MATRIX.yaml`
-6. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-7. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-8. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
-9. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
+4. **[Branch & PR Hygiene](development/BRANCH_PR_HYGIENE.md)** - The local-first + server-enforced gate model, required checks, and merge rules for `main`
+5. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
+6. **[Parity Plan](development/PARITY_PLAN.md)** - Cross-binding feature parity roadmap (Tracks A–E + post-R17 follow-ups); paired with `docs/FEATURE_MATRIX.yaml`
+7. **[Deferred Items](development/DEFERRED_ITEMS.md)** - The in-source-deferral backlog and per-item re-examination
+8. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+9. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+10. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+11. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
 
 ---
 
@@ -125,11 +131,14 @@ aletheia/
 │   ├── reference/
 │   │   ├── INTERFACES.md              # Check API, YAML, Excel
 │   │   ├── PYTHON_API.md              # Raw DSL and AletheiaClient
+│   │   ├── CPP_API.md                 # C++ AletheiaClient + Check/ltl DSL
+│   │   ├── GO_API.md                  # Go Client + Check/LTL DSL
 │   │   └── CLI.md                     # CLI subcommands (check / validate / extract / signals / format-dbc / mux-query)
 │   │
 │   ├── architecture/
 │   │   ├── DESIGN.md                  # Architecture overview
-│   │   ├── PROTOCOL.md                # JSON protocol spec
+│   │   ├── PROTOCOL.md                # JSON protocol spec + IssueCode reference
+│   │   ├── CANID_REPRESENTATION.md    # 11-bit / 29-bit IDs + CANID newtype
 │   │   ├── CANCELLATION.md            # Cross-binding cancellation contract
 │   │   └── CGO_NOTES.md               # Go cgo + dlopen rationale
 │   │
@@ -139,12 +148,14 @@ aletheia/
 │   │   └── MUTATION.md                # Mutation testing (mutmut / gremlins / Mull)
 │   │
 │   ├── development/
-│   │   ├── BUILDING.md                # Build instructions
-│   │   ├── BENCHMARKS.md              # Benchmark suite and methodology
+│   │   ├── BUILDING.md                # Build instructions + toolchain support policy
+│   │   ├── BENCHMARKS.md              # Benchmark suite, methodology, PR regression gate
 │   │   ├── DISTRIBUTION.md            # Packaging & native integration
 │   │   ├── CI_LOCAL.md                # Three-layer CI architecture
+│   │   ├── BRANCH_PR_HYGIENE.md       # Gate model + merge rules for main
 │   │   ├── RELEASE.md                 # Tag / sign / publish procedure
-│   │   └── PARITY_PLAN.md             # Cross-binding feature parity roadmap
+│   │   ├── PARITY_PLAN.md             # Cross-binding feature parity roadmap
+│   │   └── DEFERRED_ITEMS.md          # In-source-deferral backlog
 │   │
 │   └── presentation/
 │       └── index.html                 # Slide deck for talks and demos

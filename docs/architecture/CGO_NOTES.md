@@ -23,7 +23,7 @@ overall coverage is preserved.
   manage this through their `AletheiaClient` lifecycle (`__enter__` /
   `NewClient` / `make_ffi_backend`) and refcount across multiple clients
   in a single process.
-- All FFI entry points (`aletheia_send_frame`, `aletheia_process_json`,
+- All FFI entry points (`aletheia_send_frame`, `aletheia_process`,
   etc.) marshal arguments into Haskell heap representations, run the
   Agda-compiled Haskell code, marshal the result back to a C-callable
   encoding, and return.
@@ -106,7 +106,7 @@ The canonical sanitizer-lane invocation therefore uses clang:
 
 ```
 cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined \
-    -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+    -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
 cmake --build build-ubsan
 ctest --test-dir build-ubsan
 ```
@@ -114,11 +114,11 @@ ctest --test-dir build-ubsan
 `tools/run_ci.py` wires this exactly as an always-on step (promoted
 from opt-in R21 CPP-SYS-32.2 — UB in `Rational::from_double` had
 previously shipped undetected exactly because the lane was opt-in).
-When clang-19 is unavailable, the always-on step fails loudly rather than
-silently degrading.  The project is Clang >= 19 only (g++ dropped 2026-06-09;
-see `project_cpp_compilers.md`), so the sanitizer build uses the same clang
-toolchain as the unit-test build and must be present for `tools/run_ci.py`
-to return a green report.
+When clang-22 is unavailable, the always-on step fails loudly rather than
+silently degrading.  The sanitizer build uses the same clang toolchain as the
+unit-test build (Clang 22 — see
+[BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy))
+and must be present for `tools/run_ci.py` to return a green report.
 
 ## Sanitizer lane decisions (R18 cluster 5, advisor option (d))
 
@@ -147,7 +147,7 @@ Go's cgo extends the above concerns:
 
 - Cgo calls run on a thread that is locked to the OS thread (`runtime.
   LockOSThread`); the Aletheia Go binding pins the construction thread
-  via `lockOSThreadForRTSInit`.
+  by calling `runtime.LockOSThread()` directly.
 - Cgo's calling convention copies arguments to C-compatible memory
   (Go strings → C strings, Go slices → C arrays). The slice copies are
   the natural defense against memory-safety bugs in the cgo boundary.

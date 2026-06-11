@@ -1,7 +1,7 @@
 # Distributing Aletheia
 
 ---
-**Version**: 1.1.1 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
+**Version**: 2.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
 **Last Updated**: 2026-05-10
 **Platform**: Linux x86-64 only
 ---
@@ -176,7 +176,7 @@ int main(void) {
 
 ### C++ (with the aletheia-cpp binding)
 
-The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime — pass the `.so` path to `make_ffi_backend()`. Requires CMake 3.25+ and Clang ≥ 19 with a libstdc++/libc++ that supports C++23 (`<expected>`); g++ is not supported.
+The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime — pass the `.so` path to `make_ffi_backend()`. Requires CMake 3.25+ and Clang 22 (the supported toolchain; older may work, unsupported) with a libstdc++/libc++ that supports C++23 (`<expected>`); g++ is not supported.
 
 #### CMake integration
 
@@ -258,8 +258,8 @@ Two Dockerfiles are provided in the repository root:
 
 | File | Purpose | Base image |
 |------|---------|------------|
-| `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.13-slim` |
-| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.13-slim` |
+| `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.14-slim` |
+| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.14-slim` |
 
 ```bash
 # Build runtime image from pre-built dist (fast)

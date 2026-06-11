@@ -21,7 +21,7 @@ printed by `benchmarks/compare.py`.
 # Prerequisites (one-time)
 cabal run shake -- build                                                # libaletheia-ffi.so
 source python/.venv/bin/activate && (cd python && pip install -e '.[dev]')  # Python binding
-cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 && cmake --build cpp/build  # C++ binary (Clang >= 19)
+cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build  # C++ binary (Clang 22)
 (cd go && go build -o benchmarks/benchmark ./benchmarks/)                # Go binary
 
 # Run throughput across all three bindings, 10,000 frames × 5 runs
@@ -97,9 +97,9 @@ the regular cross-language run:
 
 ## Methodology and Variance
 
-Benchmarks are measured on an AMD Ryzen 9 5950X, Linux 6.6 (WSL2), with C++
-g++-15 `-O3`, Go 1.26.1, Python 3.13.12 (exact versions printed in each JSON
-output under `system`).
+Benchmarks are measured on an Intel Core Ultra 9 285K (24 cores), Linux 6.6
+(WSL2), with C++ clang++-22 `-O3`, Go 1.26.3, Python 3.14.5 (exact versions
+printed in each JSON output under `system`).
 
 The ±10% inter-run variance gate and the ~2–4% steady-state noise floor are
 codified in [AGENTS.md § Step 4: Implement and verify](../../AGENTS.md#step-4-implement-and-verify).
@@ -111,6 +111,27 @@ Always rebuild `libaletheia-ffi.so` before a measurement if the Agda or
 Haskell layer has changed (`stat build/libaletheia-ffi.so` vs. the latest
 commit touching `src/` or `haskell-shim/`). A stale `.so` measures the
 previous Agda core, not the current one.
+
+---
+
+## CI regression gate
+
+`.github/workflows/benchmark.yml` runs the throughput suite on every pull
+request (and on demand via `workflow_dispatch`). On a PR it then runs
+`tools/benchmark_gate.py`, which **fails the check if any lane is more than 30%
+slower** than the committed GitHub-runner baseline (`benchmarks/gha_baseline.json`).
+
+The 30% threshold is deliberately generous: the GitHub-hosted runner is shared
+and noisy, so the gate is meant to catch a *noticeable* regression, not
+run-to-run jitter (the 5-run mean already damps within-run noise). The baseline
+is measured **on the runner**, not on the local host — the two machines differ
+several-fold, so local numbers must never be used as the gate baseline.
+
+To refresh the baseline after an intentional performance change, take the
+numbers from a known-good PR run (the gate prints them, and they are uploaded as
+the `benchmark-throughput-results` artifact) and commit them to
+`benchmarks/gha_baseline.json`. When that file is absent the gate is in
+bootstrap mode: it reports the numbers and passes.
 
 ---
 

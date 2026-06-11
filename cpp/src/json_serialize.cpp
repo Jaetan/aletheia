@@ -172,11 +172,11 @@ static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
     return std::visit(
         [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, DbcCommentTargetNetwork>)
+            if constexpr (std::is_same_v<T, DbcCommentTargetNetwork>) {
                 return {{"kind", "network"}};
-            else if constexpr (std::is_same_v<T, DbcCommentTargetNode>)
+            } else if constexpr (std::is_same_v<T, DbcCommentTargetNode>) {
                 return {{"kind", "node"}, {"node", v.node}};
-            else if constexpr (std::is_same_v<T, DbcCommentTargetMessage>) {
+            } else if constexpr (std::is_same_v<T, DbcCommentTargetMessage>) {
                 Json out = {{"kind", "message"}};
                 attach_can_id(out, v.id, v.extended);
                 return out;
@@ -185,10 +185,11 @@ static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
                 attach_can_id(out, v.id, v.extended);
                 out["signal"] = v.signal;
                 return out;
-            } else if constexpr (std::is_same_v<T, DbcCommentTargetEnvVar>)
+            } else if constexpr (std::is_same_v<T, DbcCommentTargetEnvVar>) {
                 return {{"kind", "envVar"}, {"envVar", v.env_var}};
-            else
+            } else {
                 static_assert(sizeof(T) == 0, "Unhandled DbcCommentTarget variant");
+            }
         },
         t);
 }
@@ -221,23 +222,24 @@ static auto attr_type_to_json(const DbcAttrType& t) -> Json {
     return std::visit(
         [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, DbcAttrTypeInt>)
+            if constexpr (std::is_same_v<T, DbcAttrTypeInt>) {
                 return {{"kind", "int"}, {"min", v.min}, {"max", v.max}};
-            else if constexpr (std::is_same_v<T, DbcAttrTypeFloat>)
+            } else if constexpr (std::is_same_v<T, DbcAttrTypeFloat>) {
                 return {{"kind", "float"},
                         {"min", rational_to_json(v.min)},
                         {"max", rational_to_json(v.max)}};
-            else if constexpr (std::is_same_v<T, DbcAttrTypeString>)
+            } else if constexpr (std::is_same_v<T, DbcAttrTypeString>) {
                 return {{"kind", "string"}};
-            else if constexpr (std::is_same_v<T, DbcAttrTypeEnum>) {
+            } else if constexpr (std::is_same_v<T, DbcAttrTypeEnum>) {
                 Json values = Json::array();
                 for (const auto& s : v.values)
                     values.push_back(s);
                 return {{"kind", "enum"}, {"values", std::move(values)}};
-            } else if constexpr (std::is_same_v<T, DbcAttrTypeHex>)
+            } else if constexpr (std::is_same_v<T, DbcAttrTypeHex>) {
                 return {{"kind", "hex"}, {"min", v.min}, {"max", v.max}};
-            else
+            } else {
                 static_assert(sizeof(T) == 0, "Unhandled DbcAttrType variant");
+            }
         },
         t);
 }
@@ -266,11 +268,11 @@ static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
     return std::visit(
         [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, DbcAttrTargetNetwork>)
+            if constexpr (std::is_same_v<T, DbcAttrTargetNetwork>) {
                 return {{"kind", "network"}};
-            else if constexpr (std::is_same_v<T, DbcAttrTargetNode>)
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetNode>) {
                 return {{"kind", "node"}, {"node", v.node}};
-            else if constexpr (std::is_same_v<T, DbcAttrTargetMessage>) {
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetMessage>) {
                 Json out = {{"kind", "message"}};
                 attach_can_id(out, v.id, v.extended);
                 return out;
@@ -279,9 +281,9 @@ static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
                 attach_can_id(out, v.id, v.extended);
                 out["signal"] = v.signal;
                 return out;
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetEnvVar>)
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetEnvVar>) {
                 return {{"kind", "envVar"}, {"envVar", v.env_var}};
-            else if constexpr (std::is_same_v<T, DbcAttrTargetNodeMsg>) {
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetNodeMsg>) {
                 Json out = {{"kind", "nodeMsg"}, {"node", v.node}};
                 attach_can_id(out, v.id, v.extended);
                 return out;
@@ -290,8 +292,9 @@ static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
                 attach_can_id(out, v.id, v.extended);
                 out["signal"] = v.signal;
                 return out;
-            } else
+            } else {
                 static_assert(sizeof(T) == 0, "Unhandled DbcAttrTarget variant");
+            }
         },
         t);
 }
@@ -424,7 +427,7 @@ static auto predicate_to_json(const Predicate& p) -> Json {
 // instead of as a wire round-trip error.  R21 CPP-B-9.1 / CPP-A-2.1 /
 // AGDA-D-17.1 cross-binding SSOT fix.
 static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
-    if (static_cast<std::uint64_t>(depth) > max_nesting_depth)
+    if (std::cmp_greater(depth, max_nesting_depth))
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_nesting_depth));
     return std::visit(

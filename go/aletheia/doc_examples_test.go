@@ -58,6 +58,7 @@ var docFiles = []string{
 	"../../docs/PITCH.md",
 	"../../docs/architecture/CANCELLATION.md",
 	"../../docs/reference/INTERFACES.md",
+	"../../docs/reference/GO_API.md",
 	"../../docs/development/DISTRIBUTION.md",
 }
 
