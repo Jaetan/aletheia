@@ -654,13 +654,74 @@ violations = [r for r in responses if r["status"] == "fails"]
 **Parameters**: List of `CANFrameTuple(timestamp, can_id, dlc, data, extended, brs, esi)`. The trailing `brs` / `esi` default to `None` for CAN 2.0B frames; supply `True` / `False` for CAN-FD when surfacing the Bit Rate Switch and Error State Indicator (ISO 11898-1:2015 §10.4.2 / §10.4.3).
 **Returns**: List of responses in same order as input frames.
 
+#### `send_frames_iter(frames: Iterable[CANFrameTuple]) -> Generator[FrameResult]`
+
+Stream frames **lazily**, yielding one `FrameResult` per accepted frame — for live producers (a queue, socket, or generator) where materializing the whole batch first is wasteful or impossible. Cancellation is observed at frame boundaries via the generator protocol: breaking the `for` loop (or calling `.close()` on the generator) raises `GeneratorExit` and stops cleanly, with every already-yielded result committed in the stream state (the commit-prefix contract of [CANCELLATION.md](../architecture/CANCELLATION.md)). Violations are normal yielded results (`result.violation is not None`); a non-cancellation error (e.g. a non-monotonic timestamp) raises `BatchError` with an empty `partial_results` — the committed prefix was already yielded.
+
+```python continuation
+def live_frames():
+    yield CANFrameTuple(3000, 0x100, 8, bytearray(8), False)
+    yield CANFrameTuple(4000, 0x100, 8, bytearray(8), False)
+
+for result in client.send_frames_iter(live_frames()):
+    # result.violation is None for an accepted frame, or a property_batch verdict
+    if result.violation is not None:
+        _ = result.violation        # inspect / record the verdict
+```
+
+#### `send_error(timestamp: int) -> AckResponse`
+
+Record a CAN **error event** (no ID, no payload) at the given microsecond timestamp — a controller-detected bus error. It is acknowledged without LTL evaluation (there is no payload to extract signals from). Raises `ProtocolError` if the core rejects it (e.g. a non-monotonic timestamp).
+
+```python continuation
+ack = client.send_error(5000)
+assert ack["status"] == "ack"
+```
+
+#### `send_remote(timestamp: int, can_id: int, *, extended: bool = False) -> AckResponse`
+
+Record a CAN **remote frame** (ID but no payload) — a request to transmit the data frame with a matching ID (CAN 2.0B only; deprecated in CAN-FD). Acknowledged without LTL evaluation. Pass `extended=True` for a 29-bit ID.
+
+```python continuation
+ack = client.send_remote(6000, 0x200)
+assert ack["status"] == "ack"
+```
+
 #### `end_stream() -> CompleteResponse | ErrorResponse`
 
-End streaming and get final results.
+End streaming and get the final per-property results plus any diagnostics.
 
 ```python continuation
 response = client.end_stream()
 assert response["status"] == "complete"
+results = response["results"]      # one finalization entry per registered property
+warnings = response["warnings"]    # non-fatal diagnostics (usually empty)
+```
+
+The `warnings` list carries non-fatal kernel diagnostics. The only kind today is `uncached_atom` — emitted when a property references a signal that never appeared in the trace, so it could not be evaluated against that signal:
+
+```text
+{"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
+```
+
+New warning kinds are additive on the wire, so treat `kind` as an open string.
+
+### Async client (`aletheia.asyncio`)
+
+`aletheia.asyncio.AletheiaClient` mirrors the sync client with `async def` methods and an `async with` context manager — for `asyncio` applications. Cancellation propagates as `asyncio.CancelledError` at the same commit-prefix frame boundaries the sync client uses (see [Cancellation Contract](../architecture/CANCELLATION.md)).
+
+```python
+import asyncio
+from aletheia.asyncio import AletheiaClient as AsyncClient
+
+async def main() -> None:
+    async with AsyncClient() as client:
+        await client.parse_dbc(dbc)
+        await client.start_stream()
+        await client.send_frame(1000, 0x100, 8, bytearray(8))
+        await client.end_stream()
+
+asyncio.run(main())
 ```
 
 ---
