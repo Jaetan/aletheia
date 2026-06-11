@@ -79,6 +79,8 @@ open import Aletheia.DBC.TextParser.Attributes using
   (refineAttributes)
 open import Aletheia.DBC.TextParser.ValueDescriptions using
   (attachValueDescs; unresolvedRVDs)
+open import Aletheia.DBC.TextParser.Senders using
+  (attachSenders)
 
 open import Aletheia.Error public using
   (DBCTextParseError; ParseFailure; TrailingInput; AttributeRefinementFailed)
@@ -208,8 +210,9 @@ open import Aletheia.Error public using
 buildDBC : List Char → List Node → CollectedTop → List DBCAttribute → DBC
 buildDBC ver nodes c attrs = record
   { version              = ver
-  ; messages             = attachValueDescs (CollectedTop.rawValueDescs c)
-                                            (CollectedTop.messages       c)
+  ; messages             = attachSenders (CollectedTop.rawMsgSenders c)
+                             (attachValueDescs (CollectedTop.rawValueDescs c)
+                                               (CollectedTop.messages     c))
   ; signalGroups         = CollectedTop.signalGroups    c
   ; environmentVars      = CollectedTop.environmentVars c
   ; valueTables          = CollectedTop.valueTables     c

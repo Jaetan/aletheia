@@ -6,10 +6,11 @@
 --
 -- `emitMessage-chars msg ++ outer` starts with 'B'∷'O'∷'_'∷' ', so
 -- parseTopStmt reduces to its BO-bucket:
--- `(parseBOTxBu *> pure TSBOTxBu) <|> (parseMessage >>= λ m → pure (TSMessage m))`.
+-- `(parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) <|> (parseMessage >>= λ m → pure (TSMessage m))`.
 --
--- parseBOTxBu requires `string "BO_TX_BU_"` (char 3 = 'T'); on the
--- emitter's `'B'∷'O'∷'_'∷' '∷…` it fails at char 3.  parseMessage
+-- parseBOTxBu (the A.2 Format-DSL parser) opens with the `"BO_TX_BU_"`
+-- literal (char 3 = 'T'); on the emitter's `'B'∷'O'∷'_'∷' '∷…` it fails at
+-- char 3, so the left arm is `nothing` (`botxbu-fail = refl`).  parseMessage
 -- succeeds via `parseMessage-roundtrip-bundled`.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.Message where
 
@@ -22,9 +23,9 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators using
   (Position; mkResult; advancePositions;
-   _>>=_; pure; _*>_)
+   _>>=_; pure)
 
-open import Aletheia.DBC.Types using (DBCMessage; clearVdsMsg)
+open import Aletheia.DBC.Types using (DBCMessage; clearBothMsg)
 open import Aletheia.DBC.TextParser.TopLevel using
   (TSMessage; TSBOTxBu; parseTopStmt; parseBOTxBu)
 open import Aletheia.DBC.TextParser.Topology using
@@ -45,8 +46,8 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (alt-right-nothing)
 
--- E.9a: result is `mkResult (TSMessage (clearVdsMsg msg)) …` because
--- `parseMessage-roundtrip-bundled` returns `mkResult (clearVdsMsg msg) …`.
+-- E.9a: result is `mkResult (TSMessage (clearBothMsg msg)) …` because
+-- `parseMessage-roundtrip-bundled` returns `mkResult (clearBothMsg msg) …`.
 -- The Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
 -- post-buildDBC to recover the original messages.
 parseTopStmt-on-emit-TM-eq :
@@ -54,11 +55,11 @@ parseTopStmt-on-emit-TM-eq :
   → MessageWF msg
   → SuffixStops isNewlineStart outer
   → parseTopStmt pos (emitMessage-chars msg ++ₗ outer)
-    ≡ just (mkResult (TSMessage (clearVdsMsg msg))
+    ≡ just (mkResult (TSMessage (clearBothMsg msg))
                      (advancePositions pos (emitMessage-chars msg))
                      outer)
 parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
-  trans (alt-right-nothing (parseBOTxBu *> pure TSBOTxBu)
+  trans (alt-right-nothing (parseBOTxBu >>= λ rms → pure (TSBOTxBu rms))
                             (parseMessage >>= λ m → pure (TSMessage m))
                             pos input
                             botxbu-fail)
@@ -70,13 +71,13 @@ parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
     pos-msg : Position
     pos-msg = advancePositions pos (emitMessage-chars msg)
 
-    botxbu-fail : (parseBOTxBu *> pure TSBOTxBu) pos input ≡ nothing
+    botxbu-fail : (parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) pos input ≡ nothing
     botxbu-fail = refl
 
-    p-msg-eq : parseMessage pos input ≡ just (mkResult (clearVdsMsg msg) pos-msg outer)
+    p-msg-eq : parseMessage pos input ≡ just (mkResult (clearBothMsg msg) pos-msg outer)
     p-msg-eq = parseMessage-roundtrip-bundled pos msg outer wf nl-stop
 
     alt-msg-eq : (parseMessage >>= λ m → pure (TSMessage m)) pos input
-                 ≡ just (mkResult (TSMessage (clearVdsMsg msg)) pos-msg outer)
+                 ≡ just (mkResult (TSMessage (clearBothMsg msg)) pos-msg outer)
     alt-msg-eq = bind-just-step parseMessage (λ m → pure (TSMessage m))
-                   pos input (clearVdsMsg msg) pos-msg outer p-msg-eq
+                   pos input (clearBothMsg msg) pos-msg outer p-msg-eq

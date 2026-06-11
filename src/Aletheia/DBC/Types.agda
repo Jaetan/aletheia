@@ -131,6 +131,29 @@ clearVds s = record s { valueDescriptions = [] }
 clearVdsMsg : DBCMessage → DBCMessage
 clearVdsMsg m = record m { signals = map clearVds (DBCMessage.signals m) }
 
+-- Drop the `senders` field on a message.  The A.2 (BO_TX_BU_) analogue of
+-- `clearVdsMsg`: `parseMessage` produces messages with `senders = []`
+-- (BO_TX_BU_ lines arrive at DBC-level via top-stmts and are stitched back
+-- in by `attachSenders`), so the per-message proof claims its result equals
+-- `clearSendersMsg msg`, NOT `msg`.  The Universal bridges via
+-- `attachSenders (collectSenders msgs) (map clearSendersMsg msgs) ≡ msgs`.
+clearSendersMsg : DBCMessage → DBCMessage
+clearSendersMsg m = record m { senders = [] }
+
+-- Drop BOTH the per-signal `valueDescriptions` and the message `senders`.
+-- `parseMessage` produces messages with `vds = []` on every signal AND
+-- `senders = []` (neither the VAL_ entries nor the BO_TX_BU_ senders are
+-- recoverable from the BO_/SG_ block alone — both arrive at DBC level as
+-- separate top-statements).  Once the BO_TX_BU_ section is wired (A.2), the
+-- per-message text-roundtrip claim becomes `parseMessage … ≡ clearBothMsg
+-- msg`, and the Universal bridges via the composition
+-- `attachSenders (collectSenders msgs)
+--    (attachValueDescs (collectFromMessages msgs) (map clearBothMsg msgs))
+--  ≡ msgs`.  Defined as `clearSendersMsg ∘ clearVdsMsg`; the two updates
+-- touch disjoint fields, so the order is immaterial (definitionally equal).
+clearBothMsg : DBCMessage → DBCMessage
+clearBothMsg m = clearSendersMsg (clearVdsMsg m)
+
 -- ============================================================================
 -- NODE (DBC BU_ keyword)
 -- ============================================================================

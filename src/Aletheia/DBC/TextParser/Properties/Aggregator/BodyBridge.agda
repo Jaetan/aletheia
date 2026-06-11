@@ -33,6 +33,9 @@ open import Aletheia.DBC.Types using
 
 open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
+open import Aletheia.DBC.TextParser.Senders using (RawMsgSenders; collectSenders)
+open import Aletheia.DBC.TextFormatter.MessageSenders using
+  (emitMsgSenders-line-chars; emitMsgSenders-rmss-chars; emitMessageSenders-chars)
 
 open import Aletheia.DBC.TextFormatter.ValueTables  using
   ( emitValueTable-chars; emitValueTables-chars
@@ -45,7 +48,7 @@ open import Aletheia.DBC.TextFormatter.SignalGroups using (emitSignalGroup-chars
 open import Aletheia.DBC.TextFormatter.Attributes   using (emitAttribute-chars; emitAttributes-chars; collectDefs)
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( TopStmtTyped; TVT; TM; TVD; TEV; TCM; TAT; TSG
+  ( TopStmtTyped; TVT; TM; TVD; TEV; TCM; TAT; TSG; TBO
   ; emitTopStmt-chars
   ; toTopStmtsTyped
   )
@@ -118,6 +121,17 @@ emit-map-TVD-eq :
 emit-map-TVD-eq defs rvds =
   foldr-emit-map-iso defs TVD emitValueDescription-chars rvds (λ _ → refl)
 
+-- A.2: TBO per-section bridge.  Bridges the `RawMsgSenders` list (the
+-- post-`collectSenders` form); the wrapper `emitMessageSenders-chars msgs =
+-- emitMsgSenders-rmss-chars (collectSenders msgs)` collapses by `refl` at the
+-- call site.
+emit-map-TBO-eq :
+    ∀ defs (rmss : List RawMsgSenders)
+  → foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TBO rmss)
+    ≡ emitMsgSenders-rmss-chars rmss
+emit-map-TBO-eq defs rmss =
+  foldr-emit-map-iso defs TBO emitMsgSenders-line-chars rmss (λ _ → refl)
+
 emit-map-TEV-eq :
     ∀ defs (evs : List EnvironmentVar)
   → foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TEV evs)
@@ -175,6 +189,7 @@ formatChars-body : DBC → List Char
 formatChars-body d =
   emitValueTables-chars       (DBC.valueTables     d) ++ₗ
   emitMessages-chars          (DBC.messages        d) ++ₗ
+  emitMessageSenders-chars    (DBC.messages        d) ++ₗ
   emitValueDescriptions-chars (DBC.messages        d) ++ₗ
   emitEnvVars-chars           (DBC.environmentVars d) ++ₗ
   emitComments-chars          (DBC.comments        d) ++ₗ
@@ -195,6 +210,7 @@ formatChars-body-bridge d = step7
     vts   = DBC.valueTables     d
     msgs  = DBC.messages        d
     rvds  = collectFromMessages msgs
+    rmss  = collectSenders      msgs
     evs   = DBC.environmentVars d
     cms   = DBC.comments        d
     attrs = DBC.attributes      d
@@ -206,21 +222,32 @@ formatChars-body-bridge d = step7
               (toTopStmtsTyped d)
       ≡ foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TVT vts)
         ++ₗ foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []
-              (map TM msgs ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+              (map TM msgs ++ₗ map TBO rmss ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
     step1 =
       foldr-emit-app (λ t → emitTopStmt-chars defs t)
                      (map TVT vts)
-                     (map TM msgs ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+                     (map TM msgs ++ₗ map TBO rmss ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
 
     step2 :
         foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []
-              (map TM msgs ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+              (map TM msgs ++ₗ map TBO rmss ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
       ≡ foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TM msgs)
         ++ₗ foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []
-              (map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+              (map TBO rmss ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
     step2 =
       foldr-emit-app (λ t → emitTopStmt-chars defs t)
                      (map TM msgs)
+                     (map TBO rmss ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+
+    step-TBO :
+        foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []
+              (map TBO rmss ++ₗ map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+      ≡ foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TBO rmss)
+        ++ₗ foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []
+              (map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
+    step-TBO =
+      foldr-emit-app (λ t → emitTopStmt-chars defs t)
+                     (map TBO rmss)
                      (map TVD rvds ++ₗ map TEV evs ++ₗ map TCM cms ++ₗ map TAT attrs ++ₗ map TSG sgs)
 
     step3 :
@@ -266,64 +293,71 @@ formatChars-body-bridge d = step7
                      (map TAT attrs)
                      (map TSG sgs)
 
-    -- Abbreviations for the 7 chunks (typed-shadow folds).
+    -- Abbreviations for the 8 chunks (typed-shadow folds).
     chunkVT  = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TVT vts)
     chunkM   = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TM msgs)
+    chunkTBO = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TBO rmss)
     chunkTVD = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TVD rvds)
     chunkEV  = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TEV evs)
     chunkCM  = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TCM cms)
     chunkAT  = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TAT attrs)
     chunkSG  = foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (map TSG sgs)
 
-    -- After 6 applications of foldr-emit-app, the LHS reshapes into a
-    -- right-associated 7-chunk concatenation.
+    -- After 7 applications of foldr-emit-app, the LHS reshapes into a
+    -- right-associated 8-chunk concatenation.
     distrib :
         foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []
               (toTopStmtsTyped d)
-      ≡ chunkVT ++ₗ chunkM ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG
+      ≡ chunkVT ++ₗ chunkM ++ₗ chunkTBO ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG
     distrib =
       trans step1
         (cong (λ r → chunkVT ++ₗ r)
           (trans step2
             (cong (λ r → chunkM ++ₗ r)
-              (trans step3
-                (cong (λ r → chunkTVD ++ₗ r)
-                  (trans step4
-                    (cong (λ r → chunkEV ++ₗ r)
-                      (trans step5
-                        (cong (λ r → chunkCM ++ₗ r) step6)))))))))
+              (trans step-TBO
+                (cong (λ r → chunkTBO ++ₗ r)
+                  (trans step3
+                    (cong (λ r → chunkTVD ++ₗ r)
+                      (trans step4
+                        (cong (λ r → chunkEV ++ₗ r)
+                          (trans step5
+                            (cong (λ r → chunkCM ++ₗ r) step6)))))))))))
 
     -- Convert each chunk to its `emitX-chars` form via the per-section
     -- bridges (left-to-right).
     convert :
-        chunkVT ++ₗ chunkM ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG
+        chunkVT ++ₗ chunkM ++ₗ chunkTBO ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG
       ≡ formatChars-body d
     convert =
       trans
-        (cong (λ x → x ++ₗ chunkM ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
+        (cong (λ x → x ++ₗ chunkM ++ₗ chunkTBO ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
               (emit-map-TVT-eq defs vts))
         (cong (λ x → emitValueTables-chars vts ++ₗ x)
           (trans
-            (cong (λ x → x ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
+            (cong (λ x → x ++ₗ chunkTBO ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
                   (emit-map-TM-eq defs msgs))
             (cong (λ x → emitMessages-chars msgs ++ₗ x)
               (trans
-                (cong (λ x → x ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
-                      (emit-map-TVD-eq defs rvds))
-                (cong (λ x → emitValueDescriptions-rvds-chars rvds ++ₗ x)
+                (cong (λ x → x ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
+                      (emit-map-TBO-eq defs rmss))
+                (cong (λ x → emitMsgSenders-rmss-chars rmss ++ₗ x)
                   (trans
-                    (cong (λ x → x ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
-                          (emit-map-TEV-eq defs evs))
-                    (cong (λ x → emitEnvVars-chars evs ++ₗ x)
+                    (cong (λ x → x ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
+                          (emit-map-TVD-eq defs rvds))
+                    (cong (λ x → emitValueDescriptions-rvds-chars rvds ++ₗ x)
                       (trans
-                        (cong (λ x → x ++ₗ chunkAT ++ₗ chunkSG)
-                              (emit-map-TCM-eq defs cms))
-                        (cong (λ x → emitComments-chars cms ++ₗ x)
+                        (cong (λ x → x ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
+                              (emit-map-TEV-eq defs evs))
+                        (cong (λ x → emitEnvVars-chars evs ++ₗ x)
                           (trans
-                            (cong (λ x → x ++ₗ chunkSG)
-                                  (emit-map-TAT-eq defs attrs refl))
-                            (cong (λ x → emitAttributes-chars attrs ++ₗ x)
-                                  (emit-map-TSG-eq defs sgs))))))))))))
+                            (cong (λ x → x ++ₗ chunkAT ++ₗ chunkSG)
+                                  (emit-map-TCM-eq defs cms))
+                            (cong (λ x → emitComments-chars cms ++ₗ x)
+                              (trans
+                                (cong (λ x → x ++ₗ chunkSG)
+                                      (emit-map-TAT-eq defs attrs refl))
+                                (cong (λ x → emitAttributes-chars attrs ++ₗ x)
+                                      (emit-map-TSG-eq defs sgs))))))))))))))
 
     step7 :
         foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) []

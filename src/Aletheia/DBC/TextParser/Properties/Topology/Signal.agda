@@ -84,9 +84,12 @@ open import Aletheia.DBC.TextParser.Properties.Topology.Receivers using
 
 -- The signal's identifier name decomposes as `c ∷ cs` with
 -- `isHSpace c ≡ false`; required by the DSL header chunk's `withWS`
--- after `withPrefix "SG_"`.  Owed by Layer 4 via the
--- `isIdentStart→¬isHSpace` bridge lemma (deferred per
--- `project_b3d_layer4_owed_lemmas.md`).  Identical in shape to
+-- after `withPrefix "SG_"`.  Discharged universally from `Identifier`
+-- validity by `Properties.WellFormedFromValidity.signalNameStop` (via the
+-- already-proven `isIdentStart→¬isHSpace` bridge in
+-- `Properties.CharClassDisjoint`); still taken as a precondition here because
+-- the threading through `MessageWF` is not yet removed (see DEFERRED_ITEMS.md
+-- E.1/E.2).  Identical in shape to
 -- `Format.SignalLine.Roundtrip.NameStop` modulo
 -- `RawSignal.name (expectedRaw _ sig _) ≡ DBCSignal.name sig` (record-η).
 SignalNameStop : DBCSignal → Set

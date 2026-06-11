@@ -50,6 +50,17 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 - `parse_dbc_text` Client method — parse DBC text directly through the
   verified Agda kernel (Track B.3 / E.10). Replaces the previous
   `cantools`-based path on Python.
+- DBC message `senders` round-trip on the **text** path — `format_dbc_text`
+  emits `BO_TX_BU_ <id> : n1,n2,…;` lines for each message's extra
+  transmitters and `parse_dbc_text` reads them back into `DBCMessage.senders`
+  (keyed by CAN ID). The universal text round-trip
+  `parseText (formatText d) ≡ inj₂ d` now holds with senders preserved —
+  wired as an 8th synthesized top-level section mirroring VAL_, with
+  `WellFormedTextDBCAgg`'s `senders-empty` precondition removed (strictly
+  weaker). Senders were already on the binary/JSON path; this closes the
+  text-surface gap (DEFERRED_ITEMS A.2). `parse_dbc_text` now attaches
+  `BO_TX_BU_` transmitters instead of dropping them (corpus parity snapshot
+  `kitchen_sink.json` regenerated to match).
 - `send_error` and `send_remote` Client methods — emit CAN error and
   remote frames.
 - DBC signal `value_descriptions` field (Python `DBCSignal.value_descriptions`,

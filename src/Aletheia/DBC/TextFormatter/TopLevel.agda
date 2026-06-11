@@ -19,6 +19,7 @@
 --   4.  BU_
 --   5.  VAL_TABLE_
 --   6.  BO_ blocks (each with inner SG_ lines)
+--   6a. BO_TX_BU_  (per-message extra transmitter/sender lists)  (A.2)
 --   7.  VAL_                                         (E.7)
 --   8.  EV_
 --   9.  CM_
@@ -58,6 +59,8 @@ open import Aletheia.DBC.TextFormatter.Preamble using
   (emitVersion-chars; emitNamespace-chars; emitBitTiming-chars)
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitBU-chars; emitMessages-chars)
+open import Aletheia.DBC.TextFormatter.MessageSenders using
+  (emitMessageSenders-chars)
 open import Aletheia.DBC.TextFormatter.ValueTables using
   (emitValueTables-chars; emitValueDescriptions-chars)
 open import Aletheia.DBC.TextFormatter.EnvVars using
@@ -83,6 +86,7 @@ formatChars d =
   emitBU-chars                (DBC.nodes           d) ++ₗ
   emitValueTables-chars       (DBC.valueTables     d) ++ₗ
   emitMessages-chars          (DBC.messages        d) ++ₗ
+  emitMessageSenders-chars    (DBC.messages        d) ++ₗ
   emitValueDescriptions-chars (DBC.messages        d) ++ₗ
   emitEnvVars-chars           (DBC.environmentVars d) ++ₗ
   emitComments-chars          (DBC.comments        d) ++ₗ

@@ -188,8 +188,8 @@ features:
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
-    description: Expose the ``BO_TX_BU_`` additional-transmitter list on DBCMessage. The primary transmitter stays in ``sender``; ``senders`` carries the extras declared on ``BO_TX_BU_`` lines. New ``unknown_message_sender`` warning (with "additional sender" disambiguation) fires when a listed sender is not declared in ``BU_``.
-    related: R17-DEF-2, B.1.x (commit 3)
+    description: Expose the ``BO_TX_BU_`` additional-transmitter list on DBCMessage. The primary transmitter stays in ``sender``; ``senders`` carries the extras declared on ``BO_TX_BU_`` lines. New ``unknown_message_sender`` warning (with "additional sender" disambiguation) fires when a listed sender is not declared in ``BU_``. A.2 (2026-06-11) added the **text** round-trip — ``format_dbc_text`` emits ``BO_TX_BU_`` lines and ``parse_dbc_text`` reads them back into ``senders`` (proven via the universal ``parseText (formatText d) ≡ inj₂ d``), so senders survive a text-format round-trip on all three bindings.
+    related: R17-DEF-2, B.1.x (commit 3), A.2 (text round-trip)
     bindings:
       python:
         status: implemented

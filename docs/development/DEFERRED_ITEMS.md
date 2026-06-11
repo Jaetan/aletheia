@@ -66,18 +66,27 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Where** — `src/Aletheia/DBC/TextFormatter/Topology.agda:188`;
   `src/Aletheia/DBC/TextParser/Topology.agda:59`.
 - **Origin** — Track B.3.c (text round-trip).
-- **Today** — `senders = []` on the **text** round-trip; `BO_TX_BU_` lines are
-  not emitted/parsed by the topology path. NB message senders **are** modelled
-  and shipped on the binary/JSON path (`FEATURE_MATRIX dbc_message_senders`,
-  B.1.x commit-3) — so this is a text-surface gap, not a missing capability.
+- **Was** — `senders = []` on the **text** round-trip; `BO_TX_BU_` lines were
+  not emitted/parsed by the topology path. (Senders were already modelled on the
+  binary/JSON path — `FEATURE_MATRIX dbc_message_senders`, B.1.x commit-3 — so
+  this was a text-surface gap, not a missing capability.)
 - **Done looks like** — formatter emits `BO_TX_BU_ <id> <node>,…;`, parser
   reads it back into `DBCMessage.senders`, round-trip proven.
-- **Cost / risk** — **Medium.** Self-contained: a single line shape, list of
-  identifiers, no cross-line correlation. The round-trip lemma mirrors the
-  existing receiver-list pattern (`parseReceiverList∘strip-roundtrip`).
-- **Blockers / deps** — none material; the data already exists on `DBCMessage`.
-- **Verdict** — `DO` (if any text-round-trip item is taken first, this is the
-  cheapest). The receiver-list precedent makes the proof tractable.
+- **Verdict** — `DONE` (2026-06-11, branch `agda/e1-isidentstart-hspace-bridge`).
+  Wired as an 8th synthesized top-level section (`BO_TX_BU_`) in the universal
+  text round-trip, mirroring VAL_: a Format DSL `MsgSenders-format` + a senders
+  inverse-bridge (`attachSenders ∘ collectSenders`) composed with the VAL_
+  inverse over `clearBothMsg` parse output.  The universal theorem
+  `parseText (formatText d) ≡ inj₂ d` now holds with senders round-tripping;
+  `WellFormedTextDBCAgg` is strictly weaker (`MessageWF.senders-empty` removed,
+  no new obligation).  Runtime behaviour flipped: external `BO_TX_BU_` lines now
+  attach to `DBCMessage.senders` (keyed by CAN ID) instead of being dropped —
+  cross-binding corpus parity snapshot (`kitchen_sink.json`) regenerated to
+  match.  Shipped for its own text-surface value — NOT to close E.2 (the E.2
+  full-closure scoping found ~7 independent walls; see E.2).  Note: the
+  formatter-side `Formatter.WellFormedText.WellFormedTextMessage.senders-empty`
+  is now vestigial (the record has no consumer); left in place (off the
+  universal-theorem path, which reaches messages via `MessageWF`).
 
 ### A.3 — Nested multiplexors `m<N>M`
 
@@ -156,34 +165,111 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### E.1 — `isIdentStart→¬isHSpace` owed bridge lemma
 
-- **Where** — `src/Aletheia/DBC/TextParser/Properties/Topology/Signal.agda:88`
-  (`SignalNameStop`); tracked in `memory/project_b3d_layer4_owed_lemmas.md`.
+- **Where** — bridge `src/Aletheia/DBC/TextParser/Properties/CharClassDisjoint.agda:76`;
+  per-section discharges `src/Aletheia/DBC/TextParser/Properties/WellFormedFromValidity.agda`;
+  precondition site `…/Properties/Topology/Signal.agda:88` (`SignalNameStop`).
 - **Origin** — B.3.d Layer-4 owed lemmas.
-- **Today** — `SignalNameStop sig` (the signal name decomposes as `c ∷ cs` with
-  `isHSpace c ≡ false`) is taken as a **precondition** of the signal-line
-  round-trip, rather than derived from the identifier-start invariant.
-- **Done looks like** — prove `isIdentStart c → isHSpace c ≡ false` so the
-  precondition discharges automatically wherever a well-formed identifier is in
-  scope, removing the owed hypothesis.
-- **Cost / risk** — **Low–Medium.** A character-class bridge lemma; the shape is
-  known (`Format.SignalLine.Roundtrip.NameStop` modulo a record-η rewrite).
-- **Blockers / deps** — none; both predicates are decidable Char classifiers.
-- **Verdict** — `DO`. Self-contained, removes a standing precondition, improves
-  the universality of the round-trip statement. Good first re-examination target.
+- **✅ Bridge already proven; per-section discharges added 2026-06-10.** On
+  re-examination the bridge `isIdentStart→¬isHSpace` was found **already
+  proven** in `CharClassDisjoint.agda` (with siblings `isIdentCont→¬isHSpace`,
+  `isIdentCont→¬isNewlineStart`) — the "deferred/owed" framing in the
+  `Signal.agda:88` note and `memory/project_b3d_layer4_owed_lemmas.md` was
+  stale.  The one-line discharge pattern likewise already existed at
+  `…Attribute.Foundations.identifier-name-stop`.  The E.2 bounded slice
+  generalised it: `Properties.WellFormedFromValidity` now provides
+  `signalNameStop : ∀ sig → SignalNameStop sig` plus the five sibling
+  `*NameStop` discharges, **unconditionally** from `Identifier`-validity.
+- **Remaining** — the `SignalNameStop` (and sibling) preconditions are *still
+  threaded* through the Layer-3 / `MessageWF` roundtrips; deleting the threaded
+  hypotheses is the same cascade as E.2's `MessageWF` aggregation and is tracked
+  there.  The discharge lemmas exist; consuming them to remove the threading is
+  the deferred part.
+- **Verdict** — `DONE` for the bridge + per-section discharge lemmas; threading
+  removal folded into E.2's reassessment.
 
 ### E.2 — `WellFormedTextDBCAgg` runtime discharge (AGDA-D-11.2 / 19.6)
 
-- **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:46`.
+- **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:46`; handler
+  `src/Aletheia/Protocol/Handlers/FormatDBCText.agda`.
 - **Origin** — R18 cluster 14 deferral.
-- **Today** — the `FormatDBCText` FFI handler is required to discharge
-  `WellFormedTextDBCAgg` at runtime; the obligation is documented but tracked
-  separately rather than proven at the handler boundary.
-- **Done looks like** — the handler constructs the well-formedness witness (or
-  rejects) at runtime, with the obligation proven where the boundary is crossed.
-- **Cost / risk** — **Medium.** Handler-boundary proof work; mirrors other
-  handler-boundary discharge patterns (`feedback_handler_vs_parser_bound_placement`).
-- **Verdict** — `INVESTIGATE`. Confirm whether the runtime path can currently
-  hit an undischarged case; if so, this is correctness-relevant, not cosmetic.
+- **Today** — the `FormatDBCText` handler emits
+  `formatText (deriveNodesIfEmpty dbc)` unconditionally; `formatText : DBC →
+  String` is total and takes no proof argument. `WellFormedTextDBCAgg` is the
+  precondition of a *separate* theorem
+  (`Substrate.Unsafe.parseText-on-formatText`) the handler never invokes at
+  runtime.
+- **Investigated 2026-06-10 — NOT a correctness gap.** *Structural* proof,
+  independent of the handler's prose comment: the handler type-checks under
+  `--safe` with no `postulate` and imports neither the round-trip theorem nor
+  any axiom, so by construction it carries **zero undischarged proof
+  obligations** — "can the runtime hit an undischarged case?" is definitionally
+  *no*. A DBC violating the predicate yields output that is
+  lossy-on-round-trip, **never wrong and never a crash** (documented
+  best-effort contract). All four binding surfaces qualify the round-trip
+  claim with "for any well-formed DBC" (Go/Python/C++ `format_dbc_text` +
+  `FEATURE_MATRIX`); the validator backstops the two runtime-checkable fields
+  (CHECK 18 `DuplicateMessageId` → `msg-ids-unique`, CHECK 23
+  `UnknownValueDescriptionTarget` → `unresolved-empty`).
+- **Bounded slice delivered 2026-06-10** — `WellFormedFromValidity` derives the
+  **five** per-section name-stop fields of `WellFormedTextDBCAgg` (`node-stops`,
+  `vt-stops`, `ev-stops`, `cm-stops`, `sg-wfs`) **unconditionally** from
+  `Identifier`-validity (via the existing `isIdentStart→¬isHSpace` bridge), so
+  the handler comment's "structural fields hold automatically from
+  Identifier-validity" is no longer merely *asserted* — it is **proven** for
+  those five.  `wellFormedFromValidity` assembles the record, collapsing the
+  precondition from **9 fields to 4**: the two heavy proofs (`MessageWF`
+  per-signal aggregation, `WFAttribute` BA_DEF_ typing) plus the two
+  validator-backed fields (CHECK 18 `msg-ids-unique`, CHECK 23
+  `unresolved-empty`) remain hypotheses.
+- **Reassessment 2026-06-10 — the full guarantee is BLOCKED at the handler
+  source (a wall, not a cost).** `validateDBC`-clean ⇒ `WellFormedTextDBCAgg`
+  is **structurally false**: `MessageWF.senders-empty` (`DBCMessage.senders ≡
+  []`) is a *lossy-text-round-trip restriction*, not a well-formedness
+  property — the formatter drops `BO_TX_BU_` (item A.2), so a perfectly valid
+  JSON DBC carrying message senders passes `validateDBC` clean yet fails
+  `MessageWF`.  The validator neither does nor should reject senders.  One
+  blocked field disproves the implication.  `WellFormedTextDBCAgg` is really
+  "this DBC survives the lossy text round-trip unchanged" — and validity does
+  not imply that while emission is lossy.
+- **What the full guarantee actually requires** — either (a) make text emission
+  lossless (the **A.1 / A.2 / A.3** text-completeness program — then the
+  `*-empty` restrictions disappear), or (b) a **reject-path redesign**: the
+  handler runs a `TextRoundTrippable?` decision and returns a typed refusal for
+  non-round-trippable DBCs, yielding the weaker-but-honest guarantee
+  "`format_dbc_text` round-trips, or tells you it can't."  Both are materially
+  larger, separate decisions — E.2's strengthening is *gated on one of them*.
+- **Full-closure scoping, 2026-06-10 (two-agent audit, source-ground-truthed).**
+  The precondition is `errorIssues (validateDBCFull d) ≡ []` → `ValidDBC d`,
+  built from **only the 8 error-class checks** (`Validity/Theorem.agda:68`);
+  warning-class checks contribute nothing to the hypothesis.  Of the 4 residual
+  obligations, validateDBC-clean discharges **only `msg-ids-unique`** (CHECK 1,
+  error).  The other three are WALLS:
+  - `unresolved-empty` — CHECK 23 is **warn-only** and only fires on
+    *unknown-target*, never asserts `≡ []`.  The earlier "JSON-parser default,
+    technically dischargeable" framing was **WRONG against the source** — there
+    is no validateDBC-clean route to this field.
+  - `attr-wfs` (WFAttribute) — BA_DEF_ value↔type matching, enum-label
+    uniqueness, and name-resolution are checked **nowhere** (CHECK 18 is a
+    warn-only duplicate-name check).  A **second, fully-unchecked wall** —
+    distinct from A.2.
+  - `msg-wfs` (`All MessageWF`) — one unenforced field collapses the record:
+    `senders-empty` (lossy, A.2), `wfps`+`item-pres.presence` (mux single-value
+    only, A.1), `wf-sigs` (CHECK 15/16 are warnings), `pvs` (BE `msb-ge-len`
+    has no check and the predicate is *distinct* from CHECK 8's `BitsInFrame`),
+    `mc` (CHECK 4/5 give mux resolvability/acyclicity, not `MasterCoherent`'s
+    single-master / master-`Always` shape).
+  Cleanly closeable: `msg-ids-unique` + `sig-names-unique` (CHECK 1/2, errors),
+  `fb-bound` (DLC type bound), `name-pre`/`send-pre` (Identifier validity).
+  Standalone reaches ~6/12 — fewer hypotheses on a helper that still cannot
+  close.  Stale source mis-cites found: `WellFormed.agda` cites `msg-ids-unique`
+  as "CHECK 18" (it is **CHECK 1**); `Topology/Message.agda` cites
+  `sig-names-unique` as "CHECK 23" (it is **CHECK 2**) — both corrected.
+- **Verdict** — `HOLD at 5/9` (bounded slice ✅).  Correctness question
+  **resolved (no gap)**.  Full closure is a **multi-front program** (A.1/A.2/A.3
+  text-completeness + *new* validator error-checks for attribute-typing /
+  presence / master-coherence / physical-validity + proof bridges + a validator
+  contract change) **or** a reject-path redesign — NOT incremental proof work.
+  **A.2 is being taken standalone** (text-surface value; see A.2), not to close E.2.
 
 ---
 
