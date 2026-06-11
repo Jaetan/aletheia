@@ -270,7 +270,8 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     CHECK(extracted->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(1500.0));
 }
 
-TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)", "[integration][boundary]") {
+TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
+          "[integration][boundary]") {
     // Each FfiBackend method that takes a payload re-checks `data.size() > 64`
     // (the CAN-FD maximum) at the FFI boundary, behind the client's own
     // `data.size() == dlc_to_bytes(dlc)` pre-check.  That makes the backend
@@ -296,8 +297,7 @@ TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)", "[inte
     const auto dlc = Dlc::create(15).value();                      // CAN-FD DLC 15 = 64 bytes
     const auto known = CanId{StandardId::create(0x100).value()};   // in the DBC → binary path
     const auto unknown = CanId{StandardId::create(0x7FF).value()}; // not in DBC → JSON fallback
-    const std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}}};
+    const std::vector<SignalValue> signals{{SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}}};
 
     const auto mentions_exceeds = [](std::string_view msg) {
         return msg.find("data length exceeds") != std::string_view::npos;
