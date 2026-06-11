@@ -619,8 +619,8 @@ All three entry points share the same **streaming-state precondition** and
 the same **monotonic-timestamp precondition**:
 
 1. The session must already be in `Streaming` (after `startStream`); calling
-   any of these in `Idle` or `DBCLoaded` returns a `HandlerError` with code
-   `not_streaming`. The state machine is enforced in
+   any of these in `WaitingForDBC` or `ReadyToStream` returns a `HandlerError`
+   with code `handler_not_streaming`. The state machine is enforced in
    `Aletheia/Protocol/StreamState.agda`.
 2. Timestamps must be **strictly monotonic across all three event kinds** —
    the kernel rejects a backward `ts` regardless of which entry point
@@ -1137,6 +1137,7 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | Nodes per DBC file (`BU_`) | 10,000 | `array_cardinality` |
 | Value tables per DBC file (`VAL_TABLE_` definitions) | 10,000 | `array_cardinality` |
 | LTL atoms per property | 1,024 | `atom_count` |
+| Properties per `setProperties` call | 1,024 | `property_count` |
 | DBC identifier length | 128 chars | `identifier_length` |
 | Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |
 | CAN frame payload bytes | 64 (CAN-FD max) | `frame_byte_count` |
@@ -1147,7 +1148,7 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 | Code | bound_kind values |
 |---|---|
-| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `frame_byte_count` |
+| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `frame_byte_count` |
 
 The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
 
@@ -1208,7 +1209,7 @@ Bounds are intentionally generous (commercial automotive DBCs are 1-10 MiB, ~6×
 
 Every error response carries a stable `code` field (in addition to the human-readable `message`) drawn from the Agda source of truth `src/Aletheia/Error.agda`. Tooling should switch on `code`, not `message` — the message text is localised/expanded over time, the code is not.
 
-Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signal extraction), `frame_*` (frame building/update), `route_*` (command dispatch), `handler_*` (stream state machine), `dispatch_*` (top-level request routing). When an error is wrapped (e.g., a `ParseError` surfaces through `WrappedParse` inside a `HandlerError`), the emitted `code` is the innermost code, not the wrapping layer — so `parse_missing_field` during `parseDBC` and during `setProperties` both surface as `parse_missing_field`.
+Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signal extraction), `frame_*` (frame building/update), `route_*` (command dispatch), `handler_*` (stream state machine), `dispatch_*` (top-level request routing), `dbc_text_*` (DBC text parse/format). When an error is wrapped (e.g., a `ParseError` surfaces through `WrappedParse` inside a `HandlerError`), the emitted `code` is the innermost code, not the wrapping layer — so `parse_missing_field` during `parseDBC` and during `setProperties` both surface as `parse_missing_field`.
 
 #### Parse errors — malformed DBC or property JSON
 
@@ -1230,6 +1231,9 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `parse_signal_bit_length_zero` | Signal `length` is zero | Must be `≥ 1` |
 | `parse_signal_overflows_frame` | Signal's bit range exceeds frame size | Check `startBit + length` against `dlcToBytes(dlc) * 8` |
 | `parse_signal_msb_below_bit_length` | Big-endian signal's MSB position below `length − 1` | Big-endian `startBit` is the MSB; must be `≥ length − 1` |
+| `parse_invalid_kind` | An enum-like string field carries an unrecognised value (`invalid <domain> kind '<value>'`) | Use one of the documented values for that field |
+| `parse_non_terminating_rational` | A rational field is non-terminating in decimal (denominator has a prime factor outside {2, 5}) | Use a value representable as a terminating decimal |
+| `parse_invalid_identifier` | String is not a valid DBC identifier (must start with a letter or `_`, then alphanumerics/`_`) | Fix the identifier name |
 
 #### Extraction errors — signal extraction on a data frame
 
@@ -1289,6 +1293,14 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `dispatch_unknown_message_type` | `type` value not recognised | Only `command` is supported |
 | `dispatch_invalid_json` | Request was not valid JSON | Validate the JSON before sending |
 | `dispatch_request_not_object` | Top-level value is not an object | Wrap in `{...}` |
+
+#### DBC text parse errors — `parseDBCText` / `formatDBCText`
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `dbc_text_parse_failure` | The `.dbc` text could not be parsed | Check the file against the DBC grammar; run `validate` for structural issues |
+| `dbc_text_trailing_input` | Extra input remained after an otherwise-successful parse (reports line/column) | Remove content past the last valid statement |
+| `dbc_text_attribute_refinement_failed` | `BA_DEF_DEF_` / `BA_` / `BA_REL_` references an unknown `AttrDef` or an out-of-range `ENUM` index | Declare the attribute via `BA_DEF_` first; keep `ENUM` indices in range |
 
 ---
 

@@ -76,7 +76,7 @@ Adds DBC fields that the Agda core does not currently carry. Heavier than B.1 be
 
 **Commit 3 (landed in `fc4242f`) — `dbc_message_senders`:** `DBCMessage.senders : List String` — the `BO_TX_BU_` additional-transmitter list on `BO_` lines. Primary `sender : String` stays separate (Q1 option A). `dbc_to_json` splits cantools' merged `message.senders` at index 0 / 1: (primary + additional). New CHECK 22 `UnknownAdditionalSender` warning via `liftPerMessage`, reusing the `UnknownMessageSender` issue code with an "additional sender" disambiguation in the message text (Q2 yes). Completeness proof extended. 27 files, +438/−76.
 
-**Status:** ✅ Complete. **Matrix rows:** `dbc_metadata_tier2`, `dbc_signal_receivers`, `dbc_message_senders` (all implemented × 3).
+**Status:** ✅ Complete. **Matrix rows:** `dbc_metadata_tier2`, `dbc_signal_receivers`, `dbc_message_senders` (all implemented × 3). (A.2, 2026-06-11: `BO_TX_BU_` senders now also survive a DBC **text-format** round-trip — `format_dbc_text` emits them and `parse_dbc_text` restores `DBCMessage.senders`, proven via the universal `parseText (formatText d) ≡ inj₂ d` theorem.)
 
 #### B.2 — Mux Query Helpers (R8, from `project_go_features_to_explore.md`)
 

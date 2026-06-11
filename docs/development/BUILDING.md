@@ -123,7 +123,7 @@ agda test.agda
 
 **Minimum version: 3.14** (required by `python/pyproject.toml` — `requires-python = ">=3.14"`)
 **The build tooling invokes `python3.14`** for the dev venv; the project uses 3.14-only syntax (PEP 758).
-(Note: the Dockerfile / reproducible-build base images still pin 3.13 and are pending a bump to 3.14.)
+(The `Dockerfile` and `Dockerfile.runtime` base images use `python:3.14-slim`.)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
@@ -383,7 +383,7 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 | Hook | When | What runs | Severity |
 |---|---|---|---|
 | `pre-commit` | `git commit` | `tools/iwyu.py --check` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool) | **Advisory** — prints warning, always proceeds |
-| `pre-push` | `git push` | `tools/run_ci.py` — the 32-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
+| `pre-push` | `git push` | `tools/run_ci.py` — the 33-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 

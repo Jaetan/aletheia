@@ -286,10 +286,9 @@ python3 -m aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
 
 ```json
 {
-  "code": "signal_overlaps_another",
   "severity": "error",
-  "message": "EngineSpeed [bits 0:16] overlaps Throttle [bits 8:8] in EngineCmd",
-  "context": {"message": "EngineCmd", "signals": ["EngineSpeed", "Throttle"]}
+  "code": "signal_overlap",
+  "detail": "EngineSpeed [bits 0:16] overlaps Throttle [bits 8:8] in EngineCmd"
 }
 ```
 
@@ -308,7 +307,7 @@ The 21 IssueCode names are the authoritative cross-binding identifiers — see
 `python/aletheia/codes/_issue.py` (mirror) or `src/Aletheia/DBC/Types.agda`
 (SSOT) for the full enum. The full list lives in
 [`PROTOCOL.md`](../architecture/PROTOCOL.md#common-error-codes). The structured `code` field
-is the stable contract — `message` text is for humans and may change between
+is the stable contract — `detail` text is for humans and may change between
 releases.
 
 ---
@@ -319,7 +318,7 @@ releases.
 
 ```python
 result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
-speed = result.get("VehicleSpeed", default=0.0)
+speed = result.get("VehicleSpeed")  # Fraction — extraction values are exact
 
 # Check for errors and absent (multiplexed) signals
 if result.has_errors():
@@ -405,12 +404,14 @@ client.add_checks(check_list)
 
 ```python
 response = client.send_frame(ts, can_id, dlc, data)
-if response.get("status") == "fails":
-    enrichment = response.get("enrichment", {})
-    signals = enrichment.get("signals", {})
-    formula = enrichment.get("formula_desc", "")
-    reason = enrichment.get("enriched_reason", "")
-    print(f"{reason}  signals={signals}")
+if response.get("type") == "property_batch":
+    for entry in response["results"]:
+        if entry.get("status") == "fails":
+            enrichment = entry.get("enrichment", {})
+            signals = enrichment.get("signals", {})
+            formula = enrichment.get("formula_desc", "")
+            reason = enrichment.get("enriched_reason", "")
+            print(f"{reason}  signals={signals}")
 ```
 
 ### Custom violation formatting
@@ -422,14 +423,14 @@ from aletheia import iter_can_log
 violations = []
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
     response = client.send_frame(ts, can_id, dlc, data)
-    if response.get("status") == "fails":
-        violations.append(response)
+    if response.get("type") == "property_batch":
+        violations.extend(e for e in response["results"] if e.get("status") == "fails")
 
-for v in violations:
-    ts_ms = v["timestamp"]["numerator"] / 1000  # µs → ms
-    idx = v["property_index"]["numerator"]
-    name = checks[idx].name or f"Check #{idx}"
-    reason = v.get("enrichment", {}).get("enriched_reason", "?")
+for entry in violations:
+    ts_ms = entry["timestamp"] / 1000  # µs → ms (timestamp is a plain int)
+    idx = entry["property_index"]        # plain int — registration order
+    name = check_list[idx].name or f"Check #{idx}"
+    reason = entry.get("enrichment", {}).get("enriched_reason", "?")
     print(f"[{ts_ms:.1f}ms] {name}: {reason}")
 ```
 
@@ -457,11 +458,14 @@ with AletheiaClient() as client:
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
-        if response.get("status") != "fails":
+        if response.get("type") != "property_batch":
+            continue
+        fails = [entry for entry in response["results"] if entry.get("status") == "fails"]
+        if not fails:
             continue
 
-        # Three things to look at, in order:
-        e = response["enrichment"]
+        # Three things to look at, in order (first fails entry):
+        e = fails[0]["enrichment"]
 
         # 1. Which signals contributed (their decoded physical values).
         print("signals at violation:", e["signals"])

@@ -522,7 +522,7 @@ with AletheiaClient() as client:
 # close() called automatically on exit
 ```
 
-#### `parse_dbc(dbc: DBCDefinition) -> SuccessResponse | ErrorResponse`
+#### `parse_dbc(dbc: DBCDefinition) -> ParsedDBCResponse | ErrorResponse`
 
 Load DBC structure from JSON dictionary. Must be called first.
 
@@ -596,7 +596,7 @@ response = client.start_stream()
 assert response["status"] == "success"
 ```
 
-#### `send_frame(timestamp: int, can_id: int, dlc: int, data: bytearray, *, extended: bool = False) -> AckResponse | PropertyViolationResponse | ErrorResponse`
+#### `send_frame(timestamp: int, can_id: int, dlc: int, data: bytearray, *, extended: bool = False, brs: bool | None = None, esi: bool | None = None) -> AckResponse | PropertyBatchResponse | ErrorResponse`
 
 Send a CAN frame for incremental checking.
 
@@ -606,15 +606,17 @@ Send a CAN frame for incremental checking.
 - `dlc`: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
 - `data`: Payload as `bytearray` (must match `dlc_to_bytes(dlc)`; mismatch raises `ValidationError` client-side)
 - `extended`: `True` for 29-bit extended CAN IDs (default `False`)
+- `brs`: CAN-FD Bit Rate Switch (`None` on CAN 2.0B frames)
+- `esi`: CAN-FD Error State Indicator (`None` on CAN 2.0B frames)
 
 **Returns** (acknowledged):
 ```text
 {"status": "ack"}
 ```
 
-**Returns** (violation): A property response with `status`, `property_index`, `timestamp`, and `reason`. When checks are registered via `add_checks()`, violations are automatically enriched with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
+**Returns** (verdicts): A `property_batch` response — `{"type": "property_batch", "results": [...]}` — where each entry carries `status` (`fails`/`holds`/`unresolved`), `property_index`, `timestamp`, and (when checks are registered via `add_checks()`) an `enrichment` block with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
 
-#### `send_frames(frames: list[CANFrameTuple]) -> list[AckResponse | PropertyViolationResponse]`
+#### `send_frames(frames: list[CANFrameTuple]) -> list[AckResponse | PropertyBatchResponse]`
 
 Send multiple CAN frames in a batch. Processing stops at the first error, raising `BatchError` with `partial_results` and `frame_index`.
 
@@ -936,7 +938,7 @@ Every record carries:
 - `record.event` — the same name as a structured attribute, so JSON/OTel handlers can parse it.
 - Additional `LogRecord` attributes for the event's fields (e.g. `frames`, `properties`, `reason`).
 
-The event set is the source of truth in `aletheia.client._log.LogEvent` (15 values) and is kept identical across Python, C++ (`aletheia::Logger`), and Go (`slog`) so a single log pipeline can consume all three bindings.
+The event set is the source of truth in `aletheia.client._log.LogEvent` (16 values) and is kept identical across Python, C++ (`aletheia::Logger`), and Go (`slog`) so a single log pipeline can consume all three bindings.
 
 ```python
 import logging

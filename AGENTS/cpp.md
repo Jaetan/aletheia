@@ -73,7 +73,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 
 ### Build & Packaging (2)
 
-31. **ABI & compiler portability** -- targets g++ >= 14 and clang >= 21 on Linux only; any `__attribute__`/`[[gnu::...]]` extension must work on both; no GCC-only builtins without a fallback; public headers use only C++23 features supported by both compilers; no reliance on undocumented layout of `std::` types; anonymous namespaces only in `.cpp` files, never in headers (ODR violations).
+31. **ABI & compiler portability** -- targets **Clang ≥ 19 on Linux only** (g++ is not supported); any `__attribute__`/`[[gnu::...]]` extension or compiler builtin must be available under Clang 19; public headers use only C++23 features the toolchain's libstdc++/libc++ provides (`<expected>`, `<format>`); no reliance on undocumented layout of `std::` types; anonymous namespaces only in `.cpp` files, never in headers (ODR violations).
 32. **Build reproducibility & CMake hygiene** -- `target_include_directories` uses `BUILD_INTERFACE`/`INSTALL_INTERFACE` correctly, no absolute paths baked into binaries, `__DATE__`/`__TIME__` not used, `target_link_libraries` scope (`PRIVATE`/`PUBLIC`/`INTERFACE`) intentional with no leaky `PUBLIC` on implementation-only deps, ctest targets isolated from each other (no shared temp files), FetchContent pinned to exact commits not floating branches, no global `add_definitions`.
 
 ### Dynamic Correctness Analysis (1)

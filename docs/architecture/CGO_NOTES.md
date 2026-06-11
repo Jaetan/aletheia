@@ -23,7 +23,7 @@ overall coverage is preserved.
   manage this through their `AletheiaClient` lifecycle (`__enter__` /
   `NewClient` / `make_ffi_backend`) and refcount across multiple clients
   in a single process.
-- All FFI entry points (`aletheia_send_frame`, `aletheia_process_json`,
+- All FFI entry points (`aletheia_send_frame`, `aletheia_process`,
   etc.) marshal arguments into Haskell heap representations, run the
   Agda-compiled Haskell code, marshal the result back to a C-callable
   encoding, and return.
@@ -147,7 +147,7 @@ Go's cgo extends the above concerns:
 
 - Cgo calls run on a thread that is locked to the OS thread (`runtime.
   LockOSThread`); the Aletheia Go binding pins the construction thread
-  via `lockOSThreadForRTSInit`.
+  by calling `runtime.LockOSThread()` directly.
 - Cgo's calling convention copies arguments to C-compatible memory
   (Go strings → C strings, Go slices → C arrays). The slice copies are
   the natural defense against memory-safety bugs in the cgo boundary.

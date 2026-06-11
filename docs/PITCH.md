@@ -71,7 +71,7 @@ Aletheia provides:
 - **Specification errors**: The proofs guarantee the implementation matches the stated properties, not that the properties are the right ones. "Speed extraction returns the value encoded by the DBC" is proven; whether that DBC is correct for your vehicle is an engineering question.
 - **Hardware, bus layer, and OS behaviour**: Bit-stuffing errors on the physical CAN bus, ECU faults, timestamp skew from the logger hardware, and kernel scheduling all sit below Aletheia's abstraction boundary.
 - **Integration and operator error**: Wiring the wrong log file, missing a property, misreading a YAML threshold — these are normal human-process risks and must be covered by the surrounding tooling and review practices.
-- **Third-party components**: Agda's `--safe` kernel, GHC, and the Haskell `base` + `aeson` used in the shim are trusted rather than verified. Compiler and runtime bugs at that level propagate through.
+- **Third-party components**: Agda's `--safe` kernel, GHC, and the Haskell `base` + `text` used in the shim are trusted rather than verified. Compiler and runtime bugs at that level propagate through.
 
 In other words: Aletheia eliminates the class of bugs where "the signal extraction code was wrong" or "the LTL evaluator drifted over a long trace" — not bugs elsewhere in the system.
 
@@ -217,7 +217,7 @@ A: Binding layers: Standard maintenance per language. Agda core: Rarely changes 
 **Q: What if the original developer leaves?**
 A: Documentation includes:
 - BUILDING.md: Complete build instructions
-- CLAUDE.md: AI-assisted development guide (400+ lines)
+- CLAUDE.md: AI-assisted development guide
 - CONTRIBUTING.md: Contribution guidelines
 - Examples: 11 demo scripts covering all four interface tiers
 
@@ -234,7 +234,7 @@ See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current throughput benchmarks.
 
 **Q: Dependencies?**
-A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libaletheia-ffi.so` and Python 3.13+. See [Building Guide § Prerequisites](../development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
+A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libaletheia-ffi.so` and Python 3.14+. See [Building Guide § Prerequisites](../development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
 
 ---
 

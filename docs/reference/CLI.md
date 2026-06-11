@@ -155,6 +155,7 @@ python3 -m aletheia extract --dbc FILE CAN_ID DATA
 | `DATA` | yes | Frame data as hex (see formats below) |
 | `--dbc FILE` | yes | .dbc or .xlsx file |
 | `--json` | no | Output as JSON |
+| `--extended` | no | Treat CAN ID as 29-bit extended |
 
 **Hex data formats** (all equivalent):
 ```

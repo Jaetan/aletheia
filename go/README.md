@@ -28,7 +28,7 @@ examples.
 ```go
 import "github.com/aletheia-automotive/aletheia-go/aletheia"
 
-backend, err := aletheia.NewFFIBackend(aletheia.WithRTSCores(1))
+backend, err := aletheia.NewFFIBackend("libaletheia-ffi.so", aletheia.WithRTSCores(1))
 if err != nil { ... }
 
 client, err := aletheia.NewClient(backend)

@@ -55,9 +55,12 @@ with AletheiaClient() as client:
 
     for timestamp_us, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(timestamp_us, can_id, dlc, data)
-        if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"Violation at {ts}us")
+        # A frame that produces verdicts returns a property_batch envelope;
+        # each fails entry is a violation. timestamp is an int (microseconds).
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    print(f"Violation at {entry['timestamp']}us")
 
     client.end_stream()
 ```
@@ -99,7 +102,7 @@ with AletheiaClient() as client:
 
     # Extract signals from a frame
     result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
-    speed = result.get("Speed", default=0.0)  # 72.0
+    speed = result.get("Speed")  # Fraction(72) — extraction values are exact Fractions
 
     # Update specific signals in a frame
     modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130.0})

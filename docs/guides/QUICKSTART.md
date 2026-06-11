@@ -6,12 +6,12 @@ Get to a working CAN verification in 5 minutes.
 
 Before the five-minute walkthrough below, the Agda → Haskell shared library needs to exist and the Python package needs to be importable:
 
-1. **Toolchain**: GHC ≥ 9.4, cabal ≥ 3.12, Agda 2.8.0, Python ≥ 3.13, `libgmp-dev`. See [Building Guide §1 Prerequisites](../development/BUILDING.md#prerequisites) for the exact versions and the install command for your platform. Quick check that the right versions are on `PATH`:
+1. **Toolchain**: GHC ≥ 9.4, cabal ≥ 3.12, Agda 2.8.0, Python ≥ 3.14, `libgmp-dev`. See [Building Guide §1 Prerequisites](../development/BUILDING.md#prerequisites) for the exact versions and the install command for your platform. Quick check that the right versions are on `PATH`:
    ```bash
    ghc --version       # expect: The Glorious Glasgow Haskell Compilation System, version 9.4 or newer
    cabal --version     # expect: cabal-install version 3.12 or newer
    agda --version      # expect: Agda version 2.8.0
-   python3 --version   # expect: Python 3.13 or newer
+   python3 --version   # expect: Python 3.14 or newer
    ```
    If any of these are missing or older, install the recommended version before continuing — older toolchains have produced library-mismatch failures at FFI load time.
 2. **First build** (~60s the first time, cached after):
@@ -95,9 +95,11 @@ with AletheiaClient() as client:
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
-        if response.get("status") == "fails":
-            enrichment = response.get("enrichment", {})
-            print(f"Violation: {enrichment.get('enriched_reason')}")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    enrichment = entry.get("enrichment", {})
+                    print(f"Violation: {enrichment.get('enriched_reason')}")
 
     client.end_stream()
 ```

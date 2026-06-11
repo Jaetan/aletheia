@@ -77,7 +77,7 @@ The C++ binding (`cpp/`) wraps `libaletheia-ffi.so` via `dlopen`. It has no runt
 | nlohmann/json | 3.11.3 | MIT | JSON serialization/deserialization |
 | Catch2 | 3.7.1 | BSL-1.0 | Unit testing (test-only, not shipped) |
 
-Requires CMake 3.25+ and a C++23 compiler (g++ 14+ or clang 21+).
+Requires CMake 3.25+ and **Clang ≥ 19** (g++ is not supported); the toolchain's libstdc++/libc++ must provide C++23 (`<expected>`, `<format>`).
 
 ---
 
@@ -102,9 +102,9 @@ Requires Go 1.24+.
 
 | Package | Version | License |
 |---|---|---|
-| openpyxl | ≥ 3.1 | MIT |
+| openpyxl | ≥ 3.1.5 | MIT |
 | **python-can** | **≥ 4.0** | **LGPL-3.0-only** |
-| pyyaml | ≥ 6.0 | MIT |
+| pyyaml | ≥ 6.0.3 | MIT |
 
 (cantools was dropped 2026-05-03 in Track B.3.g `2daa2fb` — DBC parsing now goes through the verified Agda kernel via the FFI; no Python dep required.)
 

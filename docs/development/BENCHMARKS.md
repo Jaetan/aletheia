@@ -97,9 +97,9 @@ the regular cross-language run:
 
 ## Methodology and Variance
 
-Benchmarks are measured on an AMD Ryzen 9 5950X, Linux 6.6 (WSL2), with C++
-g++-15 `-O3`, Go 1.26.1, Python 3.13.12 (exact versions printed in each JSON
-output under `system`).
+Benchmarks are measured on an Intel Core Ultra 9 285K (24 cores), Linux 6.6
+(WSL2), with C++ clang++-19 `-O3`, Go 1.26.2, Python 3.14.5 (exact versions
+printed in each JSON output under `system`).
 
 The ±10% inter-run variance gate and the ~2–4% steady-state noise floor are
 codified in [AGENTS.md § Step 4: Implement and verify](../../AGENTS.md#step-4-implement-and-verify).

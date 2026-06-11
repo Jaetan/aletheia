@@ -24,7 +24,7 @@ benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ```
 
 The static gate (`tools/check_mutation_setup.py`) runs always-on as step
-13 of `tools/run_ci.py`; it fires when a hot-path source file is renamed
+16 of `tools/run_ci.py`; it fires when a hot-path source file is renamed
 or deleted without updating the YAML.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
@@ -234,7 +234,7 @@ ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 
 | Step | Frequency | Cost | Trigger |
 |---|---|---|---|
-| Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on, step 13 of `run_ci.py` |
+| Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on, step 16 of `run_ci.py` |
 | Dynamic gate (`mutation testing`) | Per PR | ~30 min - 2 hrs | Opt-in via `--mutation` / `ALETHEIA_MUTATION_CHECK=1` |
 
 The static gate guards against silent rename / removal of a hot-path file

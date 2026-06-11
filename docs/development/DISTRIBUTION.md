@@ -258,8 +258,8 @@ Two Dockerfiles are provided in the repository root:
 
 | File | Purpose | Base image |
 |------|---------|------------|
-| `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.13-slim` |
-| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.13-slim` |
+| `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.14-slim` |
+| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.14-slim` |
 
 ```bash
 # Build runtime image from pre-built dist (fast)

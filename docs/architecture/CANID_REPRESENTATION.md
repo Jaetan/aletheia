@@ -10,8 +10,8 @@ binding-internal types that surface to user code.
 
 ## Wire format (identical)
 
-- Numeric ID: `uint32` in JSON; `uint32_t` little-endian in the binary
-  FFI frame.
+- Numeric ID: `uint32` in JSON; passed as a `uint32` scalar argument to the
+  binary FFI `aletheia_send_frame` (not a serialized little-endian field).
 - Extended-frame flag: `uint8` (0 or 1) alongside the ID.
 
 This shape is fixed by the Agda kernel's `CANId` ADT
@@ -22,9 +22,9 @@ This shape is fixed by the Agda kernel's `CANId` ADT
 
 | Binding | API type | Shape | Validation site |
 |---|---|---|---|
-| Python | `CANFrameTuple` | 7-NamedTuple `(timestamp, can_id: int, dlc, data, extended: bool, brs, esi)` | `validate_can_id(can_id, *, extended)` at `_types.py:356-367` |
-| Go | `Frame` | 6-struct with `ID: CANID` (sealed interface — `StandardID(uint32) \| ExtendedID(uint32)`) | `NewStandardID(uint32) (CANID, error)` / `NewExtendedID(uint32) (CANID, error)` factory functions |
-| C++ | `Frame` | 6-aggregate with `id: CanId` (`std::variant<StandardId, ExtendedId>` over private-ctor newtypes) | `CanId::create_standard(uint32_t)` / `CanId::create_extended(uint32_t)` factories returning `Result<CanId>` |
+| Python | `CANFrameTuple` | 7-NamedTuple `(timestamp, can_id: int, dlc, data, extended: bool, brs, esi)` | `validate_can_id(can_id, *, extended)` at `client/_types.py:430` |
+| Go | `Frame` | 6-struct with `ID: CANID` (sealed interface — `StandardID(uint16) \| ExtendedID(uint32)`) | `NewStandardID(uint16) (StandardID, error)` / `NewExtendedID(uint32) (ExtendedID, error)` factory functions |
+| C++ | `Frame` | 6-aggregate with `id: CanId` (`std::variant<StandardId, ExtendedId>` over private-ctor newtypes) | `StandardId::create(uint16_t)` / `ExtendedId::create(uint32_t)` factories returning `std::expected<…, std::string>` |
 
 ## Why Python is the outlier
 

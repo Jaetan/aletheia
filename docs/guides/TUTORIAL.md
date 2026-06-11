@@ -257,10 +257,12 @@ with AletheiaClient() as client:
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
-        if response.get("status") == "fails":
-            enrichment = response.get("enrichment", {})
-            print(f"VIOLATION: {enrichment.get('enriched_reason')}")
-            print(f"  Signals: {enrichment.get('signals')}")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    enrichment = entry.get("enrichment", {})
+                    print(f"VIOLATION: {enrichment.get('enriched_reason')}")
+                    print(f"  Signals: {enrichment.get('signals')}")
 
     client.end_stream()
 ```
@@ -338,7 +340,7 @@ brake.implies(decel.within(100))
 
 # Until: start button never active until ACC mode
 power_off = Signal("PowerMode").equals(0)
-power_acc = Signal("PowerMode").equals(2)
+power_acc = Signal("PowerMode").equals(2).eventually()  # a Property (until's arg)
 start_btn = Signal("StartButton").equals(1)
 power_off.implies(start_btn.never().until(power_acc))
 ```

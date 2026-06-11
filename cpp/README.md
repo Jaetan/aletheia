@@ -9,13 +9,15 @@ See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) and [../d
 Quick start:
 ```bash
 cabal run shake -- build      # Build Agda + Haskell + libaletheia-ffi.so
-cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
+cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 && cmake --build build && ctest --test-dir build
 ```
 
 ## Compilers
 
-C++23, targeting **g++ ≥ 14** and **clang ≥ 21**. Use any C++23 feature both
-support. Build settings: `.clang-format`, `.clang-tidy`, `CMakeLists.txt`.
+C++23, **Clang ≥ 19 only** (g++ is not supported). Configure with
+`-DCMAKE_CXX_COMPILER=clang++-19`; the toolchain's libstdc++/libc++ must
+provide C++23 (`<expected>`, `<format>`). Build settings: `.clang-format`,
+`.clang-tidy`, `CMakeLists.txt`.
 
 ## Usage
 
@@ -41,7 +43,7 @@ client.start_stream(stop);
 
 for (auto const& f : frames) {  // aletheia::Frame { timestamp, id, dlc, data, brs, esi }
     auto resp = client.send_frame(stop, f);
-    if (resp && std::holds_alternative<aletheia::PropertyViolationResponse>(*resp)) {
+    if (resp && std::holds_alternative<aletheia::PropertyBatch>(*resp)) {
         // ...
     }
 }
