@@ -1,0 +1,196 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# One-off cross-language throughput benchmark on a real GitHub-hosted runner
+# (ubuntu-24.04, 4-core / ~16 GB).  Manual (workflow_dispatch) only — this is
+# not a gate; it answers "what do the numbers look like on a constrained
+# GHA-class machine?" with the SUPPORTED toolchain (clang-22 / Python 3.14 /
+# Go stable).  Results are printed to the log and uploaded as an artifact.
+# The toolchain setup mirrors pr-full-ci.yml and reuses its cache keys so the
+# Agda build and the clang-22 debs are warm if that workflow has run.
+
+name: Benchmark (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      frames:
+        description: 'Frames per run'
+        required: false
+        default: '1000'
+      runs:
+        description: 'Repetitions (median reported)'
+        required: false
+        default: '5'
+      bench:
+        description: 'Benchmark suite'
+        required: false
+        default: 'throughput'
+        type: choice
+        options:
+          - throughput
+          - latency
+          - scaling
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: cross-language throughput (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GHC_VERSION: '9.6.7'
+      AGDA_VERSION: '2.8.0'
+      STDLIB_VERSION: 'v2.3'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          cabal update
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      # Reuses pr-full-ci.yml's cabal cache key so the (15-20 min) Agda build is
+      # warm whenever that workflow has populated it.
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
+      # toolchain) from apt.llvm.org.  Reuses pr-full-ci.yml's deb-cache key.
+      - name: Cache clang-22 .debs (Clang is a large download)
+        uses: actions/cache@v5
+        with:
+          path: ~/llvm-cache
+          key: clang22-noble-v1
+      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          sudo apt-get update
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 clang-tidy-22 libstdc++-14-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+
+      - name: Build the FFI library (libaletheia-ffi.so)
+        run: cabal run shake -- build
+
+      - name: Create the dev venv (python/.venv) with aletheia installed
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Build the C++ benchmark (Release, clang-22)
+        run: |
+          set -euo pipefail
+          cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
+          cmake --build cpp/build --target benchmark
+
+      - name: Build the Go benchmark
+        run: |
+          set -euo pipefail
+          cd go && go build -o benchmarks/benchmark ./benchmarks/
+
+      - name: Run the cross-language benchmark
+        run: |
+          set -euo pipefail
+          # Activate the venv so run_all.sh's `python3 -m benchmarks.<bench>`
+          # resolves to the venv interpreter (which has aletheia installed).
+          source python/.venv/bin/activate
+          bash benchmarks/run_all.sh \
+            --frames "${{ github.event.inputs.frames }}" \
+            --runs "${{ github.event.inputs.runs }}" \
+            --bench "${{ github.event.inputs.bench }}"
+
+      - name: Print the result JSON
+        if: always()
+        run: |
+          set -euo pipefail
+          for f in benchmarks/results/*_"${{ github.event.inputs.bench }}".json; do
+            [ -f "$f" ] || continue
+            echo "=== $f ==="
+            cat "$f"
+            echo
+          done
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.event.inputs.bench }}-results
+          path: benchmarks/results/*.json
+          if-no-files-found: warn
