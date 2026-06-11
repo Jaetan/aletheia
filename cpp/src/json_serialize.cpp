@@ -189,7 +189,7 @@ static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
                 return {{"kind", "envVar"}, {"envVar", v.env_var}};
             } else {
                 static_assert(sizeof(T) == 0, "Unhandled DbcCommentTarget variant");
-}
+            }
         },
         t);
 }
@@ -239,7 +239,7 @@ static auto attr_type_to_json(const DbcAttrType& t) -> Json {
                 return {{"kind", "hex"}, {"min", v.min}, {"max", v.max}};
             } else {
                 static_assert(sizeof(T) == 0, "Unhandled DbcAttrType variant");
-}
+            }
         },
         t);
 }
@@ -294,7 +294,7 @@ static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
                 return out;
             } else {
                 static_assert(sizeof(T) == 0, "Unhandled DbcAttrTarget variant");
-}
+            }
         },
         t);
 }

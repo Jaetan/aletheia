@@ -58,10 +58,8 @@ public:
         const bool is_fire_and_forget =
             input.contains(R"("command":"sendFrame")") ||
             input.contains(R"("command":"sendError")") ||
-            input.contains(R"("command":"sendRemote")") ||
-            input.contains(R"("type":"data")") ||
-            input.contains(R"("type":"error")") ||
-            input.contains(R"("type":"remote")");
+            input.contains(R"("command":"sendRemote")") || input.contains(R"("type":"data")") ||
+            input.contains(R"("type":"error")") || input.contains(R"("type":"remote")");
         if (is_fire_and_forget)
             return R"({"status": "ack"})";
         return R"({"status": "success"})";

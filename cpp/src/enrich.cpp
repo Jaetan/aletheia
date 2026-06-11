@@ -126,7 +126,8 @@ static auto format_binary(const Node& v, std::string_view op, bool parenthesize)
 }
 
 template<typename Node>
-static auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
+static auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize)
+    -> std::string {
     return wrap_if_binary(format_formula_inner(*v.left, true) + " " + std::string{op} + " within " +
                               format_timebound(v.bound) + format_formula_inner(*v.right, true),
                           parenthesize);
@@ -179,10 +180,9 @@ static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) 
             return format_metric_binary(v, "release", parenthesize_binary);
         } else {
             static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
-}
+        }
     });
 }
-
 
 auto format_formula(const LtlFormula& f) -> std::string {
     return format_formula_inner(f, false);

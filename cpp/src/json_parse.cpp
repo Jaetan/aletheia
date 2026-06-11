@@ -770,8 +770,8 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
         std::vector<SignalValue> values;
         for (const auto& v : j.value("values", Json::array()))
-            values.push_back({.name=SignalName{v.at("name").get<std::string>()},
-                              .value=PhysicalValue{parse_signal_value(v.at("value"))}});
+            values.push_back({.name = SignalName{v.at("name").get<std::string>()},
+                              .value = PhysicalValue{parse_signal_value(v.at("value"))}});
 
         std::vector<std::pair<SignalName, std::string>> errors;
         for (const auto& e : j.value("errors", Json::array()))
