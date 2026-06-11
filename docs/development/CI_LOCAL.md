@@ -153,17 +153,9 @@ cd python && .venv/bin/pip install -e '.[mutation]'
 # because zimmski's repo is unmaintained since 2021 (panics on Go 1.26).
 go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 
-# C++: Mull 0.34.0 built from source vs system LLVM-22 (no prebuilt deb ships
-# for LLVM 22; the supported toolchain is clang-22).  Bazel build, copied to
-# ~/.local/bin/.  Full recipe in docs/operations/MUTATION.md § C++ — Mull.
-sudo apt install clang-22 llvm-22-dev libclang-22-dev   # one-time
-git clone --depth 1 --branch 0.34.0 --recursive \
-  https://github.com/mull-project/mull /tmp/mull
-sed -i 's/        "ubuntu:24.04": \[/        "ubuntu:24.04": [\n            "22",/' /tmp/mull/MODULE.bazel
-( cd /tmp/mull && bazel build //rust/mull-tools:mull-runner-22 \
-    //rust/mull-tools:mull-reporter-22 //:mull-ir-frontend-22 )
-cp -L /tmp/mull/bazel-bin/rust/mull-tools/mull-{runner,reporter}-22 \
-      /tmp/mull/bazel-bin/mull-ir-frontend-22 ~/.local/bin/
+# C++: Mull 0.34.0 built from source against system LLVM-22 (no prebuilt deb
+# ships for LLVM 22).  The full grounded recipe (apt deps, Bazel targets, the
+# MODULE.bazel ubuntu:24.04 patch) lives in docs/operations/MUTATION.md § C++.
 
 # Verify all three are discoverable
 which mutmut gremlins mull-runner-22  # mutmut is in python/.venv/bin/
