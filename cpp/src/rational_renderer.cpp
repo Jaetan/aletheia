@@ -43,12 +43,13 @@ struct RendererState {
     FormatRationalFn format_fn = nullptr;
     FreeStrFn free_fn = nullptr;
 };
+} // namespace
 
 // Function-local static for the singleton state.  Wrapped in an
 // accessor so it isn't flagged as a non-const global
 // (cppcoreguidelines-avoid-non-const-global-variables); function-static
 // initialisation is thread-safe per [stmt.dcl]/4 ("magic statics").
-auto state() -> RendererState& {
+static auto state() -> RendererState& {
     static RendererState s;
     return s;
 }
@@ -60,12 +61,14 @@ auto state() -> RendererState& {
 // `find_library_path()` happens inside `std::call_once(init)` so
 // reader sees a stable value.  Stored as `std::string` (not `path`)
 // to avoid the path's variant-of-string allocation on the read path.
+namespace {
 struct DefaultPathState {
     std::mutex mu;
     std::string path;
 };
+} // namespace
 
-auto default_path_state() -> DefaultPathState& {
+static auto default_path_state() -> DefaultPathState& {
     static DefaultPathState s;
     return s;
 }
@@ -78,7 +81,7 @@ auto default_path_state() -> DefaultPathState& {
 // Returns the empty path when no candidate exists; the caller surfaces
 // that as an `AletheiaException(Ffi)` so the operator knows to set
 // `ALETHEIA_LIB` or run `cabal run shake -- build`.
-auto find_library_path() -> std::filesystem::path {
+static auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
     if (auto* env = std::getenv("ALETHEIA_LIB")) {
         const std::string_view env_sv{env};
@@ -115,7 +118,7 @@ auto find_library_path() -> std::filesystem::path {
 // dlopen + dlsym + hs_init the library.  Records either the resolved
 // function pointers or a load-error string in the singleton state.
 // Called exactly once per process via `std::call_once`.
-void init_renderer() {
+static void init_renderer() {
     auto& s = state();
     auto lib_path = find_library_path();
     if (lib_path.empty()) {
@@ -178,7 +181,7 @@ void init_renderer() {
     s.loaded = true;
 }
 
-void ensure_loaded() {
+static void ensure_loaded() {
     auto& s = state();
     std::call_once(s.init, init_renderer);
     if (!s.loaded)
@@ -186,8 +189,6 @@ void ensure_loaded() {
             AletheiaError{ErrorKind::Ffi,
                           "Rational pretty-printer requires libaletheia-ffi.so: " + s.load_error});
 }
-
-} // namespace
 
 auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
     ensure_loaded();

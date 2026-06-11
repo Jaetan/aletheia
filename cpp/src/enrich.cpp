@@ -16,9 +16,8 @@
 #include <vector>
 
 namespace aletheia {
-namespace {
 
-auto format_value(double v) -> std::string {
+static auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
@@ -30,14 +29,14 @@ auto format_value(double v) -> std::string {
 // in `rational_renderer.cpp`; no local C++ fallback exists.  A missing
 // `libaletheia-ffi.so` throws `AletheiaException(Ffi)` rather than
 // silently diverging.
-auto format_value(const Rational& r) -> std::string {
+static auto format_value(const Rational& r) -> std::string {
     return detail::format_rational_ffi(r.numerator(), r.denominator());
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;
 constexpr std::int64_t us_per_millisecond = 1'000;
 
-auto format_timebound(Timestamp t) -> std::string {
+static auto format_timebound(Timestamp t) -> std::string {
     auto us = t.count();
     if (us % us_per_second == 0)
         return std::format("{}s ", us / us_per_second);
@@ -46,7 +45,7 @@ auto format_timebound(Timestamp t) -> std::string {
     return std::format("{}\u03bcs ", us);
 }
 
-auto format_predicate(const Predicate& p) -> std::string {
+static auto format_predicate(const Predicate& p) -> std::string {
     return std::visit(
         [](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
@@ -86,11 +85,11 @@ auto format_predicate(const Predicate& p) -> std::string {
         p);
 }
 
-auto predicate_signal(const Predicate& p) -> SignalName {
+static auto predicate_signal(const Predicate& p) -> SignalName {
     return std::visit([](const auto& v) -> SignalName { return v.signal; }, p);
 }
 
-void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
+static void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
     f.visit([&signals](const auto& v) {
         using T = std::decay_t<decltype(v)>;
         if constexpr (std::is_same_v<T, Atomic>) {
@@ -113,28 +112,28 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
     });
 }
 
-auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string;
+static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string;
 
-auto wrap_if_binary(std::string s, bool parenthesize) -> std::string {
+static auto wrap_if_binary(std::string s, bool parenthesize) -> std::string {
     return parenthesize ? "(" + std::move(s) + ")" : std::move(s);
 }
 
 template<typename Node>
-auto format_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
+static auto format_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
     return wrap_if_binary(format_formula_inner(*v.left, true) + " " + std::string{op} + " " +
                               format_formula_inner(*v.right, true),
                           parenthesize);
 }
 
 template<typename Node>
-auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
+static auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
     return wrap_if_binary(format_formula_inner(*v.left, true) + " " + std::string{op} + " within " +
                               format_timebound(v.bound) + format_formula_inner(*v.right, true),
                           parenthesize);
 }
 
 // Detect Never pattern: Always{Not{Atomic{p}}} — returns empty string if not.
-auto try_format_never(const Always& v) -> std::string {
+static auto try_format_never(const Always& v) -> std::string {
     if (auto* n = std::get_if<Not>(&v.formula->value))
         if (auto* a = std::get_if<Atomic>(&n->formula->value))
             return "never " + format_predicate(a->predicate);
@@ -143,7 +142,7 @@ auto try_format_never(const Always& v) -> std::string {
 
 // Inner formatter: parenthesize_binary wraps binary operators in parens when
 // they appear as children of other binary operators, matching Go's behavior.
-auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
+static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
     return f.visit([parenthesize_binary](const auto& v) -> std::string {
         using T = std::decay_t<decltype(v)>;
         if constexpr (std::is_same_v<T, Atomic>) {
@@ -184,7 +183,6 @@ auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std:
     });
 }
 
-} // namespace
 
 auto format_formula(const LtlFormula& f) -> std::string {
     return format_formula_inner(f, false);

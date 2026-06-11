@@ -38,9 +38,7 @@ static_assert(std::endian::native == std::endian::little,
 
 namespace aletheia {
 
-namespace {
-
-auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> {
+static auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> {
     auto expected = dlc_to_bytes(dlc);
     if (data.size() != expected)
         return std::unexpected(
@@ -54,12 +52,10 @@ auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> 
 // stop.stop_requested() and short-circuits before making the FFI call. The
 // message includes the method name to mirror Go's
 // `fmt.Errorf("method_name: %w", ctx.Err())` wrapping convention.
-auto make_cancellation_error(std::string_view method) -> AletheiaError {
+static auto make_cancellation_error(std::string_view method) -> AletheiaError {
     return AletheiaError{ErrorKind::Cancellation,
                          std::format("{} cancelled by stop_token", method)};
 }
-
-} // namespace
 
 AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
                                std::vector<CheckResult> default_checks)
@@ -238,8 +234,6 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& 
 // Signals
 // ---------------------------------------------------------------------------
 
-namespace {
-
 // Error code → message mapping for binary extraction.  Must match
 // `extractionErrorCodeToℕ` + the `resultToString` cases in
 // `src/Aletheia/CAN/BatchExtraction.agda` (the constructor-to-code ordering
@@ -254,8 +248,8 @@ constexpr std::array extraction_error_messages = {
 // Centralizes the den-positive normalization required for cross-binding
 // wire symmetry (R19 cluster 12 — CPP-B-7.3) and keeps `parse_extraction_bin`
 // under the clang-tidy readability-function-size threshold.
-auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
-                       const std::vector<std::string>& names) -> Result<SignalValue> {
+static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
+                              const std::vector<std::string>& names) -> Result<SignalValue> {
     auto name =
         idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
     if (den == 0)
@@ -276,15 +270,18 @@ auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
 // documented at haskell-shim/src/AletheiaFFI.hs:235 — "Header(3×u16) +
 // Values(×18B) + Errors(×3B) + Absent(×2B). Native byte order." Cross-arch
 // deployment would require byteswapping on the reader side.
-auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std::string>& names)
+static auto parse_extraction_bin(std::span<const std::byte> buf,
+                                 const std::vector<std::string>& names)
     -> Result<ExtractionResult> {
     auto read_u16 = [&](std::size_t off) -> std::uint16_t {
         std::uint16_t v = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         std::memcpy(&v, buf.data() + off, sizeof(v));
         return v;
     };
     auto read_i64 = [&](std::size_t off) -> std::int64_t {
         std::int64_t v = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         std::memcpy(&v, buf.data() + off, sizeof(v));
         return v;
     };
@@ -345,8 +342,6 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
     }
     return result;
 }
-
-} // namespace
 
 auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
                                      std::span<const std::byte> data) -> Result<ExtractionResult> {
@@ -688,9 +683,8 @@ void AletheiaClient::log_end_stream_summary(const StreamResult& result) {
 // Enrichment internals
 // ---------------------------------------------------------------------------
 
-namespace {
-
-auto collect_matching_signals(const PropertyDiagnostic& diag, const ExtractionResult& extraction)
+static auto collect_matching_signals(const PropertyDiagnostic& diag,
+                                     const ExtractionResult& extraction)
     -> std::map<SignalName, PhysicalValue> {
     std::map<SignalName, PhysicalValue> values;
     for (const auto& sig : diag.signals) {
@@ -704,9 +698,9 @@ auto collect_matching_signals(const PropertyDiagnostic& diag, const ExtractionRe
     return values;
 }
 
-auto format_enriched_reason(const PropertyDiagnostic& diag,
-                            const std::map<SignalName, PhysicalValue>& values,
-                            std::string_view core_reason) -> std::string {
+static auto format_enriched_reason(const PropertyDiagnostic& diag,
+                                   const std::map<SignalName, PhysicalValue>& values,
+                                   std::string_view core_reason) -> std::string {
     std::string reason;
     if (values.empty()) {
         reason = "violated: " + diag.formula_desc;
@@ -731,8 +725,6 @@ auto format_enriched_reason(const PropertyDiagnostic& diag,
         reason += " [core: " + std::string{core_reason} + "]";
     return reason;
 }
-
-} // namespace
 
 void AletheiaClient::finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
                                              std::span<const std::byte> data,

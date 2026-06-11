@@ -32,13 +32,11 @@
 
 namespace aletheia {
 
-namespace {
-
 // std::from_chars takes a raw pointer pair [first, last). The canonical idiom
 // `sv.data() + sv.size()` trips cppcoreguidelines-pro-bounds-pointer-arithmetic;
 // `std::to_address(sv.end())` is arithmetic-free and equivalent since C++20
 // string_view::iterator is a contiguous iterator.
-auto sv_end_ptr(std::string_view sv) -> const char* {
+static auto sv_end_ptr(std::string_view sv) -> const char* {
     return std::to_address(sv.end());
 }
 
@@ -46,27 +44,40 @@ auto sv_end_ptr(std::string_view sv) -> const char* {
 // Sheet headers
 // ---------------------------------------------------------------------------
 
-const std::vector<std::string> dbc_headers = {
-    "Message ID",  "Message Name",    "Extended", "DLC",    "Signal", "Start Bit", "Length",
-    "Byte Order",  "Signed",          "Factor",   "Offset", "Min",    "Max",       "Unit",
-    "Multiplexor", "Multiplex Value",
-};
+// Construct-on-first-use: function-local statics make any (vector-allocation)
+// throw happen lazily on first call — catchable — rather than during static
+// initialization before main() (bugprone-throwing-static-initialization).
+static auto dbc_headers() -> const std::vector<std::string>& {
+    static const std::vector<std::string> h = {
+        "Message ID",  "Message Name",    "Extended", "DLC",    "Signal", "Start Bit", "Length",
+        "Byte Order",  "Signed",          "Factor",   "Offset", "Min",    "Max",       "Unit",
+        "Multiplexor", "Multiplex Value",
+    };
+    return h;
+}
 
-const std::vector<std::string> checks_headers = {
-    "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (ms)", "Severity",
-};
+static auto checks_headers() -> const std::vector<std::string>& {
+    static const std::vector<std::string> h = {
+        "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (ms)", "Severity",
+    };
+    return h;
+}
 
-const std::vector<std::string> when_then_headers = {
-    "Check Name", "When Signal", "When Condition", "When Value",  "Then Signal", "Then Condition",
-    "Then Value", "Then Min",    "Then Max",       "Within (ms)", "Severity",
-};
+static auto when_then_headers() -> const std::vector<std::string>& {
+    static const std::vector<std::string> h = {
+        "Check Name",  "When Signal",    "When Condition", "When Value",
+        "Then Signal", "Then Condition", "Then Value",     "Then Min",
+        "Then Max",    "Within (ms)",    "Severity",
+    };
+    return h;
+}
 
 // ---------------------------------------------------------------------------
 // Cell value conversion helper
 // ---------------------------------------------------------------------------
 
 /// Convert an XLCellValue to a string, returning empty for empty cells.
-auto cell_to_string(const OpenXLSX::XLCellValue& val) -> std::string {
+static auto cell_to_string(const OpenXLSX::XLCellValue& val) -> std::string {
     switch (val.type()) {
     case OpenXLSX::XLValueType::String:
         return val.get<std::string>();
@@ -88,7 +99,7 @@ auto cell_to_string(const OpenXLSX::XLCellValue& val) -> std::string {
 using CellMap = std::map<std::string, std::string>;
 
 /// Build a header->value map from a worksheet row, skipping empty values.
-auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& headers)
+static auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& headers)
     -> CellMap {
     CellMap result;
     for (std::size_t i = 0; i < headers.size(); ++i) {
@@ -105,7 +116,7 @@ auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::strin
 // Typed field extractors with error context
 // ---------------------------------------------------------------------------
 
-auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
     auto it = cells.find(key);
     if (it == cells.end() || it->second.empty())
@@ -113,7 +124,7 @@ auto get_str(const CellMap& cells, const std::string& key, const std::string& ct
     return it->second;
 }
 
-auto get_number(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_number(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> double {
     auto it = cells.find(key);
     if (it == cells.end() || it->second.empty())
@@ -135,7 +146,7 @@ auto get_number(const CellMap& cells, const std::string& key, const std::string&
     return result;
 }
 
-auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+static auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::int64_t {
     auto it = cells.find(key);
     if (it == cells.end() || it->second.empty())
@@ -165,7 +176,8 @@ auto get_int(const CellMap& cells, const std::string& key, const std::string& ct
     return result;
 }
 
-auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str) -> bool {
+static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+    -> bool {
     auto it = cells.find(key);
     if (it == cells.end() || it->second.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key +
@@ -181,11 +193,11 @@ auto get_bool(const CellMap& cells, const std::string& key, const std::string& c
     throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected TRUE/FALSE)");
 }
 
-auto row_ctx(int row_num) -> std::string {
+static auto row_ctx(int row_num) -> std::string {
     return "Row " + std::to_string(row_num);
 }
 
-auto has_key(const CellMap& cells, const std::string& key) -> bool {
+static auto has_key(const CellMap& cells, const std::string& key) -> bool {
     auto it = cells.find(key);
     return it != cells.end() && !it->second.empty();
 }
@@ -194,7 +206,8 @@ auto has_key(const CellMap& cells, const std::string& key) -> bool {
 // Header extraction from first row
 // ---------------------------------------------------------------------------
 
-auto headers_from_row(OpenXLSX::XLWorksheet& ws, std::size_t count) -> std::vector<std::string> {
+static auto headers_from_row(OpenXLSX::XLWorksheet& ws, std::size_t count)
+    -> std::vector<std::string> {
     std::vector<std::string> result;
     result.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
@@ -211,7 +224,7 @@ auto headers_from_row(OpenXLSX::XLWorksheet& ws, std::size_t count) -> std::vect
 // Message ID parsing
 // ---------------------------------------------------------------------------
 
-auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std::uint32_t {
+static auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std::uint32_t {
     if (val.empty())
         throw std::runtime_error(
             ctx_str +
@@ -237,7 +250,7 @@ auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std
 // Checks sheet parser
 // ---------------------------------------------------------------------------
 
-auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
+static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
     auto signal = get_str(cells, "Signal", row_ctx(row_num));
     auto condition = get_str(cells, "Condition", row_ctx(row_num));
 
@@ -293,7 +306,7 @@ auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 // When-Then sheet parser
 // ---------------------------------------------------------------------------
 
-auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
+static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
     auto when_signal = get_str(cells, "When Signal", row_ctx(row_num));
     auto when_cond = get_str(cells, "When Condition", row_ctx(row_num));
     auto when_value =
@@ -350,7 +363,7 @@ auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
 // DBC signal parser
 // ---------------------------------------------------------------------------
 
-auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
+static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     auto ctx_str = row_ctx(row_num);
 
     auto byte_order_str = get_str(cells, "Byte Order", ctx_str);
@@ -379,8 +392,7 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     SignalPresence presence;
     if (has_muxor) {
         auto mux_val = get_int(cells, "Multiplex Value", ctx_str);
-        if (mux_val < 0 ||
-            std::cmp_greater(mux_val ,std::numeric_limits<std::uint32_t>::max()))
+        if (mux_val < 0 || std::cmp_greater(mux_val, std::numeric_limits<std::uint32_t>::max()))
             throw std::runtime_error(ctx_str + ": 'Multiplex Value' out of range [0, " +
                                      std::to_string(std::numeric_limits<std::uint32_t>::max()) +
                                      "]: " + std::to_string(mux_val));
@@ -392,12 +404,14 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     }
 
     auto start_bit_val = get_int(cells, "Start Bit", ctx_str);
-    if (start_bit_val < 0 || std::cmp_greater(start_bit_val , std::numeric_limits<std::uint16_t>::max()))
+    if (start_bit_val < 0 ||
+        std::cmp_greater(start_bit_val, std::numeric_limits<std::uint16_t>::max()))
         throw std::runtime_error(ctx_str + ": 'Start Bit' out of range [0, " +
                                  std::to_string(std::numeric_limits<std::uint16_t>::max()) +
                                  "]: " + std::to_string(start_bit_val));
     auto bit_length_val = get_int(cells, "Length", ctx_str);
-    if (bit_length_val < 0 || std::cmp_greater(bit_length_val , std::numeric_limits<std::uint8_t>::max()))
+    if (bit_length_val < 0 ||
+        std::cmp_greater(bit_length_val, std::numeric_limits<std::uint8_t>::max()))
         throw std::runtime_error(ctx_str + ": 'Length' out of range [0, " +
                                  std::to_string(std::numeric_limits<std::uint8_t>::max()) +
                                  "]: " + std::to_string(bit_length_val));
@@ -421,7 +435,7 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
 // Sheet existence check
 // ---------------------------------------------------------------------------
 
-auto worksheet_exists(OpenXLSX::XLDocument& doc, std::string_view name) -> bool {
+static auto worksheet_exists(OpenXLSX::XLDocument& doc, std::string_view name) -> bool {
     auto names = doc.workbook().worksheetNames();
     return std::ranges::find(names, std::string(name)) != names.end();
 }
@@ -430,12 +444,10 @@ auto worksheet_exists(OpenXLSX::XLDocument& doc, std::string_view name) -> bool 
 // Write header row helper
 // ---------------------------------------------------------------------------
 
-void write_header_row(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers) {
+static void write_header_row(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers) {
     for (std::size_t i = 0; i < headers.size(); ++i)
         ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = headers[i];
 }
-
-} // namespace
 
 // ===========================================================================
 // Public API: Checks from Excel
@@ -469,7 +481,7 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 
         if (has_checks) {
             auto ws = doc.workbook().worksheet(std::string(checks_sheet));
-            auto headers = headers_from_row(ws, checks_headers.size());
+            auto headers = headers_from_row(ws, checks_headers().size());
             auto total_rows = ws.rowCount();
             for (std::uint32_t r = 2; r <= total_rows; ++r) {
                 auto cells = row_to_map(ws, static_cast<int>(r), headers);
@@ -481,7 +493,7 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 
         if (has_when_then) {
             auto ws = doc.workbook().worksheet(std::string(when_then_sheet));
-            auto headers = headers_from_row(ws, when_then_headers.size());
+            auto headers = headers_from_row(ws, when_then_headers().size());
             auto total_rows = ws.rowCount();
             for (std::uint32_t r = 2; r <= total_rows; ++r) {
                 auto cells = row_to_map(ws, static_cast<int>(r), headers);
@@ -503,15 +515,13 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 // Public API: DBC from Excel
 // ===========================================================================
 
-namespace {
-
 // (msg_id, msg_name, dlc, is_extended) — the row-level identity of a message.
 using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>;
 
 // Group data rows by message key, preserving first-seen order. Each row
 // becomes one signal in its parent message.
-auto group_rows_by_message(const std::vector<CellMap>& data_rows,
-                           const std::vector<int>& row_numbers)
+static auto group_rows_by_message(const std::vector<CellMap>& data_rows,
+                                  const std::vector<int>& row_numbers)
     -> std::pair<std::map<MessageKeyExt, std::vector<std::size_t>>, std::vector<MessageKeyExt>> {
     std::map<MessageKeyExt, std::vector<std::size_t>> groups;
     std::vector<MessageKeyExt> insertion_order;
@@ -534,9 +544,10 @@ auto group_rows_by_message(const std::vector<CellMap>& data_rows,
 
 // Build one DbcMessage from its group of rows; surfaces validation errors as
 // an unexpected Result so the top-level loop stays linear.
-auto build_message_from_group(const MessageKeyExt& key, const std::vector<std::size_t>& indices,
-                              const std::vector<CellMap>& data_rows,
-                              const std::vector<int>& row_numbers) -> Result<DbcMessage> {
+static auto build_message_from_group(const MessageKeyExt& key,
+                                     const std::vector<std::size_t>& indices,
+                                     const std::vector<CellMap>& data_rows,
+                                     const std::vector<int>& row_numbers) -> Result<DbcMessage> {
     std::vector<DbcSignal> signals;
     signals.reserve(indices.size());
     for (auto idx : indices)
@@ -567,8 +578,6 @@ auto build_message_from_group(const MessageKeyExt& key, const std::vector<std::s
     };
 }
 
-} // namespace
-
 auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view sheet)
     -> Result<DbcDefinition> {
     // R20 cluster N — same hardening as load_checks_from_excel.
@@ -588,7 +597,7 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
                 ErrorKind::Validation, "Workbook has no '" + std::string(sheet) + "' sheet"});
 
         auto ws = doc.workbook().worksheet(std::string(sheet));
-        auto headers = headers_from_row(ws, dbc_headers.size());
+        auto headers = headers_from_row(ws, dbc_headers().size());
         auto total_rows = ws.rowCount();
 
         std::vector<CellMap> data_rows;
@@ -642,17 +651,17 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         // Rename default sheet to DBC
         doc.workbook().worksheet("Sheet1").setName("DBC");
         auto ws_dbc = doc.workbook().worksheet("DBC");
-        write_header_row(ws_dbc, dbc_headers);
+        write_header_row(ws_dbc, dbc_headers());
 
         // Checks sheet
         doc.workbook().addWorksheet("Checks");
         auto ws_checks = doc.workbook().worksheet("Checks");
-        write_header_row(ws_checks, checks_headers);
+        write_header_row(ws_checks, checks_headers());
 
         // When-Then sheet
         doc.workbook().addWorksheet("When-Then");
         auto ws_wt = doc.workbook().worksheet("When-Then");
-        write_header_row(ws_wt, when_then_headers);
+        write_header_row(ws_wt, when_then_headers());
 
         doc.save();
         doc.close();
