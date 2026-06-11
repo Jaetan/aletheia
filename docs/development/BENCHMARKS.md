@@ -21,7 +21,7 @@ printed by `benchmarks/compare.py`.
 # Prerequisites (one-time)
 cabal run shake -- build                                                # libaletheia-ffi.so
 source python/.venv/bin/activate && (cd python && pip install -e '.[dev]')  # Python binding
-cmake -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 && cmake --build cpp/build  # C++ binary (Clang >= 19)
+cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build  # C++ binary (Clang 22)
 (cd go && go build -o benchmarks/benchmark ./benchmarks/)                # Go binary
 
 # Run throughput across all three bindings, 10,000 frames × 5 runs
