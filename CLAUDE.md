@@ -24,15 +24,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - **Optional mutation-testing toolchain** (for `tools/run_ci.py --mutation` / `ALETHEIA_MUTATION_CHECK=1` — see [docs/operations/MUTATION.md](docs/operations/MUTATION.md)):
   - **Python**: `mutmut` 3.x via `python/.venv/bin/pip install -e 'python/.[mutation]'` (`[mutation]` extras pin `mutmut>=3.5,<4`).
   - **Go**: `gremlins` via `go install github.com/go-gremlins/gremlins/cmd/gremlins@latest` (lands in `~/go/bin/`; gremlins substitutes for AGENTS.md cat 14(g) `go-mutesting` because the named tool is unmaintained since 2021 and panics on Go 1.26's `go/types` internals).
-  - **C++**: `Mull-19` (matches LLVM 19 / `clang-19` from apt). Extract the release deb locally to `~/.local/bin/`:
-    ```bash
-    sudo apt install clang-19   # one-time
-    curl -fsSLO https://github.com/mull-project/mull/releases/download/0.33.0/Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb
-    mkdir -p /tmp/mull-extract
-    dpkg-deb -x Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb /tmp/mull-extract
-    cp /tmp/mull-extract/usr/bin/mull-{runner,reporter}-19 ~/.local/bin/
-    cp /tmp/mull-extract/usr/lib/mull-ir-frontend-19 ~/.local/bin/
-    ```
+  - **C++**: `Mull` 0.34.0 (LLVM-22) — no prebuilt deb ships for LLVM 22, so build from source against system LLVM-22 (Bazel; `clang-22` + `llvm-22-dev`) into `~/.local/bin/` as `mull-{runner,reporter,ir-frontend}-22`. Full grounded recipe (incl. the `MODULE.bazel` ubuntu:24.04→"22" patch) in [docs/operations/MUTATION.md § C++](docs/operations/MUTATION.md); CI caches it (`.github/workflows/pr-heavy-lanes.yml`). The `ALETHEIA_MUTATION` build folds the real-`.so` integration tests into `unit_tests` so FfiBackend is on the mutation surface.
   Each tool's absence is auto-detected by `tools/mutation_run.py` (per-binding skip-with-precise-error); the orchestrator's static gate `tools/check_mutation_setup.py` runs always-on regardless of tool install state.
 
 **Type-check command** (always cap heap):
@@ -164,7 +156,7 @@ State managed via `StablePtr (IORef StreamState)`. All bindings load `.so` via c
 
 ### C++ Binding (`cpp/`)
 
-Wraps `libaletheia-ffi.so` via `dlopen`. `IBackend` interface; `MockBackend` for tests. Strong types (`std::byte`, validated newtypes, `std::expected`). Custom `Logger` (~90L, callback-based, 16 event types matching Go's slog, zero-cost when null). RTS cores via `make_ffi_backend(path, rts_cores)` (default 1, once-per-process with mismatch warning). C++23, **Clang ≥ 19 only** (g++ unsupported); needs a libstdc++/libc++ with C++23 (`<expected>`). Style: `.clang-format` + `.clang-tidy`. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
+Wraps `libaletheia-ffi.so` via `dlopen`. `IBackend` interface; `MockBackend` for tests. Strong types (`std::byte`, validated newtypes, `std::expected`). Custom `Logger` (~90L, callback-based, 16 event types matching Go's slog, zero-cost when null). RTS cores via `make_ffi_backend(path, rts_cores)` (default 1, once-per-process with mismatch warning). C++23, **latest stable Clang only** (currently 22; g++ unsupported; older Clang may work but is unsupported); needs a libstdc++/libc++ with C++23 (`<expected>`). Style: `.clang-format` + `.clang-tidy`. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
 
 ### Go Binding (`go/`)
 
@@ -257,13 +249,13 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **`ci-speed` ✅ MERGED to main** (PR #7, merge `bf0b749`, 2026-06-09; the `push:main` full-sweep `27206624057` went green in 59m).  The branch delivered the post-R23 fast-gate program so every contributor can run the gates manually + often: warm `check-properties` IS the proof gate (one warm Agda process, ~13×, 629s→~40s); the `.agdai` IWYU reader `tools/iwyu.py` is the import gate (`run_ci` steps 9-10, oracle retired); tree-wide lint enforcement (ruff `select=ALL` + pylint 10.00 + basedpyright 0/0/0 across `tools/` + `python/` + `examples/`, all `run_ci` steps); the renderer faithfulness + canonical-shape proofs (`DBC/RationalRenderer/Faithful.agda`, `DecRat/RationalSoundness.agda`); the Fraction-pipeline redesign + opaque/`object`-type sweeps; the Go `BuildFrame` arg-order parity fix (CL10-2).  **Module count 266.**  Full per-day narrative + commit detail: `memory/project_ci_speed_optimization.md`, `memory/project_agda_iwyu.md`, `memory/project_rational_renderer_proof.md`.
 
-**Branch & PR hygiene ✅ ENFORCED** — `.github/workflows/pr-full-ci.yml` runs `tools/run_ci.py` (all gates) on every `pull_request` + `push:main`; the `main` ruleset now **requires** the `tools/run_ci.py (all gates)` check (enabled by the user 2026-06-10, validated against the green merge sweep).  C++ is **Clang ≥ 19 only** (g++ dropped 2026-06-09; the libstdc++/libc++ must support C++23 — `<expected>`/`<format>`) — enforced in `cpp/CMakeLists.txt` and swept across docs.  Detail: `docs/development/BRANCH_PR_HYGIENE.md`, `memory/project_cpp_compilers.md`.
+**Branch & PR hygiene ✅ ENFORCED** — `.github/workflows/pr-full-ci.yml` runs `tools/run_ci.py` (all gates) on every `pull_request` + `push:main`; the `main` ruleset now **requires** the `tools/run_ci.py (all gates)` check (enabled by the user 2026-06-10, validated against the green merge sweep).  C++ supports the **latest stable Clang only** (currently 22; g++ dropped 2026-06-09; older Clang may work but is unsupported; the libstdc++/libc++ must support C++23 — `<expected>`/`<format>`) — enforced in `cpp/CMakeLists.txt` and swept across docs.  Detail: `docs/development/BRANCH_PR_HYGIENE.md`, `memory/project_cpp_compilers.md`.
 
 **Post-merge cleanup** (branch `post-merge-cleanup`, 2026-06-10): ghcup-dir `chown` for CI log hygiene; new `docs/development/DEFERRED_ITEMS.md` (the in-source-deferral backlog + per-item re-examination); venv-convention docs standardized on `python/.venv` (closes DEFERRED_ITEMS **G.1**); this UPD.  Open backlog now lives in `DEFERRED_ITEMS.md` — `E.1` (owed bridge lemma), `A.2` (`BO_TX_BU_` text senders) are the DO/INVESTIGATE candidates; **`E.2` (`WellFormedTextDBCAgg` discharge) is IN PROGRESS** on branch `agda/e1-isidentstart-hspace-bridge` (bounded slice `8758236`); the rest are HOLD/CAN'T or parked by prior user decision.
 
 **No active phase.**  Phase 5.1 complete; Phase 6 (Extensions & New Protocols — CLI parity stretch + Rust/Haskell bindings (Haskell native; Rust via .so) + python-can replacement + GHC native bignum + SOME/IP) is the candidate next track (goal-set pinned 2026-05-07, not started).
 
-**Standard gates** (all run by `tools/run_ci.py`): `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, check-bound-enforcement, count-modules, check-runbook, check-changelog, check-limits-parity}` + Python `pytest tests/` + Go `go test ./aletheia/ -race` + C++ `ctest --test-dir cpp/build` (Clang ≥ 19) + lint (ruff/pylint/basedpyright tree-wide) + IWYU (`tools/iwyu.py --check` + `--self-test`) + GHA meta (actionlint / check-action-pins / check-workflow-permissions) + SPDX headers.
+**Standard gates** (all run by `tools/run_ci.py`): `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, check-bound-enforcement, count-modules, check-runbook, check-changelog, check-limits-parity}` + Python `pytest tests/` + Go `go test ./aletheia/ -race` + C++ `ctest --test-dir cpp/build` (Clang 22) + lint (ruff/pylint/basedpyright tree-wide) + IWYU (`tools/iwyu.py --check` + `--self-test`) + GHA meta (actionlint / check-action-pins / check-workflow-permissions) + SPDX headers.
 
 ## Prior Tracks (closed) — see PROJECT_STATUS.md for narratives
 
