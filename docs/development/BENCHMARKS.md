@@ -114,6 +114,27 @@ previous Agda core, not the current one.
 
 ---
 
+## CI regression gate
+
+`.github/workflows/benchmark.yml` runs the throughput suite on every pull
+request (and on demand via `workflow_dispatch`). On a PR it then runs
+`tools/benchmark_gate.py`, which **fails the check if any lane is more than 30%
+slower** than the committed GitHub-runner baseline (`benchmarks/gha_baseline.json`).
+
+The 30% threshold is deliberately generous: the GitHub-hosted runner is shared
+and noisy, so the gate is meant to catch a *noticeable* regression, not
+run-to-run jitter (the 5-run mean already damps within-run noise). The baseline
+is measured **on the runner**, not on the local host — the two machines differ
+several-fold, so local numbers must never be used as the gate baseline.
+
+To refresh the baseline after an intentional performance change, take the
+numbers from a known-good PR run (the gate prints them, and they are uploaded as
+the `benchmark-throughput-results` artifact) and commit them to
+`benchmarks/gha_baseline.json`. When that file is absent the gate is in
+bootstrap mode: it reports the numbers and passes.
+
+---
+
 ## Profiling
 
 For deeper analysis, enable GHC profiling in `haskell-shim/aletheia.cabal`:

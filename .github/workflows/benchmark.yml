@@ -9,15 +9,21 @@
 # The toolchain setup mirrors pr-full-ci.yml and reuses its cache keys so the
 # Agda build and the clang-22 debs are warm if that workflow has run.
 
-name: Benchmark (manual)
+name: Benchmark
 
 on:
+  # On every PR: a regression gate (tools/benchmark_gate.py fails the check if
+  # any lane is >30% slower than the committed GHA baseline — generous because
+  # the shared runner is noisy; see benchmarks/gha_baseline.json).
+  pull_request:
+  # Manual: ad-hoc numbers with custom parameters (the gate is PR-only, so
+  # exploratory dispatch runs are never gated).
   workflow_dispatch:
     inputs:
       frames:
         description: 'Frames per run'
         required: false
-        default: '1000'
+        default: '5000'
       runs:
         description: 'Repetitions (median reported)'
         required: false
@@ -48,6 +54,11 @@ jobs:
       GHC_VERSION: '9.6.7'
       AGDA_VERSION: '2.8.0'
       STDLIB_VERSION: 'v2.3'
+      # Defaults apply on pull_request (no inputs); the PR gate is consistent
+      # because every PR run uses these same values, matching the baseline.
+      FRAMES: ${{ github.event.inputs.frames || '5000' }}
+      RUNS: ${{ github.event.inputs.runs || '5' }}
+      BENCH: ${{ github.event.inputs.bench || 'throughput' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -172,15 +183,13 @@ jobs:
           # resolves to the venv interpreter (which has aletheia installed).
           source python/.venv/bin/activate
           bash benchmarks/run_all.sh \
-            --frames "${{ github.event.inputs.frames }}" \
-            --runs "${{ github.event.inputs.runs }}" \
-            --bench "${{ github.event.inputs.bench }}"
+            --frames "${FRAMES}" --runs "${RUNS}" --bench "${BENCH}"
 
       - name: Print the result JSON
         if: always()
         run: |
           set -euo pipefail
-          for f in benchmarks/results/*_"${{ github.event.inputs.bench }}".json; do
+          for f in benchmarks/results/*_"${BENCH}".json; do
             [ -f "$f" ] || continue
             echo "=== $f ==="
             cat "$f"
@@ -191,6 +200,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-${{ github.event.inputs.bench }}-results
+          name: benchmark-${{ env.BENCH }}-results
           path: benchmarks/results/*.json
           if-no-files-found: warn
+
+      # PR gate: fail the check on a noticeable regression vs the committed GHA
+      # baseline. PR-only (exploratory workflow_dispatch runs are not gated). On
+      # the first run there is no baseline yet — the gate reports + passes
+      # (bootstrap); seed benchmarks/gha_baseline.json from that known-good run.
+      - name: Regression gate (vs GHA baseline)
+        if: github.event_name == 'pull_request'
+        run: python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30
