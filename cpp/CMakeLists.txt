@@ -129,11 +129,11 @@ endif()
 #   cmake --build build-mutation --target unit_tests
 #   mull-runner-19 ./build-mutation/unit_tests
 #
-# Requires Mull-19 (LLVM 19) installed (see docs/operations/MUTATION.md §
-# Installation) and clang-19 from the apt repo.  Mull's IR pass uses LLVM
-# version-specific APIs, so the compiler version MUST match the Mull binary
-# version (mull-ir-frontend-19 ↔ clang-19; the next Mull release will be
-# Mull-20 ↔ clang-20).  -O0 -g is mandatory: optimisations elide AST nodes
+# Requires Mull-22 (LLVM 22) built from source (see docs/operations/MUTATION.md §
+# Installation) and clang-22.  Mull's IR pass uses LLVM version-specific APIs, so
+# the compiler version MUST match the Mull binary version (mull-ir-frontend-22 ↔
+# clang-22 — the supported toolchain; tracks the latest stable Clang).  -O0 -g is
+# mandatory: optimisations elide AST nodes
 # Mull would otherwise mutate, debug info pins source locations in the
 # survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
 # target_compile_options() calls below (next to the add_library /
@@ -143,15 +143,15 @@ set(ALETHEIA_MUTATION_FLAGS "")
 if(ALETHEIA_MUTATION)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         message(FATAL_ERROR
-            "ALETHEIA_MUTATION requires clang-19 (got ${CMAKE_CXX_COMPILER_ID}); "
-            "use a separate build dir: -DCMAKE_C_COMPILER=clang-19 "
-            "-DCMAKE_CXX_COMPILER=clang++-19")
+            "ALETHEIA_MUTATION requires clang-22 (got ${CMAKE_CXX_COMPILER_ID}); "
+            "use a separate build dir: -DCMAKE_C_COMPILER=clang-22 "
+            "-DCMAKE_CXX_COMPILER=clang++-22")
     endif()
-    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-19")
+    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-22")
     if(NOT EXISTS "${MULL_PLUGIN}")
         message(FATAL_ERROR
             "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
-            "install Mull-19 per docs/operations/MUTATION.md § Installation")
+            "install Mull-22 per docs/operations/MUTATION.md § Installation")
     endif()
     message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
     set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0)

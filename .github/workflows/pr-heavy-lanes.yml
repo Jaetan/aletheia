@@ -205,13 +205,30 @@ jobs:
             go/go.sum
             go/excel/go.sum
 
-      - name: Install C++ toolchain (cmake, clang-19, libstdc++-14)
+      - name: Cache clang-22 .debs (Clang is a large download)
+        uses: actions/cache@v5
+        with:
+          path: ~/llvm-cache
+          key: clang22-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
+      # toolchain) from apt.llvm.org.  The cmake step below invokes clang-22
+      # explicitly, so no update-alternatives is needed.
+      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
         run: |
           set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
           sudo apt-get update
-          sudo apt-get install -y cmake clang-19 libstdc++-14-dev
-          sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-19   100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 clang-tidy-22 libstdc++-14-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
       # stability_run errors if these are absent (build/libaletheia-ffi.so and
       # cpp/build/stability_bench).  Build them up front; the Go harness is
@@ -223,7 +240,7 @@ jobs:
           # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
           # default source dir when only -B is given).  The first run failed
           # with "source directory does not contain CMakeLists.txt".
-          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 > /dev/null
+          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null
           cmake --build cpp/build --target stability_bench
 
       - name: Stability bench (advisory)
@@ -324,28 +341,72 @@ jobs:
           go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
           echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
 
-      - name: Install C++ toolchain (cmake, clang-19, libstdc++-14)
+      - name: Cache clang-22 + LLVM-22-dev .debs (large download)
+        uses: actions/cache@v5
+        with:
+          path: ~/llvm-cache
+          key: clang22-llvm22dev-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
+      # toolchain) + the LLVM-22 dev libraries (needed to build Mull from source)
+      # from apt.llvm.org.  mutation_run.py invokes clang-22 explicitly.
+      - name: Install C++ toolchain + LLVM-22 dev (apt.llvm.org)
         run: |
           set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
           sudo apt-get update
-          sudo apt-get install -y cmake clang-19 libstdc++-14-dev
-          sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-19   100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 libstdc++-14-dev llvm-22-dev libclang-22-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
-      # Mull-19 (matches LLVM 19 / clang-19).  Extract the release deb locally
-      # to ~/.local/bin (no system install needed).  Mirrors CLAUDE.md.
-      - name: Install Mull-19 (C++ mutation engine)
-        env:
-          MULL_DEB: 'Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb'
+      # No prebuilt Mull deb exists for LLVM 19-22 (the latest deb is LLVM-15),
+      # and the supported toolchain is clang-22 — UB can differ by compiler
+      # version, so the mutation lane MUST test clang-22 codegen.  Build Mull
+      # from source against the system LLVM-22 (Bazel; uses /usr/lib/llvm-22).
+      # Cached so it is a one-time cost per (Mull tag, LLVM version).  Validated
+      # locally 2026-06-11: the mutation lane runs green under clang-22 + Mull-22.
+      - name: Cache Mull-22 (built from source vs LLVM-22)
+        id: mull22
+        uses: actions/cache@v5
+        with:
+          path: ~/mull-bin
+          key: mull22-0.34.0-llvm22-noble-v1
+      - name: Build Mull-22 from source (cache miss)
+        if: steps.mull22.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.local/bin"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -O \
-            "https://github.com/mull-project/mull/releases/download/0.33.0/${MULL_DEB}"
-          dpkg-deb -x "${MULL_DEB}" /tmp/mull-extract
-          cp /tmp/mull-extract/usr/bin/mull-runner-19   "${HOME}/.local/bin/"
-          cp /tmp/mull-extract/usr/bin/mull-reporter-19 "${HOME}/.local/bin/"
-          cp /tmp/mull-extract/usr/lib/mull-ir-frontend-19 "${HOME}/.local/bin/"
+          # bazelisk reads Mull's .bazelversion (8.6.0)
+          curl -fsSL --retry 5 --retry-all-errors -o "${HOME}/.local/bin/bazel" \
+            https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64
+          chmod +x "${HOME}/.local/bin/bazel"
+          git clone --depth 1 --branch 0.34.0 --recursive \
+            https://github.com/mull-project/mull /tmp/mull
+          # Mull's MODULE.bazel caps ubuntu:24.04 at LLVM-20; insert "22" into the
+          # ubuntu:24.04 list (we installed /usr/lib/llvm-22 above).
+          sed -i 's/        "ubuntu:24.04": \[/        "ubuntu:24.04": [\n            "22",/' \
+            /tmp/mull/MODULE.bazel
+          ( cd /tmp/mull && "${HOME}/.local/bin/bazel" build \
+              //rust/mull-tools:mull-runner-22 \
+              //rust/mull-tools:mull-reporter-22 \
+              //:mull-ir-frontend-22 )
+          mkdir -p "${HOME}/mull-bin"
+          cp -L /tmp/mull/bazel-bin/rust/mull-tools/mull-runner-22   "${HOME}/mull-bin/"
+          cp -L /tmp/mull/bazel-bin/rust/mull-tools/mull-reporter-22 "${HOME}/mull-bin/"
+          cp -L /tmp/mull/bazel-bin/mull-ir-frontend-22             "${HOME}/mull-bin/"
+      - name: Install Mull-22 to PATH
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.local/bin"
+          cp "${HOME}/mull-bin/"mull-* "${HOME}/.local/bin/"
+          chmod +x "${HOME}/.local/bin/mull-runner-22" "${HOME}/.local/bin/mull-reporter-22"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
