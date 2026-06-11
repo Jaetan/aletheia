@@ -20,9 +20,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   primary `aletheia-2.0.0-linux-x86_64.tar.gz.sig` now verifies against the
   current `keys/cosign.pub`; the original retired-key signature is retained
   on the release as `aletheia-2.0.0-linux-x86_64.tar.gz.legacy-key.sig`.
-  Verify any release against the current `keys/cosign.pub` on `main` — a
-  tag's committed copy stays on the key that signed it (see
-  `keys/README.md` § Key history).
+  Each release publishes its signing key's SHA-256 fingerprint in the
+  release notes; verifiers confirm the key against that immutable
+  fingerprint rather than trusting a key by location (see `keys/README.md`
+  § Key history).
+- Added a published key-fingerprint trust anchor: release verification is
+  anchored on the signing key's SHA-256 fingerprint (in the release notes
+  and `keys/README.md`), so the public key may be fetched from any source
+  and confirmed before use — closing the earlier reliance on the mutable
+  `main` copy (PR #20 review).
 
 ## [2.0.0] — 2026-06-11
 
