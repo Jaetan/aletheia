@@ -16,6 +16,24 @@ This document provides step-by-step instructions for building Aletheia from sour
 > the listed versions, then check whether this document has been updated more
 > recently than your last build.
 
+## Contents
+
+- [Toolchain support policy](#toolchain-support-policy)
+- [Prerequisites](#prerequisites)
+- [Building Aletheia](#building-aletheia)
+- [Common Build Commands](#common-build-commands)
+- [Creating Convenient Aliases (Optional)](#creating-convenient-aliases-optional)
+- [Troubleshooting](#troubleshooting)
+- [Development Build Tips](#development-build-tips)
+- [Platform-Specific Notes](#platform-specific-notes)
+- [Build Performance](#build-performance)
+- [Next Steps](#next-steps)
+- [Getting Help](#getting-help)
+- [Summary of Key Commands](#summary-of-key-commands)
+- [Virtual Environment Best Practices](#virtual-environment-best-practices)
+
+---
+
 ## Toolchain support policy
 
 **This section is the single source of truth for the compiler/runtime support
@@ -454,23 +472,6 @@ source ~/.bashrc  # or source ~/.zshrc
 aletheia-env      # cd to project and activate venv
 shake build       # Build project
 shake clean       # Clean build
-```
-
-## Workflow Summary
-```bash
-# Starting a work session
-cd /path/to/aletheia
-source python/.venv/bin/activate
-
-# Make changes to Agda/Haskell/Python code
-# ... edit files ...
-
-# Build and test
-cabal run shake -- build
-cd python && python3 -m pytest tests/ -v
-
-# When done
-deactivate
 ```
 
 ## Troubleshooting

@@ -4,6 +4,25 @@
 
 ---
 
+## Contents
+
+- [Audience](#audience)
+- [Overview](#overview)
+- [Message Types](#message-types)
+- [Commands](#commands)
+- [Binary Frame Entry Point](#binary-frame-entry-point)
+- [Response Types](#response-types)
+- [LTL Property Format](#ltl-property-format)
+- [Rational Number Encoding](#rational-number-encoding)
+- [Example Session](#example-session)
+- [Limits](#limits)
+- [Error Handling](#error-handling)
+- [Implementation Notes](#implementation-notes)
+- [Structured Logging](#structured-logging)
+- [See Also](#see-also)
+
+---
+
 ## Audience
 
 This document is for:

@@ -17,6 +17,15 @@ cancellation semantics live in
 [CANCELLATION.md](../architecture/CANCELLATION.md). The runbook
 cross-references these — it does not duplicate them.
 
+## Contents
+
+- [Audience](#audience)
+- [How to use this runbook](#how-to-use-this-runbook)
+- [Log Events](#log-events)
+- [Failure Modes](#failure-modes)
+- [See also](#see-also)
+- [Versioning](#versioning)
+
 ## Audience
 
 On-call operators and integrators who deploy `libaletheia-ffi.so`

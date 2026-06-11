@@ -14,6 +14,26 @@
 
 ---
 
+## Contents
+
+- [Quick Start](#quick-start)
+- [Python DSL Reference](#python-dsl-reference)
+- [Complete Examples](#complete-examples)
+- [AletheiaClient API](#aletheiaclient-api)
+- [Signal Operations](#signal-operations)
+- [Converting .dbc Files](#converting-dbc-files)
+- [Error Handling](#error-handling)
+- [Performance Tips](#performance-tips)
+- [DSL Class Reference](#dsl-class-reference)
+- [CAN Log Reader](#can-log-reader)
+- [Enriched Violations](#enriched-violations)
+- [Structured Logging](#structured-logging)
+- [Exceptions](#exceptions)
+- [Utility Functions](#utility-functions)
+- [See Also](#see-also)
+
+---
+
 ## Quick Start
 
 ```python
