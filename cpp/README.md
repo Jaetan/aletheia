@@ -14,10 +14,11 @@ cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang+
 
 ## Compilers
 
-C++23, built and tested with **Clang 22** — the supported toolchain (latest
-stable; tracks new stable Clang releases). Older Clang may work but is not
-supported; g++ is not supported. Configure with `-DCMAKE_CXX_COMPILER=clang++-22`;
-the toolchain's libstdc++/libc++ must provide C++23 (`<expected>`, `<format>`).
+C++23, built and tested with **Clang 22** — configure with
+`-DCMAKE_CXX_COMPILER=clang++-22`. The toolchain's libstdc++/libc++ must provide
+C++23 (`<expected>`, `<format>`). For the full support policy (why Clang 22, g++
+dropped, older-Clang stance) see
+[BUILDING.md § Toolchain support policy](../docs/development/BUILDING.md#toolchain-support-policy).
 Build settings: `.clang-format`, `.clang-tidy`, `CMakeLists.txt`.
 
 ## Usage
@@ -71,4 +72,4 @@ ctest --test-dir build
 - [Interface Guide](../docs/reference/INTERFACES.md) — Check API
 - [Distribution Guide](../docs/development/DISTRIBUTION.md) — packaging the `.so`
 - [Cancellation Contract](../docs/architecture/CANCELLATION.md) — `std::stop_token` semantics
-- [Mutation Testing](../docs/operations/MUTATION.md) — Mull-19 lane
+- [Mutation Testing](../docs/operations/MUTATION.md) — Mull 0.34.0 (LLVM 22)

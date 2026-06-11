@@ -16,13 +16,20 @@ This document provides step-by-step instructions for building Aletheia from sour
 > the listed versions, then check whether this document has been updated more
 > recently than your last build.
 
-> **Toolchain support policy.** Aletheia is built and tested against the
-> **latest stable** compilers — currently **Clang 22**, **Python 3.14**, and
-> **Go 1.26**. Older releases may work, but they are not supported: the project
-> tracks the latest stable toolchain and moves forward (e.g. to Clang 23) when
-> it ships, rather than promising a minimum-version floor. Two caveats are hard
-> requirements, not "may work": Python 3.14 (PEP 758 syntax is used) and a C++23
-> standard library for the C++ binding (`<expected>` / `<format>`).
+## Toolchain support policy
+
+**This section is the single source of truth for the compiler/runtime support
+policy; other docs link here rather than restating it.**
+
+Aletheia is built and tested against the **latest stable** compilers — currently
+**Clang 22**, **Python 3.14**, and **Go 1.26**. Older releases may work, but they
+are not supported: the project tracks the latest stable toolchain and moves
+forward (e.g. to Clang 23) when it ships, rather than promising a
+minimum-version floor. g++ is not supported for the C++ binding (the sanitizer
+lanes need clang's `-fsanitize-ignorelist`, and UB can differ between compiler
+versions, so the shipped compiler is pinned). Two caveats are hard requirements,
+not "may work": Python 3.14 (PEP 758 syntax is used) and a C++23 standard library
+for the C++ binding (`<expected>` / `<format>`).
 
 ## Prerequisites
 

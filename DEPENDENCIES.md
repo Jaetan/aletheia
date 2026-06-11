@@ -77,7 +77,7 @@ The C++ binding (`cpp/`) wraps `libaletheia-ffi.so` via `dlopen`. It has no runt
 | nlohmann/json | 3.11.3 | MIT | JSON serialization/deserialization |
 | Catch2 | 3.7.1 | BSL-1.0 | Unit testing (test-only, not shipped) |
 
-Requires CMake 3.25+ and **Clang 22** (the supported toolchain — latest stable; older Clang may work but is unsupported; g++ is not supported); the toolchain's libstdc++/libc++ must provide C++23 (`<expected>`, `<format>`).
+Requires CMake 3.25+ and **Clang 22** with a C++23 libstdc++/libc++ (`<expected>`, `<format>`); see [BUILDING.md § Toolchain support policy](docs/development/BUILDING.md#toolchain-support-policy) for the full compiler policy.
 
 ---
 

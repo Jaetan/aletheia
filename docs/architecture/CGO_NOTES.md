@@ -115,11 +115,10 @@ ctest --test-dir build-ubsan
 from opt-in R21 CPP-SYS-32.2 — UB in `Rational::from_double` had
 previously shipped undetected exactly because the lane was opt-in).
 When clang-22 is unavailable, the always-on step fails loudly rather than
-silently degrading.  The project supports the latest stable Clang only
-(currently 22; g++ dropped 2026-06-09; older Clang may work but is unsupported;
-see `project_cpp_compilers.md`), so the sanitizer build uses the same clang
-toolchain as the unit-test build and must be present for `tools/run_ci.py`
-to return a green report.
+silently degrading.  The sanitizer build uses the same clang toolchain as the
+unit-test build (Clang 22 — see
+[BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy))
+and must be present for `tools/run_ci.py` to return a green report.
 
 ## Sanitizer lane decisions (R18 cluster 5, advisor option (d))
 

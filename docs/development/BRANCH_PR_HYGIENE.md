@@ -130,10 +130,11 @@ impossible on `main`.
 ## Known footguns (baked into the draft, but the likely iteration points)
 
 - **C++/LLVM is the #1 risk.** `ubuntu-24.04` defaults to `gcc-13` / `clang-18`,
-  but the build supports the latest stable Clang only (currently `clang-22`;
-  g++ dropped) and every C++ lane (ctest, clang-tidy, ubsan) pins `clang-22`.
-  `clang-22` is not in the runner's default apt, so the workflows install it
-  from `apt.llvm.org` (cached). Expect this section to go red first.
+  but the build uses `clang-22` (the supported toolchain — see
+  [BUILDING.md § Toolchain support policy](BUILDING.md#toolchain-support-policy)),
+  and every C++ lane (ctest, clang-tidy, ubsan) pins it. `clang-22` is not in
+  the runner's default apt, so the workflows install it from `apt.llvm.org`
+  (cached). Expect this section to go red first.
 - **Diff base.** `run_ci`'s IWYU `--diff` and `changed_agda_files` do
   `git diff main...HEAD`; the checkout needs `fetch-depth: 0` **and** a local
   `main` ref (the draft fetches it explicitly) or the import gate silently sees
