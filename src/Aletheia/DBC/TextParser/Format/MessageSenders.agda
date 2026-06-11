@@ -4,8 +4,18 @@
 
 -- A.2 — DSL-side `MsgSenders-format` for BO_TX_BU_ lines.
 --
--- Production-permissive Format DSL Format for the message-senders line:
---   "BO_TX_BU_" ws nat ws ":" ws identifier ("," identifier)* ";" newline
+-- Canonical-form Format DSL for the message-senders line:
+--   "BO_TX_BU_" ws nat ws ":" ws identifier ("," identifier)* ws? ";" newline
+--
+-- Whitespace matches the codebase's other Format-DSL parsers (VAL_ /
+-- receivers), NOT the looser `ws?`-everywhere informal grammar: `ws`
+-- (mandatory, parser one-or-more) between tokens and around `:`; NO
+-- whitespace after `,` (same as `Format.Receivers` — `Engine, Gateway`
+-- is rejected); `ws?` (optional, parser zero-or-more) only before `;`
+-- (`withWSCanonOne`, mirroring VAL_).  Canonical emit is `BO_TX_BU_ <id> :
+-- n1,n2,… ;`.  This is stricter than the former drop-parser (which used
+-- `parseWSOpt` in every slot); since that parser DROPPED senders, the
+-- stricter capturing parser is the correct successor.
 --
 -- Mirrors `Format.ValueDescription.ValueDescription-format`: the carrier is
 -- the RAW shape `ℕ × (Identifier × List Identifier)` (CAN ID before
@@ -44,7 +54,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop)
 open import Aletheia.DBC.TextParser.Format
   using (Format; literal; ident; nat; pair; iso; many;
-         altSum; ws; withPrefix;
+         altSum; ws; wsCanonOne; withPrefix;
          emit; parse; EmitsOK; EmitsOKMany;
          []-fails; ∷-cons; roundtrip)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
@@ -58,6 +68,12 @@ private
   -- Mandatory single space, parser one-or-more.  Canonical emit `' ' ∷ []`.
   withWS : ∀ {A} → Format A → Format A
   withWS f = iso proj₂ (λ a → tt , a) (λ _ → refl) (pair ws f)
+
+  -- Canonical single space, parser zero-or-more.  Canonical emit `' ' ∷ []`.
+  -- Used before `;` to accept an optional pre-terminator space (mirrors
+  -- `Format.ValueDescription`'s `withWSCanonOne (withPrefix ";" …)`).
+  withWSCanonOne : ∀ {A} → Format A → Format A
+  withWSCanonOne f = iso proj₂ (λ a → tt , a) (λ _ → refl) (pair wsCanonOne f)
 
   -- Line terminator: accepts `"\r\n"` or `"\n"`, canonical emit `"\n"`.
   newlineFmt : Format ⊤
@@ -148,7 +164,7 @@ MsgSenders-format =
       (withPrefix (toList "BO_TX_BU_") (
         pair (withWS nat) (
           pair (withWS (withPrefix (':' ∷ []) (withWS senderListFmt)))
-               (withPrefix (';' ∷ []) newlineFmt))))
+               (withWSCanonOne (withPrefix (';' ∷ []) newlineFmt)))))
 
 -- ============================================================================
 -- PER-LINE PRECONDITION
@@ -191,13 +207,14 @@ build-emits-ok-mss rawId h t outer (c , cs , name-eq , c-non-hs) =
           -- first sender's name head (c), non-hspace by the precondition.
           subst (λ xs → SuffixStops isHSpace
                           ((xs ++ₗ emit (many (withPrefix (',' ∷ []) ident)) t)
-                           ++ₗ emit (withPrefix (';' ∷ []) newlineFmt) tt ++ₗ outer))
+                           ++ₗ emit (withWSCanonOne (withPrefix (';' ∷ []) newlineFmt)) tt ++ₗ outer))
                 (sym name-eq)
                 (∷-stop c-non-hs)
         , build-senderlist-emits-ok h t _ (∷-stop refl) ) ) )
-  , -- (";" newlineFmt): literal ";" vacuous; newlineFmt = altSum (inj₂),
-    -- so EmitsOK is `(tt , parse "\r\n" fails on "\n"…)`.
-    ( tt , ( tt , (λ pos → refl) ) ) )
+  , -- (wsCanonOne (";" newlineFmt)): leading ws-slot head is ';' (non-hspace);
+    -- literal ";" vacuous; newlineFmt = altSum (inj₂), so EmitsOK is
+    -- `(tt , parse "\r\n" fails on "\n"…)`.
+    ( ∷-stop refl , ( tt , ( tt , (λ pos → refl) ) ) ) )
 
 -- ============================================================================
 -- TOP-LEVEL ROUNDTRIP — the universal-form theorem

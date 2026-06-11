@@ -16,8 +16,11 @@
 --   top-stmt     ::= val-table | message | bo-tx-bu | env-var | comment
 --                  | attribute-line | value-desc | sig-group | sig-valtype
 --                  | sig-mul-val
---   bo-tx-bu     ::= "BO_TX_BU_" ws nat ws? ":" ws? identifier
---                    ("," ws? identifier)* ws? ";" newline
+--   bo-tx-bu     ::= "BO_TX_BU_" ws nat ws ":" ws identifier
+--                    ("," identifier)* ws? ";" newline
+--   (canonical-form whitespace, matching the Format DSL `MsgSenders-format`:
+--    mandatory `ws` between tokens and around `:`; no whitespace after `,`
+--    — as in `Format.Receivers`; optional `ws?` only before `;`.)
 --
 -- `BO_TX_BU_` arrives here instead of in `TextParser.Topology` because it
 -- lives at the top level (sibling of `BO_`), not nested under a message.

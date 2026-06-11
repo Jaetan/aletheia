@@ -54,7 +54,7 @@ emitMsgSenders-line-chars : RawMsgSenders → List Char
 emitMsgSenders-line-chars rms =
   toList "BO_TX_BU_ " ++ₗ showℕ-dec-chars (rawCanIdℕ (RawMsgSenders.canId rms))
     ++ₗ toList " : " ++ₗ emitSenderList-chars (RawMsgSenders.senders rms)
-    ++ₗ ';' ∷ '\n' ∷ []
+    ++ₗ ' ' ∷ ';' ∷ '\n' ∷ []
 
 -- ============================================================================
 -- SECTION EMITTER
