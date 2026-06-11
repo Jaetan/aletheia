@@ -41,13 +41,42 @@ treat that as supply-chain compromise, not a bug.
 
 ## Rotating the keypair
 
-1. Generate a fresh keypair on the release host:
+1. Back up the outgoing key, then generate a fresh keypair on the release
+   host. **Choose a passphrase when prompted** — a passphrase-less key can
+   sign from the file alone, so never generate one:
    ```bash
-   cd ~/.config/aletheia && cosign generate-key-pair
+   cd ~/.config/aletheia
+   mv cosign.key cosign.key.legacy && mv cosign.pub cosign.pub.legacy
+   cosign generate-key-pair          # prompts for a passphrase (twice)
    ```
 2. Replace `keys/cosign.pub` in this repo with the new public key.
-3. Document the rotation in `CHANGELOG.md` under `### Security`.
-4. Re-sign existing releases (or mark them as legacy and regenerate).
+3. Document the rotation in `CHANGELOG.md` under `### Security` and in the
+   "Key history" section below.
+4. Re-sign existing releases (or mark them as legacy and regenerate). When
+   re-signing, sign the **already-published tarball bytes** (download the
+   release asset; do not re-run `dist`, which produces different bytes),
+   upload to the Rekor tlog so the standard verify command keeps working,
+   and update the release page to point verifiers at the **current**
+   `keys/cosign.pub` (a tag's committed copy stays on the old key — see
+   "Key history").
+
+## Key history
+
+`keys/cosign.pub` always holds the **current** signing key. Because a git
+tag immutably pins whatever `keys/cosign.pub` was committed at that tag,
+**verify any release against the current `keys/cosign.pub` on `main`**, not
+the copy at the release's own tag.
+
+| Period | Key | Notes |
+|---|---|---|
+| 2026-06-12 → present | current | Passphrase-protected. Signs v2.0.0 (re-signed) onward. |
+| 2026-05-08 → 2026-06-12 | retired | Passphrase-less; **retired, not compromised.** Pub key preserved at the `v2.0.0` tag (`git show v2.0.0:keys/cosign.pub`). |
+
+The **v2.0.0** release was re-signed with the current key during the
+2026-06-12 rotation; its primary `…tar.gz.sig` verifies against the
+current `keys/cosign.pub`. The original retired-key signature is preserved
+on the release as `…tar.gz.legacy-key.sig`, which verifies against the
+`v2.0.0` tag's pub key for anyone pinning that copy.
 
 ## Why a static keypair, not Sigstore keyless
 
