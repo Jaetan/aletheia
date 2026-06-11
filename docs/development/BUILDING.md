@@ -309,7 +309,7 @@ cd ..
 
 # Verify installation
 python3 -c "import aletheia; print(aletheia.__version__)"
-# Should output: 1.1.1
+# Should output: 2.0.0
 ```
 
 ### 6. Run Tests

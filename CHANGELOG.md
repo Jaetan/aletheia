@@ -8,7 +8,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
-## [2.0.0] — Unreleased
+## [2.0.0] — 2026-06-11
 
 This release bundles ~5 weeks of work since v1.1.1 (2026-04-03): the
 verified Agda DBC text parser and formatter, the cross-binding cancellation
