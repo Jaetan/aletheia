@@ -167,7 +167,8 @@ jobs:
       - name: Build the C++ benchmark (Release, clang-22)
         run: |
           set -euo pipefail
-          cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release \
+          # -S cpp: CMakeLists.txt lives in cpp/, not the repo root.
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
           cmake --build cpp/build --target benchmark
 
