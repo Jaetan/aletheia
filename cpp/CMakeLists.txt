@@ -3,22 +3,24 @@
 cmake_minimum_required(VERSION 3.25)
 project(aletheia-cpp VERSION 1.1.1 LANGUAGES CXX)
 
-# ── Compiler policy: Clang >= 19 ONLY (g++ support dropped 2026-06-09) ───────
-# The sanitizer lanes require clang's -fsanitize-ignorelist (g++ has no
-# equivalent), and the codebase uses C++23 library features (std::expected), so
-# the project pins ONE compiler — unit tests, sanitizers, and the mutation lane
-# then all sanitize the same compilation.  Clang < 19 mis-handles libstdc++-14's
-# <expected>.  The active standard library (libstdc++ OR libc++) MUST provide
-# C++23 (notably <expected>).
+# ── Compiler policy: Clang only; supported = latest stable Clang ────────────
+# Supported toolchain: the latest stable Clang (currently 22; moves to 23 when
+# it ships).  g++ is NOT supported — the sanitizer lanes need clang's
+# -fsanitize-ignorelist (no g++ equivalent), and the codebase uses C++23
+# library features (std::expected / std::format).  CI builds + tests against
+# the latest stable only; older Clang may work but is unsupported (Clang < 19
+# mis-handles libstdc++-14's C++23 <expected>).  The active standard library
+# (libstdc++ OR libc++) MUST provide C++23.
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     message(FATAL_ERROR
         "aletheia-cpp is Clang-only (got ${CMAKE_CXX_COMPILER_ID} "
         "${CMAKE_CXX_COMPILER_VERSION}); g++ is not supported.  Configure with: "
-        "cmake -B build -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19")
-elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
-    message(FATAL_ERROR
-        "aletheia-cpp requires Clang >= 19 (got Clang ${CMAKE_CXX_COMPILER_VERSION}); "
-        "earlier Clang mis-handles libstdc++-14's C++23 <expected>.")
+        "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22")
+elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 22)
+    message(WARNING
+        "aletheia-cpp is supported on the latest stable Clang (22); got Clang "
+        "${CMAKE_CXX_COMPILER_VERSION}.  Older Clang may work but is unsupported "
+        "(Clang < 19 mis-handles libstdc++-14's C++23 <expected>).")
 endif()
 
 # Default to Release when no build type is specified (avoids -O0 benchmarks)
