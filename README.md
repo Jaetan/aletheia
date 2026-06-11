@@ -185,7 +185,9 @@ aletheia/
 ### Reference
 - [Interface Guide](docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders
 - [Python API Guide](docs/reference/PYTHON_API.md) - Raw DSL and AletheiaClient reference
-- [CLI Reference](docs/reference/CLI.md) - `python3 -m aletheia` subcommands
+- [C++ API Guide](docs/reference/CPP_API.md) - `AletheiaClient`, Check API, and the `ltl::` DSL
+- [Go API Guide](docs/reference/GO_API.md) - `Client`, Check API, and the LTL DSL
+- [CLI Reference](docs/reference/CLI.md) - `aletheia` subcommands
 
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture
