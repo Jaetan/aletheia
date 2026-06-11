@@ -629,8 +629,14 @@ def _run_lints(runner: Runner) -> None:
     # INCLUDING tools/ (repo-root gate scripts) — both `check` and
     # `format --check`.  `python/mutants` (mutmut output) is excluded in
     # ruff.toml.  Run from the repo root so the root ruff.toml is the config.
+    # `--no-cache`: ruff's result cache is keyed on mtime, not file mode, so a
+    # cached run silently passes file-mode rules like EXE001 ("shebang present
+    # but file not executable") that a fresh CI run catches — making the local
+    # sweep / pre-push hook give a false green.  ruff is sub-second, so running
+    # cache-free here costs nothing and keeps local == CI.  See
+    # memory feedback_no_shebang_in_tools.
     ruff_cmd = (
-        f"{shlex.quote(runner.python)} -m ruff check tools examples python conftest.py "
+        f"{shlex.quote(runner.python)} -m ruff check --no-cache tools examples python conftest.py "
         f"&& {shlex.quote(runner.python)} -m ruff format --check tools examples python conftest.py"
     )
     runner.step("ruff", ruff_cmd, cwd=runner.repo_root)

@@ -1,0 +1,26 @@
+{
+  "cpp": {
+    "CAN 2.0B: Frame Building": 50661.6,
+    "CAN 2.0B: Signal Extraction": 165132.8,
+    "CAN 2.0B: Stream LTL (2 props)": 104913.4,
+    "CAN-FD:   Frame Building": 12014.1,
+    "CAN-FD:   Signal Extraction": 11760.6,
+    "CAN-FD:   Stream LTL (3 props)": 47173.3
+  },
+  "go": {
+    "CAN 2.0B: Frame Building": 47809.1,
+    "CAN 2.0B: Signal Extraction": 131747.0,
+    "CAN 2.0B: Stream LTL (2 props)": 100992.8,
+    "CAN-FD:   Frame Building": 11766.7,
+    "CAN-FD:   Signal Extraction": 11433.3,
+    "CAN-FD:   Stream LTL (3 props)": 44096.4
+  },
+  "python": {
+    "CAN 2.0B: Frame Building": 34057.5,
+    "CAN 2.0B: Signal Extraction": 49730.4,
+    "CAN 2.0B: Stream LTL (2 props)": 53477.4,
+    "CAN-FD:   Frame Building": 10166.4,
+    "CAN-FD:   Signal Extraction": 8044.3,
+    "CAN-FD:   Stream LTL (3 props)": 29265.6
+  }
+}
