@@ -18,63 +18,64 @@ cabal-install's ``dist-newstyle/`` flock when the parent process is itself
 ``cabal run``.  Direct invocation avoids the flock-recursion entirely.  See
 Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
-═══ ALWAYS-ON STEPS (35 total) ═══
+═══ ALWAYS-ON STEPS ═══
 
-  Agda gates (8):
-     1. build           — produces libaletheia-ffi.so
-     2. check-properties     (longest, ~8-10 min)
-     3. check-invariants
-     4. check-no-properties-in-runtime
-     5. check-erasure
-     6. check-fidelity       (~2 min — runs ConstructorTest binary)
-     7. check-ffi-exports
-     8. count-modules
-  Branch-scoped IWYU gates (2):
-     9. iwyu — `tools/iwyu.py --check --diff` (or `--all` under --iwyu-all,
-        the merge-gate scope) on .agda files.  The single `.agdai`-reader tool
-        judges BOTH named imports (`using`/`renaming` → USED/DEAD/UNRESOLVED)
-        and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) in one warm
-        process; fails on any finding.  Empty diff ⇒ no-op.  Reference:
-        memory/project_agda_iwyu.md.
-    10. iwyu-self-test — `tools/iwyu.py --self-test`
-        validates the reader against the synthetic fixture matrix (the
-        reader's correctness gate; it replaced the retired recompile oracle).
-  Offline enforcers (6):
-    11. check-changelog
-    12. check-gate-claim
-    13. check-runbook
-    14. check-limits-parity      (Agda Limits SSOT vs go/aletheia/limits.go
-                                  mirror)
-    15. check-stability-bench    (static gate)
-    16. check-mutation-setup     (static gate)
-  Binding tests (7):
-    17. Python pytest (deterministic lane)
-    18. Python pytest --markdown-docs (Cat 32 doc-example harness)
-    19. Python pytest -X dev (Cat 34a; surfaces ResourceWarning, debug
-        asyncio, deprecation noise)
-    20. Python pytest --random-order (Cat 14f test-isolation; AGENTS.md
-        "both lanes must stay green")
-    21. Go test -race
-    22. C++ ctest
-    23. Rust cargo test (tracer-bullet FFI lifecycle; ALETHEIA_LIB → built .so)
-  Lints (8):
-    24. ruff check + format --check (Python — `select=["ALL"]`, whole tree
-        incl tools/: tools examples python conftest.py)
-    25. basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
-    26. pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
-    27. gofmt -l + go vet (Go)
-    28. clang-format --dry-run --Werror (C++)
-    29. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
-    30. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
-        always-on after UB in Rational::from_double shipped undetected
-        exactly because the lane was opt-in)
-    31. Rust cargo fmt --check + clippy -D warnings
-  GHA meta-checks (3):
-    32. actionlint (workflow YAML lint, skipped if not installed)
-    33. check-action-pins
-    34. check-workflow-permissions
-  Source-hygiene gate (1):
-    35. check-spdx-headers (SPDX license header on every source/build file)
+The "Step X/Y" total is derived at run time from the actual step() calls (a
+silent counting pass in main()) — there is no hand-maintained count to drift.
+Steps are listed below in execution order:
+
+  Agda gates:
+    - build           — produces libaletheia-ffi.so
+    - check-properties     (longest, ~8-10 min)
+    - check-invariants
+    - check-no-properties-in-runtime
+    - check-erasure
+    - check-fidelity       (~2 min — runs ConstructorTest binary)
+    - check-ffi-exports
+    - count-modules
+  Branch-scoped IWYU gates:
+    - iwyu — `tools/iwyu.py --check --diff` (or `--all` under --iwyu-all, the
+      merge-gate scope) on .agda files.  The single `.agdai`-reader tool judges
+      BOTH named imports (`using`/`renaming` → USED/DEAD/UNRESOLVED) and wildcard
+      `open import M` (DEAD/REDUNDANT/NARROWABLE) in one warm process; fails on
+      any finding.  Empty diff ⇒ no-op.  Reference: memory/project_agda_iwyu.md.
+    - iwyu-self-test — `tools/iwyu.py --self-test` validates the reader against
+      the synthetic fixture matrix (it replaced the retired recompile oracle).
+  Offline enforcers:
+    - check-changelog
+    - check-gate-claim
+    - check-runbook
+    - check-limits-parity      (Agda Limits SSOT vs go/aletheia/limits.go mirror)
+    - check-stability-bench    (static gate)
+    - check-mutation-setup     (static gate)
+  Binding tests:
+    - Python pytest (deterministic lane)
+    - Python pytest --markdown-docs (Cat 32 doc-example harness)
+    - Python pytest -X dev (Cat 34a; surfaces ResourceWarning, debug asyncio,
+      deprecation noise)
+    - Python pytest --random-order (Cat 14f test-isolation; AGENTS.md "both
+      lanes must stay green")
+    - Go test -race
+    - C++ ctest
+    - Rust cargo test (tracer-bullet FFI lifecycle; ALETHEIA_LIB → built .so)
+  Lints:
+    - ruff check + format --check (Python — `select=["ALL"]`, whole tree incl
+      tools/: tools examples python conftest.py)
+    - basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
+    - pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
+    - gofmt -l + go vet (Go)
+    - clang-format --dry-run --Werror (C++)
+    - clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    - Rust cargo fmt --check + clippy -D warnings
+  GHA meta-checks:
+    - actionlint (workflow YAML lint, skipped if not installed)
+    - check-action-pins
+    - check-workflow-permissions
+  Source-hygiene gate:
+    - check-spdx-headers (SPDX license header on every source/build file)
+  C++ sanitizer lane (runs last):
+    - ubsan ctest (full ctest against -DALETHEIA_SANITIZER=undefined; always-on
+      after UB in Rational::from_double shipped undetected as an opt-in lane)
 
 ═══ OPT-IN LANES (3 total) ═══
 
@@ -85,11 +86,11 @@ lane that env vars would otherwise enable (useful when the pre-push hook is
 running in a context where one lane is too slow).
 
   ──────────────────────────────────────────────────────────────────────
-  Flag           Env var                       Cost  Wires which step?
+  Flag           Env var                       Cost  Wires which lane
   ──────────────────────────────────────────────────────────────────────
-  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  36: check-reproducible-build
-  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   37: stability bench
-  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 38: mutation testing lane
+  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  check-reproducible-build
+  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   stability bench
+  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ mutation testing lane
   ──────────────────────────────────────────────────────────────────────
   --full         (all three above)             ~45m+ all opt-ins
 
@@ -99,7 +100,7 @@ cold (no test cache, no Mull build-mutation tree) closer to 55-115 min.
 
 ═══ Python venv pinning ═══
 
-The Python lanes (steps 17-22) prefer ``python/.venv/bin/python3`` over
+The Python lanes prefer ``python/.venv/bin/python3`` over
 the system ``python3`` so dev extras (``pytest-markdown-docs``,
 ``pytest-random-order``, ``hypothesis``, ``mutmut``) resolve.  Bootstrap
 the venv once via:
@@ -153,10 +154,6 @@ POSIX_SHELL = "/bin/sh"
 
 # Number of trailing log lines echoed to stderr when a step fails.
 FAILURE_TAIL_LINES = 50
-
-# Always-on step count (includes promoted UBSan lane + the two branch-scoped
-# IWYU gates + the ruff lint gate + SPDX-header gate).
-BASE_STEPS = 33
 
 _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -365,7 +362,7 @@ class Runner:
 
     opts: OptInOptions
     ctx: RunContext
-    total_steps: int = field(init=False)
+    total_steps: int = field(init=False, default=0)
     step_num: int = field(init=False, default=0)
     failed_step: str | None = field(init=False, default=None)
     start: float = field(init=False, default=0.0)
@@ -373,7 +370,10 @@ class Runner:
 
     def __post_init__(self) -> None:
         """Open the log file handle and initialise counters."""
-        self.total_steps = BASE_STEPS + self.opts.enabled_count()
+        # total_steps stays 0 until main()'s silent counting pass fills it — and
+        # total_steps == 0 IS the count-mode signal for step()/announce_skip(),
+        # so the total derives from the actual step() calls (single source of
+        # truth for the "Step X/Y" counter) with no extra state to drift.
         self.start = time.time()
         self.log_fh = _open_log(self.ctx.log_path)
 
@@ -404,7 +404,8 @@ class Runner:
             f"Started:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
             f"Branch:   {self.ctx.branch}",
             f"Commit:   {self.ctx.commit}",
-            f"Steps:    {self.total_steps} ({BASE_STEPS} always-on + "
+            f"Steps:    {self.total_steps} "
+            + f"({self.total_steps - self.opts.enabled_count()} always-on + "
             + f"{self.opts.enabled_count()} opt-in)",
             f"Opt-ins:  {' '.join(opt_in_summary)}",
             f"Log:      {self.ctx.log_path}",
@@ -461,6 +462,9 @@ class Runner:
         ``/bin/sh -c`` for the lanes that need pipes, redirection, or globs.
         Once a step fails, subsequent calls are no-ops.
         """
+        if self.total_steps == 0:  # counting pass: tally only, don't execute
+            self.step_num += 1
+            return
         if self.failed_step is not None:
             return
         self.step_num += 1
@@ -485,6 +489,8 @@ class Runner:
 
     def announce_skip(self, name: str, reason: str) -> None:
         """Log a skipped lane without bumping the step counter."""
+        if self.total_steps == 0:  # counting pass: skips aren't counted
+            return
         # Skipped steps don't bump the step counter — they're not part of
         # total_steps in the first place (only enabled lanes are counted).
         # We still log the skip line so the log is complete.
@@ -515,8 +521,8 @@ class Runner:
 
 
 def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
-    """Run steps 1-10: the Agda gate sweep plus the two branch-scoped IWYU gates."""
-    # ─── Steps 1-8: Agda gates ─────────────────────────────────────────────
+    """Run the Agda gate sweep plus the two branch-scoped IWYU gates."""
+    # ─── Agda gates ─────────────────────────────────────────────
     runner.step("build", [*cabal, "build"])
     runner.step("check-properties", [*cabal, "check-properties"])
     runner.step("check-invariants", [*cabal, "check-invariants"])
@@ -526,14 +532,14 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
     runner.step("count-modules", [*cabal, "count-modules"])
 
-    # ─── Steps 9-10: the IWYU gate (one tool) ───────────────────────────────
-    # Step 9 (`iwyu --check`) judges BOTH named imports (DEAD/UNRESOLVED) and
+    # ─── IWYU gate (one tool) ───────────────────────────────
+    # iwyu --check judges BOTH named imports (DEAD/UNRESOLVED) and
     # wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware
     # `.agdai` reader in one warm process — no recompile-confirm.  Scope is
     # branch-diff by default (`--diff`: git diff main...HEAD -- src/; empty diff
     # ⇒ no-op — local pre-push-hook parity), or the whole tree (`--all`) under
     # `--iwyu-all` / ALETHEIA_IWYU_ALL=1 — airtight against cross-file deadness,
-    # which is what the server-side PR merge gate runs.  Step 10
+    # which is what the server-side PR merge gate runs.  iwyu-self-test
     # (`iwyu --self-test`) validates that reader against the synthetic fixture
     # matrix (its correctness gate).  Reference: memory/project_agda_iwyu.md.
     iwyu_scope = "--all" if runner.opts.iwyu_all else "--diff"
@@ -550,8 +556,8 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
 
 
 def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:
-    """Run steps 10-15: the offline enforcer Shake targets."""
-    # ─── Steps 10-14: Offline enforcers ────────────────────────────────────
+    """Run the offline enforcer Shake targets."""
+    # ─── Offline enforcers ────────────────────────────────────
     runner.step("check-changelog", [*cabal, "check-changelog"])
     runner.step("check-gate-claim", [*cabal, "check-gate-claim"])
     runner.step("check-runbook", [*cabal, "check-runbook"])
@@ -561,15 +567,15 @@ def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:
 
 
 def _run_binding_tests(runner: Runner) -> None:
-    """Run steps 16-21: the Python / Go / C++ binding test lanes."""
-    # ─── Steps 14-19: Binding tests ────────────────────────────────────────
-    # Step 14: deterministic pytest lane.
+    """Run the Python / Go / C++ / Rust binding test lanes."""
+    # ─── Binding tests ────────────────────────────────────────
+    # Deterministic pytest lane.
     runner.step(
         "pytest",
         [runner.python, "-m", "pytest", "tests/"],
         cwd=runner.repo_root / "python",
     )
-    # Step 15: doc-example fence harness.
+    # Doc-example fence harness.
     runner.step(
         "pytest --markdown-docs",
         [
@@ -586,13 +592,13 @@ def _run_binding_tests(runner: Runner) -> None:
         ],
         cwd=runner.repo_root,
     )
-    # Step 16: Python -X dev mode (Cat 34a).
+    # Python -X dev mode (Cat 34a).
     runner.step(
         "pytest -X dev",
         [runner.python, "-X", "dev", "-m", "pytest", "tests/"],
         cwd=runner.repo_root / "python",
     )
-    # Step 17: random-order test isolation (Cat 14f).
+    # Random-order test isolation (Cat 14f).
     runner.step(
         "pytest --random-order",
         [
@@ -634,8 +640,8 @@ def _run_binding_tests(runner: Runner) -> None:
 
 
 def _run_lints(runner: Runner) -> None:
-    """Run steps 23-29: the Python / Go / C++ lint gates plus the UBSan ctest lane."""
-    # ─── Steps 23-29: Lints ────────────────────────────────────────────────
+    """Run the Python / Go / C++ / Rust lint gates."""
+    # ─── Lints ────────────────────────────────────────────────
     # ruff (`select=["ALL"]`, config in ruff.toml) over the WHOLE Python tree
     # INCLUDING tools/ (repo-root gate scripts) — both `check` and
     # `format --check`.  `python/mutants` (mutmut output) is excluded in
@@ -658,7 +664,7 @@ def _run_lints(runner: Runner) -> None:
     # two stay symmetric (feedback_no_subsumption_asymmetry.md).
     #
     # Invoke via ``runner.python -m basedpyright`` (not the bare ``basedpyright``
-    # console script) for the same reason as ruff/pylint: CI launches this sweep
+    # console script) for the same reason as ruff/pylint — CI launches this sweep
     # as ``python/.venv/bin/python3 -m tools.run_ci``, which does NOT activate
     # the venv, so the venv's ``bin/`` is not on PATH and a bare ``basedpyright``
     # raises FileNotFoundError. ``-m`` runs the venv-installed package directly.
@@ -730,8 +736,8 @@ def _run_lints(runner: Runner) -> None:
 
 
 def _run_gha_checks(runner: Runner) -> None:
-    """Run steps 28-30: the GitHub-Actions workflow meta-checks."""
-    # ─── Steps 25-27: GHA meta-checks ──────────────────────────────────────
+    """Run the GitHub-Actions workflow meta-checks plus the SPDX-header gate."""
+    # ─── GHA meta-checks + SPDX header gate ──────────────────────────────────────
     if shutil.which("actionlint"):
         if (runner.repo_root / ".github" / "workflows").is_dir():
             runner.step("actionlint", ["actionlint", "-color"])
@@ -762,12 +768,12 @@ def _run_gha_checks(runner: Runner) -> None:
 
 def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     """Run the always-on UBSan lane then the enabled repro / stability / mutation lanes."""
-    # ─── Opt-in lanes (numbered 34+ when enabled) ──────────────────────────
+    # ─── Opt-in lanes (off by default) ──────────────────────────
     # Each lane is appended to total_steps in __init__ via opts.enabled_count();
     # they share the same step counter as always-on steps so the "ALL N STEPS
     # PASSED" line in finalize() matches the actual count.
 
-    # Step 29 (always-on): UBSan lane (Cat 33a; promoted from opt-in to
+    # Always-on UBSan lane (Cat 33a; promoted from opt-in to
     # always-on after UB in Rational::from_double had previously shipped
     # undetected exactly because the lane was opt-in).  Builds the full
     # ctest battery against -DALETHEIA_SANITIZER=undefined and asserts
@@ -786,7 +792,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         cwd=runner.repo_root / "cpp",
     )
 
-    # Step 34 (opt-in): reproducible-build gate ────────────────────────────
+    # Opt-in: reproducible-build gate ────────────────────────────
     if opts.repro:
         runner.step(
             "check-reproducible-build",
@@ -799,7 +805,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
             "set ALETHEIA_REPRO_CHECK=1 or pass --repro to enable",
         )
 
-    # Step 35 (opt-in): long-run stability bench ───────────────────────────
+    # Opt-in: long-run stability bench ───────────────────────────
     # Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27.
     if opts.stability:
         runner.step(
@@ -813,7 +819,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
             "set ALETHEIA_STABILITY_CHECK=1 or pass --stability to enable",
         )
 
-    # Step 36 (opt-in): mutation testing across all 3 bindings ─────────────
+    # Opt-in: mutation testing across all 3 bindings ─────────────
     # Cat 14g.  AGENTS.md: "Mutation testing runs as a separate CI lane
     # (cost is high) — once per PR is sufficient; per-commit is overkill."
     # Default OFF.  See docs/operations/MUTATION.md.
@@ -830,22 +836,35 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         )
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the full offline CI sweep, returning the process exit code."""
-    opts = parse_args(argv)
-    repo_root = _git_root()
-    os.chdir(repo_root)
-    runner = Runner(opts, RunContext.discover(repo_root))
-    runner.header()
-
-    cabal = ["cabal", "run", "shake", "--"]
-
+def _run_all_phases(runner: Runner, cabal: list[str], opts: OptInOptions) -> None:
+    """Run every phase in order. Invoked twice: a silent counting pass, then for real."""
     _run_agda_gates(runner, cabal)
     _run_offline_enforcers(runner, cabal)
     _run_binding_tests(runner)
     _run_lints(runner)
     _run_gha_checks(runner)
     _run_opt_in_lanes(runner, opts)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the full offline CI sweep, returning the process exit code."""
+    opts = parse_args(argv)
+    repo_root = _git_root()
+    os.chdir(repo_root)
+    runner = Runner(opts, RunContext.discover(repo_root))
+    cabal = ["cabal", "run", "shake", "--"]
+
+    # Single source of truth for the step total: a silent counting pass tallies
+    # the actual step() calls, so adding or removing a step can never desync the
+    # "Step X/Y" counter from reality (a hand-maintained constant did, once).
+    # total_steps == 0 (its initial value) drives the counting pass; setting it
+    # from the tally below flips step() into real-execution mode.
+    _run_all_phases(runner, cabal, opts)
+    runner.total_steps = runner.step_num
+    runner.step_num = 0
+
+    runner.header()
+    _run_all_phases(runner, cabal, opts)
 
     return runner.finalize()
 
