@@ -769,9 +769,10 @@ def _run_gha_checks(runner: Runner) -> None:
 def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     """Run the always-on UBSan lane then the enabled repro / stability / mutation lanes."""
     # ─── Opt-in lanes (off by default) ──────────────────────────
-    # Each lane is appended to total_steps in __init__ via opts.enabled_count();
-    # they share the same step counter as always-on steps so the "ALL N STEPS
-    # PASSED" line in finalize() matches the actual count.
+    # The opt-in lanes share the same step counter as the always-on steps and are
+    # tallied by main()'s counting pass too (step() runs in both passes), so
+    # total_steps and the "ALL N STEPS PASSED" line in finalize() already reflect
+    # whichever lanes are enabled — no separate per-lane bookkeeping here.
 
     # Always-on UBSan lane (Cat 33a; promoted from opt-in to
     # always-on after UB in Rational::from_double had previously shipped

@@ -18,7 +18,7 @@
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::fmt;
-use std::sync::{Once, OnceLock};
+use std::sync::OnceLock;
 
 use libloading::{Library, Symbol};
 
@@ -26,7 +26,10 @@ use libloading::{Library, Symbol};
 type StateHandle = *mut c_void;
 
 /// Errors surfaced by the binding.
-#[derive(Debug)]
+///
+/// `Clone` lets the process-global RTS-init latch (`RTS_INIT`) replay the first
+/// init outcome on every `ensure_rts` call.
+#[derive(Debug, Clone)]
 pub enum Error {
     /// `libaletheia-ffi.so` could not be loaded (resolved path + underlying message).
     LibraryLoad { path: String, source: String },
@@ -63,7 +66,7 @@ fn lib_path() -> String {
 /// Process-global handle to the loaded library. The GHC RTS owns threads for the
 /// process lifetime, so the library is loaded once and never unloaded.
 static LIB: OnceLock<Library> = OnceLock::new();
-static RTS_INIT: Once = Once::new();
+static RTS_INIT: OnceLock<Result<(), Error>> = OnceLock::new();
 
 fn library() -> Result<&'static Library, Error> {
     if let Some(lib) = LIB.get() {
@@ -102,18 +105,22 @@ unsafe fn symbol<'lib, T>(lib: &'lib Library, name: &[u8]) -> Result<Symbol<'lib
 /// we start it once and never tear it down. `hs_init(NULL, NULL)` selects RTS
 /// defaults; `+RTS -N<cores> -RTS` tuning lands in a later slice.
 fn ensure_rts(lib: &Library) -> Result<(), Error> {
-    let mut result = Ok(());
-    RTS_INIT.call_once(|| {
-        // SAFETY: `hs_init` has signature `void hs_init(int *argc, char ***argv)`;
-        // NULL/NULL is permitted by the GHC runtime and selects default flags.
-        match unsafe {
-            symbol::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(lib, b"hs_init\0")
-        } {
-            Ok(hs_init) => unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) },
-            Err(e) => result = Err(e),
-        }
-    });
-    result
+    // Latch the first init outcome process-globally and replay it on every call.
+    // A plain `Once` would run the body at most once but could not surface a
+    // first-call failure to later callers (it cannot re-run) — masking a broken
+    // `.so`. `OnceLock<Result<…>>` stores the outcome (Ok, or the same Err) so a
+    // second `Client::new()` after a failed first one fails identically.
+    RTS_INIT
+        .get_or_init(|| {
+            // SAFETY: `hs_init` has signature `void hs_init(int *argc, char ***argv)`;
+            // NULL/NULL is permitted by the GHC runtime and selects default flags.
+            let hs_init = unsafe {
+                symbol::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(lib, b"hs_init\0")
+            }?;
+            unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) };
+            Ok(())
+        })
+        .clone()
 }
 
 /// RAII guard for a C string the core returned (allocated by the GHC RTS).
@@ -122,9 +129,13 @@ fn ensure_rts(lib: &Library) -> Result<(), Error> {
 /// **never** with `CString::from_raw`, which would hand RTS memory to Rust's
 /// allocator and corrupt the heap. This guard makes the copy-then-free sequence
 /// impossible to skip per call site.
+/// The signature of `aletheia_free_str`, resolved once in `process()` so the
+/// guard's `Drop` is infallible and can never leak by silently skipping a free.
+type FreeStrFn<'a> = Symbol<'a, unsafe extern "C" fn(*mut c_char)>;
+
 struct Response<'a> {
     ptr: *mut c_char,
-    lib: &'a Library,
+    free_str: FreeStrFn<'a>,
 }
 
 impl Response<'_> {
@@ -139,13 +150,9 @@ impl Response<'_> {
 
 impl Drop for Response<'_> {
     fn drop(&mut self) {
-        // SAFETY: `ptr` was allocated by the core; `aletheia_free_str` is its
-        // matching deallocator.
-        if let Ok(free) =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(self.lib, b"aletheia_free_str\0") }
-        {
-            unsafe { free(self.ptr) };
-        }
+        // SAFETY: `ptr` was allocated by the core; `free_str` (resolved up front
+        // in process(), so it is known to exist) is its matching deallocator.
+        unsafe { (self.free_str)(self.ptr) };
     }
 }
 
@@ -189,11 +196,15 @@ impl Client {
                 b"aletheia_process\0",
             )
         }?;
+        // Resolve the deallocator BEFORE allocating, so a `.so` missing
+        // `aletheia_free_str` fails here instead of leaking in Response::drop.
+        let free_str =
+            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
         let ptr = unsafe { process(self.handle, c_cmd.as_ptr()) };
         if ptr.is_null() {
             return Err(Error::NullResponse);
         }
-        Ok(Response { ptr, lib }.into_string())
+        Ok(Response { ptr, free_str }.into_string())
     }
 }
 

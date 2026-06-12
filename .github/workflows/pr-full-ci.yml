@@ -144,7 +144,7 @@ jobs:
       # action) keeps the action-pin policy untouched.
       - name: Set up Rust (stable + clippy + rustfmt)
         run: |
-          rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
           rustup default stable
           rustc --version && cargo --version
 
