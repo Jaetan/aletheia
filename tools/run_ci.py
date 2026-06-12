@@ -18,7 +18,7 @@ cabal-install's ``dist-newstyle/`` flock when the parent process is itself
 ``cabal run``.  Direct invocation avoids the flock-recursion entirely.  See
 Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
-═══ ALWAYS-ON STEPS (33 total) ═══
+═══ ALWAYS-ON STEPS (35 total) ═══
 
   Agda gates (8):
      1. build           — produces libaletheia-ffi.so
@@ -47,7 +47,7 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
                                   mirror)
     15. check-stability-bench    (static gate)
     16. check-mutation-setup     (static gate)
-  Binding tests (6):
+  Binding tests (7):
     17. Python pytest (deterministic lane)
     18. Python pytest --markdown-docs (Cat 32 doc-example harness)
     19. Python pytest -X dev (Cat 34a; surfaces ResourceWarning, debug
@@ -56,23 +56,25 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
         "both lanes must stay green")
     21. Go test -race
     22. C++ ctest
-  Lints (7):
-    23. ruff check + format --check (Python — `select=["ALL"]`, whole tree
+    23. Rust cargo test (tracer-bullet FFI lifecycle; ALETHEIA_LIB → built .so)
+  Lints (8):
+    24. ruff check + format --check (Python — `select=["ALL"]`, whole tree
         incl tools/: tools examples python conftest.py)
-    24. basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
-    25. pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
-    26. gofmt -l + go vet (Go)
-    27. clang-format --dry-run --Werror (C++)
-    28. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
-    29. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
+    25. basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
+    26. pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
+    27. gofmt -l + go vet (Go)
+    28. clang-format --dry-run --Werror (C++)
+    29. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    30. ubsan ctest (C++ — full ctest against -DALETHEIA_SANITIZER=undefined;
         always-on after UB in Rational::from_double shipped undetected
         exactly because the lane was opt-in)
+    31. Rust cargo fmt --check + clippy -D warnings
   GHA meta-checks (3):
-    30. actionlint (workflow YAML lint, skipped if not installed)
-    31. check-action-pins
-    32. check-workflow-permissions
+    32. actionlint (workflow YAML lint, skipped if not installed)
+    33. check-action-pins
+    34. check-workflow-permissions
   Source-hygiene gate (1):
-    33. check-spdx-headers (SPDX license header on every source/build file)
+    35. check-spdx-headers (SPDX license header on every source/build file)
 
 ═══ OPT-IN LANES (3 total) ═══
 
@@ -85,9 +87,9 @@ running in a context where one lane is too slow).
   ──────────────────────────────────────────────────────────────────────
   Flag           Env var                       Cost  Wires which step?
   ──────────────────────────────────────────────────────────────────────
-  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  34: check-reproducible-build
-  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   35: stability bench
-  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 36: mutation testing lane
+  --repro        ALETHEIA_REPRO_CHECK=1        ~10m  36: check-reproducible-build
+  --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   37: stability bench
+  --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ 38: mutation testing lane
   ──────────────────────────────────────────────────────────────────────
   --full         (all three above)             ~45m+ all opt-ins
 
@@ -620,6 +622,15 @@ def _run_binding_tests(runner: Runner) -> None:
         + "> /dev/null && cmake --build build && ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
+    # Rust binding — loads libaletheia-ffi.so at runtime (like Go / C++). The
+    # tracer-bullet slice proves the FFI lifecycle + GHC-allocated-memory
+    # ownership; ALETHEIA_LIB points cargo's test at the freshly built .so.
+    rust_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
+    runner.step(
+        "cargo test",
+        f"ALETHEIA_LIB={rust_lib} cargo test",
+        cwd=runner.repo_root / "rust",
+    )
 
 
 def _run_lints(runner: Runner) -> None:
@@ -707,6 +718,14 @@ def _run_lints(runner: Runner) -> None:
         "clang-tidy",
         "clang-tidy-22 -p build src/*.cpp src/cli/*.cpp",
         cwd=runner.repo_root / "cpp",
+    )
+
+    # Rust lints: rustfmt (check) + clippy (deny warnings) — the cargo
+    # equivalents of gofmt+vet / clang-format+clang-tidy.
+    runner.step(
+        "cargo fmt + clippy",
+        "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+        cwd=runner.repo_root / "rust",
     )
 
 

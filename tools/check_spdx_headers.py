@@ -75,6 +75,7 @@ _EXT_COMMENT: dict[str, str] = {
     ".hs": _DASH,
     ".py": _HASH,
     ".pyi": _HASH,
+    ".rs": _SLASH,
     ".sh": _HASH,
     ".toml": _HASH,
     ".yaml": _HASH,

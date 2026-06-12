@@ -138,6 +138,16 @@ jobs:
             go/go.sum
             go/excel/go.sum
 
+      # The ubuntu-24.04 runner ships rustup; ensure a stable toolchain with the
+      # clippy + rustfmt components so run_ci's Rust lane (cargo test / clippy /
+      # fmt --check) has everything it needs. A plain `run:` step (no third-party
+      # action) keeps the action-pin policy untouched.
+      - name: Set up Rust (stable + clippy + rustfmt)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+
       # ubuntu-24.04 pre-installs only clang ≤19, but the supported toolchain is
       # the latest stable Clang (22 — see cpp/CMakeLists.txt + AGENTS/cpp.md), so
       # install clang-22 from apt.llvm.org.  libstdc++-14-dev provides the C++23

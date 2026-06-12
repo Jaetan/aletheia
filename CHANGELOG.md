@@ -10,6 +10,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Rust binding (`rust/`) — loads `libaletheia-ffi.so` at runtime via `dlopen`
+  (the `libloading` crate), mirroring the Go and C++ `.so`-consumer model. This
+  first slice is a tracer bullet proving the FFI lifecycle (load → GHC RTS init
+  → `aletheia_process` round-trip → free → close) and GHC-allocated-memory
+  ownership (responses copied out and released with `aletheia_free_str`; the RTS
+  started once via `std::sync::Once`). Gated by a required `cargo test` /
+  `cargo fmt --check` / `cargo clippy -D warnings` lane in `tools/run_ci.py`.
+  The typed client surface and the `FEATURE_MATRIX.yaml` `rust` column land in
+  subsequent slices.
+
 ### Security
 
 - Rotated the release-signing cosign key to a passphrase-protected key.
