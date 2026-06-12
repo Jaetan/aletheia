@@ -165,6 +165,7 @@ aletheia/
 ├── python/              # Python API
 ├── cpp/                 # C++23 binding
 ├── go/                  # Go binding
+├── rust/                # Rust binding (loads libaletheia-ffi.so at runtime)
 ├── benchmarks/          # Cross-language benchmarks
 ├── docs/                # Documentation
 └── examples/            # Sample DBC files and demos
