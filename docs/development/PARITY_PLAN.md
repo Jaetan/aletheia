@@ -29,7 +29,7 @@ Cross-language divergence is a bug per `feedback_cross_language_parity.md`. This
 
 **One row per user-facing capability, not per method.** "Load a DBC file" is a row. `cpp::load_dbc`, `go.LoadDBC`, `aletheia.load_dbc` are all entries on the same row. If the three bindings for a row fit on one line, the granularity is right.
 
-**`not_applicable` requires `reason`.** A binding cell with `status: not_applicable` MUST carry a non-empty `reason` string. The structural test fails if either is missing. The canonical `not_applicable` example is CLI: C++ and Go are library bindings; a CLI is a host-application concern.
+**`not_applicable` requires `reason`.** A binding cell with `status: not_applicable` MUST carry a non-empty `reason` string. The structural test fails if either is missing. The canonical `not_applicable` example is `mock_backend`: Python and Go export a public `MockBackend`, but in C++ it exists only as test-internal scaffolding (`cpp/src/detail/mock_backend.hpp`), not on the installed `cpp/include/` surface. (CLI was the original example here until Phase 6 shipped it — see Out of Scope below.)
 
 ## Phases
 
@@ -448,7 +448,7 @@ Calendar time is dominated by B.3 and Track C review latency — both are accept
 ## Out of Scope
 
 - **LGPL hard-forced rewrite.** Tracked separately in `project_lgpl_contingency.md`. B.3 naturally resolves the cantools piece; this plan does not commit to the broader contingency (python-can, libgmp).
-- **CLI parity for C++/Go.** `not_applicable` in the matrix with reason: "library bindings; CLI is a host-application concern."
+- **CLI parity for C++/Go.** Was out of scope *for this plan* (the R17 tracks A–E) as a host-application concern; subsequently shipped in **Phase 6 (2026-06-12, PR #21)**. The matrix `cli` row is now `implemented` across all three bindings — `aletheia/cli.hpp#run_cli` (C++), `cmd/aletheia:run` (Go), `aletheia.cli.main` (Python). The host binaries are thin: they dispatch to the verified core via FFI and reimplement no logic. The `check` subcommand stays deferred pending a verified CAN-log reader (`can_log_reader`, the python-can item).
 - **FFI `unsafeCoerce` guard (R17-DEF-1).** ✅ Closed 2026-05-07 by extending `haskell-shim/test/ConstructorTest.hs` (the `check-fidelity` Shake gate) from 1 of 11 FFI exports to all 11. Each test forces the coerced payload to a depth where a heap-shape mismatch crashes; full closure detail in `project_ffi_unsafecoerce_guard.md`. Was never a parity concern.
 
 ## Related Memory
