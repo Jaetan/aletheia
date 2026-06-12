@@ -142,8 +142,11 @@ static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
         base = 16;
     }
     // Materialize a std::string so from_chars reads null-terminated data()
-    // (string_view::data() trips bugprone-suspicious-stringview-data-usage);
-    // std::to_address(end()) is the arithmetic-free [last) bound. Cold path.
+    // (string_view::data() trips bugprone-suspicious-stringview-data-usage).
+    // std::to_address(end()) is the arithmetic-free [last) bound — well-defined
+    // on a past-the-end iterator ([pointer.conversion] requires no dereference),
+    // and data()+size() would trip cppcoreguidelines-pro-bounds-pointer-arithmetic.
+    // Cold path.
     const std::string str{s};
     std::uint32_t value = 0;
     const auto* const end = std::to_address(str.end());
@@ -387,6 +390,64 @@ static auto resolve_mux_message(const DbcDefinition& def, const std::string& ide
     return def.message_by_name(aletheia::MessageName{ident});
 }
 
+// mux-query selector mode: the signals present for one (multiplexor, value).
+static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uint32_t value,
+                         bool as_json) -> int {
+    const auto sigs =
+        msg.signals_for_mux_value(aletheia::SignalName{mux}, aletheia::MultiplexValue{value});
+    if (as_json) {
+        Json names = Json::array();
+        for (const auto& s : sigs)
+            names.push_back(s.name.get());
+        return emit_json({{"message_id", aletheia::can_id_value(msg.id)},
+                          {"message_name", msg.name.get()},
+                          {"multiplexor", mux},
+                          {"value", value},
+                          {"signals", names}});
+    }
+    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
+              << msg.name.get() << " — " << mux << " = " << value << ": " << sigs.size()
+              << " signals\n";
+    for (const auto& s : sigs)
+        std::cout << "  " << s.name.get() << '\n';
+    return k_exit_ok;
+}
+
+// mux-query summary mode: every multiplexor, its values, and their signals.
+static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
+    if (as_json) {
+        Json muxes = Json::array();
+        for (const auto& name : msg.multiplexor_names()) {
+            Json vals = Json::array();
+            for (auto v : msg.multiplex_values(name)) {
+                Json sigs = Json::array();
+                for (const auto& s : msg.signals_for_mux_value(name, v))
+                    sigs.push_back(s.name.get());
+                vals.push_back({{"value", v.get()}, {"signals", sigs}});
+            }
+            muxes.push_back({{"name", name.get()}, {"values", vals}});
+        }
+        return emit_json({{"message_id", aletheia::can_id_value(msg.id)},
+                          {"message_name", msg.name.get()},
+                          {"is_multiplexed", msg.is_multiplexed()},
+                          {"multiplexors", muxes}});
+    }
+    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
+              << msg.name.get() << '\n';
+    if (!msg.is_multiplexed()) {
+        std::cout << "  Not multiplexed — " << msg.signals.size() << " signals always present.\n";
+        return k_exit_ok;
+    }
+    for (const auto& name : msg.multiplexor_names()) {
+        std::cout << "  " << name.get() << ":\n";
+        for (auto v : msg.multiplex_values(name)) {
+            auto sigs = msg.signals_for_mux_value(name, v);
+            std::cout << "    value " << v.get() << ": " << sigs.size() << " signals\n";
+        }
+    }
+    return k_exit_ok;
+}
+
 static auto cmd_mux_query(const Args& a) -> int {
     if (a.positionals.size() != 1)
         return die("mux-query requires a <message> positional argument (CAN ID or name)");
@@ -401,37 +462,23 @@ static auto cmd_mux_query(const Args& a) -> int {
     if (msg == nullptr)
         return die("message not found by id or name: " + a.positionals[0]);
 
-    if (a.flags.contains("json")) {
-        Json muxes = Json::array();
-        for (const auto& name : msg->multiplexor_names()) {
-            Json vals = Json::array();
-            for (auto v : msg->multiplex_values(name)) {
-                Json sigs = Json::array();
-                for (const auto& s : msg->signals_for_mux_value(name, v))
-                    sigs.push_back(s.name.get());
-                vals.push_back({{"value", v.get()}, {"signals", sigs}});
-            }
-            muxes.push_back({{"name", name.get()}, {"values", vals}});
-        }
-        return emit_json({{"message_id", aletheia::can_id_value(msg->id)},
-                          {"message_name", msg->name.get()},
-                          {"is_multiplexed", msg->is_multiplexed()},
-                          {"multiplexors", muxes}});
+    // `--mux NAME --value N` (both or neither) selects one multiplexor value;
+    // otherwise print the full summary. Mirrors the Python/Go CLIs.
+    const bool has_mux = a.opts.contains("mux");
+    const bool has_value = a.opts.contains("value");
+    if (has_mux != has_value)
+        return die("--mux and --value must be provided together");
+    if (!has_mux)
+        return mux_summary(*msg, a.flags.contains("json"));
+
+    const std::string& vstr = a.opts.at("value");
+    std::uint32_t value = 0;
+    const auto* const vend = std::to_address(vstr.end());
+    if (auto [ptr, ec] = std::from_chars(vstr.data(), vend, value);
+        ec != std::errc{} || ptr != vend) {
+        return die("invalid --value: " + vstr);
     }
-    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg->id) << std::dec << " "
-              << msg->name.get() << '\n';
-    if (!msg->is_multiplexed()) {
-        std::cout << "  Not multiplexed — " << msg->signals.size() << " signals always present.\n";
-        return k_exit_ok;
-    }
-    for (const auto& name : msg->multiplexor_names()) {
-        std::cout << "  " << name.get() << ":\n";
-        for (auto v : msg->multiplex_values(name)) {
-            auto sigs = msg->signals_for_mux_value(name, v);
-            std::cout << "    value " << v.get() << ": " << sigs.size() << " signals\n";
-        }
-    }
-    return k_exit_ok;
+    return mux_selector(*msg, a.opts.at("mux"), value, a.flags.contains("json"));
 }
 
 constexpr std::string_view k_usage =

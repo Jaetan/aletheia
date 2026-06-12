@@ -59,6 +59,10 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
             .string();
     CHECK(run({"mux-query", "--dbc", mux, "0x64"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--json"}) == 0);
+    // Selector mode (--mux/--value) + its mismatch error — CoPilot PR #21 review.
+    CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"}) == 0);
+    CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"}) == 0);
+    CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {

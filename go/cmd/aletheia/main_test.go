@@ -49,6 +49,7 @@ func TestCLISmoke(t *testing.T) {
 	ensureLib(t)
 	silenceStdout(t)
 	dbc := repoPath("examples", "example.dbc")
+	mux := repoPath("python", "tests", "fixtures", "dbc_corpus", "multiplexing.dbc")
 	cases := [][]string{
 		{"validate", "--dbc", dbc},
 		{"validate", "--dbc", dbc, "--json"},
@@ -57,12 +58,18 @@ func TestCLISmoke(t *testing.T) {
 		{"format-dbc", "--dbc", dbc},
 		{"extract", "--dbc", dbc, "0x100", "102700000A000000"},
 		{"extract", "--dbc", dbc, "0x100", "102700000A000000", "--json"}, // flag after positionals
-		{"mux-query", "--dbc", repoPath("python", "tests", "fixtures", "dbc_corpus", "multiplexing.dbc"), "0x64"},
+		{"mux-query", "--dbc", mux, "0x64"},
+		{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"},
+		{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"},
 	}
 	for _, args := range cases {
 		if code := run(args); code != exitOK {
 			t.Errorf("run(%v) = %d, want %d", args, code, exitOK)
 		}
+	}
+	// mux-query selector mismatch: --mux without --value must error (CoPilot PR #21).
+	if code := run([]string{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}); code != exitError {
+		t.Errorf("mux-query --mux without --value = %d, want %d", code, exitError)
 	}
 }
 

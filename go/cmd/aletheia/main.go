@@ -13,10 +13,11 @@
 // replacement). DBC sources are `.dbc` text files parsed by the verified
 // text parser; canonical-JSON and `.xlsx` inputs are not yet wired.
 //
-// Flags precede positional arguments (Go's flag convention), e.g.:
+// Flags may appear before or after positionals (reorderArgs normalizes the
+// order before stdlib flag parsing, matching the Python argparse UX), e.g.:
 //
 //	aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
-//	aletheia mux-query --dbc vehicle.dbc --mux Mode --value 5 0x100
+//	aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
 //
 // The library path is resolved from $ALETHEIA_LIB, else common build/install
 // locations. Exit codes: 0 ok, 1 violations / validation failed, 2 error.
@@ -86,7 +87,7 @@ Commands:
   format-dbc  re-export a DBC as canonical JSON via the Agda core
   mux-query   inspect multiplexor structure of a DBC message
 
-DBC source: --dbc <file>.dbc (verified text parser). Flags precede positionals.
+DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after positionals.
 Library path: $ALETHEIA_LIB or a build/install default.`
 
 // --- shared helpers -------------------------------------------------------
