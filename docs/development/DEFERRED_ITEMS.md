@@ -340,6 +340,37 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ---
 
+## H. Binding ergonomics
+
+### H.1 — Public, configurable C++ test mock (`aletheia/testing.hpp`)
+
+- **Where** — `docs/FEATURE_MATRIX.yaml` `mock_backend` row (C++ cell `planned`);
+  the class itself at `cpp/src/detail/mock_backend.hpp`.
+- **Origin** — FEATURE_MATRIX semantics investigation, 2026-06-12 (PR #23);
+  reclassified from a self-contradictory `not_applicable` (its reason named the
+  conditions under which it "flips to implemented" — the tell of a `planned` item).
+- **Today** — the configurable, inspectable `MockBackend` (queue responses +
+  assert on captured requests) lives in the test-internal header
+  `cpp/src/detail/mock_backend.hpp`, consumed by in-tree tests via direct
+  `#include`. The installed surface (`cpp/include/`) ships only the fixed
+  `make_mock_backend()` factory (canned acks/successes) + the `IBackend` DI seam
+  for roll-your-own doubles. Python (`MockBackend(responses)` + `.inputs`) and Go
+  (`NewMockBackend(...)` + `.Inputs()`) ship the configurable mock publicly.
+- **Done looks like** — the configurable mock promoted to a public
+  `cpp/include/aletheia/testing.hpp`, so external C++ consumers can unit-test
+  their code against a pre-loadable / inspectable mock; the `mock_backend` C++
+  cell flips to `implemented`.
+- **Cost / risk** — **Low** (move + export an existing, working class; no
+  kernel / FFI change). Risk: it adds a public API surface to maintain — worth it
+  only if an external C++ consumer wants it.
+- **Blockers / deps** — none technical; demand-gated (anti-YAGNI, like F.1). The
+  `backend_di_seam` row (`implemented`) already lets external consumers roll
+  their own `IBackend`; the pre-built configurable mock is the only delta.
+- **Verdict** — `HOLD` (planned, demand-gated). Promote to `DO` when a concrete
+  external C++ consumer needs it.
+
+---
+
 ## Re-examination order (proposed)
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
@@ -349,7 +380,7 @@ Cheapest / highest-confidence first, so early wins de-risk the harder items:
    precedent.
 3. **E.2** (`WellFormedTextDBCAgg`) — investigate correctness relevance first.
 4. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
-5. **C.1 / D.1 / F.1 / F.2** — accepted/blocked; no action unless constraints change.
+5. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
 
 **G.1** was resolved in the post-merge cleanup PR (2026-06-10) — a docs-only
 change independent of the Agda backlog above; see its ✅ DONE verdict.
