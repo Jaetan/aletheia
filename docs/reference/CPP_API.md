@@ -26,6 +26,7 @@ The C++ binding targets the latest stable Clang only — see
 - [Signal Operations](#signal-operations)
 - [Error Handling](#error-handling)
 - [Cancellation](#cancellation)
+- [Command-line interface](#command-line-interface)
 - [See Also](#see-also)
 
 ---
@@ -216,6 +217,25 @@ commit-prefix-and-report contract — already-processed frames stay committed.
 The cross-binding semantics (Python `asyncio`, Go `context.Context`, C++
 `std::stop_token`) are specified in the
 [Cancellation Contract](../architecture/CANCELLATION.md).
+
+---
+
+## Command-line interface
+
+The `aletheia-cli` binary is a thin host CLI over `AletheiaClient`, mirroring
+the Python `aletheia` subcommands — `validate`, `extract`, `signals`,
+`format-dbc`, `mux-query` (`check` is deferred; it needs a verified CAN-log
+reader). The logic lives in `aletheia::run_cli` (`aletheia/cli.hpp`), so it is
+unit-testable without spawning a process.
+
+```bash
+cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
+ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
+```
+
+`--dbc` reads `.dbc` text (the verified Agda text parser); `--json` selects
+canonical JSON output. The library path resolves from `$ALETHEIA_LIB`, else a
+build/install default. Full subcommand contract: the [CLI Reference](CLI.md).
 
 ---
 
