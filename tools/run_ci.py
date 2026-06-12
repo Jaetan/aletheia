@@ -700,10 +700,12 @@ def _run_lints(runner: Runner) -> None:
     )
     runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
 
-    # clang-tidy: AGENTS.md L580 canonical scope (src/*.cpp).
+    # clang-tidy (AGENTS.md § lint gates, mandatory): the C++ sources —
+    # src/*.cpp plus the CLI sources under src/cli/ (the aletheia-cli host
+    # binary + aletheia::run_cli), which the top-level glob does not match.
     runner.step(
         "clang-tidy",
-        "clang-tidy-22 -p build src/*.cpp",
+        "clang-tidy-22 -p build src/*.cpp src/cli/*.cpp",
         cwd=runner.repo_root / "cpp",
     )
 

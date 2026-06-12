@@ -482,11 +482,13 @@ features:
     bindings:
       python: { status: implemented, entry: aletheia.cli.main }
       cpp:
-        status: planned
-        notes: "Phase 6 stretch goal (pinned 2026-05-07). Earlier decision was not_applicable on the rationale that C++ is a library binding; the stretch flip rebuilds Python's subcommand surface as a thin host binary dispatching to AletheiaClient. ~300-500 LOC, no Agda or FFI changes."
+        status: implemented
+        entry: "aletheia/cli.hpp#run_cli"
+        notes: "Phase 6 (2026-06-12): aletheia-cli host binary — validate/extract/signals/format-dbc/mux-query dispatching to AletheiaClient. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
       go:
-        status: planned
-        notes: "Phase 6 stretch goal (pinned 2026-05-07). Earlier decision was not_applicable on the rationale that Go is a library binding; the stretch flip rebuilds Python's subcommand surface as a thin host binary dispatching to Client. ~300-500 LOC, no Agda or FFI changes."
+        status: implemented
+        entry: cmd/aletheia:run
+        notes: "Phase 6 (2026-06-12): go/cmd/aletheia host binary — validate/extract/signals/format-dbc/mux-query dispatching to Client. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
 
   - id: can_log_reader
     name: CAN log file reader
