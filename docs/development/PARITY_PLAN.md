@@ -29,7 +29,7 @@ Cross-language divergence is a bug per `feedback_cross_language_parity.md`. This
 
 **One row per user-facing capability, not per method.** "Load a DBC file" is a row. `cpp::load_dbc`, `go.LoadDBC`, `aletheia.load_dbc` are all entries on the same row. If the three bindings for a row fit on one line, the granularity is right.
 
-**`not_applicable` requires `reason`.** A binding cell with `status: not_applicable` MUST carry a non-empty `reason` string. The structural test fails if either is missing. The canonical `not_applicable` example is `mock_backend`: Python and Go export a public `MockBackend`, but in C++ it exists only as test-internal scaffolding (`cpp/src/detail/mock_backend.hpp`), not on the installed `cpp/include/` surface. (CLI was the original example here until Phase 6 shipped it — see Out of Scope below.)
+**`not_applicable` requires `reason`.** A binding cell with `status: not_applicable` MUST carry a non-empty `reason` string. The structural test fails if either is missing. The canonical `not_applicable` example is `mock_backend`: Python and Go export a public, user-configurable `MockBackend` class, whereas C++ keeps the concrete mock type test-internal (`cpp/src/detail/mock_backend.hpp`) and exposes only an opaque `make_mock_backend()` factory on `cpp/include/aletheia/backend.hpp` — there is no exported mock *class* to flip the row to `implemented`. (CLI was the original example here until Phase 6 shipped it — see Out of Scope below.)
 
 ## Phases
 
