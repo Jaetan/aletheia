@@ -589,3 +589,15 @@ auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string {
 }
 
 } // namespace aletheia::detail
+
+namespace aletheia {
+
+// Public canonical DBC JSON serializer (declared in <aletheia/dbc.hpp>).
+// Reuses the internal `dbc_to_json` encoder — the same one the FFI command
+// serializers wrap — so the output is the Agda core's canonical form. Returns
+// a pretty-printed string, keeping nlohmann out of the public header.
+auto to_canonical_json(const DbcDefinition& dbc) -> std::string {
+    return detail::dbc_to_json(dbc).dump(2);
+}
+
+} // namespace aletheia

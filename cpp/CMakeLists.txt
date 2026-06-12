@@ -313,6 +313,27 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/aletheia-cpp)
 
 # ---------------------------------------------------------------------------
+# CLI host binary (aletheia-cli) — Phase 6 cross-binding CLI parity
+# ---------------------------------------------------------------------------
+# A thin host binary mirroring the Python `aletheia` subcommands
+# (validate / extract / signals / format-dbc / mux-query), dispatching to
+# AletheiaClient. `check` is deferred (needs a verified CAN-log reader).
+# Links nlohmann_json directly because aletheia-cpp links it PRIVATE.
+
+add_executable(aletheia-cli src/cli/main.cpp)
+target_link_libraries(aletheia-cli
+    PRIVATE aletheia-cpp
+        nlohmann_json::nlohmann_json)
+target_compile_features(aletheia-cli PRIVATE cxx_std_23)
+
+if(ALETHEIA_CLANG_TIDY)
+    set_target_properties(aletheia-cli PROPERTIES
+        CXX_CLANG_TIDY "${ALETHEIA_CLANG_TIDY_COMMAND}")
+endif()
+
+install(TARGETS aletheia-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# ---------------------------------------------------------------------------
 # Tests (only when building standalone, not as a subdirectory)
 # ---------------------------------------------------------------------------
 
