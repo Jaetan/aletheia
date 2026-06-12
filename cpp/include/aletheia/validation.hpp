@@ -3,6 +3,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace aletheia {
@@ -44,6 +45,14 @@ struct ValidationResult {
     bool has_errors;
     std::vector<ValidationIssue> issues;
 };
+
+// Render an issue severity / code to its canonical wire string
+// ("error"/"warning"; "offset_scale_range"; …) — the inverse of the JSON
+// parser's string→enum mapping. Used by the CLI's `validate` output and any
+// caller presenting validation issues; returns "unknown" for
+// IssueCode::Unknown.
+[[nodiscard]] auto to_string(IssueSeverity severity) -> std::string_view;
+[[nodiscard]] auto to_string(IssueCode code) -> std::string_view;
 
 } // namespace aletheia
 

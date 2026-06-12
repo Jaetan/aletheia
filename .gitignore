@@ -49,6 +49,7 @@ build/
 .claude/
 .session-state.md
 .r*-plan.md
+.commands-to-run.sh
 
 # Coverage artifacts
 python/.coverage

@@ -394,4 +394,12 @@ struct DbcDefinition {
     mutable detail::LazyIndex<std::uint64_t> id_index_cache;
 };
 
+// Serialize a DBC to its canonical wire JSON — the normalized form the Agda
+// core emits (lowercase keys, exact {num,den} rationals, ordered arrays),
+// pretty-printed (2-space indent). This is the public, nlohmann-free way to
+// obtain the canonical JSON (used by the `format-dbc` / `signals --json` CLI
+// subcommands and any caller serializing a DBC for the cross-binding wire
+// protocol); it wraps the same encoder used to send DBCs across the FFI.
+[[nodiscard]] auto to_canonical_json(const DbcDefinition& dbc) -> std::string;
+
 } // namespace aletheia

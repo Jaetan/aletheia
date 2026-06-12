@@ -56,16 +56,26 @@ treat that as supply-chain compromise, not a bug.
    re-signing, sign the **already-published tarball bytes** (download the
    release asset; do not re-run `dist`, which produces different bytes),
    upload to the Rekor tlog so the standard verify command keeps working,
-   and update the release page to point verifiers at the **current**
-   `keys/cosign.pub` (a tag's committed copy stays on the old key — see
-   "Key history").
+   and **publish the new key's SHA-256 fingerprint in the release notes** as
+   the trust anchor — verifiers confirm the key by fingerprint, not by
+   location (a tag's committed copy stays on the old key; see "Key history").
 
 ## Key history
 
-`keys/cosign.pub` always holds the **current** signing key. Because a git
-tag immutably pins whatever `keys/cosign.pub` was committed at that tag,
-**verify any release against the current `keys/cosign.pub` on `main`**, not
-the copy at the release's own tag.
+`keys/cosign.pub` always holds the **current** signing key. Its SHA-256
+fingerprint is:
+
+    f135565127f73e6576b72d91feb8290f5f6fdc587adbc817379b56f269a18d15
+
+**The fingerprint — not a file location — is the trust anchor.** Each release
+publishes its signing key's fingerprint in the release notes; obtain the key
+from any convenient source, confirm `sha256sum cosign.pub` matches the
+published fingerprint, and only then verify the artifact. Anchoring on the
+fingerprint avoids trusting a mutable branch. (A git tag immutably pins
+whatever `keys/cosign.pub` it was committed with, so for a release whose key
+was rotated *after* tagging — e.g. v2.0.0, re-signed — the tag's copy is the
+*old* key; the published fingerprint, not the tag or `main`, is what
+establishes trust.)
 
 | Period | Key | Notes |
 |---|---|---|

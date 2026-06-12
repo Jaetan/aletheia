@@ -1017,3 +1017,27 @@ auto parse_dbc_text_response(std::string_view input) -> Result<std::string> {
 }
 
 } // namespace aletheia::detail
+
+namespace aletheia {
+
+// Public issue-rendering helpers (declared in <aletheia/validation.hpp>).
+// Inverse of the parser's string→enum mapping; reuse the same
+// `issue_code_table` so codes round-trip exactly.
+auto to_string(IssueSeverity severity) -> std::string_view {
+    switch (severity) {
+    case IssueSeverity::Error:
+        return "error";
+    case IssueSeverity::Warning:
+        return "warning";
+    }
+    return "unknown";
+}
+
+auto to_string(IssueCode code) -> std::string_view {
+    for (const auto& [name, c] : detail::issue_code_table)
+        if (c == code)
+            return name;
+    return "unknown";
+}
+
+} // namespace aletheia

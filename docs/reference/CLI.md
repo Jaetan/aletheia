@@ -412,8 +412,40 @@ Error frames and remote frames are skipped by default. Frame data is normalized 
 
 ---
 
+## Other-language CLIs (C++ and Go)
+
+The C++ and Go bindings ship the **same subcommand surface** as a thin host
+binary over their client — `validate`, `extract`, `signals`, `format-dbc`,
+`mux-query` — with identical exit codes and JSON output shapes. Two scope
+differences from the Python CLI above:
+
+- **`check` is not yet available** in the C++/Go CLIs: it needs a verified
+  CAN-log reader (a Phase 6 item). Use the Python CLI for log-file checking.
+- **`--dbc` reads `.dbc` text** (the verified Agda text parser);
+  canonical-JSON and `.xlsx` DBC inputs remain Python-only for now.
+
+Both resolve `libaletheia-ffi.so` from `$ALETHEIA_LIB`, else a build/install
+default. Flags may appear before or after positionals.
+
+**C++** — the `aletheia-cli` binary:
+
+```bash
+cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
+ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
+```
+
+**Go** — the `cmd/aletheia` package:
+
+```bash
+ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
+# or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
+```
+
+---
+
 ## See Also
 
 - **[Interface Guide](INTERFACES.md)** — Check API, YAML, Excel loader reference
 - **[Python API Guide](PYTHON_API.md)** — Full DSL and AletheiaClient reference
+- **[C++ API Guide](CPP_API.md)** / **[Go API Guide](GO_API.md)** — client + CLI references
 - **[Quick Start](../guides/QUICKSTART.md)** — 5-minute tutorial

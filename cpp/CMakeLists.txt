@@ -313,6 +313,33 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/aletheia-cpp)
 
 # ---------------------------------------------------------------------------
+# CLI host binary (aletheia-cli) — Phase 6 cross-binding CLI parity
+# ---------------------------------------------------------------------------
+# aletheia::run_cli (src/cli/cli.cpp) holds the CLI logic — validate / extract
+# / signals / format-dbc / mux-query dispatching to AletheiaClient (`check` is
+# deferred, needs a verified CAN-log reader). Built as a static lib so the
+# aletheia-cli binary (a thin argv wrapper) and cli_tests share one
+# compilation. nlohmann_json is linked PRIVATE (used only inside cli.cpp);
+# aletheia-cpp is PUBLIC so its include dirs reach main.cpp and the tests.
+
+add_library(aletheia-cli-core STATIC src/cli/cli.cpp)
+target_link_libraries(aletheia-cli-core
+    PUBLIC aletheia-cpp
+    PRIVATE nlohmann_json::nlohmann_json)
+target_compile_features(aletheia-cli-core PUBLIC cxx_std_23)
+
+add_executable(aletheia-cli src/cli/main.cpp)
+target_link_libraries(aletheia-cli PRIVATE aletheia-cli-core)
+target_compile_features(aletheia-cli PRIVATE cxx_std_23)
+
+if(ALETHEIA_CLANG_TIDY)
+    set_target_properties(aletheia-cli-core aletheia-cli PROPERTIES
+        CXX_CLANG_TIDY "${ALETHEIA_CLANG_TIDY_COMMAND}")
+endif()
+
+install(TARGETS aletheia-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# ---------------------------------------------------------------------------
 # Tests (only when building standalone, not as a subdirectory)
 # ---------------------------------------------------------------------------
 
@@ -432,6 +459,16 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # (reproducible-build invariant).
     set_tests_properties(feature_matrix_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+
+    # Phase 6: functional tests for the CLI (aletheia::run_cli). Links the
+    # shared aletheia-cli-core; needs the repo root (fixtures) and the .so
+    # (run_cli's resolver reads $ALETHEIA_LIB) from the test environment.
+    add_executable(cli_tests tests/cli_tests.cpp)
+    target_link_libraries(cli_tests PRIVATE aletheia-cli-core Catch2::Catch2WithMain)
+    target_compile_features(cli_tests PRIVATE cxx_std_23)
+    add_test(NAME cli_tests COMMAND cli_tests)
+    set_tests_properties(cli_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
 
     # Layer 6b: Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
     # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend

@@ -23,6 +23,7 @@ and the LTL DSL. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 - [Signal Operations](#signal-operations)
 - [Error Handling](#error-handling)
 - [Cancellation](#cancellation)
+- [Command-line interface](#command-line-interface)
 - [See Also](#see-also)
 
 ---
@@ -237,6 +238,25 @@ commit-prefix-and-report contract — already-processed frames stay committed, a
 the wrapped `ctx.Err()` is returned. The cross-binding semantics (Python
 `asyncio`, Go `context.Context`, C++ `std::stop_token`) are specified in the
 [Cancellation Contract](../architecture/CANCELLATION.md).
+
+---
+
+## Command-line interface
+
+The `cmd/aletheia` package is a thin host CLI over `Client`, mirroring the
+Python `aletheia` subcommands — `validate`, `extract`, `signals`, `format-dbc`,
+`mux-query` (`check` is deferred; it needs a verified CAN-log reader). The
+dispatch logic lives in `run` (package `main`), exercised by
+`cmd/aletheia/main_test.go`.
+
+```bash
+ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
+# or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
+```
+
+`--dbc` reads `.dbc` text (the verified Agda text parser); `--json` selects
+canonical JSON output. The library path resolves from `$ALETHEIA_LIB`, else a
+build/install default. Full subcommand contract: the [CLI Reference](CLI.md).
 
 ---
 

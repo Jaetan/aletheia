@@ -146,6 +146,23 @@ func serializeRemoteEvent(ts Timestamp, id CANID) string {
 // makes this redundant; the guard catches any internal blowup or future
 // bypass that lets an oversized in-memory `DBCDefinition` reach the
 // serializer.
+// MarshalJSON renders the DBC as the canonical wire JSON the Agda core
+// emits — the same normalized shape serializeDBC sends across the FFI
+// (lowercase keys, rationals as {num,den}) — rather than Go's default
+// field-name encoding. This makes json.Marshal(dbc) the public,
+// idiomatic way to obtain the canonical form (used by the `format-dbc`
+// and `signals --json` CLI subcommands and any caller serializing a DBC
+// for the cross-binding wire protocol). It is the encoder half only; DBC
+// definitions are loaded via ParseDBCText / ParseDBC, so no canonical
+// UnmarshalJSON is paired with it.
+func (d DBCDefinition) MarshalJSON() ([]byte, error) {
+	m, err := serializeDBC(d)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
 func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
