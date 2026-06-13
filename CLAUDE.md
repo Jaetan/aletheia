@@ -13,6 +13,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - Agda binary: `/home/nicolas/.cabal/bin/agda`
 - Shell: `/usr/bin/fish` (config at `/home/nicolas/.config/fish/config.fish`)
 - User binaries: `/home/nicolas/.local/bin`; libraries: `/home/nicolas/.local/lib`
+- **Single Python venv**: exactly one, at `python/.venv` (Python 3.14). Run every Python gate via `python/.venv/bin/...` (never system `python3`). Never create a second venv (e.g. a repo-root `.venv`). Enforced by `tools/check_venv_convention.py` (a `run_ci.py` gate); the rule's canonical statement is in [AGENTS.md § Universal Rules](AGENTS.md#universal-rules-all-languages).
 - **Optional GHA toolchain** (for `tools/run_ci.py` GHA meta-checks + local `act` pairing — see [docs/development/CI_LOCAL.md](docs/development/CI_LOCAL.md)):
   - `actionlint` — workflow YAML lint. Install:
     ```bash

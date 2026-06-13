@@ -30,9 +30,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
+# Single-venv convention: the project uses exactly one venv at python/.venv
+# (enforced by tools/check_venv_convention.py). No root or alternately-named
+# venvs — a stray one should surface in `git status`, not be silently ignored.
 .venv
 pip-log.txt
 pip-delete-this-directory.txt

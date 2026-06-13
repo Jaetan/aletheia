@@ -73,6 +73,7 @@ Steps are listed below in execution order:
     - check-workflow-permissions
   Source-hygiene gate:
     - check-spdx-headers (SPDX license header on every source/build file)
+    - check-venv-convention (exactly one venv, at python/.venv)
   C++ sanitizer lane (runs last):
     - ubsan ctest (full ctest against -DALETHEIA_SANITIZER=undefined; always-on
       after UB in Rational::from_double shipped undetected as an opt-in lane)
@@ -762,6 +763,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-spdx-headers",
         [runner.python, "-m", "tools.check_spdx_headers"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-venv-convention",
+        [runner.python, "-m", "tools.check_venv_convention"],
         cwd=runner.repo_root,
     )
 
