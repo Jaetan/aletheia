@@ -10,7 +10,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 - **CAN Frame Processing**: Proven correct encoding/decoding guarantees roundtrip correctness for valid DBC specifications
 - **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Single-bus streaming tops out in the six-figure-fps range on the C++ binary FFI path; see [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the per-binding / per-lane / per-property-shape throughput table and methodology.
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
-- **Python, C++, and Go Interfaces**: All run in-process via shared library (ctypes/dlopen FFI) — no subprocess, no IPC overhead
+- **Python, C++, Go, and Rust Interfaces**: All run in-process via the shared library `libaletheia-ffi.so` (Python via ctypes; C++/Go via dlopen; Rust via libloading) — no subprocess, no IPC overhead
 - **Verified DBC Parsing**: Agda parser with a universal roundtrip theorem (`∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d`); handles multiplexed signals, 29-bit IDs, signed integers, value tables, attributes, environment variables, and comments. Exercised by an 8-fixture cross-binding corpus under `python/tests/fixtures/dbc_corpus/` (covering 21 IssueCode validation rejections; see [PROTOCOL.md § Error Code Reference](docs/architecture/PROTOCOL.md#error-code-reference))
 
 ## Quick Start
