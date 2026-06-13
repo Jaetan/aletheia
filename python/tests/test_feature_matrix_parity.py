@@ -5,7 +5,7 @@
 Reads ``docs/FEATURE_MATRIX.yaml`` and verifies:
 
 1. Every feature row has a well-formed schema (id / name / description /
-   bindings for all three languages, each with a valid status).
+   bindings for all four languages, each with a valid status).
 2. Every binding with ``status: implemented`` carries an ``entry`` field.
 3. Every Python ``implemented`` entry resolves via ``importlib`` + recursive
    ``getattr`` — catches silent removal or rename of a public symbol.
@@ -30,7 +30,7 @@ import yaml
 from _yaml_shape import as_str_object_dict
 
 _VALID_STATUSES: frozenset[str] = frozenset({"implemented", "not_applicable", "planned"})
-_BINDINGS: tuple[str, ...] = ("python", "cpp", "go")
+_BINDINGS: tuple[str, ...] = ("python", "cpp", "go", "rust")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MATRIX_PATH = _REPO_ROOT / "docs" / "FEATURE_MATRIX.yaml"

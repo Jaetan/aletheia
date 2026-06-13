@@ -13,14 +13,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 ### Added
 
 - Rust binding (`rust/`) — loads `libaletheia-ffi.so` at runtime via `dlopen`
-  (the `libloading` crate), mirroring the Go and C++ `.so`-consumer model. This
-  first slice is a tracer bullet proving the FFI lifecycle (load → GHC RTS init
-  → `aletheia_process` round-trip → free → close) and GHC-allocated-memory
-  ownership (responses copied out and released with `aletheia_free_str`; the RTS
-  started once via `std::sync::Once`). Gated by a required `cargo test` /
-  `cargo fmt --check` / `cargo clippy -D warnings` lane in `tools/run_ci.py`.
-  The typed client surface and the `FEATURE_MATRIX.yaml` `rust` column land in
-  subsequent slices.
+  (the `libloading` crate), mirroring the Go and C++ `.so`-consumer model. It
+  enforces the GHC-allocated-memory ownership rules cgo hides (responses copied
+  out and released with `aletheia_free_str` via a RAII guard; the RTS started
+  once and latched in a `OnceLock`). The typed surface validates input at
+  construction — `CanId` (`Standard`/`Extended` enum), `Dlc`, `Rational`,
+  `Timestamp`, `TimeBound` return `Result` — and models LTL `Predicate` /
+  `Formula` as native, exhaustively-matchable enums that serialize to the core's
+  exact wire shape. `Client` loads a DBC (`parse_dbc_text`), binds properties
+  (`set_properties`), and streams frames through the **binary FFI**
+  (`start_stream` / `send_frame` / `send_error` / `send_remote` / `end_stream`,
+  plus `extract_signals`) — the same fast path the other bindings use; `process`
+  remains a raw JSON escape hatch. A `rust` column was added to
+  `docs/FEATURE_MATRIX.yaml` (honest implemented/planned across all 40 rows) with
+  a fourth structural parity gate (`rust/tests/feature_matrix.rs`); the existing
+  Python/Go/C++ gates now validate the `rust` column too. Gated by a required
+  `cargo test` / `cargo fmt --check` / `cargo clippy -D warnings` lane in
+  `tools/run_ci.py`. The typed DBC document model, Check DSL, client-side
+  violation enrichment, and CLI remain `planned`.
 
 ### Fixed
 
