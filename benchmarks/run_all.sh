@@ -117,8 +117,8 @@ case $BENCH in
 esac
 
 cd "$PROJECT_DIR/python"
-if [[ -f "$PROJECT_DIR/.venv/bin/activate" ]]; then
-    source "$PROJECT_DIR/.venv/bin/activate"
+if [[ -f "$PROJECT_DIR/python/.venv/bin/activate" ]]; then
+    source "$PROJECT_DIR/python/.venv/bin/activate"
 fi
 
 # ``python3 -m benchmarks.<name>`` — matches how an installed-package user
