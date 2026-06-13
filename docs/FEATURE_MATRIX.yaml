@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Aletheia Cross-Binding Feature Matrix
 #
-# Authoritative source for feature parity across Python, C++, Go.
+# Authoritative source for feature parity across Python, C++, Go, Rust.
 # See docs/development/PARITY_PLAN.md for the roadmap and locked design decisions.
 #
 # Schema:
@@ -12,7 +12,7 @@
 #     description: one-sentence summary of the capability
 #     related:     optional — tracking codes (R17-DEF-4, B.3, SFP-2, ...)
 #     bindings:
-#       python / cpp / go: all three required
+#       python / cpp / go / rust: all four required
 #         status:  implemented | not_applicable | planned
 #         entry:   required when status=implemented (see conventions below)
 #         reason:  required when status=not_applicable (non-empty string)
@@ -27,11 +27,15 @@
 #   go:     identifier within the aletheia package, optionally "Type.Method".
 #           Prefix with "<subpkg>:" to denote a sub-package entry.
 #           e.g. "Client.ParseDBC" or "excel:LoadChecksFromExcel"
+#   rust:   a path/symbol within the `aletheia` crate, optionally "Type::method".
+#           The last "::"-segment is grepped (whole-word) in rust/src/**/*.rs
+#           with comments stripped.  e.g. "Client::send_frame" or "CanId".
 #
 # Structural tests (Cat 32-style mandatory gate):
 #   python/tests/test_feature_matrix_parity.py
 #   go/aletheia/feature_matrix_test.go
 #   cpp/tests/test_feature_matrix_parity.cpp
+#   rust/tests/feature_matrix.rs
 #
 # Every test must:
 #   - load this YAML
@@ -53,6 +57,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#AletheiaClient" }
       go:     { status: implemented, entry: NewClient }
+      rust: { status: implemented, entry: "Client::new" }
 
   - id: parse_dbc_json
     name: Parse structured DBC definition
@@ -61,6 +66,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.parse_dbc }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#parse_dbc" }
       go:     { status: implemented, entry: Client.ParseDBC }
+      rust: { status: planned, notes: "Typed DBC document model deferred to a later Rust slice; parse_dbc_text (text input) is implemented." }
 
   - id: validate_dbc
     name: DBC validation
@@ -69,6 +75,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.validate_dbc }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#validate_dbc" }
       go:     { status: implemented, entry: Client.ValidateDBC }
+      rust: { status: planned, notes: "Needs the typed DBC document model (deferred)." }
 
   - id: format_dbc
     name: DBC serialization
@@ -77,6 +84,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.format_dbc }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#format_dbc" }
       go:     { status: implemented, entry: Client.FormatDBC }
+      rust: { status: planned, notes: "Needs the typed DBC document model (deferred)." }
 
   - id: dbc_text_parse
     name: Parse .dbc text
@@ -95,6 +103,7 @@ features:
         status: implemented
         entry: Client.ParseDBCText
         notes: "B.3.e — same Agda core via FFI; returns *ParsedDBC carrying DBC + Warnings."
+      rust: { status: implemented, entry: "Client::parse_dbc_text" }
 
   - id: dbc_text_format
     name: Format DBCDefinition as .dbc text
@@ -113,6 +122,7 @@ features:
         status: implemented
         entry: Client.FormatDBCText
         notes: "Track E.10 — same Agda core via FFI; returns the ``.dbc`` text image."
+      rust: { status: planned, notes: "Needs the typed DBC document model — formatDBCText takes a DBC struct (deferred)." }
 
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)
@@ -131,6 +141,7 @@ features:
         status: implemented
         entry: DBCSignalGroup
         notes: "Tier 1 types (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) live alongside DBCDefinition; serializer emits all three arrays, parser accepts them."
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   - id: dbc_metadata_tier2
     name: DBC metadata Tier 2 (nodes, comments, attributes)
@@ -149,6 +160,7 @@ features:
         status: implemented
         entry: DBCNode
         notes: "Tier 2 types (DBCNode, DBCComment, DBCAttribute with sealed-interface variants) live alongside DBCDefinition; serializer emits all three arrays, parser accepts them."
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   - id: dbc_signal_receivers
     name: DBC signal receivers (per-signal receiver nodes from SG_)
@@ -167,6 +179,7 @@ features:
         status: implemented
         entry: DBCSignal
         notes: "DBCSignal gains Receivers []string; serializer emits it on every signal; parser treats an absent key as nil."
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   - id: dbc_signal_value_descriptions
     name: DBC signal value descriptions (per-signal VAL_ entries)
@@ -185,6 +198,7 @@ features:
         status: implemented
         entry: DBCSignal
         notes: "Track E — DBCSignal gains ValueDescriptions []DBCValueEntry; reuses DBCValueEntry from value tables."
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
@@ -203,6 +217,7 @@ features:
         status: implemented
         entry: DBCMessage
         notes: "DBCMessage gains Senders []string; serializer normalises nil to []string{}; parser treats an absent key as nil."
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
@@ -212,6 +227,7 @@ features:
       python: { status: implemented, entry: aletheia.is_multiplexed }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#is_multiplexed" }
       go:     { status: implemented, entry: DBCMessage.IsMultiplexed }
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   - id: dbc_lookup
     name: DBC entity lookup helpers
@@ -221,6 +237,7 @@ features:
       python: { status: implemented, entry: aletheia.message_by_id }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#message_by_id" }
       go:     { status: implemented, entry: DBCDefinition.MessageByID }
+      rust: { status: planned, notes: "Typed DBC document model deferred." }
 
   # =====================================================================
   # Signal extraction and frame manipulation
@@ -233,6 +250,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.extract_signals }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#extract_signals" }
       go:     { status: implemented, entry: Client.ExtractSignals }
+      rust: { status: implemented, entry: "Client::extract_signals" }
 
   - id: build_frame
     name: Frame construction from signals
@@ -241,6 +259,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.build_frame }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#build_frame" }
       go:     { status: implemented, entry: Client.BuildFrame }
+      rust: { status: planned, notes: "Frame construction deferred (binary build_frame_bin path)." }
 
   - id: update_frame
     name: Frame update (signal splice)
@@ -249,6 +268,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.update_frame }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#update_frame" }
       go:     { status: implemented, entry: Client.UpdateFrame }
+      rust: { status: planned, notes: "Frame update deferred (binary update_frame_bin path)." }
 
   - id: mux_extraction
     name: Multiplexed signal extraction
@@ -257,6 +277,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.extract_signals }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#extract_signals" }
       go:     { status: implemented, entry: Client.ExtractSignals }
+      rust: { status: planned, notes: "Multiplexed extraction deferred." }
 
   - id: can_fd
     name: CAN-FD support
@@ -265,6 +286,7 @@ features:
       python: { status: implemented, entry: aletheia.dlc_to_bytes }
       cpp:    { status: implemented, entry: "aletheia/types.hpp#Dlc" }
       go:     { status: implemented, entry: DLC }
+      rust: { status: implemented, entry: "Dlc" }
 
   - id: canfd_brs_esi_fields
     name: CAN-FD BRS / ESI metadata pass-through
@@ -283,6 +305,7 @@ features:
       python: { status: implemented, entry: aletheia.CANFrameTuple }
       cpp:    { status: implemented, entry: "aletheia/types.hpp#Frame" }
       go:     { status: implemented, entry: Frame }
+      rust: { status: implemented, entry: "Client::send_frame" }
 
   # =====================================================================
   # Streaming LTL
@@ -295,6 +318,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.set_properties }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#set_properties" }
       go:     { status: implemented, entry: Client.SetProperties }
+      rust: { status: implemented, entry: "Client::set_properties" }
 
   - id: streaming_ltl
     name: Streaming LTL monitor
@@ -303,6 +327,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.start_stream }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#start_stream" }
       go:     { status: implemented, entry: Client.StartStream }
+      rust: { status: implemented, entry: "Client::start_stream" }
 
   - id: end_stream_uncached_atom_warnings
     name: EndStream uncached-atom diagnostics
@@ -311,6 +336,7 @@ features:
       python: { status: implemented, entry: aletheia.types.CompleteWarning }
       cpp:    { status: implemented, entry: "aletheia/response.hpp#StreamWarning" }
       go:     { status: implemented, entry: StreamWarning }
+      rust: { status: implemented, entry: "StreamWarning" }
 
   - id: batch_frame_send
     name: Batch frame send
@@ -319,6 +345,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.send_frames }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#send_frames" }
       go:     { status: implemented, entry: Client.SendFrames }
+      rust: { status: planned, notes: "Batch send deferred; single send_frame is implemented." }
 
   - id: send_error
     name: Bus error event
@@ -327,6 +354,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.send_error }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#send_error" }
       go:     { status: implemented, entry: Client.SendError }
+      rust: { status: implemented, entry: "Client::send_error" }
 
   - id: send_remote
     name: Remote frame event
@@ -335,6 +363,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.send_remote }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#send_remote" }
       go:     { status: implemented, entry: Client.SendRemote }
+      rust: { status: implemented, entry: "Client::send_remote" }
 
   # =====================================================================
   # Checks
@@ -347,6 +376,7 @@ features:
       python: { status: implemented, entry: aletheia.Signal }
       cpp:    { status: implemented, entry: "aletheia/check.hpp#signal" }
       go:     { status: implemented, entry: CheckSignal }
+      rust: { status: planned, notes: "Fluent Check DSL deferred." }
 
   - id: add_checks
     name: Runtime check attachment
@@ -355,6 +385,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.add_checks }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#add_checks" }
       go:     { status: implemented, entry: Client.AddChecks }
+      rust: { status: planned, notes: "Runtime check attachment deferred." }
 
   - id: yaml_check_loader
     name: YAML check loader
@@ -363,6 +394,7 @@ features:
       python: { status: implemented, entry: aletheia.load_checks }
       cpp:    { status: implemented, entry: "aletheia/yaml.hpp#load_checks_from_yaml" }
       go:     { status: implemented, entry: LoadChecksFromYAML }
+      rust: { status: planned, notes: "YAML check loader deferred." }
 
   - id: excel_check_loader
     name: Excel check + DBC loader
@@ -378,6 +410,7 @@ features:
         status: implemented
         entry: "excel:LoadChecks"
         notes: "Separate Go module at go/excel/ to isolate the xuri/excelize dependency chain. Other entries: excel.LoadDbc, excel.CreateTemplate."
+      rust: { status: planned, notes: "Excel loader deferred." }
 
   # =====================================================================
   # Observability and diagnostics
@@ -390,6 +423,7 @@ features:
       python: { status: implemented, entry: "aletheia.client._log" }
       cpp:    { status: implemented, entry: "aletheia/log.hpp#Logger" }
       go:     { status: implemented, entry: WithLogger }
+      rust: { status: planned, notes: "Structured logging deferred." }
 
   - id: validation_errors
     name: Structured validation errors
@@ -398,6 +432,7 @@ features:
       python: { status: implemented, entry: aletheia.ValidationIssue }
       cpp:    { status: implemented, entry: "aletheia/validation.hpp#ValidationIssue" }
       go:     { status: implemented, entry: ValidationIssue }
+      rust: { status: implemented, entry: "Error" }
 
   - id: violation_enrichment
     name: Violation enrichment
@@ -406,6 +441,7 @@ features:
       python: { status: implemented, entry: aletheia.PropertyDiagnostic }
       cpp:    { status: implemented, entry: "aletheia/response.hpp#PropertyDiagnostic" }
       go:     { status: implemented, entry: PropertyDiagnostic }
+      rust: { status: planned, notes: "Client-side enrichment deferred; the core reason is surfaced on violations." }
 
   - id: rts_cores_config
     name: RTS cores configuration
@@ -414,6 +450,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient }
       cpp:    { status: implemented, entry: "aletheia/backend.hpp#make_ffi_backend" }
       go:     { status: implemented, entry: WithRTSCores }
+      rust: { status: planned, notes: "RTS cores configuration deferred (hs_init uses default flags)." }
 
   - id: mock_backend
     name: Mock backend for testing
@@ -424,6 +461,7 @@ features:
         status: planned
         notes: "The configurable, inspectable mock (queue responses + assert on captured requests) is the MockBackend class in the test-internal header cpp/src/detail/mock_backend.hpp, consumed by in-tree tests via direct include. The public surface (cpp/include/) ships only make_mock_backend() — a fixed canned-ack/success backend — plus the IBackend DI seam for roll-your-own doubles. Flips to implemented when the configurable mock is promoted to a public aletheia/testing.hpp."
       go:  { status: implemented, entry: MockBackend }
+      rust: { status: planned, notes: "No Rust mock backend yet (deferred)." }
 
   - id: backend_di_seam
     name: Backend dependency-injection seam
@@ -432,6 +470,7 @@ features:
       python: { status: implemented, entry: aletheia.Backend }
       cpp:    { status: implemented, entry: "aletheia/backend.hpp#IBackend" }
       go:     { status: implemented, entry: Backend }
+      rust: { status: planned, notes: "Client binds the .so directly; a trait-based backend seam is deferred." }
 
   # =====================================================================
   # Ergonomics — Part 2 (all planned, design rounds required)
@@ -454,6 +493,7 @@ features:
         status: implemented
         entry: Client.SendFrame
         notes: "C.3 (2026-05-03): every Client operation method takes ctx context.Context as its first parameter; sync.Mutex replaced with 1-deep channel-based semaphore so a goroutine waiting on the lock can be cancelled by ctx. See docs/architecture/CANCELLATION.md."
+      rust: { status: planned, notes: "Cooperative cancellation deferred; the client is synchronous." }
 
   - id: lazy_streaming_batch
     name: Lazy batch frame send
@@ -470,6 +510,7 @@ features:
       go:
         status: not_applicable
         reason: "Equivalent affordance is delivered by SendFrames(ctx, []Frame) + commit-prefix-and-report on ctx — slice is materialized by the caller. A channel-based iter would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it."
+      rust: { status: planned, notes: "Lazy batch send deferred." }
 
   # =====================================================================
   # Distribution / infrastructure
@@ -489,6 +530,7 @@ features:
         status: implemented
         entry: cmd/aletheia:run
         notes: "Phase 6 (2026-06-12): go/cmd/aletheia host binary — validate/extract/signals/format-dbc/mux-query dispatching to Client. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
+      rust: { status: planned, notes: "Rust CLI deferred." }
 
   - id: can_log_reader
     name: CAN log file reader
@@ -504,6 +546,7 @@ features:
       go:
         status: planned
         notes: "Not yet in backlog; pending user decision — may move to not_applicable if judged a host-application concern."
+      rust: { status: planned, notes: "CAN log reader deferred." }
 
   - id: doc_example_gate_checks
     name: Executable doc examples
@@ -522,3 +565,4 @@ features:
         status: implemented
         entry: Client
         notes: "D.2 (2026-05-04) — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
+      rust: { status: planned, notes: "Rust doc-example gate deferred." }

@@ -11,6 +11,12 @@ publish = false
 
 [dependencies]
 libloading = "0.8"
+serde_json = "1"
+
+[dev-dependencies]
+# YAML reader for the FEATURE_MATRIX parity gate (test-only; never ships).
+# yaml-rust2 is the maintained successor to the unmaintained serde_yaml.
+yaml-rust2 = "0.10"
 
 [lib]
 name = "aletheia"

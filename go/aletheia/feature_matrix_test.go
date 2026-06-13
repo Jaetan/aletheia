@@ -43,6 +43,7 @@ type featureBindings struct {
 	Python featureBinding `yaml:"python"`
 	Cpp    featureBinding `yaml:"cpp"`
 	Go     featureBinding `yaml:"go"`
+	Rust   featureBinding `yaml:"rust"`
 }
 
 type feature struct {
@@ -105,6 +106,7 @@ func TestFeatureMatrixSchema(t *testing.T) {
 			checkBinding(t, f.ID, "python", f.Bindings.Python)
 			checkBinding(t, f.ID, "cpp", f.Bindings.Cpp)
 			checkBinding(t, f.ID, "go", f.Bindings.Go)
+			checkBinding(t, f.ID, "rust", f.Bindings.Rust)
 		})
 	}
 }
