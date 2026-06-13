@@ -4,8 +4,6 @@
 // Tests include this header directly to queue responses and inspect requests.
 #pragma once
 
-#include "json.hpp"
-
 #include <aletheia/backend.hpp>
 
 #include <cassert>
@@ -50,37 +48,58 @@ public:
             responses_.pop();
             return r;
         }
-        // Default reflects the real FFI wire contract: fire-and-forget events
-        // (sendFrame / sendError / sendRemote per StreamState.agda:81-82)
-        // return {"status":"ack"}; everything else returns {"status":"success"}.
-        // Tests that care about the specific status should queue_response()
-        // explicitly; the default below only fires when no response is queued.
-        const bool is_fire_and_forget =
-            input.contains(R"("command":"sendFrame")") ||
-            input.contains(R"("command":"sendError")") ||
-            input.contains(R"("command":"sendRemote")") || input.contains(R"("type":"data")") ||
-            input.contains(R"("type":"error")") || input.contains(R"("type":"remote")");
+        // Default reflects the real FFI wire contract: fire-and-forget binary
+        // calls (sendFrame / sendError / sendRemote) return {"status":"ack"};
+        // everything else returns {"status":"success"}.  Tests that care about
+        // the specific status should queue_response() explicitly; the default
+        // below only fires when no response is queued.  Matches Python's
+        // _ACK_DEFAULT_MARKERS.
+        const bool is_fire_and_forget = input.contains("<binary:sendFrame>") ||
+                                        input.contains("<binary:sendError>") ||
+                                        input.contains("<binary:sendRemote>");
         if (is_fire_and_forget)
             return R"({"status": "ack"})";
         return R"({"status": "success"})";
     }
 
-    // BRS / ESI (CAN-FD bit-rate-switch / error-state-indicator metadata,
-    // ISO 11898-1:2015 §10.4.2/3) are threaded through to the wire shape so
-    // mock-driven tests can assert on the bytes.  Pass std::nullopt for CAN
-    // 2.0B frames.  R20 cluster F (CPP-B-11.1 / CPP-D-16.1) closure.
-    auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
-                           std::span<const std::byte> data, std::optional<bool> brs,
-                           std::optional<bool> esi) -> std::string override {
-        return process(state, detail::serialize_send_frame(ts, id, dlc, data, brs, esi));
+    // The binary-shim overrides below record a `<binary:…>` sentinel rather than
+    // a serialized JSON command.  The real FfiBackend drives every streaming /
+    // frame / extract / format operation through the binary FFI; there is no
+    // JSON wire for these in production, so a JSON rendering here would be a
+    // fiction no real path emits.  The sentinel records *that* a binary call was
+    // made; argument values are verified end-to-end by the real-`.so` round-trip
+    // tests (e.g. the BRS/ESI passthrough cross-binding test).  Mirrors the
+    // Python and Go mock backends exactly (cross-binding mock uniformity).
+    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
+                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
+                           std::optional<bool> /*esi*/) -> std::string override {
+        return process(state, "<binary:sendFrame>");
     }
 
-    auto send_error_binary(void* state, Timestamp ts) -> std::string override {
-        return process(state, detail::serialize_send_error(ts));
+    auto send_error_binary(void* state, Timestamp /*ts*/) -> std::string override {
+        return process(state, "<binary:sendError>");
     }
 
-    auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
-        return process(state, detail::serialize_send_remote(ts, id));
+    auto send_remote_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/)
+        -> std::string override {
+        return process(state, "<binary:sendRemote>");
+    }
+
+    auto start_stream_binary(void* state) -> std::string override {
+        return process(state, "<binary:startStream>");
+    }
+
+    auto end_stream_binary(void* state) -> std::string override {
+        return process(state, "<binary:endStream>");
+    }
+
+    auto format_dbc_binary(void* state) -> std::string override {
+        return process(state, "<binary:formatDBC>");
+    }
+
+    auto extract_signals_binary(void* state, const CanId& /*id*/, Dlc /*dlc*/,
+                                std::span<const std::byte> /*data*/) -> std::string override {
+        return process(state, "<binary:extractAllSignals>");
     }
 
     void close(void* /*state*/) override {}

@@ -390,13 +390,16 @@ func TestSendError_Ack(t *testing.T) {
 		t.Fatalf("SendError: %v", err)
 	}
 
-	// Verify the mock saw the serialized error event as its third input.
+	// Verify the mock saw the binary sendError call as its third input.
+	// The mock records a `<binary:sendError>` sentinel (the real backend
+	// drives SendError through the binary FFI; argument values are covered
+	// by the real-.so round-trip tests).
 	inputs := mock.Inputs()
 	if len(inputs) != 3 {
 		t.Fatalf("expected 3 inputs, got %d", len(inputs))
 	}
-	if !strings.Contains(inputs[2], `"type":"error"`) || !strings.Contains(inputs[2], `"timestamp":1000`) {
-		t.Errorf("expected error event in third input, got: %s", inputs[2])
+	if inputs[2] != "<binary:sendError>" {
+		t.Errorf("expected <binary:sendError> sentinel as third input, got: %s", inputs[2])
 	}
 }
 
@@ -438,13 +441,16 @@ func TestSendRemote_Ack(t *testing.T) {
 		t.Fatalf("SendRemote: %v", err)
 	}
 
-	// Verify the mock saw the serialized remote event as its third input.
+	// Verify the mock saw the binary sendRemote call as its third input.
+	// The mock records a `<binary:sendRemote>` sentinel (the real backend
+	// drives SendRemote through the binary FFI; argument values are covered
+	// by the real-.so round-trip tests).
 	inputs := mock.Inputs()
 	if len(inputs) != 3 {
 		t.Fatalf("expected 3 inputs, got %d", len(inputs))
 	}
-	if !strings.Contains(inputs[2], `"type":"remote"`) || !strings.Contains(inputs[2], `"id":256`) {
-		t.Errorf("expected remote event in third input, got: %s", inputs[2])
+	if inputs[2] != "<binary:sendRemote>" {
+		t.Errorf("expected <binary:sendRemote> sentinel as third input, got: %s", inputs[2])
 	}
 }
 

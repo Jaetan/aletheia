@@ -16,8 +16,6 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
-#include <nlohmann/json.hpp>
-
 #include <cstddef>
 #include <memory>
 #include <utility>
@@ -25,7 +23,6 @@
 #include <vector>
 
 using namespace aletheia;
-using json = nlohmann::json;
 using Catch::Matchers::ContainsSubstring;
 
 // ===========================================================================
@@ -214,8 +211,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     // Count extractAllSignals commands (should be exactly 1)
     std::size_t extract_count = 0;
     for (const auto& captured : mock_ptr->captured()) {
-        auto j = json::parse(captured);
-        if (j.contains("command") && j["command"] == "extractAllSignals")
+        if (captured == "<binary:extractAllSignals>")
             ++extract_count;
     }
     CHECK(extract_count == 1);
@@ -375,8 +371,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     // Should have 2 extractAllSignals calls (cache was cleared)
     std::size_t extract_count = 0;
     for (const auto& captured : mock_ptr->captured()) {
-        auto j = json::parse(captured);
-        if (j.contains("command") && j["command"] == "extractAllSignals")
+        if (captured == "<binary:extractAllSignals>")
             ++extract_count;
     }
     CHECK(extract_count == 2);

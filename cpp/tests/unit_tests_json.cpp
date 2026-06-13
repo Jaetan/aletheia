@@ -102,20 +102,6 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
     CHECK(j["properties"][0]["formula"]["predicate"]["value"] == Catch::Approx(220.0));
 }
 
-TEST_CASE("serialize_send_frame produces correct JSON", "[json][serialize]") {
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
-    FramePayload data(8, std::byte{0});
-    auto str = detail::serialize_send_frame(Timestamp{1'000'000}, id, dlc, data);
-    auto j = json::parse(str);
-
-    CHECK(j["type"] == "data");
-    CHECK(j["timestamp"] == 1'000'000);
-    CHECK(j["id"] == 0x100);
-    CHECK(j["dlc"] == 8);
-    CHECK(j["data"].size() == 8);
-}
-
 TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     auto id = StandardId::create(0x200).value();
     auto dlc = Dlc::create(8).value();

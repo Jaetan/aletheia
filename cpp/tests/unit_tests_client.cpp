@@ -86,10 +86,10 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     CHECK(result->values[0].name == SignalName{"Speed"});
     CHECK(result->values[0].value == PhysicalValue{Rational{120, 1}});
 
-    auto j = json::parse(mock_ptr->last_captured());
-    CHECK(j["command"] == "extractAllSignals");
-    CHECK(j["canId"] == 0x100);
-    CHECK(j["dlc"] == 8);
+    // extract_signals is a binary-path call; the mock records a sentinel.
+    // The canId/dlc/data marshalling is verified by the real-.so round-trip
+    // tests (cross_binding_integration), not the mock.
+    CHECK(mock_ptr->last_captured() == "<binary:extractAllSignals>");
 }
 
 TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBackend",
@@ -174,12 +174,14 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     CHECK(end_result->results.size() == 1);
     CHECK(end_result->results[0].verdict == Verdict::Holds);
 
-    // Verify command sequence
+    // Verify command sequence.  setProperties is a real JSON command (sent via
+    // process()); the streaming ops are binary-path calls the mock records as
+    // `<binary:…>` sentinels (the real backend drives them through the binary FFI).
     REQUIRE(mock_ptr->captured().size() == 4);
     CHECK(json::parse(mock_ptr->captured()[0])["command"] == "setProperties");
-    CHECK(json::parse(mock_ptr->captured()[1])["command"] == "startStream");
-    CHECK(json::parse(mock_ptr->captured()[2])["type"] == "data");
-    CHECK(json::parse(mock_ptr->captured()[3])["command"] == "endStream");
+    CHECK(mock_ptr->captured()[1] == "<binary:startStream>");
+    CHECK(mock_ptr->captured()[2] == "<binary:sendFrame>");
+    CHECK(mock_ptr->captured()[3] == "<binary:endStream>");
 }
 
 TEST_CASE("client validate_dbc round-trip", "[client][mock]") {
@@ -633,13 +635,13 @@ TEST_CASE("MockBackend default response path", "[client][mock]") {
     MockBackend mock;
     auto* state = mock.init();
 
-    // Fire-and-forget command (no queued response) → ack
-    auto ack = mock.process(state, R"({"command":"sendFrame","data":{}})");
+    // Fire-and-forget binary call (no queued response) → ack
+    auto ack = mock.process(state, "<binary:sendFrame>");
     CHECK(ack == R"({"status": "ack"})");
 
-    // Binary-path fire-and-forget → ack
-    auto ack_bin = mock.process(state, R"({"type":"data","ts":0})");
-    CHECK(ack_bin == R"({"status": "ack"})");
+    // Other fire-and-forget binary calls → ack
+    auto ack_err = mock.process(state, "<binary:sendError>");
+    CHECK(ack_err == R"({"status": "ack"})");
 
     // Non-fire-and-forget command → success
     auto ok = mock.process(state, R"({"command":"setProperties","formulas":[]})");
@@ -647,6 +649,6 @@ TEST_CASE("MockBackend default response path", "[client][mock]") {
 
     // Queued response takes priority over defaults
     mock.queue_response(R"({"custom": true})");
-    auto custom = mock.process(state, R"({"command":"sendFrame","data":{}})");
+    auto custom = mock.process(state, "<binary:sendFrame>");
     CHECK(custom == R"({"custom": true})");
 }

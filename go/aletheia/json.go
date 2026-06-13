@@ -9,20 +9,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"strconv"
-	"strings"
 )
-
-// bytesToIntSlice converts []byte to []int for JSON serialization.
-// Go's json.Marshal encodes []byte/[]uint8 as base64, but the Agda core
-// expects a JSON array of integers: [0, 64, 31, ...].
-func bytesToIntSlice(data []byte) []int {
-	out := make([]int, len(data))
-	for i, b := range data {
-		out[i] = int(b)
-	}
-	return out
-}
 
 // --- Serialization (Go → JSON for Agda core) ---
 
@@ -40,101 +27,6 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 		return "", wrapProtocolError("failed to serialize command", err)
 	}
 	return string(b), nil
-}
-
-// serializeDataFrame serializes a CAN frame as a JSON data event.
-// Uses direct string building rather than json.Marshal to avoid map allocation
-// and reflection overhead.
-//
-// R19 cluster 19 / GO-B-25.2 DEFER (2026-05-12): the per-call
-// `strings.Builder` allocation here was flagged as a `sync.Pool` candidate.
-// Audit (`grep -rn 'serializeDataFrame'`) confirmed the function is only
-// invoked from `mock.go:135` (the test backend) and `check_test.go` —
-// real streaming uses the binary FFI `sendFrameBinary` and never enters
-// this path.  A pool would add `Get`/`Put` overhead on test paths where
-// the existing single-allocation cost is already negligible, in exchange
-// for zero real-world benefit.  Re-evaluate only if a JSON streaming
-// surface is added that calls this function on a hot path.
-//
-// R20 cluster F (GO-B-14.1 / GO-D-16.2): BRS/ESI trailing args are
-// emitted as optional `"brs"`/`"esi"` fields when non-nil so
-// mock-driven tests can assert on the wire shape end-to-end.  Pass
-// `nil, nil` for CAN 2.0B frames where these bits don't exist (ISO
-// 11898-1:2015 §10.4.2/3 — CAN-FD only).  The Agda data-event parser
-// ignores unknown fields, so this is purely an additive wire-shape
-// observability for cross-binding-test parity.
-func serializeDataFrame(ts Timestamp, id CANID, dlc DLC, data FramePayload, brs, esi *bool) string {
-	// Avoids map allocation, reflection-based marshaling, and []int conversion.
-	var buf strings.Builder
-	buf.Grow(128 + len(data)*4) // pre-size for typical frame
-	buf.WriteString(`{"type":"data","timestamp":`)
-	buf.WriteString(strconv.FormatInt(ts.Microseconds, 10))
-	buf.WriteString(`,"id":`)
-	buf.WriteString(strconv.FormatUint(uint64(id.Value()), 10))
-	buf.WriteString(`,"extended":`)
-	if id.IsExtended() {
-		buf.WriteString("true")
-	} else {
-		buf.WriteString("false")
-	}
-	buf.WriteString(`,"dlc":`)
-	buf.WriteString(strconv.FormatUint(uint64(dlc.Value()), 10))
-	buf.WriteString(`,"data":[`)
-	for i, b := range data {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		buf.WriteString(strconv.FormatUint(uint64(b), 10))
-	}
-	buf.WriteByte(']')
-	if brs != nil {
-		buf.WriteString(`,"brs":`)
-		if *brs {
-			buf.WriteString("true")
-		} else {
-			buf.WriteString("false")
-		}
-	}
-	if esi != nil {
-		buf.WriteString(`,"esi":`)
-		if *esi {
-			buf.WriteString("true")
-		} else {
-			buf.WriteString("false")
-		}
-	}
-	buf.WriteByte('}')
-	return buf.String()
-}
-
-// serializeErrorEvent serializes a CAN error event as JSON. Used by the
-// MockBackend so tests can observe error events alongside data frames.
-func serializeErrorEvent(ts Timestamp) string {
-	var buf strings.Builder
-	buf.Grow(48)
-	buf.WriteString(`{"type":"error","timestamp":`)
-	buf.WriteString(strconv.FormatInt(ts.Microseconds, 10))
-	buf.WriteByte('}')
-	return buf.String()
-}
-
-// serializeRemoteEvent serializes a CAN remote frame event as JSON. Used by the
-// MockBackend so tests can observe remote events alongside data frames.
-func serializeRemoteEvent(ts Timestamp, id CANID) string {
-	var buf strings.Builder
-	buf.Grow(80)
-	buf.WriteString(`{"type":"remote","timestamp":`)
-	buf.WriteString(strconv.FormatInt(ts.Microseconds, 10))
-	buf.WriteString(`,"id":`)
-	buf.WriteString(strconv.FormatUint(uint64(id.Value()), 10))
-	buf.WriteString(`,"extended":`)
-	if id.IsExtended() {
-		buf.WriteString("true")
-	} else {
-		buf.WriteString("false")
-	}
-	buf.WriteByte('}')
-	return buf.String()
 }
 
 // serializeDBC converts a DBCDefinition into the map shape Agda expects
