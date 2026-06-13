@@ -42,7 +42,7 @@ Aletheia uses a JSON protocol for communication between language bindings (Pytho
 
 **Communication Model**:
 - Four FFI entry points, all returning JSON response strings:
-  - `aletheia_process()`: JSON string in — handles all commands (parseDBC, setProperties, startStream, etc.)
+  - `aletheia_process()`: JSON string in — handles the DBC/property commands (parseDBC, setProperties, validateDBC, parseDBCText, formatDBCText)
   - `aletheia_send_frame()`: Binary data in — streaming hot path for CAN data frames (no JSON parsing on input)
   - `aletheia_send_error()`: Binary error frame (timestamp only, no payload)
   - `aletheia_send_remote()`: Binary remote frame (timestamp + CAN ID, no payload)
@@ -64,7 +64,7 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
 All messages have a `"type"` field that determines how they are processed.
 
 ### Type Tags
-- `"command"`: Control commands (parseDBC, extractAllSignals, validateDBC, formatDBC, setProperties, startStream, sendFrame, endStream, parseDBCText, formatDBCText). Frame build/update uses the binary FFI path (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`) — no JSON command exists for these operations. `sendFrame` is the JSON mirror of the binary `aletheia_send_frame` streaming entry point.
+- `"command"`: DBC / property JSON commands — `parseDBC`, `setProperties`, `validateDBC`, `parseDBCText`, `formatDBCText`. The streaming / frame operations have **no JSON command form**; they are driven through the binary FFI entry points: start-stream (`aletheia_start_stream`), send-frame (`aletheia_send_frame`), extract-signals (`aletheia_extract_signals`), format-DBC (`aletheia_format_dbc`), end-stream (`aletheia_end_stream`), and frame build/update (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`). (The JSON command mirrors for the streaming operations were removed — production has always used the binary FFI.)
 
 > **Note**: Data frames are sent via the binary `aletheia_send_frame()` entry point, not as JSON. See [Binary Frame Entry Point](#binary-frame-entry-point) below.
 
@@ -242,6 +242,8 @@ Signal is only present when the multiplexor signal's value is in the `multiplex_
 
 ### 2. ExtractAllSignals
 
+> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_extract_signals` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `extractAllSignals` command. The request/response shapes below are retained as a reference to the operation's semantics.
+
 Extract all signal values from a CAN frame without streaming.
 
 **Request**:
@@ -319,6 +321,8 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 ---
 
 ### 4. FormatDBC
+
+> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_format_dbc` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `formatDBC` command. (Note: the distinct `formatDBCText` JSON command — DBC struct → `.dbc` text — is retained.) The shapes below are retained as a reference to the operation's semantics.
 
 Export the currently-loaded DBC as JSON.
 
@@ -407,6 +411,8 @@ See [LTL Property Format](#ltl-property-format) section below for complete schem
 
 ### 6. StartStream
 
+> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_start_stream` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `startStream` command. The shapes below are retained as a reference to the operation's semantics.
+
 Begin streaming mode for processing data frames.
 
 **Request**:
@@ -440,10 +446,9 @@ Begin streaming mode for processing data frames.
 
 ### 7. SendFrame
 
-Submit a CAN data frame to the active monitoring stream via the JSON path.
-JSON mirror of the binary FFI `aletheia_send_frame` entry point — use this
-form when ergonomic JSON tooling is preferable to the binary ABI; the binary
-path remains the throughput-optimised route for tight streaming loops.
+> **Removed (JSON command).** The JSON `sendFrame` mirror has been removed; submitting a CAN data frame is done through the binary FFI entry point `aletheia_send_frame` (see [Binary Frame Entry Point](#binary-frame-entry-point) below) — the throughput-optimised route every binding uses. `aletheia_process` no longer accepts the `sendFrame` command. The shapes below are retained as a reference to the operation's semantics.
+
+Submit a CAN data frame to the active monitoring stream.
 
 **Request**:
 ```json
@@ -514,6 +519,8 @@ command).
 ---
 
 ### 8. EndStream
+
+> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_end_stream` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `endStream` command. The shapes below are retained as a reference to the operation's semantics.
 
 End streaming mode and return final results.
 
@@ -1100,15 +1107,15 @@ Used in responses for exact representation.
 ```
 
 ### 3. Start Streaming
-```json
->>> {"type": "command", "command": "startStream"}
+```
+>>> aletheia_start_stream(state)
 <<< {"status": "success", "message": "Streaming started"}
 ```
 
-### 4. Send Data Frames (via `aletheia_send_frame` or JSON `sendFrame`)
+### 4. Send Data Frames (via `aletheia_send_frame`)
 
-Binary path (high-throughput streaming hot path; the 4 trailing `0, 0, 0, 0`
-bytes encode absent CAN-FD BRS / ESI metadata):
+High-throughput streaming hot path; the 4 trailing `0, 0, 0, 0` bytes encode
+absent CAN-FD BRS / ESI metadata:
 ```
 >>> aletheia_send_frame(state, 100, 256, 0, 8, [0xE8,0x03,0,0,0,0,0,0], 8, 0, 0, 0, 0)
 <<< {"status": "ack"}
@@ -1120,16 +1127,9 @@ bytes encode absent CAN-FD BRS / ESI metadata):
 <<< {"type": "property_batch", "results": [{"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
 ```
 
-JSON path (ergonomic; same wire response shape, omit `brs` / `esi` for
-CAN 2.0B):
-```json
->>> {"type":"command","command":"sendFrame","timestamp":100,"canId":256,"dlc":8,"data":[232,3,0,0,0,0,0,0]}
-<<< {"status": "ack"}
-```
-
 ### 5. End Streaming
-```json
->>> {"type": "command", "command": "endStream"}
+```
+>>> aletheia_end_stream(state)
 <<< {"status": "complete", "results": [{"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}}, {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
 ```
 

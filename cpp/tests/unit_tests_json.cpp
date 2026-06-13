@@ -69,22 +69,6 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(sig["presence"] == "always");
 }
 
-TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]") {
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    auto str = detail::serialize_extract_signals(id, dlc, data);
-    auto j = json::parse(str);
-
-    CHECK(j["command"] == "extractAllSignals");
-    CHECK(j["canId"] == 0x100);
-    CHECK(j["dlc"] == 8);
-    CHECK(j["data"].size() == 8);
-    CHECK(j["data"][0] == 0xE8);
-    CHECK(j["data"][1] == 0x03);
-}
-
 TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]") {
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));

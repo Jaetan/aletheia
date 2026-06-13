@@ -71,27 +71,30 @@ public:
                                                  std::optional<bool> brs, std::optional<bool> esi)
         -> std::string = 0;
 
-    // ========================================================================
-    // [OPTIONAL] — base class provides a default implementation falling back
-    // to the JSON `process()` path; specialized backends (e.g. FFIBackend)
-    // override these to take the binary-FFI fast path.  MockBackend and
-    // other test doubles inherit the JSON fallback for free.
-    // ========================================================================
-
-    // CAN error/remote event endpoints (acknowledged without LTL evaluation).
-    [[nodiscard]] virtual auto send_error_binary(void* state, Timestamp ts) -> std::string;
+    // Streaming / event endpoints — also pure-virtual.  There is no honest
+    // generic default: only the binary FFI (FFIBackend) or a test double
+    // (MockBackend, which records `<binary:OP>` sentinels) can service these,
+    // so every backend declares how it streams.  The former defaults routed
+    // through the JSON `process()` path, mirroring streaming commands the Agda
+    // core no longer accepts (and `send_error`/`send_remote` had no core JSON
+    // command at all) — they were removed.
+    [[nodiscard]] virtual auto send_error_binary(void* state, Timestamp ts) -> std::string = 0;
     [[nodiscard]] virtual auto send_remote_binary(void* state, Timestamp ts, const CanId& id)
-        -> std::string;
-
-    // State transitions (no args → JSON response).
-    [[nodiscard]] virtual auto start_stream_binary(void* state) -> std::string;
-    [[nodiscard]] virtual auto end_stream_binary(void* state) -> std::string;
-    [[nodiscard]] virtual auto format_dbc_binary(void* state) -> std::string;
-
-    // Binary CAN frame → JSON response (signal extraction without streaming).
+        -> std::string = 0;
+    [[nodiscard]] virtual auto start_stream_binary(void* state) -> std::string = 0;
+    [[nodiscard]] virtual auto end_stream_binary(void* state) -> std::string = 0;
+    [[nodiscard]] virtual auto format_dbc_binary(void* state) -> std::string = 0;
     [[nodiscard]] virtual auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
                                                       std::span<const std::byte> data)
-        -> std::string;
+        -> std::string = 0;
+
+    // ========================================================================
+    // [OPTIONAL] — base class provides a default implementation; specialized
+    // backends (e.g. FFIBackend) override these to take the binary-FFI fast
+    // path.  Non-FFI backends inherit a default that returns the
+    // `BinaryUnsupported` sentinel (so Client can fall through to JSON) or, for
+    // `rts_mismatch_info`, `std::nullopt`.
+    // ========================================================================
 
     // Binary output endpoints — raw payload bytes on success, AletheiaError on failure.
     [[nodiscard]] virtual auto build_frame_bin(void* state, const CanId& id, Dlc dlc,

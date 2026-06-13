@@ -85,10 +85,14 @@ def test_mockbackend_records_all_inputs() -> None:
 
 
 def test_mockbackend_default_ack_for_fire_and_forget() -> None:
-    """Empty queue + sendFrame-shaped input returns the ack default."""
+    """Empty queue + a binary fire-and-forget op returns the ack default.
+
+    Real backends drive these through the binary FFI, so the mock records a
+    ``<binary:OP>`` sentinel; an empty response queue defaults to ``ack``.
+    """
     backend = MockBackend()
     state = backend.init()
-    out = backend.process(state, b'{"command":"sendFrame","timestamp":0}')
+    out = backend.send_error_binary(state, 0)
     assert out == b'{"status":"ack"}'
 
 

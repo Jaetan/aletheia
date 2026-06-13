@@ -29,11 +29,39 @@ namespace {
 
 using namespace aletheia;
 
+// Shared base for the cancellation-test doubles. The binary streaming/event
+// endpoints are never exercised by these tests (they drive process() /
+// set_properties / send_frame), so the base satisfies the now-mandatory
+// IBackend streaming surface by routing every endpoint through process().
+// Subclasses implement init/close/process with the behaviour under test.
+class StubStreamingBackend : public IBackend {
+public:
+    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
+                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
+                           std::optional<bool> /*esi*/) -> std::string override {
+        return process(state, "");
+    }
+    auto send_error_binary(void* state, Timestamp /*ts*/) -> std::string override {
+        return process(state, "");
+    }
+    auto send_remote_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/)
+        -> std::string override {
+        return process(state, "");
+    }
+    auto start_stream_binary(void* state) -> std::string override { return process(state, ""); }
+    auto end_stream_binary(void* state) -> std::string override { return process(state, ""); }
+    auto format_dbc_binary(void* state) -> std::string override { return process(state, ""); }
+    auto extract_signals_binary(void* state, const CanId& /*id*/, Dlc /*dlc*/,
+                                std::span<const std::byte> /*data*/) -> std::string override {
+        return process(state, "");
+    }
+};
+
 // CancelTriggerBackend deterministically fires the supplied stop_source
 // callback on the Nth process() call so tests can force a mid-batch
 // cancellation without sleeping. Anything before N runs to completion;
 // anything after sees stop_requested at the next pre-FFI guard.
-class CancelTriggerBackend : public IBackend {
+class CancelTriggerBackend : public StubStreamingBackend {
     static inline char sentinel = 0;
     std::size_t calls_ = 0;
     std::size_t cancel_after_ = 0;
@@ -55,18 +83,12 @@ public:
             source_->request_stop();
         return R"({"status":"ack"})";
     }
-
-    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
-                           std::optional<bool> /*esi*/) -> std::string override {
-        return process(state, "");
-    }
 };
 
 // HoldingBackend simulates an in-flight FFI call: process() blocks until the
 // test releases it via release(). Pairs with TestClient_NoCancelOnInFlightFFI
 // to verify the in-flight call runs to completion even after stop fires.
-class HoldingBackend : public IBackend {
+class HoldingBackend : public StubStreamingBackend {
     static inline char sentinel = 0;
     std::size_t calls_ = 0;
     std::stop_token release_token_;
@@ -91,12 +113,6 @@ public:
         while (!release_token_.stop_requested())
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         return R"({"status":"success"})";
-    }
-
-    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
-                           std::optional<bool> /*esi*/) -> std::string override {
-        return process(state, "");
     }
 };
 
