@@ -7,10 +7,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <format>
 #include <limits>
 #include <numeric>
 #include <span>
@@ -508,30 +506,9 @@ auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string {
     return Json{{"type", "command"}, {"command", "validateDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
 }
 
-auto serialize_format_dbc() -> std::string {
-    return Json{{"type", "command"}, {"command", "formatDBC"}}.dump();
-}
-
 auto serialize_format_dbc_text(const DbcDefinition& dbc) -> std::string {
     return Json{{"type", "command"}, {"command", "formatDBCText"}, {"dbc", dbc_to_json(dbc)}}
         .dump();
-}
-
-auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
-    -> std::string {
-    // Direct string construction.  No reserve(): this is the JSON (non-binary)
-    // extract path backing the default IBackend impl, not the streaming hot
-    // path, and the reserve sized only a discarded local — no observable effect.
-    std::string data_str;
-    for (std::size_t i = 0; i < data.size(); ++i) {
-        if (i > 0)
-            data_str += ',';
-        data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
-    }
-    return std::format(R"({{"type":"command","command":"extractAllSignals",)"
-                       R"("canId":{},"extended":{},"dlc":{},"data":[{}]}})",
-                       can_id_value(id), can_id_is_extended(id) ? "true" : "false", dlc.value(),
-                       data_str);
 }
 
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string {
@@ -540,23 +517,6 @@ auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string 
         arr.push_back(formula_to_json(f));
     return Json{{"type", "command"}, {"command", "setProperties"}, {"properties", std::move(arr)}}
         .dump();
-}
-
-auto serialize_start_stream() -> std::string {
-    return Json{{"type", "command"}, {"command", "startStream"}}.dump();
-}
-
-auto serialize_end_stream() -> std::string {
-    return Json{{"type", "command"}, {"command", "endStream"}}.dump();
-}
-
-auto serialize_send_error(Timestamp ts) -> std::string {
-    return std::format(R"({{"type":"error","timestamp":{}}})", ts.count());
-}
-
-auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string {
-    return std::format(R"({{"type":"remote","timestamp":{},"id":{},"extended":{}}})", ts.count(),
-                       can_id_value(id), can_id_is_extended(id) ? "true" : "false");
 }
 
 } // namespace aletheia::detail
