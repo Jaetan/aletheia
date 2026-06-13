@@ -530,7 +530,7 @@ features:
         status: implemented
         entry: cmd/aletheia:run
         notes: "Phase 6 (2026-06-12): go/cmd/aletheia host binary — validate/extract/signals/format-dbc/mux-query dispatching to Client. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
-      rust: { status: planned, notes: "Rust CLI deferred." }
+      rust: { status: planned, notes: "Phase 6 — Rust host CLI, scheduled with the python-can replacement / host-surface work (see can_log_reader); out of scope for the Rust parity plan (docs/development/RUST_PARITY_PLAN.md)." }
 
   - id: can_log_reader
     name: CAN log file reader
@@ -546,7 +546,7 @@ features:
       go:
         status: planned
         notes: "Not yet in backlog; pending user decision — may move to not_applicable if judged a host-application concern."
-      rust: { status: planned, notes: "CAN log reader deferred." }
+      rust: { status: planned, notes: "Phase 6 — the python-can replacement (verified Agda log-format parsers); unbuilt in every binding, so this lands when the can_logger is removed from Python. Out of scope for the Rust parity plan." }
 
   - id: doc_example_gate_checks
     name: Executable doc examples
@@ -565,4 +565,4 @@ features:
         status: implemented
         entry: Client
         notes: "D.2 (2026-05-04) — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
-      rust: { status: planned, notes: "Rust doc-example gate deferred." }
+      rust: { status: planned, notes: "Phase 6 — Rust doc-example gate, scheduled with the python-can replacement / host-surface work; out of scope for the Rust parity plan (docs/development/RUST_PARITY_PLAN.md)." }
