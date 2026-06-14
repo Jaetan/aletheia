@@ -16,7 +16,7 @@ minutes.
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
 | Pre-commit advisory | `tools/iwyu.py --check` (via pre-commit hook) | `git commit` | IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files (advisory only — never blocks) |
-| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **33 always-on steps** — Agda gates (incl. the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
+| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **The always-on gate sweep** — Agda gates (the proof/invariant/erasure/fidelity/export checks fold into one `cabal run shake` call; build is a separate prereq; + the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
