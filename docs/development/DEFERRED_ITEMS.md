@@ -337,6 +337,19 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   carries the same repo-root form but is a **gitignored, untracked** local
   artifact (`.gitignore:57 docs/presentation/`) — out of scope for a committed
   fix; corrected in the working tree only.
+- **Update (2026-06-14) — now gate-backed.** The 2026-06-10 doc sweep was
+  necessary but not sufficient: the convention was prose-only, so it drifted.
+  It is now mechanically enforced by `tools/check_venv_convention.py` (a
+  `run_ci.py` source-hygiene gate; canonical rule in
+  [AGENTS.md § Universal Rules](../../AGENTS.md)). Two checks: exactly one
+  on-disk `pyvenv.cfg` (at `python/.venv`), and no tracked doc/script may
+  create/activate a venv outside `python/.venv`. Authoring the gate surfaced
+  one case the prose sweep missed — `benchmarks/run_all.sh` activated a
+  **repo-root** `$PROJECT_DIR/.venv` rather than `python/.venv`, so the
+  benchmark harness never used the canonical venv (fixed to
+  `$PROJECT_DIR/python/.venv`). The `.gitignore` was also collapsed from the
+  GitHub-template `env/`/`venv/`/`ENV/`/`.venv` set to the single canonical
+  `.venv`, so a stray non-canonical venv now surfaces in `git status`.
 
 ---
 
