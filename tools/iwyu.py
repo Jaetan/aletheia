@@ -64,6 +64,7 @@ from tools._iwyu import (
     verdict_fields,
     wildcard_fields,
 )
+from tools._resources import cpu_budget
 from tools._warm import AGDA_BIN, SRC, RelPath, WarmAgda, run_warm_gate
 
 FIXTURES = PKG / "test" / "fixtures"
@@ -197,7 +198,16 @@ def _typecheck_fixtures(scratch: Path) -> None:
         _ = shutil.copy(agda, scratch / agda.name)
     for agda in sorted(scratch.glob("*.agda")):
         result = run_capture(
-            [str(AGDA_BIN), "+RTS", "-N4", "-M4G", "-RTS", "--safe", "--without-K", agda.name],
+            [
+                str(AGDA_BIN),
+                "+RTS",
+                f"-N{cpu_budget()}",
+                "-M4G",
+                "-RTS",
+                "--safe",
+                "--without-K",
+                agda.name,
+            ],
             cwd=scratch,
         )
         if result.returncode != 0:

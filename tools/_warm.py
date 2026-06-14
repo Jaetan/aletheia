@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
 from tools._common import agda_tree_lock, emit, find_executable, git_toplevel, run_capture
+from tools._resources import cpu_budget
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -163,7 +164,7 @@ def _spawn_agda() -> subprocess.Popen[str]:
         stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
-        env={**os.environ, "GHCRTS": "-M16G -N8"},
+        env={**os.environ, "GHCRTS": f"-M16G -N{cpu_budget()}"},
     )
 
 
