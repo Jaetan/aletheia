@@ -37,7 +37,14 @@ _MEM_FALLBACK_MB = 4096
 
 
 def is_ci() -> bool:
-    """Return ``True`` when running on a CI runner (full resources allowed)."""
+    """Return ``True`` when running on a CI runner (full resources allowed).
+
+    Detected via the two signals our CI (GitHub Actions) actually sets — the
+    de-facto-standard ``CI=true`` or the unambiguous ``GITHUB_ACTIONS``.  One
+    canonical spelling per variable on purpose: we do NOT accept a permissive
+    truthy grab-bag (``1`` / ``yes`` / ``on`` …); other providers' ``CI=1`` is
+    irrelevant because this project's only CI is GitHub Actions.
+    """
     return os.environ.get("CI", "").lower() == "true" or "GITHUB_ACTIONS" in os.environ
 
 

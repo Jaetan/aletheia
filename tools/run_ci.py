@@ -279,6 +279,23 @@ def _resolve_flag(*, cli_value: bool | None, env_var: str) -> bool:
     return os.environ.get(env_var) == "1"
 
 
+def _resolve_heavy_limit(cli_value: int | None) -> int:
+    """Resolve the OOM heavy-step limit: CLI > env > default, clamped to >= 1.
+
+    A non-integer ``ALETHEIA_CI_HEAVY_LIMIT`` falls back to the default rather
+    than crashing the sweep, and a non-positive value is clamped to 1 so the
+    startup banner and the scheduler's ``Semaphore(max(1, n))`` agree on the
+    effective limit (no misleading "heavy-limit 0").
+    """
+    default = 2
+    if cli_value is not None:
+        return max(1, cli_value)
+    try:
+        return max(1, int(os.environ.get("ALETHEIA_CI_HEAVY_LIMIT", str(default))))
+    except ValueError:
+        return default
+
+
 def parse_args(argv: list[str] | None = None) -> OptInOptions:
     """Parse argv into resolved opt-in lane state (CLI > env > default-off)."""
     parser = argparse.ArgumentParser(
@@ -386,11 +403,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
         iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
         parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
-        heavy_limit=(
-            args.ci_heavy_limit
-            if args.ci_heavy_limit is not None
-            else int(os.environ.get("ALETHEIA_CI_HEAVY_LIMIT", "2"))
-        ),
+        heavy_limit=_resolve_heavy_limit(args.ci_heavy_limit),
     )
 
 
@@ -624,7 +637,8 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     # other lane needs, and a build failure short-circuits the whole sweep
     # before the parallel lanes spawn (run() special-cases the "build" step).
     runner.step("build", [*cabal, "build"], lane="agda")
-    # All remaining cabal-shake gates fold into ONE invocation (Phase 2): Shake
+    # All remaining cabal-shake gates fold into ONE invocation (the Agda-gate
+    # fan-in): Shake
     # parallelizes the independent phony rules internally (shakeThreads=0) and
     # the per-process cabal/shake startup + build-graph re-validation is paid
     # once, not once per gate.  Shake fails fast on the first failing target and
@@ -666,7 +680,11 @@ def _run_binding_tests(runner: Runner) -> None:
         [runner.python, "-m", "pytest", "tests/"],
         cwd=runner.repo_root / "python",
     )
-    # Doc-example fence harness.
+    # Doc-example fence harness.  Runs from the repo root (cwd=repo_root → would
+    # infer the "misc" lane), but it is a pytest invocation sharing the Python
+    # toolchain, so pin it to the "python" lane explicitly to keep all pytest
+    # runs serial within one lane (the lane invariant; cwd-based inference can't
+    # see that a repo-root `python -m pytest` belongs with the python/ steps).
     runner.step(
         "pytest --markdown-docs",
         [
@@ -682,6 +700,7 @@ def _run_binding_tests(runner: Runner) -> None:
             "examples/README.md",
         ],
         cwd=runner.repo_root,
+        lane="python",
     )
     # Python -X dev mode (Cat 34a).
     runner.step(

@@ -44,11 +44,16 @@ readMemAvailableMB = do
         then pure 4096
         else do
             contents <- readFile "/proc/meminfo"
+            -- Accept only an all-digit token so `read` below cannot throw on an
+            -- unexpected /proc/meminfo line; a non-numeric or absent value
+            -- yields Nothing -> the 4096 MiB safe fallback (this function is
+            -- meant to degrade gracefully on unusual hosts, never crash Shake).
             let kb = listToMaybe
                     [ kbStr
                     | line <- lines contents
                     , "MemAvailable:" `isPrefixOf` line
                     , kbStr <- take 1 (drop 1 (words line))
+                    , not (null kbStr) && all isDigit kbStr
                     ]
             pure $ maybe 4096 ((`div` 1024) . read) kb
 

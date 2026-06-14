@@ -20,13 +20,16 @@ from tools.run_ci import (
     OptInOptions,
     RunContext,
     Runner,
+    parse_args,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-# Phase 2 folds every cabal-shake Agda gate into one `cabal run shake -- <targets>`
-# invocation.  The fan-in's hazard is a silently DROPPED gate: a line removed from
+    import pytest
+
+# The Agda-gate fan-in folds every cabal-shake gate into one `cabal run shake
+# -- <targets>` invocation.  Its hazard is a silently DROPPED gate: a line removed from
 # AGDA_SHAKE_TARGETS quietly stops running on every PR.  Guard it by invariants
 # rather than a mirror copy of the tuple (DRY) — the count tripwire turns any
 # add/drop into a conscious edit, and the named checks pin the load-bearing gates.
@@ -50,6 +53,19 @@ def test_combined_agda_gates_include_load_bearing_checks() -> None:
 def test_combined_agda_step_is_oom_gated() -> None:
     """The combined step carries the heavy proof checks, so it must be OOM-gated."""
     assert AGDA_GATES_STEP in HEAVY_STEPS
+
+
+def test_heavy_limit_invalid_env_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-integer ALETHEIA_CI_HEAVY_LIMIT must not crash the sweep."""
+    monkeypatch.setenv("ALETHEIA_CI_HEAVY_LIMIT", "not-a-number")
+    assert parse_args([]).heavy_limit == 2  # the default, not a ValueError
+
+
+def test_heavy_limit_non_positive_clamped_to_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0 / negative clamps to 1 so the banner and the scheduler semaphore agree."""
+    monkeypatch.setenv("ALETHEIA_CI_HEAVY_LIMIT", "0")
+    assert parse_args([]).heavy_limit == 1
+    assert parse_args(["--ci-heavy-limit", "-3"]).heavy_limit == 1
 
 
 def _runner(tmp_path: Path, *, parallel: bool = False) -> Runner:
