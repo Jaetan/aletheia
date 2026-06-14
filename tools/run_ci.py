@@ -20,9 +20,9 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
 ═══ ALWAYS-ON STEPS ═══
 
-The "Step X/Y" total is derived at run time from the actual step() calls (a
-silent counting pass in main()) — there is no hand-maintained count to drift.
-Steps are listed below in execution order:
+Steps register into per-toolchain lanes; ``build`` runs first (every lane needs
+its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
+(``--parallel`` — see ``tools/_scheduler.py``).  The always-on steps, by lane:
 
   Agda gates:
     - build           — produces libaletheia-ffi.so
@@ -143,18 +143,34 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
 from tools._common import emit, find_executable, git_toplevel
+from tools._resources import cpu_budget
+from tools._scheduler import Step, StepResult, run_lanes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-# ``shell=True`` runs the command through ``/bin/sh -c`` on POSIX; we invoke
-# that interpreter explicitly so the call site shows exactly which process is
-# spawned (ruff S602/S604 warn about the opaque ``shell=True`` form).  The path
-# is absolute, matching what CPython's ``shell=True`` uses verbatim.
-POSIX_SHELL = "/bin/sh"
-
 # Number of trailing log lines echoed to stderr when a step fails.
 FAILURE_TAIL_LINES = 50
+
+# Big-memory steps gated by the OOM semaphore in --parallel mode.  Centralizing
+# the classification (vs. a heavy= flag on every step() call) keeps it reviewable
+# in one place.  Chosen from real GHA timings: the Agda heavies (-M16G warm proc
+# / cabal-test build), the C++ clang builds, the race detector, the FFI pytest
+# lane, and the opt-in lanes.  See .session-state Stage B notes.
+_HEAVY_STEPS: frozenset[str] = frozenset(
+    {
+        "build",
+        "check-properties",
+        "check-fidelity",
+        "pytest",
+        "go test -race",
+        "ctest",
+        "ubsan ctest",
+        "check-reproducible-build",
+        "stability bench",
+        "mutation testing",
+    }
+)
 
 _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -203,6 +219,12 @@ class OptInOptions:
     # merge gate).  Deliberately excluded from any_enabled / enabled_count:
     # it adds no step and does not change total_steps.
     iwyu_all: bool = False
+    # Lane-parallel gate execution + the heavy-step concurrency cap.  Default
+    # serial (run_lanes serial=True): exit-code-identical to today.  --parallel
+    # opts into the lane scheduler; heavy_limit bounds concurrent big-memory
+    # steps (the OOM guard) and is only consulted in parallel mode.
+    parallel: bool = False
+    heavy_limit: int = 2
 
     @property
     def any_enabled(self) -> bool:
@@ -296,6 +318,26 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         ),
     )
 
+    parser.add_argument(
+        "--parallel",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Run independent toolchain lanes concurrently (Agda / Python / Go / "
+            "C++ / Rust / meta) rather than serially.  Default off — serial is "
+            "exit-code-identical to the historic sweep.  (env: ALETHEIA_CI_PARALLEL=1)"
+        ),
+    )
+    parser.add_argument(
+        "--ci-heavy-limit",
+        type=int,
+        default=None,
+        help=(
+            "Max big-memory steps run at once in --parallel mode (the OOM guard); "
+            "default 2.  (env: ALETHEIA_CI_HEAVY_LIMIT)"
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     # --full sets every unset CLI flag to True; explicit --no-<lane> keeps False.
@@ -311,6 +353,12 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
         mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
         iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
+        parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
+        heavy_limit=(
+            args.ci_heavy_limit
+            if args.ci_heavy_limit is not None
+            else int(os.environ.get("ALETHEIA_CI_HEAVY_LIMIT", "2"))
+        ),
     )
 
 
@@ -359,22 +407,17 @@ class RunContext:
 
 @dataclass
 class Runner:
-    """Drive the ordered step sweep, tee output to a log, and tally pass/fail."""
+    """Collect gate steps into toolchain lanes, then run them serial or lane-parallel."""
 
     opts: OptInOptions
     ctx: RunContext
-    total_steps: int = field(init=False, default=0)
-    step_num: int = field(init=False, default=0)
-    failed_step: str | None = field(init=False, default=None)
     start: float = field(init=False, default=0.0)
     log_fh: TextIO = field(init=False)
+    _registry: list[Step] = field(init=False, default_factory=list)
+    _skips: list[tuple[str, str]] = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
-        """Open the log file handle and initialise counters."""
-        # total_steps stays 0 until main()'s silent counting pass fills it — and
-        # total_steps == 0 IS the count-mode signal for step()/announce_skip(),
-        # so the total derives from the actual step() calls (single source of
-        # truth for the "Step X/Y" counter) with no extra state to drift.
+        """Open the log file handle and start the clock."""
         self.start = time.time()
         self.log_fh = _open_log(self.ctx.log_path)
 
@@ -388,31 +431,36 @@ class Runner:
         """Return the python interpreter for the binding lanes (context proxy)."""
         return self.ctx.python
 
-    def header(self) -> None:
-        """Tee the run banner (branch, commit, step plan, opt-in summary)."""
-        opt_in_summary: list[str] = []
-        for name, enabled in (
-            ("repro", self.opts.repro),
-            ("stability", self.opts.stability),
-            ("mutation", self.opts.mutation),
-        ):
-            if enabled:
-                opt_in_summary.append(f"+{name}")
-            else:
-                opt_in_summary.append(f"-{name}")
-        lines = [
-            "═══ Aletheia offline CI sweep ═══",
-            f"Started:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
-            f"Branch:   {self.ctx.branch}",
-            f"Commit:   {self.ctx.commit}",
-            f"Steps:    {self.total_steps} "
-            + f"({self.total_steps - self.opts.enabled_count()} always-on + "
-            + f"{self.opts.enabled_count()} opt-in)",
-            f"Opt-ins:  {' '.join(opt_in_summary)}",
-            f"Log:      {self.ctx.log_path}",
-            "",
-        ]
-        self._tee("\n".join(lines))
+    def _header(self, total: int) -> None:
+        """Tee the run banner (branch, commit, step count, mode, opt-ins)."""
+        opt_in = " ".join(
+            f"+{name}" if enabled else f"-{name}"
+            for name, enabled in (
+                ("repro", self.opts.repro),
+                ("stability", self.opts.stability),
+                ("mutation", self.opts.mutation),
+            )
+        )
+        mode = (
+            f"parallel (heavy-limit {self.opts.heavy_limit}, {cpu_budget()} workers)"
+            if self.opts.parallel
+            else "serial"
+        )
+        self._tee(
+            "\n".join(
+                [
+                    "═══ Aletheia offline CI sweep ═══",
+                    f"Started:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
+                    f"Branch:   {self.ctx.branch}",
+                    f"Commit:   {self.ctx.commit}",
+                    f"Steps:    {total}",
+                    f"Mode:     {mode}",
+                    f"Opt-ins:  {opt_in}",
+                    f"Log:      {self.ctx.log_path}",
+                    "",
+                ]
+            ),
+        )
 
     def _tee(self, text: str) -> None:
         emit(text)
@@ -425,98 +473,111 @@ class Runner:
         _ = self.log_fh.write(text + "\n")
         self.log_fh.flush()
 
-    def _step_header(self, name: str, cmd: Sequence[str] | str) -> None:
-        cmd_str = cmd if isinstance(cmd, str) else " ".join(cmd)
-        lines = [
-            "",
-            f"─── Step {self.step_num}/{self.total_steps}: {name} ───",
-            f"Cmd:    {cmd_str}",
-            f"Start:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
-        ]
-        self._tee("\n".join(lines))
-
-    def _print_tail_on_failure(self, name: str, exit_code: int, duration: int) -> None:
-        self._tee_err(f"  ✗ {name} FAILED (exit {exit_code}, {duration}s)")
-        self._tee_err("")
-        self._tee_err("─── Tail of failed step output ───")
-        self.log_fh.flush()
-        log_text = self.ctx.log_path.read_text(encoding="utf-8", errors="replace")
-        for line in log_text.splitlines()[-FAILURE_TAIL_LINES:]:
-            _ = sys.stderr.write(line + "\n")
-        sys.stderr.flush()
-        self._tee_err("")
-        self._tee_err(
-            f"═══ CI FAILED at step {self.step_num}/{self.total_steps}: {name} ═══",
-        )
-        self._tee_err(f"Full log: {self.ctx.log_path}")
-
     def step(
         self,
         name: str,
         cmd: Sequence[str] | str,
         *,
         cwd: Path | None = None,
+        lane: str = "misc",
     ) -> None:
-        """Run one named step, teeing its header and recording the first failure.
+        """Register a step in its toolchain lane (executed later by :meth:`run`).
 
-        ``cmd`` is either an argv list run directly, or a string forwarded to
-        ``/bin/sh -c`` for the lanes that need pipes, redirection, or globs.
-        Once a step fails, subsequent calls are no-ops.
+        ``cmd`` is an argv list (run directly) or a string (via ``/bin/sh -c``
+        for lanes that need pipes / globs / redirection).  ``lane`` groups steps
+        that share mutable toolchain state — they run serially within a lane and
+        concurrently across lanes.  Whether a step is "heavy" (big-memory, gated
+        by the OOM semaphore in parallel mode) is derived from ``_HEAVY_STEPS``.
         """
-        if self.total_steps == 0:  # counting pass: tally only, don't execute
-            self.step_num += 1
-            return
-        if self.failed_step is not None:
-            return
-        self.step_num += 1
-        self._step_header(name, cmd)
-        step_start = time.time()
-        argv = [POSIX_SHELL, "-c", cmd] if isinstance(cmd, str) else list(cmd)
-        proc = subprocess.run(
-            argv,
-            stdout=self.log_fh,
-            stderr=subprocess.STDOUT,
-            cwd=cwd,
-            check=False,
+        self._registry.append(
+            Step(name=name, cmd=cmd, cwd=cwd, heavy=name in _HEAVY_STEPS, lane=lane),
         )
-        duration = int(time.time() - step_start)
-        if proc.returncode != 0:
-            self.failed_step = name
-            self._print_tail_on_failure(name, proc.returncode, duration)
-            return
-        _ = sys.stderr.write(f"  ✓ {name} ({duration}s)\n")
-        _ = self.log_fh.write(f"  ✓ {name} ({duration}s)\n")
-        self.log_fh.flush()
 
     def announce_skip(self, name: str, reason: str) -> None:
-        """Log a skipped lane without bumping the step counter."""
-        if self.total_steps == 0:  # counting pass: skips aren't counted
-            return
-        # Skipped steps don't bump the step counter — they're not part of
-        # total_steps in the first place (only enabled lanes are counted).
-        # We still log the skip line so the log is complete.
-        msg = f"  ⊘ {name} skipped ({reason})"
-        _ = sys.stderr.write(msg + "\n")
-        _ = self.log_fh.write(msg + "\n")
-        self.log_fh.flush()
+        """Record a skipped lane for the banner / log."""
+        self._skips.append((name, reason))
 
-    def finalize(self) -> int:
-        """Tee the summary, close the log, and return the process exit code."""
-        total = int(time.time() - self.start)
-        if self.failed_step is None:
-            lines = [
-                "",
-                "═══ CI summary ═══",
-                f"Result:   ALL {self.total_steps} STEPS PASSED",
-                f"Duration: {total}s ({total // 60}m{total % 60:02d}s)",
-                f"Log:      {self.ctx.log_path}",
-                "Use this log file as the falsifiable evidence behind any 'all "
-                + "gates' claim in commit messages "
-                + "(see memory/feedback_gate_claim_integrity.md).",
-            ]
-            self._tee("\n".join(lines))
+    @staticmethod
+    def _group_lanes(steps: list[Step]) -> list[list[Step]]:
+        """Bucket steps by lane, preserving first-seen lane order and step order."""
+        lanes: dict[str, list[Step]] = {}
+        for entry in steps:
+            lanes.setdefault(entry.lane, []).append(entry)
+        return list(lanes.values())
+
+    def _emit(self, result: StepResult) -> None:
+        """Tee one step's captured output and its ✓/✗ summary line."""
+        self._tee(f"\n─── {result.name} ({int(result.duration)}s) ───")
+        _ = self.log_fh.write(result.output)
+        if not result.output.endswith("\n"):
+            _ = self.log_fh.write("\n")
+        self.log_fh.flush()
+        if result.returncode == 0:
+            self._tee_err(f"  ✓ {result.name} ({int(result.duration)}s)")
+            return
+        self._tee_err(
+            f"  ✗ {result.name} FAILED (exit {result.returncode}, {int(result.duration)}s)",
+        )
+        self._tee_err("─── tail of failed step output ───")
+        for line in result.output.splitlines()[-FAILURE_TAIL_LINES:]:
+            _ = sys.stderr.write(line + "\n")
+        sys.stderr.flush()
+
+    def run(self) -> int:
+        """Execute build first, then the lanes (serial or parallel); return exit code."""
+        total = len(self._registry)
+        self._header(total)
+        for name, reason in self._skips:
+            self._tee_err(f"  ⊘ {name} skipped ({reason})")
+
+        results: list[StepResult] = []
+        # `build` produces the .so / .agdai every other lane needs, so it runs
+        # first and alone; a build failure short-circuits the whole sweep.
+        build = next((s for s in self._registry if s.name == "build"), None)
+        rest = [s for s in self._registry if s.name != "build"]
+        if build is not None:
+            (built,) = run_lanes([[build]], max_workers=1, heavy_limit=1, serial=True)
+            self._emit(built)
+            results.append(built)
+            if built.returncode != 0:
+                return self._finalize(results, total)
+
+        lane_results = run_lanes(
+            self._group_lanes(rest),
+            max_workers=cpu_budget(),
+            heavy_limit=self.opts.heavy_limit,
+            serial=not self.opts.parallel,
+        )
+        for result in lane_results:
+            self._emit(result)
+        results.extend(lane_results)
+        return self._finalize(results, total)
+
+    def _finalize(self, results: list[StepResult], total: int) -> int:
+        """Tee the summary, close the log, return 0 iff every step passed."""
+        elapsed = int(time.time() - self.start)
+        failures = [r.name for r in results if r.returncode != 0]
+        if not failures:
+            self._tee(
+                "\n".join(
+                    [
+                        "",
+                        "═══ CI summary ═══",
+                        f"Result:   ALL {total} STEPS PASSED",
+                        f"Duration: {elapsed}s ({elapsed // 60}m{elapsed % 60:02d}s)",
+                        f"Log:      {self.ctx.log_path}",
+                        "Use this log as the falsifiable evidence behind any 'all "
+                        + "gates' claim (see memory/feedback_gate_claim_integrity.md).",
+                    ]
+                ),
+            )
             self.log_fh.close()
             return 0
+        self._tee_err("")
+        self._tee_err(
+            f"═══ CI FAILED — {len(failures)} step(s) failed: {', '.join(failures)} ═══",
+        )
+        self._tee_err(f"Full log: {self.ctx.log_path}")
         self.log_fh.close()
         return 1
 
@@ -844,7 +905,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
 
 
 def _run_all_phases(runner: Runner, cabal: list[str], opts: OptInOptions) -> None:
-    """Run every phase in order. Invoked twice: a silent counting pass, then for real."""
+    """Register every phase's steps into the runner (no execution; run() drives them)."""
     _run_agda_gates(runner, cabal)
     _run_offline_enforcers(runner, cabal)
     _run_binding_tests(runner)
@@ -861,19 +922,11 @@ def main(argv: list[str] | None = None) -> int:
     runner = Runner(opts, RunContext.discover(repo_root))
     cabal = ["cabal", "run", "shake", "--"]
 
-    # Single source of truth for the step total: a silent counting pass tallies
-    # the actual step() calls, so adding or removing a step can never desync the
-    # "Step X/Y" counter from reality (a hand-maintained constant did, once).
-    # total_steps == 0 (its initial value) drives the counting pass; setting it
-    # from the tally below flips step() into real-execution mode.
+    # Register every step into its toolchain lane (no execution yet), then run:
+    # build first, then the lanes — serial by default, concurrently under
+    # --parallel — with deterministic teeing and fail-loud aggregation.
     _run_all_phases(runner, cabal, opts)
-    runner.total_steps = runner.step_num
-    runner.step_num = 0
-
-    runner.header()
-    _run_all_phases(runner, cabal, opts)
-
-    return runner.finalize()
+    return runner.run()
 
 
 if __name__ == "__main__":

@@ -54,6 +54,7 @@ class Step:
     cmd: Sequence[str] | str
     cwd: Path | None = None
     heavy: bool = False
+    lane: str = "misc"
 
 
 @dataclass(frozen=True)
