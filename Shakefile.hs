@@ -20,6 +20,38 @@ import GHC.Conc (getNumProcessors)
 strip :: String -> String
 strip = dropWhile isSpace . reverse . dropWhile isSpace . reverse
 
+-- | Memory-aware GHC job count for the FFI build.  Each `cabal build -jN` worker
+-- is a GHC process that can reach the per-worker `-M3G` ceiling, so a naive
+-- `-j <cores>` risks `cores × 3 GiB` and OOMs small CI runners (the old `-j16`
+-- = up to 48 GiB).  Cap -j at BOTH the core count and available-RAM ÷ 3 GiB,
+-- read at run time (never hardcoded — GHA runner specs drift).  Mirrors the
+-- runtime detection in tools/_resources.py.
+ffiBuildJobs :: IO Int
+ffiBuildJobs = do
+    cores <- getNumProcessors
+    memAvailMB <- readMemAvailableMB
+    let perWorkerMB = 3072  -- the -M3G per-worker ceiling
+    pure $ max 1 (min cores (memAvailMB `div` perWorkerMB))
+
+-- | Available system memory in MiB, parsed from /proc/meminfo's MemAvailable
+-- line (reported in kB).  Returns a conservative 4096 MiB when the file or line
+-- is absent (non-Linux / locked-down host) so the -j math degrades safely
+-- rather than dividing by a stale-huge number.
+readMemAvailableMB :: IO Int
+readMemAvailableMB = do
+    exists <- SysDir.doesFileExist "/proc/meminfo"
+    if not exists
+        then pure 4096
+        else do
+            contents <- readFile "/proc/meminfo"
+            let kb = listToMaybe
+                    [ kbStr
+                    | line <- lines contents
+                    , "MemAvailable:" `isPrefixOf` line
+                    , kbStr <- take 1 (drop 1 (words line))
+                    ]
+            pure $ maybe 4096 ((`div` 1024) . read) kb
+
 -- | Extract the mangled MAlonzo name for a given Agda function from generated Haskell.
 -- Looks for pattern: "d_<funcName>_XX ::"
 extractMangledName :: String -> String -> Maybe String
@@ -1317,19 +1349,22 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- enabling debug info on a downstream rebuild.  C++ binding gets the
         -- equivalent flag in cpp/CMakeLists.txt.
         repoRoot <- liftIO getCurrentDirectory
-        -- Memory-bound the GHC compilation of MAlonzo .hs files.
-        -- `-jN` caps parallelism (each worker = one GHC process); per-worker
-        -- `+RTS -M3G -RTS` is the tripwire ceiling — typical MAlonzo modules
-        -- compile in 0.3-1 GB, the 3G ceiling fails fast on pathological
-        -- growth rather than silently exhausting WSL2's 50%-of-host budget.
-        -- Worst-case peak: 16 × 3 GB = 48 GB on a 62 GiB host.  Bump only
-        -- if a specific MAlonzo module legitimately needs more (mirror of
-        -- the Agda elaborator's -M16G discipline).  -A64M raises GHC's
-        -- nursery size from the 4 MB default for slight throughput win.
-        -- Wrap in `[String]` so Shake's `cmd_` does NOT whitespace-split
-        -- the value (otherwise `+RTS`, `-A64M`, `-M3G`, `-RTS` get sent as
-        -- separate argv elements and cabal rejects them as unknown options).
-        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j16"
+        -- Memory-aware GHC job count.  Each `-jN` worker is a GHC process that
+        -- can reach the per-worker `+RTS -M3G -RTS` ceiling (the tripwire —
+        -- typical MAlonzo modules compile in 0.3-1 GB; 3G fails fast on
+        -- pathological growth).  A naive `-j <cores>` would risk cores × 3 GB
+        -- and OOM a small CI runner (the old fixed `-j16` = up to 48 GB), so
+        -- `ffiBuildJobs` caps -j at BOTH the core count and available-RAM ÷ 3 GB,
+        -- read at run time from /proc/meminfo + getNumProcessors — never
+        -- hardcoded, mirroring tools/_resources.py (GHA runner specs drift).
+        -- -A64M raises GHC's nursery from the 4 MB default for a slight
+        -- throughput win.  Wrap the RTS value in `[String]` so Shake's `cmd_`
+        -- does NOT whitespace-split it (otherwise `+RTS`, `-A64M`, `-M3G`,
+        -- `-RTS` become separate argv entries and cabal rejects them).
+        jobs <- liftIO ffiBuildJobs
+        putInfo $ "GHC build parallelism: -j" ++ show jobs
+               ++ " (cores × available-RAM÷3GB cap)"
+        cmd_ (Cwd "haskell-shim") "cabal" "build" ("-j" ++ show jobs)
             ("--ghc-options=-optc-ffile-prefix-map=" ++ repoRoot ++ "=.")
             ["--ghc-options=+RTS -A64M -M3G -RTS"]
             "aletheia-ffi"
