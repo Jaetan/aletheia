@@ -172,6 +172,15 @@ _HEAVY_STEPS: frozenset[str] = frozenset(
     }
 )
 
+# Toolchain lane inferred from a step's cwd directory name.  Binding/lint steps
+# run under python/ go/ cpp/ rust/, so their cwd unambiguously names their lane
+# (steps sharing a toolchain dir — pytest+lints, ctest+clang-tidy, cargo
+# test+clippy — must run serially within one lane).  Shake steps (cwd=None,
+# shared build-dir lock) are tagged explicitly "agda"; light meta/opt-in steps
+# fall to "misc".  "misc" never holds a `cabal run shake` step, so two Shake
+# invocations can never land in different lanes and deadlock on the build lock.
+_LANE_BY_DIR: dict[str, str] = {"python": "python", "go": "go", "cpp": "cpp", "rust": "rust"}
+
 _INVALID_BRANCH_CHAR = re.compile(r"[^A-Za-z0-9_.-]")
 
 
@@ -485,10 +494,13 @@ class Runner:
 
         ``cmd`` is an argv list (run directly) or a string (via ``/bin/sh -c``
         for lanes that need pipes / globs / redirection).  ``lane`` groups steps
-        that share mutable toolchain state — they run serially within a lane and
-        concurrently across lanes.  Whether a step is "heavy" (big-memory, gated
-        by the OOM semaphore in parallel mode) is derived from ``_HEAVY_STEPS``.
+        that share mutable toolchain state — serial within a lane, concurrent
+        across lanes.  Left default, ``lane`` is inferred from the cwd toolchain
+        dir (``_LANE_BY_DIR``); pass it explicitly for Shake steps (cwd=None).
+        "heavy" (OOM-gated in parallel mode) is derived from ``_HEAVY_STEPS``.
         """
+        if lane == "misc" and cwd is not None:
+            lane = _LANE_BY_DIR.get(cwd.name, "misc")
         self._registry.append(
             Step(name=name, cmd=cmd, cwd=cwd, heavy=name in _HEAVY_STEPS, lane=lane),
         )
@@ -585,14 +597,18 @@ class Runner:
 def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     """Run the Agda gate sweep plus the two branch-scoped IWYU gates."""
     # ─── Agda gates ─────────────────────────────────────────────
-    runner.step("build", [*cabal, "build"])
-    runner.step("check-properties", [*cabal, "check-properties"])
-    runner.step("check-invariants", [*cabal, "check-invariants"])
-    runner.step("check-no-properties-in-runtime", [*cabal, "check-no-properties-in-runtime"])
-    runner.step("check-erasure", [*cabal, "check-erasure"])
-    runner.step("check-fidelity", [*cabal, "check-fidelity"])
-    runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
-    runner.step("count-modules", [*cabal, "count-modules"])
+    runner.step("build", [*cabal, "build"], lane="agda")
+    runner.step("check-properties", [*cabal, "check-properties"], lane="agda")
+    runner.step("check-invariants", [*cabal, "check-invariants"], lane="agda")
+    runner.step(
+        "check-no-properties-in-runtime",
+        [*cabal, "check-no-properties-in-runtime"],
+        lane="agda",
+    )
+    runner.step("check-erasure", [*cabal, "check-erasure"], lane="agda")
+    runner.step("check-fidelity", [*cabal, "check-fidelity"], lane="agda")
+    runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"], lane="agda")
+    runner.step("count-modules", [*cabal, "count-modules"], lane="agda")
 
     # ─── IWYU gate (one tool) ───────────────────────────────
     # iwyu --check judges BOTH named imports (DEAD/UNRESOLVED) and
@@ -609,23 +625,25 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
         "iwyu",
         [runner.python, "-m", "tools.iwyu", "--check", iwyu_scope],
         cwd=runner.repo_root,
+        lane="agda",
     )
     runner.step(
         "iwyu-self-test",
         [runner.python, "-m", "tools.iwyu", "--self-test"],
         cwd=runner.repo_root,
+        lane="agda",
     )
 
 
 def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:
     """Run the offline enforcer Shake targets."""
     # ─── Offline enforcers ────────────────────────────────────
-    runner.step("check-changelog", [*cabal, "check-changelog"])
-    runner.step("check-gate-claim", [*cabal, "check-gate-claim"])
-    runner.step("check-runbook", [*cabal, "check-runbook"])
-    runner.step("check-limits-parity", [*cabal, "check-limits-parity"])
-    runner.step("check-stability-bench", [*cabal, "check-stability-bench"])
-    runner.step("check-mutation-setup", [*cabal, "check-mutation-setup"])
+    runner.step("check-changelog", [*cabal, "check-changelog"], lane="agda")
+    runner.step("check-gate-claim", [*cabal, "check-gate-claim"], lane="agda")
+    runner.step("check-runbook", [*cabal, "check-runbook"], lane="agda")
+    runner.step("check-limits-parity", [*cabal, "check-limits-parity"], lane="agda")
+    runner.step("check-stability-bench", [*cabal, "check-stability-bench"], lane="agda")
+    runner.step("check-mutation-setup", [*cabal, "check-mutation-setup"], lane="agda")
 
 
 def _run_binding_tests(runner: Runner) -> None:
