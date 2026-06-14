@@ -123,72 +123,54 @@ func (m *MockBackend) processLocked(input string) (string, error) {
 	return resp.JSON, nil
 }
 
-// SendFrameBinary delegates to Process by building the JSON string via
-// serializeDataFrame. This keeps mock tests working without the real .so.
-// BRS / ESI (CAN-FD bit-rate-switch / error-state-indicator metadata,
-// ISO 11898-1:2015 §10.4.2/3) are threaded through to the wire shape
-// so mock-driven tests can assert on the bytes.  Pass nil for CAN 2.0B
-// frames.  R20 cluster F (GO-B-14.1 / GO-D-16.2) closure.
+// The binary-shim methods below record a `<binary:…>` sentinel rather than a
+// serialized JSON command.  The real FFI backend drives every streaming /
+// frame / extract operation through the binary FFI (`aletheia_send_frame`,
+// `aletheia_start_stream`, …) — there is no JSON wire for these in production,
+// so a JSON rendering here would be a fiction that no real path emits.  The
+// sentinel faithfully records *that* a binary call was made; argument values
+// are verified end-to-end by the real-`.so` round-trip tests (e.g.
+// TestCrossBinding_SendFrameBrsEsiPassthrough).  This mirrors the Python and
+// C++ mock backends exactly (cross-binding mock uniformity).
+
+// SendFrameBinary records a `<binary:sendFrame>` sentinel; returns the next
+// queued response (canned by the test) or errors if the queue is empty.
 func (m *MockBackend) SendFrameBinary(
-	_ unsafe.Pointer, ts Timestamp,
-	id CANID, dlc DLC, data []byte,
-	brs *bool, esi *bool,
+	_ unsafe.Pointer, _ Timestamp,
+	_ CANID, _ DLC, _ []byte,
+	_ *bool, _ *bool,
 ) (string, error) {
-	input := serializeDataFrame(ts, id, dlc, FramePayload(data), brs, esi)
-	return m.Process(nil, input)
+	return m.Process(nil, "<binary:sendFrame>")
 }
 
-// SendErrorBinary routes through Process so tests can observe error events and
-// inject canned responses — matching the real FFI backend's request/response shape.
-func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, ts Timestamp) (string, error) {
-	return m.Process(nil, serializeErrorEvent(ts))
+// SendErrorBinary records a `<binary:sendError>` sentinel.
+func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
+	return m.Process(nil, "<binary:sendError>")
 }
 
-// SendRemoteBinary routes through Process so tests can observe remote events and
-// inject canned responses — matching the real FFI backend's request/response shape.
-func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, ts Timestamp, id CANID) (string, error) {
-	return m.Process(nil, serializeRemoteEvent(ts, id))
+// SendRemoteBinary records a `<binary:sendRemote>` sentinel.
+func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
+	return m.Process(nil, "<binary:sendRemote>")
 }
 
-// StartStreamBinary delegates to Process with a JSON startStream command.
+// StartStreamBinary records a `<binary:startStream>` sentinel.
 func (m *MockBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
-	cmd, err := serializeCommand("startStream", nil)
-	if err != nil {
-		return "", err
-	}
-	return m.Process(state, cmd)
+	return m.Process(state, "<binary:startStream>")
 }
 
-// EndStreamBinary delegates to Process with a JSON endStream command.
+// EndStreamBinary records a `<binary:endStream>` sentinel.
 func (m *MockBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
-	cmd, err := serializeCommand("endStream", nil)
-	if err != nil {
-		return "", err
-	}
-	return m.Process(state, cmd)
+	return m.Process(state, "<binary:endStream>")
 }
 
-// FormatDBCBinary delegates to Process with a JSON formatDBC command.
+// FormatDBCBinary records a `<binary:formatDBC>` sentinel.
 func (m *MockBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
-	cmd, err := serializeCommand("formatDBC", nil)
-	if err != nil {
-		return "", err
-	}
-	return m.Process(state, cmd)
+	return m.Process(state, "<binary:formatDBC>")
 }
 
-// ExtractSignalsBinary delegates to Process with a JSON extractAllSignals command.
-func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error) {
-	cmd, err := serializeCommand("extractAllSignals", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"data":     bytesToIntSlice(data),
-	})
-	if err != nil {
-		return "", err
-	}
-	return m.Process(state, cmd)
+// ExtractSignalsBinary records a `<binary:extractAllSignals>` sentinel.
+func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
+	return m.Process(state, "<binary:extractAllSignals>")
 }
 
 // BuildFrameBin delegates to Process with a sentinel input string, then parses
@@ -196,7 +178,7 @@ func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc D
 // aletheia_build_frame_bin; the mock keeps a Process call so tests can inject
 // canned {"status":"success","data":[...]} responses.
 func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	resp, err := m.Process(state, "<binary-buildFrame>")
+	resp, err := m.Process(state, "<binary:buildFrameBin>")
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +190,7 @@ func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint
 // aletheia_update_frame_bin; the mock keeps a Process call so tests can inject
 // canned {"status":"success","data":[...]} responses.
 func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	resp, err := m.Process(state, "<binary-updateFrame>")
+	resp, err := m.Process(state, "<binary:updateFrameBin>")
 	if err != nil {
 		return nil, err
 	}

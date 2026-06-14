@@ -22,6 +22,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   The typed client surface and the `FEATURE_MATRIX.yaml` `rust` column land in
   subsequent slices.
 
+### Fixed
+
+- **Go and C++ `MockBackend` test doubles record `<binary:OP>` sentinels** for
+  binary-path operations (matching the Python mock), instead of fabricating JSON
+  wire shapes the real backends never emit. Behavior change to the public test
+  doubles only — tests asserting on `MockBackend` recorded inputs now see
+  `<binary:OP>` sentinel strings; no production behavior change. The dead
+  internal serializers behind the old shapes were removed (`serializeDataFrame`
+  / `serializeErrorEvent` / `serializeRemoteEvent` in Go; `serialize_send_frame`
+  in C++).
+
 ### Security
 
 - Rotated the release-signing cosign key to a passphrase-protected key.
