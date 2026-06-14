@@ -876,6 +876,10 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         + "-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null"
         + " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
         cwd=runner.repo_root / "cpp",
+        # Own lane (not "cpp"): ubsan uses a SEPARATE build-ubsan/ dir, so it runs
+        # concurrently with the cpp lane's ctest→clang-tidy on build/ — splitting
+        # the local C++ bottleneck (~305s → ~180s, measured 2026-06-14).
+        lane="ubsan",
     )
 
     # Opt-in: reproducible-build gate ────────────────────────────
