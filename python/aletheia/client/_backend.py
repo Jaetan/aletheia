@@ -606,13 +606,12 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         self._responses.clear()
         self._inputs.clear()
 
-    # Marker substrings identifying fire-and-forget calls (JSON commands or
-    # binary-shim sentinels) that should default to ``{"status":"ack"}``
-    # rather than ``{"status":"success"}``.
+    # Marker substrings identifying fire-and-forget binary-shim calls that
+    # should default to ``{"status":"ack"}`` rather than ``{"status":"success"}``.
+    # Real backends drive these through the binary FFI, so the mock records a
+    # ``<binary:OP>`` sentinel; the frame/error/remote ops are the ack-default
+    # ones (a frame fires a verdict batch only when a property triggers).
     _ACK_DEFAULT_MARKERS: tuple[bytes, ...] = (
-        b'"command":"sendFrame"',
-        b'"command":"sendError"',
-        b'"command":"sendRemote"',
         b"<binary:sendFrame>",
         b"<binary:sendError>",
         b"<binary:sendRemote>",

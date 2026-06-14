@@ -29,6 +29,7 @@ typedef char *(*send_frame_t)(void *, uint64_t, uint32_t, uint8_t, uint8_t,
                               const uint8_t *, uint8_t);
 typedef void  (*free_str_t)(char *);
 typedef void  (*close_t)(void *);
+typedef char *(*noarg_t)(void *);
 
 static hs_init_t    fn_hs_init;
 static init_t       fn_init;
@@ -36,6 +37,8 @@ static process_t    fn_process;
 static send_frame_t fn_send_frame;
 static free_str_t   fn_free_str;
 static close_t      fn_close;
+static noarg_t      fn_start_stream;
+static noarg_t      fn_end_stream;
 
 static void *load_lib(const char *path) {
     void *lib = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
@@ -49,8 +52,10 @@ static void *load_lib(const char *path) {
     fn_send_frame = (send_frame_t)dlsym(lib, "aletheia_send_frame");
     fn_free_str   = (free_str_t)dlsym(lib, "aletheia_free_str");
     fn_close      = (close_t)dlsym(lib, "aletheia_close");
+    fn_start_stream = (noarg_t)dlsym(lib, "aletheia_start_stream");
+    fn_end_stream   = (noarg_t)dlsym(lib, "aletheia_end_stream");
     if (!fn_hs_init || !fn_init || !fn_process || !fn_send_frame ||
-        !fn_free_str || !fn_close) {
+        !fn_free_str || !fn_close || !fn_start_stream || !fn_end_stream) {
         fprintf(stderr, "Missing symbol: %s\n", dlerror());
         exit(1);
     }
@@ -85,9 +90,6 @@ static const char *PROP_ALWAYS =
 /* No properties */
 static const char *PROP_NONE =
     "{\"type\":\"command\",\"command\":\"setProperties\",\"properties\":[]}";
-
-static const char *START = "{\"type\":\"command\",\"command\":\"startStream\"}";
-static const char *END   = "{\"type\":\"command\",\"command\":\"endStream\"}";
 
 static double elapsed_ns(struct timespec *start, struct timespec *end) {
     return (double)(end->tv_sec - start->tv_sec) * 1e9 +
@@ -146,12 +148,12 @@ static void setup_session(void *state, const char *props_cmd) {
     r = cmd(state, props_cmd);
     fn_free_str(r);
 
-    r = cmd(state, START);
+    r = fn_start_stream(state);
     fn_free_str(r);
 }
 
 static void end_session(void *state) {
-    char *r = cmd(state, END);
+    char *r = fn_end_stream(state);
     fn_free_str(r);
 }
 

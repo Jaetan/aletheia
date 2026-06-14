@@ -32,6 +32,36 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `tools/run_ci.py`. The typed DBC document model, Check DSL, client-side
   violation enrichment, and CLI remain `planned`.
 
+### Changed
+
+- **C++ `IBackend` streaming endpoints are now pure-virtual.**
+  `send_error_binary`, `send_remote_binary`, `start_stream_binary`,
+  `end_stream_binary`, `format_dbc_binary`, and `extract_signals_binary`
+  (`cpp/include/aletheia/backend.hpp`) previously carried base-class defaults
+  that routed through the JSON `process()` path. That path mirrored streaming
+  commands the Agda core no longer accepts (and `send_error` / `send_remote`
+  never had a core JSON command at all), so the defaults were dead — and, for
+  `send_error` / `send_remote`, emitted a wire shape the core rejects. They now
+  have no default: every backend states how it streams, via the binary FFI
+  (`FfiBackend`) or test sentinels (`MockBackend`). **Migration**: a custom
+  `IBackend` implementation that relied on the JSON-fallback defaults must now
+  implement these six methods.
+
+### Removed
+
+- Dead JSON **streaming** commands from the Agda core's command protocol —
+  `startStream`, `sendFrame`, `extractAllSignals`, `endStream`, and `formatDBC`
+  (their `StreamCommand` constructors, `Routing.agda` parsers, and
+  `processStreamCommand` dispatch cases). Production streaming has always run
+  through the binary FFI (`aletheia_send_frame` … via `Main/Binary.agda`'s
+  `process*Direct`); these JSON mirrors were test-only and unreachable in
+  production. The DBC/property JSON commands (`parseDBC`, `setProperties`,
+  `validateDBC`, `parseDBCText`, `formatDBCText`) — the live JSON path every
+  binding uses — are retained, as are all binary FFI handlers. The matching dead
+  binding-side serializers (C++ `detail::serialize_*` for the removed commands
+  plus the former default `IBackend` impls; Python's JSON-command ack-default
+  markers) were removed too.
+
 ### Fixed
 
 - **Go and C++ `MockBackend` test doubles record `<binary:OP>` sentinels** for

@@ -5,21 +5,15 @@
 -- Protocol message types for the JSON streaming LTL checker.
 --
 -- Purpose: Define command and response types for the streaming protocol.
--- Types: StreamCommand (parseDBC, setProperties, startStream, endStream),
---        Response (success, error, ack, property).
+-- Types: StreamCommand (parseDBC, setProperties, validateDBC, parseDBCText,
+--        formatDBCText), Response (success, error, ack, property).
 -- Role: Core types used by Protocol.Routing and Protocol.StreamState.
 module Aletheia.Protocol.Message where
 
 open import Data.String using (String)
 open import Data.List using (List)
-open import Data.Bool using (Bool)
-open import Data.Maybe using (Maybe)
-open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
-open import Data.Vec using (Vec)
 open import Data.Product using (_×_)
-open import Aletheia.CAN.Frame using (Byte; CANId)
-open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.Protocol.Response using (PropertyResult; Warning)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.DBC.Types using (ValidationIssue)
@@ -29,44 +23,25 @@ import Aletheia.Error as Err
 -- STREAMING PROTOCOL COMMANDS (Phase 2B)
 -- ============================================================================
 
--- Commands for the JSON streaming protocol
+-- DBC / property commands carried over the JSON command path
+-- (`aletheia_process` → `processStreamCommand`).  Frame-level streaming —
+-- start/end stream, send-frame, extract-signals, format-DBC — is NOT a
+-- StreamCommand: production drives it through the binary FFI entry points
+-- in `Main/Binary.agda` (`process*Direct`), which call the same handlers
+-- directly.  The JSON mirrors of those operations were test-only and have
+-- been removed; only the DBC/property commands below have no binary twin.
 data StreamCommand : Set where
   -- Parse DBC file and reset all state
   -- Args: DBC JSON structure
   ParseDBC : JSON → StreamCommand
 
-  -- Set LTL properties to check (must be called after ParseDBC, before StartStream)
+  -- Set LTL properties to check (must be called after ParseDBC, before streaming begins)
   -- Args: List of property JSON objects (parsed by Python DSL)
   SetProperties : List JSON → StreamCommand
-
-  -- Begin streaming data frames
-  StartStream : StreamCommand
-
-  -- Submit a CAN data frame to the active monitoring stream — JSON mirror
-  -- of the binary FFI `aletheia_send_frame` entry point.  R19 Phase 2
-  -- cluster 18 — AGDA-D-10.1 closure: the JSON path now carries CAN-FD
-  -- BRS / ESI metadata (ISO 11898-1:2015 §10.4.2 / §10.4.3) end-to-end.
-  -- Args: timestamp µs, CAN ID, validated DLC, payload (length =
-  --       dlcBytes DLC), optional BRS bit, optional ESI bit.
-  -- Returns: Ack on no-property-fired, Violation otherwise (same shape
-  --          as the binary FFI response).
-  SendFrame : (ts : ℕ) → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc)
-            → (brs : Maybe Bool) → (esi : Maybe Bool) → StreamCommand
-
-  -- Extract all signals from a CAN frame
-  -- Args: CAN ID, validated DLC, frame data (length = dlcBytes DLC)
-  -- Returns: Extraction results (values/errors/absent)
-  ExtractAllSignals : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamCommand
-
-  -- End stream and emit final property results
-  EndStream : StreamCommand
 
   -- Validate DBC structure and return all issues (read-only, does not change state)
   -- Args: DBC JSON structure
   ValidateDBC : JSON → StreamCommand
-
-  -- Format the currently-loaded DBC back to JSON
-  FormatDBC : StreamCommand
 
   -- Parse DBC from raw DBC text using the verified Agda text parser
   -- (Track B.3.e — exposes parseText + validateDBCFull as one operation).
@@ -89,7 +64,8 @@ data Response : Set where
   -- Error with typed error value
   Error : Err.Error → Response
 
-  -- Extraction results (for ExtractAllSignals command)
+  -- Extraction results (emitted by the signal-extraction handler, reached
+  -- via the binary `processExtractDirect` entry point)
   -- Args: successfully extracted values, errors, absent signals
   ExtractionResultsResponse : List (String × ℚ) → List (String × String) → List String → Response
 
@@ -119,7 +95,8 @@ data Response : Set where
   -- Validation results from validateDBC command (read-only probe)
   ValidationResponse : List ValidationIssue → Response
 
-  -- Formatted DBC as JSON (for FormatDBC command)
+  -- Formatted DBC as JSON (emitted by the format-DBC handler, reached via
+  -- the binary `processFormatDBCDirect` entry point)
   DBCResponse : JSON → Response
 
   -- Parsed-and-validated DBC: the parsed body plus any non-error issues
