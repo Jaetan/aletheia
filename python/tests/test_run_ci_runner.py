@@ -13,10 +13,43 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tools.run_ci import OptInOptions, RunContext, Runner
+from tools.run_ci import (
+    AGDA_GATES_STEP,
+    AGDA_SHAKE_TARGETS,
+    HEAVY_STEPS,
+    OptInOptions,
+    RunContext,
+    Runner,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+# Phase 2 folds every cabal-shake Agda gate into one `cabal run shake -- <targets>`
+# invocation.  The fan-in's hazard is a silently DROPPED gate: a line removed from
+# AGDA_SHAKE_TARGETS quietly stops running on every PR.  Guard it by invariants
+# rather than a mirror copy of the tuple (DRY) — the count tripwire turns any
+# add/drop into a conscious edit, and the named checks pin the load-bearing gates.
+_EXPECTED_GATE_COUNT = 13
+
+
+def test_combined_agda_gates_have_no_silent_drop() -> None:
+    """No gate duplicated (which would mask a drop) and the full count is pinned."""
+    targets = AGDA_SHAKE_TARGETS
+    assert len(set(targets)) == len(targets)  # a dup would hide a drop behind the count
+    assert len(targets) == _EXPECTED_GATE_COUNT
+
+
+def test_combined_agda_gates_include_load_bearing_checks() -> None:
+    """The heavy proof checks and the changelog enforcer must be in the fan-in."""
+    # check-properties/-fidelity are the heavy proof gates; check-changelog has
+    # tripped real PRs — dropping any of them must fail this test, not a PR.
+    assert {"check-properties", "check-fidelity", "check-changelog"} <= set(AGDA_SHAKE_TARGETS)
+
+
+def test_combined_agda_step_is_oom_gated() -> None:
+    """The combined step carries the heavy proof checks, so it must be OOM-gated."""
+    assert AGDA_GATES_STEP in HEAVY_STEPS
 
 
 def _runner(tmp_path: Path, *, parallel: bool = False) -> Runner:

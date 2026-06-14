@@ -25,15 +25,19 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
 (``--parallel`` — see ``tools/_scheduler.py``).  The always-on steps, by lane:
 
   Agda gates:
-    - build           — produces libaletheia-ffi.so
-    - check-properties     (longest, ~8-10 min)
-    - check-invariants
-    - check-no-properties-in-runtime
-    - check-erasure
-    - check-fidelity       (~2 min — runs ConstructorTest binary)
-    - check-ffi-exports
-    - count-modules
-  Branch-scoped IWYU gates:
+    - build           — produces libaletheia-ffi.so (separate prereq; a build
+      failure short-circuits the whole sweep before the lanes spawn)
+    - agda gates      — every remaining cabal-shake gate folded into ONE
+      `cabal run shake -- <targets>` call (AGDA_SHAKE_TARGETS).  Shake runs the
+      independent phony rules concurrently (shakeThreads=0) — the two heavy proof
+      checks overlap at ~2.3 GiB peak — and pays the per-process cabal/shake
+      startup + build-graph re-validation once instead of once per gate.  Covers:
+      check-properties, check-invariants, check-no-properties-in-runtime,
+      check-erasure, check-fidelity, check-ffi-exports, count-modules,
+      check-changelog, check-gate-claim, check-runbook, check-limits-parity,
+      check-stability-bench, check-mutation-setup.  Shake fails fast on the first
+      failing target and names it on stderr (surfaced in the failure tail).
+  Branch-scoped IWYU gates (separate — they read the .agdai the gates write):
     - iwyu — `tools/iwyu.py --check --diff` (or `--all` under --iwyu-all, the
       merge-gate scope) on .agda files.  The single `.agdai`-reader tool judges
       BOTH named imports (`using`/`renaming` → USED/DEAD/UNRESOLVED) and wildcard
@@ -41,13 +45,6 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
       any finding.  Empty diff ⇒ no-op.  Reference: memory/project_agda_iwyu.md.
     - iwyu-self-test — `tools/iwyu.py --self-test` validates the reader against
       the synthetic fixture matrix (it replaced the retired recompile oracle).
-  Offline enforcers:
-    - check-changelog
-    - check-gate-claim
-    - check-runbook
-    - check-limits-parity      (Agda Limits SSOT vs go/aletheia/limits.go mirror)
-    - check-stability-bench    (static gate)
-    - check-mutation-setup     (static gate)
   Binding tests:
     - Python pytest (deterministic lane)
     - Python pytest --markdown-docs (Cat 32 doc-example harness)
@@ -152,16 +149,42 @@ if TYPE_CHECKING:
 # Number of trailing log lines echoed to stderr when a step fails.
 FAILURE_TAIL_LINES = 50
 
+# The combined Agda-gate step: every cabal-shake gate folded into ONE
+# `cabal run shake -- <targets>` invocation.  Shake (shakeThreads=0, all-core)
+# overlaps the two heavy proof checks — measured concurrent peak ~2.3 GiB, ~14%
+# of a 16 GB GHA runner, so memory does not bind and no Shake-internal gate is
+# needed — and the single process pays cabal/shake startup + build-graph
+# re-validation ONCE instead of once per gate (the dominant GHA cost).  `build`
+# stays a separate prereq (preserves the build-fail short-circuit); `iwyu` stays
+# separate (it reads the .agdai that check-properties writes).  Pinned as a
+# tuple so the regression test can assert no gate is silently dropped on edit.
+AGDA_GATES_STEP = "agda gates"
+AGDA_SHAKE_TARGETS: tuple[str, ...] = (
+    "check-properties",
+    "check-invariants",
+    "check-no-properties-in-runtime",
+    "check-erasure",
+    "check-fidelity",
+    "check-ffi-exports",
+    "count-modules",
+    "check-changelog",
+    "check-gate-claim",
+    "check-runbook",
+    "check-limits-parity",
+    "check-stability-bench",
+    "check-mutation-setup",
+)
+
 # Big-memory steps gated by the OOM semaphore in --parallel mode.  Centralizing
 # the classification (vs. a heavy= flag on every step() call) keeps it reviewable
-# in one place.  Chosen from real GHA timings: the Agda heavies (-M16G warm proc
-# / cabal-test build), the C++ clang builds, the race detector, the FFI pytest
-# lane, and the opt-in lanes.  See .session-state Stage B notes.
-_HEAVY_STEPS: frozenset[str] = frozenset(
+# in one place.  Chosen from real GHA timings: the combined Agda gates (folds the
+# -M16G warm proc + the cabal-test fidelity build), the C++ clang builds, the
+# race detector, the FFI pytest lane, and the opt-in lanes.  See .session-state
+# Stage B notes.
+HEAVY_STEPS: frozenset[str] = frozenset(
     {
         "build",
-        "check-properties",
-        "check-fidelity",
+        AGDA_GATES_STEP,
         "pytest",
         "go test -race",
         "ctest",
@@ -497,12 +520,12 @@ class Runner:
         that share mutable toolchain state — serial within a lane, concurrent
         across lanes.  Left default, ``lane`` is inferred from the cwd toolchain
         dir (``_LANE_BY_DIR``); pass it explicitly for Shake steps (cwd=None).
-        "heavy" (OOM-gated in parallel mode) is derived from ``_HEAVY_STEPS``.
+        "heavy" (OOM-gated in parallel mode) is derived from ``HEAVY_STEPS``.
         """
         if lane == "misc" and cwd is not None:
             lane = _LANE_BY_DIR.get(cwd.name, "misc")
         self._registry.append(
-            Step(name=name, cmd=cmd, cwd=cwd, heavy=name in _HEAVY_STEPS, lane=lane),
+            Step(name=name, cmd=cmd, cwd=cwd, heavy=name in HEAVY_STEPS, lane=lane),
         )
 
     def announce_skip(self, name: str, reason: str) -> None:
@@ -597,18 +620,17 @@ class Runner:
 def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     """Run the Agda gate sweep plus the two branch-scoped IWYU gates."""
     # ─── Agda gates ─────────────────────────────────────────────
+    # `build` first as a separate prereq: it produces the .so / .agdai every
+    # other lane needs, and a build failure short-circuits the whole sweep
+    # before the parallel lanes spawn (run() special-cases the "build" step).
     runner.step("build", [*cabal, "build"], lane="agda")
-    runner.step("check-properties", [*cabal, "check-properties"], lane="agda")
-    runner.step("check-invariants", [*cabal, "check-invariants"], lane="agda")
-    runner.step(
-        "check-no-properties-in-runtime",
-        [*cabal, "check-no-properties-in-runtime"],
-        lane="agda",
-    )
-    runner.step("check-erasure", [*cabal, "check-erasure"], lane="agda")
-    runner.step("check-fidelity", [*cabal, "check-fidelity"], lane="agda")
-    runner.step("check-ffi-exports", [*cabal, "check-ffi-exports"], lane="agda")
-    runner.step("count-modules", [*cabal, "count-modules"], lane="agda")
+    # All remaining cabal-shake gates fold into ONE invocation (Phase 2): Shake
+    # parallelizes the independent phony rules internally (shakeThreads=0) and
+    # the per-process cabal/shake startup + build-graph re-validation is paid
+    # once, not once per gate.  Shake fails fast on the first failing target and
+    # names it on stderr — surfaced in the failure tail — so attribution
+    # survives the fan-in.  AGDA_SHAKE_TARGETS is the single source of truth.
+    runner.step(AGDA_GATES_STEP, [*cabal, *AGDA_SHAKE_TARGETS], lane="agda")
 
     # ─── IWYU gate (one tool) ───────────────────────────────
     # iwyu --check judges BOTH named imports (DEAD/UNRESOLVED) and
@@ -633,17 +655,6 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
         cwd=runner.repo_root,
         lane="agda",
     )
-
-
-def _run_offline_enforcers(runner: Runner, cabal: list[str]) -> None:
-    """Run the offline enforcer Shake targets."""
-    # ─── Offline enforcers ────────────────────────────────────
-    runner.step("check-changelog", [*cabal, "check-changelog"], lane="agda")
-    runner.step("check-gate-claim", [*cabal, "check-gate-claim"], lane="agda")
-    runner.step("check-runbook", [*cabal, "check-runbook"], lane="agda")
-    runner.step("check-limits-parity", [*cabal, "check-limits-parity"], lane="agda")
-    runner.step("check-stability-bench", [*cabal, "check-stability-bench"], lane="agda")
-    runner.step("check-mutation-setup", [*cabal, "check-mutation-setup"], lane="agda")
 
 
 def _run_binding_tests(runner: Runner) -> None:
@@ -929,7 +940,6 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
 def _run_all_phases(runner: Runner, cabal: list[str], opts: OptInOptions) -> None:
     """Register every phase's steps into the runner (no execution; run() drives them)."""
     _run_agda_gates(runner, cabal)
-    _run_offline_enforcers(runner, cabal)
     _run_binding_tests(runner)
     _run_lints(runner)
     _run_gha_checks(runner)
