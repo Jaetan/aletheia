@@ -312,4 +312,13 @@ pytest_add_cli_args = [
     "--ignore=tests/test_format_dbc.py",
     "--ignore=tests/test_agda_open_grammar.py",
     "--ignore=tests/test_agda_open_grammar_generated.py",
+    # CI-tooling unit tests (the lane-parallel scheduler / resource budgets /
+    # run_ci orchestrator).  They import the repo-root `tools` package, which
+    # mutmut does not copy into mutants/, so they ModuleNotFound-abort collection
+    # there — same class as the agda-open grammar tests above.  They cover
+    # tools/, not the 5 hot-path aletheia/ modules, so excluding them does not
+    # weaken the mutation signal on those modules.
+    "--ignore=tests/test_resources.py",
+    "--ignore=tests/test_scheduler.py",
+    "--ignore=tests/test_run_ci_runner.py",
 ]
