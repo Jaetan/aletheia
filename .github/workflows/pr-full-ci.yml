@@ -221,9 +221,11 @@ jobs:
       # diff) — airtight against cross-file deadness, the merge-gate scope.
       # The local pre-push hook keeps the faster --diff default.
       # --parallel runs the independent toolchain lanes concurrently (the lane
-      # scheduler).  heavy_limit defaults to 2, so at most two big-memory steps
+      # scheduler).  The heavy-step limit (--ci-heavy-limit, env
+      # ALETHEIA_CI_HEAVY_LIMIT) defaults to 2, so at most two big-memory steps
       # overlap — safe on the 4-core / 16 GB runner (the two heavy Agda proof
       # checks peak ~2.3 GiB together; a second heavy lane adds ~1-2 GiB, well
-      # under 16 GB).  Serial stays the exit-code-identical fallback.
+      # under 16 GB).  Add `--ci-heavy-limit N` here to tune it on a future
+      # runner.  Serial stays the exit-code-identical fallback.
       - name: Run the full offline correctness sweep (tools/run_ci.py)
         run: python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
