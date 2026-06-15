@@ -13,14 +13,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tools.run_ci import (
+from tools._ci_steps import (
     AGDA_GATES_STEP,
     AGDA_SHAKE_TARGETS,
     HEAVY_STEPS,
+    build_prereq_cmd,
+    register_all_steps,
+)
+from tools.run_ci import (
     OptInOptions,
     RunContext,
     Runner,
-    build_prereq_cmd,
     parse_args,
 )
 
@@ -91,6 +94,22 @@ def _runner(tmp_path: Path, *, parallel: bool = False) -> Runner:
     )
     opts = OptInOptions(repro=False, stability=False, mutation=False, parallel=parallel)
     return Runner(opts, ctx)
+
+
+def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
+    """register_all_steps fills the runner with the load-bearing steps, no dups.
+
+    The registration path (``main`` → ``register_all_steps``) is otherwise only
+    exercised at real push time, so a moved helper referencing a name that no
+    longer resolves after the run_ci/_ci_steps split would import clean, pass
+    ``--help``, and only fail on push.  Pin it here.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    names = runner.registered_step_names
+    # The build prereq, the Agda fan-in, and one step from each binding/lint lane.
+    assert {"build", "agda gates", "pytest", "ruff", "ubsan ctest"} <= set(names)
+    assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
 
 
 def test_all_pass_returns_zero(tmp_path: Path) -> None:

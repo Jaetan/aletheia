@@ -402,22 +402,27 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### G.4 — `tools/run_ci.py` is at the 1000-line C0302 ceiling (999/1000)
 
-- **Where** — `tools/run_ci.py` (999 lines); pylint `max-module-lines = 1000` (C0302).
+- **✅ DONE 2026-06-16.** Split along the catalog seam: the step catalog (the
+  `_run_agda_gates` / `_run_binding_tests` / `_run_lints` / `_run_gha_checks` /
+  `_run_opt_in_lanes` registration helpers behind a public `register_all_steps`,
+  plus `AGDA_GATES_STEP` / `AGDA_SHAKE_TARGETS` / `HEAVY_STEPS` / `build_prereq_cmd`)
+  moved to a new `tools/_ci_steps.py`; `run_ci.py` keeps the orchestration core
+  (`Runner`, `RunContext`, `OptInOptions`, `parse_args`, `main`). The catalog is
+  the part that grows with every new gate, so the core now stays small.
+  `run_ci.py` 999 → **603 lines**, `_ci_steps.py` 424 — both well clear of the
+  ceiling. The e2e test imports the catalog from `tools._ci_steps` and the core
+  from `tools.run_ci` (matching the `test_scheduler.py` → `tools._scheduler`
+  convention); 20 tests green, pylint 10.00/10 with no C0302, basedpyright 0/0/0,
+  ruff clean. No behavior change (same steps, lanes, exit codes).
+- **Where** — `tools/run_ci.py` (was 999 lines); pylint `max-module-lines = 1000` (C0302).
 - **Origin** — PR #37 (build-incrementality, 2026-06-15) added `build_prereq_cmd`
   + the staleness-gate wiring, leaving the file at 999 lines; surfaced by the
   post-merge advisor review.
-- **Today** — one line under the limit, so the NEXT addition trips C0302 — and per
-  `feedback_no_weak_config_bumps` the fix is to SPLIT the file, not raise the
-  threshold.
-- **Done looks like** — `run_ci.py` split along a natural seam (e.g. the lane/step
-  registration helpers `_run_agda_gates` / `_run_binding_tests` / `_run_lints`, or
-  the `Runner` class, into a sibling module), back under the ceiling with headroom.
 - **Cost / risk** — **Low–Medium.** Mechanical extraction, but run_ci.py is the
-  gate orchestrator: the e2e test (`python/tests/test_run_ci_runner.py`) must stay
+  gate orchestrator: the e2e test (`python/tests/test_run_ci_runner.py`) had to stay
   green and the imported surface (`AGDA_SHAKE_TARGETS`, `HEAVY_STEPS`,
-  `build_prereq_cmd`, `parse_args`, `Runner`, …) preserved.
-- **Blockers / deps** — none; do it before the next run_ci feature addition.
-- **Verdict** — `DO` (the next run_ci change forces it; advisor-flagged 2026-06-15).
+  `build_prereq_cmd`, `parse_args`, `Runner`, …) preserved (via its true module).
+- **Verdict** — `DONE` (the next run_ci change would have forced it; advisor-flagged 2026-06-15).
 
 ---
 
