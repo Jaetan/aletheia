@@ -54,6 +54,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **CI restores an incremental build tree, so a re-push is no longer a cold
+  rebuild.** `.github/workflows/pr-full-ci.yml` now caches `build/` (Agda
+  `.agdai` + generated MAlonzo `.hs`) and `dist-newstyle/` (the cabal
+  foreign-library build) across runs, keyed on the GHC / Agda / stdlib versions.
+  Restoring the prior tree lets the staleness-safe incremental build rebuild only
+  what a commit changed — the cold `build` step (~384s) drops to ~23s on a cache
+  hit (measured), and the `agda gates` / `iwyu` steps reuse warm interface files.
+  Safe because the build keys on content, not mtime: `actions/cache` resets every
+  file's mtime on restore, which Shake (`ChangeModtimeAndDigest`) and GHC
+  (`mi_src_hash`) defeat via content hashing, with the build's own staleness gate
+  as the backstop (a stale `.so` fails the run). A same-branch re-push restores
+  its own cache immediately; a brand-new PR warms up after one `push:main` run
+  seeds the tree. (C++ `ccache` and finer step parallelism are tracked as
+  follow-ups.)
 - **The local pre-push hook runs the CI sweep in parallel.** `tools/install_hooks.py`
   now generates a pre-push hook that invokes `tools/run_ci.py --parallel` (the
   memory-safe `heavy_limit=2` default; tune with `ALETHEIA_CI_HEAVY_LIMIT`), so the
