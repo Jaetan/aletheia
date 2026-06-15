@@ -58,7 +58,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   now generates a pre-push hook that invokes `tools/run_ci.py --parallel` (the
   memory-safe `heavy_limit=2` default; tune with `ALETHEIA_CI_HEAVY_LIMIT`), so the
   pre-push gate uses the lane scheduler instead of running serially. Re-run
-  `python tools/install_hooks.py` to update an already-installed hook.
+  `python tools/install_hooks.py` to update an already-installed hook — the
+  installer is now content-aware (it refreshes a hook whose template changed,
+  rather than skipping whenever its marker is merely present).
 - **C++ `IBackend` streaming endpoints are now pure-virtual.**
   `send_error_binary`, `send_remote_binary`, `start_stream_binary`,
   `end_stream_binary`, `format_dbc_binary`, and `extract_signals_binary`
