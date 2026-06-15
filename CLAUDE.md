@@ -98,8 +98,14 @@ See [Building Guide](docs/development/BUILDING.md). Quick reference:
 # Type-check a single module
 cd src && agda +RTS -N32 -M16G -RTS Aletheia/YourModule.agda
 
-# Build everything (Agda → Haskell → libaletheia-ffi.so)
+# Build everything (Agda → Haskell → libaletheia-ffi.so) — incremental + hash-safe
 cabal run shake -- build
+
+# Regenerate the foreign-lib MAlonzo module list (after adding/removing an Agda module)
+cabal run shake -- gen-ffi-modules
+
+# IWYU import analysis — regenerates the relevant .agdai (no full .hs/.so rebuild)
+cabal run shake -- iwyu
 
 # Tests (each from the right cwd)
 cd python && python3 -m pytest tests/ -v
@@ -125,7 +131,12 @@ Agda packages: **Parser/**, **CAN/**, **DBC/**, **LTL/** (Syntax, Incremental, S
 3. Full build: `cabal run shake -- build` (also rebuilds `libaletheia-ffi.so`).
 4. Run tests for affected bindings.
 
-Shake tracks Agda dependencies. First full build ~60s; subsequent ~5–15s.
+Shake tracks Agda dependencies by content hash. First full build ~60s; an unchanged
+rebuild is ~0.1s and a one-module edit ~12s (incremental — cabal recompiles only the
+changed MAlonzo module + relinks). Adding/removing an Agda module: re-list it with
+`cabal run shake -- gen-ffi-modules` (otherwise the build fails naming it, via the
+foreign library's `-Werror=missing-home-modules` drift gate). Details:
+[BUILDING.md](docs/development/BUILDING.md).
 
 ## Key Files
 

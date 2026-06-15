@@ -31,9 +31,34 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `cargo test` / `cargo fmt --check` / `cargo clippy -D warnings` lane in
   `tools/run_ci.py`. The typed DBC document model, Check DSL, client-side
   violation enrichment, and CLI remain `planned`.
+- **Incremental, staleness-safe build of `libaletheia-ffi.so`, plus build
+  tooling.** A single changed Agda module now rebuilds the shared library in ~12s
+  (one regenerated MAlonzo module recompiled + relink) and a no-op
+  `cabal run shake -- build` in ~0.1s, instead of a full ~280-module recompile on
+  every invocation. New developer targets and gates:
+  - `cabal run shake -- gen-ffi-modules` regenerates the foreign library's
+    `other-modules` list (every generated MAlonzo module), making cabal's
+    dependency graph complete; `-Werror=missing-home-modules` is the drift gate —
+    adding an Agda module without re-listing it fails the build, naming the
+    module.
+  - `cabal run shake -- iwyu` regenerates the relevant `.agdai` (via Agda's own
+    incremental interface cache) and runs the import-usage analysis without a full
+    `.hs`/`.so` rebuild.
+  - `tools/check_build_incremental.py` (run as `tools/run_ci.py`'s `build` prereq)
+    edits a source, rebuilds, and asserts the change reaches the `.so`, then
+    reverts — a behavioral gate that the build can never silently ship a stale
+    artifact.
+  - A Shake oracle on `agda --version`, plus a dependency on `aletheia.agda-lib`,
+    rebuild when the Agda toolchain (binary version, stdlib pin, or flags) changes
+    even with no `.agda` source change.
 
 ### Changed
 
+- **The local pre-push hook runs the CI sweep in parallel.** `tools/install_hooks.py`
+  now generates a pre-push hook that invokes `tools/run_ci.py --parallel` (the
+  memory-safe `heavy_limit=2` default; tune with `ALETHEIA_CI_HEAVY_LIMIT`), so the
+  pre-push gate uses the lane scheduler instead of running serially. Re-run
+  `python tools/install_hooks.py` to update an already-installed hook.
 - **C++ `IBackend` streaming endpoints are now pure-virtual.**
   `send_error_binary`, `send_remote_binary`, `start_stream_binary`,
   `end_stream_binary`, `format_dbc_binary`, and `extract_signals_binary`
@@ -64,6 +89,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The build no longer full-recompiles `libaletheia-ffi.so` on every
+  invocation, and can no longer ship a stale one.** The `.so` rule forced a
+  complete ~280-module MAlonzo rebuild each run (an always-dirty phony symlink
+  dependency, plus `rm -rf` of the cabal build tree and a `touch`). That
+  sledgehammer masked a real dependency-graph gap: the foreign library's
+  `other-modules` did not list the generated MAlonzo modules (and
+  `-Wmissing-home-modules` was suppressed), so cabal's up-to-date check never saw
+  them change and would skip GHC entirely — a genuine stale-`.so` hazard once the
+  sledgehammer was removed. Both are resolved (see Added): the Shake rule depends
+  on the Agda sources and cabal now tracks every MAlonzo module, so the build is
+  incremental *and* content-hash-correct, verified by the `build-incremental`
+  gate.
 - **Go and C++ `MockBackend` test doubles record `<binary:OP>` sentinels** for
   binary-path operations (matching the Python mock), instead of fabricating JSON
   wire shapes the real backends never emit. Behavior change to the public test

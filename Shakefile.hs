@@ -1,6 +1,10 @@
 -- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 -- SPDX-License-Identifier: BSD-2-Clause
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 import Development.Shake
+import Development.Shake.Classes (Hashable, Binary, NFData)
 import Development.Shake.FilePath
 import System.Directory (createDirectoryLink, removePathForcibly,
                          getHomeDirectory, createDirectoryIfMissing,
@@ -10,15 +14,59 @@ import qualified System.Directory as SysDir
 import System.Info (os)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
-import Data.List (isInfixOf, isPrefixOf, stripPrefix, nub)
+import System.IO.Error (catchIOError)
+import Data.List (isInfixOf, isPrefixOf, stripPrefix, nub, intercalate, sort)
 import Data.Maybe (listToMaybe)
 import Data.Char (isSpace, isDigit)
 import Control.Monad (when, unless, forM, forM_)
+import Control.Exception (evaluate)
 import GHC.Conc (getNumProcessors)
+
+-- | Shake oracle key for the Agda toolchain version.  The MAlonzo .hs (and thus
+-- the .so) are a function of the agda BINARY version too, not only the .agda
+-- sources — but the binary is not a file Shake can `need`, so it is tracked via an
+-- oracle: `agda --version` is queried each build, and a change re-fires build-agda
+-- and the .so rule.  (The stdlib pin + flags ARE a file, aletheia.agda-lib, so
+-- those rules `need` it directly.)  Together these close the last untracked build
+-- input, making the dependency graph fully honest.
+newtype AgdaVersion = AgdaVersion ()
+  deriving stock (Show, Eq)
+  deriving newtype (Hashable, Binary, NFData)
+type instance RuleResult AgdaVersion = String
 
 -- | Trim whitespace from both ends of a string
 strip :: String -> String
 strip = dropWhile isSpace . reverse . dropWhile isSpace . reverse
+
+-- | Convert a MAlonzo .hs path (relative to build/) to its Haskell module name,
+-- e.g. "MAlonzo/Code/Aletheia/Protocol/ResponseFormat.hs"
+--   ->  "MAlonzo.Code.Aletheia.Protocol.ResponseFormat".
+malonzoModuleName :: FilePath -> String
+malonzoModuleName = intercalate "." . splitDirectories . dropExtension
+
+-- | Markers bounding the generated MAlonzo module list in aletheia.cabal's
+-- foreign-library `other-modules`.  The list between them is the honest cabal-side
+-- dependency graph: the .so is built from EVERY one of these .hs, so cabal must
+-- track them (otherwise its up-to-date check skips GHC and ships a stale .so).
+malonzoBeginMarker, malonzoEndMarker :: String
+malonzoBeginMarker = "-- BEGIN GENERATED MALONZO MODULES (regenerate: cabal run shake -- gen-ffi-modules)"
+malonzoEndMarker   = "-- END GENERATED MALONZO MODULES"
+
+-- | Splice the generated MAlonzo module lines between the markers in the
+-- aletheia.cabal text, preserving everything outside the region.  Idempotent:
+-- the same module set yields identical output.  Returns the input unchanged if
+-- the BEGIN marker is absent (the caller errors loudly in that case).
+spliceMalonzoModules :: String -> [String] -> String
+spliceMalonzoModules old modules =
+    let ls = lines old
+        (before, fromBegin) = break (isInfixOf malonzoBeginMarker) ls
+    in case fromBegin of
+        []                  -> old
+        (beginLine : rest)  ->
+            let indent   = takeWhile (== ' ') beginLine
+                afterEnd = drop 1 (dropWhile (not . isInfixOf malonzoEndMarker) rest)
+                modLines = map (indent ++) modules
+            in unlines (before ++ [beginLine] ++ modLines ++ [indent ++ malonzoEndMarker] ++ afterEnd)
 
 -- | Memory-aware GHC job count for the FFI build.  Each `cabal build -jN` worker
 -- is a GHC process that can reach the per-worker `-M3G` ceiling, so a naive
@@ -56,6 +104,31 @@ readMemAvailableMB = do
                     , not (null kbStr) && all isDigit kbStr
                     ]
             pure $ maybe 4096 ((`div` 1024) . read) kb
+
+-- | Ensure the `haskell-shim/MAlonzo -> ../build/MAlonzo` symlink exists.  cabal
+-- resolves the generated `MAlonzo.*` modules through it (`hs-source-dirs: src, .`
+-- in aletheia.cabal), since MAlonzo output lives outside the package subtree.
+--
+-- Idempotent and content-neutral: it (re)creates the link ONLY when missing, so
+-- it never perturbs cabal's incremental state.  This replaces the former phony
+-- `create-symlink` rule — a phony is always dirty, so `need`ing it forced the
+-- .so rule to re-fire (and thus full-rebuild) on every invocation.  Creating the
+-- link in-body instead means it is touched only when the .so is genuinely being
+-- (re)built.  The symlink's own mtime is irrelevant to GHC: it stats through the
+-- link to the real `build/MAlonzo/**/*.hs` files, whose mtimes are unchanged.
+ensureMalonzoSymlink :: Action ()
+ensureMalonzoSymlink = do
+    let symlinkPath = "haskell-shim/MAlonzo"
+        target      = "../build/MAlonzo"
+    -- `pathIsSymbolicLink` throws if the path is absent; treat that as "no link".
+    isLink <- liftIO $ SysDir.pathIsSymbolicLink symlinkPath
+                         `catchIOError` \_ -> pure False
+    unless isLink $ do
+        putInfo $ "Creating symlink: " ++ symlinkPath ++ " -> " ++ target
+        liftIO $ removePathForcibly symlinkPath  -- clear a stale non-symlink, if any
+        if os == "mingw32"
+            then cmd_ "cmd" "/c" "mklink /D" symlinkPath target
+            else liftIO $ createDirectoryLink target symlinkPath
 
 -- | Extract the mangled MAlonzo name for a given Agda function from generated Haskell.
 -- Looks for pattern: "d_<funcName>_XX ::"
@@ -366,6 +439,13 @@ proofModules =
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
 
+    -- Toolchain-version oracle (see AgdaVersion): query `agda --version` once per
+    -- build; a change re-fires build-agda + the .so rule (which `askOracle` it), so
+    -- a toolchain bump rebuilds the MAlonzo output even with no .agda source change.
+    _ <- addOracle $ \(AgdaVersion ()) -> do
+        Stdout verOut <- cmd "agda" "--version"
+        pure (strip verOut)
+
     phony "build" $ do
         need ["check-stdlib-version"]
         need ["build/libaletheia-ffi.so"]
@@ -387,6 +467,22 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- ~13× slower: 629s -> ~48s); same `proofModules` single source of truth.
         putInfo "Type-checking proof-only modules (one warm agda process)..."
         cmd_ pythonBin ("-m" : "tools.warm_check_properties" : proofModules)
+
+    -- `iwyu` — regenerate the relevant .agdai and run the import analysis WITHOUT a
+    -- full .hs/.so rebuild.  The .agda → .agdai (type-check) route is distinct from
+    -- the .agda → .hs (compile) route the .so rule tracks; iwyu consumes .agdai
+    -- only, so this does NOT depend on `build`.  The .agdai are regenerated
+    -- incrementally by Agda's OWN interface cache — tools.iwyu's warm process
+    -- re-checks each scoped module and Agda reuses unchanged interfaces, so only
+    -- what actually changed is recomputed (no Shake-side .agdai tracking needed).
+    -- A plain phony, like the other check-* gates: it always runs the analysis (a
+    -- check should run, not be skipped behind a result-cache stamp — which would
+    -- also miss changes to the iwyu tool itself).  Whole-tree (`--all`); for the
+    -- branch-diff scope run `tools.iwyu --check --diff`.  `cabal run shake -- iwyu`.
+    phony "iwyu" $ do
+        need ["check-stdlib-version"]
+        putInfo "Regenerating .agdai (Agda interface cache) + running IWYU..."
+        cmd_ pythonBin "-m" "tools.iwyu" "--check" "--all"
 
     phony "check-invariants" $ do
         -- Enforce "postulates and Unsafe modules are limited to the
@@ -1280,6 +1376,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     "build/MAlonzo/Code/Aletheia/Main.hs" %> \out -> do
         agdaSources <- getDirectoryFiles "src" ["//*.agda"]
         need (map ("src" </>) agdaSources)
+        need ["aletheia.agda-lib"]       -- stdlib pin + flags (--erasure) are inputs too
+        _ <- askOracle (AgdaVersion ())  -- agda binary version (not a `need`-able file)
 
         -- Shake's ChangeModtimeAndDigest tracks file content hashes
         -- When any .agda source changes, Shake detects it and re-runs this rule
@@ -1302,47 +1400,74 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 checkFFINames "haskell-shim/src/AletheiaFFI.hs"
             else error $ "Agda compilation failed: " ++ out ++ " not created"
 
-    phony "create-symlink" $ do
-        need ["build/MAlonzo/Code/Aletheia/Main.hs"]
-
-        let symlinkPath = "haskell-shim/MAlonzo"
-        let target = "../build/MAlonzo"
-
-        -- Remove existing symlink/directory if present
-        liftIO $ removePathForcibly symlinkPath
-
-        putInfo $ "Creating symlink: " ++ symlinkPath ++ " -> " ++ target
-
-        if os == "mingw32"
-            then cmd_ "cmd" "/c" "mklink /D" symlinkPath target
-            else liftIO $ createDirectoryLink target symlinkPath
+    phony "gen-ffi-modules" $ do
+        -- Regenerate the committed MAlonzo `other-modules` list in aletheia.cabal
+        -- from the actual generated tree, so cabal's dependency graph for the
+        -- foreign library is COMPLETE — it tracks every .hs the .so is built from.
+        -- Without this, cabal's component up-to-date check never sees a MAlonzo
+        -- change, skips GHC entirely, and ships a STALE .so.  The list is
+        -- committed + reviewable; drift is caught at build time by
+        -- `-Werror=missing-home-modules` (a module added but not listed) or
+        -- cabal's "module not found" (a listed module removed).  Run this after
+        -- adding/removing an Agda module, then commit aletheia.cabal.
+        need ["build/MAlonzo/Code/Aletheia/Main.hs"]  -- ensure MAlonzo .hs exist
+        malonzoFiles <- getDirectoryFiles "build" ["MAlonzo//**/*.hs"]
+        let modules   = sort (map malonzoModuleName malonzoFiles)
+            cabalPath = "haskell-shim/aletheia.cabal"
+        old <- liftIO $ readFile cabalPath
+        _   <- liftIO $ evaluate (length old)  -- force the lazy read before we write the same path
+        unless (malonzoBeginMarker `isInfixOf` old) $
+            error $ cabalPath ++ " is missing the marker\n  " ++ malonzoBeginMarker
+                  ++ "\nAdd the BEGIN/END markers to the foreign-library other-modules first."
+        let new = spliceMalonzoModules old modules
+        if new == old
+            then putInfo $ "FFI module list already in sync (" ++ show (length modules)
+                         ++ " MAlonzo modules)."
+            else do
+                liftIO $ writeFile cabalPath new
+                putInfo $ "Updated " ++ cabalPath ++ " ("
+                        ++ show (length modules) ++ " MAlonzo modules listed)."
 
     "build/libaletheia-ffi.so" %> \out -> do
-        -- Depend on all MAlonzo generated Haskell files
-        -- This ensures Shake detects any changes from Agda compilation
-        malonzoFiles <- getDirectoryFiles "build" ["MAlonzo//**/*.hs"]
-        need (map ("build" </>) malonzoFiles)
-
-        need ["create-symlink"]  -- Depend on phony target, not directory
+        -- HONEST DEPENDENCY GRAPH (see memory/project_build_so_idempotency.md).
+        -- The .so's TRUE inputs are the Agda SOURCES (the MAlonzo .hs are a pure
+        -- function of them), the FFI shim, and the cabal config — NOT the
+        -- generated MAlonzo .hs.  `need`ing the generated .hs as inputs was the
+        -- staleness trap: they have no producing rule, so Shake digested them as
+        -- source files at the wrong moment (before build-agda regenerated them),
+        -- and the rule could skip on a real change.  Depending on the .agda
+        -- sources (genuine, digest-tracked source files) re-fires this rule iff a
+        -- source's CONTENT changed (shakeChange = ChangeModtimeAndDigest).
+        agdaSources <- getDirectoryFiles "src" ["//*.agda"]
+        need (map ("src" </>) agdaSources)
+        need ["aletheia.agda-lib"]       -- toolchain inputs (mirror build-agda) so a
+        _ <- askOracle (AgdaVersion ())  -- stdlib/flag/agda-version bump re-fires the .so
         need [ "haskell-shim/src/AletheiaFFI.hs"
              , "haskell-shim/src/AletheiaFFI/Marshal.hs"
              , "haskell-shim/src/AletheiaFFI/BinaryOutput.hs"
              , "haskell-shim/test/ConstructorTest.hs"
              , "haskell-shim/aletheia.cabal"
              ]
+        -- Ordering edge: build-agda's declared output is Main.hs; needing it runs
+        -- the agda compile (regenerating the affected MAlonzo .hs) when any .agda
+        -- changed, BEFORE cabal reads them below.  This is NOT the re-fire trigger
+        -- — editing a non-Main module leaves Main.hs's digest unchanged; the
+        -- .agda-source deps above are what re-fire this rule.
+        need ["build/MAlonzo/Code/Aletheia/Main.hs"]
 
-        -- Force Cabal to rebuild when MAlonzo files change
-        -- Touch AletheiaFFI.hs to invalidate Cabal's cache
-        putInfo "Invalidating Cabal cache (touch AletheiaFFI.hs)..."
-        cmd_ "touch" "haskell-shim/src/AletheiaFFI.hs"
+        -- The symlink cabal resolves MAlonzo.* through, (re)created idempotently
+        -- in-body — never a phony `need` (a phony is always dirty and would force
+        -- this rule to re-fire every invocation, the old non-idempotency bug).
+        ensureMalonzoSymlink
 
-        -- Delete intermediate build artifacts to force relink
-        putInfo "Cleaning Cabal build artifacts..."
-        Stdout ghcVer <- cmd "ghc" "--numeric-version"
-        let ghcTag = "ghc-" ++ strip ghcVer
-        cmd_ (Cwd "haskell-shim") Shell $ "rm -rf dist-newstyle/build/*/" ++ ghcTag ++ "/aletheia-*/f/aletheia-ffi"
-
-        putInfo "Building FFI shared library..."
+        -- Delegate the .hs -> .so edge to cabal/GHC's own incremental build.
+        -- GHC's recompilation checker is content-hash aware (mi_src_hash + ABI
+        -- fingerprints; mtime is only a pre-filter), so it recompiles exactly the
+        -- modules whose .hs CONTENT changed and relinks.  NO `touch`, NO `rm -rf`
+        -- — those forced a full ~280-module rebuild on every invocation, the
+        -- single biggest CI/dev-loop cost.  Verified incremental + non-stale by
+        -- tools/check_build_incremental.py (run_ci's "build" prereq).
+        putInfo "Building FFI shared library (incremental; cabal owns .hs -> .so)..."
         -- UR-3.3: pass -ffile-prefix-map through to GHC's C compiler so any
         -- C-side debug info / __FILE__ embeddings strip the build-host path.
         -- Cannot use the bare `-fdebug-prefix-map` GHC flag here — that was

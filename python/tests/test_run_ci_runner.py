@@ -20,6 +20,7 @@ from tools.run_ci import (
     OptInOptions,
     RunContext,
     Runner,
+    build_prereq_cmd,
     parse_args,
 )
 
@@ -53,6 +54,17 @@ def test_combined_agda_gates_include_load_bearing_checks() -> None:
 def test_combined_agda_step_is_oom_gated() -> None:
     """The combined step carries the heavy proof checks, so it must be OOM-gated."""
     assert AGDA_GATES_STEP in HEAVY_STEPS
+
+
+def test_build_prereq_runs_the_staleness_gate() -> None:
+    """The `build` prereq must run the staleness-verifying tool, not a bare cabal build.
+
+    Reverting it to a plain `cabal build` would silently drop the staleness
+    verification (the failure the old `rm -rf` sledgehammer masked), so the build
+    could ship a stale .so undetected.  Pin the contract here.
+    """
+    cmd = build_prereq_cmd("python3")
+    assert cmd == ["python3", "-m", "tools.check_build_incremental"]
 
 
 def test_heavy_limit_invalid_env_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:

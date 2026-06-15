@@ -74,11 +74,15 @@ def main() -> int:
         sys.stderr.write(f"pre-push: {{runner}} not found; skipping\\n")
         return 0
 
-    sys.stderr.write("pre-push: running offline CI sweep (~12-15 min)...\\n")
+    sys.stderr.write("pre-push: running offline CI sweep (parallel lanes; ~5-8 min)...\\n")
     sys.stderr.write("pre-push: skip with `git push --no-verify` if needed\\n\\n")
 
+    # --parallel runs the lanes concurrently (memory-safe heavy_limit=2 default);
+    # tune with ALETHEIA_CI_HEAVY_LIMIT.  Falls back to serial semantics on a
+    # single core.  The local sweep also benefits from the incremental build (the
+    # `build` prereq recompiles only changed MAlonzo modules).
     rc = subprocess.run(
-        [sys.executable, "-m", "tools.run_ci"], cwd=repo_root, check=False
+        [sys.executable, "-m", "tools.run_ci", "--parallel"], cwd=repo_root, check=False
     ).returncode
     if rc != 0:
         sys.stderr.write(

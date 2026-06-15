@@ -630,13 +630,28 @@ class Runner:
         return 1
 
 
+def build_prereq_cmd(python: str) -> list[str]:
+    """Return the ``build`` prereq command (staleness-verifying build, not bare cabal build)."""
+    return [python, "-m", "tools.check_build_incremental"]
+
+
 def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     """Run the Agda gate sweep plus the two branch-scoped IWYU gates."""
     # ─── Agda gates ─────────────────────────────────────────────
     # `build` first as a separate prereq: it produces the .so / .agdai every
     # other lane needs, and a build failure short-circuits the whole sweep
     # before the parallel lanes spawn (run() special-cases the "build" step).
-    runner.step("build", [*cabal, "build"], lane="agda")
+    # `build` is the sole build prereq AND the staleness gate: it builds, then
+    # proves the .so reflects every source change (never stale — the failure the
+    # old `rm -rf` sledgehammer masked).  Runs first and ALONE (run() special-cases
+    # "build"; it transiently mutates a source + the artifact and restores both).
+    # Detail: tools/check_build_incremental.py, memory/project_build_so_idempotency.md.
+    runner.step(
+        "build",
+        build_prereq_cmd(runner.python),
+        cwd=runner.repo_root,
+        lane="agda",
+    )
     # All remaining cabal-shake gates fold into ONE invocation (the Agda-gate
     # fan-in): Shake
     # parallelizes the independent phony rules internally (shakeThreads=0) and
