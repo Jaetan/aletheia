@@ -74,11 +74,15 @@ def main() -> int:
         sys.stderr.write(f"pre-push: {{runner}} not found; skipping\\n")
         return 0
 
-    sys.stderr.write("pre-push: running offline CI sweep (~12-15 min)...\\n")
+    sys.stderr.write("pre-push: running offline CI sweep (parallel lanes; ~5-8 min)...\\n")
     sys.stderr.write("pre-push: skip with `git push --no-verify` if needed\\n\\n")
 
+    # --parallel runs the lanes concurrently (memory-safe heavy_limit=2 default);
+    # tune with ALETHEIA_CI_HEAVY_LIMIT.  Falls back to serial semantics on a
+    # single core.  The local sweep also benefits from the incremental build (the
+    # `build` prereq recompiles only changed MAlonzo modules).
     rc = subprocess.run(
-        [sys.executable, "-m", "tools.run_ci"], cwd=repo_root, check=False
+        [sys.executable, "-m", "tools.run_ci", "--parallel"], cwd=repo_root, check=False
     ).returncode
     if rc != 0:
         sys.stderr.write(
@@ -184,18 +188,27 @@ def _install_hook(
 ) -> bool:
     """Install the named hook, returning whether it was (re)written.
 
-    Returns True if newly installed (or re-installed because the marker was
-    missing), False if the hook is already current.
+    Content-aware (NOT just marker-presence): skips only when the on-disk hook is
+    byte-identical to the current template, so a template change (e.g. adding
+    ``--parallel``) refreshes an already-installed hook instead of being silently
+    skipped. Any DIFFERING hook — whether our own stale one or a foreign one — is
+    backed up before being overwritten, so no local edit is ever lost. Returns True
+    if newly installed / refreshed, False if already current.
     """
     path = hooks_dir / name
-    if path.is_file() and marker in path.read_text(encoding="utf-8"):
-        emit(f"install-hooks: {name} already installed (marker found at {path})")
-        return False
     if path.is_file():
+        current = path.read_text(encoding="utf-8")
+        if current == body:
+            emit(f"install-hooks: {name} already installed and current ({path})")
+            return False
+        # Content differs — back up before overwriting, whether this is our own
+        # stale hook (template changed) or a foreign one, so no local edit is lost.
         ts = int(datetime.now(UTC).timestamp())
         backup = path.with_suffix(f".aletheia-backup-{ts}")
         sys.stderr.write(f"install-hooks: existing {name} hook backed up to {backup}\n")
         shutil.copy2(path, backup)
+        if marker in current:
+            emit(f"install-hooks: refreshing stale {name} hook (template changed)")
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     emit(f"install-hooks: {name} hook installed at {path}")

@@ -351,6 +351,55 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   GitHub-template `env/`/`venv/`/`ENV/`/`.venv` set to the single canonical
   `.venv`, so a stray non-canonical venv now surfaces in `git status`.
 
+### G.2 — `check-changelog` enforces entries only for public-API surfaces, not all changes
+
+- **Where** — `tools/check_changelog.py` `API_PATTERNS` (`python/aletheia/`,
+  `go/aletheia/*.go`, `cpp/include/aletheia/`, `haskell-shim/ffi-exports.snapshot`).
+- **Origin** — surfaced 2026-06-15 during the build-incrementality PR
+  (`perf/build-incremental-honest-graph`): a substantial Shakefile / `.cabal` /
+  `tools/` change triggered no CHANGELOG requirement because none of those paths
+  match `API_PATTERNS` — yet the project convention is that CHANGELOG.md covers
+  ALL notable changes wherever they appear (user directive 2026-06-15).
+- **Today** — the gate is a FLOOR (forces an entry for public-API edits) but is
+  silent on build-system, tooling, CI, and doc changes; the broader convention is
+  met by author discipline, not enforcement, so a notable non-API change can merge
+  with no CHANGELOG line.
+- **Done looks like** — the gate requires (or nudges) a CHANGELOG entry for a
+  wider set of notable changes — e.g. `Shakefile.hs` / `*.cabal` / `tools/` /
+  `.github/workflows/` — without becoming noisy on trivial edits (formatting,
+  comments, test-only churn), likely via a widened pattern set with exclusions
+  mirroring the existing `TEST_EXCLUSIONS`.
+- **Cost / risk** — **Low–Medium.** Main hazard is false positives (demanding an
+  entry for trivial changes) souring the gate; needs a sound notable-vs-trivial
+  heuristic.
+- **Blockers / deps** — none; decide the watched-path set + exclusions first.
+- **Verdict** — `INVESTIGATE` (user-requested 2026-06-15; explicitly NOT in the
+  build-incrementality PR). Scope the patterns + exclusions before building to
+  avoid a noisy gate.
+
+### G.3 — Documentation pass for the incremental build + new Shake targets
+
+- **Where** — `docs/development/BUILDING.md` (the authoritative build guide);
+  possibly `docs/development/CI_LOCAL.md` and `AGENTS.md` build notes.
+- **Origin** — the build-incrementality PR (`perf/build-incremental-honest-graph`,
+  2026-06-15) shipped with a CONCISE `CLAUDE.md` update only; the deeper build
+  guide was deferred (user directive: concise update now, fuller pass tracked
+  here).
+- **Today** — `CLAUDE.md` documents the incremental build + `gen-ffi-modules` /
+  `iwyu` targets tersely; `BUILDING.md` still describes the old build model and
+  does not mention the new targets, the `other-modules` regen workflow, the
+  `-Werror=missing-home-modules` drift gate, the staleness gate, or the toolchain
+  oracle.
+- **Done looks like** — `BUILDING.md` (and any sibling guides) explain: the honest
+  dependency graph (`.agda → .agdai` / `.hs → .so`), incremental rebuild behaviour
+  + timings, `gen-ffi-modules` (when/why), `cabal run shake -- iwyu`, the staleness
+  gate, and the `AgdaVersion` oracle. DRY against `CLAUDE.md` (link, don't
+  duplicate).
+- **Cost / risk** — **Low** (doc prose), but `BUILDING.md` is the primary build
+  guide so accuracy matters; harness-safe (```bash fences are not executed).
+- **Blockers / deps** — none; do after the build-incrementality PR merges.
+- **Verdict** — `DO` (committed follow-up; user-requested 2026-06-15).
+
 ---
 
 ## H. Binding ergonomics
