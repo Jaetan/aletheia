@@ -275,7 +275,7 @@ aletheia_extract_signals_bin :: StateHandle -> Word32 -> Word8 -> Word8
                             -> Ptr Word8 -> Word8
                             -> Ptr (Ptr Word8) -> Ptr Word32 -> Ptr CString -> IO Int8
 aletheia_extract_signals_bin statePtr canId ext dlc dataPtr dataLen outBufPtr outSizePtr outErr
-  | isNullState statePtr = errorOut "aletheia_extract_signals_bin: null state handle" outErr
+  | isNullState statePtr = errorOut "null state handle" outErr
   | otherwise =
     case validateDLCAndLen "aletheia_extract_signals_bin" dlc dataLen of
       Left ffiErr -> errorOut (formatFFIError ffiErr) outErr
