@@ -108,7 +108,8 @@ def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
     names = runner.registered_step_names
     # The build prereq, the Agda fan-in, and one step from each binding/lint lane.
-    assert {"build", "agda gates", "pytest", "ruff", "ubsan ctest"} <= set(names)
+    # AGDA_GATES_STEP (not the "agda gates" literal) so a label change can't go stale.
+    assert {"build", AGDA_GATES_STEP, "pytest", "ruff", "ubsan ctest"} <= set(names)
     assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
 
 

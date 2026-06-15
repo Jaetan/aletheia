@@ -409,11 +409,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   moved to a new `tools/_ci_steps.py`; `run_ci.py` keeps the orchestration core
   (`Runner`, `RunContext`, `OptInOptions`, `parse_args`, `main`). The catalog is
   the part that grows with every new gate, so the core now stays small.
-  `run_ci.py` 999 → **603 lines**, `_ci_steps.py` 424 — both well clear of the
-  ceiling. The e2e test imports the catalog from `tools._ci_steps` and the core
-  from `tools.run_ci` (matching the `test_scheduler.py` → `tools._scheduler`
-  convention); 20 tests green, pylint 10.00/10 with no C0302, basedpyright 0/0/0,
-  ruff clean. No behavior change (same steps, lanes, exit codes).
+  `run_ci.py` 999 → **616 lines**, `_ci_steps.py` 424 (`wc -l`) — both well clear
+  of the ceiling. The e2e test imports the catalog from `tools._ci_steps` and the
+  core from `tools.run_ci` (matching the `test_scheduler.py` → `tools._scheduler`
+  convention); the 12 `test_run_ci_runner.py` tests are green, pylint 10.00/10
+  with no C0302, basedpyright 0/0/0, ruff clean. No behavior change (same steps,
+  lanes, exit codes).
 - **Where** — `tools/run_ci.py` (was 999 lines); pylint `max-module-lines = 1000` (C0302).
 - **Origin** — PR #37 (build-incrementality, 2026-06-15) added `build_prereq_cmd`
   + the staleness-gate wiring, leaving the file at 999 lines; surfaced by the

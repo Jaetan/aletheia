@@ -68,7 +68,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `build_prereq_cmd`) — moved to a new `tools/_ci_steps.py`, leaving `run_ci.py`
   as the orchestration core (`Runner`, `RunContext`, options, `main`). No
   behavior change: same steps, same lanes, same exit codes. It takes `run_ci.py`
-  from 999 to 603 lines (clear of the 1000-line pylint `max-module-lines`
+  from 999 to 616 lines (clear of the 1000-line pylint `max-module-lines`
   ceiling, which the next gate addition would otherwise have tripped) and moves
   the part that grows with every new gate out of the core.
 - **C++ `IBackend` streaming endpoints are now pure-virtual.**
