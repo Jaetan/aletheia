@@ -74,12 +74,18 @@ bindings:
       # per-arg pragma there would collaterally exclude the KILLABLE value /
       # cls / indent arg mutants — so it is documented here instead, keeping
       # those args mutation-tested (see aletheia/types.py:dump_json).  mutmut
-      # 3.6: 824 killed / 1 survived, 99% (score = killed / (killed+survived)).
+      # mutmut 3.6: 827 killed / 1 survived, total 828 (score = killed /
+      # (killed+survived) = 827/828 ≈ 99%).  The 3 previously-SEGFAULT mutants
+      # (NULL state / payload reaching the FFI from _client._send_command and
+      # format_dbc) are now CLEAN kills since the FFI-boundary NULL guards
+      # (haskell-shim/src/AletheiaFFI.hs: isNullState / peekArrayChecked) turn a
+      # NULL deref into an error response instead of a SIGSEGV — it was
+      # 824 killed / 3 segfault / total 825 before that hardening.
       # The drift gate fails on survivor #2 — any NEW survivor is a finding.
       survivors: 1
-      total_mutants: 825
+      total_mutants: 828
       score_pct: 99
-      run_at: "2026-06-10"
+      run_at: "2026-06-15"
 
   go:
     # AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` as the Go
