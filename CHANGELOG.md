@@ -61,6 +61,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `python tools/install_hooks.py` to update an already-installed hook — the
   installer is now content-aware (it refreshes a hook whose template changed,
   rather than skipping whenever its marker is merely present).
+- **`tools/run_ci.py` split along the catalog seam.** The step catalog — the
+  registration helpers (`_run_agda_gates` / `_run_binding_tests` / `_run_lints` /
+  `_run_gha_checks` / `_run_opt_in_lanes`, behind a public `register_all_steps`)
+  plus the constants that classify them (`AGDA_SHAKE_TARGETS`, `HEAVY_STEPS`,
+  `build_prereq_cmd`) — moved to a new `tools/_ci_steps.py`, leaving `run_ci.py`
+  as the orchestration core (`Runner`, `RunContext`, options, `main`). No
+  behavior change: same steps, same lanes, same exit codes. It takes `run_ci.py`
+  from 999 to 616 lines (clear of the 1000-line pylint `max-module-lines`
+  ceiling, which the next gate addition would otherwise have tripped) and moves
+  the part that grows with every new gate out of the core.
 - **C++ `IBackend` streaming endpoints are now pure-virtual.**
   `send_error_binary`, `send_remote_binary`, `start_stream_binary`,
   `end_stream_binary`, `format_dbc_binary`, and `extract_signals_binary`
