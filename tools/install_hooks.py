@@ -191,7 +191,9 @@ def _install_hook(
     Content-aware (NOT just marker-presence): skips only when the on-disk hook is
     byte-identical to the current template, so a template change (e.g. adding
     ``--parallel``) refreshes an already-installed hook instead of being silently
-    skipped. Returns True if newly installed / refreshed, False if already current.
+    skipped. Any DIFFERING hook — whether our own stale one or a foreign one — is
+    backed up before being overwritten, so no local edit is ever lost. Returns True
+    if newly installed / refreshed, False if already current.
     """
     path = hooks_dir / name
     if path.is_file():
@@ -199,15 +201,14 @@ def _install_hook(
         if current == body:
             emit(f"install-hooks: {name} already installed and current ({path})")
             return False
+        # Content differs — back up before overwriting, whether this is our own
+        # stale hook (template changed) or a foreign one, so no local edit is lost.
+        ts = int(datetime.now(UTC).timestamp())
+        backup = path.with_suffix(f".aletheia-backup-{ts}")
+        sys.stderr.write(f"install-hooks: existing {name} hook backed up to {backup}\n")
+        shutil.copy2(path, backup)
         if marker in current:
-            # Our own hook, but stale (template changed) — refresh it in place.
             emit(f"install-hooks: refreshing stale {name} hook (template changed)")
-        else:
-            # A pre-existing hook we did not write — preserve it before replacing.
-            ts = int(datetime.now(UTC).timestamp())
-            backup = path.with_suffix(f".aletheia-backup-{ts}")
-            sys.stderr.write(f"install-hooks: existing {name} hook backed up to {backup}\n")
-            shutil.copy2(path, backup)
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     emit(f"install-hooks: {name} hook installed at {path}")

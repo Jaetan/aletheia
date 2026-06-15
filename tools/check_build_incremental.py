@@ -17,10 +17,13 @@ bug the ``rm -rf`` sledgehammer was hiding:
 The oracle is *behavioral* (does the edit reach the artifact?), never
 bit-identical — an incremental build differs benignly from a from-scratch one.
 
-Crash-safe: the edited source is always restored (atexit + SIGINT/SIGTERM), so an
-interrupted run never leaves the tree mutated.  Run this as a post-``build`` step,
-isolated from any other ``.so`` consumer (it transiently mutates the shared
-artifact, then restores it).
+Crash behaviour: the edited *source* is always restored (atexit + SIGINT/SIGTERM),
+so an interrupt never leaves a mutated Agda source.  The ``.so`` artifact is NOT
+transactional, though — an interrupt after the edit-build can leave
+``build/libaletheia-ffi.so`` carrying the probe sentinel; the next normal build
+restores it, and this gate refuses to run against such a leftover (its startup
+check asserts a clean baseline first).  Run this as a post-``build`` step, isolated
+from any other ``.so`` consumer (it transiently mutates the shared artifact).
 
 Run: ``python -m tools.check_build_incremental``  (exit 0 = pass, 1 = fail).
 """

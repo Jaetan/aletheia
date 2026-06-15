@@ -54,19 +54,22 @@ malonzoEndMarker   = "-- END GENERATED MALONZO MODULES"
 
 -- | Splice the generated MAlonzo module lines between the markers in the
 -- aletheia.cabal text, preserving everything outside the region.  Idempotent:
--- the same module set yields identical output.  Returns the input unchanged if
--- the BEGIN marker is absent (the caller errors loudly in that case).
+-- the same module set yields identical output.  Returns the input UNCHANGED if
+-- either marker is absent — in particular it never truncates the tail when the
+-- END marker is missing (the caller, gen-ffi-modules, errors loudly in that case).
 spliceMalonzoModules :: String -> [String] -> String
 spliceMalonzoModules old modules =
     let ls = lines old
         (before, fromBegin) = break (isInfixOf malonzoBeginMarker) ls
     in case fromBegin of
-        []                  -> old
-        (beginLine : rest)  ->
-            let indent   = takeWhile (== ' ') beginLine
-                afterEnd = drop 1 (dropWhile (not . isInfixOf malonzoEndMarker) rest)
-                modLines = map (indent ++) modules
-            in unlines (before ++ [beginLine] ++ modLines ++ [indent ++ malonzoEndMarker] ++ afterEnd)
+        []                 -> old  -- BEGIN marker absent: leave untouched
+        (beginLine : rest) ->
+            case break (isInfixOf malonzoEndMarker) rest of
+                (_, [])           -> old  -- END marker absent: refuse to truncate the tail
+                (_, _ : afterEnd) ->
+                    let indent   = takeWhile (== ' ') beginLine
+                        modLines = map (indent ++) modules
+                    in unlines (before ++ [beginLine] ++ modLines ++ [indent ++ malonzoEndMarker] ++ afterEnd)
 
 -- | Memory-aware GHC job count for the FFI build.  Each `cabal build -jN` worker
 -- is a GHC process that can reach the per-worker `-M3G` ceiling, so a naive
@@ -1419,6 +1422,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         unless (malonzoBeginMarker `isInfixOf` old) $
             error $ cabalPath ++ " is missing the marker\n  " ++ malonzoBeginMarker
                   ++ "\nAdd the BEGIN/END markers to the foreign-library other-modules first."
+        unless (malonzoEndMarker `isInfixOf` old) $
+            error $ cabalPath ++ " is missing the marker\n  " ++ malonzoEndMarker
+                  ++ "\nBoth BEGIN and END markers are required; refusing to rewrite without END."
         let new = spliceMalonzoModules old modules
         if new == old
             then putInfo $ "FFI module list already in sync (" ++ show (length modules)
