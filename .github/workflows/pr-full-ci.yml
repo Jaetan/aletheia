@@ -284,8 +284,14 @@ jobs:
       # checks peak ~2.3 GiB together; a second heavy lane adds ~1-2 GiB, well
       # under 16 GB).  Add `--ci-heavy-limit N` here to tune it on a future
       # runner.  Serial stays the exit-code-identical fallback.
+      # --build-staleness on push:main is `always` — re-verify the no-stale-.so
+      # property on every merge (the backstop). On pull_request the default `auto`
+      # runs the staleness gate (check_build_incremental, ~2 .so relinks) only when
+      # a build-graph file changed, so a code-only PR gets a fast plain build.
       - name: Run the full offline correctness sweep (tools/run_ci.py)
-        run: python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
+        run: >-
+          python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
+          ${{ github.event_name == 'push' && '--build-staleness=always' || '' }}
 
       # Save the build tree so the next run restores it.  NOT gated to
       # pull_request: push:main must seed the cache for brand-new PRs to hit it

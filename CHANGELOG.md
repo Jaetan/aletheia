@@ -54,6 +54,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The build-staleness self-test is scheduled on build-graph changes, not every
+  PR.** `tools/run_ci.py`'s `build` step previously always ran
+  `check_build_incremental`, which forces two `.so` relinks (an edit probe and its
+  revert) — fast locally but ~260s on a 4-core CI runner, dominating an otherwise
+  warm build. That gate verifies the build *graph* (can a source change reach the
+  `.so`?), which only build-graph files (`Shakefile.hs`, `shake.cabal`, the
+  `haskell-shim/` incl. its `.cabal`, `aletheia.agda-lib`) can regress. The
+  `build` step now runs the gate only when the diff vs `main` touches one of those
+  (the local `main` ref, matching the IWYU convention) (`--build-staleness=auto`, the
+  default), always on `push:main` (the backstop, `--build-staleness=always`), or
+  never (`--build-staleness=never`); otherwise it runs a plain
+  `cabal run shake -- build` (a warm cache → near no-op). Trade-off: a build-graph
+  regression that bypasses the PR check (e.g. a `--no-verify` push) is caught
+  post-merge on `main` rather than on the PR — acceptable because a plain
+  incremental build is content-hash-driven and self-corrects a bad cache; only a
+  build-*system* change defeats that, and that is exactly what re-arms the gate.
 - **CI caches compiled C++ objects with `ccache`.** `cpp/CMakeLists.txt`
   auto-enables ccache via `CMAKE_CXX_COMPILER_LAUNCHER` wherever it is on `PATH`
   (a no-op otherwise, so local builds are unaffected), and `pr-full-ci.yml`
@@ -122,6 +138,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`check-fidelity` no longer fails to find the MAlonzo modules when the build
+  is a no-op.** The `haskell-shim/MAlonzo -> ../build/MAlonzo` symlink (which
+  cabal resolves the generated `MAlonzo.*` modules through, and which is
+  gitignored) was created only *inside* the `.so` rule's action — so when that
+  rule no-ops (the `.so` already up to date, e.g. a warm build-tree cache restored
+  on a fresh checkout), the symlink was never created, and `check-fidelity`'s
+  `cabal test` failed with `Could not find module 'MAlonzo.Code.…'`. `check-fidelity`
+  now ensures the symlink itself (idempotent, symmetric with the `.so` rule). This
+  was latent until the build-staleness scheduling above made code-only PRs do a
+  genuine no-op build on a fresh CI checkout. Reproduced and fixed deterministically
+  (remove the symlink against an up-to-date `.so` → fail; with the fix → pass).
 - **The build no longer full-recompiles `libaletheia-ffi.so` on every
   invocation, and can no longer ship a stale one.** The `.so` rule forced a
   complete ~280-module MAlonzo rebuild each run (an always-dirty phony symlink
