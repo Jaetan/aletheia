@@ -30,6 +30,21 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ccache: a transparent compiler cache.  Auto-enabled wherever ccache is on PATH
+# (CI persists ~/.ccache across runs); a plain no-op when ccache is absent, so a
+# local build without it is unchanged.  Targets the repeated from-scratch C++
+# builds — CI configures a fresh build dir for ctest, the UBSan lane, and the
+# mutation lane each run, recompiling the same translation units.
+#
+# CMake records the launcher only in the build rules, NOT in
+# compile_commands.json, so the `clang-tidy-22 -p build` gate still sees the bare
+# `clang++-22` and is unaffected by ccache (verified: cmake 4.1.2 — the exported
+# DB carries no launcher token, and clang-tidy-22 parses it cleanly).
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
 # ---------------------------------------------------------------------------
 # clang-tidy integration (opt-in)
 # ---------------------------------------------------------------------------
