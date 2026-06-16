@@ -11,9 +11,9 @@ the graph stays correct.  It checks two properties:
 1. **Never stale** — editing a runtime string literal in a source must REACH the
    ``.so``, and reverting it must too.  This is the failure the old ``rm -rf``
    sledgehammer masked by always full-rebuilding.  Probed at TWO structurally
-   distant modules (Protocol and LTL) so a graph bug that breaks propagation for
-   only one subtree is caught: both edits land in one build, and BOTH distinct
-   tokens must appear in the ``.so``.
+   distant modules (Protocol/ResponseFormat and DBC/Formatter) so a graph bug that
+   breaks propagation for only one subtree is caught: both edits land in one build,
+   and BOTH distinct tokens must appear in the ``.so``.
 
 2. **Incremental** — a no-op build (nothing changed) must NOT relink the ``.so``
    (its mtime stays put).  A regression back to the always-full-rebuild
