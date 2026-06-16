@@ -70,6 +70,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   post-merge on `main` rather than on the PR — acceptable because a plain
   incremental build is content-hash-driven and self-corrects a bad cache; only a
   build-*system* change defeats that, and that is exactly what re-arms the gate.
+- **The build-staleness gate is stronger.** `tools/check_build_incremental.py`
+  now probes **two** structurally distant runtime modules
+  (`Protocol/ResponseFormat` + `DBC/Formatter`) rather than one — a graph bug that
+  breaks change-propagation for only one subtree is caught because both distinct
+  probe tokens must reach the `.so` — and adds an **incrementality** assertion: a
+  no-op build must not relink the `.so` (mtime stable). The staleness-only check
+  would have passed a regression back to the always-full-rebuild sledgehammer;
+  this catches it, structurally (was the artifact rewritten?), never by wall-clock.
 - **CI caches compiled C++ objects with `ccache`.** `cpp/CMakeLists.txt`
   auto-enables ccache via `CMAKE_CXX_COMPILER_LAUNCHER` wherever it is on `PATH`
   (a no-op otherwise, so local builds are unaffected), and `pr-full-ci.yml`
