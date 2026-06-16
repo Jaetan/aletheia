@@ -54,6 +54,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The build-staleness gate is stronger.** `tools/check_build_incremental.py`
+  now probes **two** structurally distant runtime modules
+  (`Protocol/ResponseFormat` + `DBC/Formatter`) rather than one — a graph bug that
+  breaks change-propagation for only one subtree is caught because both distinct
+  probe tokens must reach the `.so` — and adds an **incrementality** assertion: a
+  no-op build must not relink the `.so` (mtime stable). The staleness-only check
+  would have passed a regression back to the always-full-rebuild sledgehammer;
+  this catches it, structurally (was the artifact rewritten?), never by wall-clock.
 - **CI restores an incremental build tree, so a re-push is no longer a cold
   rebuild.** `.github/workflows/pr-full-ci.yml` now caches `build/` (Agda
   `.agdai` + generated MAlonzo `.hs`) and `dist-newstyle/` (the cabal
