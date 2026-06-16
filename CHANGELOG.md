@@ -131,6 +131,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`check-fidelity` no longer fails to find the MAlonzo modules when the build
+  is a no-op.** The `haskell-shim/MAlonzo -> ../build/MAlonzo` symlink (which
+  cabal resolves the generated `MAlonzo.*` modules through, and which is
+  gitignored) was created only *inside* the `.so` rule's action — so when that
+  rule no-ops (the `.so` already up to date, e.g. a warm build-tree cache restored
+  on a fresh checkout), the symlink was never created, and `check-fidelity`'s
+  `cabal test` failed with `Could not find module 'MAlonzo.Code.…'`. `check-fidelity`
+  now ensures the symlink itself (idempotent, symmetric with the `.so` rule). This
+  was latent until the build-staleness scheduling above made code-only PRs do a
+  genuine no-op build on a fresh CI checkout. Reproduced and fixed deterministically
+  (remove the symlink against an up-to-date `.so` → fail; with the fix → pass).
 - **The build no longer full-recompiles `libaletheia-ffi.so` on every
   invocation, and can no longer ship a stale one.** The `.so` rule forced a
   complete ~280-module MAlonzo rebuild each run (an always-dirty phony symlink
