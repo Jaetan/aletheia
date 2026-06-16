@@ -88,7 +88,7 @@ dev = [
     # AGENTS.md Python cat 14(f) (NEW R18) requires test-isolation runs via
     # ``pytest --random-order --random-order-bucket=package`` alongside the
     # deterministic lane.  Both must stay green.
-    "pytest-random-order>=1.1,<2",
+    "pytest-random-order>=1.2.0,<2",
     # AGENTS.md Python cat 34(b) (NEW R18) — hypothesis-driven property
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
