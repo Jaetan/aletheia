@@ -367,9 +367,9 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         help=(
             "When the `build` step runs the staleness gate (check_build_incremental, "
             "~2 .so relinks) vs a plain incremental build.  `auto` (default) runs it "
-            "only when a build-graph file changed (Shakefile / *.cabal / agda-lib / "
-            "shim); `always` is the push:main backstop, `never` an escape hatch.  "
-            "(env: ALETHEIA_BUILD_STALENESS)"
+            "only when the diff vs `main` touches a build-graph file (Shakefile.hs, "
+            "shake.cabal, the haskell-shim/, aletheia.agda-lib); `always` is the "
+            "push:main backstop, `never` an escape hatch.  (env: ALETHEIA_BUILD_STALENESS)"
         ),
     )
 

@@ -59,9 +59,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `check_build_incremental`, which forces two `.so` relinks (an edit probe and its
   revert) — fast locally but ~260s on a 4-core CI runner, dominating an otherwise
   warm build. That gate verifies the build *graph* (can a source change reach the
-  `.so`?), which only build-graph files (`Shakefile.hs`, `*.cabal`, the shim,
-  `aletheia.agda-lib`) can regress. The `build` step now runs the gate only when
-  the diff vs `origin/main` touches one of those (`--build-staleness=auto`, the
+  `.so`?), which only build-graph files (`Shakefile.hs`, `shake.cabal`, the
+  `haskell-shim/` incl. its `.cabal`, `aletheia.agda-lib`) can regress. The
+  `build` step now runs the gate only when the diff vs `main` touches one of those
+  (the local `main` ref, matching the IWYU convention) (`--build-staleness=auto`, the
   default), always on `push:main` (the backstop, `--build-staleness=always`), or
   never (`--build-staleness=never`); otherwise it runs a plain
   `cabal run shake -- build` (a warm cache → near no-op). Trade-off: a build-graph

@@ -103,13 +103,17 @@ _BUILD_GRAPH_PATHS: tuple[str, ...] = (
 
 
 def _build_graph_changed(repo_root: Path) -> bool:
-    """Return True iff the diff vs ``origin/main`` touches a build-graph file.
+    """Return True iff the diff vs ``main`` touches a build-graph file.
 
-    Fails SAFE: if the diff can't be computed (e.g. no ``origin/main`` ref), run
-    the staleness gate rather than silently skip a safety check.
+    Diffs the local ``main`` ref — the repo convention (``tools/_warm.py``'s IWYU
+    scope uses ``main...HEAD``; CI's workflow has an "Ensure a local ``main`` ref"
+    step for exactly this), not ``origin/main`` (a remote-tracking ref that
+    ``actions/checkout`` is not guaranteed to create).  Fails SAFE: if the diff
+    can't be computed (e.g. no ``main`` ref), run the staleness gate rather than
+    silently skip a safety check.
     """
     result = run_capture(
-        [find_executable("git"), "-C", str(repo_root), "diff", "--name-only", "origin/main...HEAD"],
+        [find_executable("git"), "-C", str(repo_root), "diff", "--name-only", "main...HEAD"],
     )
     if result.returncode != 0:
         return True
