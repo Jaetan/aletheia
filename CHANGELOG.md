@@ -70,6 +70,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   post-merge on `main` rather than on the PR — acceptable because a plain
   incremental build is content-hash-driven and self-corrects a bad cache; only a
   build-*system* change defeats that, and that is exactly what re-arms the gate.
+- **CI caches compiled C++ objects with `ccache`.** `cpp/CMakeLists.txt`
+  auto-enables ccache via `CMAKE_CXX_COMPILER_LAUNCHER` wherever it is on `PATH`
+  (a no-op otherwise, so local builds are unaffected), and `pr-full-ci.yml`
+  persists `~/.ccache` across runs. The C++ lanes reconfigure a fresh build dir
+  each run (`ctest` ~394s, the UBSan lane ~689s), recompiling the same
+  translation units cold; a warm ccache makes those recompiles near-instant. The
+  build-tree cache (above) handles Agda/Haskell; this handles C++.
 - **CI restores an incremental build tree, so a re-push is no longer a cold
   rebuild.** `.github/workflows/pr-full-ci.yml` now caches `build/` (Agda
   `.agdai` + generated MAlonzo `.hs`) and `dist-newstyle/` (the cabal

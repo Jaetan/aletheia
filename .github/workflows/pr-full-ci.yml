@@ -193,6 +193,30 @@ jobs:
             cpp/build-ubsan/_deps
           key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
 
+      # ccache persists compiled C++ objects across runs.  cpp/CMakeLists.txt
+      # auto-enables it (CMAKE_CXX_COMPILER_LAUNCHER) when ccache is on PATH.  CI
+      # configures a fresh build dir for ctest + the UBSan lane each run, so
+      # without a warm ccache every TU recompiles cold (ctest ~394s, ubsan ~689s).
+      # ubuntu-24.04 ships ccache; pin its dir + size via env (survives the
+      # cache restore, unlike ccache.conf).  Split restore/save (like the build
+      # tree) so a run that compiled C++ but failed a later gate still seeds it.
+      - name: Set up ccache
+        run: |
+          set -euo pipefail
+          command -v ccache >/dev/null || sudo apt-get install -y ccache
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_MAXSIZE=2G"
+          } >> "${GITHUB_ENV}"
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-clang22-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-clang22-
+
       # actionlint is the one GHA meta-check run_ci runs only when the binary is
       # present — it is an OPTIONAL local tool (gated behind `shutil.which`, see
       # CLAUDE.md), so without it installed here the enforced sweep silently
@@ -284,3 +308,11 @@ jobs:
             build
             dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+
+      # Save ccache (same split-save rationale as the build tree).
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-clang22-${{ github.sha }}
