@@ -126,7 +126,7 @@ fuzz = ["atheris>=3.0,<4"]
 # rather than ``[dev]`` because the lane is opt-in only (per AGENTS.md "once
 # per PR is sufficient; per-commit is overkill") and pulls a sizeable mutation
 # trampoline machinery + tooling deps.
-mutation = ["mutmut>=3.5,<4"]
+mutation = ["mutmut>=3.6.0,<4"]
 
 [tool.basedpyright]
 # Strict type checking for code we control
