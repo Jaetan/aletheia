@@ -26,7 +26,11 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
 
   Agda gates:
     - build           — produces libaletheia-ffi.so (separate prereq; a build
-      failure short-circuits the whole sweep before the lanes spawn)
+      failure short-circuits the whole sweep before the lanes spawn).  Runs the
+      staleness gate (tools/check_build_incremental.py — ~2 .so relinks) only
+      when a build-graph file changed (--build-staleness=auto, the default) or
+      always on push:main (--build-staleness=always); otherwise a plain
+      `cabal run shake -- build` (warm-cache no-op).
     - agda gates      — every remaining cabal-shake gate folded into ONE
       `cabal run shake -- <targets>` call (AGDA_SHAKE_TARGETS).  Shake runs the
       independent phony rules concurrently (shakeThreads=0) — the two heavy proof
@@ -210,6 +214,12 @@ class OptInOptions:
     # steps (the OOM guard) and is only consulted in parallel mode.
     parallel: bool = False
     heavy_limit: int = 2
+    # Build-staleness scheduling for the `build` step (see tools/_ci_steps
+    # should_run_staleness): "auto" (default) runs the staleness gate
+    # (check_build_incremental, ~2 .so relinks) only when a build-graph file
+    # changed; "always" is the push:main backstop, "never" an escape hatch.
+    # Not a lane — it picks the build COMMAND, not the step count.
+    build_staleness: str = "auto"
 
     @property
     def any_enabled(self) -> bool:
@@ -247,6 +257,17 @@ def _resolve_heavy_limit(cli_value: int | None) -> int:
         return max(1, int(os.environ.get("ALETHEIA_CI_HEAVY_LIMIT", str(default))))
     except ValueError:
         return default
+
+
+_BUILD_STALENESS_MODES = ("auto", "always", "never")
+
+
+def _resolve_build_staleness(cli_value: str | None) -> str:
+    """Resolve build-staleness mode: CLI > env > "auto" default; invalid env → "auto"."""
+    if cli_value in _BUILD_STALENESS_MODES:
+        return cli_value
+    env = os.environ.get("ALETHEIA_BUILD_STALENESS")
+    return env if env in _BUILD_STALENESS_MODES else "auto"
 
 
 def parse_args(argv: list[str] | None = None) -> OptInOptions:
@@ -339,6 +360,18 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             "default 2.  (env: ALETHEIA_CI_HEAVY_LIMIT)"
         ),
     )
+    parser.add_argument(
+        "--build-staleness",
+        choices=_BUILD_STALENESS_MODES,
+        default=None,
+        help=(
+            "When the `build` step runs the staleness gate (check_build_incremental, "
+            "~2 .so relinks) vs a plain incremental build.  `auto` (default) runs it "
+            "only when a build-graph file changed (Shakefile / *.cabal / agda-lib / "
+            "shim); `always` is the push:main backstop, `never` an escape hatch.  "
+            "(env: ALETHEIA_BUILD_STALENESS)"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -357,6 +390,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
         parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
         heavy_limit=_resolve_heavy_limit(args.ci_heavy_limit),
+        build_staleness=_resolve_build_staleness(args.build_staleness),
     )
 
 

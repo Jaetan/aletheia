@@ -54,6 +54,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The build-staleness self-test is scheduled on build-graph changes, not every
+  PR.** `tools/run_ci.py`'s `build` step previously always ran
+  `check_build_incremental`, which forces two `.so` relinks (an edit probe and its
+  revert) — fast locally but ~260s on a 4-core CI runner, dominating an otherwise
+  warm build. That gate verifies the build *graph* (can a source change reach the
+  `.so`?), which only build-graph files (`Shakefile.hs`, `*.cabal`, the shim,
+  `aletheia.agda-lib`) can regress. The `build` step now runs the gate only when
+  the diff vs `origin/main` touches one of those (`--build-staleness=auto`, the
+  default), always on `push:main` (the backstop, `--build-staleness=always`), or
+  never (`--build-staleness=never`); otherwise it runs a plain
+  `cabal run shake -- build` (a warm cache → near no-op). Trade-off: a build-graph
+  regression that bypasses the PR check (e.g. a `--no-verify` push) is caught
+  post-merge on `main` rather than on the PR — acceptable because a plain
+  incremental build is content-hash-driven and self-corrects a bad cache; only a
+  build-*system* change defeats that, and that is exactly what re-arms the gate.
 - **CI restores an incremental build tree, so a re-push is no longer a cold
   rebuild.** `.github/workflows/pr-full-ci.yml` now caches `build/` (Agda
   `.agdai` + generated MAlonzo `.hs`) and `dist-newstyle/` (the cabal

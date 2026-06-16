@@ -24,6 +24,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tools._common import find_executable, run_capture
+
 if TYPE_CHECKING:
     from tools.run_ci import OptInOptions, Runner
 
@@ -75,27 +77,80 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 
 
 def build_prereq_cmd(python: str) -> list[str]:
-    """Return the ``build`` prereq command (staleness-verifying build, not bare cabal build)."""
+    """Return the staleness-gate command (``tools.check_build_incremental``).
+
+    This is the ``build`` step's command only when the staleness gate is
+    scheduled (see :func:`should_run_staleness`); otherwise the step runs a
+    plain ``cabal run shake -- build``.
+    """
     return [python, "-m", "tools.check_build_incremental"]
 
 
-def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
-    """Run the Agda gate sweep plus the two branch-scoped IWYU gates."""
-    # ─── Agda gates ─────────────────────────────────────────────
-    # `build` first as a separate prereq: it produces the .so / .agdai every
-    # other lane needs, and a build failure short-circuits the whole sweep
-    # before the parallel lanes spawn (run() special-cases the "build" step).
-    # `build` is the sole build prereq AND the staleness gate: it builds, then
-    # proves the .so reflects every source change (never stale — the failure the
-    # old `rm -rf` sledgehammer masked).  Runs first and ALONE (run() special-cases
-    # "build"; it transiently mutates a source + the artifact and restores both).
-    # Detail: tools/check_build_incremental.py, memory/project_build_so_idempotency.md.
-    runner.step(
-        "build",
-        build_prereq_cmd(runner.python),
-        cwd=runner.repo_root,
-        lane="agda",
+# Build-graph files: a change to one of these can alter HOW the .so is built —
+# the dependency graph the staleness gate verifies — so editing one re-arms the
+# gate.  Plain source edits (src/**.agda) do NOT: they exercise the graph, they
+# don't change its shape (and `-Werror=missing-home-modules` already catches an
+# added-but-unlisted module on every build).  Matched as path prefixes against
+# `git diff --name-only` output (repo-relative).
+_BUILD_GRAPH_PATHS: tuple[str, ...] = (
+    "Shakefile.hs",
+    "shake.cabal",
+    "aletheia.agda-lib",
+    "haskell-shim/",
+    "tools/check_build_incremental.py",
+    "tools/_warm.py",
+)
+
+
+def _build_graph_changed(repo_root: Path) -> bool:
+    """Return True iff the diff vs ``origin/main`` touches a build-graph file.
+
+    Fails SAFE: if the diff can't be computed (e.g. no ``origin/main`` ref), run
+    the staleness gate rather than silently skip a safety check.
+    """
+    result = run_capture(
+        [find_executable("git"), "-C", str(repo_root), "diff", "--name-only", "origin/main...HEAD"],
     )
+    if result.returncode != 0:
+        return True
+    return any(line.startswith(_BUILD_GRAPH_PATHS) for line in result.stdout.splitlines())
+
+
+def should_run_staleness(mode: str, *, build_graph_changed: bool) -> bool:
+    """Decide whether the ``build`` step runs the staleness gate vs a plain build.
+
+    ``always`` (the push:main backstop) and ``never`` (escape hatch) are
+    unconditional; ``auto`` (the default) runs the gate only when a build-graph
+    file changed — re-verifying the build GRAPH on every code PR's two ``.so``
+    relinks was pure cost, since only build-graph files change the graph.
+    """
+    return mode == "always" or (mode == "auto" and build_graph_changed)
+
+
+def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
+    """Run the build, the Agda gate sweep, and the two branch-scoped IWYU gates."""
+    # ─── build (first, alone) ───────────────────────────────────
+    # `build` produces the .so / .agdai every other lane needs; run() special-cases
+    # it to run FIRST and ALONE (a build failure short-circuits the whole sweep
+    # before the parallel lanes spawn).
+    #
+    # Its COMMAND is chosen by build-staleness scheduling.  When a build-graph file
+    # changed (or --build-staleness=always, the push:main backstop) the step IS the
+    # staleness gate (check_build_incremental — an edit and its revert must each
+    # reach the .so; ~2 .so relinks, slow on a 4-core runner).  Otherwise it is a
+    # plain `cabal run shake -- build` (a warm build-tree cache makes it ~a no-op).
+    # The staleness PROPERTY is about the build GRAPH, which only build-graph files
+    # change — so re-verifying it on every code PR's 2 relinks was pure cost.  Both
+    # commands mutate only the shared .so, so this stays the single isolated
+    # pre-lane step (no race with the .so-consuming test lanes).
+    # Detail: tools/check_build_incremental.py, memory/project_build_so_idempotency.md.
+    mode = runner.opts.build_staleness
+    graph_changed = mode == "auto" and _build_graph_changed(runner.repo_root)
+    if should_run_staleness(mode, build_graph_changed=graph_changed):
+        build_cmd: list[str] = build_prereq_cmd(runner.python)
+    else:
+        build_cmd = [*cabal, "build"]
+    runner.step("build", build_cmd, cwd=runner.repo_root, lane="agda")
     # All remaining cabal-shake gates fold into ONE invocation (the Agda-gate
     # fan-in): Shake
     # parallelizes the independent phony rules internally (shakeThreads=0) and
