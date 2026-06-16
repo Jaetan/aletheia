@@ -568,6 +568,15 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- mangled name or constructor arity drifts relative to the shim, the
         -- test fails to compile OR segfaults on first frame.
         need ["build/libaletheia-ffi.so"]
+        -- The .so rule creates the haskell-shim/MAlonzo symlink in-body, but it
+        -- NO-OPS when the .so is already up to date — e.g. a warm build-tree cache
+        -- restored on a fresh CI checkout, where the gitignored symlink is absent.
+        -- cabal resolves the MAlonzo.* modules ConstructorTest imports through that
+        -- symlink, so ensure it here too: idempotent, and independent of whether
+        -- the .so rule fired this run.  (Without this, `cabal test` fails with
+        -- "Could not find module MAlonzo.Code.…" — reproducible by removing the
+        -- symlink against an up-to-date .so.)
+        ensureMalonzoSymlink
         putInfo "Running MAlonzo constructor-fidelity test..."
         cmd_ (Cwd "haskell-shim") "cabal" "test" "constructor-fidelity"
              "--test-show-details=direct"
