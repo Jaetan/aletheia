@@ -19,6 +19,7 @@ from tools._ci_steps import (
     HEAVY_STEPS,
     build_prereq_cmd,
     register_all_steps,
+    should_run_staleness,
 )
 from tools.run_ci import (
     OptInOptions,
@@ -60,14 +61,42 @@ def test_combined_agda_step_is_oom_gated() -> None:
 
 
 def test_build_prereq_runs_the_staleness_gate() -> None:
-    """The `build` prereq must run the staleness-verifying tool, not a bare cabal build.
+    """`build_prereq_cmd` returns the staleness-gate command (check_build_incremental).
 
-    Reverting it to a plain `cabal build` would silently drop the staleness
-    verification (the failure the old `rm -rf` sledgehammer masked), so the build
-    could ship a stale .so undetected.  Pin the contract here.
+    This is the `build` step's command when the staleness gate is scheduled (a
+    build-graph change, or --build-staleness=always).  Pin it so a refactor can't
+    silently swap in a bare `cabal build` that skips the edit/revert→.so
+    verification — the failure the old `rm -rf` sledgehammer masked.
     """
     cmd = build_prereq_cmd("python3")
     assert cmd == ["python3", "-m", "tools.check_build_incremental"]
+
+
+def test_should_run_staleness_decision() -> None:
+    """always/never are unconditional; auto follows the build-graph-changed flag."""
+    assert should_run_staleness("always", build_graph_changed=False) is True
+    assert should_run_staleness("always", build_graph_changed=True) is True
+    assert should_run_staleness("never", build_graph_changed=True) is False
+    assert should_run_staleness("never", build_graph_changed=False) is False
+    assert should_run_staleness("auto", build_graph_changed=True) is True
+    assert should_run_staleness("auto", build_graph_changed=False) is False
+
+
+def test_build_staleness_flag_resolves() -> None:
+    """--build-staleness resolves CLI value, defaulting to 'auto'."""
+    assert parse_args([]).build_staleness == "auto"
+    assert parse_args(["--build-staleness", "always"]).build_staleness == "always"
+    assert parse_args(["--build-staleness", "never"]).build_staleness == "never"
+
+
+def test_build_staleness_env_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Env is honored without a CLI flag; garbage env → 'auto'; CLI overrides env."""
+    monkeypatch.setenv("ALETHEIA_BUILD_STALENESS", "always")
+    assert parse_args([]).build_staleness == "always"
+    monkeypatch.setenv("ALETHEIA_BUILD_STALENESS", "garbage")
+    assert parse_args([]).build_staleness == "auto"
+    monkeypatch.setenv("ALETHEIA_BUILD_STALENESS", "always")
+    assert parse_args(["--build-staleness", "never"]).build_staleness == "never"
 
 
 def test_heavy_limit_invalid_env_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
