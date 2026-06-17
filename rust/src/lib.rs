@@ -38,8 +38,9 @@ mod response;
 mod types;
 
 pub use dbc::{
-    ByteOrder, Comment, CommentTarget, Dbc, DbcMessage, DbcSignal, EnvironmentVar, Node, Presence,
-    SignalGroup, ValueDescription, ValueTable,
+    AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
+    DbcMessage, DbcSignal, EnvironmentVar, Node, Presence, SignalGroup, ValueDescription,
+    ValueTable,
 };
 pub use error::Error;
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};

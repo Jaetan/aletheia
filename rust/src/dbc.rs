@@ -17,10 +17,10 @@
 //!   [`Presence`] enum), or `"always"`.
 //! - **extended** CAN ids carry a sibling `"extended": true` (absent ⇒ standard).
 //!
-//! This module is the *read* side (deserialize + queries + lookup). The
-//! attribute vocabulary (`BA_DEF_` / `BA_` / `BA_DEF_DEF_`) is carried as
-//! faithful pass-through [`serde_json::Value`] for now and will be typed in a
-//! follow-on commit (its variant set is only partly exercised by the corpus).
+//! This module is the *read* side (deserialize + queries + lookup): the full
+//! typed document family, including the `BA_*` attribute vocabulary
+//! ([`Attribute`] / [`AttrType`] / [`AttrValue`] / [`AttrScope`] / [`AttrTarget`]).
+//! Only `unresolved_value_descs` stays raw-JSON pass-through (empty in practice).
 
 use serde_json::Value;
 
@@ -201,10 +201,163 @@ pub struct Comment {
     pub text: String,
 }
 
+// ── Attribute vocabulary (BA_DEF_ / BA_DEF_DEF_ / BA_) ───────────────────────
+
+/// The entity class a `BA_DEF_` attribute definition scopes over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttrScope {
+    /// Network-wide (`""`).
+    Network,
+    /// A node (`BU_`).
+    Node,
+    /// A message (`BO_`).
+    Message,
+    /// A signal (`SG_`).
+    Signal,
+    /// An environment variable (`EV_`).
+    EnvVar,
+    /// A (node, message) relation (`BU_BO_REL_`).
+    NodeMsg,
+    /// A (node, signal) relation (`BU_SG_REL_`).
+    NodeSig,
+}
+
+/// The declared type of an attribute (`BA_DEF_`). `Int` / `Hex` bounds are
+/// integers; `Float` bounds are exact rationals (matching the other bindings).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrType {
+    /// `INT min max`.
+    Int {
+        /// Inclusive minimum.
+        min: i64,
+        /// Inclusive maximum.
+        max: i64,
+    },
+    /// `FLOAT min max` (rational bounds).
+    Float {
+        /// Inclusive minimum.
+        min: Rational,
+        /// Inclusive maximum.
+        max: Rational,
+    },
+    /// `STRING`.
+    String,
+    /// `ENUM "a","b",…` carrying the ordered label list.
+    Enum {
+        /// The ordered enumeration labels.
+        values: Vec<String>,
+    },
+    /// `HEX min max`.
+    Hex {
+        /// Inclusive minimum.
+        min: i64,
+        /// Inclusive maximum.
+        max: i64,
+    },
+}
+
+/// A concrete attribute value (`BA_` / `BA_DEF_DEF_`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrValue {
+    /// Integer value.
+    Int(i64),
+    /// Float value (exact rational).
+    Float(Rational),
+    /// String value.
+    String(String),
+    /// Enum value: the 0-based index into the matching definition's labels.
+    Enum(i64),
+    /// Hex value.
+    Hex(i64),
+}
+
+/// The target entity of an attribute assignment (`BA_` / `BA_REL_`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrTarget {
+    /// The whole network.
+    Network,
+    /// A node.
+    Node {
+        /// Node name.
+        node: String,
+    },
+    /// A message.
+    Message {
+        /// Message CAN id.
+        id: u32,
+        /// Whether the id is extended (29-bit).
+        extended: bool,
+    },
+    /// A signal.
+    Signal {
+        /// Owning message CAN id.
+        id: u32,
+        /// Whether the owning message id is extended (29-bit).
+        extended: bool,
+        /// Signal name.
+        signal: String,
+    },
+    /// An environment variable.
+    EnvVar {
+        /// Variable name.
+        env_var: String,
+    },
+    /// A (node, message) relation (`BA_REL_` `BU_BO_REL_`).
+    NodeMsg {
+        /// Node name.
+        node: String,
+        /// Message CAN id.
+        id: u32,
+        /// Whether the id is extended (29-bit).
+        extended: bool,
+    },
+    /// A (node, signal) relation (`BA_REL_` `BU_SG_REL_`).
+    NodeSig {
+        /// Node name.
+        node: String,
+        /// Owning message CAN id.
+        id: u32,
+        /// Whether the owning message id is extended (29-bit).
+        extended: bool,
+        /// Signal name.
+        signal: String,
+    },
+}
+
+/// One `BA_*` attribute entry: a definition, a default, or an assignment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Attribute {
+    /// `BA_DEF_` / `BA_DEF_REL_` — an attribute type declaration.
+    Definition {
+        /// Attribute name.
+        name: String,
+        /// Entity class the attribute scopes over.
+        scope: AttrScope,
+        /// Declared type.
+        attr_type: AttrType,
+    },
+    /// `BA_DEF_DEF_` — the default value for an attribute.
+    Default {
+        /// Attribute name.
+        name: String,
+        /// Default value.
+        value: AttrValue,
+    },
+    /// `BA_` / `BA_REL_` — a concrete value assignment to a target.
+    Assignment {
+        /// Attribute name.
+        name: String,
+        /// The entity the value is assigned to.
+        target: AttrTarget,
+        /// Assigned value.
+        value: AttrValue,
+    },
+}
+
 /// A parsed DBC document.
 ///
-/// `attributes` and `unresolved_value_descs` are carried as raw JSON
-/// pass-through for now (see the module docs); every other field is typed.
+/// Every field is typed except `unresolved_value_descs`, which is carried as
+/// raw JSON pass-through (it is empty for every well-formed DBC the core emits).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dbc {
     /// `VERSION` string.
@@ -221,9 +374,8 @@ pub struct Dbc {
     pub signal_groups: Vec<SignalGroup>,
     /// Comments (`CM_`).
     pub comments: Vec<Comment>,
-    /// Attribute vocabulary (`BA_DEF_` / `BA_` / `BA_DEF_DEF_`) — raw JSON
-    /// pass-through pending a typed model.
-    pub attributes: Vec<Value>,
+    /// Attribute vocabulary (`BA_DEF_` / `BA_DEF_DEF_` / `BA_`), in wire order.
+    pub attributes: Vec<Attribute>,
     /// Unresolved `VAL_` targets flagged by the validator — raw JSON pass-through.
     pub unresolved_value_descs: Vec<Value>,
 }
@@ -332,6 +484,11 @@ fn decode_message(msg: &Value) -> Result<DbcMessage, Error> {
     })
 }
 
+/// The optional `extended` flag on a CAN-id-bearing target (absent ⇒ standard).
+fn extended_flag(t: &Value) -> bool {
+    t.get("extended").and_then(Value::as_bool).unwrap_or(false)
+}
+
 fn decode_comment_target(t: &Value) -> Result<CommentTarget, Error> {
     match str_field(t, "kind").as_str() {
         "network" => Ok(CommentTarget::Network),
@@ -340,11 +497,11 @@ fn decode_comment_target(t: &Value) -> Result<CommentTarget, Error> {
         }),
         "message" => Ok(CommentTarget::Message {
             id: u32_field(t, "id")?,
-            extended: t.get("extended").and_then(Value::as_bool).unwrap_or(false),
+            extended: extended_flag(t),
         }),
         "signal" => Ok(CommentTarget::Signal {
             id: u32_field(t, "id")?,
-            extended: t.get("extended").and_then(Value::as_bool).unwrap_or(false),
+            extended: extended_flag(t),
             signal: str_field(t, "signal"),
         }),
         "envVar" => Ok(CommentTarget::EnvVar {
@@ -363,6 +520,117 @@ fn decode_comment(c: &Value) -> Result<Comment, Error> {
         target,
         text: str_field(c, "text"),
     })
+}
+
+fn decode_attr_scope(s: &str) -> Result<AttrScope, Error> {
+    match s {
+        "network" => Ok(AttrScope::Network),
+        "node" => Ok(AttrScope::Node),
+        "message" => Ok(AttrScope::Message),
+        "signal" => Ok(AttrScope::Signal),
+        "envVar" => Ok(AttrScope::EnvVar),
+        "nodeMsg" => Ok(AttrScope::NodeMsg),
+        "nodeSig" => Ok(AttrScope::NodeSig),
+        other => Err(protocol(format!("unknown attribute scope {other:?}"))),
+    }
+}
+
+fn decode_attr_type(t: &Value) -> Result<AttrType, Error> {
+    match str_field(t, "kind").as_str() {
+        "int" => Ok(AttrType::Int {
+            min: i64_field(t, "min")?,
+            max: i64_field(t, "max")?,
+        }),
+        "float" => Ok(AttrType::Float {
+            min: rational_field(t, "min")?,
+            max: rational_field(t, "max")?,
+        }),
+        "string" => Ok(AttrType::String),
+        "enum" => Ok(AttrType::Enum {
+            values: str_array(t, "values"),
+        }),
+        "hex" => Ok(AttrType::Hex {
+            min: i64_field(t, "min")?,
+            max: i64_field(t, "max")?,
+        }),
+        other => Err(protocol(format!("unknown attribute type kind {other:?}"))),
+    }
+}
+
+fn decode_attr_value(v: &Value) -> Result<AttrValue, Error> {
+    match str_field(v, "kind").as_str() {
+        "int" => Ok(AttrValue::Int(i64_field(v, "value")?)),
+        "float" => Ok(AttrValue::Float(rational_field(v, "value")?)),
+        "string" => Ok(AttrValue::String(str_field(v, "value"))),
+        "enum" => Ok(AttrValue::Enum(i64_field(v, "value")?)),
+        "hex" => Ok(AttrValue::Hex(i64_field(v, "value")?)),
+        other => Err(protocol(format!("unknown attribute value kind {other:?}"))),
+    }
+}
+
+fn decode_attr_target(t: &Value) -> Result<AttrTarget, Error> {
+    match str_field(t, "kind").as_str() {
+        "network" => Ok(AttrTarget::Network),
+        "node" => Ok(AttrTarget::Node {
+            node: str_field(t, "node"),
+        }),
+        "message" => Ok(AttrTarget::Message {
+            id: u32_field(t, "id")?,
+            extended: extended_flag(t),
+        }),
+        "signal" => Ok(AttrTarget::Signal {
+            id: u32_field(t, "id")?,
+            extended: extended_flag(t),
+            signal: str_field(t, "signal"),
+        }),
+        "envVar" => Ok(AttrTarget::EnvVar {
+            env_var: str_field(t, "envVar"),
+        }),
+        "nodeMsg" => Ok(AttrTarget::NodeMsg {
+            node: str_field(t, "node"),
+            id: u32_field(t, "id")?,
+            extended: extended_flag(t),
+        }),
+        "nodeSig" => Ok(AttrTarget::NodeSig {
+            node: str_field(t, "node"),
+            id: u32_field(t, "id")?,
+            extended: extended_flag(t),
+            signal: str_field(t, "signal"),
+        }),
+        other => Err(protocol(format!("unknown attribute target kind {other:?}"))),
+    }
+}
+
+fn decode_attribute(a: &Value) -> Result<Attribute, Error> {
+    match str_field(a, "kind").as_str() {
+        "definition" => Ok(Attribute::Definition {
+            name: str_field(a, "name"),
+            scope: decode_attr_scope(&str_field(a, "scope"))?,
+            attr_type: a
+                .get("attrType")
+                .ok_or_else(|| protocol("attribute definition missing 'attrType'"))
+                .and_then(decode_attr_type)?,
+        }),
+        "default" => Ok(Attribute::Default {
+            name: str_field(a, "name"),
+            value: a
+                .get("value")
+                .ok_or_else(|| protocol("attribute default missing 'value'"))
+                .and_then(decode_attr_value)?,
+        }),
+        "assignment" => Ok(Attribute::Assignment {
+            name: str_field(a, "name"),
+            target: a
+                .get("target")
+                .ok_or_else(|| protocol("attribute assignment missing 'target'"))
+                .and_then(decode_attr_target)?,
+            value: a
+                .get("value")
+                .ok_or_else(|| protocol("attribute assignment missing 'value'"))
+                .and_then(decode_attr_value)?,
+        }),
+        other => Err(protocol(format!("unknown attribute kind {other:?}"))),
+    }
 }
 
 fn decode_env_var(e: &Value) -> Result<EnvironmentVar, Error> {
@@ -412,7 +680,7 @@ impl Dbc {
                 })
                 .collect(),
             comments: map_array(obj, "comments", decode_comment)?,
-            attributes: arr(obj, "attributes").to_vec(),
+            attributes: map_array(obj, "attributes", decode_attribute)?,
             unresolved_value_descs: arr(obj, "unresolvedValueDescs").to_vec(),
         })
     }
@@ -555,9 +823,9 @@ impl Dbc {
 
 #[cfg(test)]
 mod tests {
-    use super::{Dbc, Presence};
-    use crate::types::CanId;
-    use serde_json::Value;
+    use super::{AttrTarget, AttrType, AttrValue, Attribute, Dbc, Presence};
+    use crate::types::{CanId, Rational};
+    use serde_json::{json, Value};
 
     macro_rules! snapshot {
         ($name:literal) => {
@@ -660,6 +928,92 @@ mod tests {
                 .any(|s| !s.value_descriptions.is_empty()),
             "VAL_ value descriptions"
         );
+    }
+
+    #[test]
+    fn attributes_decode_to_typed_vocabulary() {
+        // attributes.json exercises all 3 attr kinds, 5 attrType/attrValue kinds,
+        // 7 scopes and 7 targets — spot-check the trickiest variants.
+        let d = decode(snapshot!("attributes"));
+
+        // Enum definition carries its ordered labels.
+        let Some(Attribute::Definition {
+            attr_type: AttrType::Enum { values },
+            ..
+        }) = d
+            .attributes
+            .iter()
+            .find(|a| matches!(a, Attribute::Definition { name, .. } if name == "SignalPriority"))
+        else {
+            panic!("SignalPriority enum definition");
+        };
+        assert_eq!(*values, ["Low", "Normal", "High"].map(String::from));
+
+        // A float-valued assignment carries an exact rational (85/2).
+        let Some(Attribute::Assignment {
+            value: AttrValue::Float(r),
+            ..
+        }) = d.attributes.iter().find(|a| {
+            matches!(
+                a,
+                Attribute::Assignment {
+                    value: AttrValue::Float(_),
+                    ..
+                }
+            )
+        })
+        else {
+            panic!("float-valued assignment");
+        };
+        assert_eq!(*r, Rational::new(85, 2).expect("valid rational"));
+
+        // The relational (node, signal) target — the 7th, hardest variant.
+        let Some(Attribute::Assignment {
+            target: AttrTarget::NodeSig {
+                node, id, signal, ..
+            },
+            ..
+        }) = d.attributes.iter().find(|a| {
+            matches!(
+                a,
+                Attribute::Assignment {
+                    target: AttrTarget::NodeSig { .. },
+                    ..
+                }
+            )
+        })
+        else {
+            panic!("nodeSig-targeted assignment");
+        };
+        assert_eq!(
+            (node.as_str(), *id, signal.as_str()),
+            ("Sensor", 400, "Status")
+        );
+    }
+
+    #[test]
+    fn extended_target_decodes_extended_true() {
+        // No corpus fixture has an extended attribute/comment target (all are
+        // standard ids), so pin extended_flag's true-path directly — otherwise a
+        // misnamed/mishandled flag would silently read false (the extended-id
+        // conflation bug-class fixed for message_by_id in the read-side slice).
+        let v = json!({
+            "attributes": [{
+                "kind": "assignment",
+                "name": "X",
+                "target": { "kind": "message", "id": 77, "extended": true },
+                "value": { "kind": "int", "value": 1 }
+            }]
+        });
+        let d = Dbc::from_value(&v).expect("decode minimal extended-target attribute");
+        let Some(Attribute::Assignment {
+            target: AttrTarget::Message { id, extended },
+            ..
+        }) = d.attributes.first()
+        else {
+            panic!("message-targeted assignment");
+        };
+        assert_eq!((*id, *extended), (77, true));
     }
 
     #[test]
