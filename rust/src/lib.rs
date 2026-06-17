@@ -288,7 +288,11 @@ impl Client {
     /// [`Error::Core`] if the DBC fails validation, or [`Error::Protocol`] on an
     /// unexpected response.
     pub fn parse_dbc(&self, dbc: &Dbc) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
-        let cmd = json!({ "type": "command", "command": "parseDBC", "dbc": dbc.to_value() });
+        // Build the envelope then move the serialized DBC in: `json!({…: expr})`
+        // deep-copies a `Value` operand (via `to_value(&expr)`), which would
+        // double-allocate a large document.
+        let mut cmd = json!({ "type": "command", "command": "parseDBC" });
+        cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;
         dbc::decode_parsed_dbc(&raw)
     }
@@ -300,7 +304,8 @@ impl Client {
     /// [`Error::Core`] / [`Error::Protocol`] on a core error or unexpected
     /// response.
     pub fn validate_dbc(&self, dbc: &Dbc) -> Result<ValidationResult, Error> {
-        let cmd = json!({ "type": "command", "command": "validateDBC", "dbc": dbc.to_value() });
+        let mut cmd = json!({ "type": "command", "command": "validateDBC" });
+        cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;
         response::decode_validation(&raw)
     }
@@ -313,7 +318,8 @@ impl Client {
     /// [`Error::Core`] if the document fails Agda-side parsing, or
     /// [`Error::Protocol`] on an unexpected response.
     pub fn format_dbc_text(&self, dbc: &Dbc) -> Result<String, Error> {
-        let cmd = json!({ "type": "command", "command": "formatDBCText", "dbc": dbc.to_value() });
+        let mut cmd = json!({ "type": "command", "command": "formatDBCText" });
+        cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;
         response::decode_format_text(&raw)
     }

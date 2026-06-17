@@ -156,6 +156,12 @@ pub(crate) fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
         .ok_or_else(|| protocol(format!("missing or out-of-range u32 field {key:?}")))
 }
 
+pub(crate) fn bool_field(obj: &Value, key: &str) -> Result<bool, Error> {
+    obj.get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| protocol(format!("missing or non-boolean field {key:?}")))
+}
+
 /// Decode a rational from a response scalar (plain integer) or
 /// `{"numerator","denominator"}` object.
 pub(crate) fn rational_from_value(v: &Value) -> Result<Rational, Error> {
@@ -342,10 +348,7 @@ pub(crate) fn decode_validation(raw: &str) -> Result<ValidationResult, Error> {
     let obj = parse_object(raw)?;
     match obj.get("status").and_then(Value::as_str) {
         Some("validation") => Ok(ValidationResult {
-            has_errors: obj
-                .get("has_errors")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            has_errors: bool_field(&obj, "has_errors")?,
             issues: issue_list(&obj),
         }),
         other => Err(protocol(format!(
