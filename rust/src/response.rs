@@ -109,12 +109,12 @@ pub struct ValidationIssue {
     pub detail: String,
 }
 
-fn protocol(msg: impl Into<String>) -> Error {
+pub(crate) fn protocol(msg: impl Into<String>) -> Error {
     Error::Protocol(msg.into())
 }
 
 /// Parse a raw response string to a JSON object and surface any core error.
-fn parse_object(raw: &str) -> Result<Value, Error> {
+pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
     let value: Value =
         serde_json::from_str(raw).map_err(|e| protocol(format!("invalid JSON response: {e}")))?;
     if value.get("status").and_then(Value::as_str) == Some("error") {
@@ -133,14 +133,14 @@ fn parse_object(raw: &str) -> Result<Value, Error> {
     Ok(value)
 }
 
-fn str_field(obj: &Value, key: &str) -> String {
+pub(crate) fn str_field(obj: &Value, key: &str) -> String {
     obj.get(key)
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
 }
 
-fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
+pub(crate) fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
     obj.get(key)
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok())
@@ -149,7 +149,7 @@ fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
 
 /// Decode a rational from a response scalar (plain integer) or
 /// `{"numerator","denominator"}` object.
-fn rational_from_value(v: &Value) -> Result<Rational, Error> {
+pub(crate) fn rational_from_value(v: &Value) -> Result<Rational, Error> {
     if let Some(n) = v.as_i64() {
         return Ok(Rational::integer(n));
     }
@@ -311,23 +311,4 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
         errors: names("errors"),
         absent: names("absent"),
     })
-}
-
-/// Decode a `parse_dbc_text` response, returning its validation warnings.
-pub(crate) fn decode_parse_warnings(raw: &str) -> Result<Vec<ValidationIssue>, Error> {
-    let obj = parse_object(raw)?;
-    let warnings = obj
-        .get("warnings")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .map(|w| ValidationIssue {
-                    severity: str_field(w, "severity"),
-                    code: str_field(w, "code"),
-                    detail: str_field(w, "detail"),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(warnings)
 }

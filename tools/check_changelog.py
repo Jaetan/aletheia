@@ -54,6 +54,7 @@ API_PATTERNS = [
     re.compile(r"^python/aletheia/"),
     re.compile(r"^go/aletheia/[^/]+\.go$"),
     re.compile(r"^cpp/include/aletheia/"),
+    re.compile(r"^rust/src/"),
     re.compile(r"^haskell-shim/ffi-exports\.snapshot$"),
 ]
 

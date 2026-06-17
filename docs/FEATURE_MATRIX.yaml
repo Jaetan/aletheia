@@ -84,7 +84,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.format_dbc }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#format_dbc" }
       go:     { status: implemented, entry: Client.FormatDBC }
-      rust: { status: planned, notes: "Needs the typed DBC document model (deferred)." }
+      rust: { status: implemented, entry: "Client::format_dbc" }
 
   - id: dbc_text_parse
     name: Parse .dbc text
@@ -141,7 +141,7 @@ features:
         status: implemented
         entry: DBCSignalGroup
         notes: "Tier 1 types (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) live alongside DBCDefinition; serializer emits all three arrays, parser accepts them."
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "SignalGroup" }
 
   - id: dbc_metadata_tier2
     name: DBC metadata Tier 2 (nodes, comments, attributes)
@@ -179,7 +179,7 @@ features:
         status: implemented
         entry: DBCSignal
         notes: "DBCSignal gains Receivers []string; serializer emits it on every signal; parser treats an absent key as nil."
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "DbcSignal::receivers" }
 
   - id: dbc_signal_value_descriptions
     name: DBC signal value descriptions (per-signal VAL_ entries)
@@ -198,7 +198,7 @@ features:
         status: implemented
         entry: DBCSignal
         notes: "Track E — DBCSignal gains ValueDescriptions []DBCValueEntry; reuses DBCValueEntry from value tables."
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "DbcSignal::value_descriptions" }
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
@@ -217,7 +217,7 @@ features:
         status: implemented
         entry: DBCMessage
         notes: "DBCMessage gains Senders []string; serializer normalises nil to []string{}; parser treats an absent key as nil."
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "DbcMessage::senders" }
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
@@ -227,7 +227,7 @@ features:
       python: { status: implemented, entry: aletheia.is_multiplexed }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#is_multiplexed" }
       go:     { status: implemented, entry: DBCMessage.IsMultiplexed }
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "DbcMessage::is_multiplexed" }
 
   - id: dbc_lookup
     name: DBC entity lookup helpers
@@ -237,7 +237,7 @@ features:
       python: { status: implemented, entry: aletheia.message_by_id }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#message_by_id" }
       go:     { status: implemented, entry: DBCDefinition.MessageByID }
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "Dbc::message_by_id" }
 
   # =====================================================================
   # Signal extraction and frame manipulation

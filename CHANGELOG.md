@@ -12,6 +12,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust typed DBC document model (`rust/`, Rust-parity Slice R1, read side) — a
+  typed `Dbc` / `DbcMessage` / `DbcSignal` family (with `Presence`, `ByteOrder`,
+  `ValueDescription`, `Node`, `ValueTable`, `SignalGroup`, `EnvironmentVar`,
+  `Comment` / `CommentTarget`) deserialized from the core's canonical JSON, plus
+  `Client::format_dbc` (export the loaded DBC) and mux-query / lookup helpers
+  (`DbcMessage::is_multiplexed` / `multiplexor_names` / `multiplex_values` /
+  `signal_by_name`; `Dbc::message_by_id` / `message_by_name`). The `attributes`
+  vocabulary is carried as raw-JSON pass-through pending a typed model (a
+  follow-on commit). **Breaking:** `Client::parse_dbc_text` now returns
+  `(Dbc, Vec<ValidationIssue>)` rather than just the warnings. Flips 7 `rust`
+  `docs/FEATURE_MATRIX.yaml` rows to `implemented` (`format_dbc`,
+  `dbc_metadata_tier1`, `dbc_signal_receivers`, `dbc_signal_value_descriptions`,
+  `dbc_message_senders`, `dbc_queries_mux`, `dbc_lookup`).
 - Rust binding (`rust/`) — loads `libaletheia-ffi.so` at runtime via `dlopen`
   (the `libloading` crate), mirroring the Go and C++ `.so`-consumer model. It
   enforces the GHC-allocated-memory ownership rules cgo hides (responses copied
@@ -54,6 +67,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- `check-changelog` now also watches `rust/src/` (the Rust binding's public
+  surface), so Rust public-API changes require a `CHANGELOG.md` entry like the
+  other bindings — closing a gap left by the original G.2 broadening.
 - **`check-changelog` now covers build, CI, and tooling changes, not just the
   public API.** `tools/check_changelog.py` previously required a `CHANGELOG.md`
   entry only when `python/aletheia/`, `go/aletheia/*.go`, `cpp/include/aletheia/`,
