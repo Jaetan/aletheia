@@ -31,11 +31,16 @@ use std::sync::OnceLock;
 use libloading::{Library, Symbol};
 use serde_json::json;
 
+mod dbc;
 mod error;
 mod ltl;
 mod response;
 mod types;
 
+pub use dbc::{
+    ByteOrder, Comment, CommentTarget, Dbc, DbcMessage, DbcSignal, EnvironmentVar, Node, Presence,
+    SignalGroup, ValueDescription, ValueTable,
+};
 pub use error::Error;
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use response::{
@@ -242,15 +247,36 @@ impl Client {
     }
 
     /// Parse a DBC database from its `.dbc` text image and load it into this
-    /// stream, returning any validation warnings the core reported.
+    /// stream, returning the typed [`Dbc`] document together with any validation
+    /// warnings the core reported.
     ///
     /// # Errors
     /// [`Error::Core`] if the text fails to parse, or [`Error::Protocol`] on an
     /// unexpected response.
-    pub fn parse_dbc_text(&self, text: &str) -> Result<Vec<ValidationIssue>, Error> {
+    pub fn parse_dbc_text(&self, text: &str) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
         let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
         let raw = self.process(&cmd.to_string())?;
-        response::decode_parse_warnings(&raw)
+        dbc::decode_parsed_dbc(&raw)
+    }
+
+    /// Export the currently-loaded DBC as a typed [`Dbc`] document (the core's
+    /// canonical-JSON form). Call after a successful `parse_dbc_text` /
+    /// `parse_dbc`.
+    ///
+    /// # Errors
+    /// [`Error::Core`] if no DBC is loaded, or [`Error::Protocol`] on an
+    /// unexpected response.
+    pub fn format_dbc(&self) -> Result<Dbc, Error> {
+        let raw = self.invoke(|lib| {
+            let f = unsafe {
+                symbol::<unsafe extern "C" fn(StateHandle) -> *mut c_char>(
+                    lib,
+                    b"aletheia_format_dbc\0",
+                )
+            }?;
+            Ok(unsafe { f(self.handle) })
+        })?;
+        dbc::decode_format_dbc(&raw)
     }
 
     /// Bind the LTL properties to monitor. Call after `parse_dbc_text`, before
