@@ -4,11 +4,12 @@
 
 Two layers:
 
-* ``watched_files`` — the pure path matcher.  Parameterized over a watched set
-  (public-API + build/CI/tooling) and an excluded set (tests, Markdown docs,
-  Agda ``src/``, the separate ``go/excel`` module).  The discriminating case is
-  a ``.md`` file *under* a watched dir (e.g. ``tools/.../README.md``): it must be
-  excluded, proving the ``.md`` filter, not merely the repo-root-doc non-match.
+* ``watched_files`` — the pure path matcher.  Exercised by tests parameterized
+  over a watched set (public-API + build/CI/tooling) and an excluded set (tests,
+  Markdown docs, Agda ``src/``, the separate ``go/excel`` module).  The
+  discriminating case is a ``.md`` file *under* a watched dir
+  (e.g. ``tools/.../README.md``): it must be excluded, proving the ``.md``
+  filter, not merely the repo-root-doc non-match.
 * ``main`` — a hermetic end-to-end run in a throwaway git repo, both polarities:
   a watched change WITHOUT a CHANGELOG edit fails; the same change WITH one
   passes; a doc-only change passes.  This is the

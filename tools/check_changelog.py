@@ -19,18 +19,18 @@ only public-symbol moves (user directive 2026-06-15).  Test files and
 Markdown docs are excluded by the regex filter.
 
 Exit codes:
-  0 — public-API unchanged, OR public-API changed and CHANGELOG.md changed.
-  1 — public-API changed but CHANGELOG.md not changed.
+  0 — no watched change, OR a watched change accompanied by a CHANGELOG.md edit.
+  1 — a watched change without a CHANGELOG.md edit.
   2 — usage error / git failure.
 
 v0 limitations (deliberate; see PROJECT_STATUS.md for v1+ plan):
   * Presence-of-CHANGELOG-modification is sufficient; the script does NOT
-    verify the change appears under ``## [X.Y.Z] — Unreleased``.
+    verify the change appears under ``## [Unreleased]``.
   * Branch-level (not per-commit); a branch with one CHANGELOG commit
-    covers any number of public-API commits on the same branch.
-  * Path-based; refactors of internal ``_helpers.py`` that don't change
-    surface still trigger the gate.  Workaround: add a CHANGELOG entry
-    under ``### Changed`` describing the internal refactor.
+    covers any number of notable commits on the same branch.
+  * Path-based; an internal refactor under a watched dir that changes no
+    observable surface still triggers the gate.  Workaround: add a CHANGELOG
+    entry under ``### Changed`` noting "internal — no behavior change".
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def _git(*args: str) -> str:
 
 
 def main() -> int:
-    """Fail when public-API files changed without a matching CHANGELOG.md edit."""
+    """Fail when a watched path changed without a matching CHANGELOG.md edit."""
     ap = argparse.ArgumentParser(description=DESCRIPTION)
     ap.add_argument(
         "base",
