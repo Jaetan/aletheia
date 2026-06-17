@@ -160,7 +160,7 @@ features:
         status: implemented
         entry: DBCNode
         notes: "Tier 2 types (DBCNode, DBCComment, DBCAttribute with sealed-interface variants) live alongside DBCDefinition; serializer emits all three arrays, parser accepts them."
-      rust: { status: planned, notes: "Typed DBC document model deferred." }
+      rust: { status: implemented, entry: "Attribute" }
 
   - id: dbc_signal_receivers
     name: DBC signal receivers (per-signal receiver nodes from SG_)

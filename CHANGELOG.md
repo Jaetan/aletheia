@@ -12,6 +12,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust typed DBC attribute vocabulary (`rust/`, Rust-parity Slice R1, tier-2) —
+  `Dbc.attributes` is now the typed `Attribute` enum (`Definition` / `Default` /
+  `Assignment`) over `AttrType` (`Int` / `Float` / `String` / `Enum` / `Hex`),
+  `AttrValue`, `AttrScope` (7), and `AttrTarget` (7, with `extended` on the
+  CAN-id-bearing targets), replacing the raw-JSON pass-through — mirroring the
+  Go `DBCAttr*` / Python `DBCAttr*` models (`Int`/`Hex` bounds are integers,
+  `Float` bounds rational). Flips the `dbc_metadata_tier2` `rust` row to
+  `implemented`.
 - Rust typed DBC document model (`rust/`, Rust-parity Slice R1, read side) — a
   typed `Dbc` / `DbcMessage` / `DbcSignal` family (with `Presence`, `ByteOrder`,
   `ValueDescription`, `Node`, `ValueTable`, `SignalGroup`, `EnvironmentVar`,

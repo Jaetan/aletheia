@@ -54,21 +54,21 @@ fn format_dbc_round_trips_the_loaded_document() {
     );
 }
 
-/// The attribute-bearing corpus fixture, so the pass-through round-trip claim is
-/// actually exercised against non-empty `attributes`.
+/// The attribute-bearing corpus fixture, so the round-trip is exercised against
+/// the full typed `BA_*` vocabulary.
 const ATTRS_DBC: &str = include_str!("../../python/tests/fixtures/dbc_corpus/attributes.dbc");
 
 #[test]
-fn format_dbc_round_trips_attributes_passthrough() {
+fn format_dbc_round_trips_typed_attributes() {
     let c = client();
     let (parsed, _warnings) = c.parse_dbc_text(ATTRS_DBC).expect("parse attributes DBC");
     assert!(
         !parsed.attributes.is_empty(),
-        "attributes.dbc must carry attributes to exercise the pass-through"
+        "attributes.dbc must carry attributes to exercise the typed model"
     );
     let exported = c.format_dbc().expect("format_dbc export");
     assert_eq!(
         parsed.attributes, exported.attributes,
-        "the raw-JSON attribute pass-through must survive parse → format_dbc"
+        "the typed attribute vocabulary must survive parse → format_dbc"
     );
 }
