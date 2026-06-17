@@ -46,7 +46,7 @@ pub use error::Error;
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use response::{
     Enrichment, ExtractionResult, FrameResponse, PropertyResult, SignalValue, StreamResult,
-    StreamWarning, ValidationIssue, Verdict,
+    StreamWarning, ValidationIssue, ValidationResult, Verdict,
 };
 pub use types::{CanId, Dlc, Rational, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID};
 
@@ -278,6 +278,50 @@ impl Client {
             Ok(unsafe { f(self.handle) })
         })?;
         dbc::decode_format_dbc(&raw)
+    }
+
+    /// Load a typed [`Dbc`] document into this stream (the JSON path; the
+    /// structural analogue of [`Client::parse_dbc_text`]). Returns the
+    /// re-parsed document plus any validation warnings.
+    ///
+    /// # Errors
+    /// [`Error::Core`] if the DBC fails validation, or [`Error::Protocol`] on an
+    /// unexpected response.
+    pub fn parse_dbc(&self, dbc: &Dbc) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
+        // Build the envelope then move the serialized DBC in: `json!({…: expr})`
+        // deep-copies a `Value` operand (via `to_value(&expr)`), which would
+        // double-allocate a large document.
+        let mut cmd = json!({ "type": "command", "command": "parseDBC" });
+        cmd["dbc"] = dbc.to_value();
+        let raw = self.process(&cmd.to_string())?;
+        dbc::decode_parsed_dbc(&raw)
+    }
+
+    /// Run the structural validator over a typed [`Dbc`] without modifying this
+    /// stream's loaded state, returning every issue found.
+    ///
+    /// # Errors
+    /// [`Error::Core`] / [`Error::Protocol`] on a core error or unexpected
+    /// response.
+    pub fn validate_dbc(&self, dbc: &Dbc) -> Result<ValidationResult, Error> {
+        let mut cmd = json!({ "type": "command", "command": "validateDBC" });
+        cmd["dbc"] = dbc.to_value();
+        let raw = self.process(&cmd.to_string())?;
+        response::decode_validation(&raw)
+    }
+
+    /// Render a typed [`Dbc`] back to `.dbc` file text via the verified Agda
+    /// formatter (the inverse of [`Client::parse_dbc_text`] at the wire level).
+    /// Does not modify this stream's loaded state.
+    ///
+    /// # Errors
+    /// [`Error::Core`] if the document fails Agda-side parsing, or
+    /// [`Error::Protocol`] on an unexpected response.
+    pub fn format_dbc_text(&self, dbc: &Dbc) -> Result<String, Error> {
+        let mut cmd = json!({ "type": "command", "command": "formatDBCText" });
+        cmd["dbc"] = dbc.to_value();
+        let raw = self.process(&cmd.to_string())?;
+        response::decode_format_text(&raw)
     }
 
     /// Bind the LTL properties to monitor. Call after `parse_dbc_text`, before

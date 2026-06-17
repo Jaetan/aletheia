@@ -12,6 +12,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust DBC serialize side (`rust/`, Rust-parity Slice R1, write side — **completes
+  R1**) — `Client::parse_dbc` (load a typed `Dbc` via the JSON path),
+  `Client::validate_dbc` (→ `ValidationResult { has_errors, issues }`), and
+  `Client::format_dbc_text` (render a `Dbc` to `.dbc` text), backed by a
+  `Dbc` → canonical-JSON serializer (the inverse of the read-side decoders;
+  `Rational` int-when-den=1, flat presence, `extended` emitted only when true).
+  Verified by end-to-end round-trips against the comprehensive `kitchen_sink`
+  fixture (`parse_dbc_text` → `parse_dbc` and → `format_dbc_text` → `parse_dbc_text`
+  are both the identity). Flips the last 3 `rust` rows (`parse_dbc_json`,
+  `validate_dbc`, `dbc_text_format`) to `implemented` — the Rust binding now
+  covers all 11 of Slice R1's DBC-document rows.
 - Rust typed DBC attribute vocabulary (`rust/`, Rust-parity Slice R1, tier-2) —
   `Dbc.attributes` is now the typed `Attribute` enum (`Definition` / `Default` /
   `Assignment`) over `AttrType` (`Int` / `Float` / `String` / `Enum` / `Hex`),

@@ -72,3 +72,64 @@ fn format_dbc_round_trips_typed_attributes() {
         "the typed attribute vocabulary must survive parse → format_dbc"
     );
 }
+
+/// The comprehensive corpus fixture — messages, multiplexing, value tables,
+/// env vars, signal groups, comments, and the full attribute vocabulary — so
+/// the serialize round-trips exercise every part of `Dbc::to_value`.
+const KITCHEN: &str = include_str!("../../python/tests/fixtures/dbc_corpus/kitchen_sink.dbc");
+
+#[test]
+fn parse_dbc_round_trips_the_serialized_document() {
+    let c = client();
+    let (from_text, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    // parse_dbc serializes the typed document and feeds it back through the core
+    // (the JSON path); a correct serialize re-parses to the same document.
+    let (from_json, _) = c.parse_dbc(&from_text).expect("parse_dbc (JSON path)");
+    assert_eq!(
+        from_text, from_json,
+        "parse_dbc_text → parse_dbc must round-trip the typed document"
+    );
+}
+
+#[test]
+fn format_dbc_text_round_trips_through_the_formatter() {
+    let c = client();
+    let (from_text, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    // serialize → core .dbc formatter → re-parse must be the identity.
+    let text = c.format_dbc_text(&from_text).expect("format_dbc_text");
+    let (reparsed, _) = c.parse_dbc_text(&text).expect("re-parse formatted text");
+    assert_eq!(
+        from_text, reparsed,
+        "format_dbc_text output must re-parse to the same typed document"
+    );
+}
+
+#[test]
+fn validate_dbc_reports_no_errors_for_the_valid_corpus() {
+    let c = client();
+    let (dbc, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    let result = c.validate_dbc(&dbc).expect("validate_dbc");
+    assert!(
+        !result.has_errors,
+        "kitchen_sink is a valid DBC — validation found errors: {:?}",
+        result.issues
+    );
+}
+
+#[test]
+fn validate_dbc_flags_an_invalid_document() {
+    let c = client();
+    let (mut dbc, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    // Shrink a populated message to 0 bytes: every signal's bit range now
+    // exceeds the DLC — a structural error the validator must report (pins the
+    // has_errors == true branch the valid-corpus test never reaches).
+    let msg = dbc
+        .messages
+        .iter_mut()
+        .find(|m| !m.signals.is_empty())
+        .expect("a message with signals");
+    msg.dlc = 0;
+    let result = c.validate_dbc(&dbc).expect("validate_dbc");
+    assert!(result.has_errors, "an over-DLC signal must be an error");
+    assert!(!result.issues.is_empty(), "errors must carry issues");
+}

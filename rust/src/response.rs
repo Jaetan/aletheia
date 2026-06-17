@@ -109,6 +109,15 @@ pub struct ValidationIssue {
     pub detail: String,
 }
 
+/// The result of `validate_dbc`: every issue found, plus whether any are errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationResult {
+    /// `true` if at least one issue is error-severity.
+    pub has_errors: bool,
+    /// All issues found (errors and warnings), in report order.
+    pub issues: Vec<ValidationIssue>,
+}
+
 pub(crate) fn protocol(msg: impl Into<String>) -> Error {
     Error::Protocol(msg.into())
 }
@@ -145,6 +154,12 @@ pub(crate) fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok())
         .ok_or_else(|| protocol(format!("missing or out-of-range u32 field {key:?}")))
+}
+
+pub(crate) fn bool_field(obj: &Value, key: &str) -> Result<bool, Error> {
+    obj.get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| protocol(format!("missing or non-boolean field {key:?}")))
 }
 
 /// Decode a rational from a response scalar (plain integer) or
@@ -311,4 +326,48 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
         errors: names("errors"),
         absent: names("absent"),
     })
+}
+
+fn issue_list(obj: &Value) -> Vec<ValidationIssue> {
+    obj.get("issues")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .map(|w| ValidationIssue {
+                    severity: str_field(w, "severity"),
+                    code: str_field(w, "code"),
+                    detail: str_field(w, "detail"),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Decode a `validateDBC` (`status:"validation"`) response.
+pub(crate) fn decode_validation(raw: &str) -> Result<ValidationResult, Error> {
+    let obj = parse_object(raw)?;
+    match obj.get("status").and_then(Value::as_str) {
+        Some("validation") => Ok(ValidationResult {
+            has_errors: bool_field(&obj, "has_errors")?,
+            issues: issue_list(&obj),
+        }),
+        other => Err(protocol(format!(
+            "expected status \"validation\", got {other:?}"
+        ))),
+    }
+}
+
+/// Decode a `formatDBCText` (`status:"success"`) response into the `.dbc` text.
+pub(crate) fn decode_format_text(raw: &str) -> Result<String, Error> {
+    let obj = parse_object(raw)?;
+    match obj.get("status").and_then(Value::as_str) {
+        Some("success") => obj
+            .get("text")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| protocol("formatDBCText response missing 'text'")),
+        other => Err(protocol(format!(
+            "expected status \"success\", got {other:?}"
+        ))),
+    }
 }

@@ -66,7 +66,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.parse_dbc }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#parse_dbc" }
       go:     { status: implemented, entry: Client.ParseDBC }
-      rust: { status: planned, notes: "Typed DBC document model deferred to a later Rust slice; parse_dbc_text (text input) is implemented." }
+      rust: { status: implemented, entry: "Client::parse_dbc" }
 
   - id: validate_dbc
     name: DBC validation
@@ -75,7 +75,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.validate_dbc }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#validate_dbc" }
       go:     { status: implemented, entry: Client.ValidateDBC }
-      rust: { status: planned, notes: "Needs the typed DBC document model (deferred)." }
+      rust: { status: implemented, entry: "Client::validate_dbc" }
 
   - id: format_dbc
     name: DBC serialization
@@ -122,7 +122,7 @@ features:
         status: implemented
         entry: Client.FormatDBCText
         notes: "Track E.10 — same Agda core via FFI; returns the ``.dbc`` text image."
-      rust: { status: planned, notes: "Needs the typed DBC document model — formatDBCText takes a DBC struct (deferred)." }
+      rust: { status: implemented, entry: "Client::format_dbc_text" }
 
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)
