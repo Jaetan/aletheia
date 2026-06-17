@@ -353,6 +353,24 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### G.2 — `check-changelog` enforces entries only for public-API surfaces, not all changes
 
+- **✅ DONE 2026-06-17.** `tools/check_changelog.py` now watches build/CI/tooling
+  paths (`Shakefile.hs`, `shake.cabal`, `aletheia.agda-lib`, `haskell-shim/`,
+  `tools/`, `.github/workflows/`) in addition to the public-API surface, all
+  enforced as failures (user decision: Build + CI + tooling, enforce-all). Agda
+  `src/` is deliberately excluded (a behavioral src/ change reaches users via the
+  already-watched bindings; most src/ edits are proof-internal); Markdown docs
+  (`.md` anywhere) and test files (`/tests?/`, `*_test.go`, …) are exempt so a
+  tool README or a fixture edit doesn't sour the gate. New pure `watched_files()`
+  seam + `python/tests/test_check_changelog.py` (matcher partition incl. the
+  `.md`-under-a-watched-dir discriminator, plus a hermetic temp-git-repo e2e of
+  both polarities — the gate had zero tests before). A distinct AGENTS.md
+  Universal Rule was added (kept separate from the public-API rule, which alone
+  carries the migration-guidance dimension); the failure message names the
+  one-line "internal — no behavior change" escape for routine infra / bot bumps.
+  Dogfooded: this very change (a `tools/` edit) required the CHANGELOG entry it
+  ships. Consequence to watch: future dependabot `github-actions` bumps and
+  `gen-ffi-modules` cabal regens now need a CHANGELOG line (or the escape note) —
+  the merging human adds it, as already happened for the #41–46 batch.
 - **Where** — `tools/check_changelog.py` `API_PATTERNS` (`python/aletheia/`,
   `go/aletheia/*.go`, `cpp/include/aletheia/`, `haskell-shim/ffi-exports.snapshot`).
 - **Origin** — surfaced 2026-06-15 during the build-incrementality PR
@@ -373,12 +391,23 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   entry for trivial changes) souring the gate; needs a sound notable-vs-trivial
   heuristic.
 - **Blockers / deps** — none; decide the watched-path set + exclusions first.
-- **Verdict** — `INVESTIGATE` (user-requested 2026-06-15; explicitly NOT in the
-  build-incrementality PR). Scope the patterns + exclusions before building to
-  avoid a noisy gate.
+- **Verdict** — `DONE` (2026-06-17; user-scoped Build + CI + tooling / enforce-all).
 
 ### G.3 — Documentation pass for the incremental build + new Shake targets
 
+- **✅ DONE 2026-06-17.** `BUILDING.md` now explains the honest dependency graph
+  (`.agda` sources content-hashed, *not* the generated MAlonzo `.hs`; cabal owns
+  `.hs → .so`), the `AgdaVersion` oracle, `gen-ffi-modules` + the
+  `-Werror=missing-home-modules` drift gate, `cabal run shake -- iwyu`, and the
+  staleness gate; it carries an incremental-rebuild timings table and corrected
+  Build-Performance numbers (cold ~2m measured at 2m16s on a 24-core host; no-op
+  ~0.1s; one-module ~12s), with `gen-ffi-modules` / `iwyu` added to Common Build
+  Commands. `CI_LOCAL.md` gained the build-prerequisite + staleness-gate section
+  (`--build-staleness {auto,always,never}` + the exact auto-trigger path set) and
+  had its stale `33`-step counts / `steps 9-10` positions de-numbered (referring
+  to gates by name + run_ci's live `[i/N]`). `CLAUDE.md`'s stale "~60s" cold-build
+  figure was reconciled to the measured ~2m. AGENTS.md had no build-model drift
+  (verified). DRY: BUILDING.md is the detailed SSOT; the others link to it.
 - **Where** — `docs/development/BUILDING.md` (the authoritative build guide);
   possibly `docs/development/CI_LOCAL.md` and `AGENTS.md` build notes.
 - **Origin** — the build-incrementality PR (`perf/build-incremental-honest-graph`,
@@ -398,7 +427,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Cost / risk** — **Low** (doc prose), but `BUILDING.md` is the primary build
   guide so accuracy matters; harness-safe (```bash fences are not executed).
 - **Blockers / deps** — none; do after the build-incrementality PR merges.
-- **Verdict** — `DO` (committed follow-up; user-requested 2026-06-15).
+- **Verdict** — `DONE` (2026-06-17).
 
 ### G.4 — `tools/run_ci.py` is at the 1000-line C0302 ceiling (999/1000)
 

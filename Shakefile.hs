@@ -928,14 +928,15 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
     phony "check-changelog" $ do
-        -- R18 Universal Rule UR-1 enforcement (Public API stability and
-        -- CHANGELOG discipline).  Detects public-API drift since merge-base
-        -- with `main` and fails if CHANGELOG.md was not also modified.
+        -- CHANGELOG discipline enforcement.  Detects notable drift since
+        -- merge-base with `main` — the public-API surface (UR-1) PLUS the
+        -- build system, CI, and tooling — and fails if CHANGELOG.md was not
+        -- also modified.
         --
         -- Implementation lives in tools/check_changelog.py so the same
         -- gate can be invoked from the pre-push hook and from local CI
         -- without rebuilding the Shake binary.  Branch-level granularity
-        -- (one CHANGELOG commit covers any number of public-API commits
+        -- (one CHANGELOG commit covers any number of notable commits
         -- on the same branch).
         cmd_ pythonBin "-m" "tools.check_changelog"
 

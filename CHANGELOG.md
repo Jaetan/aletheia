@@ -54,6 +54,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **`check-changelog` now covers build, CI, and tooling changes, not just the
+  public API.** `tools/check_changelog.py` previously required a `CHANGELOG.md`
+  entry only when `python/aletheia/`, `go/aletheia/*.go`, `cpp/include/aletheia/`,
+  or the FFI export snapshot changed. It now also requires one for changes under
+  `Shakefile.hs`, `shake.cabal`, `aletheia.agda-lib`, `haskell-shim/`, `tools/`,
+  and `.github/workflows/` (Agda `src/` is excluded — behavioral changes there
+  reach users via the bindings; Markdown docs and test files are exempt). For a
+  routine infra edit or a bot dependency bump with no observable behavior change,
+  a one-line `### Changed` note ("internal — no behavior change") satisfies the
+  gate. (DEFERRED_ITEMS G.2.)
 - **The build-staleness self-test is scheduled on build-graph changes, not every
   PR.** `tools/run_ci.py`'s `build` step previously always ran
   `check_build_incremental`, which forces two `.so` relinks (an edit probe and its
