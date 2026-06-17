@@ -7,7 +7,7 @@
 //! [`Dbc`], the `format_dbc` export round-trip, and the mux-query / lookup
 //! helpers. Set `ALETHEIA_LIB` to the built shared library (run_ci / CI does).
 
-use aletheia::{Client, Presence};
+use aletheia::{CanId, Client, Presence};
 
 /// The shared corpus `multiplexing.dbc` — two messages, single-multiplexor each.
 const DBC: &str = include_str!("../../python/tests/fixtures/dbc_corpus/multiplexing.dbc");
@@ -21,7 +21,9 @@ fn parse_dbc_text_returns_typed_document() {
     let c = client();
     let (dbc, _warnings) = c.parse_dbc_text(DBC).expect("parse DBC text");
 
-    let m = dbc.message_by_id(100).expect("message 100 present");
+    let m = dbc
+        .message_by_id(CanId::standard(100).expect("valid id"))
+        .expect("message 100 present");
     assert!(m.is_multiplexed());
     assert_eq!(m.multiplexor_names(), vec!["Mode"]);
 

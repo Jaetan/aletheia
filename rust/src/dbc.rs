@@ -172,11 +172,16 @@ pub enum CommentTarget {
     Message {
         /// Message CAN id.
         id: u32,
+        /// Whether the target id is extended (29-bit) — disambiguates a
+        /// standard vs extended message sharing the same numeric id.
+        extended: bool,
     },
     /// A signal (`CM_ SG_ <id> <signal> "...";`).
     Signal {
         /// Owning message CAN id.
         id: u32,
+        /// Whether the owning message id is extended (29-bit).
+        extended: bool,
         /// Signal name.
         signal: String,
     },
@@ -335,9 +340,11 @@ fn decode_comment_target(t: &Value) -> Result<CommentTarget, Error> {
         }),
         "message" => Ok(CommentTarget::Message {
             id: u32_field(t, "id")?,
+            extended: t.get("extended").and_then(Value::as_bool).unwrap_or(false),
         }),
         "signal" => Ok(CommentTarget::Signal {
             id: u32_field(t, "id")?,
+            extended: t.get("extended").and_then(Value::as_bool).unwrap_or(false),
             signal: str_field(t, "signal"),
         }),
         "envVar" => Ok(CommentTarget::EnvVar {
@@ -528,10 +535,15 @@ impl DbcMessage {
 }
 
 impl Dbc {
-    /// Find a message by raw CAN id.
+    /// Find a message by CAN id, matching both the numeric value **and** the
+    /// extended flag — so a standard and an extended message sharing the same
+    /// numeric id are distinguished (mirrors Go `MessageByID` / Python
+    /// `message_by_id(..., extended=)`).
     #[must_use]
-    pub fn message_by_id(&self, id: u32) -> Option<&DbcMessage> {
-        self.messages.iter().find(|m| m.id == id)
+    pub fn message_by_id(&self, id: CanId) -> Option<&DbcMessage> {
+        self.messages
+            .iter()
+            .find(|m| m.id == id.value() && m.extended == id.is_extended())
     }
 
     /// Find a message by name.
@@ -544,6 +556,7 @@ impl Dbc {
 #[cfg(test)]
 mod tests {
     use super::{Dbc, Presence};
+    use crate::types::CanId;
     use serde_json::Value;
 
     macro_rules! snapshot {
@@ -587,7 +600,9 @@ mod tests {
     #[test]
     fn multiplexing_presence_is_typed() {
         let d = decode(snapshot!("multiplexing"));
-        let m = d.message_by_id(100).expect("message 100");
+        let m = d
+            .message_by_id(CanId::standard(100).expect("valid id"))
+            .expect("message 100");
         assert!(m.is_multiplexed());
         let s = m.signal_by_name("PayloadA").expect("PayloadA");
         assert_eq!(
@@ -611,6 +626,22 @@ mod tests {
             // can_id() must succeed for every core-parsed message.
             m.can_id().expect("valid CAN id");
         }
+    }
+
+    #[test]
+    fn message_by_id_disambiguates_standard_and_extended() {
+        // extended_can.json carries both a standard and an extended message at
+        // numeric id 256 — message_by_id must distinguish them by the flag.
+        let d = decode(snapshot!("extended_can"));
+        let std = d
+            .message_by_id(CanId::standard(256).expect("valid std id"))
+            .expect("standard message 256");
+        assert!(!std.extended);
+        let ext = d
+            .message_by_id(CanId::extended(256).expect("valid ext id"))
+            .expect("extended message 256");
+        assert!(ext.extended);
+        assert_ne!(std.name, ext.name, "the two id-256 messages are distinct");
     }
 
     #[test]
