@@ -14,12 +14,13 @@ The Rust binding (`rust/`, shipped 2026-06-14, PR C) covers the **streaming
 verification hot path**: validated value types (`CanId` / `Dlc` / `Rational` /
 `Timestamp` / `TimeBound`), native `Predicate` / `Formula` enums serializing to
 the core's exact wire shape, DBC text parse, property binding, binary-FFI frame
-streaming, signal extraction, and send-error / send-remote. That is **11 of 40**
+streaming, signal extraction, and send-error / send-remote — **plus the full
+typed DBC document model (Slice R1 ✅ complete 2026-06-17, PRs #53/#54/#55; see
+`memory/project_rust_parity_r1.md`)**. That is **22 of 40**
 `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust` column.
 
-The remaining **29 `planned`** rows are the parity gap. Three are carved out to
-**Phase 6** (below); the other **26** are this plan, grouped into five slices
-ordered by dependency and leverage.
+The remaining **18 `planned`** rows: **15** in this plan (slices **R2–R5**), and
+**3** carved out to **Phase 6** (below).
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
 
@@ -36,7 +37,7 @@ host-surface / python-can work, **not** this plan — handled when the
 
 ## The slices (26 rows)
 
-### Slice R1 — Typed DBC document model (keystone, 11 rows)
+### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
 Rows: `parse_dbc_json`, `validate_dbc`, `format_dbc`, `dbc_text_format`,
 `dbc_metadata_tier1`, `dbc_metadata_tier2`, `dbc_signal_receivers`,
