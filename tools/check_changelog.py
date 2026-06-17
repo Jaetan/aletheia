@@ -1,21 +1,22 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""tools/check_changelog.py — Enforce CHANGELOG entries on public-API changes.
+"""tools/check_changelog.py — Enforce CHANGELOG entries on notable changes.
 
-Offline enforcer for Public API stability and CHANGELOG discipline.
-Invoked as a Shake phony (``shake check-changelog``) and as a pre-push
-hook step.
+Offline enforcer for CHANGELOG discipline.  Invoked as a Shake phony
+(``shake check-changelog``) and as a pre-push hook step.
 
 Strategy: branch-level granularity.
 
 1. Compute merge-base with the comparison ref (default ``main``).
 2. List files changed between merge-base and HEAD.
-3. If any public-API path is changed, require ``CHANGELOG.md`` to be
+3. If any *watched* path is changed, require ``CHANGELOG.md`` to be
    changed too.
 
-Public-API paths are the user-visible surface of each binding.  Test
-files and lowercase-private Go identifiers are excluded by the regex
-filter.
+Watched paths are the user-visible surface of each binding (public API)
+PLUS the build system, CI, and tooling — the project convention is that
+``CHANGELOG.md`` documents ALL notable changes wherever they appear, not
+only public-symbol moves (user directive 2026-06-15).  Test files and
+Markdown docs are excluded by the regex filter.
 
 Exit codes:
   0 — public-API unchanged, OR public-API changed and CHANGELOG.md changed.
@@ -37,13 +38,18 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from typing import TYPE_CHECKING
 
 from tools._common import emit, find_executable, run_capture
 
-DESCRIPTION = "Enforce CHANGELOG entries on public-API changes."
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+DESCRIPTION = "Enforce CHANGELOG entries on notable (public-API + build/CI/tooling) changes."
 
 GIT_FAILURE_EXIT = 2
 
+# Public-API surface of each binding.
 API_PATTERNS = [
     re.compile(r"^python/aletheia/"),
     re.compile(r"^go/aletheia/[^/]+\.go$"),
@@ -51,9 +57,41 @@ API_PATTERNS = [
     re.compile(r"^haskell-shim/ffi-exports\.snapshot$"),
 ]
 
-TEST_EXCLUSIONS = re.compile(r"_test\.go$|/tests/|^python/aletheia/.*/test_|^cpp/tests/")
+# Build system, CI, and tooling.  Not the public-API surface, but the project
+# convention is that CHANGELOG.md documents ALL notable changes (user directive
+# 2026-06-15) — a substantial build/CI/tooling change is notable even when no
+# public symbol moved.  Agda sources (``src/``) are deliberately absent: a
+# behavioral src/ change reaches users through the bindings (already watched
+# above), and most src/ edits are proof-internal.
+INFRA_PATTERNS = [
+    re.compile(r"^Shakefile\.hs$"),
+    re.compile(r"^shake\.cabal$"),
+    re.compile(r"^aletheia\.agda-lib$"),
+    re.compile(r"^haskell-shim/"),
+    re.compile(r"^tools/"),
+    re.compile(r"^\.github/workflows/"),
+]
+
+WATCHED_PATTERNS = [*API_PATTERNS, *INFRA_PATTERNS]
+
+# Paths that never require a CHANGELOG entry, even under a watched dir: test
+# files (their behavior is covered by what they test) and Markdown docs (.md is
+# always documentation, never a notable code change — CHANGELOG.md is itself .md
+# and handled separately below).
+TEST_EXCLUSIONS = re.compile(r"_test\.go$|/tests?/|^python/aletheia/.*/test_|^cpp/tests/")
+DOC_EXCLUSIONS = re.compile(r"\.md$")
 
 CHANGELOG_RE = re.compile(r"^CHANGELOG\.md$")
+
+
+def watched_files(changed_files: Iterable[str]) -> list[str]:
+    """Return the changed files that require a CHANGELOG entry (watched, non-test/doc)."""
+    return [
+        f
+        for f in changed_files
+        if not (TEST_EXCLUSIONS.search(f) or DOC_EXCLUSIONS.search(f))
+        and any(p.search(f) for p in WATCHED_PATTERNS)
+    ]
 
 
 def _git(*args: str) -> str:
@@ -95,40 +133,37 @@ def main() -> int:
         emit(f"check-changelog: ok (no changes since merge-base with {args.base})")
         return 0
 
-    api_changed: list[str] = []
-    for f in changed_files:
-        if TEST_EXCLUSIONS.search(f):
-            continue
-        if any(p.search(f) for p in API_PATTERNS):
-            api_changed.append(f)
+    watched = watched_files(changed_files)
 
-    if not api_changed:
-        emit(f"check-changelog: ok (no public-API changes since merge-base with {args.base})")
+    if not watched:
+        emit(f"check-changelog: ok (no notable changes since merge-base with {args.base})")
         return 0
 
     if any(CHANGELOG_RE.match(f) for f in changed_files):
-        emit("check-changelog: ok (public-API changes accompanied by CHANGELOG.md edit)")
+        emit("check-changelog: ok (notable changes accompanied by CHANGELOG.md edit)")
         return 0
 
     _ = sys.stderr.write(
-        "check-changelog: FAIL — public-API changes detected without a "
+        "check-changelog: FAIL — notable changes detected without a "
         + "CHANGELOG.md entry.\n\n"
-        + "Changed public-API files:\n"
+        + "Changed files requiring a CHANGELOG entry:\n"
     )
-    for f in api_changed:
+    for f in watched:
         _ = sys.stderr.write(f"  {f}\n")
     _ = sys.stderr.write(
         "\n"
-        + "Required: add an entry to CHANGELOG.md under '## [X.Y.Z] — Unreleased' "
+        + "Required: add an entry to CHANGELOG.md under '## [Unreleased]' "
         + "before merging.  Use one of:\n\n"
-        + "  ### Added       — new public surface\n"
+        + "  ### Added       — new public/user-visible surface\n"
         + "  ### Changed     — modified existing surface (incl. BREAKING)\n"
         + "  ### Removed     — dropped surface\n"
         + "  ### Fixed       — behavior fix on existing surface\n\n"
-        + "If the diff is an internal-only refactor (no observable surface change),\n"
-        + "add a note under '### Changed' explaining \"internal refactor — no behavior\n"
-        + 'change" so reviewers can verify by inspection.\n\n'
-        + "Reference: Public API stability and CHANGELOG discipline.\n"
+        + "If the diff has no observable behavior change (an internal refactor, a\n"
+        + "build/CI/tooling tweak, or a dependency bump), add a one-line note under\n"
+        + '"### Changed" saying so (e.g. "internal — no behavior change") so the\n'
+        + "reviewer can verify by inspection.  This is the escape hatch for routine\n"
+        + "infra edits and bot dependency bumps.\n\n"
+        + "Reference: CHANGELOG discipline (AGENTS.md § Universal Rules).\n"
     )
     return 1
 

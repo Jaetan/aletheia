@@ -131,9 +131,9 @@ Agda packages: **Parser/**, **CAN/**, **DBC/**, **LTL/** (Syntax, Incremental, S
 3. Full build: `cabal run shake -- build` (also rebuilds `libaletheia-ffi.so`).
 4. Run tests for affected bindings.
 
-Shake tracks Agda dependencies by content hash. First full build ~60s; an unchanged
-rebuild is ~0.1s and a one-module edit ~12s (incremental — cabal recompiles only the
-changed MAlonzo module + relinks). Adding/removing an Agda module: re-list it with
+Shake tracks Agda dependencies by content hash. A cold full build is ~2m (GHC
+compiles every MAlonzo module); an unchanged rebuild is ~0.1s and a one-module
+edit ~12s (incremental — cabal recompiles only the changed MAlonzo module + relinks). Adding/removing an Agda module: re-list it with
 `cabal run shake -- gen-ffi-modules` (otherwise the build fails naming it, via the
 foreign library's `-Werror=missing-home-modules` drift gate). Details:
 [BUILDING.md](docs/development/BUILDING.md).

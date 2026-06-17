@@ -39,24 +39,58 @@ to maintain.  The same gate runs blocking at pre-push.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). **33 always-on**
-sequential steps, ~22-30 minutes warm (UBSan ctest promoted from opt-in
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). The always-on
+sequential steps run ~22-30 minutes warm (UBSan ctest promoted from opt-in
 to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
 `Rational::from_double` because the lane was opt-in; the IWYU gate +
-its self-test at steps 9-10 replaced the recompile dead-import gate post-R23).
+its self-test replaced the recompile dead-import gate post-R23). `run_ci`
+prints each step as `[i/N]` at runtime, so the live count is authoritative.
 Plus 3 opt-in lanes (reproducible build, stability bench, mutation
 testing) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
 `tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
 gate-claim-integrity evidence.
 
-Step 9 — the IWYU gate (`tools/iwyu.py --check --diff`) — runs on the set
+### The build prerequisite and the staleness gate
+
+The sweep's first step builds `libaletheia-ffi.so` — but *which* build runs
+depends on `--build-staleness {auto,always,never}` (default `auto`):
+
+- **`auto`** — run the staleness gate (`tools/check_build_incremental.py`) when
+  the diff vs the local `main` touches a build-graph file (`Shakefile.hs`,
+  `shake.cabal`, `aletheia.agda-lib`, `haskell-shim/`,
+  `tools/check_build_incremental.py`, `tools/_warm.py`); otherwise a plain
+  `cabal run shake -- build`.  Fails **safe**: if the diff can't be computed
+  (e.g. no local `main` ref) the gate runs rather than silently skip a safety
+  check.  A code-only branch thus skips the ~260s of staleness relinks; a branch
+  that touches the build graph pays for them.
+- **`always`** — always run the staleness gate.  The `push:main` CI job uses this
+  (`pr-full-ci.yml` passes `--build-staleness=always` on `push`), re-verifying
+  the no-stale-`.so` invariant on every landing.
+- **`never`** — always a plain build.
+
+The staleness gate is a *behavioral* regression test that the honest dependency
+graph (see [BUILDING.md → Incremental Builds](BUILDING.md#incremental-builds))
+stays correct.  It mutates real runtime string literals in two structurally
+distant modules, rebuilds, and checks two properties:
+
+1. **Never stale** — an edit to a runtime literal must REACH the `.so` (and a
+   revert must too).  This is the failure the old `rm -rf` sledgehammer masked by
+   always full-rebuilding.
+2. **Incremental** — a no-op build must NOT relink the `.so` (its mtime stays
+   put).  A regression back to the sledgehammer would pass property 1 but fail
+   here.
+
+Every edited source is restored on exit (including on SIGINT/SIGTERM), so an
+interrupt never leaves a mutated Agda source.
+
+The IWYU gate (`tools/iwyu.py --check --diff`) runs on the set
 of `.agda` files modified vs `main` (`git diff main...HEAD -- src/`; empty
 diff ⇒ no-op).  In one warm process it judges BOTH named imports
 (`using`/`renaming` → DEAD/UNRESOLVED) and wildcard `open import M`
 (DEAD / REDUNDANT / NARROWABLE) via the scope-aware `.agdai` reader, and
 fails on any finding (UNRESOLVED is surfaced, never silently passed).
-Step 10 (`tools/iwyu.py --self-test`) validates that reader against the
+Its self-test (`tools/iwyu.py --self-test`) validates that reader against the
 synthetic fixture matrix (its correctness gate, replacing the retired
 recompile oracle).  Neither recompiles; the gate reads interfaces directly
 and runs on every scoped file (no file-count skip).  Cross-file deadness (a name made dead by an
@@ -71,7 +105,7 @@ tools/install_hooks.py
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them
 up).  After install, every `git commit` runs the pre-commit IWYU advisory
-and every `git push` runs the 33-step sweep (blocking).
+and every `git push` runs the full always-on sweep (blocking).
 Bypass either hook with `--no-verify`:
 
 ```bash
@@ -250,7 +284,7 @@ provides; treat `act` as an opt-in workflow-development tool.
 For a CI-style local replay, run both:
 
 ```bash
-tools/run_ci.py    # correctness gates (33 always-on steps, ~22-30 min warm)
+tools/run_ci.py    # correctness gates (always-on sweep, ~22-30 min warm)
 act push           # GHA meta-gates (workflows, ~1-2 min)
 ```
 
@@ -280,7 +314,7 @@ from GHA's amd64 runners.
 
 ### Pre-push hook is slow / blocking work
 
-The pre-push hook runs the full 33-step always-on sweep (~22-30 min warm). If you need to
+The pre-push hook runs the full always-on sweep (~22-30 min warm). If you need to
 push iteratively (e.g., a doc-only fix that doesn't affect gates), bypass
 with:
 
@@ -297,7 +331,7 @@ assertions, even if the pre-push hook didn't run.
 
 - [`tools/run_ci.py`](../../tools/run_ci.py) — offline correctness orchestrator (Phase 3).
 - [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-commit + pre-push hook installer.
-- [`tools/iwyu.py`](../../tools/iwyu.py) — the single IWYU tool: `--check` (named + wildcard gate), `--apply` (wildcard narrow/remove), `--self-test` (fixture matrix). Pre-commit advisory + pre-push steps 9-10.
+- [`tools/iwyu.py`](../../tools/iwyu.py) — the single IWYU tool: `--check` (named + wildcard gate), `--apply` (wildcard narrow/remove), `--self-test` (fixture matrix). Pre-commit advisory + pre-push gate.
 - [`tools/_iwyu.py`](../../tools/_iwyu.py) — its engine (internal): the `.agdai` reader driver + both analyses.
 - [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store) + its `test/` fixture matrix.
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — UR-1 enforcement (Phase 1).

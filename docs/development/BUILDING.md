@@ -1,6 +1,6 @@
 # Building Aletheia
 
-**Last Updated**: 2026-05-12
+**Last Updated**: 2026-06-17
 
 Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); phase and status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
@@ -280,8 +280,10 @@ cabal run shake -- build
 # 1. Compile Agda sources to Haskell (MAlonzo)
 # 2. Build shared library via Cabal → build/libaletheia-ffi.so
 #
-# First build takes ~1 minute (compiles standard library + Shake itself)
-# Subsequent builds are much faster (only changed modules)
+# A cold (clean) build is ~2 minutes — it compiles every MAlonzo module
+# through GHC. The build is genuinely incremental thereafter: a no-op rebuild
+# is ~0.1s and a one-module edit ~12s. See "Development Build Tips →
+# Incremental Builds" below for how the dependency graph makes this honest.
 ```
 
 ### 4. Verify the Build
@@ -416,7 +418,7 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 | Hook | When | What runs | Severity |
 |---|---|---|---|
 | `pre-commit` | `git commit` | `tools/iwyu.py --check` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool) | **Advisory** — prints warning, always proceeds |
-| `pre-push` | `git push` | `tools/run_ci.py` — the 33-step offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
+| `pre-push` | `git push` | `tools/run_ci.py` — the full offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 
@@ -440,8 +442,10 @@ cd /path/to/aletheia
 source python/.venv/bin/activate
 
 # Build commands
-cabal run shake -- build              # Full pipeline: Agda → Haskell → libaletheia-ffi.so
+cabal run shake -- build              # Full pipeline: Agda → Haskell → libaletheia-ffi.so (incremental)
 cabal run shake -- build-agda         # Compile Agda to Haskell only (no .so)
+cabal run shake -- gen-ffi-modules    # Regenerate the MAlonzo module list in aletheia.cabal (after adding/removing an Agda module)
+cabal run shake -- iwyu               # Regenerate the relevant .agdai + run the import (IWYU) analysis — no full .hs/.so rebuild
 cabal run shake -- install-python     # Build + install Python package (pip install -e .)
 cabal run shake -- check-properties   # Type-check all proof modules
 cabal run shake -- dist               # Package dist/aletheia.tar.gz (C/C++/Go)
@@ -603,10 +607,59 @@ cd ..
 
 ### Incremental Builds
 
-Shake tracks dependencies automatically. After modifying an Agda file:
+Since the build graph was made honest (PR #37), `cabal run shake -- build`
+rebuilds exactly what changed and nothing else:
+
+| Scenario | Time | What happens |
+|---|---|---|
+| No-op (nothing changed) | ~0.1s | Shake digests the sources, sees no change, does nothing |
+| One-module edit | ~12s | Agda regenerates the affected MAlonzo `.hs`; cabal/GHC recompiles only that module + relinks |
+| Cold (`clean` first) | ~2m | Every MAlonzo module compiles through GHC |
+
 ```bash
-cabal run shake -- build  # Only rebuilds affected modules
+cabal run shake -- build   # rebuilds only what changed
 ```
+
+**How the graph stays honest.** The `libaletheia-ffi.so` Shake rule depends on
+the `.agda` *sources* (content-hashed via `ChangeModtimeAndDigest`), on
+`aletheia.agda-lib` (the stdlib pin + `--erasure` flag), and on the FFI shim +
+`aletheia.cabal` — **not** on the generated MAlonzo `.hs`. (Depending on the
+generated `.hs` was the old staleness trap: they have no producing rule, so Shake
+digested them at the wrong moment and could skip a real change.) cabal then owns
+the `.hs → .so` edge incrementally via GHC's content-hash recompilation checker —
+no `touch`, no `rm -rf`. The full rationale lives in the "Development Workflow"
+notes in [`CLAUDE.md`](../../CLAUDE.md).
+
+**The agda binary is tracked too.** The MAlonzo output is a function of the agda
+*version*, not only the sources — but the binary is not a file Shake can `need`,
+so an `AgdaVersion` oracle queries `agda --version` each build and re-fires
+`build-agda` + the `.so` rule when it changes. With `aletheia.agda-lib` tracked
+as a file, every build input is now accounted for.
+
+**After adding or removing an Agda module**, regenerate the foreign library's
+MAlonzo module list and commit `aletheia.cabal`:
+
+```bash
+cabal run shake -- gen-ffi-modules
+```
+
+`aletheia.cabal`'s `foreign-library` lists every MAlonzo module between
+`-- BEGIN/END GENERATED MALONZO MODULES` markers so cabal tracks the real
+`.hs → .so` graph (otherwise its up-to-date check skips GHC and ships a stale
+`.so`). Drift is caught at build time — GHC's `-Werror=missing-home-modules` (a
+module added but not listed) or cabal's "module not found" (a listed module
+removed) — so a forgotten regen fails loudly; it never silently ships stale.
+
+**Import analysis without a rebuild.** `cabal run shake -- iwyu` regenerates the
+relevant `.agdai` interfaces via Agda's interface cache and runs the import
+(IWYU) analysis with no `.hs`/`.so` rebuild. The IWYU gate is described in
+[`CI_LOCAL.md`](CI_LOCAL.md).
+
+**The build's incrementality is itself gated.** `tools/check_build_incremental.py`
+is a behavioral regression test that the build rebuilds what changed, only that,
+and never ships stale; it runs as `run_ci`'s `build` prerequisite. Its mechanics
+(when it runs, the `--build-staleness` modes) are documented in
+[`CI_LOCAL.md`](CI_LOCAL.md).
 
 ### Type-Checking Without Compilation
 
@@ -690,14 +743,17 @@ cd go && go test ./aletheia/ -v -count=1 -race
 
 ## Build Performance
 
-### First Build
-- Agda compilation: ~45-60 seconds (compiles standard library)
-- Haskell compilation: ~5-10 seconds
-- **Total**: ~1 minute
+These are summaries; the canonical build-time numbers live in
+[PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
-### Incremental Builds
-- Only changed Agda modules: ~5-15 seconds
-- Only Haskell changes: ~3-5 seconds
+### First (cold) build
+- ~2 minutes on a 24-core host — dominated by the GHC compile of every MAlonzo
+  module. A truly first-ever build also type-checks the Agda standard library
+  (~20s, cached in `~/.agda` thereafter).
+
+### Incremental builds
+- No-op (nothing changed): ~0.1s
+- One-module edit: ~12s (cabal recompiles the changed MAlonzo module + relinks)
 - Python package install: ~2 seconds
 
 ## Next Steps
