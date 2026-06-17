@@ -259,7 +259,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.build_frame }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#build_frame" }
       go:     { status: implemented, entry: Client.BuildFrame }
-      rust: { status: planned, notes: "Frame construction deferred (binary build_frame_bin path)." }
+      rust: { status: implemented, entry: "Client::build_frame" }
 
   - id: update_frame
     name: Frame update (signal splice)
@@ -268,7 +268,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.update_frame }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#update_frame" }
       go:     { status: implemented, entry: Client.UpdateFrame }
-      rust: { status: planned, notes: "Frame update deferred (binary update_frame_bin path)." }
+      rust: { status: implemented, entry: "Client::update_frame" }
 
   - id: mux_extraction
     name: Multiplexed signal extraction
@@ -277,7 +277,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.extract_signals }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#extract_signals" }
       go:     { status: implemented, entry: Client.ExtractSignals }
-      rust: { status: planned, notes: "Multiplexed extraction deferred." }
+      rust: { status: implemented, entry: "Client::extract_signals" }
 
   - id: can_fd
     name: CAN-FD support
@@ -345,7 +345,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.send_frames }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#send_frames" }
       go:     { status: implemented, entry: Client.SendFrames }
-      rust: { status: planned, notes: "Batch send deferred; single send_frame is implemented." }
+      rust: { status: implemented, entry: "Client::send_frames" }
 
   - id: send_error
     name: Bus error event
