@@ -109,6 +109,15 @@ pub struct ValidationIssue {
     pub detail: String,
 }
 
+/// The result of `validate_dbc`: every issue found, plus whether any are errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationResult {
+    /// `true` if at least one issue is error-severity.
+    pub has_errors: bool,
+    /// All issues found (errors and warnings), in report order.
+    pub issues: Vec<ValidationIssue>,
+}
+
 pub(crate) fn protocol(msg: impl Into<String>) -> Error {
     Error::Protocol(msg.into())
 }
@@ -311,4 +320,51 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
         errors: names("errors"),
         absent: names("absent"),
     })
+}
+
+fn issue_list(obj: &Value) -> Vec<ValidationIssue> {
+    obj.get("issues")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .map(|w| ValidationIssue {
+                    severity: str_field(w, "severity"),
+                    code: str_field(w, "code"),
+                    detail: str_field(w, "detail"),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Decode a `validateDBC` (`status:"validation"`) response.
+pub(crate) fn decode_validation(raw: &str) -> Result<ValidationResult, Error> {
+    let obj = parse_object(raw)?;
+    match obj.get("status").and_then(Value::as_str) {
+        Some("validation") => Ok(ValidationResult {
+            has_errors: obj
+                .get("has_errors")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            issues: issue_list(&obj),
+        }),
+        other => Err(protocol(format!(
+            "expected status \"validation\", got {other:?}"
+        ))),
+    }
+}
+
+/// Decode a `formatDBCText` (`status:"success"`) response into the `.dbc` text.
+pub(crate) fn decode_format_text(raw: &str) -> Result<String, Error> {
+    let obj = parse_object(raw)?;
+    match obj.get("status").and_then(Value::as_str) {
+        Some("success") => obj
+            .get("text")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| protocol("formatDBCText response missing 'text'")),
+        other => Err(protocol(format!(
+            "expected status \"success\", got {other:?}"
+        ))),
+    }
 }
