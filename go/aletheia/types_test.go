@@ -5,11 +5,29 @@ package aletheia_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
+
+// TestRationalFromFloatPanicsOnNonFinite locks in that the literal-construction
+// convenience panics on a non-finite / overflowing value (the regexp.MustCompile
+// convention) rather than silently clamping to 0/1. Runtime / user input uses
+// the error-returning FloatToRational instead.
+func TestRationalFromFloatPanicsOnNonFinite(t *testing.T) {
+	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 9999999999.5} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("RationalFromFloat(%v): expected panic, got none", v)
+				}
+			}()
+			_ = aletheia.RationalFromFloat(v)
+		}()
+	}
+}
 
 func TestStandardID_Range(t *testing.T) {
 	_, err := aletheia.NewStandardID(2048)

@@ -110,6 +110,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Go): the check-builder value methods now return `(CheckResult, error)`
+  and reject non-finite / overflowing values instead of silently clamping them to
+  `0/1`.** `CheckSignalBuilder.NeverExceeds` / `NeverBelow` / `NeverEquals` and
+  `CheckSignalPredicate.Always` previously returned a bare `CheckResult` and routed
+  their value through the clamping `RationalFromFloat`, so a `NaN` / `±Inf` /
+  int64-overflowing value produced a silent `0/1` predicate — a cross-binding
+  parity bug, since the Python (`to_predicate_fraction`) and C++ (`Rational::from_double`)
+  check paths raise/throw on such input. All terminal check builders are now
+  uniformly fallible (matching `StaysBetween` / `SettlesBetween().Within()` /
+  the when/then `.Within()`, which already returned errors): the value methods
+  funnel through the error-returning `FloatToRational`, and the fluent chains
+  capture a conversion failure (a new `valueErr`, sibling to `rangeErr`) and
+  surface it at their terminal `(CheckResult, error)` method. This fixes both the
+  YAML and Excel check loaders, which dispatch through these builders. The dead
+  internal `physicalAsRational` helper is removed; `RationalFromFloat` (the
+  manual-construction convenience for compile-time literals) now **panics** on a
+  non-finite / int64-overflowing value instead of clamping to `0/1` (the
+  `regexp.MustCompile` convention), removing the last silent-clamp path while
+  keeping its bare-value signature for inline struct-literal use.
 - `check-changelog` now also watches `rust/src/` (the Rust binding's public
   surface), so Rust public-API changes require a `CHANGELOG.md` entry like the
   other bindings — closing a gap left by the original G.2 broadening.

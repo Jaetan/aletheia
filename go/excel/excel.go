@@ -388,7 +388,10 @@ func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, erro
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result = aletheia.CheckSignal(signal).Equals(aletheia.PhysicalValue(v)).Always()
+		result, err = aletheia.CheckSignal(signal).Equals(aletheia.PhysicalValue(v)).Always()
+		if err != nil {
+			return aletheia.CheckResult{}, err
+		}
 
 	default:
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))

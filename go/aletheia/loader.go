@@ -59,11 +59,11 @@ func mergeConditions(sets ...map[string]bool) map[string]bool {
 func DispatchSimple(signal, condition string, value PhysicalValue) (CheckResult, error) {
 	switch condition {
 	case "never_exceeds":
-		return CheckSignal(signal).NeverExceeds(value), nil
+		return CheckSignal(signal).NeverExceeds(value)
 	case "never_below":
-		return CheckSignal(signal).NeverBelow(value), nil
+		return CheckSignal(signal).NeverBelow(value)
 	case "never_equals":
-		return CheckSignal(signal).NeverEquals(value), nil
+		return CheckSignal(signal).NeverEquals(value)
 	default:
 		return CheckResult{}, validationError(fmt.Sprintf("unknown simple condition: %q", condition))
 	}

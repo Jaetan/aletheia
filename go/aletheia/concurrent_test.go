@@ -77,9 +77,11 @@ func TestClient_Concurrent(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 
-	checks := []aletheia.CheckResult{
-		aletheia.CheckSignal("Speed").NeverExceeds(220),
+	speedCheck, err := aletheia.CheckSignal("Speed").NeverExceeds(220)
+	if err != nil {
+		t.Fatalf("NeverExceeds: %v", err)
 	}
+	checks := []aletheia.CheckResult{speedCheck}
 
 	var wg sync.WaitGroup
 	wg.Add(workers)
