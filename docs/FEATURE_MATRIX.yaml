@@ -376,7 +376,7 @@ features:
       python: { status: implemented, entry: aletheia.Signal }
       cpp:    { status: implemented, entry: "aletheia/check.hpp#signal" }
       go:     { status: implemented, entry: CheckSignal }
-      rust: { status: planned, notes: "Fluent Check DSL deferred." }
+      rust: { status: implemented, entry: "check::signal" }
 
   - id: add_checks
     name: Runtime check attachment
@@ -385,7 +385,7 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.add_checks }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#add_checks" }
       go:     { status: implemented, entry: Client.AddChecks }
-      rust: { status: planned, notes: "Runtime check attachment deferred." }
+      rust: { status: implemented, entry: "Client::add_checks" }
 
   - id: yaml_check_loader
     name: YAML check loader

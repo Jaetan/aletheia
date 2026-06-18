@@ -31,12 +31,14 @@ use std::sync::OnceLock;
 use libloading::{Library, Symbol};
 use serde_json::json;
 
+pub mod check;
 mod dbc;
 mod error;
 mod ltl;
 mod response;
 mod types;
 
+pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
     DbcMessage, DbcSignal, EnvironmentVar, Node, Presence, SignalGroup, ValueDescription,
@@ -467,6 +469,24 @@ impl Client {
         let cmd = json!({ "type": "command", "command": "setProperties", "properties": arr });
         let raw = self.process(&cmd.to_string())?;
         response::decode_ack_or_success(&raw)
+    }
+
+    /// Bind a set of [`Check`]s built with the [`check`] DSL — the higher-level
+    /// equivalent of [`Client::set_properties`] that takes named checks. Only
+    /// each check's formula is sent to the core; the metadata (name / severity)
+    /// stays on the [`Check`] for the caller's reporting.
+    ///
+    /// The verdict `property_index` returned during streaming is the position of
+    /// the check in `checks` (so the caller can map a violation back to its
+    /// [`Check`]). Unlike the stateful bindings, there is no constructor-level
+    /// "default checks" set to merge — pass the full list here.
+    ///
+    /// # Errors
+    /// [`Error::Validation`] if a formula is invalid, or [`Error::Core`] if the
+    /// core rejects the set (e.g. no DBC loaded).
+    pub fn add_checks(&self, checks: &[Check]) -> Result<(), Error> {
+        let formulas: Vec<Formula> = checks.iter().map(|c| c.formula().clone()).collect();
+        self.set_properties(&formulas)
     }
 
     /// Begin the monitoring stream (binary FFI).
