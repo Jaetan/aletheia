@@ -16,10 +16,12 @@ verification hot path**: validated value types (`CanId` / `Dlc` / `Rational` /
 the core's exact wire shape, DBC text parse, property binding, binary-FFI frame
 streaming, signal extraction, and send-error / send-remote — **plus the full
 typed DBC document model (Slice R1 ✅ complete 2026-06-17, PRs #53/#54/#55; see
-`memory/project_rust_parity_r1.md`)**. That is **22 of 40**
-`docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust` column.
+`memory/project_rust_parity_r1.md`) and frame construction (Slice R2 ✅ complete
+2026-06-18, #57 — `build_frame`/`update_frame`/`send_frames` + mux extraction)**.
+That is **26 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
+column.
 
-The remaining **18 `planned`** rows: **15** in this plan (slices **R2–R5**), and
+The remaining **14 `planned`** rows: **11** in this plan (slices **R3–R5**), and
 **3** carved out to **Phase 6** (below).
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
@@ -35,7 +37,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (26 rows — R1's 11 ✅ done; 15 remain in R2–R5)
+## The slices (26 rows — R1's 11 + R2's 4 ✅ done; 11 remain in R3–R5)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
@@ -56,7 +58,7 @@ value-description / sender metadata accessors, and the mux / lookup queries.
 - **Effort:** large — the struct family + serde mapping + ~11 client methods +
   per-row matrix flips + roundtrip tests against the shared `dbc_corpus`.
 
-### Slice R2 — Frame construction / binary endpoints (4 rows)
+### Slice R2 — Frame construction / binary endpoints (4 rows) — ✅ DONE 2026-06-18 (#57)
 
 Rows: `build_frame` (`build_frame_bin`), `update_frame` (`update_frame_bin`),
 `mux_extraction`, `batch_frame_send`.
