@@ -39,7 +39,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (28 rows — R1's 11 + R2's 4 + R3a's 2 ✅ done; 9 remain in R3b/R3c + R4–R5)
+## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 ✅ done = 17; 9 remain in R3b/R3c + R4–R5)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
