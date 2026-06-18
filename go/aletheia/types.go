@@ -70,8 +70,8 @@ func RationalFromFloat(v float64) Rational {
 // and returns an error for NaN, ±Inf, or values that overflow int64
 // when scaled.  Mirrors [strconv.ParseFloat]'s error-returning shape;
 // use this at user-input boundaries (e.g. Excel-loaded checks) where
-// silent clamping would mask data entry mistakes.  See
-// [RationalFromFloat] for the error-swallowing convenience form used
+// silently mishandling a bad value would mask data entry mistakes.  See
+// [RationalFromFloat] for the panic-on-invalid convenience form used
 // for compile-time literals.
 //
 // Integer-valued floats get the exact “n/1“ form (matching

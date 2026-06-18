@@ -110,9 +110,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
-- **BREAKING (Go): the check-builder value methods now return `(CheckResult, error)`
+- **BREAKING (Go).** The check-builder value methods now return `(CheckResult, error)`
   and reject non-finite / overflowing values instead of silently clamping them to
-  `0/1`.** `CheckSignalBuilder.NeverExceeds` / `NeverBelow` / `NeverEquals` and
+  `0/1`. `CheckSignalBuilder.NeverExceeds` / `NeverBelow` / `NeverEquals` and
   `CheckSignalPredicate.Always` previously returned a bare `CheckResult` and routed
   their value through the clamping `RationalFromFloat`, so a `NaN` / `±Inf` /
   int64-overflowing value produced a silent `0/1` predicate — a cross-binding
