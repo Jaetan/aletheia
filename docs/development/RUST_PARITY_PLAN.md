@@ -16,13 +16,15 @@ verification hot path**: validated value types (`CanId` / `Dlc` / `Rational` /
 the core's exact wire shape, DBC text parse, property binding, binary-FFI frame
 streaming, signal extraction, and send-error / send-remote — **plus the full
 typed DBC document model (Slice R1 ✅ complete 2026-06-17, PRs #53/#54/#55; see
-`memory/project_rust_parity_r1.md`) and frame construction (Slice R2 ✅ complete
-2026-06-18, #57 — `build_frame`/`update_frame`/`send_frames` + mux extraction)**.
-That is **26 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
+`memory/project_rust_parity_r1.md`), frame construction (Slice R2 ✅ complete
+2026-06-18, #57 — `build_frame`/`update_frame`/`send_frames` + mux extraction),
+and the fluent check DSL (Slice R3a ✅ complete 2026-06-18, #59 —
+`check::signal`/`check::when` → LTL formulas + `Client::add_checks`)**.
+That is **28 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
 column.
 
-The remaining **14 `planned`** rows: **11** in this plan (slices **R3–R5**), and
-**3** carved out to **Phase 6** (below).
+The remaining **12 `planned`** rows: **9** in this plan (the rest of slice
+**R3** plus **R4–R5**), and **3** carved out to **Phase 6** (below).
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
 
@@ -37,7 +39,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (26 rows — R1's 11 + R2's 4 ✅ done; 11 remain in R3–R5)
+## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 ✅ done = 17; 9 remain in R3b/R3c + R4–R5)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
@@ -72,15 +74,33 @@ the extraction path already done — plus multiplexed extraction and batched sen
 
 ### Slice R3 — Higher-level Check interface tier (4 rows)
 
-Rows: `check_dsl`, `add_checks`, `yaml_check_loader`, `excel_check_loader`.
+Rows: `check_dsl`, `add_checks` (**R3a ✅ done 2026-06-18, #59**),
+`yaml_check_loader` (**R3b — remaining**), `excel_check_loader`
+(**R3c — remaining**).
 
 The fluent Check builder, runtime check attachment, and the YAML / Excel
 loaders — the "engineers / CI / technicians" tiers above the raw LTL DSL.
 
+- **R3a ✅ (#59)** — `rust/src/check.rs`: fluent `check::signal`/`check::when`
+  builders compiling domain checks to LTL `Formula`s + display metadata
+  (`Check` with name/severity/condition), bound by `Client::add_checks`. Same
+  features as the Go/Python check builders, presented the idiomatic Rust way
+  (`impl Into<Rational>` + `From<i64>`, `u64` ms so negative time is
+  unrepresentable, `Result` range/overflow guards); raw LTL combinators stay on
+  `Formula`. `settles_between → MetricAlways` (= Go `AlwaysWithin` = Python
+  `for_at_least`, verified). Flips `check_dsl` / `add_checks`.
+- **R3b — `yaml_check_loader`** (remaining): `load_checks_from_yaml(&str) ->
+  Result<Vec<Check>>` behind an optional `yaml` cargo feature (promote the
+  current `yaml-rust2` dev-dep to an optional runtime dep). The YAML schema MUST
+  match Python `load_checks` / Go `LoadChecksFromYAML` for cross-binding file
+  portability. Peer: `python/aletheia/yaml_loader.py`.
+- **R3c — `excel_check_loader`** (remaining): a *separate optional crate*
+  `rust/excel/` mirroring Go's `go/excel/` split — `load_checks_from_excel`,
+  `load_dbc_from_excel`, `create_template`; pulls a Rust `.xlsx` crate (calamine
+  read + a writer for the template). Format MUST match Python `excel_loader.py` /
+  Go `excel:LoadChecks`.
 - **Dependency:** R1 (the Check DSL references the typed DBC signal model) —
-  confirm before starting.
-- **Effort:** medium-large — the Excel loader likely pulls a Rust `.xlsx` crate
-  as a *separate optional module*, mirroring Go's `go/excel/` split.
+  confirmed (R3a built on it).
 
 ### Slice R4 — Ergonomics & runtime infra (5 rows)
 
@@ -130,7 +150,7 @@ parity gates passing. Any row that resolves `not_applicable` records a reason
 ## References
 
 - `docs/FEATURE_MATRIX.yaml` — authoritative `rust`-column status (the 26
-  in-scope `planned` rows; the 3 Phase-6 rows note their deferral inline).
+  in-scope rows across slices R1–R5; the 3 Phase-6 rows note their deferral inline).
 - [PARITY_PLAN.md](PARITY_PLAN.md) — cross-binding parity rules ("behavioral,
   not syntactic"; one row per capability).
 - [PROJECT_STATUS.md](../../PROJECT_STATUS.md) § Phase 6 — the Rust binding's
