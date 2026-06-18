@@ -170,6 +170,15 @@ impl Rational {
     }
 }
 
+/// An integer is always a valid rational (`n / 1`) — the ergonomic input for the
+/// check DSL (`signal("x").never_exceeds(1000)`). Fractions go through the
+/// fallible [`Rational::new`], so there is no panicking `From` for them.
+impl From<i64> for Rational {
+    fn from(n: i64) -> Self {
+        Rational::integer(n)
+    }
+}
+
 /// A trace timestamp in microseconds since the start of the stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp(pub u64);

@@ -12,6 +12,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust check DSL (`rust/`, Rust-parity Slice R3a) — a fluent `check` module that
+  compiles domain-friendly checks to LTL `Formula`s plus display metadata:
+  `check::signal("Speed").never_exceeds(120)` (+ `never_below`/`stays_between`/
+  `never_equals`/`equals().always()`/`settles_between().within()`) and the causal
+  `check::when("Brake").exceeds(50).then("Light").equals(1).within(100)`. Numeric
+  values take `impl Into<Rational>` (an `i64` literal works directly; fractions via
+  `Rational::new`). `Check` carries `name`/`severity`/`condition_desc` metadata
+  (`named`/`with_severity`, immutable). `Client::add_checks(&[Check])` binds the
+  checks' formulas (the verdict `property_index` is the check's position; metadata
+  stays client-side). The raw LTL combinators remain on `Formula` for power users.
+  Flips the `check_dsl` / `add_checks` `rust` rows to `implemented` (rust 28/40);
+  the YAML / Excel check loaders are R3b / R3c.
 - Rust frame construction (`rust/`, Rust-parity Slice R2) — `Client::build_frame`
   and `Client::update_frame` encode named signal values into a CAN payload via the
   binary build/update FFI (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`);
