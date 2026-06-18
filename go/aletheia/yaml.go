@@ -252,7 +252,7 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'equals' requires 'value'", name))
 		}
-		return CheckSignal(entry.Signal).Equals(PhysicalValue(*entry.Value)).Always(), nil
+		return CheckSignal(entry.Signal).Equals(PhysicalValue(*entry.Value)).Always()
 	}
 
 	return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))

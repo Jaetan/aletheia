@@ -17,6 +17,17 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+// mustCheck panics if a check builder returned an error, else returns the
+// CheckResult — for sites where the value is known-valid and only the formula
+// is under test. Takes the builder's (CheckResult, error) pair directly so a
+// builder call spreads into it.
+func mustCheck(r aletheia.CheckResult, err error) aletheia.CheckResult {
+	if err != nil {
+		panic("unexpected check-builder error: " + err.Error())
+	}
+	return r
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -134,7 +145,7 @@ func TestLoadExcelNeverExceeds(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(aletheia.CheckSignal("Speed").NeverExceeds(220).Formula())
+	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula())
 	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -152,7 +163,7 @@ func TestLoadExcelNeverBelow(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(aletheia.CheckSignal("Voltage").NeverBelow(11.5).Formula())
+	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Voltage").NeverBelow(11.5)).Formula())
 	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -192,7 +203,7 @@ func TestLoadExcelNeverEquals(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(aletheia.CheckSignal("ErrorCode").NeverEquals(255).Formula())
+	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("ErrorCode").NeverEquals(255)).Formula())
 	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -210,7 +221,7 @@ func TestLoadExcelEqualsAlways(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(aletheia.CheckSignal("Gear").Equals(0).Always().Formula())
+	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Gear").Equals(0).Always()).Formula())
 	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -828,6 +839,19 @@ func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
 	requireErrorContains(t, err, "missing or invalid 'Value'")
 }
 
+// TestLoadExcelRejectsOverflowValue is the Excel-side regression for the
+// silent-clamp bug: a value that overflows int64 when scaled to a rational must
+// make the loader FAIL (it dispatches through the same check builders as the
+// YAML loader), not silently clamp to 0/1. (NaN / ±Inf are not representable in
+// .xlsx number cells, so the overflow path is the reachable Excel case.)
+func TestLoadExcelRejectsOverflowValue(t *testing.T) {
+	path := makeChecksWorkbook(t, [][]any{
+		{nil, "Speed", "never_exceeds", 9999999999.5, nil, nil, nil, nil},
+	})
+	_, err := LoadChecks(path)
+	requireErrorContains(t, err, "overflows int64")
+}
+
 func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Voltage", "stays_between", nil, nil, 14.5, nil, nil},
@@ -973,7 +997,7 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
 	// First is simple check, second is when/then.
-	want0 := aletheia.FormatFormula(aletheia.CheckSignal("Speed").NeverExceeds(220).Formula())
+	want0 := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula())
 	got0 := aletheia.FormatFormula(checks[0].Formula())
 	if got0 != want0 {
 		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)

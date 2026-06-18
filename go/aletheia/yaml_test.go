@@ -26,7 +26,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Speed").NeverExceeds(220).Formula())
+	want := FormatFormula(mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -46,7 +46,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Voltage").NeverBelow(11.5).Formula())
+	want := FormatFormula(mustCheck(CheckSignal("Voltage").NeverBelow(11.5)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -91,7 +91,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("ErrorCode").NeverEquals(255).Formula())
+	want := FormatFormula(mustCheck(CheckSignal("ErrorCode").NeverEquals(255)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -111,7 +111,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Gear").Equals(0).Always().Formula())
+	want := FormatFormula(mustCheck(CheckSignal("Gear").Equals(0).Always()).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -158,7 +158,7 @@ checks:
 	if len(checks) != 2 {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
-	want0 := FormatFormula(CheckSignal("Speed").NeverExceeds(220).Formula())
+	want0 := FormatFormula(mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula())
 	got0 := FormatFormula(checks[0].Formula())
 	if got0 != want0 {
 		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)
@@ -383,7 +383,7 @@ func TestLoadYAMLFromFile(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Speed").NeverExceeds(220).Formula())
+	want := FormatFormula(mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -475,6 +475,44 @@ checks:
     condition: never_exceeds
 `)
 	requireErrorContains(t, err, "requires 'value'")
+}
+
+// TestLoadYAMLRejectsNonFiniteValue is the regression test for the silent-clamp
+// bug: a NaN / ±Inf / int64-overflowing value in a check file must make the
+// loader FAIL (matching the Python and C++ loaders), not silently clamp to 0/1.
+// Covers the simple, settles, and when/then dispatch paths — yaml.v3 parses
+// `.nan` / `.inf` into NaN / +Inf float64s, which the builders then reject.
+func TestLoadYAMLRejectsNonFiniteValue(t *testing.T) {
+	cases := []struct {
+		name, yaml, want string
+	}{
+		{
+			name: "simple NaN",
+			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n",
+			want: "cannot convert NaN to rational",
+		},
+		{
+			name: "simple overflow",
+			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 9999999999.5\n",
+			want: "overflows int64",
+		},
+		{
+			name: "settles Inf bound",
+			yaml: "checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_ms: 100\n",
+			want: "cannot convert +Inf to rational",
+		},
+		{
+			name: "when-clause NaN",
+			yaml: "checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: .nan\n    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+			want: "cannot convert NaN to rational",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadChecksFromYAML(tc.yaml)
+			requireErrorContains(t, err, tc.want)
+		})
+	}
 }
 
 func TestLoadYAMLStaysBetweenMissingRange(t *testing.T) {

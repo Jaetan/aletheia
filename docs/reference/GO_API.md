@@ -63,13 +63,15 @@ and the loader search order are covered in the
 
 `aletheia.CheckSignal(name)` builds a property from a fluent, plain-English
 condition — the recommended starting point (no LTL knowledge required). Each
-terminal returns a `CheckResult` you register with `AddChecks`. `PhysicalValue`
-is a `float64`, so numeric literals work directly:
+terminal returns a `(CheckResult, error)`; the error guards against a malformed
+value (NaN / ±∞ / int64 overflow when scaled to a rational), matching the Python
+and C++ bindings rather than silently clamping. Register the `CheckResult` with
+`AddChecks`. `PhysicalValue` is a `float64`, so numeric literals work directly:
 
 ```go
-speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(220)
-coolant, _ := aletheia.CheckSignal("Coolant").StaysBetween(80, 105) // (CheckResult, error)
-gear := aletheia.CheckSignal("Gear").NeverEquals(-1)
+speedLimit, _ := aletheia.CheckSignal("Speed").NeverExceeds(220) // (CheckResult, error)
+coolant, _ := aletheia.CheckSignal("Coolant").StaysBetween(80, 105)
+gear, _ := aletheia.CheckSignal("Gear").NeverEquals(-1)
 _, _, _ = speedLimit, coolant, gear
 ```
 
@@ -164,9 +166,11 @@ BO_ 256 Engine: 8 ECU
         return
     }
 
-    checks := []aletheia.CheckResult{
-        aletheia.CheckSignal("Speed").NeverExceeds(220),
+    speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(220)
+    if err != nil {
+        return
     }
+    checks := []aletheia.CheckResult{speedLimit}
     if err := client.AddChecks(ctx, checks); err != nil {
         return
     }

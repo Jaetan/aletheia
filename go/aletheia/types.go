@@ -47,34 +47,32 @@ func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 
 // RationalFromFloat converts a float64 to a [Rational] via 10^9 scaling.
 // Integer-valued floats get the exact “n/1“ form; non-integer floats
 // fall through to ~9 decimal-digit (≈ ppb) precision shared with the
-// FFI signal-value path.  NaN and ±Inf clamp to “0/1“.
+// FFI signal-value path.
 //
-// Use this for predicate construction when the user-facing value is a
-// float (“Equals{Value: aletheia.RationalFromFloat(11.5)}“); for
-// exact-precision use cases prefer “Rational{Numerator: 23, Denominator: 2}“.
-// For inputs that may overflow or be invalid (e.g. spreadsheet cells),
-// see [FloatToRational] which returns an error instead of clamping.
+// It PANICS on NaN, ±Inf, or a value that overflows int64 when scaled — these
+// are programmer errors in the intended use: manual predicate construction with
+// compile-time literals (“Equals{Value: aletheia.RationalFromFloat(11.5)}“),
+// where the input is known-good (this is the [regexp.MustCompile] convention).
+// For exact-precision use prefer “Rational{Numerator: 23, Denominator: 2}“.
+// For runtime / user-supplied inputs that may be invalid (e.g. YAML- or
+// Excel-loaded checks) use [FloatToRational], which returns an error instead of
+// panicking — the check builders ([CheckSignalBuilder] etc.) funnel through it
+// for exactly this reason.
 func RationalFromFloat(v float64) Rational {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return Rational{Numerator: 0, Denominator: 1}
-	}
-	if v == math.Trunc(v) && v >= math.MinInt64 && v <= math.MaxInt64 {
-		return Rational{Numerator: int64(v), Denominator: 1}
-	}
-	n, d, err := floatToRational(v)
+	r, err := FloatToRational(v)
 	if err != nil {
-		return Rational{Numerator: 0, Denominator: 1}
+		panic("RationalFromFloat: " + err.Error())
 	}
-	return Rational{Numerator: n, Denominator: d}
+	return r
 }
 
 // FloatToRational converts a float64 to a [Rational] via 10^9 scaling
 // and returns an error for NaN, ±Inf, or values that overflow int64
 // when scaled.  Mirrors [strconv.ParseFloat]'s error-returning shape;
 // use this at user-input boundaries (e.g. Excel-loaded checks) where
-// silent clamping would mask data entry mistakes.  See
-// [RationalFromFloat] for the error-swallowing convenience form used
-// in predicate construction.
+// silently mishandling a bad value would mask data entry mistakes.  See
+// [RationalFromFloat] for the panic-on-invalid convenience form used
+// for compile-time literals.
 //
 // Integer-valued floats get the exact “n/1“ form (matching
 // [RationalFromFloat]); non-integer floats produce ~9 decimal-digit
@@ -92,12 +90,6 @@ func FloatToRational(v float64) (Rational, error) {
 	}
 	return Rational{Numerator: n, Denominator: d}, nil
 }
-
-// physicalAsRational is the [PhysicalValue]-typed alias for
-// [RationalFromFloat] used at the [CheckSignal] / [CheckWhen] builder
-// boundary where the public API still accepts “PhysicalValue“ for
-// ergonomics.
-func physicalAsRational(v PhysicalValue) Rational { return RationalFromFloat(float64(v)) }
 
 // Timestamp is a point in time, measured in microseconds since trace start.
 type Timestamp struct {
