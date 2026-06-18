@@ -220,6 +220,19 @@ fn frame_len(data: &[u8]) -> Result<u8, Error> {
     Ok(data.len() as u8) // guarded above: <= 64 fits u8
 }
 
+/// Require a payload's length to match its declared DLC exactly — the CAN
+/// invariant every data-bearing op enforces (mirrors Go `validatePayload`).
+fn validate_frame_len(dlc: Dlc, data: &[u8]) -> Result<(), Error> {
+    let expected = dlc.to_bytes();
+    if data.len() != expected {
+        return Err(Error::Validation(format!(
+            "payload length {} does not match DLC ({expected} bytes expected)",
+            data.len()
+        )));
+    }
+    Ok(())
+}
+
 /// One frame for batch submission via [`Client::send_frames`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
@@ -487,6 +500,7 @@ impl Client {
         brs: Option<bool>,
         esi: Option<bool>,
     ) -> Result<FrameResponse, Error> {
+        validate_frame_len(dlc, data)?;
         let len = frame_len(data)?;
         let ext = u8::from(id.is_extended());
         let (brs_p, brs_v) = encode_opt_bool(brs);
@@ -562,6 +576,7 @@ impl Client {
         dlc: Dlc,
         data: &[u8],
     ) -> Result<ExtractionResult, Error> {
+        validate_frame_len(dlc, data)?;
         let len = frame_len(data)?;
         let ext = u8::from(id.is_extended());
         let raw = self.invoke(|lib| {
@@ -581,15 +596,17 @@ impl Client {
     }
 
     /// Build a CAN frame payload from named signal values (zero-filled base).
-    /// `message` is the typed message from a parsed [`Dbc`]
-    /// ([`Dbc::message_by_id`]); each [`SignalValue`] names a signal of that
-    /// message and the exact value to encode. Requires the DBC loaded in the core
-    /// (a prior `parse_dbc_text` / `parse_dbc`); does not need `start_stream`.
+    /// `message` **must come from a [`Dbc`] this client parsed**
+    /// ([`Dbc::message_by_id`] on the result of `parse_dbc_text` / `parse_dbc`):
+    /// signal injections are resolved to positional indices in `message.signals`,
+    /// which the core matches against the DBC currently loaded in its state, so the
+    /// two must be the same definition. Each [`SignalValue`] names a signal of that
+    /// message and the exact value to encode. Does not need `start_stream`.
     ///
     /// # Errors
-    /// [`Error::Validation`] if a signal name is not in `message`;
-    /// [`Error::Protocol`] if the core rejects a value (out of range / not
-    /// representable at the signal's scale).
+    /// [`Error::Validation`] if a signal name is not in `message` or there are more
+    /// injections than `u32::MAX`; [`Error::Protocol`] if the core rejects a value
+    /// (out of range / not representable at the signal's scale).
     pub fn build_frame(
         &self,
         message: &DbcMessage,
@@ -597,6 +614,8 @@ impl Client {
         signals: &[SignalValue],
     ) -> Result<Vec<u8>, Error> {
         let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
+        let num_signals = u32::try_from(indices.len())
+            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
         let mut out = vec![0u8; dlc.to_bytes()];
         let lib = library()?;
         let build = unsafe { symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0") }?;
@@ -616,7 +635,7 @@ impl Client {
                 message.id,
                 u8::from(message.extended),
                 dlc.value(),
-                indices.len() as u32,
+                num_signals,
                 slice_ptr(&indices),
                 slice_ptr(&nums),
                 slice_ptr(&dens),
@@ -633,8 +652,9 @@ impl Client {
     /// `message` / `signals` contract.
     ///
     /// # Errors
-    /// [`Error::Validation`] for an unknown signal or a `frame` longer than the
-    /// CAN-FD maximum; [`Error::Protocol`] if the core rejects the update.
+    /// [`Error::Validation`] for an unknown signal, more than `u32::MAX`
+    /// injections, or a `frame` whose length does not match `dlc`;
+    /// [`Error::Protocol`] if the core rejects the update.
     pub fn update_frame(
         &self,
         message: &DbcMessage,
@@ -642,8 +662,11 @@ impl Client {
         frame: &[u8],
         signals: &[SignalValue],
     ) -> Result<Vec<u8>, Error> {
+        validate_frame_len(dlc, frame)?;
         let frame_n = frame_len(frame)?;
         let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
+        let num_signals = u32::try_from(indices.len())
+            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
         let mut out = vec![0u8; dlc.to_bytes()];
         let lib = library()?;
         let update = unsafe { symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0") }?;
@@ -664,7 +687,7 @@ impl Client {
                 dlc.value(),
                 slice_ptr(frame),
                 frame_n,
-                indices.len() as u32,
+                num_signals,
                 slice_ptr(&indices),
                 slice_ptr(&nums),
                 slice_ptr(&dens),
@@ -676,12 +699,15 @@ impl Client {
         Ok(out)
     }
 
-    /// Send a batch of frames in one call, amortizing per-call overhead. Returns
+    /// Send a batch of frames as a single call (a caller-side convenience over
+    /// looping [`Client::send_frame`] — each frame is still one FFI call; there
+    /// is no per-call lock to amortize as in the lock-guarded bindings). Returns
     /// the [`FrameResponse`]s for every frame processed, plus the first transport
     /// error if one stopped the batch early (`None` ⇒ all sent). Frames before a
     /// failure were processed and advanced the stream — the partial results carry
-    /// their verdicts (the idiomatic-Rust analogue of the other bindings' batch
-    /// send, which return `(results, error)`).
+    /// their verdicts (the idiomatic-Rust analogue of the other bindings'
+    /// `(results, error)` batch send). Each frame is validated like `send_frame`
+    /// (payload length must match its DLC).
     #[must_use]
     pub fn send_frames(&self, frames: &[Frame]) -> (Vec<FrameResponse>, Option<Error>) {
         let mut out = Vec::with_capacity(frames.len());

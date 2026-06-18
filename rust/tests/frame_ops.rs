@@ -227,3 +227,23 @@ fn build_frame_with_no_signals_is_zero_filled() {
         .expect("build_frame");
     assert_eq!(bytes, vec![0u8; 8]);
 }
+
+#[test]
+fn payload_length_must_match_dlc() {
+    // The data-length-vs-DLC invariant is enforced before the FFI (Copilot review).
+    let c = client();
+    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let id = CanId::standard(256).expect("id");
+    let msg = dbc.message_by_id(id).expect("EngineStatus");
+    let dlc = Dlc::new(8).expect("dlc");
+    let short = [0u8; 4]; // 4 bytes for an 8-byte DLC
+    assert!(
+        c.extract_signals(id, dlc, &short).is_err(),
+        "extract_signals must reject a length/DLC mismatch"
+    );
+    assert!(
+        c.update_frame(msg, dlc, &short, &[sv("EngineSpeed", 100, 1)])
+            .is_err(),
+        "update_frame must reject a length/DLC mismatch"
+    );
+}
