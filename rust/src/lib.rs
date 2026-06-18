@@ -75,6 +75,36 @@ type SendErrorFn = unsafe extern "C" fn(StateHandle, u64) -> *mut c_char;
 type SendRemoteFn = unsafe extern "C" fn(StateHandle, u64, u32, u8) -> *mut c_char;
 type StreamLifecycleFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
 type ExtractFn = unsafe extern "C" fn(StateHandle, u32, u8, u8, *const u8, u8) -> *mut c_char;
+// Build/update use an output-buffer convention: the caller allocates `out_buf`
+// (`dlc` bytes), passes the parallel (indices, nums, dens) signal arrays, and
+// reads an `i8` status — nonzero means failure, with the message in `out_err`
+// (a GHC-allocated CString the caller frees via `aletheia_free_str`).
+type BuildFrameFn = unsafe extern "C" fn(
+    StateHandle,
+    u32, // canId
+    u8,  // extended
+    u8,  // dlc
+    u32, // numSignals
+    *const u32,
+    *const i64,
+    *const i64,
+    *mut u8,          // out_buf (dlc bytes)
+    *mut *mut c_char, // out_err
+) -> i8;
+type UpdateFrameFn = unsafe extern "C" fn(
+    StateHandle,
+    u32,
+    u8,
+    u8,
+    *const u8, // existing frame
+    u8,        // frame len
+    u32,
+    *const u32,
+    *const i64,
+    *const i64,
+    *mut u8,
+    *mut *mut c_char,
+) -> i8;
 
 /// Resolve the shared-library path: the `ALETHEIA_LIB` override, else the
 /// conventional name (resolved by the dynamic loader's search path).
@@ -188,6 +218,105 @@ fn frame_len(data: &[u8]) -> Result<u8, Error> {
         )));
     }
     Ok(data.len() as u8) // guarded above: <= 64 fits u8
+}
+
+/// Require a payload's length to match its declared DLC exactly — the CAN
+/// invariant every data-bearing op enforces (mirrors Go `validatePayload`).
+fn validate_frame_len(dlc: Dlc, data: &[u8]) -> Result<(), Error> {
+    let expected = dlc.to_bytes();
+    if data.len() != expected {
+        return Err(Error::Validation(format!(
+            "payload length {} does not match DLC ({expected} bytes expected)",
+            data.len()
+        )));
+    }
+    Ok(())
+}
+
+/// One frame for batch submission via [`Client::send_frames`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Frame {
+    /// Timestamp (µs since stream start).
+    pub timestamp: Timestamp,
+    /// CAN identifier.
+    pub id: CanId,
+    /// Declared data length.
+    pub dlc: Dlc,
+    /// Payload bytes.
+    pub data: Vec<u8>,
+    /// CAN-FD bit-rate-switch bit (`None` ⇒ CAN 2.0B).
+    pub brs: Option<bool>,
+    /// CAN-FD error-state-indicator bit.
+    pub esi: Option<bool>,
+}
+
+/// The parallel `(indices, numerators, denominators)` arrays the build/update
+/// FFI expects for a set of signal injections.
+type SignalArrays = (Vec<u32>, Vec<i64>, Vec<i64>);
+
+/// Resolve `(name, value)` signal injections against a message's signal list to
+/// the parallel arrays the build/update FFI expects. The index is the signal's
+/// position in `message.signals`.
+fn resolve_signal_indices(
+    message: &DbcMessage,
+    signals: &[SignalValue],
+) -> Result<SignalArrays, Error> {
+    let mut indices = Vec::with_capacity(signals.len());
+    let mut nums = Vec::with_capacity(signals.len());
+    let mut dens = Vec::with_capacity(signals.len());
+    for sv in signals {
+        let pos = message
+            .signals
+            .iter()
+            .position(|s| s.name == sv.name)
+            .ok_or_else(|| {
+                Error::Validation(format!(
+                    "unknown signal {:?} for message {:?}",
+                    sv.name, message.name
+                ))
+            })?;
+        indices.push(
+            u32::try_from(pos)
+                .map_err(|_| Error::Validation(format!("signal index {pos} out of range")))?,
+        );
+        nums.push(sv.value.numerator());
+        dens.push(sv.value.denominator());
+    }
+    Ok((indices, nums, dens))
+}
+
+/// Null pointer for an empty slice (the FFI must not deref a zero-length array),
+/// else the slice's data pointer.
+fn slice_ptr<T>(s: &[T]) -> *const T {
+    if s.is_empty() {
+        std::ptr::null()
+    } else {
+        s.as_ptr()
+    }
+}
+
+/// Interpret a build/update FFI status: nonzero ⇒ read and free `out_err`.
+fn check_buffer_status(
+    status: i8,
+    out_err: *mut c_char,
+    free_str: &Symbol<unsafe extern "C" fn(*mut c_char)>,
+    op: &str,
+) -> Result<(), Error> {
+    if status == 0 {
+        return Ok(());
+    }
+    if out_err.is_null() {
+        return Err(Error::Protocol(format!(
+            "{op}: status {status} with null error message"
+        )));
+    }
+    // SAFETY: a nonzero status with non-null `out_err` is a GHC-allocated C
+    // string; copy it out, then release it with the core's deallocator.
+    let msg = unsafe { CStr::from_ptr(out_err) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { free_str(out_err) };
+    Err(Error::Protocol(format!("{op}: {msg}")))
 }
 
 /// A client over one `StreamState` in the verified core.
@@ -371,6 +500,7 @@ impl Client {
         brs: Option<bool>,
         esi: Option<bool>,
     ) -> Result<FrameResponse, Error> {
+        validate_frame_len(dlc, data)?;
         let len = frame_len(data)?;
         let ext = u8::from(id.is_extended());
         let (brs_p, brs_v) = encode_opt_bool(brs);
@@ -446,6 +576,7 @@ impl Client {
         dlc: Dlc,
         data: &[u8],
     ) -> Result<ExtractionResult, Error> {
+        validate_frame_len(dlc, data)?;
         let len = frame_len(data)?;
         let ext = u8::from(id.is_extended());
         let raw = self.invoke(|lib| {
@@ -462,6 +593,131 @@ impl Client {
             })
         })?;
         response::decode_extraction(&raw)
+    }
+
+    /// Build a CAN frame payload from named signal values (zero-filled base).
+    /// `message` **must come from a [`Dbc`] this client parsed**
+    /// ([`Dbc::message_by_id`] on the result of `parse_dbc_text` / `parse_dbc`):
+    /// signal injections are resolved to positional indices in `message.signals`,
+    /// which the core matches against the DBC currently loaded in its state, so the
+    /// two must be the same definition. Each [`SignalValue`] names a signal of that
+    /// message and the exact value to encode. Does not need `start_stream`.
+    ///
+    /// # Errors
+    /// [`Error::Validation`] if a signal name is not in `message` or there are more
+    /// injections than `u32::MAX`; [`Error::Protocol`] if the core rejects a value
+    /// (out of range / not representable at the signal's scale).
+    pub fn build_frame(
+        &self,
+        message: &DbcMessage,
+        dlc: Dlc,
+        signals: &[SignalValue],
+    ) -> Result<Vec<u8>, Error> {
+        let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
+        let num_signals = u32::try_from(indices.len())
+            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
+        let mut out = vec![0u8; dlc.to_bytes()];
+        let lib = library()?;
+        let build = unsafe { symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0") }?;
+        let free_str =
+            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+        let mut out_err: *mut c_char = std::ptr::null_mut();
+        let out_ptr = if out.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            out.as_mut_ptr()
+        };
+        // SAFETY: `out` is `dlc.to_bytes()` long (what the core writes); the
+        // parallel arrays all share `indices.len()`; `out_err` is an out-param.
+        let status = unsafe {
+            build(
+                self.handle,
+                message.id,
+                u8::from(message.extended),
+                dlc.value(),
+                num_signals,
+                slice_ptr(&indices),
+                slice_ptr(&nums),
+                slice_ptr(&dens),
+                out_ptr,
+                &mut out_err,
+            )
+        };
+        check_buffer_status(status, out_err, &free_str, "build_frame")?;
+        Ok(out)
+    }
+
+    /// Update specific signals inside an existing frame payload, returning a new
+    /// payload (the input is not mutated). See [`Client::build_frame`] for the
+    /// `message` / `signals` contract.
+    ///
+    /// # Errors
+    /// [`Error::Validation`] for an unknown signal, more than `u32::MAX`
+    /// injections, or a `frame` whose length does not match `dlc`;
+    /// [`Error::Protocol`] if the core rejects the update.
+    pub fn update_frame(
+        &self,
+        message: &DbcMessage,
+        dlc: Dlc,
+        frame: &[u8],
+        signals: &[SignalValue],
+    ) -> Result<Vec<u8>, Error> {
+        validate_frame_len(dlc, frame)?;
+        let frame_n = frame_len(frame)?;
+        let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
+        let num_signals = u32::try_from(indices.len())
+            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
+        let mut out = vec![0u8; dlc.to_bytes()];
+        let lib = library()?;
+        let update = unsafe { symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0") }?;
+        let free_str =
+            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+        let mut out_err: *mut c_char = std::ptr::null_mut();
+        let out_ptr = if out.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            out.as_mut_ptr()
+        };
+        // SAFETY: as `build_frame`, plus `frame`/`frame_n` describe the input bytes.
+        let status = unsafe {
+            update(
+                self.handle,
+                message.id,
+                u8::from(message.extended),
+                dlc.value(),
+                slice_ptr(frame),
+                frame_n,
+                num_signals,
+                slice_ptr(&indices),
+                slice_ptr(&nums),
+                slice_ptr(&dens),
+                out_ptr,
+                &mut out_err,
+            )
+        };
+        check_buffer_status(status, out_err, &free_str, "update_frame")?;
+        Ok(out)
+    }
+
+    /// Send a batch of frames as a single call (a caller-side convenience over
+    /// looping [`Client::send_frame`] — each frame is still one FFI call; there
+    /// is no per-call lock to amortize as in the lock-guarded bindings). Returns
+    /// the [`FrameResponse`]s for every frame processed, plus the first transport
+    /// error if one stopped the batch early (`None` ⇒ all sent). Frames before a
+    /// failure were processed and advanced the stream — the partial results carry
+    /// their verdicts (the idiomatic-Rust analogue of the other bindings'
+    /// `(results, error)` batch send). Each frame is validated like `send_frame`
+    /// (payload length must match its DLC).
+    #[must_use]
+    pub fn send_frames(&self, frames: &[Frame]) -> (Vec<FrameResponse>, Option<Error>) {
+        let mut out = Vec::with_capacity(frames.len());
+        for f in frames {
+            match self.send_frame(f.timestamp, f.id, f.dlc, &f.data, f.brs, f.esi) {
+                Ok(resp) => out.push(resp),
+                Err(e) => return (out, Some(e)),
+            }
+        }
+        (out, None)
     }
 
     /// Resolve `aletheia_free_str` up front, run `call` to obtain a GHC-allocated

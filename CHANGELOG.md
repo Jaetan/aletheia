@@ -12,6 +12,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust frame construction (`rust/`, Rust-parity Slice R2) — `Client::build_frame`
+  and `Client::update_frame` encode named signal values into a CAN payload via the
+  binary build/update FFI (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`);
+  they take a typed `&DbcMessage` (from a parsed `Dbc`) and resolve signal
+  names→indices against it — the idiomatic-Rust surface (no hidden client-side DBC
+  cache, unlike the stateful peers) for the same capability. Adds
+  `Client::send_frames(&[Frame])` for batch submission, returning
+  `(Vec<FrameResponse>, Option<Error>)` — all responses processed plus the first
+  transport error if it stopped early (partial results preserved). `extract_signals`
+  is confirmed mux-aware (the core selects mux-dependent signals by the frame's mux
+  value). Flips the `build_frame` / `update_frame` / `mux_extraction` /
+  `batch_frame_send` `rust` rows to `implemented` (rust now 26/40).
 - Rust DBC serialize side (`rust/`, Rust-parity Slice R1, write side — **completes
   R1**) — `Client::parse_dbc` (load a typed `Dbc` via the JSON path),
   `Client::validate_dbc` (→ `ValidationResult { has_errors, issues }`), and
