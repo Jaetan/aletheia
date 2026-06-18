@@ -85,11 +85,16 @@ fn add_checks_holds_for_a_conforming_frame() {
     let resp = c
         .send_frame(Timestamp(0), id, dlc, &frame, None, None)
         .expect("send frame");
-    if let FrameResponse::Verdicts(results) = resp {
-        assert!(
-            !results.iter().any(|r| r.verdict == Verdict::Fails),
-            "conforming frame must not produce a Fails verdict: {results:?}"
-        );
-    }
+    // A conforming frame produces no violation — either `Ack` (G has not decided)
+    // or `Verdicts` with no `Fails`. Check both branches so the assert is never
+    // vacuous; `Ack` is a valid, expected outcome here (not a failure).
+    let has_fail = match resp {
+        FrameResponse::Ack => false,
+        FrameResponse::Verdicts(results) => results.iter().any(|r| r.verdict == Verdict::Fails),
+    };
+    assert!(
+        !has_fail,
+        "conforming frame must not produce a Fails verdict"
+    );
     let _final = c.end_stream().expect("end stream");
 }

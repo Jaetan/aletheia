@@ -30,9 +30,12 @@ fn rat_str(r: Rational) -> String {
     }
 }
 
-/// `a <= b` for rationals (denominators are positive by construction).
+/// `a <= b` for rationals. Denominators are positive by construction, so
+/// cross-multiplication preserves the inequality; `i128` avoids `i64` overflow on
+/// the product (matching `ltl.rs`'s comparison).
 fn rational_le(a: Rational, b: Rational) -> bool {
-    a.numerator() * b.denominator() <= b.numerator() * a.denominator()
+    i128::from(a.numerator()) * i128::from(b.denominator())
+        <= i128::from(b.numerator()) * i128::from(a.denominator())
 }
 
 /// Convert milliseconds to a microsecond [`TimeBound`], guarding overflow.
@@ -359,7 +362,7 @@ impl ThenSignal {
             signal: self.name.clone(),
             value: v,
         };
-        self.respond(response, format!("= {}", rat_str(v)), true)
+        self.respond(response, format!("= {}", rat_str(v)), None)
     }
     /// Response: the then-signal exceeds `value`.
     #[must_use]
@@ -369,14 +372,22 @@ impl ThenSignal {
             signal: self.name.clone(),
             value: v,
         };
-        self.respond(response, format!("> {}", rat_str(v)), true)
+        self.respond(response, format!("> {}", rat_str(v)), None)
     }
     /// Response: the then-signal stays between `lo` and `hi` (inverted range is
     /// surfaced from [`ThenCondition::within`]).
     #[must_use]
     pub fn stays_between(self, lo: impl Into<Rational>, hi: impl Into<Rational>) -> ThenCondition {
         let (lo, hi) = (lo.into(), hi.into());
-        let ok = rational_le(lo, hi);
+        let range_err = if rational_le(lo, hi) {
+            None
+        } else {
+            Some(format!(
+                "then stays_between: lo ({}) must be <= hi ({})",
+                rat_str(lo),
+                rat_str(hi)
+            ))
+        };
         let response = Predicate::Between {
             signal: self.name.clone(),
             min: lo,
@@ -385,17 +396,22 @@ impl ThenSignal {
         self.respond(
             response,
             format!("between {} and {}", rat_str(lo), rat_str(hi)),
-            ok,
+            range_err,
         )
     }
 
-    fn respond(self, response: Predicate, desc: String, range_ok: bool) -> ThenCondition {
+    fn respond(
+        self,
+        response: Predicate,
+        desc: String,
+        range_err: Option<String>,
+    ) -> ThenCondition {
         ThenCondition {
             trigger: self.trigger,
             response,
             then_signal: self.name,
             then_desc: desc,
-            range_ok,
+            range_err,
         }
     }
 }
@@ -407,7 +423,9 @@ pub struct ThenCondition {
     response: Predicate,
     then_signal: String,
     then_desc: String,
-    range_ok: bool,
+    /// The rendered inverted-range error (with `lo`/`hi`), captured from
+    /// `stays_between` and surfaced here so the chain stays fluent.
+    range_err: Option<String>,
 }
 
 impl ThenCondition {
@@ -418,10 +436,8 @@ impl ThenCondition {
     /// [`Error::Validation`] if a `stays_between` response range was inverted or
     /// `ms` overflows the microsecond conversion.
     pub fn within(self, ms: u64) -> Result<Check, Error> {
-        if !self.range_ok {
-            return Err(Error::Validation(
-                "then: stays_between lo must be <= hi".to_string(),
-            ));
+        if let Some(err) = self.range_err {
+            return Err(Error::Validation(err));
         }
         let bound = ms_to_bound(ms)?;
         let f = Formula::Always(Box::new(Formula::implies(
