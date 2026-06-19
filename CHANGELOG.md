@@ -23,8 +23,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   fixture). Decimal values go through a new `Rational::from_f64`, which replicates
   the cross-binding `round(v × 10⁹), 10⁹` convention (reduced to lowest terms) and
   fails on a non-finite / overflowing value rather than clamping — matching the
-  Python and C++ loaders. Unknown YAML keys are ignored, as in the peers. Flips the
-  `yaml_check_loader` `rust` row to `implemented` (rust 29/40); the Excel check
+  Python and C++ loaders. Unknown YAML keys are ignored, as in the peers. At the
+  trust boundary it enforces the shared 64 MiB input-length bound (on both inline
+  content and files, checked before reading) and rejects symbolic-link / non-regular
+  file paths — matching the Go and Python loaders' adversarial-input hardening. Flips
+  the `yaml_check_loader` `rust` row to `implemented` (rust 29/40); the Excel check
   loader is R3c.
 - Rust check DSL (`rust/`, Rust-parity Slice R3a) — a fluent `check` module that
   compiles domain-friendly checks to LTL `Formula`s plus display metadata:

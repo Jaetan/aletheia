@@ -25,6 +25,11 @@ use crate::check::{self, Check};
 use crate::error::Error;
 use crate::types::Rational;
 
+/// The shared 64 MiB input-length cap (Python `MAX_DBC_TEXT_BYTES`, Go
+/// `MaxDBCTextBytes`). Applied at this trust boundary so an adversarial check
+/// file cannot force unbounded allocation / parse time before it is rejected.
+const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
+
 fn invalid(msg: impl Into<String>) -> Error {
     Error::Validation(msg.into())
 }
@@ -36,11 +41,27 @@ fn present(y: &Yaml) -> bool {
 
 /// Load checks from inline YAML content.
 ///
+/// Rejects input larger than the shared 64 MiB bound ([`MAX_INPUT_BYTES`]).
+///
 /// # Errors
-/// [`Error::Validation`] if the document is malformed, a check is missing a
-/// required field, a condition keyword is unknown, or a numeric value is
-/// non-finite / overflowing (see [`Rational::from_f64`]).
+/// [`Error::Validation`] if the input exceeds the size bound, the document is
+/// malformed, a check is missing a required field, a condition keyword is
+/// unknown, or a numeric value is non-finite / overflowing (see
+/// [`Rational::from_f64`]).
 pub fn load_checks_from_yaml(content: &str) -> Result<Vec<Check>, Error> {
+    load_checks_within(content, MAX_INPUT_BYTES)
+}
+
+/// Inline loader with an injectable size bound (the public entry point fixes it
+/// to [`MAX_INPUT_BYTES`]; tests use a small bound to exercise the boundary
+/// without allocating 64 MiB).
+fn load_checks_within(content: &str, limit: usize) -> Result<Vec<Check>, Error> {
+    if content.len() > limit {
+        return Err(invalid(format!(
+            "YAML check input exceeds the {limit}-byte input bound ({} bytes)",
+            content.len()
+        )));
+    }
     let docs =
         YamlLoader::load_from_str(content).map_err(|e| invalid(format!("invalid YAML: {e}")))?;
     let doc = docs
@@ -54,14 +75,48 @@ pub fn load_checks_from_yaml(content: &str) -> Result<Vec<Check>, Error> {
 
 /// Load checks from a YAML file.
 ///
+/// Mirrors the Go and Python loaders' trust-boundary hardening: the path is
+/// rejected if it is a symbolic link or a non-regular file, and the file's size
+/// is checked against the shared 64 MiB bound ([`MAX_INPUT_BYTES`]) **before** it
+/// is read, so an adversarial path cannot trigger a huge read.
+///
 /// # Errors
-/// [`Error::Validation`] on an I/O failure or a malformed document (see
+/// [`Error::Validation`] if the path is a symlink / non-regular file, the file
+/// exceeds the size bound, an I/O error occurs, or the document is malformed (see
 /// [`load_checks_from_yaml`]).
 pub fn load_checks_from_yaml_file(path: impl AsRef<Path>) -> Result<Vec<Check>, Error> {
-    let path = path.as_ref();
+    read_checks_file(path.as_ref(), MAX_INPUT_BYTES)
+}
+
+/// File loader with an injectable size bound (see [`load_checks_within`]).
+fn read_checks_file(path: &Path, limit: usize) -> Result<Vec<Check>, Error> {
+    // symlink_metadata is an lstat — it does NOT follow a symlink, so a symlinked
+    // path is detected here rather than silently dereferenced.
+    let meta = std::fs::symlink_metadata(path)
+        .map_err(|e| invalid(format!("cannot stat {}: {e}", path.display())))?;
+    let file_type = meta.file_type();
+    if file_type.is_symlink() {
+        return Err(invalid(format!(
+            "refusing to load {}: symbolic link (resolve the link and pass the real path)",
+            path.display()
+        )));
+    }
+    if !file_type.is_file() {
+        return Err(invalid(format!(
+            "refusing to load {}: not a regular file",
+            path.display()
+        )));
+    }
+    if meta.len() > limit as u64 {
+        return Err(invalid(format!(
+            "YAML check file {} exceeds the {limit}-byte input bound ({} bytes)",
+            path.display(),
+            meta.len()
+        )));
+    }
     let content = std::fs::read_to_string(path)
         .map_err(|e| invalid(format!("cannot read {}: {e}", path.display())))?;
-    load_checks_from_yaml(&content)
+    load_checks_within(&content, limit)
 }
 
 fn parse_check(entry: &Yaml) -> Result<Check, Error> {
@@ -364,5 +419,69 @@ mod tests {
             "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 9999999999.5\n"
         )
         .is_err());
+    }
+
+    // --- Trust-boundary hardening (parity with the Go / Python loaders) -------
+
+    use std::path::PathBuf;
+
+    const SAMPLE: &str = "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 1\n";
+
+    /// A temp path that removes its file on drop.
+    struct TempFile(PathBuf);
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    fn temp_path(tag: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!("aletheia_yaml_{}_{tag}", std::process::id()));
+        p
+    }
+
+    #[test]
+    fn inline_input_bound_is_enforced() {
+        // A small injectable bound exercises the boundary without a 64 MiB alloc;
+        // the public entry point fixes the real bound at MAX_INPUT_BYTES.
+        assert!(load_checks_within(SAMPLE, 8).is_err());
+        assert!(load_checks_within(SAMPLE, SAMPLE.len()).is_ok());
+    }
+
+    #[test]
+    fn file_loads_and_size_bound_is_enforced() {
+        let path = temp_path("ok");
+        let _guard = TempFile(path.clone());
+        std::fs::write(&path, SAMPLE).expect("write temp");
+        assert_eq!(read_checks_file(&path, MAX_INPUT_BYTES).unwrap().len(), 1);
+        // Rejected (before reading) when the file exceeds a small bound.
+        assert!(read_checks_file(&path, 8).is_err());
+    }
+
+    #[test]
+    fn rejects_non_regular_file() {
+        let dir = temp_path("dir");
+        std::fs::create_dir(&dir).expect("create dir");
+        let err = load_checks_from_yaml_file(&dir).unwrap_err();
+        let _ = std::fs::remove_dir(&dir);
+        assert!(
+            format!("{err}").contains("not a regular file"),
+            "got: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink() {
+        let target = temp_path("sym_target");
+        let link = temp_path("sym_link");
+        let _gt = TempFile(target.clone());
+        let _gl = TempFile(link.clone());
+        std::fs::write(&target, SAMPLE).expect("write target");
+        if std::os::unix::fs::symlink(&target, &link).is_err() {
+            return; // symlink creation not permitted — skip (mirrors the Go test)
+        }
+        let err = load_checks_from_yaml_file(&link).unwrap_err();
+        assert!(format!("{err}").contains("symbolic link"), "got: {err}");
     }
 }
