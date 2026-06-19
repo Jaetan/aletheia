@@ -15,6 +15,7 @@ Tests cover:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import openpyxl  # type: ignore[import-untyped]
@@ -62,8 +63,6 @@ from aletheia.excel_loader import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from aletheia.types import DBCSignalAlways, DBCSignalMultiplexed
 
 
@@ -538,6 +537,25 @@ class TestLoadErrors:
         with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
             load_checks_from_excel(p)
 
+    def test_number_as_text_rejected(self, tmp_path: Path) -> None:
+        """Strict coercion: a Value stored as TEXT ("220") is rejected."""
+        p = make_checks_workbook(
+            tmp_path,
+            [[None, "Speed", "never_exceeds", "220", None, None, None, None]],
+        )
+        with pytest.raises(ValidationError, match="expected number"):
+            load_checks_from_excel(p)
+
+    def test_dbc_factor_as_text_rejected(self, tmp_path: Path) -> None:
+        """Strict coercion: a DBC Factor stored as TEXT ("0.25") is rejected."""
+        # The Factor column (10th) holds the string "0.25" rather than a number.
+        p = make_dbc_workbook(
+            tmp_path,
+            [[256, "M", None, 8, "Sig", 0, 8, "little_endian", False, "0.25", 0, 0, 1, ""]],
+        )
+        with pytest.raises(ValidationError, match="expected number"):
+            load_dbc_from_excel(p)
+
     def test_stays_between_missing_min(self, tmp_path: Path) -> None:
         """Verify stays between missing min."""
         p = make_checks_workbook(
@@ -722,3 +740,34 @@ def test_loader_rejects_symlinked_dbc(tmp_path: Path) -> None:
         pytest.skip("symlink creation not permitted on this filesystem")
     with pytest.raises(ValidationError, match="symbolic link"):
         load_dbc_from_excel(link)
+
+
+# ============================================================================
+# Cross-binding portability lock
+# ============================================================================
+# The shared examples/demo/demo_workbook.xlsx is also loaded by the Go, C++,
+# and Rust binding tests. Its DBC sheet is a 13-column layout that omits the
+# Extended column, so every binding must load it as standard 11-bit messages —
+# the lock for the "absent Extended column ⇒ standard message" contract.
+
+
+def _demo_workbook() -> Path:
+    return Path(__file__).resolve().parents[2] / "examples" / "demo" / "demo_workbook.xlsx"
+
+
+def test_demo_workbook_dbc_loads_as_standard_messages() -> None:
+    """The shared demo workbook's DBC sheet loads as standard messages."""
+    dbc = load_dbc_from_excel(_demo_workbook())
+    assert len(dbc["messages"]) == 2
+    for msg in dbc["messages"]:
+        # A standard message never carries the optional "extended" key.
+        assert msg.get("extended", False) is False
+
+
+def test_demo_workbook_checks_match_the_api() -> None:
+    """The shared demo workbook's checks compile to the same formulas as the API."""
+    checks = load_checks_from_excel(_demo_workbook())
+    assert len(checks) == 9  # 6 simple + 3 when/then
+    assert checks[0].to_dict() == signal("VehicleSpeed").never_exceeds(220).to_dict()
+    expected_wt = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
+    assert checks[6].to_dict() == expected_wt

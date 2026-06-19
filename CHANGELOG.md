@@ -12,6 +12,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust Excel check + DBC loader (`rust/excel/`, Rust-parity Slice R3c) — a separate
+  `aletheia-excel` crate (mirroring Go's `go/excel/` module) so the `.xlsx`
+  dependency chain (calamine + rust_xlsxwriter + zip) stays optional for core users.
+  `load_checks_from_excel` / `load_dbc_from_excel` / `create_template` read the
+  `Checks` / `When-Then` / `DBC` sheets and compile each row through the `check` DSL
+  (checks) or into a typed `Dbc` (signals), matching the Python (`excel_loader`) and
+  Go (`excel`) loaders so a workbook is portable across bindings — proven by a test
+  that loads the shared `examples/demo/demo_workbook.xlsx` fixture. At the trust
+  boundary it enforces the shared 64 MiB bound (raw size + a ZIP-bomb guard summing
+  uncompressed entry sizes with a saturating add) and rejects symlink / non-regular
+  paths. The `feature_matrix` parity gate now resolves a `pkg:symbol` entry against
+  `rust/<pkg>/src` (mirroring the Go gate), flipping the `excel_check_loader` `rust`
+  row to `implemented` (rust 30/40).
 - Rust YAML check loader (`rust/`, Rust-parity Slice R3b) — `load_checks_from_yaml`
   and `load_checks_from_yaml_file` parse a set of named checks from a YAML document
   into typed `Check`s, behind the default-on `yaml` cargo feature (disable with
@@ -127,6 +140,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Unified Excel column handling across all bindings** (Python / Go / C++ / Rust).
+  A design review found the loaders had drifted on two axes, both latent (no gated
+  test loaded the demo workbook's DBC sheet). **(1) Column presence:** the contract
+  is now uniform — lookup is by header name, all columns are read, and an *absent
+  column behaves exactly like an empty cell* (required fields error, optional fields
+  default). The `Extended` column is now optional everywhere (**BREAKING (Go)** —
+  `excel.LoadDbc` previously *required* it and errored on its absence; C++ now reads
+  all columns rather than only the first *N*). **(2) Cell coercion:** all bindings
+  are now strict like the Python reference — a number stored as *text* (an Excel
+  column formatted as Text) is rejected for a numeric field rather than silently
+  parsed (**BREAKING (Go, C++)** — their loaders previously stringified every cell
+  and parsed leniently; they are now type-aware via `excelize.GetCellType` /
+  OpenXLSX `XLValueType`). `Message ID` keeps accepting a hex string (`0x100`). Every
+  binding gains a gated test that loads the shared `examples/demo/demo_workbook.xlsx`
+  DBC sheet (locking the optional-`Extended` contract) and a number-as-text rejection
+  test (locking strict coercion).
 - **BREAKING (Go).** The check-builder value methods now return `(CheckResult, error)`
   and reject non-finite / overflowing values instead of silently clamping them to
   `0/1`. `CheckSignalBuilder.NeverExceeds` / `NeverBelow` / `NeverEquals` and

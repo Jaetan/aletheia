@@ -10,8 +10,12 @@
 
 #include <OpenXLSX.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
+#include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -67,12 +71,50 @@ void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& hea
         ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = headers[i];
 }
 
-/// Write a data row (2-indexed) to a worksheet from string values.
-/// Empty strings are skipped (leave cell empty).
+/// Write a data row (2-indexed), interpreting each fixture string as the value
+/// it represents — integers as integers, decimals as doubles, TRUE/FALSE as
+/// booleans, everything else (including a hex id like "0x100") as text. This
+/// mirrors how a real Excel file stores cells, so the strict loader sees native
+/// types. To author a number deliberately stored as *text* (the strict-rejection
+/// tests), write the cell directly with `std::string`.
 void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& values) {
-    for (std::size_t i = 0; i < values.size(); ++i)
-        if (!values[i].empty())
-            ws.cell(row, static_cast<std::uint16_t>(i + 1)).value() = values[i];
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const std::string& s = values[i];
+        if (s.empty())
+            continue;
+        const auto col = static_cast<std::uint16_t>(i + 1);
+        const char* const first = s.data();
+        const char* const last = s.data() + s.size();
+        std::int64_t iv = 0;
+        if (auto [p, ec] = std::from_chars(first, last, iv); ec == std::errc{} && p == last) {
+            ws.cell(row, col).value() = iv;
+            continue;
+        }
+        double dv = 0.0;
+        if (auto [p, ec] = std::from_chars(first, last, dv); ec == std::errc{} && p == last) {
+            ws.cell(row, col).value() = dv;
+            continue;
+        }
+        std::string upper = s;
+        std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
+            return static_cast<char>(std::toupper(ch));
+        });
+        if (upper == "TRUE") {
+            ws.cell(row, col).value() = true;
+        } else if (upper == "FALSE") {
+            ws.cell(row, col).value() = false;
+        } else {
+            ws.cell(row, col).value() = s;
+        }
+    }
+}
+
+/// Repo root for loading the shared demo workbook fixture (set by CMake via the
+/// ALETHEIA_REPO_ROOT env var; falls back to the current directory).
+auto repo_root() -> std::filesystem::path {
+    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr)
+        return std::filesystem::path(env);
+    return std::filesystem::current_path();
 }
 
 /// Create a workbook with a Checks sheet containing header + data rows.
@@ -606,15 +648,15 @@ TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
     doc.workbook().worksheet("Sheet1").setName("Checks");
     auto ws = doc.workbook().worksheet("Checks");
     write_header(ws, checks_hdr);
-    // Row 2: data
+    // Row 2: data (numeric Value written natively, matching a real workbook)
     ws.cell(2, 2).value() = std::string("Speed");
     ws.cell(2, 3).value() = std::string("never_exceeds");
-    ws.cell(2, 4).value() = std::string("220");
+    ws.cell(2, 4).value() = std::int64_t{220};
     // Row 3: empty (no cells set — skipped)
     // Row 4: data
     ws.cell(4, 2).value() = std::string("Voltage");
     ws.cell(4, 3).value() = std::string("never_below");
-    ws.cell(4, 4).value() = std::string("11.5");
+    ws.cell(4, 4).value() = 11.5;
     doc.save();
     doc.close();
 
@@ -811,4 +853,71 @@ TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardeni
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string(result.error().message()),
                ContainsSubstring("Parent directory does not exist"));
+}
+
+// ===========================================================================
+// Strict-coercion + cross-binding portability locks (R3c)
+// ===========================================================================
+
+// A numeric field stored as TEXT must be rejected, not silently parsed. This
+// locks the strict-coercion decision; the demo workbook can't exercise it (it
+// stores numbers natively). The cell is written directly as a std::string to
+// force a text cell, bypassing the type-inferring write_row helper.
+TEST_CASE("excel: strict rejects a Value stored as text", "[excel][strict]") {
+    TempFile tf("excel_strict_text_value.xlsx");
+    OpenXLSX::XLDocument doc;
+    doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
+    doc.workbook().worksheet("Sheet1").setName("Checks");
+    auto ws = doc.workbook().worksheet("Checks");
+    write_header(ws, checks_hdr);
+    ws.cell(2, 2).value() = std::string("Speed");
+    ws.cell(2, 3).value() = std::string("never_exceeds");
+    ws.cell(2, 4).value() = std::string("220"); // number-as-TEXT
+    doc.save();
+    doc.close();
+
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value());
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("must be a number"));
+}
+
+TEST_CASE("excel: DBC strict rejects a Factor stored as text", "[excel][strict][dbc]") {
+    TempFile tf("excel_strict_text_factor.xlsx");
+    OpenXLSX::XLDocument doc;
+    doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
+    doc.workbook().worksheet("Sheet1").setName("DBC");
+    auto ws = doc.workbook().worksheet("DBC");
+    write_header(ws, dbc_hdr);
+    // dbc_hdr: ID, Name, DLC, Signal, Start Bit, Length, Byte Order, Signed,
+    //          Factor(9), Offset(10), Min(11), Max(12), ...
+    ws.cell(2, 1).value() = std::int64_t{256};
+    ws.cell(2, 2).value() = std::string("Msg");
+    ws.cell(2, 3).value() = std::int64_t{8};
+    ws.cell(2, 4).value() = std::string("Sig");
+    ws.cell(2, 5).value() = std::int64_t{0};
+    ws.cell(2, 6).value() = std::int64_t{8};
+    ws.cell(2, 7).value() = std::string("little_endian");
+    ws.cell(2, 8).value() = false;
+    ws.cell(2, 9).value() = std::string("0.25"); // Factor as number-as-TEXT
+    ws.cell(2, 10).value() = std::int64_t{0};
+    ws.cell(2, 11).value() = std::int64_t{0};
+    ws.cell(2, 12).value() = std::int64_t{1};
+    doc.save();
+    doc.close();
+
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value());
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("must be a number"));
+}
+
+// Cross-binding portability lock: the shared demo workbook's DBC sheet omits the
+// Extended column, so every binding must load it as standard 11-bit messages
+// (matching Python / Go / Rust).
+TEST_CASE("excel: demo workbook DBC loads as standard messages", "[excel][dbc][portability]") {
+    auto path = repo_root() / "examples" / "demo" / "demo_workbook.xlsx";
+    auto result = load_dbc_from_excel(path);
+    REQUIRE(result.has_value());
+    CHECK(result->messages.size() == 2);
+    for (const auto& msg : result->messages)
+        CHECK(std::holds_alternative<StandardId>(msg.id));
 }

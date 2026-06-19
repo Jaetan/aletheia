@@ -162,19 +162,13 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 		return nil, aletheia.NewValidationError(fmt.Sprintf("workbook has no '%s' sheet", cfg.dbcSheet))
 	}
 
-	rows, err := readSheetRows(f, cfg.dbcSheet)
+	rows, err := readTypedRows(f, cfg.dbcSheet)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(rows) < 2 {
-		return nil, aletheia.NewValidationError("dbc sheet must have a header row and at least one data row")
-	}
-
-	headers := rows[0]
-	dataRows := make([]map[string]string, 0, len(rows)-1)
-	for _, row := range rows[1:] {
-		d := zipRow(headers, row)
+	dataRows := make([]map[string]xlsxCell, 0, len(rows))
+	for _, d := range rows {
 		if len(d) == 0 {
 			continue // skip empty rows
 		}
@@ -182,7 +176,7 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 	}
 
 	if len(dataRows) == 0 {
-		return nil, aletheia.NewValidationError("dbc sheet has no data rows")
+		return nil, aletheia.NewValidationError("dbc sheet must have a header row and at least one data row")
 	}
 
 	return parseDBCRows(dataRows)
@@ -236,22 +230,53 @@ func CreateTemplate(path string) error {
 // Internal: sheet readers
 // ---------------------------------------------------------------------------
 
-func readSheetRows(f *excelize.File, sheet string) ([][]string, error) {
-	rows, err := f.GetRows(sheet)
+// xlsxCell is a cell's trimmed string value plus whether it is stored as text
+// (a shared / inline string). Strict coercion needs that distinction: a number
+// stored as text is rejected for a numeric field. excelize reports a native
+// number as CellTypeNumber (a saved file) or CellTypeUnset (an unsaved cell), a
+// boolean as CellTypeBool, and text as CellTypeSharedString / CellTypeInlineString.
+type xlsxCell struct {
+	value  string
+	isText bool
+}
+
+// readTypedRows returns one header→cell map per data row, holding only the
+// present (non-empty) cells, each carrying its text-vs-native distinction. Every
+// header column is read (position-independent lookup); a cell under an empty
+// header is dropped.
+func readTypedRows(f *excelize.File, sheet string) ([]map[string]xlsxCell, error) {
+	grid, err := f.GetRows(sheet)
 	if err != nil {
 		return nil, aletheia.WrapValidationError(fmt.Sprintf("reading sheet %q", sheet), err)
 	}
-	return rows, nil
-}
-
-func zipRow(headers, row []string) map[string]string {
-	d := make(map[string]string)
-	for i, h := range headers {
-		if i < len(row) && strings.TrimSpace(row[i]) != "" {
-			d[h] = strings.TrimSpace(row[i])
-		}
+	if len(grid) == 0 {
+		return nil, nil
 	}
-	return d
+	headers := grid[0]
+	rows := make([]map[string]xlsxCell, 0, len(grid)-1)
+	for r := 1; r < len(grid); r++ {
+		m := make(map[string]xlsxCell)
+		for c, h := range headers {
+			if h == "" || c >= len(grid[r]) {
+				continue
+			}
+			val := strings.TrimSpace(grid[r][c])
+			if val == "" {
+				continue
+			}
+			coord, cerr := excelize.CoordinatesToCellName(c+1, r+1)
+			if cerr != nil {
+				return nil, aletheia.WrapValidationError("cell coordinate", cerr)
+			}
+			ct, _ := f.GetCellType(sheet, coord)
+			m[h] = xlsxCell{
+				value:  val,
+				isText: ct == excelize.CellTypeSharedString || ct == excelize.CellTypeInlineString,
+			}
+		}
+		rows = append(rows, m)
+	}
+	return rows, nil
 }
 
 func writeHeaderRow(f *excelize.File, sheet string, headers []string, style int) error {
@@ -284,19 +309,13 @@ func containsString(ss []string, target string) bool {
 // ---------------------------------------------------------------------------
 
 func loadSimpleChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, error) {
-	rows, err := readSheetRows(f, sheet)
+	rows, err := readTypedRows(f, sheet)
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-
-	headers := rows[0]
 	var results []aletheia.CheckResult
-	for rowIdx, row := range rows[1:] {
+	for rowIdx, d := range rows {
 		rowNum := rowIdx + 2 // 1-indexed, skip header
-		d := zipRow(headers, row)
 		if len(d) == 0 {
 			continue // skip empty rows
 		}
@@ -309,7 +328,7 @@ func loadSimpleChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, e
 	return results, nil
 }
 
-func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, error) {
+func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, error) {
 	signal, err := xlsxStr(d, "Signal", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
@@ -405,19 +424,13 @@ func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, erro
 // ---------------------------------------------------------------------------
 
 func loadWhenThenChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, error) {
-	rows, err := readSheetRows(f, sheet)
+	rows, err := readTypedRows(f, sheet)
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-
-	headers := rows[0]
 	var results []aletheia.CheckResult
-	for rowIdx, row := range rows[1:] {
+	for rowIdx, d := range rows {
 		rowNum := rowIdx + 2
-		d := zipRow(headers, row)
 		if len(d) == 0 {
 			continue
 		}
@@ -430,7 +443,7 @@ func loadWhenThenChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult,
 	return results, nil
 }
 
-func parseWhenThenRow(d map[string]string, rowNum int) (aletheia.CheckResult, error) {
+func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, error) {
 	// When clause.
 	whenSignal, err := xlsxStr(d, "When Signal", rowNum)
 	if err != nil {
@@ -532,7 +545,7 @@ type messageKey struct {
 	dlc      int64
 }
 
-func parseDBCRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
+func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
 	type groupEntry struct {
 		key     messageKey
 		indices []int
@@ -544,11 +557,11 @@ func parseDBCRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 	for idx, row := range rows {
 		rowNum := idx + 2 // 1-indexed, skip header
 
-		msgIDRaw, ok := row["Message ID"]
+		idCell, ok := row["Message ID"]
 		if !ok {
 			return nil, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid 'Message ID'", rowNum))
 		}
-		msgID, err := parseMessageID(msgIDRaw, rowNum)
+		msgID, err := parseMessageID(idCell.value, rowNum)
 		if err != nil {
 			return nil, err
 		}
@@ -556,9 +569,14 @@ func parseDBCRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 		if err != nil {
 			return nil, err
 		}
-		extended, err := xlsxBool(row, "Extended", rowNum)
-		if err != nil {
-			return nil, err
+		// 'Extended' is optional — an absent column (or empty cell) means a
+		// standard 11-bit message, matching Python and C++.
+		extended := false
+		if _, ok := row["Extended"]; ok {
+			extended, err = xlsxBool(row, "Extended", rowNum)
+			if err != nil {
+				return nil, err
+			}
 		}
 		dlc, err := xlsxInt(row, "DLC", rowNum)
 		if err != nil {
@@ -629,7 +647,7 @@ func parseDBCRows(rows []map[string]string) (*aletheia.DBCDefinition, error) {
 	return aletheia.NewDBCDefinition("", messages), nil
 }
 
-func xlsxDBCSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error) {
+func xlsxDBCSignal(row map[string]xlsxCell, rowNum int) (aletheia.DBCSignal, error) {
 	name, err := xlsxStr(row, "Signal", rowNum)
 	if err != nil {
 		return aletheia.DBCSignal{}, err
@@ -691,7 +709,7 @@ func xlsxDBCSignal(row map[string]string, rowNum int) (aletheia.DBCSignal, error
 
 	unit := ""
 	if u, ok := row["Unit"]; ok {
-		unit = u
+		unit = u.value
 	}
 
 	// Multiplexing.
@@ -764,64 +782,74 @@ func parseMessageID(val string, rowNum int) (int64, error) {
 // Internal: cell value helpers
 // ---------------------------------------------------------------------------
 
-func xlsxStr(d map[string]string, key string, rowNum int) (string, error) {
-	v, ok := d[key]
-	if !ok || v == "" {
+// xlsxStr requires a text cell — strict, matching the Python reference: a
+// number or boolean cell is rejected rather than silently stringified.
+func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
+	c, ok := d[key]
+	if !ok || c.value == "" {
 		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	return v, nil
+	if !c.isText {
+		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be text, got the number %q", rowNum, key, c.value))
+	}
+	return c.value, nil
 }
 
-func xlsxNumber(d map[string]string, key string, rowNum int) (float64, error) {
-	v, ok := d[key]
-	if !ok || v == "" {
+// xlsxNumber requires a real number cell — a number stored as text is rejected
+// (strict coercion: catches a column accidentally formatted as Text).
+func xlsxNumber(d map[string]xlsxCell, key string, rowNum int) (float64, error) {
+	c, ok := d[key]
+	if !ok || c.value == "" {
 		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	n, err := strconv.ParseFloat(v, 64)
+	if c.isText {
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a number, got text %q; format the cell as a number", rowNum, key, c.value))
+	}
+	n, err := strconv.ParseFloat(c.value, 64)
 	if err != nil {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a number, got %q", rowNum, key, v))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a number, got %q", rowNum, key, c.value))
 	}
 	return n, nil
 }
 
-func xlsxInt(d map[string]string, key string, rowNum int) (int64, error) {
-	v, ok := d[key]
-	if !ok || v == "" {
+func xlsxInt(d map[string]xlsxCell, key string, rowNum int) (int64, error) {
+	c, ok := d[key]
+	if !ok || c.value == "" {
 		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	// Excel may serialize integers as "5000" or as "5000.0".
-	// Try int first, then float.
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err == nil {
+	if c.isText {
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got text %q; format the cell as a number", rowNum, key, c.value))
+	}
+	// xlsx stores every number as a double, so an integral value may render as
+	// "8" or "8.0"; accept either, reject a fractional value.
+	if n, err := strconv.ParseInt(c.value, 10, 64); err == nil {
 		return n, nil
 	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be an integer, got %q", rowNum, key, v))
-	}
-	if f != math.Floor(f) {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be an integer, got %q", rowNum, key, v))
+	f, err := strconv.ParseFloat(c.value, 64)
+	if err != nil || f != math.Floor(f) {
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, c.value))
 	}
 	return int64(f), nil
 }
 
-func xlsxBool(d map[string]string, key string, rowNum int) (bool, error) {
-	v, ok := d[key]
-	if !ok || v == "" {
+// xlsxBool accepts the multi-form boolean Python's get_bool accepts: a native
+// boolean, an integral 1/0, or TRUE/FALSE text (case-insensitive).
+func xlsxBool(d map[string]xlsxCell, key string, rowNum int) (bool, error) {
+	c, ok := d[key]
+	if !ok || c.value == "" {
 		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	lower := strings.ToLower(strings.TrimSpace(v))
-	switch lower {
+	switch strings.ToLower(strings.TrimSpace(c.value)) {
 	case "true", "1":
 		return true, nil
 	case "false", "0":
 		return false, nil
 	default:
-		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, v))
+		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, c.value))
 	}
 }
 
-func xlsxRational(d map[string]string, key string, rowNum int) (aletheia.Rational, error) {
+func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Rational, error) {
 	v, err := xlsxNumber(d, key, rowNum)
 	if err != nil {
 		return aletheia.Rational{}, err
@@ -829,13 +857,14 @@ func xlsxRational(d map[string]string, key string, rowNum int) (aletheia.Rationa
 	return aletheia.FloatToRational(v)
 }
 
-// applyMetadata sets optional name and severity from Excel row data.
-func applyMetadata(r aletheia.CheckResult, d map[string]string) aletheia.CheckResult {
-	if name, ok := d["Check Name"]; ok && name != "" {
-		r = r.Named(name)
+// applyMetadata sets optional name and severity from Excel row data (text cells
+// only, matching Python's is_str check).
+func applyMetadata(r aletheia.CheckResult, d map[string]xlsxCell) aletheia.CheckResult {
+	if c, ok := d["Check Name"]; ok && c.isText && c.value != "" {
+		r = r.Named(c.value)
 	}
-	if sev, ok := d["Severity"]; ok && sev != "" {
-		r = r.Severity(sev)
+	if c, ok := d["Severity"]; ok && c.isText && c.value != "" {
+		r = r.Severity(c.value)
 	}
 	return r
 }

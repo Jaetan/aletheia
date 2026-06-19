@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+[package]
+name = "aletheia-excel"
+version = "2.0.0"
+edition = "2021"
+description = "Aletheia Excel check/DBC loader — a separate crate so the .xlsx dependency chain (calamine + rust_xlsxwriter) is optional for core users."
+license = "BSD-2-Clause"
+repository = "https://github.com/Jaetan/aletheia"
+publish = false
+
+[dependencies]
+aletheia = { path = ".." }
+calamine = "0.35.0"
+rust_xlsxwriter = "0.95.0"
+zip = "8.6.0"
+
+[lib]
+name = "aletheia_excel"
+path = "src/lib.rs"

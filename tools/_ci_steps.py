@@ -279,6 +279,14 @@ def _run_binding_tests(runner: Runner) -> None:
         f"ALETHEIA_LIB={rust_lib} cargo test",
         cwd=runner.repo_root / "rust",
     )
+    # Optional aletheia-excel crate (separate Cargo manifest at rust/excel/, like
+    # go/excel/): the main `cargo test` at rust/ does not reach it. Its tests load
+    # only the pure-Rust check/DBC API (no .so), so no ALETHEIA_LIB is needed.
+    runner.step(
+        "cargo test (excel crate)",
+        "cargo test",
+        cwd=runner.repo_root / "rust" / "excel",
+    )
 
 
 def _run_lints(runner: Runner) -> None:
@@ -378,6 +386,11 @@ def _run_lints(runner: Runner) -> None:
         "cargo fmt + clippy",
         "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
         cwd=runner.repo_root / "rust",
+    )
+    runner.step(
+        "cargo fmt + clippy (excel crate)",
+        "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+        cwd=runner.repo_root / "rust" / "excel",
     )
 
 

@@ -77,8 +77,8 @@ fn symbol_present(haystack: &str, sym: &str) -> bool {
     false
 }
 
-/// Concatenated, comment-stripped text of every `.rs` file under `src/`.
-fn crate_source() -> String {
+/// Concatenated, comment-stripped text of every `.rs` file under `dir`.
+fn collect_source(dir: &Path) -> String {
     fn collect(dir: &Path, acc: &mut String) {
         for entry in fs::read_dir(dir).expect("read src dir").flatten() {
             let path = entry.path();
@@ -92,8 +92,20 @@ fn crate_source() -> String {
         }
     }
     let mut acc = String::new();
-    collect(&src_dir(), &mut acc);
+    collect(dir, &mut acc);
     acc
+}
+
+/// Source of the main crate (`rust/src`).
+fn crate_source() -> String {
+    collect_source(&src_dir())
+}
+
+/// The `src/` dir of a nested sub-crate (`rust/<pkg>/src`) — e.g. the optional
+/// `aletheia-excel` crate. Mirrors the Go gate's sub-package resolution
+/// (`feature_matrix_test.go`), adapted to Rust's nested-crate layout.
+fn pkg_src_dir(pkg: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(pkg).join("src")
 }
 
 #[test]
@@ -106,6 +118,10 @@ fn feature_matrix_rust_parity() {
     assert!(!features.is_empty(), "FEATURE_MATRIX has no features");
 
     let source = crate_source();
+    // Sub-crate sources (e.g. `excel`) are read on demand and cached, since a
+    // `pkg:symbol` entry resolves against `rust/<pkg>/src` rather than `rust/src`.
+    let mut pkg_sources: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut failures: Vec<String> = Vec::new();
 
     for feat in features {
@@ -143,11 +159,37 @@ fn feature_matrix_rust_parity() {
         let rust = &feat["bindings"]["rust"];
         if rust["status"].as_str() == Some("implemented") {
             if let Some(entry) = rust["entry"].as_str() {
-                let symbol = entry.rsplit("::").next().unwrap_or(entry).trim();
-                if !symbol_present(&source, symbol) {
-                    failures.push(format!(
-                        "{id}/rust: entry {entry:?} — symbol {symbol:?} not found in rust/src"
-                    ));
+                let entry = entry.trim();
+                // A single-colon `pkg:symbol` entry (not a `::` Rust path) names a
+                // symbol in the sub-crate `rust/<pkg>/src`; otherwise the last
+                // `::` segment resolves against the main crate `rust/src`.
+                if entry.contains(':') && !entry.contains("::") {
+                    let mut parts = entry.splitn(2, ':');
+                    let pkg = parts.next().unwrap_or("").trim();
+                    let symbol = parts.next().unwrap_or("").trim();
+                    let dir = pkg_src_dir(pkg);
+                    if !dir.is_dir() {
+                        failures.push(format!(
+                            "{id}/rust: entry {entry:?} — sub-crate dir {} not found",
+                            dir.display()
+                        ));
+                    } else {
+                        let src = pkg_sources
+                            .entry(pkg.to_string())
+                            .or_insert_with(|| collect_source(&dir));
+                        if !symbol_present(src, symbol) {
+                            failures.push(format!(
+                                "{id}/rust: entry {entry:?} — symbol {symbol:?} not found in rust/{pkg}/src"
+                            ));
+                        }
+                    }
+                } else {
+                    let symbol = entry.rsplit("::").next().unwrap_or(entry).trim();
+                    if !symbol_present(&source, symbol) {
+                        failures.push(format!(
+                            "{id}/rust: entry {entry:?} — symbol {symbol:?} not found in rust/src"
+                        ));
+                    }
                 }
             }
         }

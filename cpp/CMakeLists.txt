@@ -443,6 +443,10 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
+    # Repo root via env var (CPP-D-18.1) so the cross-binding portability test
+    # can load the shared examples/demo/demo_workbook.xlsx fixture.
+    set_tests_properties(excel_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # R23 — CPP-D-17.1: cross-singleton RTS init ordering test.  Must run
     # in its own process because the GHC RTS is process-global and `hs_init`
