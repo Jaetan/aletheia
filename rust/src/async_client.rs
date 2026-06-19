@@ -7,8 +7,11 @@
 //! The sync `Client` is `!Send` (a thread-pinned `StreamState`), so [`AsyncClient`]
 //! owns it on a dedicated **worker thread** and talks to it over a channel: each
 //! async method sends a job — a closure capturing its (owned) arguments and a
-//! `oneshot` reply sender — and `.await`s the reply. The handle itself is just a
-//! channel sender, so `AsyncClient` is `Send` and moves freely across tasks.
+//! `oneshot` reply sender — and `.await`s the reply. The handle is a
+//! `Mutex`-wrapped channel sender, so `AsyncClient` is `Send + Sync`; its
+//! borrowing futures are therefore `Send`, so it can be `tokio::spawn`ed on a
+//! multi-thread runtime (`mpsc::Sender` is `Send` but `!Sync`, hence the
+//! `Mutex` — held only for the brief enqueue, never across an `.await`).
 //!
 //! It is **runtime-agnostic**: only the reply `oneshot` (from `futures-channel`)
 //! is used, never a runtime, so it works under tokio, async-std, or smol — the
@@ -25,6 +28,7 @@
 //!   no rollback). The next call runs after it.
 
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use futures_channel::oneshot;
@@ -39,8 +43,13 @@ type Job = Box<dyn FnOnce(&Client) + Send>;
 
 /// A runtime-agnostic async mirror of [`Client`]; see the module docs.
 pub struct AsyncClient {
-    /// `None` only transiently during [`Drop`]. Dropping it closes the channel.
-    jobs: Option<Sender<Job>>,
+    /// The job channel, wrapped in a `Mutex` so `AsyncClient` is `Sync` (the std
+    /// `mpsc::Sender` is `Send` but `!Sync`). The lock is held only for the brief
+    /// enqueue, never across an `.await`. `None` only transiently during
+    /// [`Drop`] — taking it closes the channel.
+    jobs: Mutex<Option<Sender<Job>>>,
+    /// Joined on [`Drop`]. `JoinHandle` is already `Send + Sync`, so — unlike the
+    /// sender — it needs no wrapper.
     worker: Option<JoinHandle<()>>,
 }
 
@@ -71,7 +80,7 @@ pub(crate) async fn spawn(builder: ClientBuilder) -> Result<AsyncClient, Error> 
     });
     match init_rx.await {
         Ok(Ok(())) => Ok(AsyncClient {
-            jobs: Some(jobs_tx),
+            jobs: Mutex::new(Some(jobs_tx)),
             worker: Some(worker),
         }),
         Ok(Err(e)) => {
@@ -112,11 +121,16 @@ impl AsyncClient {
             }
             let _ = tx.send(f(c));
         });
-        self.jobs
-            .as_ref()
-            .ok_or_else(|| Error::Protocol("async client closed".to_string()))?
-            .send(job)
-            .map_err(|_| Error::Protocol("async worker stopped".to_string()))?;
+        // Hold the lock only to enqueue — release it before awaiting the reply.
+        {
+            let guard = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+            let sender = guard
+                .as_ref()
+                .ok_or_else(|| Error::Protocol("async client closed".to_string()))?;
+            sender
+                .send(job)
+                .map_err(|_| Error::Protocol("async worker stopped".to_string()))?;
+        }
         rx.await
             .map_err(|_| Error::Protocol("async worker stopped".to_string()))?
     }
@@ -300,7 +314,14 @@ impl Drop for AsyncClient {
         // Close the channel FIRST (so the worker's recv() returns and it drops
         // the Client → aletheia_close on its own thread), THEN join — joining
         // before dropping the sender would deadlock on the still-blocked recv().
-        drop(self.jobs.take());
+        // We hold `&mut self`, so `get_mut()` needs no real locking; recover from
+        // a poisoned lock rather than double-panicking during unwind.
+        drop(
+            self.jobs
+                .get_mut()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take(),
+        );
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -310,6 +331,19 @@ impl Drop for AsyncClient {
 #[cfg(test)]
 mod tests {
     use futures_channel::oneshot;
+
+    #[test]
+    fn async_client_is_send_and_sync() {
+        // The worker-thread design promises AsyncClient is Send + Sync, so
+        // &AsyncClient is Send and the futures from its async methods (which
+        // borrow &self across .await) are Send — i.e. spawnable on a multi-thread
+        // executor like tokio::spawn. The std mpsc::Sender is !Sync, which is why
+        // `jobs` is Mutex-wrapped; this compile-time check guards the invariant.
+        fn is_send<T: Send>() {}
+        fn is_sync<T: Sync>() {}
+        is_send::<super::AsyncClient>();
+        is_sync::<super::AsyncClient>();
+    }
 
     #[test]
     fn dropped_receiver_cancels_sender() {

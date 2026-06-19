@@ -17,10 +17,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   feature. The sync `Client` is `!Send` (a thread-pinned `StreamState`), so
   `AsyncClient` owns it on a dedicated **worker thread** and dispatches jobs over
   a channel: each `async` method sends a closure (capturing its owned arguments
-  and a `oneshot` reply sender) and `.await`s the reply. The handle is just a
-  channel sender, so `AsyncClient` is `Send`. It is runtime-agnostic — only the
-  reply `oneshot` (from `futures-channel`) is used, never a runtime — so it works
-  under tokio / async-std / smol. **Cancellation** = dropping a method's future
+  and a `oneshot` reply sender) and `.await`s the reply. The handle is a
+  `Mutex`-wrapped channel sender, so `AsyncClient` is `Send + Sync` — its
+  borrowing futures are `Send`, so it can be `tokio::spawn`ed on a multi-thread
+  runtime (`mpsc::Sender` is `Send` but `!Sync`, hence the `Mutex`). It is
+  runtime-agnostic — only the reply `oneshot` (from `futures-channel`) is used,
+  never a runtime — so it works under tokio / async-std / smol. **Cancellation** = dropping a method's future
   (the idiomatic Rust cancel; no `ctx`/`stop_token` first parameter): a queued
   (not-yet-started) job is skipped via a `Sender::is_canceled()` self-guard with
   no FFI call (no frame committed); an in-flight FFI call runs to completion and

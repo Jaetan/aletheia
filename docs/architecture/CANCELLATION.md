@@ -112,7 +112,7 @@ Unlike the Go binding, the C++ Client is single-client-per-thread by design — 
 
 Rust's cancellation idiom is **dropping a future**. The synchronous `Client` is `!Send` (a thread-pinned `StreamState`) and is *uncancellable* by design — exactly like Python's sync `AletheiaClient`. The cancellable surface is the opt-in `AsyncClient` (feature `async`), a runtime-agnostic async mirror of `Client`.
 
-`AsyncClient` owns the sync `Client` on a **dedicated worker thread** (the `Client` never crosses threads, honoring `!Send`). Each async method sends a job — a closure capturing its owned arguments and a `oneshot` reply sender — to the worker over a channel, and `.await`s the reply. The handle is just a channel sender, so `AsyncClient` is `Send`. It is runtime-agnostic (only the `oneshot` reply channel, from `futures-channel`, is used — no runtime), so it works under tokio, async-std, or smol.
+`AsyncClient` owns the sync `Client` on a **dedicated worker thread** (the `Client` never crosses threads, honoring `!Send`). Each async method sends a job — a closure capturing its owned arguments and a `oneshot` reply sender — to the worker over a channel, and `.await`s the reply. The handle is a `Mutex`-wrapped channel sender, so `AsyncClient` is `Send + Sync` — its borrowing futures are `Send`, so it can be `tokio::spawn`ed on a multi-thread runtime (the std `mpsc::Sender` is `Send` but `!Sync`, hence the `Mutex`, which is held only for the brief enqueue, never across an `.await`). It is runtime-agnostic (only the `oneshot` reply channel, from `futures-channel`, is used — no runtime), so it works under tokio, async-std, or smol.
 
 Cancellation = dropping a method's future before it resolves. Two cases, both honoring the contract:
 
