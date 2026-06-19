@@ -268,7 +268,12 @@ func readTypedRows(f *excelize.File, sheet string) ([]map[string]xlsxCell, error
 			if cerr != nil {
 				return nil, aletheia.WrapValidationError("cell coordinate", cerr)
 			}
-			ct, _ := f.GetCellType(sheet, coord)
+			ct, cterr := f.GetCellType(sheet, coord)
+			if cterr != nil {
+				// Discarding this would default isText to false and let a
+				// number-as-text cell slip past the strict numeric check.
+				return nil, aletheia.WrapValidationError(fmt.Sprintf("cell type at %s", coord), cterr)
+			}
 			m[h] = xlsxCell{
 				value:  val,
 				isText: ct == excelize.CellTypeSharedString || ct == excelize.CellTypeInlineString,
@@ -707,8 +712,10 @@ func xlsxDBCSignal(row map[string]xlsxCell, rowNum int) (aletheia.DBCSignal, err
 		return aletheia.DBCSignal{}, err
 	}
 
+	// Unit is optional text; a non-text cell defaults to empty (matching the
+	// Python reference's is_str check), not its stringified value.
 	unit := ""
-	if u, ok := row["Unit"]; ok {
+	if u, ok := row["Unit"]; ok && u.isText {
 		unit = u.value
 	}
 
@@ -790,7 +797,7 @@ func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
 		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	if !c.isText {
-		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be text, got the number %q", rowNum, key, c.value))
+		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be text, got a non-text value %q", rowNum, key, c.value))
 	}
 	return c.value, nil
 }

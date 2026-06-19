@@ -556,7 +556,14 @@ fn parse_message_id(row: &Row, ctx: &str) -> Result<u32, Error> {
     };
     let raw: i64 = match row.get("Message ID") {
         Some(Data::Int(n)) => *n,
-        Some(Data::Float(f)) if f.fract() == 0.0 => *f as i64,
+        // Range-check before the cast: `as i64` saturates an out-of-range float,
+        // which would otherwise surface as a misleading "out of range" on the
+        // saturated value rather than the real one (matches `get_int`).
+        Some(Data::Float(f))
+            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 =>
+        {
+            *f as i64
+        }
         Some(Data::String(s)) => {
             let t = s.trim();
             let parsed = t

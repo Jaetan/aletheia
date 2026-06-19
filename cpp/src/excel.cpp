@@ -138,7 +138,7 @@ static auto get_str(const CellMap& cells, const std::string& key, const std::str
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected string)");
     if (!it->second.is_text)
-        throw std::runtime_error(ctx_str + ": '" + key + "' must be text, got the number " +
+        throw std::runtime_error(ctx_str + ": '" + key + "' must be text, got a non-text value " +
                                  it->second.value);
     return it->second.value;
 }
@@ -397,10 +397,11 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         throw std::runtime_error(ctx_str +
                                  ": 'Byte Order' must be 'little_endian' or 'big_endian'");
 
-    // Unit defaults to empty if missing
+    // Unit is optional text; a non-text cell defaults to empty (matching the
+    // Python reference's is_str check) rather than erroring.
     std::string unit_str;
-    if (has_key(cells, "Unit"))
-        unit_str = get_str(cells, "Unit", ctx_str);
+    if (auto it = cells.find("Unit"); it != cells.end() && it->second.is_text)
+        unit_str = it->second.value;
 
     // Multiplexing
     const bool has_muxor = has_key(cells, "Multiplexor");
