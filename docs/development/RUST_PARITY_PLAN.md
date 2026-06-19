@@ -142,8 +142,9 @@ Rows: `structured_logging`, `violation_enrichment`, `rts_cores_config`,
 - `cancellation_contract` ✅ (#69) — resolved **`implemented`**, not
   `not_applicable`: the idiomatic Rust form is **dropping a future**, expressed by
   the opt-in `AsyncClient` (feature `async`). The `!Send` sync `Client` is owned by
-  a dedicated worker thread; a queued job is skipped via `Sender::is_canceled()`
-  and an in-flight FFI call commits its prefix — honoring `CANCELLATION.md` (now
+  a dedicated worker thread; a queued job is skipped via the reply
+  `oneshot::Sender::is_canceled()` and an in-flight FFI call commits its prefix —
+  honoring `CANCELLATION.md` (now
   with a Rust §2.4/§3.4). Runtime-agnostic (futures-channel oneshot); `Send + Sync`.
 - `lazy_streaming_batch` ✅ (#67) — resolved **`not_applicable`**: `send_frames`
   already delivers commit-prefix-and-report; a lazy iterator variant is additive,
