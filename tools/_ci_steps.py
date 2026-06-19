@@ -274,9 +274,12 @@ def _run_binding_tests(runner: Runner) -> None:
     # tracer-bullet slice proves the FFI lifecycle + GHC-allocated-memory
     # ownership; ALETHEIA_LIB points cargo's test at the freshly built .so.
     rust_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
+    # --all-features so the optional `yaml` and `async` features are exercised
+    # ("all API languages test everything"); the async-client tests load the .so
+    # via the worker thread.
     runner.step(
         "cargo test",
-        f"ALETHEIA_LIB={rust_lib} cargo test",
+        f"ALETHEIA_LIB={rust_lib} cargo test --all-features",
         cwd=runner.repo_root / "rust",
     )
     # Optional aletheia-excel crate (separate Cargo manifest at rust/excel/, like
@@ -384,7 +387,7 @@ def _run_lints(runner: Runner) -> None:
     # equivalents of gofmt+vet / clang-format+clang-tidy.
     runner.step(
         "cargo fmt + clippy",
-        "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+        "cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings",
         cwd=runner.repo_root / "rust",
     )
     runner.step(

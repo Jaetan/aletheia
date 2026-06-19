@@ -12,6 +12,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust async client (`rust/`, Rust-parity Slice R4c) — `AsyncClient`, a
+  runtime-agnostic async mirror of `Client`, behind the opt-in `async` cargo
+  feature. The sync `Client` is `!Send` (a thread-pinned `StreamState`), so
+  `AsyncClient` owns it on a dedicated **worker thread** and dispatches jobs over
+  a channel: each `async` method sends a closure (capturing its owned arguments
+  and a `oneshot` reply sender) and `.await`s the reply. The handle is just a
+  channel sender, so `AsyncClient` is `Send`. It is runtime-agnostic — only the
+  reply `oneshot` (from `futures-channel`) is used, never a runtime — so it works
+  under tokio / async-std / smol. **Cancellation** = dropping a method's future
+  (the idiomatic Rust cancel; no `ctx`/`stop_token` first parameter): a queued
+  (not-yet-started) job is skipped via a `Sender::is_canceled()` self-guard with
+  no FFI call (no frame committed); an in-flight FFI call runs to completion and
+  advances `StreamState` (commit-prefix, no rollback) — honoring the
+  `docs/architecture/CANCELLATION.md` contract (now with a Rust §2.4). `Drop`
+  closes the channel then joins the worker, so the `Client`'s `aletheia_close`
+  runs on its own thread. Built via `ClientBuilder::build_async()` /
+  `AsyncClient::new()`. Flips the `cancellation_contract` `rust` row to
+  `implemented` (rust 34/40) — completing Rust-parity R4.
 - Rust violation enrichment (`rust/`, Rust-parity Slice R4b) — violations now
   carry a client-side `Enrichment` (referenced signals + values, formula
   description, and a combined `enriched_reason`). The verified core emits only a

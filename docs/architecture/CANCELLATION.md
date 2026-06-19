@@ -1,8 +1,8 @@
 # Cancellation in Aletheia
 
-This document defines how cancellation works in Aletheia across the Python, Go, and C++ bindings. It is the single source of truth for the cancellation contract — siblings of this doc (binding-specific READMEs, API references) must not contradict it; if they do, this doc wins.
+This document defines how cancellation works in Aletheia across the Python, Go, C++, and Rust bindings. It is the single source of truth for the cancellation contract — siblings of this doc (binding-specific READMEs, API references) must not contradict it; if they do, this doc wins.
 
-The three bindings expose cancellation through different language-native primitives — `asyncio.CancelledError` and generator `.close()` in Python, `context.Context` in Go, `std::stop_token` in C++ — but the *behavior* a caller can rely on is identical across the three. The contract below defines that behavior.
+The bindings expose cancellation through different language-native primitives — `asyncio.CancelledError` and generator `.close()` in Python, `context.Context` in Go, `std::stop_token` in C++, dropping a future in Rust — but the *behavior* a caller can rely on is identical across all four. The contract below defines that behavior.
 
 ---
 
@@ -14,7 +14,7 @@ Aletheia's cancellation contract has two rules. Both are load-bearing; reading o
 
 A request to cancel an in-flight operation will only be honored at the *next* point where Aletheia code is between FFI calls. An FFI call that has already entered the Haskell runtime will run to completion and return its real result; the cancellation takes effect on the *next* call.
 
-This is not a bug or a limitation we plan to remove. It is a structural property of the architecture: Aletheia's verified core compiles to Haskell via the GHC runtime, which is initialized once per process and runs in a single thread. There is no mechanism, in any of the three bindings, to preempt an FFI call that is already executing inside the runtime. Forcing one would mean killing the runtime, which would invalidate every `StreamState` the process holds.
+This is not a bug or a limitation we plan to remove. It is a structural property of the architecture: Aletheia's verified core compiles to Haskell via the GHC runtime, which is initialized once per process and runs in a single thread. There is no mechanism, in any binding, to preempt an FFI call that is already executing inside the runtime. Forcing one would mean killing the runtime, which would invalidate every `StreamState` the process holds.
 
 In practice, individual FFI calls are short — `send_frame` is on the order of microseconds — so the cooperative model is rarely visible to callers. The case where it matters is `send_frames(N)` (and the per-frame iter equivalents): the loop checks for cancellation between each per-frame FFI call, but never inside one.
 
@@ -28,7 +28,7 @@ So cancellation is honest about what it is: a "stop processing further frames" s
 
 ### 1.3 Why a unified contract exists
 
-Aletheia's three bindings target three communities (Python data-science, Go infrastructure, C++ systems) that have different cancellation idioms. Without a contract, the easiest path is for each binding to follow only its own idiom — and over time the bindings would diverge on what gets cancelled, what partial work means, and what the caller can do about it.
+Aletheia's bindings target communities with different cancellation idioms (Python data-science, Go infrastructure, C++ and Rust systems). Without a contract, the easiest path is for each binding to follow only its own idiom — and over time the bindings would diverge on what gets cancelled, what partial work means, and what the caller can do about it.
 
 The unified contract prevents that. Bindings remain idiomatic *in shape* (an asyncio caller does not see Go-style `ctx`; a Go caller does not see Python-style `async`), but they are identical *in observable behavior*: the same operations are cancellable, the same partial-work guarantees hold, the same caller responsibilities apply. A team writing a Go service that calls Aletheia and a Python data-science notebook that also calls Aletheia can rely on the cancellation behavior matching across the two.
 
@@ -37,8 +37,8 @@ This is the scope discipline:
 | Layer | Per-binding | Contract-bound |
 |---|---|---|
 | Cancellation primitive | Yes — each binding uses its native primitive | — |
-| API spelling | Yes — `await`, `ctx`, `std::stop_token` differ | — |
-| Cancellable operation set | Per-binding, scoped by *where the language's native primitive applies*. Python sync `AletheiaClient`: none (no native sync-method cancellation). Python async, Go, C++: every operation method. | — |
+| API spelling | Yes — `await`, `ctx`, `std::stop_token`, future-drop differ | — |
+| Cancellable operation set | Per-binding, scoped by *where the language's native primitive applies*. Python sync `AletheiaClient` and Rust sync `Client`: none (no native sync-method cancellation). Python async, Go, C++, Rust `AsyncClient`: every operation method. | — |
 | Partial-work semantics on cancellable ops | — | Yes — commit-prefix, no rollback |
 | Behavior on in-flight FFI for cancellable ops | — | Yes — cooperative at boundaries |
 | Caller's recovery options | — | Yes — same surface for resume / restart / abort |
@@ -108,6 +108,19 @@ Cancellation surfaces in the existing error type as a new `ErrorKind::Cancellati
 
 Unlike the Go binding, the C++ Client is single-client-per-thread by design — there is no shared-state-across-threads concern, so no semaphore or ctx-aware lock primitive is needed.
 
+### 2.4 Rust
+
+Rust's cancellation idiom is **dropping a future**. The synchronous `Client` is `!Send` (a thread-pinned `StreamState`) and is *uncancellable* by design — exactly like Python's sync `AletheiaClient`. The cancellable surface is the opt-in `AsyncClient` (feature `async`), a runtime-agnostic async mirror of `Client`.
+
+`AsyncClient` owns the sync `Client` on a **dedicated worker thread** (the `Client` never crosses threads, honoring `!Send`). Each async method sends a job — a closure capturing its owned arguments and a `oneshot` reply sender — to the worker over a channel, and `.await`s the reply. The handle is just a channel sender, so `AsyncClient` is `Send`. It is runtime-agnostic (only the `oneshot` reply channel, from `futures-channel`, is used — no runtime), so it works under tokio, async-std, or smol.
+
+Cancellation = dropping a method's future before it resolves. Two cases, both honoring the contract:
+
+- **Queued, not yet started.** The reply receiver drops, so the worker — before running the job — sees the reply sender is cancelled and skips it *without* the FFI call. A queued job is "between FFI calls" (Rule 1.1), where cancellation must be honored, so no frame is committed.
+- **In-flight (inside the FFI call).** The call runs to completion on the worker and advances `StreamState`; the result is discarded (commit-prefix-and-report, no rollback — Rule 1.2). The next call runs after it (the worker is serial).
+
+Like the C++ binding, each `AsyncClient` is single-worker by design, so there is no shared-state-across-threads concern. There is no `ctx`/`stop_token`-style first parameter: in Rust the future *is* the cancellation handle, so dropping it (e.g. via `tokio::time::timeout`, `select!`, or task abort) is the idiomatic cancel. `Drop` closes the channel and joins the worker, so the `Client`'s teardown (`aletheia_close`) runs on the worker thread.
+
 ---
 
 ## 3. Partial-Work Semantics: Commit-Prefix-and-Report
@@ -134,7 +147,13 @@ For batch ops: `send_frames(stop, frames)` returns `BatchResult` with the existi
 
 For single-call ops: same as Go — either the call committed or it didn't.
 
-### 3.4 Caller responsibility on cancellation
+### 3.4 Rust
+
+For batch ops: `send_frames(frames).await` returns `(Vec<FrameResponse>, Option<Error>)` — the `Vec` carries the responses for the committed prefix and the `Option<Error>` is the first transport error, exactly as the sync `Client::send_frames` (the async method only forwards). The length of the `Vec` is the committed count. Cancelling the *future* of a batch op drops the whole call: a not-yet-started job commits nothing; an in-flight FFI call finishes on the worker and its result is discarded.
+
+For single-call ops: same as Go — either the call committed (the future resolved with its real result) or it didn't (the future was dropped before the job ran; no side effect). There is no `Error::Cancellation` value, because a dropped future yields *no* result by construction — the caller observes cancellation as "the `.await` never completed", the idiomatic Rust signal.
+
+### 3.5 Caller responsibility on cancellation
 
 The contract delivers what was committed; the caller decides what to do next. Three patterns the contract supports cleanly:
 
@@ -298,23 +317,23 @@ What the contract guarantees here:
 
 ### 5.1 Construction and teardown are not cancellable
 
-`AletheiaClient(...)` (Python), `NewClient(...)` (Go), and `make_ffi_backend(...)` (C++) take no cancellation primitive. Construction is synchronous CGO + GHC RTS initialization — there is no I/O to wait on, so cancellation has no meaningful effect.
+`AletheiaClient(...)` (Python), `NewClient(...)` (Go), `make_ffi_backend(...)` (C++), and `AsyncClient::new()` / `ClientBuilder::build_async()` (Rust) take no cancellation primitive. Construction is synchronous CGO + GHC RTS initialization — there is no I/O to wait on, so cancellation has no meaningful effect. (Dropping the `build_async()` future does not cancel the in-flight RTS init on the worker thread — same caveat as the language-native timeout below.)
 
 Wrapping construction in a language-native timeout (`asyncio.wait_for(asyncio.to_thread(AletheiaClient, …), timeout=…)`, `context.WithTimeout` around a goroutine that calls `NewClient`, etc.) does *not* cancel the underlying CGO call — it only stops the caller from *waiting* on the result. The constructor thread or goroutine continues running until `hs_init` and the FFI library load complete. Treat construction as a fixed-cost operation; if you need a hard upper bound on its wallclock time, isolate it in a subprocess that you can SIGKILL.
 
-`close()` / `Close()` / `~AletheiaClient()` similarly take no cancellation primitive. Teardown is best-effort, idempotent, and double-close safe in all three bindings; it always runs to completion. A teardown that fails (e.g., the FFI returns an error during state finalization) reports the failure but does not surface a cancellation case.
+`close()` / `Close()` / `~AletheiaClient()` / `Drop` (Rust) similarly take no cancellation primitive. Teardown is best-effort, idempotent, and double-close safe in every binding (Rust's ownership runs `Drop` exactly once by construction); it always runs to completion. A teardown that fails (e.g., the FFI returns an error during state finalization) reports the failure but does not surface a cancellation case.
 
 ### 5.2 Mid-batch error vs cancellation
 
 A batch operation can stop for two reasons: a real error (e.g., non-monotonic timestamp) or a cancellation. If both happen — e.g., an error fires on frame 17 of 100, and the caller had already cancelled the context at frame 50 — the *error* wins. The batch reports the error with the committed prefix `[0..16]`; the cancellation never gets a chance to fire because the loop terminated first.
 
-This is intentional: errors are primary signals about data integrity, and burying them under a cancellation report would make debugging harder. If the caller wants to distinguish "cancelled while processing" from "errored", they check the returned error (or exception type in Python) — cancellation produces `ctx.Err()` / `CancelledError` / `ErrorKind::Cancellation`; errors produce binding-specific error types.
+This is intentional: errors are primary signals about data integrity, and burying them under a cancellation report would make debugging harder. If the caller wants to distinguish "cancelled while processing" from "errored", they check the returned error (or exception type in Python) — cancellation produces `ctx.Err()` / `CancelledError` / `ErrorKind::Cancellation` (or, in Rust, a future that never resolves rather than an error value); errors produce binding-specific error types.
 
 ### 5.3 Concurrent cancellation in Go
 
 Go's `Client` is goroutine-safe via the channel-based ctx-aware lock. This produces a behavior worth highlighting: a goroutine cancelled while *waiting* for the lock returns `ctx.Err()` immediately, without ever acquiring the lock or reaching the FFI. This is structurally cleaner than `sync.Mutex.Lock()` would be — `sync.Mutex` has no native ctx-aware variant and would force the waiter to acquire the lock, then return `ctx.Err()` only at the post-lock check.
 
-The Python and C++ bindings do not have this consideration: Python's `aletheia.asyncio.AletheiaClient` is not concurrent-safe across asyncio tasks (each task should hold its own client instance, the same as the sync client), and C++ is single-client-per-thread by design.
+The Python, C++, and Rust bindings do not have this consideration: Python's `aletheia.asyncio.AletheiaClient` is not concurrent-safe across asyncio tasks (each task should hold its own client instance, the same as the sync client), C++ is single-client-per-thread by design, and Rust's `AsyncClient` serialises all work onto its single owned worker thread (so concurrent `.await`s queue rather than contend, and a future dropped while its job is still queued is simply skipped — no lock to wait on).
 
 ### 5.4 What "committed" means for Aletheia state
 
@@ -336,7 +355,7 @@ It does not invalidate any external state the caller has built up alongside Alet
 
 - `docs/architecture/DESIGN.md` — Aletheia's three-layer architecture (the GHC RTS constraint that drives Rule 1 lives there).
 - `docs/architecture/PROTOCOL.md` — JSON command / binary frame protocols. Cancellation is *not* part of the wire protocol; it is a binding-side concern.
-- `docs/FEATURE_MATRIX.yaml` — cross-binding capability matrix. Rows touched by this contract: `lazy_streaming_batch` (Python-only by language constraint), `cancellation_contract` (per-binding mechanic), and the operation rows that gain a cancellation primitive (Python `aletheia.asyncio.AletheiaClient`, Go `ctx`, C++ `std::stop_token`).
+- `docs/FEATURE_MATRIX.yaml` — cross-binding capability matrix. Rows touched by this contract: `lazy_streaming_batch` (Python-only by language constraint), `cancellation_contract` (per-binding mechanic), and the operation rows that gain a cancellation primitive (Python `aletheia.asyncio.AletheiaClient`, Go `ctx`, C++ `std::stop_token`, Rust `AsyncClient` future-drop).
 
 ---
 
