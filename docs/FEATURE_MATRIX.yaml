@@ -447,7 +447,10 @@ features:
       python: { status: implemented, entry: aletheia.PropertyDiagnostic }
       cpp:    { status: implemented, entry: "aletheia/response.hpp#PropertyDiagnostic" }
       go:     { status: implemented, entry: PropertyDiagnostic }
-      rust: { status: planned, notes: "Client-side enrichment deferred; the core reason is surfaced on violations." }
+      rust:
+        status: implemented
+        entry: "Enrichment"
+        notes: "Computed client-side (the core emits no enrichment field): each registered formula yields a PropertyDiagnostic (referenced signals + description) cached at set_properties; on a violation the signals are paired with their last-known values to build an Enrichment on PropertyResult. Mirrors Go enrich.go / Python _enrichment.py; the cache.* / extraction-cache layer is not implemented (cache is a perf optimization, not part of the contract)."
 
   - id: rts_cores_config
     name: RTS cores configuration

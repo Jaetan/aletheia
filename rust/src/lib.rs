@@ -24,10 +24,13 @@
 //! hot path. The typed DBC document model, the Check DSL, and CLI affordances
 //! are tracked as `planned` in `docs/FEATURE_MATRIX.yaml`.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
 
+use crate::enrich::PropertyDiagnostic;
 use crate::log::events;
 
 use libloading::{Library, Symbol};
@@ -35,6 +38,7 @@ use serde_json::json;
 
 pub mod check;
 mod dbc;
+mod enrich;
 mod error;
 pub mod log;
 mod ltl;
@@ -390,6 +394,13 @@ pub struct Client {
     logger: Option<Arc<dyn Logger>>,
     /// Minimum level a record must meet to reach the logger.
     min_level: LogLevel,
+    /// Per-property diagnostics derived from the registered formulas (index =
+    /// `property_index`); the source for client-side violation enrichment.
+    /// `RefCell` because the client methods take `&self`.
+    diags: RefCell<Vec<PropertyDiagnostic>>,
+    /// The most recent frame seen per CAN id during streaming (when diagnostics
+    /// are set) — re-extracted at end-of-stream to enrich the final verdicts.
+    last_frames: RefCell<HashMap<CanId, (Dlc, Vec<u8>)>>,
     /// Makes the `!Send + !Sync` contract explicit and future-proof. A raw
     /// pointer (`StateHandle = *mut c_void`) is already `!Send + !Sync`, so this
     /// is not load-bearing today — but it keeps `Client` thread-bound even if a
@@ -466,6 +477,8 @@ impl ClientBuilder {
             handle,
             logger: self.logger,
             min_level,
+            diags: RefCell::new(Vec::new()),
+            last_frames: RefCell::new(HashMap::new()),
             _not_send_sync: PhantomData,
         })
     }
@@ -505,6 +518,116 @@ impl Client {
                     fields,
                 });
             }
+        }
+    }
+
+    /// Extract the values of `signals` from one frame, returning `(name, value)`
+    /// for those present, or `None` if the extraction FFI call failed.
+    fn extract_values_for(
+        &self,
+        signals: &[String],
+        id: CanId,
+        dlc: Dlc,
+        data: &[u8],
+    ) -> Option<Vec<(String, Rational)>> {
+        let res = self.extract_signals(id, dlc, data).ok()?;
+        Some(
+            res.values
+                .into_iter()
+                .filter(|sv| signals.iter().any(|s| s == &sv.name))
+                .map(|sv| (sv.name, sv.value))
+                .collect(),
+        )
+    }
+
+    /// Collect the `(result-slot, diagnostic)` pairs needing enrichment — the
+    /// `Fails` verdicts with an in-range `property_index`. Out-of-range indices
+    /// emit `enrichment.property_index_oob` and are skipped. The `diags` borrow
+    /// is released before the caller extracts (avoids a re-entrant borrow).
+    fn enrichment_todo(&self, results: &[PropertyResult]) -> Vec<(usize, PropertyDiagnostic)> {
+        let n = self.diags.borrow().len();
+        let mut todo = Vec::new();
+        for (slot, r) in results.iter().enumerate() {
+            if r.verdict != Verdict::Fails {
+                continue;
+            }
+            let idx = r.property_index as usize;
+            if idx >= n {
+                self.emit(
+                    LogLevel::Warn,
+                    events::ENRICHMENT_PROPERTY_INDEX_OOB,
+                    &[
+                        LogField::new("property_index", LogValue::U64(u64::from(r.property_index))),
+                        LogField::new("count", LogValue::U64(n as u64)),
+                    ],
+                );
+                continue;
+            }
+            todo.push((slot, self.diags.borrow()[idx].clone()));
+        }
+        todo
+    }
+
+    /// Attach a [`Enrichment`] built from `diag` + extracted `values` to one result.
+    fn set_enrichment(
+        &self,
+        pr: &mut PropertyResult,
+        diag: &PropertyDiagnostic,
+        values: Vec<(String, Rational)>,
+    ) {
+        let enriched_reason = enrich::format_enriched_reason(diag, &values, &pr.reason);
+        pr.enrichment = Some(Enrichment {
+            signals: values,
+            formula_desc: diag.formula_desc.clone(),
+            enriched_reason,
+            core_reason: pr.reason.clone(),
+        });
+    }
+
+    /// Enrich the `Fails` verdicts decided by the current frame, extracting their
+    /// signal values from that same frame.
+    fn enrich_streaming(&self, results: &mut [PropertyResult], id: CanId, dlc: Dlc, data: &[u8]) {
+        for (slot, diag) in self.enrichment_todo(results) {
+            let values = self.extract_values_for(&diag.signals, id, dlc, data);
+            if values.is_none() {
+                self.emit(
+                    LogLevel::Warn,
+                    events::ENRICHMENT_EXTRACTION_FAILED,
+                    &[LogField::new(
+                        "property_index",
+                        LogValue::U64(u64::from(results[slot].property_index)),
+                    )],
+                );
+            }
+            self.set_enrichment(&mut results[slot], &diag, values.unwrap_or_default());
+        }
+    }
+
+    /// Enrich the final `Fails` verdicts at end-of-stream, re-extracting their
+    /// signal values from the last frame seen on each CAN id.
+    fn enrich_eos(&self, results: &mut [PropertyResult]) {
+        if self.diags.borrow().is_empty() {
+            return;
+        }
+        // Snapshot the last frames so no borrow is held across extraction.
+        let frames: Vec<(CanId, Dlc, Vec<u8>)> = self
+            .last_frames
+            .borrow()
+            .iter()
+            .map(|(id, (dlc, data))| (*id, *dlc, data.clone()))
+            .collect();
+        for (slot, diag) in self.enrichment_todo(results) {
+            let mut values: Vec<(String, Rational)> = Vec::new();
+            for (id, dlc, data) in &frames {
+                if let Some(found) = self.extract_values_for(&diag.signals, *id, *dlc, data) {
+                    for (name, value) in found {
+                        if !values.iter().any(|(n, _)| n == &name) {
+                            values.push((name, value));
+                        }
+                    }
+                }
+            }
+            self.set_enrichment(&mut results[slot], &diag, values);
         }
     }
 
@@ -636,6 +759,10 @@ impl Client {
         let cmd = json!({ "type": "command", "command": "setProperties", "properties": arr });
         let raw = self.process(&cmd.to_string())?;
         response::decode_ack_or_success(&raw)?;
+        // Cache one diagnostic per property (index = property_index) for
+        // client-side violation enrichment, and reset the per-stream frame cache.
+        *self.diags.borrow_mut() = properties.iter().map(enrich::build_diagnostic).collect();
+        self.last_frames.borrow_mut().clear();
         self.emit(
             LogLevel::Info,
             events::PROPERTIES_SET,
@@ -721,7 +848,17 @@ impl Client {
                 )
             })
         })?;
-        let resp = response::decode_frame(&raw)?;
+        let mut resp = response::decode_frame(&raw)?;
+        // When diagnostics are set: remember this frame for end-of-stream
+        // enrichment, and enrich any violations it decided (from this frame).
+        if !self.diags.borrow().is_empty() {
+            self.last_frames
+                .borrow_mut()
+                .insert(id, (dlc, data.to_vec()));
+            if let FrameResponse::Verdicts(results) = &mut resp {
+                self.enrich_streaming(results, id, dlc, data);
+            }
+        }
         let class = match &resp {
             FrameResponse::Ack => "ack",
             FrameResponse::Verdicts(_) => "verdicts",
@@ -781,7 +918,9 @@ impl Client {
             let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_end_stream\0") }?;
             Ok(unsafe { f(self.handle) })
         })?;
-        let result = response::decode_stream(&raw)?;
+        let mut result = response::decode_stream(&raw)?;
+        // Enrich the final violations from the last frame seen on each CAN id.
+        self.enrich_eos(&mut result.results);
         self.emit(
             LogLevel::Info,
             events::STREAM_ENDED,
