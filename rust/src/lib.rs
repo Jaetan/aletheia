@@ -26,7 +26,9 @@
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::marker::PhantomData;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+
+use crate::log::events;
 
 use libloading::{Library, Symbol};
 use serde_json::json;
@@ -34,6 +36,7 @@ use serde_json::json;
 pub mod check;
 mod dbc;
 mod error;
+pub mod log;
 mod ltl;
 mod response;
 mod types;
@@ -47,6 +50,7 @@ pub use dbc::{
     ValueTable,
 };
 pub use error::Error;
+pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use response::{
     Enrichment, ExtractionResult, FrameResponse, PropertyResult, SignalValue, StreamResult,
@@ -122,6 +126,9 @@ fn lib_path() -> String {
 /// process lifetime, so the library is loaded once and never unloaded.
 static LIB: OnceLock<Library> = OnceLock::new();
 static RTS_INIT: OnceLock<Result<(), Error>> = OnceLock::new();
+/// The RTS core spec the first init latched (`None` = GHC defaults, `Some(k)` =
+/// `-N<k>`). A later init requesting a different spec is a no-op + a warning.
+static RTS_SPEC: OnceLock<Option<u32>> = OnceLock::new();
 
 fn library() -> Result<&'static Library, Error> {
     if let Some(lib) = LIB.get() {
@@ -160,18 +167,64 @@ unsafe fn symbol<'lib, T>(lib: &'lib Library, name: &[u8]) -> Result<Symbol<'lib
 /// we start it once and never tear it down. The outcome is latched in a
 /// `OnceLock<Result<…>>` so a second `Client::new()` after a failed first one
 /// fails identically rather than silently masking a broken `.so`.
-fn ensure_rts(lib: &Library) -> Result<(), Error> {
-    RTS_INIT
-        .get_or_init(|| {
-            // SAFETY: `hs_init` has signature `void hs_init(int *argc, char ***argv)`;
-            // NULL/NULL is permitted by the GHC runtime and selects default flags.
-            let hs_init = unsafe {
-                symbol::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(lib, b"hs_init\0")
-            }?;
-            unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) };
-            Ok(())
-        })
-        .clone()
+fn ensure_rts(
+    lib: &Library,
+    cores: Option<u32>,
+    logger: Option<&dyn Logger>,
+    min_level: LogLevel,
+) -> Result<(), Error> {
+    // The first init's spec wins; a later mismatching request is a no-op + warn.
+    let latched = *RTS_SPEC.get_or_init(|| cores);
+    if latched != cores {
+        if let Some(lg) = logger {
+            if LogLevel::Warn >= min_level {
+                let requested = spec_str(cores);
+                let active = spec_str(latched);
+                lg.log(&LogRecord {
+                    level: LogLevel::Warn,
+                    event: events::RTS_CORES_MISMATCH,
+                    fields: &[
+                        LogField::new("requested", LogValue::Str(&requested)),
+                        LogField::new("active", LogValue::Str(&active)),
+                    ],
+                });
+            }
+        }
+    }
+    RTS_INIT.get_or_init(|| init_rts(lib, latched)).clone()
+}
+
+/// Human spec for the RTS core count (`default` or `-N<k>`).
+fn spec_str(cores: Option<u32>) -> String {
+    cores.map_or_else(|| "default".to_string(), |k| format!("-N{k}"))
+}
+
+/// Run `hs_init`, either with GHC defaults (`cores = None`) or a leaked
+/// `+RTS -N<k> -RTS` argv (`cores = Some(k)`). GHC retains the argv pointers for
+/// the process lifetime, so the strings and the array are intentionally leaked.
+fn init_rts(lib: &Library, cores: Option<u32>) -> Result<(), Error> {
+    // SAFETY: `hs_init` is `void hs_init(int *argc, char ***argv)`.
+    let hs_init = unsafe {
+        symbol::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(lib, b"hs_init\0")
+    }?;
+    match cores {
+        // NULL/NULL selects GHC default flags.
+        None => unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) },
+        Some(k) => {
+            // `into_raw` / `Box::leak` deliberately leak: GHC retains argv.
+            let argv: Vec<*mut c_char> = vec![
+                CString::new("aletheia").expect("no NUL").into_raw(),
+                CString::new("+RTS").expect("no NUL").into_raw(),
+                CString::new(format!("-N{k}")).expect("no NUL").into_raw(),
+                CString::new("-RTS").expect("no NUL").into_raw(),
+                std::ptr::null_mut(),
+            ];
+            let mut argc: c_int = 4;
+            let mut argv_ptr = Box::leak(argv.into_boxed_slice()).as_mut_ptr();
+            unsafe { hs_init(&mut argc, &mut argv_ptr) };
+        }
+    }
+    Ok(())
 }
 
 /// RAII guard for a C string the core returned (allocated by the GHC RTS).
@@ -332,6 +385,11 @@ fn check_buffer_status(
 /// Cross-thread use is a future slice (tracked `planned`).
 pub struct Client {
     handle: StateHandle,
+    /// Optional structured-log sink (`None` ⇒ logging is a no-op). Held as an
+    /// `Arc` so a future async client's worker thread can share it.
+    logger: Option<Arc<dyn Logger>>,
+    /// Minimum level a record must meet to reach the logger.
+    min_level: LogLevel,
     /// Makes the `!Send + !Sync` contract explicit and future-proof. A raw
     /// pointer (`StateHandle = *mut c_void`) is already `!Send + !Sync`, so this
     /// is not load-bearing today — but it keeps `Client` thread-bound even if a
@@ -340,16 +398,63 @@ pub struct Client {
     _not_send_sync: PhantomData<*const ()>,
 }
 
-impl Client {
-    /// Load the core (once per process), initialise the GHC RTS (once), and
+/// Builder for a [`Client`] — a [`Logger`] sink and/or the GHC RTS core count.
+///
+/// The RTS is process-global and initialised once: the first client built
+/// latches the core count; a later client requesting a different count gets the
+/// first one plus a `rts.cores_mismatch` warning (mirrors Go `WithRTSCores` /
+/// C++ `make_ffi_backend`).
+#[derive(Default)]
+pub struct ClientBuilder {
+    rts_cores: Option<u32>,
+    logger: Option<Arc<dyn Logger>>,
+    min_level: Option<LogLevel>,
+}
+
+impl ClientBuilder {
+    /// Request the GHC RTS core count (`+RTS -N<cores>`). Must be ≥ 1. Takes
+    /// effect only on the first client built in the process.
+    #[must_use]
+    pub fn rts_cores(mut self, cores: u32) -> Self {
+        self.rts_cores = Some(cores);
+        self
+    }
+
+    /// Set the structured-log sink. A bare `Fn(&LogRecord) + Send + Sync` works
+    /// as a [`Logger`] via the blanket impl.
+    #[must_use]
+    pub fn logger(mut self, logger: impl Logger + 'static) -> Self {
+        self.logger = Some(Arc::new(logger));
+        self
+    }
+
+    /// Set the minimum level a record must meet to reach the logger (default
+    /// [`LogLevel::Debug`] — everything passes).
+    #[must_use]
+    pub fn min_level(mut self, level: LogLevel) -> Self {
+        self.min_level = Some(level);
+        self
+    }
+
+    /// Build the client: load the core, initialise the RTS once per process, and
     /// allocate a fresh `StreamState`.
     ///
     /// # Errors
-    /// Returns [`Error`] if the library cannot be loaded, a required symbol is
+    /// [`Error::Validation`] if `rts_cores` is 0 or exceeds the C `int` range;
+    /// otherwise [`Error`] if the library cannot be loaded, a required symbol is
     /// missing, or the core fails to initialise.
-    pub fn new() -> Result<Self, Error> {
+    pub fn build(self) -> Result<Client, Error> {
+        if let Some(k) = self.rts_cores {
+            if k == 0 || k > i32::MAX as u32 {
+                return Err(Error::Validation(format!(
+                    "rts_cores must be in 1..={}, got {k}",
+                    i32::MAX
+                )));
+            }
+        }
+        let min_level = self.min_level.unwrap_or(LogLevel::Debug);
         let lib = library()?;
-        ensure_rts(lib)?;
+        ensure_rts(lib, self.rts_cores, self.logger.as_deref(), min_level)?;
         // SAFETY: `aletheia_init` is `StateHandle aletheia_init(void)`.
         let init =
             unsafe { symbol::<unsafe extern "C" fn() -> StateHandle>(lib, b"aletheia_init\0") }?;
@@ -359,8 +464,48 @@ impl Client {
         }
         Ok(Client {
             handle,
+            logger: self.logger,
+            min_level,
             _not_send_sync: PhantomData,
         })
+    }
+}
+
+impl Client {
+    /// Load the core, initialise the GHC RTS, and allocate a fresh `StreamState`
+    /// — with no logger and no explicit RTS core count.
+    ///
+    /// The RTS is **process-global and initialised once**: `new()` requests GHC
+    /// default flags, but if an earlier client was built with
+    /// [`ClientBuilder::rts_cores`], that first `-N<k>` stays in effect — `new()`
+    /// does not (and cannot) reset the process-wide RTS. Use [`Client::builder`]
+    /// to configure a [`Logger`] or the RTS core count.
+    ///
+    /// # Errors
+    /// Returns [`Error`] if the library cannot be loaded, a required symbol is
+    /// missing, or the core fails to initialise.
+    pub fn new() -> Result<Self, Error> {
+        Client::builder().build()
+    }
+
+    /// Begin configuring a client (a [`Logger`] sink and/or the RTS core count).
+    #[must_use]
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::default()
+    }
+
+    /// Emit a structured log record, if a logger is set and the level passes the
+    /// configured minimum. A no-op (one branch) when no logger is configured.
+    fn emit(&self, level: LogLevel, event: &str, fields: &[LogField]) {
+        if let Some(lg) = &self.logger {
+            if level >= self.min_level {
+                lg.log(&LogRecord {
+                    level,
+                    event,
+                    fields,
+                });
+            }
+        }
     }
 
     /// Send one raw JSON command line to the core and return its raw JSON
@@ -392,7 +537,16 @@ impl Client {
     pub fn parse_dbc_text(&self, text: &str) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
         let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
         let raw = self.process(&cmd.to_string())?;
-        dbc::decode_parsed_dbc(&raw)
+        let (dbc, warnings) = dbc::decode_parsed_dbc(&raw)?;
+        self.emit(
+            LogLevel::Info,
+            events::DBC_PARSED,
+            &[LogField::new(
+                "messages",
+                LogValue::U64(dbc.messages.len() as u64),
+            )],
+        );
+        Ok((dbc, warnings))
     }
 
     /// Export the currently-loaded DBC as a typed [`Dbc`] document (the core's
@@ -429,7 +583,16 @@ impl Client {
         let mut cmd = json!({ "type": "command", "command": "parseDBC" });
         cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;
-        dbc::decode_parsed_dbc(&raw)
+        let (parsed, warnings) = dbc::decode_parsed_dbc(&raw)?;
+        self.emit(
+            LogLevel::Info,
+            events::DBC_PARSED,
+            &[LogField::new(
+                "messages",
+                LogValue::U64(parsed.messages.len() as u64),
+            )],
+        );
+        Ok((parsed, warnings))
     }
 
     /// Run the structural validator over a typed [`Dbc`] without modifying this
@@ -472,7 +635,16 @@ impl Client {
         }
         let cmd = json!({ "type": "command", "command": "setProperties", "properties": arr });
         let raw = self.process(&cmd.to_string())?;
-        response::decode_ack_or_success(&raw)
+        response::decode_ack_or_success(&raw)?;
+        self.emit(
+            LogLevel::Info,
+            events::PROPERTIES_SET,
+            &[LogField::new(
+                "count",
+                LogValue::U64(properties.len() as u64),
+            )],
+        );
+        Ok(())
     }
 
     /// Bind a set of [`Check`]s built with the [`check`] DSL — the higher-level
@@ -502,7 +674,9 @@ impl Client {
             let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_start_stream\0") }?;
             Ok(unsafe { f(self.handle) })
         })?;
-        response::decode_ack_or_success(&raw)
+        response::decode_ack_or_success(&raw)?;
+        self.emit(LogLevel::Info, events::STREAM_STARTED, &[]);
+        Ok(())
     }
 
     /// Send one CAN frame to the active stream (binary FFI). Pass `None` for
@@ -547,7 +721,17 @@ impl Client {
                 )
             })
         })?;
-        response::decode_frame(&raw)
+        let resp = response::decode_frame(&raw)?;
+        let class = match &resp {
+            FrameResponse::Ack => "ack",
+            FrameResponse::Verdicts(_) => "verdicts",
+        };
+        self.emit(
+            LogLevel::Debug,
+            events::FRAME_PROCESSED,
+            &[LogField::new("response", LogValue::Str(class))],
+        );
+        Ok(resp)
     }
 
     /// Send a CAN error event (no ID, no payload) to the active stream.
@@ -559,7 +743,13 @@ impl Client {
             let f = unsafe { symbol::<SendErrorFn>(lib, b"aletheia_send_error\0") }?;
             Ok(unsafe { f(self.handle, ts.micros()) })
         })?;
-        response::decode_ack_or_success(&raw)
+        response::decode_ack_or_success(&raw)?;
+        self.emit(
+            LogLevel::Debug,
+            events::ERROR_EVENT_SENT,
+            &[LogField::new("timestamp", LogValue::U64(ts.micros()))],
+        );
+        Ok(())
     }
 
     /// Send a CAN remote frame event (ID, no payload) to the active stream.
@@ -572,7 +762,13 @@ impl Client {
             let f = unsafe { symbol::<SendRemoteFn>(lib, b"aletheia_send_remote\0") }?;
             Ok(unsafe { f(self.handle, ts.micros(), id.value(), ext) })
         })?;
-        response::decode_ack_or_success(&raw)
+        response::decode_ack_or_success(&raw)?;
+        self.emit(
+            LogLevel::Debug,
+            events::REMOTE_EVENT_SENT,
+            &[LogField::new("timestamp", LogValue::U64(ts.micros()))],
+        );
+        Ok(())
     }
 
     /// End the stream and collect the final per-property verdicts and warnings
@@ -585,7 +781,28 @@ impl Client {
             let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_end_stream\0") }?;
             Ok(unsafe { f(self.handle) })
         })?;
-        response::decode_stream(&raw)
+        let result = response::decode_stream(&raw)?;
+        self.emit(
+            LogLevel::Info,
+            events::STREAM_ENDED,
+            &[LogField::new(
+                "results",
+                LogValue::U64(result.results.len() as u64),
+            )],
+        );
+        for w in &result.warnings {
+            if w.kind == "uncached_atom" {
+                self.emit(
+                    LogLevel::Warn,
+                    events::ENDSTREAM_UNCACHED_ATOM,
+                    &[
+                        LogField::new("property_index", LogValue::U64(u64::from(w.property_index))),
+                        LogField::new("detail", LogValue::Str(&w.detail)),
+                    ],
+                );
+            }
+        }
+        Ok(result)
     }
 
     /// Extract all signals defined for a frame's CAN ID from its payload

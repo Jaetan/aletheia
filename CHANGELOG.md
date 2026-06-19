@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust ergonomics & runtime infra (`rust/`, Rust-parity Slice R4a) — a
+  `Client::builder()` adding **structured logging** and **RTS-cores
+  configuration**. `.logger(...)` takes a callback `Logger` (a bare
+  `Fn(&LogRecord) + Send + Sync` works via a blanket impl; level + event +
+  typed fields), with `.min_level(...)` filtering; the client emits the shared
+  cross-binding event vocabulary (`docs/LOG_EVENTS.yaml`), enforced by the new
+  `rust/tests/log_events.rs` parity gate. `.rts_cores(k)` passes `+RTS -N<k>
+  -RTS` to `hs_init`; the RTS is process-global, so the first client latches the
+  count and a later mismatching request is a no-op plus a `rts.cores_mismatch`
+  warning (mirrors Go `WithRTSCores` / C++ `make_ffi_backend`). Flips the
+  `structured_logging` and `rts_cores_config` `rust` rows to `implemented`
+  (rust 32/40); `lazy_streaming_batch` is recorded `not_applicable` for Rust
+  (the existing `send_frames(&[Frame])` already delivers commit-prefix-and-report
+  over a caller-materialized slice, mirroring the Go / C++ disposition).
 - Rust Excel check + DBC loader (`rust/excel/`, Rust-parity Slice R3c) — a separate
   `aletheia-excel` crate (mirroring Go's `go/excel/` module) so the `.xlsx`
   dependency chain (calamine + rust_xlsxwriter + zip) stays optional for core users.
