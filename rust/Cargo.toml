@@ -15,17 +15,26 @@ serde_json = "1"
 # YAML check loader — optional, ON by default (disable with --no-default-features).
 # Pure-Rust, no native deps; the maintained successor to the unmaintained serde_yaml.
 yaml-rust2 = { version = "0.10", optional = true }
+# Async client (opt-in `async` feature) — runtime-agnostic: only the `oneshot`
+# reply channel, not a runtime. Works under tokio / async-std / smol.
+futures-channel = { version = "0.3", optional = true }
 
 [dev-dependencies]
 # Also a dev-dependency so the FEATURE_MATRIX parity gate
 # (rust/tests/feature_matrix.rs) can parse YAML even under
 # --no-default-features, where the optional runtime dep above is off.
 yaml-rust2 = "0.10"
+# Drives the async-client tests without committing the crate to a runtime:
+# `executor::block_on` (runtime-agnostic) + `future::select`/`ready` to cancel a
+# pending call deterministically (no sleeps — see feedback_no_physical_time_in_tests).
+futures = "0.3"
 
 [features]
 default = ["yaml"]
 # YAML check loader: load_checks_from_yaml / load_checks_from_yaml_file.
 yaml = ["dep:yaml-rust2"]
+# Async client: AsyncClient, a runtime-agnostic async mirror of Client.
+async = ["dep:futures-channel"]
 
 [lib]
 name = "aletheia"

@@ -505,7 +505,10 @@ features:
         status: implemented
         entry: Client.SendFrame
         notes: "C.3 (2026-05-03): every Client operation method takes ctx context.Context as its first parameter; sync.Mutex replaced with 1-deep channel-based semaphore so a goroutine waiting on the lock can be cancelled by ctx. See docs/architecture/CANCELLATION.md."
-      rust: { status: planned, notes: "Cooperative cancellation deferred; the client is synchronous." }
+      rust:
+        status: implemented
+        entry: "AsyncClient"
+        notes: "R4c: AsyncClient (feature `async`) is a runtime-agnostic async mirror of Client. The sync Client is !Send (thread-pinned StreamState), so AsyncClient owns it on a dedicated worker thread and dispatches jobs over a channel; cancellation = dropping a method's future. Honors the contract: a queued (not-yet-started) job is skipped (no frame committed); an in-flight FFI call completes and advances StreamState (commit-prefix). Runtime-agnostic via futures-channel oneshot (works under tokio / async-std / smol). See docs/architecture/CANCELLATION.md §2.4."
 
   - id: lazy_streaming_batch
     name: Lazy batch frame send

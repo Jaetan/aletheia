@@ -36,6 +36,8 @@ use crate::log::events;
 use libloading::{Library, Symbol};
 use serde_json::json;
 
+#[cfg(feature = "async")]
+mod async_client;
 pub mod check;
 mod dbc;
 mod enrich;
@@ -47,6 +49,8 @@ mod types;
 #[cfg(feature = "yaml")]
 pub mod yaml;
 
+#[cfg(feature = "async")]
+pub use async_client::AsyncClient;
 pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
@@ -481,6 +485,17 @@ impl ClientBuilder {
             last_frames: RefCell::new(HashMap::new()),
             _not_send_sync: PhantomData,
         })
+    }
+
+    /// Build a runtime-agnostic [`AsyncClient`] from this configuration (feature
+    /// `async`) — the async analogue of [`ClientBuilder::build`]. The sync
+    /// `Client` is created and owned on a dedicated worker thread.
+    ///
+    /// # Errors
+    /// As [`ClientBuilder::build`], propagated from the worker thread.
+    #[cfg(feature = "async")]
+    pub async fn build_async(self) -> Result<AsyncClient, Error> {
+        async_client::spawn(self).await
     }
 }
 
