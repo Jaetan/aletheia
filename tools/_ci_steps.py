@@ -239,10 +239,21 @@ def _run_binding_tests(runner: Runner) -> None:
         ],
         cwd=runner.repo_root / "python",
     )
+    # Cover EVERY Go package, not just ./aletheia/: the core module's packages
+    # (aletheia + cmd/aletheia) AND the separate excel module (its own go.mod, so
+    # `./...` from go/ stops at the module boundary — it needs its own run).
+    # ALETHEIA_LIB makes the .so discoverable regardless of each package's test
+    # cwd (cmd/aletheia and excel sit too deep for findFFILibrary's relative probe).
+    go_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "go test -race",
-        ["go", "test", "./aletheia/", "-count=1", "-race"],
+        f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race",
         cwd=runner.repo_root / "go",
+    )
+    runner.step(
+        "go test -race (excel module)",
+        f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race",
+        cwd=runner.repo_root / "go" / "excel",
     )
     runner.step(
         "ctest",
@@ -314,11 +325,15 @@ def _run_lints(runner: Runner) -> None:
     )
     runner.step("pylint", pylint_cmd, cwd=runner.repo_root / "python")
 
-    # gofmt -l (LIST mode): stdout non-empty == files need reformatting.
+    # gofmt -l (LIST mode): stdout non-empty == files need reformatting. `gofmt -l .`
+    # walks every .go file under go/ (it ignores module boundaries, so the excel
+    # submodule is covered too); `go vet` does respect them, so excel needs its own
+    # invocation alongside the core module's `./...`.
     gofmt_cmd = (
-        "gofmt -l ./aletheia/ > /tmp/aletheia-gofmt.out 2>&1; rc=$?; "
+        "gofmt -l . > /tmp/aletheia-gofmt.out 2>&1; rc=$?; "
         "cat /tmp/aletheia-gofmt.out; "
-        "test $rc -eq 0 && test ! -s /tmp/aletheia-gofmt.out && go vet ./aletheia/"
+        "test $rc -eq 0 && test ! -s /tmp/aletheia-gofmt.out "
+        "&& go vet ./... && (cd excel && go vet ./...)"
     )
     runner.step("gofmt + go vet", gofmt_cmd, cwd=runner.repo_root / "go")
 

@@ -251,6 +251,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **CI now tests every Go package, not just `./aletheia/`.** The `run_ci.py` Go
+  lane ran `go test ./aletheia/`, silently skipping `go/cmd/aletheia` (4 tests)
+  and the separate `go/excel` module (64 tests) — 68 tests that never gated a PR.
+  The lane now runs `go test ./...` over the core module (covering `aletheia` +
+  `cmd/aletheia`) **and** a second `go test ./...` over the `go/excel` module
+  (its own `go.mod` makes `./...` stop at the boundary), both with `ALETHEIA_LIB`
+  set so the `.so` is found regardless of each package's test cwd. The `gofmt` /
+  `go vet` lint step is likewise widened from `./aletheia/` to all of `go/` plus
+  the excel module. (Python's `pytest tests/` and C++'s `ctest` were already
+  comprehensive; the Rust `excel` crate gets its own lane when it lands in R3c.)
 - **`check-fidelity` no longer fails to find the MAlonzo modules when the build
   is a no-op.** The `haskell-shim/MAlonzo -> ../build/MAlonzo` symlink (which
   cabal resolves the generated `MAlonzo.*` modules through, and which is
