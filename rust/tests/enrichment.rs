@@ -105,3 +105,63 @@ fn no_enrichment_without_a_violation() {
     }
     let _ = c.end_stream().expect("end stream");
 }
+
+#[test]
+fn end_of_stream_violation_carries_enrichment() {
+    // The trigger fires (EngineSpeed > 1000) but the response never arrives
+    // within the 60s window before the stream ends, so the core finalizes a
+    // Fails at end_stream — exercising the enrich_eos path (re-extraction from
+    // the last frame seen per CAN id), not the per-frame streaming path.
+    let c = Client::new().expect("init client");
+    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let id = CanId::standard(256).expect("id");
+    let msg = dbc.message_by_id(id).expect("EngineStatus");
+    let dlc = Dlc::new(8).expect("dlc");
+
+    let chk = check::when("EngineSpeed")
+        .exceeds(1000)
+        .then("EngineSpeed")
+        .equals(0)
+        .within(60_000)
+        .expect("check");
+    c.add_checks(&[chk]).expect("add_checks");
+    c.start_stream().expect("start stream");
+
+    let frame = c
+        .build_frame(
+            msg,
+            dlc,
+            &[SignalValue {
+                name: "EngineSpeed".to_string(),
+                value: Rational::integer(4000),
+            }],
+        )
+        .expect("build_frame");
+    // Pending during streaming (window not expired) — no verdict yet.
+    c.send_frame(Timestamp(0), id, dlc, &frame, None, None)
+        .expect("send frame");
+
+    let result = c.end_stream().expect("end stream");
+    let pr = result
+        .results
+        .iter()
+        .find(|r| r.verdict == Verdict::Fails)
+        .expect("an end-of-stream Fails for the unsatisfied within-window response");
+    let e = pr
+        .enrichment
+        .as_ref()
+        .expect("an end-of-stream violation must carry enrichment");
+    // enrich_eos re-extracted the signal value from the last frame seen.
+    assert!(
+        e.signals
+            .iter()
+            .any(|(n, v)| n == "EngineSpeed" && *v == Rational::integer(4000)),
+        "enrichment signals: {:?}",
+        e.signals
+    );
+    assert!(
+        e.enriched_reason.contains("EngineSpeed = 4000"),
+        "enriched_reason: {}",
+        e.enriched_reason
+    );
+}

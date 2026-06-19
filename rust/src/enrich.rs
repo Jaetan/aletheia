@@ -124,9 +124,9 @@ const US_PER_MILLISECOND: u64 = 1_000;
 
 fn format_timebound(t: TimeBound) -> String {
     let us = t.micros();
-    if us % US_PER_SECOND == 0 {
+    if us.is_multiple_of(US_PER_SECOND) {
         format!("{}s", us / US_PER_SECOND)
-    } else if us % US_PER_MILLISECOND == 0 {
+    } else if us.is_multiple_of(US_PER_MILLISECOND) {
         format!("{}ms", us / US_PER_MILLISECOND)
     } else {
         format!("{us}μs")
