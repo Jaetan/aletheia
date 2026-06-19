@@ -67,6 +67,7 @@ HEAVY_STEPS: frozenset[str] = frozenset(
         AGDA_GATES_STEP,
         "pytest",
         "go test -race",
+        "go test -race (excel module)",
         "ctest",
         "ubsan ctest",
         "check-reproducible-build",
@@ -242,8 +243,10 @@ def _run_binding_tests(runner: Runner) -> None:
     # Cover EVERY Go package, not just ./aletheia/: the core module's packages
     # (aletheia + cmd/aletheia) AND the separate excel module (its own go.mod, so
     # `./...` from go/ stops at the module boundary — it needs its own run).
-    # ALETHEIA_LIB makes the .so discoverable regardless of each package's test
-    # cwd (cmd/aletheia and excel sit too deep for findFFILibrary's relative probe).
+    # ALETHEIA_LIB pins the .so explicitly so no package depends on
+    # findFFILibrary's relative probe: cmd/aletheia's test cwd is too deep for it
+    # (its `../../build` resolves to go/build, not the repo root), and setting the
+    # env keeps every package's resolution uniform rather than cwd-dependent.
     go_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "go test -race",
