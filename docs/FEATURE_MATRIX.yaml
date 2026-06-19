@@ -394,7 +394,7 @@ features:
       python: { status: implemented, entry: aletheia.load_checks }
       cpp:    { status: implemented, entry: "aletheia/yaml.hpp#load_checks_from_yaml" }
       go:     { status: implemented, entry: LoadChecksFromYAML }
-      rust: { status: planned, notes: "YAML check loader deferred." }
+      rust:   { status: implemented, entry: "yaml::load_checks_from_yaml" }
 
   - id: excel_check_loader
     name: Excel check + DBC loader
