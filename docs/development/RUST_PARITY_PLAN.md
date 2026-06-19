@@ -163,6 +163,22 @@ surface (per AGENTS.md § Public API stability); and the four FEATURE_MATRIX
 parity gates passing. Any row that resolves `not_applicable` records a reason
 (matrix schema requirement) rather than being silently skipped.
 
+## On reaching parity — thorough Rust review (owed)
+
+**User-requested 2026-06-19:** once the Rust binding reaches feature parity with
+the other API languages, conduct a **thorough review of the entire Rust binding**
+(`rust/` + the `rust/excel/` crate) — a full code review in the spirit of the
+Agda / cross-language review rounds, not a per-slice spot check.
+
+**Trigger (milestone, not dated):** the parity-plan slices complete —
+**R4 + R5 done (rust 37/40)**. At that point the Rust binding has functional
+parity with Python / Go / C++; the three remaining rows (`cli`,
+`can_log_reader`, `doc_example_gate_checks`) are the shared **Phase-6**
+host-surface track (`can_log_reader` is unbuilt in *every* binding), so they need
+not gate the review — though it should note them as the known remaining deltas,
+and fold any `cli` / doc-gate work into scope if it has landed by then. Re-confirm
+the scope with the user when scheduling it.
+
 ## References
 
 - `docs/FEATURE_MATRIX.yaml` — authoritative `rust`-column status (the 26
