@@ -22,12 +22,15 @@ the fluent check DSL (Slice R3a ✅ complete 2026-06-18, #59 —
 `check::signal`/`check::when` → LTL formulas + `Client::add_checks`), and the
 YAML check loader (Slice R3b ✅ complete 2026-06-18, #62 —
 `load_checks_from_yaml`, schema-portable with the peers, with the shared
-`Rational::from_f64` convention + trust-boundary hardening)**.
-That is **29 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
-column.
+`Rational::from_f64` convention + trust-boundary hardening), and the Excel
+check + DBC loader (Slice R3c ✅ complete 2026-06-19, #65 — the separate
+`aletheia-excel` crate, which also unified strict, by-name Excel column handling
+across all four bindings)**.
+That is **30 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
+column — **Slice R3 (the whole Check-interface tier) is complete**.
 
-The remaining **11 `planned`** rows: **8** in this plan (the rest of slice
-**R3** plus **R4–R5**), and **3** carved out to **Phase 6** (below).
+The remaining **10 `planned`** rows: **7** in this plan (**R4–R5**), and **3**
+carved out to **Phase 6** (below).
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
 
@@ -42,7 +45,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 ✅ done = 18; 8 remain in R3c + R4–R5)
+## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 + R3c's 1 ✅ done = 19; 7 remain in R4–R5)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
@@ -79,7 +82,7 @@ the extraction path already done — plus multiplexed extraction and batched sen
 
 Rows: `check_dsl`, `add_checks` (**R3a ✅ done 2026-06-18, #59**),
 `yaml_check_loader` (**R3b ✅ done 2026-06-18, #62**), `excel_check_loader`
-(**R3c — remaining**).
+(**R3c ✅ done 2026-06-19, #65**). **Slice R3 complete.**
 
 The fluent Check builder, runtime check attachment, and the YAML / Excel
 loaders — the "engineers / CI / technicians" tiers above the raw LTL DSL.
@@ -101,11 +104,17 @@ loaders — the "engineers / CI / technicians" tiers above the raw LTL DSL.
   replicates the shared `round(v×10⁹),10⁹` convention (gcd-reduced; NaN/Inf/overflow
   → `Err`). Trust-boundary hardening (64 MiB cap + symlink/non-regular rejection)
   mirrors the peers. Flips `yaml_check_loader`.
-- **R3c — `excel_check_loader`** (remaining): a *separate optional crate*
-  `rust/excel/` mirroring Go's `go/excel/` split — `load_checks_from_excel`,
-  `load_dbc_from_excel`, `create_template`; pulls a Rust `.xlsx` crate (calamine
-  read + a writer for the template). Format MUST match Python `excel_loader.py` /
-  Go `excel:LoadChecks`.
+- **R3c ✅ (#65)** — `rust/excel/`: a *separate optional crate* (`aletheia-excel`)
+  mirroring Go's `go/excel/` split — `load_checks_from_excel`,
+  `load_dbc_from_excel`, `create_template` (calamine read + rust_xlsxwriter + zip).
+  The `feature_matrix` gate now resolves a single-colon `pkg:symbol` entry against
+  `rust/<pkg>/src`. Beyond the Rust slice, a design review unified **Excel column
+  handling across all four bindings**: lookup by header name, all columns read, an
+  absent column ≡ an empty cell, and **strict coercion** — a number stored as
+  *text* is rejected for a numeric field (BREAKING for Go/C++, previously lenient;
+  `Extended`/mux/`Unit` now optional everywhere). Each binding gained a gated
+  demo-workbook DBC test + a number-as-text rejection test. Flips
+  `excel_check_loader`.
 - **Dependency:** R1 (the Check DSL references the typed DBC signal model) —
   confirmed (R3a built on it).
 
@@ -153,6 +162,22 @@ the `rust/tests/feature_matrix.rs` gate); `cargo test` + `cargo fmt --check` +
 surface (per AGENTS.md § Public API stability); and the four FEATURE_MATRIX
 parity gates passing. Any row that resolves `not_applicable` records a reason
 (matrix schema requirement) rather than being silently skipped.
+
+## On reaching parity — thorough Rust review (owed)
+
+**User-requested 2026-06-19:** once the Rust binding reaches feature parity with
+the other API languages, conduct a **thorough review of the entire Rust binding**
+(`rust/` + the `rust/excel/` crate) — a full code review in the spirit of the
+Agda / cross-language review rounds, not a per-slice spot check.
+
+**Trigger (milestone, not dated):** the parity-plan slices complete —
+**R4 + R5 done (rust 37/40)**. At that point the Rust binding has functional
+parity with Python / Go / C++; the three remaining rows (`cli`,
+`can_log_reader`, `doc_example_gate_checks`) are the shared **Phase-6**
+host-surface track (`can_log_reader` is unbuilt in *every* binding), so they need
+not gate the review — though it should note them as the known remaining deltas,
+and fold any `cli` / doc-gate work into scope if it has landed by then. Re-confirm
+the scope with the user when scheduling it.
 
 ## References
 
