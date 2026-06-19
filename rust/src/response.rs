@@ -193,44 +193,19 @@ fn parse_verdict(s: &str) -> Result<Verdict, Error> {
     }
 }
 
-fn parse_enrichment(v: &Value) -> Result<Enrichment, Error> {
-    // Surface a decode failure rather than silently dropping the signal — a
-    // value that fails to decode signals protocol/FFI drift, and this module is
-    // explicitly typed decoding.
-    let signals = match v.get("signals").and_then(Value::as_object) {
-        Some(m) => m
-            .iter()
-            .map(|(k, val)| {
-                rational_from_value(val)
-                    .map(|r| (k.clone(), r))
-                    .map_err(|e| protocol(format!("enrichment signal {k:?}: {e}")))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        None => Vec::new(),
-    };
-    Ok(Enrichment {
-        signals,
-        formula_desc: str_field(v, "formula_desc"),
-        enriched_reason: str_field(v, "enriched_reason"),
-        core_reason: str_field(v, "core_reason"),
-    })
-}
-
 fn parse_property_result(obj: &Value) -> Result<PropertyResult, Error> {
     let verdict = parse_verdict(&str_field(obj, "status"))?;
     let property_index = u32_field(obj, "property_index")?;
     let timestamp = obj.get("timestamp").and_then(Value::as_u64);
-    let enrichment = obj
-        .get("enrichment")
-        .filter(|v| v.is_object())
-        .map(parse_enrichment)
-        .transpose()?;
+    // Enrichment is not on the wire — the verified core emits only the raw
+    // `reason`. The client computes [`Enrichment`] from the registered formulas
+    // + last-known signal values (see `crate::enrich`) and fills this in.
     Ok(PropertyResult {
         property_index,
         verdict,
         reason: str_field(obj, "reason"),
         timestamp,
-        enrichment,
+        enrichment: None,
     })
 }
 

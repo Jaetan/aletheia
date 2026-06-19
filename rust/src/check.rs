@@ -21,8 +21,11 @@ use crate::types::{Rational, TimeBound};
 
 const US_PER_MS: u64 = 1000;
 
-/// Render a rational for a condition description (`5`, or `1/4`).
-fn rat_str(r: Rational) -> String {
+/// Render a rational for a condition description (`5`, or `1/4`). Shared with the
+/// enrichment formatter so a value renders identically in both surfaces (the
+/// local reduced-fraction form pinned in R3a, a documented display-only
+/// divergence from the peers' FFI decimals).
+pub(crate) fn rat_str(r: Rational) -> String {
     if r.denominator() == 1 {
         r.numerator().to_string()
     } else {

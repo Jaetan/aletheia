@@ -12,6 +12,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust violation enrichment (`rust/`, Rust-parity Slice R4b) — violations now
+  carry a client-side `Enrichment` (referenced signals + values, formula
+  description, and a combined `enriched_reason`). The verified core emits only a
+  raw reason, so — like the Go (`enrich.go`) and Python (`_enrichment.py`)
+  bindings — each registered formula yields a per-property diagnostic (signals it
+  references + a human-readable description) cached at `set_properties`; on a
+  violation the signals are paired with their last-known values (extracted from
+  the violating frame during streaming, or from the last frame seen per CAN id at
+  end-of-stream) to build the `Enrichment` on `PropertyResult`. Emits the
+  `enrichment.property_index_oob` / `enrichment.extraction_failed` log events.
+  Rational values render via the same local renderer as the check DSL's
+  `condition_desc` (R3a's reduced-fraction form), keeping the two surfaces
+  consistent. Removes the previously-dormant wire-`enrichment` decode (the core
+  never sent that field). The extraction cache / `cache.*` events are
+  deliberately not implemented (an internal perf optimization, not part of the
+  enrichment contract — mirroring the Go/C++ scope). Flips the
+  `violation_enrichment` `rust` row to `implemented` (rust 33/40).
 - Rust ergonomics & runtime infra (`rust/`, Rust-parity Slice R4a) — a
   `Client::builder()` adding **structured logging** and **RTS-cores
   configuration**. `.logger(...)` takes a callback `Logger` (a bare
