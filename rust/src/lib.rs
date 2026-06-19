@@ -37,6 +37,8 @@ mod error;
 mod ltl;
 mod response;
 mod types;
+#[cfg(feature = "yaml")]
+pub mod yaml;
 
 pub use check::Check;
 pub use dbc::{
@@ -51,6 +53,8 @@ pub use response::{
     StreamWarning, ValidationIssue, ValidationResult, Verdict,
 };
 pub use types::{CanId, Dlc, Rational, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID};
+#[cfg(feature = "yaml")]
+pub use yaml::{load_checks_from_yaml, load_checks_from_yaml_file};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
 type StateHandle = *mut c_void;

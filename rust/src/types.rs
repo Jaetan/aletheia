@@ -146,6 +146,48 @@ impl Rational {
         }
     }
 
+    /// Convert a `f64` to a [`Rational`] via the cross-binding `round(v × 10⁹), 10⁹`
+    /// convention, then reduce to lowest terms (so `0.1 → 1/10`, `100.5 → 201/2`).
+    ///
+    /// This is the **shared** float→rational convention of every binding — Python
+    /// `float_to_rational`, Go `FloatToRational`, C++ `Rational::from_double` — so a
+    /// decimal value written in a check file produces the same rational everywhere.
+    /// The conversion is necessarily binding-side: the FFI takes an integer pair and
+    /// `0.1` is not a rational in IEEE-754, so there is no proven-core form to defer
+    /// to (the core still normalises whatever pair it receives).
+    ///
+    /// Integer-valued floats take the exact `n/1` path.
+    ///
+    /// # Errors
+    /// [`Error::Validation`] if `v` is NaN, infinite, or overflows `i64` when scaled
+    /// — matching the Python and C++ loaders (and the Go check builders), which fail
+    /// on such input rather than silently clamping.
+    pub fn from_f64(v: f64) -> Result<Self, Error> {
+        if v.is_nan() || v.is_infinite() {
+            return Err(Error::Validation(format!("cannot convert {v} to rational")));
+        }
+        // Integer fast path (exact for whole-number thresholds like 220.0).
+        if v.fract() == 0.0 && v >= i64::MIN as f64 && v <= i64::MAX as f64 {
+            return Ok(Rational::integer(v as i64));
+        }
+        // Fixed-point 10⁹ scaling, with the same overflow guard as the peers.
+        const SCALE: i64 = 1_000_000_000;
+        let limit = (i64::MAX / SCALE - 1) as f64;
+        if v > limit || v < -limit {
+            return Err(Error::Validation(format!(
+                "value {v} overflows i64 when scaled to rational"
+            )));
+        }
+        let num = (v * SCALE as f64).round() as i64;
+        let g = gcd(num.unsigned_abs(), SCALE as u64);
+        // g ≥ 1 (SCALE ≠ 0), and both operands are within i64, so the divisions
+        // are exact and in range — no further validation needed.
+        Ok(Rational {
+            numerator: num / g as i64,
+            denominator: SCALE / g as i64,
+        })
+    }
+
     /// The numerator.
     #[must_use]
     pub fn numerator(self) -> i64 {
@@ -168,6 +210,17 @@ impl Rational {
             json!({ "numerator": self.numerator, "denominator": self.denominator })
         }
     }
+}
+
+/// Euclid's GCD, for reducing a `round(v × 10⁹), 10⁹` rational to lowest terms.
+/// With a nonzero second argument the result is ≥ 1.
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let t = a % b;
+        a = b;
+        b = t;
+    }
+    a
 }
 
 /// An integer is always a valid rational (`n / 1`) — the ergonomic input for the

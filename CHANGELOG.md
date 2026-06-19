@@ -12,6 +12,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Rust YAML check loader (`rust/`, Rust-parity Slice R3b) — `load_checks_from_yaml`
+  and `load_checks_from_yaml_file` parse a set of named checks from a YAML document
+  into typed `Check`s, behind the default-on `yaml` cargo feature (disable with
+  `--no-default-features`). The schema matches the Python (`load_checks`) and Go
+  (`LoadChecksFromYAML`) loaders — a single `checks:` list of single-signal
+  (`signal` + `condition` + operands) or causal `when`/`then` entries (with a
+  top-level `within_ms`) — so a check file is portable across bindings (proven by a
+  test that loads the shared `go/aletheia/testdata/doc_examples/checks.yaml`
+  fixture). Decimal values go through a new `Rational::from_f64`, which replicates
+  the cross-binding `round(v × 10⁹), 10⁹` convention (reduced to lowest terms) and
+  fails on a non-finite / overflowing value rather than clamping — matching the
+  Python and C++ loaders. Unknown YAML keys are ignored, as in the peers. At the
+  trust boundary it enforces the shared 64 MiB input-length bound (on both inline
+  content and files, checked before reading) and rejects symbolic-link / non-regular
+  file paths — matching the Go and Python loaders' adversarial-input hardening. Flips
+  the `yaml_check_loader` `rust` row to `implemented` (rust 29/40); the Excel check
+  loader is R3c.
 - Rust check DSL (`rust/`, Rust-parity Slice R3a) — a fluent `check` module that
   compiles domain-friendly checks to LTL `Formula`s plus display metadata:
   `check::signal("Speed").never_exceeds(120)` (+ `never_below`/`stays_between`/
