@@ -1300,3 +1300,49 @@ func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
 	err := CreateTemplate(bad)
 	requireErrorContains(t, err, "parent directory does not exist")
 }
+
+// --- Strict-coercion + cross-binding portability locks (R3c) ----------------
+
+// TestLoadExcelChecksRejectsNumberAsText locks the strict-coercion decision:
+// a numeric field stored as TEXT must be rejected, not silently parsed. (The
+// demo workbook can't exercise this — it stores numbers natively.)
+func TestLoadExcelChecksRejectsNumberAsText(t *testing.T) {
+	path := makeChecksWorkbook(t, [][]any{
+		// "220" is a Go string → a text cell in the Value column.
+		{"bad", "Speed", "never_exceeds", "220"},
+	})
+	_, err := LoadChecks(path)
+	requireErrorContains(t, err, "must be a number")
+}
+
+// TestLoadExcelDBCRejectsNumberAsText is the DBC-side strict lock.
+func TestLoadExcelDBCRejectsNumberAsText(t *testing.T) {
+	path := makeDBCWorkbook(t, [][]any{
+		// Factor "0.25" as text (col index 9 in dbcHeaders).
+		{256, "M", "FALSE", 8, "Sig", 0, 8, "little_endian", "FALSE", "0.25", 0, 0, 1, "u"},
+	})
+	_, err := LoadDbc(path)
+	requireErrorContains(t, err, "must be a number")
+}
+
+// TestLoadExcelDemoWorkbookDBC is the cross-binding portability lock: the shared
+// demo workbook's DBC sheet omits the Extended column, so every binding must
+// load it as standard 11-bit messages (matching Python / C++ / Rust).
+func TestLoadExcelDemoWorkbookDBC(t *testing.T) {
+	p, err := filepath.Abs(filepath.Join("..", "..", "examples", "demo", "demo_workbook.xlsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbc, err := LoadDbc(p)
+	if err != nil {
+		t.Fatalf("load demo DBC: %v", err)
+	}
+	if len(dbc.Messages) != 2 {
+		t.Fatalf("expected 2 messages (EngineData, BrakeStatus), got %d", len(dbc.Messages))
+	}
+	for _, m := range dbc.Messages {
+		if m.ID.IsExtended() {
+			t.Errorf("message %q: absent Extended column must yield a standard message", string(m.Name))
+		}
+	}
+}

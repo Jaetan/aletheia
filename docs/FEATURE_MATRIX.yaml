@@ -410,7 +410,10 @@ features:
         status: implemented
         entry: "excel:LoadChecks"
         notes: "Separate Go module at go/excel/ to isolate the xuri/excelize dependency chain. Other entries: excel.LoadDbc, excel.CreateTemplate."
-      rust: { status: planned, notes: "Excel loader deferred." }
+      rust:
+        status: implemented
+        entry: "excel:load_checks_from_excel"
+        notes: "Separate crate at rust/excel/ (aletheia-excel) to isolate the calamine + rust_xlsxwriter dependency chain. Other entries: load_dbc_from_excel, create_template."
 
   # =====================================================================
   # Observability and diagnostics

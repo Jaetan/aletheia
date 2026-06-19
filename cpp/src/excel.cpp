@@ -96,18 +96,32 @@ static auto cell_to_string(const OpenXLSX::XLCellValue& val) -> std::string {
 // Cell map type and builder
 // ---------------------------------------------------------------------------
 
-using CellMap = std::map<std::string, std::string>;
+/// A cell's stringified value plus whether it is stored as text (an XLValueType
+/// of String). Strict coercion needs that distinction: a number stored as text
+/// is rejected for a numeric field, matching the Python reference.
+namespace {
+struct CellVal {
+    std::string value;
+    bool is_text = false;
+};
+} // namespace
 
-/// Build a header->value map from a worksheet row, skipping empty values.
+using CellMap = std::map<std::string, CellVal>;
+
+/// Build a header->cell map from a worksheet row, keeping only present
+/// (non-empty) cells and dropping any column with an empty header name.
 static auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& headers)
     -> CellMap {
     CellMap result;
     for (std::size_t i = 0; i < headers.size(); ++i) {
+        if (headers[i].empty())
+            continue; // a column with no header name is ignored
         const OpenXLSX::XLCellValue val = ws.cell(row, static_cast<std::uint16_t>(i + 1)).value();
         auto str_val = cell_to_string(val);
         if (str_val.empty())
             continue;
-        result[headers[i]] = str_val;
+        result[headers[i]] =
+            CellVal{.value = str_val, .is_text = val.type() == OpenXLSX::XLValueType::String};
     }
     return result;
 }
@@ -116,28 +130,40 @@ static auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std
 // Typed field extractors with error context
 // ---------------------------------------------------------------------------
 
+// get_str requires a text cell — strict, matching the Python reference: a
+// number or boolean cell is rejected rather than silently stringified.
 static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
     auto it = cells.find(key);
-    if (it == cells.end() || it->second.empty())
+    if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected string)");
-    return it->second;
+    if (!it->second.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' must be text, got a non-text value " +
+                                 it->second.value);
+    return it->second.value;
 }
 
+// get_any returns a present cell's value regardless of type — used only for
+// Message ID, which legitimately accepts a hex string or a native number.
+static auto get_any(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+    -> std::string {
+    auto it = cells.find(key);
+    if (it == cells.end() || it->second.value.empty())
+        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "'");
+    return it->second.value;
+}
+
+// get_number requires a real number cell — a number stored as text is rejected.
 static auto get_number(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> double {
     auto it = cells.find(key);
-    if (it == cells.end() || it->second.empty())
+    if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    // Reject booleans
-    auto upper = it->second;
-    std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
-        return static_cast<char>(std::toupper(ch));
-    });
-    if (upper == "TRUE" || upper == "FALSE")
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
+    if (it->second.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' must be a number, got text \"" +
+                                 it->second.value + "\"; format the cell as a number");
     // std::from_chars is locale-independent (unlike std::stod).
-    const auto& sv = it->second;
+    const auto& sv = it->second.value;
     double result = 0.0;
     const auto* const end = sv_end_ptr(sv);
     auto [ptr, ec] = std::from_chars(sv.data(), end, result);
@@ -149,40 +175,35 @@ static auto get_number(const CellMap& cells, const std::string& key, const std::
 static auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::int64_t {
     auto it = cells.find(key);
-    if (it == cells.end() || it->second.empty())
+    if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    // Reject booleans (cell_to_string converts Excel booleans to "TRUE"/"FALSE")
-    auto upper = it->second;
-    std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
-        return static_cast<char>(std::toupper(ch));
-    });
-    if (upper == "TRUE" || upper == "FALSE")
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    // Detect float truncation: parse as double first and reject non-integral values.
-    // std::from_chars is locale-independent (unlike std::stod/std::stoll).
-    const auto& sv = it->second;
-    double dval = 0.0;
+    if (it->second.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' must be a whole number, got text \"" +
+                                 it->second.value + "\"; format the cell as a number");
+    const auto& sv = it->second.value;
     const auto* const end = sv_end_ptr(sv);
+    // A clean integer string ("8") parses exactly; a Float-typed whole number
+    // stringifies as "8.000000", so fall back to a double + floor check.
+    std::int64_t ival = 0;
+    if (auto [iptr, iec] = std::from_chars(sv.data(), end, ival); iec == std::errc{} && iptr == end)
+        return ival;
+    double dval = 0.0;
     auto [dptr, dec] = std::from_chars(sv.data(), end, dval);
-    if (dec != std::errc{} || dptr != end)
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    if (dval != std::floor(dval))
-        throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second +
-                                 " is not an integer (would be silently truncated)");
-    std::int64_t result = 0;
-    auto [iptr, iec] = std::from_chars(sv.data(), end, result);
-    if (iec != std::errc{} || iptr != end)
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    return result;
+    if (dec != std::errc{} || dptr != end || dval != std::floor(dval))
+        throw std::runtime_error(ctx_str + ": '" + key + "' value " + sv +
+                                 " is not a whole number");
+    return static_cast<std::int64_t>(dval);
 }
 
+// get_bool accepts the multi-form boolean Python's get_bool accepts: a native
+// boolean, an integral 1/0, or TRUE/FALSE text (case-insensitive).
 static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> bool {
     auto it = cells.find(key);
-    if (it == cells.end() || it->second.empty())
+    if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key +
                                  "' (expected TRUE/FALSE)");
-    auto upper = it->second;
+    auto upper = it->second.value;
     std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
         return static_cast<char>(std::toupper(ch));
     });
@@ -199,7 +220,7 @@ static auto row_ctx(int row_num) -> std::string {
 
 static auto has_key(const CellMap& cells, const std::string& key) -> bool {
     auto it = cells.find(key);
-    return it != cells.end() && !it->second.empty();
+    return it != cells.end() && !it->second.value.empty();
 }
 
 // ---------------------------------------------------------------------------
@@ -376,10 +397,11 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         throw std::runtime_error(ctx_str +
                                  ": 'Byte Order' must be 'little_endian' or 'big_endian'");
 
-    // Unit defaults to empty if missing
+    // Unit is optional text; a non-text cell defaults to empty (matching the
+    // Python reference's is_str check) rather than erroring.
     std::string unit_str;
-    if (has_key(cells, "Unit"))
-        unit_str = get_str(cells, "Unit", ctx_str);
+    if (auto it = cells.find("Unit"); it != cells.end() && it->second.is_text)
+        unit_str = it->second.value;
 
     // Multiplexing
     const bool has_muxor = has_key(cells, "Multiplexor");
@@ -481,7 +503,7 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 
         if (has_checks) {
             auto ws = doc.workbook().worksheet(std::string(checks_sheet));
-            auto headers = headers_from_row(ws, checks_headers().size());
+            auto headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
             auto total_rows = ws.rowCount();
             for (std::uint32_t r = 2; r <= total_rows; ++r) {
                 auto cells = row_to_map(ws, static_cast<int>(r), headers);
@@ -493,7 +515,7 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 
         if (has_when_then) {
             auto ws = doc.workbook().worksheet(std::string(when_then_sheet));
-            auto headers = headers_from_row(ws, when_then_headers().size());
+            auto headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
             auto total_rows = ws.rowCount();
             for (std::uint32_t r = 2; r <= total_rows; ++r) {
                 auto cells = row_to_map(ws, static_cast<int>(r), headers);
@@ -528,7 +550,7 @@ static auto group_rows_by_message(const std::vector<CellMap>& data_rows,
     for (std::size_t i = 0; i < data_rows.size(); ++i) {
         const auto& cells = data_rows[i];
         auto rn = row_numbers[i];
-        auto msg_id_str = get_str(cells, "Message ID", row_ctx(rn));
+        auto msg_id_str = get_any(cells, "Message ID", row_ctx(rn));
         auto msg_id = parse_message_id(msg_id_str, row_ctx(rn));
         auto msg_name = get_str(cells, "Message Name", row_ctx(rn));
         auto dlc = get_int(cells, "DLC", row_ctx(rn));
@@ -597,7 +619,7 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
                 ErrorKind::Validation, "Workbook has no '" + std::string(sheet) + "' sheet"});
 
         auto ws = doc.workbook().worksheet(std::string(sheet));
-        auto headers = headers_from_row(ws, dbc_headers().size());
+        auto headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
         auto total_rows = ws.rowCount();
 
         std::vector<CellMap> data_rows;
