@@ -426,7 +426,10 @@ features:
       python: { status: implemented, entry: "aletheia.client._log" }
       cpp:    { status: implemented, entry: "aletheia/log.hpp#Logger" }
       go:     { status: implemented, entry: WithLogger }
-      rust: { status: planned, notes: "Structured logging deferred." }
+      rust:
+        status: implemented
+        entry: "log::Logger"
+        notes: "Callback Logger trait (level + event + typed fields), injected via Client::builder().logger(...); a bare Fn(&LogRecord) works via a blanket impl. Emits the canonical event vocabulary (docs/LOG_EVENTS.yaml), validated by the rust/tests/log_events.rs parity gate."
 
   - id: validation_errors
     name: Structured validation errors
@@ -453,7 +456,10 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient }
       cpp:    { status: implemented, entry: "aletheia/backend.hpp#make_ffi_backend" }
       go:     { status: implemented, entry: WithRTSCores }
-      rust: { status: planned, notes: "RTS cores configuration deferred (hs_init uses default flags)." }
+      rust:
+        status: implemented
+        entry: "ClientBuilder::rts_cores"
+        notes: "Client::builder().rts_cores(k) passes +RTS -N<k> -RTS to hs_init. RTS is process-global: the first client latches the count; a later mismatching request is a no-op + a rts.cores_mismatch warning (mirrors Go WithRTSCores / C++ make_ffi_backend)."
 
   - id: mock_backend
     name: Mock backend for testing
@@ -513,7 +519,9 @@ features:
       go:
         status: not_applicable
         reason: "Equivalent affordance is delivered by SendFrames(ctx, []Frame) + commit-prefix-and-report on ctx — slice is materialized by the caller. A channel-based iter would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it."
-      rust: { status: planned, notes: "Lazy batch send deferred." }
+      rust:
+        status: not_applicable
+        reason: "Equivalent affordance is delivered by send_frames(&[Frame]) -> (Vec<FrameResponse>, Option<Error>) + commit-prefix-and-report — the slice is materialized by the caller. An Iterator-based lazy variant would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it (mirrors the Go / C++ disposition)."
 
   # =====================================================================
   # Distribution / infrastructure
