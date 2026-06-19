@@ -18,12 +18,15 @@ streaming, signal extraction, and send-error / send-remote — **plus the full
 typed DBC document model (Slice R1 ✅ complete 2026-06-17, PRs #53/#54/#55; see
 `memory/project_rust_parity_r1.md`), frame construction (Slice R2 ✅ complete
 2026-06-18, #57 — `build_frame`/`update_frame`/`send_frames` + mux extraction),
-and the fluent check DSL (Slice R3a ✅ complete 2026-06-18, #59 —
-`check::signal`/`check::when` → LTL formulas + `Client::add_checks`)**.
-That is **28 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
+the fluent check DSL (Slice R3a ✅ complete 2026-06-18, #59 —
+`check::signal`/`check::when` → LTL formulas + `Client::add_checks`), and the
+YAML check loader (Slice R3b ✅ complete 2026-06-18, #62 —
+`load_checks_from_yaml`, schema-portable with the peers, with the shared
+`Rational::from_f64` convention + trust-boundary hardening)**.
+That is **29 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
 column.
 
-The remaining **12 `planned`** rows: **9** in this plan (the rest of slice
+The remaining **11 `planned`** rows: **8** in this plan (the rest of slice
 **R3** plus **R4–R5**), and **3** carved out to **Phase 6** (below).
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
@@ -39,7 +42,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 ✅ done = 17; 9 remain in R3b/R3c + R4–R5)
+## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 ✅ done = 18; 8 remain in R3c + R4–R5)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
@@ -75,7 +78,7 @@ the extraction path already done — plus multiplexed extraction and batched sen
 ### Slice R3 — Higher-level Check interface tier (4 rows)
 
 Rows: `check_dsl`, `add_checks` (**R3a ✅ done 2026-06-18, #59**),
-`yaml_check_loader` (**R3b — remaining**), `excel_check_loader`
+`yaml_check_loader` (**R3b ✅ done 2026-06-18, #62**), `excel_check_loader`
 (**R3c — remaining**).
 
 The fluent Check builder, runtime check attachment, and the YAML / Excel
@@ -89,11 +92,15 @@ loaders — the "engineers / CI / technicians" tiers above the raw LTL DSL.
   unrepresentable, `Result` range/overflow guards); raw LTL combinators stay on
   `Formula`. `settles_between → MetricAlways` (= Go `AlwaysWithin` = Python
   `for_at_least`, verified). Flips `check_dsl` / `add_checks`.
-- **R3b — `yaml_check_loader`** (remaining): `load_checks_from_yaml(&str) ->
-  Result<Vec<Check>>` behind an optional `yaml` cargo feature (promote the
-  current `yaml-rust2` dev-dep to an optional runtime dep). The YAML schema MUST
-  match Python `load_checks` / Go `LoadChecksFromYAML` for cross-binding file
-  portability. Peer: `python/aletheia/yaml_loader.py`.
+- **R3b ✅ (#62)** — `rust/src/yaml.rs`: `load_checks_from_yaml` /
+  `load_checks_from_yaml_file` behind a **default-on** `yaml` cargo feature
+  (default-on so the plain `cargo test` lane exercises it + matches the peers'
+  built-in YAML; opt out via `--no-default-features`). Schema matches Python
+  `load_checks` / Go `LoadChecksFromYAML`, proven by a test loading the shared
+  `go/aletheia/testdata/doc_examples/checks.yaml` fixture. New `Rational::from_f64`
+  replicates the shared `round(v×10⁹),10⁹` convention (gcd-reduced; NaN/Inf/overflow
+  → `Err`). Trust-boundary hardening (64 MiB cap + symlink/non-regular rejection)
+  mirrors the peers. Flips `yaml_check_loader`.
 - **R3c — `excel_check_loader`** (remaining): a *separate optional crate*
   `rust/excel/` mirroring Go's `go/excel/` split — `load_checks_from_excel`,
   `load_dbc_from_excel`, `create_template`; pulls a Rust `.xlsx` crate (calamine
