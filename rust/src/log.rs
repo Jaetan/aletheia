@@ -114,27 +114,72 @@ impl<F: Fn(&LogRecord) + Send + Sync> Logger for F {
     }
 }
 
-/// The cross-binding structured-log event vocabulary, authoritative in
-/// `docs/LOG_EVENTS.yaml` and shared with the Python / Go / C++ bindings. Every
-/// event the client emits is one of these names (verified by the
-/// `log_events` parity test against the YAML).
+/// The cross-binding structured-log event vocabulary — the full canonical set,
+/// authoritative in `docs/LOG_EVENTS.yaml` and shared with the Python / Go / C++
+/// bindings (Python's `LogEvent` enum is the analogue). All 16 names are defined
+/// here, so downstream code can refer to any vocabulary event uniformly across
+/// bindings even where this client does not yet emit it; [`ALL`] lists them and
+/// the `log_events` parity test pins the set to the YAML. The subset this client
+/// emits today is noted per-constant.
 pub mod events {
-    /// A DBC definition was loaded.
+    // --- Emitted by this client ---
+
+    /// A DBC definition was loaded. *(emitted)*
     pub const DBC_PARSED: &str = "dbc.parsed";
-    /// Properties were registered with the client.
+    /// Properties were registered with the client. *(emitted)*
     pub const PROPERTIES_SET: &str = "properties.set";
-    /// A streaming session was opened.
+    /// A streaming session was opened. *(emitted)*
     pub const STREAM_STARTED: &str = "stream.started";
-    /// A streaming session was closed.
+    /// A streaming session was closed. *(emitted)*
     pub const STREAM_ENDED: &str = "stream.ended";
-    /// RTS init requested with an `N` disagreeing with the earlier process-wide init.
+    /// RTS init requested with an `N` disagreeing with the earlier process-wide init. *(emitted)*
     pub const RTS_CORES_MISMATCH: &str = "rts.cores_mismatch";
-    /// A CAN frame was processed during streaming.
+    /// A CAN frame was processed during streaming. *(emitted)*
     pub const FRAME_PROCESSED: &str = "frame.processed";
-    /// An error event was forwarded to the streaming session.
+    /// An error event was forwarded to the streaming session. *(emitted)*
     pub const ERROR_EVENT_SENT: &str = "error_event.sent";
-    /// A remote event was forwarded to the streaming session.
+    /// A remote event was forwarded to the streaming session. *(emitted)*
     pub const REMOTE_EVENT_SENT: &str = "remote_event.sent";
-    /// An end-of-stream warning: an atom referenced a signal the cache never observed.
+    /// An end-of-stream warning: an atom referenced a signal the cache never observed. *(emitted)*
     pub const ENDSTREAM_UNCACHED_ATOM: &str = "endstream.uncached_atom";
+
+    // --- Vocabulary completeness (not yet emitted by this client) ---
+    // Enrichment events arrive with the client-side violation-enrichment slice
+    // (R4b); the cache / extraction events belong to an extraction-cache layer
+    // this binding does not implement. Defined for cross-binding uniformity.
+
+    /// A violation referenced a property index outside the registered set.
+    pub const ENRICHMENT_PROPERTY_INDEX_OOB: &str = "enrichment.property_index_oob";
+    /// Signal extraction for violation enrichment returned no result.
+    pub const ENRICHMENT_EXTRACTION_FAILED: &str = "enrichment.extraction_failed";
+    /// Signal extraction served a cached payload.
+    pub const CACHE_HIT: &str = "cache.hit";
+    /// Signal extraction missed the cache and called through to the core.
+    pub const CACHE_MISS: &str = "cache.miss";
+    /// The extraction cache reached its capacity bound.
+    pub const CACHE_FULL: &str = "cache.full";
+    /// An extraction request failed at the FFI process boundary.
+    pub const EXTRACTION_PROCESS_FAILED: &str = "extraction.process_failed";
+    /// An extraction response could not be parsed.
+    pub const EXTRACTION_PARSE_FAILED: &str = "extraction.parse_failed";
+
+    /// Every event in the canonical vocabulary, in `docs/LOG_EVENTS.yaml` order.
+    pub const ALL: [&str; 16] = [
+        DBC_PARSED,
+        PROPERTIES_SET,
+        STREAM_STARTED,
+        STREAM_ENDED,
+        RTS_CORES_MISMATCH,
+        FRAME_PROCESSED,
+        ERROR_EVENT_SENT,
+        REMOTE_EVENT_SENT,
+        ENRICHMENT_PROPERTY_INDEX_OOB,
+        ENRICHMENT_EXTRACTION_FAILED,
+        CACHE_HIT,
+        CACHE_MISS,
+        CACHE_FULL,
+        EXTRACTION_PROCESS_FAILED,
+        EXTRACTION_PARSE_FAILED,
+        ENDSTREAM_UNCACHED_ATOM,
+    ];
 }

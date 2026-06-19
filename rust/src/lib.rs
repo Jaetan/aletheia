@@ -472,10 +472,14 @@ impl ClientBuilder {
 }
 
 impl Client {
-    /// Load the core (once per process), initialise the GHC RTS (once, with GHC
-    /// default flags), and allocate a fresh `StreamState` — with no logger.
+    /// Load the core, initialise the GHC RTS, and allocate a fresh `StreamState`
+    /// — with no logger and no explicit RTS core count.
     ///
-    /// Use [`Client::builder`] to configure a [`Logger`] or the RTS core count.
+    /// The RTS is **process-global and initialised once**: `new()` requests GHC
+    /// default flags, but if an earlier client was built with
+    /// [`ClientBuilder::rts_cores`], that first `-N<k>` stays in effect — `new()`
+    /// does not (and cannot) reset the process-wide RTS. Use [`Client::builder`]
+    /// to configure a [`Logger`] or the RTS core count.
     ///
     /// # Errors
     /// Returns [`Error`] if the library cannot be loaded, a required symbol is

@@ -59,6 +59,22 @@ fn vocabulary_is_the_canonical_sixteen() {
 }
 
 #[test]
+fn events_module_matches_the_vocabulary_exactly() {
+    // The full `events::ALL` set must be a bijection with the YAML names — the
+    // cross-binding-uniform vocabulary surface (Python's LogEvent enum analogue),
+    // not just the subset this client emits.
+    use std::collections::BTreeSet;
+    let module: BTreeSet<&str> = events::ALL.iter().copied().collect();
+    assert_eq!(module.len(), 16, "events::ALL has 16 distinct names");
+    let yaml: BTreeSet<String> = yaml_vocabulary().into_keys().collect();
+    let module_owned: BTreeSet<String> = module.iter().map(|s| (*s).to_string()).collect();
+    assert_eq!(
+        module_owned, yaml,
+        "events::ALL must equal the docs/LOG_EVENTS.yaml vocabulary exactly"
+    );
+}
+
+#[test]
 fn every_rust_event_is_in_the_vocabulary_with_the_same_level() {
     let vocab = yaml_vocabulary();
     for (name, level) in rust_emitted() {
