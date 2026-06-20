@@ -11,7 +11,8 @@ take 30 min - 2 hours wall):
 
 2. **Tools-importing tests are excluded from the Python mutmut lane.** Every
    ``python/tests/test_*.py`` that imports the repo-root ``tools`` package must
-   appear as ``--ignore=tests/<name>`` in ``[tool.mutmut].pytest_add_cli_args``.
+   appear as ``--ignore=tests/<name>.py`` (full filename, extension included) in
+   ``[tool.mutmut].pytest_add_cli_args``.
    Such a test ModuleNotFound-aborts pytest collection inside mutmut's relocated
    ``mutants/`` work-tree (which has no ``tools``), which kills the baseline
    stats phase -> *zero* mutants run -> the (advisory) lane silently goes red.
@@ -52,9 +53,14 @@ SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
 PYPROJECT_PATH = REPO_ROOT / "python" / "pyproject.toml"
 PY_TESTS_DIR = REPO_ROOT / "python" / "tests"
 
-# A DIRECT top-level ``import tools`` / ``from tools ...`` (matches a transitive
-# or lazy in-function import is NOT caught — that also does not abort collection).
-_TOOLS_IMPORT_RE = re.compile(r"^[ \t]*(?:from|import)[ \t]+tools(?:\.|[ \t]|$)", re.MULTILINE)
+# A column-0 (top-level) ``import tools`` / ``from tools ...`` — the only form
+# that runs, and aborts collection, at pytest import time.  An INDENTED import
+# (inside a function, an ``if TYPE_CHECKING:`` block, or a ``try/except
+# ImportError`` guard) is deliberately NOT matched: it either does not execute
+# during collection or is guarded, so it does not crash the mutmut baseline —
+# matching it would be a false positive.  (A transitive import via a helper is
+# also not caught; it likewise does not abort collection at the test module.)
+_TOOLS_IMPORT_RE = re.compile(r"^(?:from|import)[ \t]+tools(?:\.|[ \t]|$)", re.MULTILINE)
 # An ``--ignore=tests/<name>.py`` entry in the mutmut pytest args.
 _IGNORE_ARG_RE = re.compile(r"^--ignore=(tests/[\w./-]+\.py)$")
 
@@ -137,9 +143,16 @@ def _mutmut_ignored_tests() -> set[str]:
 
 
 def _tools_importing_tests_unignored() -> list[str]:
-    """One diagnostic per ``tools``-importing test missing from the mutmut ignore list."""
+    """One diagnostic per ``tools``-importing test missing from the mutmut ignore list.
+
+    Exits 2 if ``python/tests/`` is absent — returning ``[]`` there would make
+    invariant 2 silently vacuous (the gate passes despite being unable to
+    enforce the rule), mirroring the missing-pyproject / missing-[tool.mutmut]
+    hard failures in ``_mutmut_ignored_tests``.
+    """
     if not PY_TESTS_DIR.is_dir():
-        return []
+        _ = sys.stderr.write(f"ERROR: python tests dir missing at {PY_TESTS_DIR}\n")
+        sys.exit(2)
     ignored = _mutmut_ignored_tests()
     failures: list[str] = []
     for path in sorted(PY_TESTS_DIR.glob("test_*.py")):
