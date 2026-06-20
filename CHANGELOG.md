@@ -12,6 +12,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Always-on gate: tools-importing tests must be mutmut-ignored.**
+  `tools/check_mutation_setup.py` (in the required Shake `check` sweep, not the
+  advisory mutation lane) now also verifies that every `python/tests/test_*.py`
+  importing the repo-root `tools` package appears as `--ignore=tests/<name>` in
+  `[tool.mutmut].pytest_add_cli_args`. This catches the exact drift that crash-
+  killed the Python mutation lane (see Fixed) — a new `tools`-importing test
+  landing without its ignore — at PR time in a required check, instead of in the
+  advisory lane where it went unnoticed for days. Forward-revert verified.
 - Rust async client (`rust/`, Rust-parity Slice R4c) — `AsyncClient`, a
   runtime-agnostic async mirror of `Client`, behind the opt-in `async` cargo
   feature. The sync `Client` is `!Send` (a thread-pinned `StreamState`), so
@@ -191,6 +199,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Mutation testing is promoted to a required (merge-blocking) check, and its CI
+  lane is cached.** Previously the `mutation testing` lane in `pr-heavy-lanes.yml`
+  ran on every PR but was *advisory* — so a PR could merge with mutation red (a new
+  survivor / test gap). This change makes it *ready to require*: the job is renamed
+  `mutation testing (advisory)` → `mutation testing`, and it is activated by adding
+  that check to the `main` branch ruleset — a follow-up repo-settings step, gated on
+  the cache-seeding proof in `docs/development/BRANCH_PR_HYGIENE.md` (not active at
+  merge time). Once active it blocks merge: the drift gate is baseline-relative
+  (fails only on a collection crash or `observed > baseline`) and the suite is
+  deterministic, so it is a stable signal; the lane already ran on every PR, so
+  advisory merely discarded a signal we already paid to compute. **Caching** removes
+  the two big setup costs that made cold runs ~33 min: the workflow now also runs on
+  `push: [main]` so the Mull-from-source build cache (318s) and the FFI build tree
+  are written under the default branch where every PR branch can read them
+  (feature-branch caches don't cross-pollinate), and the mutation job restores the
+  shared build-tree cache so the `.so` build (338s) becomes a Shake no-op when no
+  Agda source changed. The C++ `-fpass-plugin` mutation compile is deliberately left
+  un-ccache'd (ccache cannot content-hash the Mull plugin, which would risk stale
+  mutation objects on a required gate). `push: [main]` runs are exempt from
+  `cancel-in-progress` so a rapid second merge cannot kill a cache-seeding run
+  before it saves; stability bench stays advisory (genuinely timing-flaky).
 - **Unified Excel column handling across all bindings** (Python / Go / C++ / Rust).
   A design review found the loaders had drifted on two axes, both latent (no gated
   test loaded the demo workbook's DBC sheet). **(1) Column presence:** the contract
@@ -331,6 +360,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Python mutation lane repaired — it had silently produced zero mutants since
+  #51.** The advisory `mutation testing` lane was red (not from new survivors —
+  it was crash-dead): mutmut runs pytest from a relocated `python/mutants/`
+  work-tree, and two post-baseline test additions broke its baseline collection
+  there. `tests/test_check_changelog.py` (added in #51) imports the repo-root
+  `tools` package, which is absent from `mutants/`, so collection
+  `ModuleNotFound`-aborted; and `tests/test_excel_loader.py`'s two
+  `demo_workbook` tests (changed in #65) resolve the shared
+  `examples/demo/demo_workbook.xlsx` fixture via `parents[2]`, which points
+  outside the copied tree. With `-x`, the first failure killed the whole stats
+  phase → 0 mutants run. Fixed by adding `test_check_changelog.py` to the
+  `[tool.mutmut]` `--ignore` list and `--deselect`-ing only the two out-of-tree
+  excel tests (keeping every other excel test's kill signal). The lane now
+  reconciles to its documented baseline: **827 killed / 1 survived / 828 total**
+  (the lone survivor is the documented `dump_json` `ensure_ascii=False`→`None`
+  equivalent); Go (636/636) and C++ (50/50) were already clean.
+- **Mutmut config migrated to the mutmut 3.6 key names — zero deprecation
+  warnings.** `[tool.mutmut]` `paths_to_mutate` → `source_paths` and
+  `tests_dir` → `pytest_add_cli_args_test_selection` (the loader still honored
+  the old names but emitted a `UserWarning` on every run). Semantically
+  identical; eliminates the warnings so the lane's output stays signal. Docs
+  referencing the old keys (`docs/MUTATION_BENCH.yaml`, `AGENTS/python.md`)
+  updated to match.
 - **CI now tests every Go package, not just `./aletheia/`.** The `run_ci.py` Go
   lane ran `go test ./aletheia/`, silently skipping `go/cmd/aletheia` (4 tests)
   and the separate `go/excel` module (64 tests) — 68 tests that never gated a PR.

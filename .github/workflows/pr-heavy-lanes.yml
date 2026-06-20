@@ -13,23 +13,38 @@
 #   * reproducible-build — DETERMINISTIC (two clean builds, sha256 compare);
 #     intended to become a REQUIRED check.  Runs on every PR event so the
 #     required status always reflects the latest commit.
-#   * stability bench / mutation testing — ADVISORY (timing-flaky / score-
-#     squishy).  NOT required.  Run on EVERY PR commit-state (incl.
-#     synchronize) so the advisory result reflects the latest commit — a
-#     `synchronize`-skip froze them at the PR's first (often broken) commit.
-#     Per-job `cancel-in-progress` collapses rapid iteration to ~one run on
-#     the settled state, which is how AGENTS.md cat 14g's "once per PR, not
-#     per-commit" is honored (cancellation, not a skip).  `workflow_dispatch`
-#     remains for manual re-runs.
+#   * mutation testing — REQUIRED (2026-06-20).  The drift gate is baseline-
+#     relative (fails only on a collection crash OR observed survivors > the
+#     recorded baseline), and this project's suite is deterministic (no physical
+#     time in tests), so it is a stable merge-blocking signal — not "score-
+#     squishy".  The lane already ran on every PR; advisory merely discarded a
+#     signal we already paid to compute.  Add `mutation testing` to the `main`
+#     branch ruleset's required checks to activate it (do so only after a
+#     fresh-branch run confirms the seeded caches hit — see below).
+#   * stability bench — ADVISORY (genuinely timing-flaky).  NOT required.
+#   Each runs on EVERY PR commit-state (incl. synchronize) so the result
+#   reflects the latest commit — a `synchronize`-skip froze them at the PR's
+#   first (often broken) commit.  Per-job `cancel-in-progress` collapses rapid
+#   PR iteration to ~one run on the settled state (AGENTS.md cat 14g's "once per
+#   PR, not per-commit", via cancellation not a skip) — but push:main is EXEMPT
+#   from cancellation so a rapid second merge cannot kill a cache-seeding run
+#   before it saves.  `workflow_dispatch` remains for manual re-runs.
 #
 # Toolchain steps are copied verbatim from pr-full-ci.yml (same cache keys, so
-# these jobs hit the Agda store that workflow already populated).
+# these jobs hit the Agda store that workflow already populated).  The workflow
+# ALSO runs on push:main: the heavy caches (Mull-from-source, the build tree)
+# are otherwise only written on feature branches, which do NOT cross-pollinate,
+# so a fresh PR branch would miss them (cold ~33-min mutation run).  A push:main
+# run writes those caches under the default branch, where every PR branch can
+# read them — turning the cold Mull build (318s) + .so build (338s) into hits.
 
 name: Heavy lanes (PR)
 
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -49,11 +64,14 @@ jobs:
     name: reproducible-build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # Push-iteration hygiene: a new commit cancels the stale repro run.  Its
-    # OWN group, so it never cancels the long advisory lanes below.
+    # Runs on every PR commit-state AND on push:main (to seed the build caches —
+    # see the header).  Push-iteration hygiene: a new PR commit cancels the stale
+    # repro run (push:main is exempt, below).  Its OWN group, so it never cancels
+    # the stability / mutation lanes below.
     concurrency:
       group: heavy-repro-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+      # push:main is exempt — a seeding run must not be cancelled before it saves.
+      cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -123,12 +141,15 @@ jobs:
     name: stability bench (advisory)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # Runs on every PR commit-state so the advisory result reflects the latest
-    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
-    # settled state.  Own group so it never cancels the repro / mutation lanes.
+    # Runs on every PR commit-state (so the advisory result reflects the latest
+    # commit) AND on push:main (to seed the build caches — see the header).
+    # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
+    # state; push:main is exempt (below).  Own group so it never cancels the
+    # repro / mutation lanes.
     concurrency:
       group: heavy-stability-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+      # push:main is exempt — a seeding run must not be cancelled before it saves.
+      cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -248,17 +269,24 @@ jobs:
           ALETHEIA_STABILITY_CHECK: '1'
         run: python/.venv/bin/python3 -m tools.stability_run
 
-  # ── Lane 3: mutation testing (ADVISORY; once per PR) ───────────────────────
+  # ── Lane 3: mutation testing (REQUIRED; once per PR) ───────────────────────
+  # The drift gate (tools/mutation_run.py) fails on a collection crash OR
+  # observed survivors > the docs/MUTATION_BENCH.yaml baseline, across all three
+  # bindings (mutmut / gremlins / Mull).  Add `mutation testing` to the main
+  # branch ruleset's required checks to make it merge-blocking.
   mutation:
-    name: mutation testing (advisory)
+    name: mutation testing
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # Runs on every PR commit-state so the advisory result reflects the latest
-    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
-    # settled state.  Own group so it never cancels the repro / stability lanes.
+    # Runs on every PR commit-state (so the required result reflects the latest
+    # commit) AND on push:main (to seed the build caches — see the header).
+    # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
+    # state; push:main is exempt (below).  Own group so it never cancels the
+    # repro / stability lanes.
     concurrency:
       group: heavy-mutation-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+      # push:main is exempt — a seeding run must not be cancelled before it saves.
+      cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -409,10 +437,47 @@ jobs:
           chmod +x "${HOME}/.local/bin/mull-runner-22" "${HOME}/.local/bin/mull-reporter-22"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
+      # Restore the build tree (Agda .agdai + MAlonzo .hs + the copied .so, plus
+      # the shake-exe root dist-newstyle) so `cabal run shake -- build` below is a
+      # Shake NO-OP when the PR touches no Agda source — the common case (a
+      # Python/Go/C++/docs PR doesn't change the .so), turning the cold ~338s
+      # build into seconds.  An Agda-changing PR still recompiles via cabal
+      # (haskell-shim/dist-newstyle, the 194 MB .o tree, is intentionally NOT
+      # cached — same as pr-full-ci.yml; keeps the cache small per the 10 GB LRU
+      # budget).  Shares pr-full-ci.yml's key (SAME tree, seeded on push:main, so
+      # a fresh PR branch reads it via the restore-keys prefix); safe to share —
+      # Shake keys on content and `build` errors on a stale tree, so it never
+      # ships stale.  NOT ccache: the Mull `-fpass-plugin` C++ compile is left
+      # cold (ccache cannot content-hash the plugin binary -> stale-object risk).
+      - name: Restore incremental build tree (build/ + dist-newstyle/)
+        id: build-tree-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            build
+            dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+
       - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
         run: cabal run shake -- build
 
-      - name: Mutation testing across the three bindings (advisory)
+      - name: Mutation testing across the three bindings (required)
         env:
           ALETHEIA_MUTATION_CHECK: '1'
         run: python/.venv/bin/python3 -m tools.mutation_run
+
+      # Seed the build tree so push:main writes it under the default branch for
+      # fresh PR branches to restore.  NOT gated to pull_request (push:main is
+      # the seeding event); `!cancelled()` avoids saving a truncated tree; skip
+      # when the exact-sha key already exists (a re-run / the sibling workflow
+      # saved first — GHA cache keys are immutable).
+      - name: Save incremental build tree
+        if: ${{ !cancelled() && steps.build-tree-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build
+            dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
