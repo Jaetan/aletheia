@@ -30,11 +30,12 @@ across all four bindings)**.
 logging + RTS-cores config, `lazy_streaming_batch`→`not_applicable`; R4b #68 —
 client-side violation enrichment; R4c #69 — runtime-agnostic `AsyncClient`,
 cancellation = drop the future).
-That is **34 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
-column (+ 1 `not_applicable`, `lazy_streaming_batch`) — **Slices R1–R4 complete**.
+That is **36 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
+column (+ 1 `not_applicable`, `lazy_streaming_batch`) — **Slices R1–R5 complete;
+the in-plan slices are done.**
 
-The remaining **5 `planned`** rows: **2** in this plan (**R5** — the last in-plan
-slice), and **3** carved out to **Phase 6** (below).
+The remaining **3 `planned`** rows are all carved out to **Phase 6** (below);
+none remain in this plan.
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
 
@@ -49,7 +50,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 + R3c's 1 + R4's 5 ✅ done = 24; 2 remain in R5)
+## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 + R3c's 1 + R4's 5 + R5's 2 = 26 ✅ all done)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
@@ -151,18 +152,37 @@ Rows: `structured_logging`, `violation_enrichment`, `rts_cores_config`,
   the same call made by the Go/C++ peers.
 - **Effort:** medium; partly design-gated. (Done.)
 
-### Slice R5 — Test / DI seam (2 rows)
+### Slice R5 — Test / DI seam (2 rows) — ✅ DONE
 
 Rows: `backend_di_seam`, `mock_backend`.
 
-A `trait`-based backend abstraction (Rust's analogue of Go's `Backend`
-interface / C++'s `IBackend`) plus a test mock recording `<binary:OP>`
-sentinels — matching the cross-binding mock-fidelity convention (the mock must
-not fabricate wire shapes the real backend never emits). Enables testing the
-client without loading the `.so`.
+A public, open `trait Backend` (`rust/src/backend.rs`) — Rust's analogue of Go's
+`Backend` interface / C++'s `IBackend` — plus a public, `Clone`-able
+`MockBackend` (`rust/src/mock.rs`) recording the cross-binding `<binary:OP>`
+sentinels (the mock must not fabricate wire shapes the real backend never
+emits). The `Client` holds a `Box<dyn Backend>`, injected via
+`Client::with_backend` / `ClientBuilder::build_with_backend`, so the client can
+be unit-tested without loading the `.so` (`rust/tests/mock_backend.rs`).
+
+**Idiomatic divergences** (same features, Rust form — per the user's
+"parity, each language its own way"):
+- **RAII, not handle-threading.** The peer seams put `init`/`close`/`state` in
+  the interface and thread a raw `void* state` through every method. Rust drops
+  all three: the production `FfiBackend` owns its session handle and closes it in
+  `Drop`, so the trait never traffics in a raw pointer and a double needs no fake
+  handle. (One backend owns one session; multiple sessions = multiple clients.)
+- **Shared-state mock.** `MockBackend` wraps `Rc<RefCell<…>>` and is `Clone`, so
+  a test keeps one clone to assert on (`captured()`) while the `Client` owns
+  another — Rust's equivalent of the peers keeping a pointer to the injected mock.
+- **Errors on queue exhaustion** (matching Go), rather than synthesising a
+  default `ack`/`success` (Python/C++) — the no-surprise, `Result`-returning
+  contract avoids fabricated mock behavior.
+- **Terminal injection.** Injection is `ClientBuilder::build_with_backend(self,
+  backend)` (not a stored field), keeping `ClientBuilder: Send` so the async
+  client can still move the builder onto its worker thread.
 
 - **Dependency:** best after R1–R4 stabilize the client surface the trait abstracts.
-- **Effort:** medium.
+- **Effort:** medium. **Done.**
 
 ## Suggested order
 
@@ -185,17 +205,17 @@ the other API languages, conduct a **thorough review of the entire Rust binding*
 (`rust/` + the `rust/excel/` crate) — a full code review in the spirit of the
 Agda / cross-language review rounds, not a per-slice spot check.
 
-**Trigger (milestone, not dated): R5 merged** — the last in-plan slice. R4 is
-already done (rust 34/40); when R5 lands, the in-plan slices are complete at
-**36 `implemented` + 1 `not_applicable`** (`lazy_streaming_batch`), i.e. all 37
-non-Phase-6 rows resolved. At that point the Rust binding has functional parity
-with Python / Go / C++; the three remaining `planned` rows (`cli`,
+**Trigger (milestone, not dated): R5 merged** — the last in-plan slice. R5 is
+now ✅ done: the in-plan slices are complete at **36 `implemented` +
+1 `not_applicable`** (`lazy_streaming_batch`), i.e. all 37 non-Phase-6 rows
+resolved. The Rust binding now has functional parity with Python / Go / C++, so
+**this review is due** once R5 merges. The three remaining `planned` rows (`cli`,
 `can_log_reader`, `doc_example_gate_checks`) are the shared **Phase-6**
 host-surface track (`can_log_reader` is unbuilt in *every* binding), so they need
 not gate the review — though it should note them as the known remaining deltas,
 and fold any `cli` / doc-gate work into scope if it has landed by then. The
 trigger is the R5 merge, not a row count, so number-drift can't mis-fire it.
-Re-confirm the scope with the user when scheduling it.
+**Re-confirm the scope with the user before starting it.**
 
 ## References
 

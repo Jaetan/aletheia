@@ -39,11 +39,17 @@ The two ownership rules that cgo hides from the Go binding are enforced here:
 - **The RTS is initialised once** for the process (latched in a `OnceLock`) and
   never torn down (`hs_exit` does not support re-initialisation).
 
-`Client` holds a raw `StreamState` pointer, so it is intentionally
-`!Send + !Sync`. The typed DBC document model, the Check DSL, client-side
-violation enrichment, and CLI affordances are tracked as `planned` in the `rust`
-column of [`docs/FEATURE_MATRIX.yaml`](../docs/FEATURE_MATRIX.yaml); a Rust
-parity gate (`tests/feature_matrix.rs`) keeps that column honest.
+`Client` runs every raw FFI operation through a `Backend` trait — the
+dependency-injection seam. The production `FfiBackend` owns the raw `StreamState`
+pointer (closing it on `Drop`), so `Client` is intentionally `!Send + !Sync`; for
+unit tests, inject a `MockBackend` (or any double) via `Client::with_backend` /
+`ClientBuilder::build_with_backend` to exercise the client without loading the
+`.so`. The typed DBC document model, the Check DSL, client-side violation
+enrichment, the async client, and this backend/mock test seam are all
+implemented; the host CLI (plus the python-can log reader and the doc-example
+gate) is tracked as `planned` (Phase 6) in the `rust` column of
+[`docs/FEATURE_MATRIX.yaml`](../docs/FEATURE_MATRIX.yaml); a Rust parity gate
+(`tests/feature_matrix.rs`) keeps that column honest.
 
 ## Build & test
 

@@ -18,6 +18,10 @@
 //!   **binary FFI** ([`Client::start_stream`], [`Client::send_frame`],
 //!   [`Client::end_stream`]) — the same fast path the other bindings use in
 //!   production. [`Client::process`] remains as a raw JSON escape hatch.
+//! - A [`Backend`] dependency-injection seam ([`Client::with_backend`] /
+//!   [`ClientBuilder::build_with_backend`]): the [`Client`] is built over a
+//!   production FFI backend by default, or a test [`MockBackend`] (or any custom
+//!   double) for unit-testing the client without loading the `.so`.
 //!
 //! Frame streaming uses the binary FFI (`aletheia_send_frame`, …), *not* the
 //! JSON command path — that mirrors every other binding and the core's intended
@@ -26,24 +30,24 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::marker::PhantomData;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::enrich::PropertyDiagnostic;
 use crate::log::events;
 
-use libloading::{Library, Symbol};
 use serde_json::json;
 
 #[cfg(feature = "async")]
 mod async_client;
+mod backend;
 pub mod check;
 mod dbc;
 mod enrich;
 mod error;
 pub mod log;
 mod ltl;
+mod mock;
 mod response;
 mod types;
 #[cfg(feature = "yaml")]
@@ -51,6 +55,8 @@ pub mod yaml;
 
 #[cfg(feature = "async")]
 pub use async_client::AsyncClient;
+use backend::FfiBackend;
+pub use backend::{Backend, SignalInjection};
 pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
@@ -60,6 +66,7 @@ pub use dbc::{
 pub use error::Error;
 pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
+pub use mock::MockBackend;
 pub use response::{
     Enrichment, ExtractionResult, FrameResponse, PropertyResult, SignalValue, StreamResult,
     StreamWarning, ValidationIssue, ValidationResult, Verdict,
@@ -67,225 +74,6 @@ pub use response::{
 pub use types::{CanId, Dlc, Rational, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID};
 #[cfg(feature = "yaml")]
 pub use yaml::{load_checks_from_yaml, load_checks_from_yaml_file};
-
-/// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
-type StateHandle = *mut c_void;
-
-/// CAN-FD's largest payload; frames longer than this are rejected before the FFI.
-const MAX_FRAME_BYTES: usize = 64;
-
-// --- FFI signatures (binary fast path) ------------------------------------
-
-type SendFrameFn = unsafe extern "C" fn(
-    StateHandle,
-    u64, // timestamp µs
-    u32, // canId
-    u8,  // extended
-    u8,  // dlc
-    *const u8,
-    u8, // data len
-    u8, // brs present
-    u8, // brs value
-    u8, // esi present
-    u8, // esi value
-) -> *mut c_char;
-type SendErrorFn = unsafe extern "C" fn(StateHandle, u64) -> *mut c_char;
-type SendRemoteFn = unsafe extern "C" fn(StateHandle, u64, u32, u8) -> *mut c_char;
-type StreamLifecycleFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
-type ExtractFn = unsafe extern "C" fn(StateHandle, u32, u8, u8, *const u8, u8) -> *mut c_char;
-// Build/update use an output-buffer convention: the caller allocates `out_buf`
-// (`dlc` bytes), passes the parallel (indices, nums, dens) signal arrays, and
-// reads an `i8` status — nonzero means failure, with the message in `out_err`
-// (a GHC-allocated CString the caller frees via `aletheia_free_str`).
-type BuildFrameFn = unsafe extern "C" fn(
-    StateHandle,
-    u32, // canId
-    u8,  // extended
-    u8,  // dlc
-    u32, // numSignals
-    *const u32,
-    *const i64,
-    *const i64,
-    *mut u8,          // out_buf (dlc bytes)
-    *mut *mut c_char, // out_err
-) -> i8;
-type UpdateFrameFn = unsafe extern "C" fn(
-    StateHandle,
-    u32,
-    u8,
-    u8,
-    *const u8, // existing frame
-    u8,        // frame len
-    u32,
-    *const u32,
-    *const i64,
-    *const i64,
-    *mut u8,
-    *mut *mut c_char,
-) -> i8;
-
-/// Resolve the shared-library path: the `ALETHEIA_LIB` override, else the
-/// conventional name (resolved by the dynamic loader's search path).
-fn lib_path() -> String {
-    std::env::var("ALETHEIA_LIB").unwrap_or_else(|_| "libaletheia-ffi.so".to_string())
-}
-
-/// Process-global handle to the loaded library. The GHC RTS owns threads for the
-/// process lifetime, so the library is loaded once and never unloaded.
-static LIB: OnceLock<Library> = OnceLock::new();
-static RTS_INIT: OnceLock<Result<(), Error>> = OnceLock::new();
-/// The RTS core spec the first init latched (`None` = GHC defaults, `Some(k)` =
-/// `-N<k>`). A later init requesting a different spec is a no-op + a warning.
-static RTS_SPEC: OnceLock<Option<u32>> = OnceLock::new();
-
-fn library() -> Result<&'static Library, Error> {
-    if let Some(lib) = LIB.get() {
-        return Ok(lib);
-    }
-    let path = lib_path();
-    // SAFETY: loading a shared library runs its initialisers; the Aletheia .so is
-    // a GHC foreign-library whose only global state is the RTS (started below).
-    let lib = unsafe { Library::new(&path) }.map_err(|e| Error::LibraryLoad {
-        path: path.clone(),
-        source: e.to_string(),
-    })?;
-    // If another thread won the race, drop ours and use theirs (the OS refcounts
-    // the underlying dlopen, so the mapping is shared either way).
-    let _ = LIB.set(lib);
-    Ok(LIB.get().expect("LIB was just set"))
-}
-
-/// Look up a C ABI symbol, mapping absence to a typed error.
-///
-/// # Safety
-/// The caller must instantiate `T` with the symbol's exact ABI signature.
-unsafe fn symbol<'lib, T>(lib: &'lib Library, name: &[u8]) -> Result<Symbol<'lib, T>, Error> {
-    lib.get(name).map_err(|_| {
-        Error::SymbolMissing(
-            String::from_utf8_lossy(name)
-                .trim_end_matches('\0')
-                .to_string(),
-        )
-    })
-}
-
-/// Initialise the GHC RTS exactly once for the process.
-///
-/// Mirrors the Go binding: the RTS cannot be re-initialised after `hs_exit`, so
-/// we start it once and never tear it down. The outcome is latched in a
-/// `OnceLock<Result<…>>` so a second `Client::new()` after a failed first one
-/// fails identically rather than silently masking a broken `.so`.
-fn ensure_rts(
-    lib: &Library,
-    cores: Option<u32>,
-    logger: Option<&dyn Logger>,
-    min_level: LogLevel,
-) -> Result<(), Error> {
-    // The first init's spec wins; a later mismatching request is a no-op + warn.
-    let latched = *RTS_SPEC.get_or_init(|| cores);
-    if latched != cores {
-        if let Some(lg) = logger {
-            if LogLevel::Warn >= min_level {
-                let requested = spec_str(cores);
-                let active = spec_str(latched);
-                lg.log(&LogRecord {
-                    level: LogLevel::Warn,
-                    event: events::RTS_CORES_MISMATCH,
-                    fields: &[
-                        LogField::new("requested", LogValue::Str(&requested)),
-                        LogField::new("active", LogValue::Str(&active)),
-                    ],
-                });
-            }
-        }
-    }
-    RTS_INIT.get_or_init(|| init_rts(lib, latched)).clone()
-}
-
-/// Human spec for the RTS core count (`default` or `-N<k>`).
-fn spec_str(cores: Option<u32>) -> String {
-    cores.map_or_else(|| "default".to_string(), |k| format!("-N{k}"))
-}
-
-/// Run `hs_init`, either with GHC defaults (`cores = None`) or a leaked
-/// `+RTS -N<k> -RTS` argv (`cores = Some(k)`). GHC retains the argv pointers for
-/// the process lifetime, so the strings and the array are intentionally leaked.
-fn init_rts(lib: &Library, cores: Option<u32>) -> Result<(), Error> {
-    // SAFETY: `hs_init` is `void hs_init(int *argc, char ***argv)`.
-    let hs_init = unsafe {
-        symbol::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(lib, b"hs_init\0")
-    }?;
-    match cores {
-        // NULL/NULL selects GHC default flags.
-        None => unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) },
-        Some(k) => {
-            // `into_raw` / `Box::leak` deliberately leak: GHC retains argv.
-            let argv: Vec<*mut c_char> = vec![
-                CString::new("aletheia").expect("no NUL").into_raw(),
-                CString::new("+RTS").expect("no NUL").into_raw(),
-                CString::new(format!("-N{k}")).expect("no NUL").into_raw(),
-                CString::new("-RTS").expect("no NUL").into_raw(),
-                std::ptr::null_mut(),
-            ];
-            let mut argc: c_int = 4;
-            let mut argv_ptr = Box::leak(argv.into_boxed_slice()).as_mut_ptr();
-            unsafe { hs_init(&mut argc, &mut argv_ptr) };
-        }
-    }
-    Ok(())
-}
-
-/// RAII guard for a C string the core returned (allocated by the GHC RTS).
-///
-/// The bytes must be copied out and then released with `aletheia_free_str` —
-/// **never** with `CString::from_raw`, which would hand RTS memory to Rust's
-/// allocator and corrupt the heap. Resolving `free_str` up front (in the caller,
-/// before allocating) keeps this guard's `Drop` infallible.
-type FreeStrFn<'a> = Symbol<'a, unsafe extern "C" fn(*mut c_char)>;
-
-struct Response<'a> {
-    ptr: *mut c_char,
-    free_str: FreeStrFn<'a>,
-}
-
-impl Response<'_> {
-    /// Copy the bytes into an owned `String`; the C buffer is freed on drop.
-    fn into_string(self) -> String {
-        // SAFETY: `ptr` is a non-null, NUL-terminated C string from the core.
-        unsafe { CStr::from_ptr(self.ptr) }
-            .to_string_lossy()
-            .into_owned()
-    }
-}
-
-impl Drop for Response<'_> {
-    fn drop(&mut self) {
-        // SAFETY: `ptr` was allocated by the core; `free_str` is its matching
-        // deallocator (resolved up front, so it is known to exist).
-        unsafe { (self.free_str)(self.ptr) };
-    }
-}
-
-/// Encode an optional CAN-FD bit as the `(present, value)` byte pair the FFI
-/// expects: `None` → `(0,0)` (CAN 2.0B), `Some(false)` → `(1,0)`, `Some(true)` → `(1,1)`.
-fn encode_opt_bool(b: Option<bool>) -> (u8, u8) {
-    match b {
-        None => (0, 0),
-        Some(false) => (1, 0),
-        Some(true) => (1, 1),
-    }
-}
-
-/// Validate a payload length against the CAN-FD maximum and narrow it to `u8`.
-fn frame_len(data: &[u8]) -> Result<u8, Error> {
-    if data.len() > MAX_FRAME_BYTES {
-        return Err(Error::Validation(format!(
-            "frame payload {} bytes exceeds CAN-FD maximum of {MAX_FRAME_BYTES}",
-            data.len()
-        )));
-    }
-    Ok(data.len() as u8) // guarded above: <= 64 fits u8
-}
 
 /// Require a payload's length to match its declared DLC exactly — the CAN
 /// invariant every data-bearing op enforces (mirrors Go `validatePayload`).
@@ -352,47 +140,17 @@ fn resolve_signal_indices(
     Ok((indices, nums, dens))
 }
 
-/// Null pointer for an empty slice (the FFI must not deref a zero-length array),
-/// else the slice's data pointer.
-fn slice_ptr<T>(s: &[T]) -> *const T {
-    if s.is_empty() {
-        std::ptr::null()
-    } else {
-        s.as_ptr()
-    }
-}
-
-/// Interpret a build/update FFI status: nonzero ⇒ read and free `out_err`.
-fn check_buffer_status(
-    status: i8,
-    out_err: *mut c_char,
-    free_str: &Symbol<unsafe extern "C" fn(*mut c_char)>,
-    op: &str,
-) -> Result<(), Error> {
-    if status == 0 {
-        return Ok(());
-    }
-    if out_err.is_null() {
-        return Err(Error::Protocol(format!(
-            "{op}: status {status} with null error message"
-        )));
-    }
-    // SAFETY: a nonzero status with non-null `out_err` is a GHC-allocated C
-    // string; copy it out, then release it with the core's deallocator.
-    let msg = unsafe { CStr::from_ptr(out_err) }
-        .to_string_lossy()
-        .into_owned();
-    unsafe { free_str(out_err) };
-    Err(Error::Protocol(format!("{op}: {msg}")))
-}
-
 /// A client over one `StreamState` in the verified core.
 ///
-/// Holds a raw `StreamState` pointer, so it is intentionally `!Send + !Sync`:
-/// the GHC RTS is thread-pinned and one handle must not be shared across threads.
-/// Cross-thread use is a future slice (tracked `planned`).
+/// Delegates every raw FFI operation to a [`Backend`] (the production
+/// `FfiBackend` by default, or an injected double); keeps the typed concerns —
+/// validation, response decoding, violation enrichment, logging — on this side.
+/// The default backend owns a thread-pinned GHC `StreamState`, so it is `!Send`,
+/// which makes `Client` `!Send + !Sync` too (cross-thread use is a future slice,
+/// tracked `planned`; for async use, see [`AsyncClient`]).
 pub struct Client {
-    handle: StateHandle,
+    /// The FFI-boundary backend every raw operation is routed through.
+    backend: Box<dyn Backend>,
     /// Optional structured-log sink (`None` ⇒ logging is a no-op). Held as an
     /// `Arc` so a future async client's worker thread can share it.
     logger: Option<Arc<dyn Logger>>,
@@ -405,8 +163,8 @@ pub struct Client {
     /// The most recent frame seen per CAN id during streaming (when diagnostics
     /// are set) — re-extracted at end-of-stream to enrich the final verdicts.
     last_frames: RefCell<HashMap<CanId, (Dlc, Vec<u8>)>>,
-    /// Makes the `!Send + !Sync` contract explicit and future-proof. A raw
-    /// pointer (`StateHandle = *mut c_void`) is already `!Send + !Sync`, so this
+    /// Makes the `!Send + !Sync` contract explicit and future-proof. A
+    /// `Box<dyn Backend>` (no `Send` bound) is already `!Send + !Sync`, so this
     /// is not load-bearing today — but it keeps `Client` thread-bound even if a
     /// `Send`/`Sync` field is added later, rather than relying on the current
     /// field set.
@@ -452,7 +210,7 @@ impl ClientBuilder {
     }
 
     /// Build the client: load the core, initialise the RTS once per process, and
-    /// allocate a fresh `StreamState`.
+    /// allocate a fresh `StreamState` (a production `FfiBackend`).
     ///
     /// # Errors
     /// [`Error::Validation`] if `rts_cores` is 0 or exceeds the C `int` range;
@@ -468,23 +226,24 @@ impl ClientBuilder {
             }
         }
         let min_level = self.min_level.unwrap_or(LogLevel::Debug);
-        let lib = library()?;
-        ensure_rts(lib, self.rts_cores, self.logger.as_deref(), min_level)?;
-        // SAFETY: `aletheia_init` is `StateHandle aletheia_init(void)`.
-        let init =
-            unsafe { symbol::<unsafe extern "C" fn() -> StateHandle>(lib, b"aletheia_init\0") }?;
-        let handle = unsafe { init() };
-        if handle.is_null() {
-            return Err(Error::InitFailed);
-        }
-        Ok(Client {
-            handle,
-            logger: self.logger,
+        let backend = FfiBackend::new(self.rts_cores, self.logger.as_deref(), min_level)?;
+        Ok(Client::from_parts(
+            Box::new(backend),
+            self.logger,
             min_level,
-            diags: RefCell::new(Vec::new()),
-            last_frames: RefCell::new(HashMap::new()),
-            _not_send_sync: PhantomData,
-        })
+        ))
+    }
+
+    /// Build a [`Client`] over an injected [`Backend`] (e.g. a [`MockBackend`]
+    /// or a custom test double), applying this builder's logger / minimum level.
+    ///
+    /// Skips the FFI entirely: no library is loaded and the GHC RTS is not
+    /// initialised, so `rts_cores` (if set) is ignored. Infallible — there is no
+    /// `.so` to fail to load.
+    #[must_use]
+    pub fn build_with_backend(self, backend: Box<dyn Backend>) -> Client {
+        let min_level = self.min_level.unwrap_or(LogLevel::Debug);
+        Client::from_parts(backend, self.logger, min_level)
     }
 
     /// Build a runtime-agnostic [`AsyncClient`] from this configuration (feature
@@ -520,6 +279,32 @@ impl Client {
     #[must_use]
     pub fn builder() -> ClientBuilder {
         ClientBuilder::default()
+    }
+
+    /// Construct a [`Client`] over an injected [`Backend`] with no logger — the
+    /// terse form of [`ClientBuilder::build_with_backend`] for test substitution
+    /// (mirrors Go `NewClient(backend)` / C++ `AletheiaClient(backend)`).
+    #[must_use]
+    pub fn with_backend(backend: Box<dyn Backend>) -> Self {
+        Self::from_parts(backend, None, LogLevel::Debug)
+    }
+
+    /// Assemble a client from its parts. The single construction point shared by
+    /// the FFI path ([`ClientBuilder::build`]) and the injection path
+    /// ([`Client::with_backend`] / [`ClientBuilder::build_with_backend`]).
+    fn from_parts(
+        backend: Box<dyn Backend>,
+        logger: Option<Arc<dyn Logger>>,
+        min_level: LogLevel,
+    ) -> Self {
+        Client {
+            backend,
+            logger,
+            min_level,
+            diags: RefCell::new(Vec::new()),
+            last_frames: RefCell::new(HashMap::new()),
+            _not_send_sync: PhantomData,
+        }
     }
 
     /// Emit a structured log record, if a logger is set and the level passes the
@@ -704,16 +489,7 @@ impl Client {
     /// Returns [`Error`] if the command contains an interior NUL, a required
     /// symbol is missing, or the core returns a null response.
     pub fn process(&self, command: &str) -> Result<String, Error> {
-        let c_cmd = CString::new(command).map_err(|_| Error::NulInString)?;
-        self.invoke(|lib| {
-            let process = unsafe {
-                symbol::<unsafe extern "C" fn(StateHandle, *const c_char) -> *mut c_char>(
-                    lib,
-                    b"aletheia_process\0",
-                )
-            }?;
-            Ok(unsafe { process(self.handle, c_cmd.as_ptr()) })
-        })
+        self.backend.process(command)
     }
 
     /// Parse a DBC database from its `.dbc` text image and load it into this
@@ -746,15 +522,7 @@ impl Client {
     /// [`Error::Core`] if no DBC is loaded, or [`Error::Protocol`] on an
     /// unexpected response.
     pub fn format_dbc(&self) -> Result<Dbc, Error> {
-        let raw = self.invoke(|lib| {
-            let f = unsafe {
-                symbol::<unsafe extern "C" fn(StateHandle) -> *mut c_char>(
-                    lib,
-                    b"aletheia_format_dbc\0",
-                )
-            }?;
-            Ok(unsafe { f(self.handle) })
-        })?;
+        let raw = self.backend.format_dbc_binary()?;
         dbc::decode_format_dbc(&raw)
     }
 
@@ -863,10 +631,7 @@ impl Client {
     /// # Errors
     /// [`Error::Core`] if the core is not ready (e.g. no DBC), else [`Error`].
     pub fn start_stream(&self) -> Result<(), Error> {
-        let raw = self.invoke(|lib| {
-            let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_start_stream\0") }?;
-            Ok(unsafe { f(self.handle) })
-        })?;
+        let raw = self.backend.start_stream_binary()?;
         response::decode_ack_or_success(&raw)?;
         // Scope enrichment's last-frame cache to this stream — otherwise a second
         // stream (without a fresh set_properties) could reuse the prior stream's
@@ -896,28 +661,9 @@ impl Client {
         esi: Option<bool>,
     ) -> Result<FrameResponse, Error> {
         validate_frame_len(dlc, data)?;
-        let len = frame_len(data)?;
-        let ext = u8::from(id.is_extended());
-        let (brs_p, brs_v) = encode_opt_bool(brs);
-        let (esi_p, esi_v) = encode_opt_bool(esi);
-        let raw = self.invoke(|lib| {
-            let f = unsafe { symbol::<SendFrameFn>(lib, b"aletheia_send_frame\0") }?;
-            Ok(unsafe {
-                f(
-                    self.handle,
-                    ts.micros(),
-                    id.value(),
-                    ext,
-                    dlc.value(),
-                    data.as_ptr(),
-                    len,
-                    brs_p,
-                    brs_v,
-                    esi_p,
-                    esi_v,
-                )
-            })
-        })?;
+        let raw = self
+            .backend
+            .send_frame_binary(ts, id, dlc, data, brs, esi)?;
         let mut resp = response::decode_frame(&raw)?;
         // When diagnostics are set: remember this frame for end-of-stream
         // enrichment, and enrich any violations it decided (from this frame).
@@ -946,10 +692,7 @@ impl Client {
     /// # Errors
     /// [`Error::Core`] / [`Error::Protocol`].
     pub fn send_error(&self, ts: Timestamp) -> Result<(), Error> {
-        let raw = self.invoke(|lib| {
-            let f = unsafe { symbol::<SendErrorFn>(lib, b"aletheia_send_error\0") }?;
-            Ok(unsafe { f(self.handle, ts.micros()) })
-        })?;
+        let raw = self.backend.send_error_binary(ts)?;
         response::decode_ack_or_success(&raw)?;
         self.emit(
             LogLevel::Debug,
@@ -964,11 +707,7 @@ impl Client {
     /// # Errors
     /// [`Error::Core`] / [`Error::Protocol`].
     pub fn send_remote(&self, ts: Timestamp, id: CanId) -> Result<(), Error> {
-        let ext = u8::from(id.is_extended());
-        let raw = self.invoke(|lib| {
-            let f = unsafe { symbol::<SendRemoteFn>(lib, b"aletheia_send_remote\0") }?;
-            Ok(unsafe { f(self.handle, ts.micros(), id.value(), ext) })
-        })?;
+        let raw = self.backend.send_remote_binary(ts, id)?;
         response::decode_ack_or_success(&raw)?;
         self.emit(
             LogLevel::Debug,
@@ -984,10 +723,7 @@ impl Client {
     /// # Errors
     /// [`Error::Core`] if no stream is active, else [`Error`].
     pub fn end_stream(&self) -> Result<StreamResult, Error> {
-        let raw = self.invoke(|lib| {
-            let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_end_stream\0") }?;
-            Ok(unsafe { f(self.handle) })
-        })?;
+        let raw = self.backend.end_stream_binary()?;
         let mut result = response::decode_stream(&raw)?;
         // Enrich the final violations from the last frame seen on each CAN id.
         self.enrich_eos(&mut result.results);
@@ -1027,21 +763,7 @@ impl Client {
         data: &[u8],
     ) -> Result<ExtractionResult, Error> {
         validate_frame_len(dlc, data)?;
-        let len = frame_len(data)?;
-        let ext = u8::from(id.is_extended());
-        let raw = self.invoke(|lib| {
-            let f = unsafe { symbol::<ExtractFn>(lib, b"aletheia_extract_signals\0") }?;
-            Ok(unsafe {
-                f(
-                    self.handle,
-                    id.value(),
-                    ext,
-                    dlc.value(),
-                    data.as_ptr(),
-                    len,
-                )
-            })
-        })?;
+        let raw = self.backend.extract_signals_binary(id, dlc, data)?;
         response::decode_extraction(&raw)
     }
 
@@ -1064,37 +786,16 @@ impl Client {
         signals: &[SignalValue],
     ) -> Result<Vec<u8>, Error> {
         let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
-        let num_signals = u32::try_from(indices.len())
-            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
-        let mut out = vec![0u8; dlc.to_bytes()];
-        let lib = library()?;
-        let build = unsafe { symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0") }?;
-        let free_str =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
-        let mut out_err: *mut c_char = std::ptr::null_mut();
-        let out_ptr = if out.is_empty() {
-            std::ptr::null_mut()
-        } else {
-            out.as_mut_ptr()
-        };
-        // SAFETY: `out` is `dlc.to_bytes()` long (what the core writes); the
-        // parallel arrays all share `indices.len()`; `out_err` is an out-param.
-        let status = unsafe {
-            build(
-                self.handle,
-                message.id,
-                u8::from(message.extended),
-                dlc.value(),
-                num_signals,
-                slice_ptr(&indices),
-                slice_ptr(&nums),
-                slice_ptr(&dens),
-                out_ptr,
-                &mut out_err,
-            )
-        };
-        check_buffer_status(status, out_err, &free_str, "build_frame")?;
-        Ok(out)
+        self.backend.build_frame_bin(
+            message.id,
+            message.extended,
+            dlc,
+            SignalInjection {
+                indices: &indices,
+                nums: &nums,
+                dens: &dens,
+            },
+        )
     }
 
     /// Update specific signals inside an existing frame payload, returning a new
@@ -1113,40 +814,18 @@ impl Client {
         signals: &[SignalValue],
     ) -> Result<Vec<u8>, Error> {
         validate_frame_len(dlc, frame)?;
-        let frame_n = frame_len(frame)?;
         let (indices, nums, dens) = resolve_signal_indices(message, signals)?;
-        let num_signals = u32::try_from(indices.len())
-            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
-        let mut out = vec![0u8; dlc.to_bytes()];
-        let lib = library()?;
-        let update = unsafe { symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0") }?;
-        let free_str =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
-        let mut out_err: *mut c_char = std::ptr::null_mut();
-        let out_ptr = if out.is_empty() {
-            std::ptr::null_mut()
-        } else {
-            out.as_mut_ptr()
-        };
-        // SAFETY: as `build_frame`, plus `frame`/`frame_n` describe the input bytes.
-        let status = unsafe {
-            update(
-                self.handle,
-                message.id,
-                u8::from(message.extended),
-                dlc.value(),
-                slice_ptr(frame),
-                frame_n,
-                num_signals,
-                slice_ptr(&indices),
-                slice_ptr(&nums),
-                slice_ptr(&dens),
-                out_ptr,
-                &mut out_err,
-            )
-        };
-        check_buffer_status(status, out_err, &free_str, "update_frame")?;
-        Ok(out)
+        self.backend.update_frame_bin(
+            message.id,
+            message.extended,
+            dlc,
+            frame,
+            SignalInjection {
+                indices: &indices,
+                nums: &nums,
+                dens: &dens,
+            },
+        )
     }
 
     /// Send a batch of frames as a single call (a caller-side convenience over
@@ -1168,36 +847,5 @@ impl Client {
             }
         }
         (out, None)
-    }
-
-    /// Resolve `aletheia_free_str` up front, run `call` to obtain a GHC-allocated
-    /// response pointer, then copy it out and free it via the RAII [`Response`].
-    fn invoke(
-        &self,
-        call: impl FnOnce(&'static Library) -> Result<*mut c_char, Error>,
-    ) -> Result<String, Error> {
-        let lib = library()?;
-        // Resolve the deallocator BEFORE the call so a `.so` missing
-        // `aletheia_free_str` fails here instead of leaking in Response::drop.
-        let free_str =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
-        let ptr = call(lib)?;
-        if ptr.is_null() {
-            return Err(Error::NullResponse);
-        }
-        Ok(Response { ptr, free_str }.into_string())
-    }
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        if let Ok(lib) = library() {
-            // SAFETY: `aletheia_close` is `void aletheia_close(StateHandle)`.
-            if let Ok(close) =
-                unsafe { symbol::<unsafe extern "C" fn(StateHandle)>(lib, b"aletheia_close\0") }
-            {
-                unsafe { close(self.handle) };
-            }
-        }
     }
 }
