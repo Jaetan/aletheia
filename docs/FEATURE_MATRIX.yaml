@@ -473,7 +473,10 @@ features:
         status: planned
         notes: "The configurable, inspectable mock (queue responses + assert on captured requests) is the MockBackend class in the test-internal header cpp/src/detail/mock_backend.hpp, consumed by in-tree tests via direct include. The public surface (cpp/include/) ships only make_mock_backend() — a fixed canned-ack/success backend — plus the IBackend DI seam for roll-your-own doubles. Flips to implemented when the configurable mock is promoted to a public aletheia/testing.hpp."
       go:  { status: implemented, entry: MockBackend }
-      rust: { status: planned, notes: "No Rust mock backend yet (deferred)." }
+      rust:
+        status: implemented
+        entry: MockBackend
+        notes: "Public, Clone-able configurable mock (queue responses via respond_json/respond_bytes/respond_err; inspect via captured()). Shares interior-mutable state across clones (Rc<RefCell>) so a test holds one clone to assert on while the Client owns another. Records the cross-binding <binary:OP> sentinels; errors on queue exhaustion (Go-style, vs the Python/C++ default-response)."
 
   - id: backend_di_seam
     name: Backend dependency-injection seam
@@ -482,7 +485,10 @@ features:
       python: { status: implemented, entry: aletheia.Backend }
       cpp:    { status: implemented, entry: "aletheia/backend.hpp#IBackend" }
       go:     { status: implemented, entry: Backend }
-      rust: { status: planned, notes: "Client binds the .so directly; a trait-based backend seam is deferred." }
+      rust:
+        status: implemented
+        entry: Backend
+        notes: "Public, open `trait Backend` (rust/src/backend.rs); the Client holds a Box<dyn Backend>, injected via Client::with_backend / ClientBuilder::build_with_backend. Idiomatic divergence from the peer seams: no init/close/state in the trait — the production FfiBackend owns its session handle and closes it in Drop (RAII), so the trait never traffics in a raw pointer."
 
   # =====================================================================
   # Ergonomics — Part 2 (all planned, design rounds required)

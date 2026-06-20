@@ -12,6 +12,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Rust backend dependency-injection seam + test mock** (`rust/`, Rust-parity
+  Slice R5 — the last in-plan slice; `mock_backend` + `backend_di_seam` →
+  rust **36/40**). A public, open `trait Backend` (`rust/src/backend.rs`) is the
+  FFI-boundary abstraction the `Client` is built on; the `Client` now holds a
+  `Box<dyn Backend>`, injected via `Client::with_backend` or
+  `ClientBuilder::build_with_backend`. The production `FfiBackend` (loads the
+  `.so`) and a new public, `Clone`-able `MockBackend` (`rust/src/mock.rs`) both
+  implement it; the mock queues responses (`respond_json` / `respond_bytes` /
+  `respond_err`) and records the cross-binding `<binary:OP>` sentinels for
+  inspection via `captured()`, so the `Client` can be unit-tested without loading
+  `libaletheia-ffi.so` (`rust/tests/mock_backend.rs`). Mirrors the Go / Python
+  `Backend` + `MockBackend` and the C++ `IBackend`, in idiomatic Rust form:
+  **RAII** (the backend owns its session handle and closes it in `Drop`, so the
+  trait has no `init`/`close`/`state` and never traffics in a raw pointer);
+  **shared interior-mutable mock state** (`Rc<RefCell<…>>` + `Clone`, so a test
+  keeps one clone to assert on while the `Client` owns another); and
+  **error-on-exhaustion** (matching Go, vs the Python/C++ default-response — no
+  fabricated mock behavior). The behavior-preserving extraction of the FFI
+  machinery into `FfiBackend` leaves the existing public `Client` API unchanged.
 - **Always-on gate: tools-importing tests must be mutmut-ignored.**
   `tools/check_mutation_setup.py` (in the required Shake `check` sweep, not the
   advisory mutation lane) now also verifies that every `python/tests/test_*.py`
