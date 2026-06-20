@@ -26,11 +26,15 @@ YAML check loader (Slice R3b ✅ complete 2026-06-18, #62 —
 check + DBC loader (Slice R3c ✅ complete 2026-06-19, #65 — the separate
 `aletheia-excel` crate, which also unified strict, by-name Excel column handling
 across all four bindings)**.
-That is **30 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
-column — **Slice R3 (the whole Check-interface tier) is complete**.
+**Slice R4 (ergonomics & runtime infra) is also complete** (R4a #67 — structured
+logging + RTS-cores config, `lazy_streaming_batch`→`not_applicable`; R4b #68 —
+client-side violation enrichment; R4c #69 — runtime-agnostic `AsyncClient`,
+cancellation = drop the future).
+That is **34 of 40** `docs/FEATURE_MATRIX.yaml` rows `implemented` for the `rust`
+column (+ 1 `not_applicable`, `lazy_streaming_batch`) — **Slices R1–R4 complete**.
 
-The remaining **10 `planned`** rows: **7** in this plan (**R4–R5**), and **3**
-carved out to **Phase 6** (below).
+The remaining **5 `planned`** rows: **2** in this plan (**R5** — the last in-plan
+slice), and **3** carved out to **Phase 6** (below).
 
 ## Out of scope — deferred to Phase 6 (with the python-can replacement)
 
@@ -45,7 +49,7 @@ host-surface / python-can work, **not** this plan — handled when the
 - **`cli`** — the Rust host CLI (Python / C++ / Go already ship one).
 - **`doc_example_gate_checks`** — the Rust doc-example gate.
 
-## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 + R3c's 1 ✅ done = 19; 7 remain in R4–R5)
+## The slices (26 rows — R1's 11 + R2's 4 + R3a's 2 + R3b's 1 + R3c's 1 + R4's 5 ✅ done = 24; 2 remain in R5)
 
 ### Slice R1 — Typed DBC document model (keystone, 11 rows) — ✅ DONE 2026-06-17 (#53/#54/#55)
 
@@ -118,23 +122,34 @@ loaders — the "engineers / CI / technicians" tiers above the raw LTL DSL.
 - **Dependency:** R1 (the Check DSL references the typed DBC signal model) —
   confirmed (R3a built on it).
 
-### Slice R4 — Ergonomics & runtime infra (5 rows)
+### Slice R4 — Ergonomics & runtime infra (5 rows) — ✅ DONE 2026-06-19 (#67/#68/#69)
 
 Rows: `structured_logging`, `violation_enrichment`, `rts_cores_config`,
 `cancellation_contract`, `lazy_streaming_batch`.
 
-- `structured_logging` — a `tracing`/`log`-based event surface (the 16 event
-  types matching Go `slog` / Python).
-- `violation_enrichment` — client-side signal-value attachment on violations
-  (the raw core `reason` is already surfaced).
-- `rts_cores_config` — pass the RTS `-N` count through `hs_init` flags (today
-  uses defaults).
-- `cancellation_contract`, `lazy_streaming_batch` — **design call first.** These
-  may resolve `not_applicable` once the idiomatic Rust form is chosen (a
-  cancellation token / `Iterator`), exactly as C++ / Go marked some of these
-  `not_applicable` because `std::stop_token` / `context.Context` / iterators
-  already express the contract. The matrix can't pre-decide this; the slice does.
-- **Effort:** medium; partly design-gated.
+- `structured_logging` ✅ (#67) — a callback `Logger` trait (level + event + typed
+  fields) over the shared 16-event vocabulary (`docs/LOG_EVENTS.yaml`), injected
+  via `ClientBuilder::logger()` with `.min_level()` filtering; chosen over a
+  `tracing`/`log` facade so the event set is enforced by a parity gate
+  (`rust/tests/log_events.rs`) exactly like the Go/Python peers.
+- `violation_enrichment` ✅ (#68) — client-side signal-value attachment on
+  violations: a per-property diagnostic cache (referenced signals + a formula
+  description) plus last-known values → `Enrichment.enriched_reason`, mirroring
+  Go `enrich.go` / Python `_enrichment.py` (the core emits only the raw reason).
+- `rts_cores_config` ✅ (#67) — `ClientBuilder::rts_cores(k)` passes `+RTS -N<k>`
+  through `hs_init`; the RTS is process-global, so the first client latches the
+  count (a later mismatch is a no-op + `rts.cores_mismatch` warning).
+- `cancellation_contract` ✅ (#69) — resolved **`implemented`**, not
+  `not_applicable`: the idiomatic Rust form is **dropping a future**, expressed by
+  the opt-in `AsyncClient` (feature `async`). The `!Send` sync `Client` is owned by
+  a dedicated worker thread; a queued job is skipped via the reply
+  `oneshot::Sender::is_canceled()` and an in-flight FFI call commits its prefix —
+  honoring `CANCELLATION.md` (now
+  with a Rust §2.4/§3.4). Runtime-agnostic (futures-channel oneshot); `Send + Sync`.
+- `lazy_streaming_batch` ✅ (#67) — resolved **`not_applicable`**: `send_frames`
+  already delivers commit-prefix-and-report; a lazy iterator variant is additive,
+  the same call made by the Go/C++ peers.
+- **Effort:** medium; partly design-gated. (Done.)
 
 ### Slice R5 — Test / DI seam (2 rows)
 
@@ -170,14 +185,17 @@ the other API languages, conduct a **thorough review of the entire Rust binding*
 (`rust/` + the `rust/excel/` crate) — a full code review in the spirit of the
 Agda / cross-language review rounds, not a per-slice spot check.
 
-**Trigger (milestone, not dated):** the parity-plan slices complete —
-**R4 + R5 done (rust 37/40)**. At that point the Rust binding has functional
-parity with Python / Go / C++; the three remaining rows (`cli`,
+**Trigger (milestone, not dated): R5 merged** — the last in-plan slice. R4 is
+already done (rust 34/40); when R5 lands, the in-plan slices are complete at
+**36 `implemented` + 1 `not_applicable`** (`lazy_streaming_batch`), i.e. all 37
+non-Phase-6 rows resolved. At that point the Rust binding has functional parity
+with Python / Go / C++; the three remaining `planned` rows (`cli`,
 `can_log_reader`, `doc_example_gate_checks`) are the shared **Phase-6**
 host-surface track (`can_log_reader` is unbuilt in *every* binding), so they need
 not gate the review — though it should note them as the known remaining deltas,
-and fold any `cli` / doc-gate work into scope if it has landed by then. Re-confirm
-the scope with the user when scheduling it.
+and fold any `cli` / doc-gate work into scope if it has landed by then. The
+trigger is the R5 merge, not a row count, so number-drift can't mis-fire it.
+Re-confirm the scope with the user when scheduling it.
 
 ## References
 
