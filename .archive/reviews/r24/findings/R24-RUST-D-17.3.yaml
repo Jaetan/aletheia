@@ -1,0 +1,25 @@
+id: R24-RUST-D-17.3
+round: R24
+category:
+  number: 17
+  name: Cross-binding behavioral parity
+  language: rust
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: AsyncClient::send_frames was atomic — cancellation could not fire at frame boundaries (contradicted
+  CANCELLATION.md §1.1/§3.5)
+description: The batch ran as one opaque job; dropping the future committed all N frames (no per-frame
+  checkpoint, no prefix report), contradicting the binding-agnostic contract that Go/C++/Python honor.
+files:
+- rust/src/async_client.rs
+- docs/architecture/CANCELLATION.md
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED (user decision: make it frame-cancellable): send_frames now dispatches one cancellable
+    job per frame, committing only a prefix on drop. CANCELLATION.md §3.4 updated to the new behavior;
+    a compile-time Send-future assert added (see 13.1).'
+re_raised_from: null
+in_source_marker: null

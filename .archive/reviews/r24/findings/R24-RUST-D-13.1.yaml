@@ -1,0 +1,22 @@
+id: R24-RUST-D-13.1
+round: R24
+category:
+  number: 13
+  name: Tests
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: The Send-futures invariant the docs/test claim to guard was not actually asserted
+description: 'The test asserted only AsyncClient: Send + Sync, never that the borrowing method *futures*
+  are Send (the documented tokio::spawn guarantee). A future regressing to !Send would still pass.'
+files:
+- rust/src/async_client.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: added a compile-time assert_send over representative method futures (start_stream/send_frame/send_frames),
+    referenced-but-not-invoked so it needs no .so.'
+re_raised_from: null
+in_source_marker: null

@@ -1,0 +1,25 @@
+id: R24
+fork_point: 99d4d7f
+fork_date: '2026-06-20'
+merge_commit: null
+merge_date: null
+status: open
+raw_findings_count: 15
+closed_findings_count: 10
+agent_fleet:
+- rust-find-unsafe-ffi
+- rust-find-seam-concurrency
+- rust-find-wire-serialization
+- rust-find-loaders-trust
+- rust-find-parity
+- rust-find-error-api-tests
+- rust-verify-adversarial
+- rust-synthesize
+notes: 'First Rust-binding review round, run as a multi-agent workflow (6 lens finders -> adversarial
+  per-finding verify -> synthesis) over rust/ + rust/excel/, triggered by the R5 (#75) merge reaching
+  Rust feature parity. 15 raw findings; 5 refuted by the adversarial pass; 10 confirmed, all dispositioned
+  FIX this round. 0 critical / 0 high / 3 medium / 7 low; no memory-safety or UB, fmt/clippy/cargo-test
+  gates already clean. Two findings carried a user fix-vs-document fork, both resolved as FIX: 17.3 (send_frames
+  frame-cancellable) and 17.4 (typed IssueCode). Known deltas (not findings): the Phase-6 rows cli / can_log_reader
+  / doc_example_gate_checks, and 4 pre-existing cargo-doc warnings in log.rs / yaml.rs. The schema language
+  enum gained ''rust'' this round.'

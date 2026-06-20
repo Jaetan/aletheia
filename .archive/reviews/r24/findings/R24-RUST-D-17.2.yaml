@@ -1,0 +1,23 @@
+id: R24-RUST-D-17.2
+round: R24
+category:
+  number: 17
+  name: Cross-binding behavioral parity
+  language: rust
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: enrich_eos merged multi-CAN-id last-frame values in nondeterministic HashMap order
+description: enrich_eos iterated last_frames (a std HashMap, randomized RandomState) and merged first-seen;
+  for a signal name defined under multiple CAN ids the winning value varied run-to-run. Go/Python deliberately
+  sort.
+files:
+- rust/src/lib.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: sort frames by (id.value(), id.is_extended()) before the first-seen merge, matching Go
+    slices.Sort / Python sort. New mock test covers the multi-frame loop.'
+re_raised_from: null
+in_source_marker: null

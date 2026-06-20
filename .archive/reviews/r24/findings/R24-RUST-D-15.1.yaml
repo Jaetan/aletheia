@@ -1,0 +1,23 @@
+id: R24-RUST-D-15.1
+round: R24
+category:
+  number: 15
+  name: Documentation accuracy
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: MAX_FORMULA_DEPTH doc comment misstated the wire cap and cross-binding parity
+description: 'Documented as ''maximum nesting depth accepted on the wire (matches every binding)'' — false:
+  it is a client recursion guard (100), distinct from the kernel''s 64 JSON nesting wire cap, and matches
+  only Go''s stack guard.'
+files:
+- rust/src/ltl.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: reworded the doc to a client-side recursion guard distinct from the 64 wire cap; dropped
+    ''matches every binding''.'
+re_raised_from: null
+in_source_marker: null

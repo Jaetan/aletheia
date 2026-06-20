@@ -1,0 +1,23 @@
+id: R24-RUST-D-29.1
+round: R24
+category:
+  number: 29
+  name: Security / trust boundary
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: Excel/YAML integer fast path silently saturated a float at exactly 2^63 instead of rejecting it
+description: from_f64's guard v <= i64::MAX as f64 is off-by-one (i64::MAX as f64 rounds up to 2^63),
+  so exactly 2^63 passed and saturated to i64::MAX. C++ rejects; Rust matched Go's same flaw.
+files:
+- rust/src/types.rs
+- rust/excel/src/lib.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: v < i64::MAX as f64 at types.rs + the two excel sites; rejects 2^63 while accepting 2^63-2048.
+    Unit test added.'
+re_raised_from: null
+in_source_marker: null

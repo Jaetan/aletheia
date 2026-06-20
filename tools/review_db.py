@@ -192,7 +192,7 @@ _ROUND_ID_RE = re.compile(r"^R[0-9]+$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
-_VALID_LANGUAGES = {"agda", "go", "cpp", "python", "docs", "cicd", "xbinding"}
+_VALID_LANGUAGES = {"agda", "go", "cpp", "python", "rust", "docs", "cicd", "xbinding"}
 _VALID_AGENTS = {"A", "B", "C", "D"}
 _VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 _VALID_DISPOSITIONS = {"FIX", "FIX-PARTIAL", "DEFER", "NO-FIX", "FP", "FP-VERIFIED", "DROP"}
