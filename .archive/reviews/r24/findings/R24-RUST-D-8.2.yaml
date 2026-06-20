@@ -1,0 +1,23 @@
+id: R24-RUST-D-8.2
+round: R24
+category:
+  number: 8
+  name: Serialization / wire fidelity
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: Validation/warning issue decoders accepted an unknown severity string verbatim
+description: issue_list and the parse-dbc warnings loop copied severity through with no rejection; Python/Go/C++
+  all reject unknown severity and model it as a typed enum.
+files:
+- rust/src/response.rs
+- rust/src/dbc.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED (with 17.4): IssueSeverity::from_wire rejects unknown severity in both decode sites (the
+    closed error/warning set); IssueCode stays lenient (Unknown fallback) — asymmetry commented.'
+re_raised_from: null
+in_source_marker: null

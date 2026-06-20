@@ -186,7 +186,7 @@ fn get_int(row: &Row, key: &str, ctx: &str) -> Result<i64, Error> {
     match row.get(key) {
         Some(Data::Int(n)) => Ok(*n),
         Some(Data::Float(f))
-            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 =>
+            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < i64::MAX as f64 =>
         {
             Ok(*f as i64)
         }
@@ -560,7 +560,7 @@ fn parse_message_id(row: &Row, ctx: &str) -> Result<u32, Error> {
         // which would otherwise surface as a misleading "out of range" on the
         // saturated value rather than the real one (matches `get_int`).
         Some(Data::Float(f))
-            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 =>
+            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < i64::MAX as f64 =>
         {
             *f as i64
         }

@@ -696,12 +696,8 @@ pub(crate) fn decode_parsed_dbc(raw: &str) -> Result<(Dbc, Vec<ValidationIssue>)
         .and_then(Dbc::from_value)?;
     let warnings = arr(&obj, "warnings")
         .iter()
-        .map(|w| ValidationIssue {
-            severity: str_field(w, "severity"),
-            code: str_field(w, "code"),
-            detail: str_field(w, "detail"),
-        })
-        .collect();
+        .map(crate::response::decode_issue)
+        .collect::<Result<Vec<_>, Error>>()?;
     Ok((dbc, warnings))
 }
 

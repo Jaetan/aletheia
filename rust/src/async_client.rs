@@ -291,13 +291,37 @@ impl AsyncClient {
     /// (responses + first transport error); the outer `Result` reports a
     /// closed/stopped async worker.
     ///
+    /// **Cancellable at the frame boundary.** Each frame is dispatched as its own
+    /// job (not one atomic batch), so dropping this future stops the batch at the
+    /// next boundary — committing only a *prefix*, never all N frames (honoring
+    /// the commit-prefix contract; see `docs/architecture/CANCELLATION.md`). A
+    /// dropped future returns nothing, so to *observe* the committed prefix on
+    /// cancellation, loop [`AsyncClient::send_frame`] yourself and keep each
+    /// result. Per-frame dispatch also means another task's job on the same
+    /// `AsyncClient` may interleave between this batch's frames (a single stream
+    /// is sequential, so concurrent streaming on one client is already a misuse).
+    ///
     /// # Errors
     /// A closed/stopped async worker.
     pub async fn send_frames(
         &self,
         frames: Vec<Frame>,
     ) -> Result<(Vec<FrameResponse>, Option<Error>), Error> {
-        self.run(move |c| Ok(c.send_frames(&frames))).await
+        let mut out = Vec::with_capacity(frames.len());
+        for f in frames {
+            // One cancellable job per frame: the inner `Result` is the transport
+            // outcome (first error stops the batch, mirroring the sync method);
+            // an outer `Err` is a closed/stopped worker.
+            match self
+                .run(move |c| Ok(c.send_frame(f.timestamp, f.id, f.dlc, &f.data, f.brs, f.esi)))
+                .await
+            {
+                Ok(Ok(resp)) => out.push(resp),
+                Ok(Err(transport)) => return Ok((out, Some(transport))),
+                Err(worker) => return Err(worker),
+            }
+        }
+        Ok((out, None))
     }
 
     /// Async [`Client::process`] — the raw JSON escape hatch.
@@ -343,6 +367,31 @@ mod tests {
         fn is_sync<T: Sync>() {}
         is_send::<super::AsyncClient>();
         is_sync::<super::AsyncClient>();
+    }
+
+    #[test]
+    fn method_futures_are_send() {
+        // The handle being Send + Sync does NOT imply the borrowing method
+        // futures are Send (a future capturing &self + a !Send local would be
+        // !Send while the handle stays Send). The documented `tokio::spawn`
+        // guarantee is specifically about the *futures*, so pin that directly: if
+        // any method future stops being Send, `check`'s body fails to compile.
+        fn assert_send<F: core::future::Future + Send>(_: F) {}
+        fn check(c: &super::AsyncClient) {
+            assert_send(c.start_stream());
+            assert_send(c.send_frame(
+                super::Timestamp(0),
+                super::CanId::standard(0).expect("0 is a valid standard id"),
+                super::Dlc::new(0).expect("0 is a valid dlc"),
+                Vec::new(),
+                None,
+                None,
+            ));
+            assert_send(c.send_frames(Vec::new()));
+        }
+        // Reference (don't call) `check` so it is type-checked — proving the
+        // assertions above — without constructing an AsyncClient (no `.so`).
+        let _ = check as fn(&super::AsyncClient);
     }
 
     #[test]

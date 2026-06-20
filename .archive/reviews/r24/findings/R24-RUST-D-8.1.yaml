@@ -1,0 +1,22 @@
+id: R24-RUST-D-8.1
+round: R24
+category:
+  number: 8
+  name: Serialization / wire fidelity
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: decode_frame silently coerced an unrecognised frame response to Ack and accepted an empty property_batch
+description: Any non-property_batch response became Ack and an empty batch became empty Verdicts; Go/Python
+  reject both. Unreachable under current core invariants but a robustness/strictness divergence.
+files:
+- rust/src/response.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: strict decode_frame mirroring Go parseFrameResponse (ack -> Ack; non-empty batch -> Verdicts;
+    empty/unknown -> protocol error). Mock-tested.'
+re_raised_from: null
+in_source_marker: null

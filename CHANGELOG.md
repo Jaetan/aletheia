@@ -218,6 +218,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Rust): `ExtractionResult.errors` is now `Vec<SignalError>`**
+  (was `Vec<String>`). The previous type dropped the per-signal *reason* the core
+  emits as `{"name", "error"}`, losing diagnostic information the Python
+  (`errors: Mapping[str, str]`) and Go (`SignalError{Name, Error}`) bindings
+  retain — a cross-binding parity gap (review r24, finding #1). The new public
+  `aletheia::SignalError { name, reason }` carries both. *Migration:* read
+  `err.name` (was the bare `String`); the reason is now available as `err.reason`.
+- **BREAKING (Rust): `ValidationIssue.severity` and `.code` are now typed enums**
+  (`IssueSeverity` / `IssueCode`), were `String` (review r24, #8). New public
+  `aletheia::IssueSeverity` (`Error`/`Warning`) and `aletheia::IssueCode` (the 21
+  Agda `IssueCode` members + `Unknown(String)`), mirroring the Python/Go/C++ typed
+  vocabularies. `IssueCode` decoding is lenient (unknown wire codes →
+  `IssueCode::Unknown`); `IssueSeverity` decoding is strict (an unrecognised
+  severity is a protocol error, matching the peers). *Migration:* match the enum
+  instead of comparing strings; `issue.code.as_str()` / `issue.severity.as_str()`
+  recover the wire string.
+- The review-findings archive (`tools/review_db.py` + `.archive/reviews/schema.yaml`)
+  now accepts `rust` as a finding language, for the r24 Rust-binding review round.
 - **Mutation testing is promoted to a required (merge-blocking) check, and its CI
   lane is cached.** Previously the `mutation testing` lane in `pr-heavy-lanes.yml`
   ran on every PR but was *advisory* — so a PR could merge with mutation red (a new
@@ -379,6 +397,38 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Rust binding review (r24) — 8 non-breaking fixes** (the two BREAKING ones are
+  under Changed). All are cross-binding parity / determinism / strictness gaps
+  that the `fmt`/`clippy`/`cargo test` gates cannot catch, found by the thorough
+  Rust review and adversarially verified:
+  - **Async `send_frames` is now frame-cancellable** (`rust/src/async_client.rs`).
+    It dispatched the whole batch as one atomic job, so dropping the future
+    committed *all* N frames (or none) — contradicting `CANCELLATION.md` §1.1. It
+    now dispatches one cancellable job per frame, so a dropped future stops at the
+    next boundary committing only a prefix; `CANCELLATION.md` §3.4 updated to match.
+  - **Deterministic end-of-stream enrichment** (`rust/src/lib.rs`). `enrich_eos`
+    merged multi-CAN-id last-frame values in nondeterministic `HashMap` order; it
+    now sorts by `(id, extended)`, matching Go's `slices.Sort` / Python's sort.
+  - **`extract_signals` retains the per-signal error reason** (see Changed —
+    `SignalError`).
+  - **Stricter response decoding** (`rust/src/response.rs`): an empty
+    `property_batch` or an unrecognised status/type in `decode_frame` is now a
+    protocol error, not a silent `Ack` / empty verdicts (mirrors Go's
+    `parseFrameResponse`); and `decode_extraction` rejects a non-object `errors`
+    entry / a non-string `absent` entry, and `decode_issue` requires `code` and
+    `severity` to be present strings — instead of silently blanking/dropping them.
+    All match the Go / C++ / Python decoders, which reject these malformed shapes.
+  - **Strict validation-severity decode** (see Changed — `IssueSeverity`).
+  - **`Rational::from_f64` rejects exactly 2^63** instead of saturating it to
+    `i64::MAX` (`rust/src/types.rs` + the `aletheia-excel` integer fast paths): the
+    guard was `<= i64::MAX as f64`, but that bound rounds up to 2^63; now `<`.
+  - **`MAX_FORMULA_DEPTH` doc corrected** (`rust/src/ltl.rs`): it is a client-side
+    recursion guard (100), distinct from the kernel's 64 JSON nesting wire cap —
+    the old comment wrongly claimed it was the wire cap "matching every binding".
+  - **A compile-time assertion** now pins that the `AsyncClient` method *futures*
+    are `Send` (the documented `tokio::spawn` guarantee), plus new tests for the
+    `property_index_oob` / `extraction_failed` enrichment-warn paths and the
+    multi-frame `enrich_eos` merge loop.
 - **Python mutation lane repaired — it had silently produced zero mutants since
   #51.** The advisory `mutation testing` lane was red (not from new survivors —
   it was crash-dead): mutmut runs pytest from a relocated `python/mutants/`

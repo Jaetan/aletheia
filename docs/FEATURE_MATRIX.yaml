@@ -438,7 +438,10 @@ features:
       python: { status: implemented, entry: aletheia.ValidationIssue }
       cpp:    { status: implemented, entry: "aletheia/validation.hpp#ValidationIssue" }
       go:     { status: implemented, entry: ValidationIssue }
-      rust: { status: implemented, entry: "Error" }
+      rust:
+        status: implemented
+        entry: IssueCode
+        notes: "ValidationIssue { severity: IssueSeverity, code: IssueCode, detail } — typed enums mirroring the Agda IssueCode ADT and the Python/Go/C++ vocabularies. IssueCode is lenient (unknown wire codes → IssueCode::Unknown, forward-compatible); IssueSeverity is strict (the closed error/warning set is rejected-on-unknown at decode)."
 
   - id: violation_enrichment
     name: Violation enrichment

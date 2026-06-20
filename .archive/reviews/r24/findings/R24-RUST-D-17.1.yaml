@@ -1,0 +1,23 @@
+id: R24-RUST-D-17.1
+round: R24
+category:
+  number: 17
+  name: Cross-binding behavioral parity
+  language: rust
+  agent: D
+severity: medium
+disposition: FIX
+status: closed
+title: extract_signals dropped the per-signal error reason (errors decoded as names only)
+description: ExtractionResult.errors was Vec<String>, discarding the {"name","error"} reason the core
+  emits and that Python/Go retain — a cross-binding parity gap on the live extraction path.
+files:
+- rust/src/response.rs
+- rust/src/lib.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: added pub struct SignalError{name,reason}; ExtractionResult.errors is now Vec<SignalError>;
+    decode_extraction reads name+error. BREAKING (CHANGELOG).'
+re_raised_from: null
+in_source_marker: null

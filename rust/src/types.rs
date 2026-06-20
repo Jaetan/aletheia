@@ -167,7 +167,11 @@ impl Rational {
             return Err(Error::Validation(format!("cannot convert {v} to rational")));
         }
         // Integer fast path (exact for whole-number thresholds like 220.0).
-        if v.fract() == 0.0 && v >= i64::MIN as f64 && v <= i64::MAX as f64 {
+        // Strict upper bound: `i64::MAX as f64` rounds UP to 2^63 (one past
+        // i64::MAX), so `<=` would let exactly 2^63 through to a *saturating*
+        // `as i64` (→ i64::MAX, silently wrong). `<` rejects 2^63 instead; the
+        // largest valid integer double, 2^63-2048, is still strictly below it.
+        if v.fract() == 0.0 && v >= i64::MIN as f64 && v < i64::MAX as f64 {
             return Ok(Rational::integer(v as i64));
         }
         // Fixed-point 10⁹ scaling, with the same overflow guard as the peers.
@@ -253,5 +257,33 @@ impl TimeBound {
     #[must_use]
     pub fn micros(self) -> u64 {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rational;
+
+    #[test]
+    fn from_f64_rejects_2_pow_63_instead_of_saturating() {
+        // `i64::MAX as f64` rounds up to 2^63 (one past i64::MAX); the integer
+        // fast path must reject exactly +2^63, not saturate it to i64::MAX.
+        let two_pow_63 = 9_223_372_036_854_775_808.0_f64; // 2^63
+        assert!(Rational::from_f64(two_pow_63).is_err());
+        // -2^63 IS i64::MIN — exactly representable as f64 and a valid i64, so it
+        // is accepted (only the upper bound was off-by-one; the lower is exact).
+        let min = Rational::from_f64(-two_pow_63).expect("-2^63 == i64::MIN is in range");
+        assert_eq!(min.numerator(), i64::MIN);
+        assert_eq!(min.denominator(), 1);
+    }
+
+    #[test]
+    fn from_f64_accepts_largest_in_range_integer_double() {
+        // The largest integer-valued double strictly below 2^63 is 2^63 - 2048;
+        // it fits i64 exactly and must round-trip through the integer fast path.
+        let max_int_double = 9_223_372_036_854_773_760.0_f64; // 2^63 - 2048
+        let r = Rational::from_f64(max_int_double).expect("in-range integer double");
+        assert_eq!(r.numerator(), 9_223_372_036_854_773_760);
+        assert_eq!(r.denominator(), 1);
     }
 }

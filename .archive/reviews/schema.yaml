@@ -6,7 +6,7 @@
 # Finding ID convention (carried over from R18-R22 review-rN-findings.md):
 #   <ROUND>-<LANG>-<AGENT>-<CAT>.<NUM>
 #   - ROUND  : R18, R19, R20, R21, R22, ...
-#   - LANG   : AGDA | GO | CPP | PY | DOC | XDOC | CICD | XBINDING
+#   - LANG   : AGDA | GO | CPP | PY | RUST | DOCS | CICD | XBINDING
 #   - AGENT  : A | B | C | D            (Step-1 hygiene / correctness / cross-file / Step-2 system-level)
 #   - CAT    : 1..N                     (per-language category number from AGENTS.md)
 #   - NUM    : 1..N                     (index within category, this round)
@@ -38,7 +38,7 @@ $defs:
           number: { type: integer, minimum: 1, maximum: 99 }
           name:   { type: string }
           language:
-            enum: [agda, go, cpp, python, docs, cicd, xbinding]
+            enum: [agda, go, cpp, python, rust, docs, cicd, xbinding]
           agent:
             enum: [A, B, C, D]
       severity:

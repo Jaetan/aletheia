@@ -1,0 +1,24 @@
+id: R24-RUST-D-17.4
+round: R24
+category:
+  number: 17
+  name: Cross-binding behavioral parity
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: Rust did not expose the typed IssueCode vocabulary the validation_errors matrix row names
+description: ValidationIssue.code/.severity were raw String; Python/Go/C++ all ship typed IssueCode/IssueSeverity
+  enums. The matrix entry resolved on the unrelated Error symbol.
+files:
+- rust/src/response.rs
+- rust/src/error.rs
+- docs/FEATURE_MATRIX.yaml
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED (user decision: add the enum): new IssueCode (21 members + Unknown) and IssueSeverity
+    (error/warning); ValidationIssue typed; matrix entry repointed to IssueCode. BREAKING (CHANGELOG).'
+re_raised_from: null
+in_source_marker: null

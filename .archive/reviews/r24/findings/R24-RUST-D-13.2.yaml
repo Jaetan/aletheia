@@ -1,0 +1,23 @@
+id: R24-RUST-D-13.2
+round: R24
+category:
+  number: 13
+  name: Tests
+  language: rust
+  agent: D
+severity: low
+disposition: FIX
+status: closed
+title: No test covered the multi-CAN-id enrich_eos merge path or the enrichment-warn paths
+description: Every enrichment test drove a single CAN id; the multi-frame merge loop and the property_index_oob
+  / extraction_failed warn paths were untested.
+files:
+- rust/tests/mock_backend.rs
+resolution:
+  round: R24
+  date: '2026-06-20'
+  notes: 'FIXED: added mock-backed tests for property_index_oob (skip+log), extraction_failed (warn),
+    and the 2-frame enrich_eos merge loop. (Value-level HashMap-order determinism is not mock-observable;
+    guarded by 17.2''s total-order sort + the real-.so enrichment tests.)'
+re_raised_from: null
+in_source_marker: null

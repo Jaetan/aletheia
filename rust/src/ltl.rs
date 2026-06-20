@@ -15,7 +15,12 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::types::{Rational, TimeBound};
 
-/// Maximum formula nesting depth accepted on the wire (matches every binding).
+/// Client-side recursion guard on formula nesting depth (mirrors Go's 100-deep
+/// stack guard), applied before serialization to fail fast rather than recurse
+/// unboundedly. This is **distinct from** the kernel's JSON nesting cap of 64
+/// (`Aletheia.Limits.max-nesting-depth`), which is the true wire limit: a formula
+/// deeper than 64 is rejected by the core as a `nesting_depth` bound even though
+/// it passes this guard.
 pub const MAX_FORMULA_DEPTH: usize = 100;
 
 /// A signal predicate — an atomic proposition over one signal's value.

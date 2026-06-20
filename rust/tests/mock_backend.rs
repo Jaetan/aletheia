@@ -230,3 +230,170 @@ fn interior_nul_in_process_is_rejected_at_both_layers() {
     assert!(matches!(m.process("x\0y"), Err(Error::NulInString)));
     assert!(m.captured().is_empty());
 }
+
+/// A verdict carrying an out-of-range `property_index` is left un-enriched and
+/// logged as `enrichment.property_index_oob` (previously untested skip path).
+#[test]
+fn out_of_range_property_index_is_skipped_and_logged() {
+    let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&captured);
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks → set_properties
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        // Only index 0 is valid (one check), but the verdict names index 5.
+        .respond_json(
+            r#"{"type":"property_batch","results":[{"status":"fails","property_index":5,"reason":"x"}]}"#,
+        );
+
+    let c = Client::builder()
+        .logger(move |rec: &LogRecord| sink.lock().expect("lock").push(rec.event.to_string()))
+        .build_with_backend(Box::new(m.clone()));
+    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+        .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    let resp = c
+        .send_frame(
+            Timestamp(0),
+            CanId::standard(256).unwrap(),
+            Dlc::new(8).unwrap(),
+            &[0u8; 8],
+            None,
+            None,
+        )
+        .expect("send_frame");
+
+    let FrameResponse::Verdicts(results) = resp else {
+        panic!("expected a property_batch");
+    };
+    assert!(
+        results[0].enrichment.is_none(),
+        "an out-of-range property_index must be left un-enriched"
+    );
+    let names = captured.lock().expect("lock").clone();
+    assert!(
+        names
+            .iter()
+            .any(|e| e == events::ENRICHMENT_PROPERTY_INDEX_OOB),
+        "expected enrichment.property_index_oob, got: {names:?}"
+    );
+    // The OOB verdict was skipped *before* any extraction.
+    assert!(!m
+        .captured()
+        .contains(&"<binary:extractAllSignals>".to_string()));
+}
+
+/// When the enrichment extract for a violation fails, the client logs
+/// `enrichment.extraction_failed` (previously untested warn path).
+#[test]
+fn extraction_failure_during_enrichment_is_logged() {
+    let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&captured);
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        .respond_json(
+            r#"{"type":"property_batch","results":[{"status":"fails","property_index":0,"reason":"x"}]}"#,
+        ) // a violation needing enrichment
+        .respond_err(Error::Core {
+            code: "extraction_failed".to_string(),
+            message: "boom".to_string(),
+        }); // the enrichment extract call fails
+
+    let c = Client::builder()
+        .logger(move |rec: &LogRecord| sink.lock().expect("lock").push(rec.event.to_string()))
+        .build_with_backend(Box::new(m.clone()));
+    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+        .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    let _ = c
+        .send_frame(
+            Timestamp(0),
+            CanId::standard(256).unwrap(),
+            Dlc::new(8).unwrap(),
+            &[0u8; 8],
+            None,
+            None,
+        )
+        .expect("send_frame");
+
+    let names = captured.lock().expect("lock").clone();
+    assert!(
+        names
+            .iter()
+            .any(|e| e == events::ENRICHMENT_EXTRACTION_FAILED),
+        "expected enrichment.extraction_failed, got: {names:?}"
+    );
+    // The extract WAS attempted (the violation triggered enrichment).
+    assert!(m
+        .captured()
+        .contains(&"<binary:extractAllSignals>".to_string()));
+}
+
+/// Exercises the end-of-stream multi-frame merge loop (previously untested —
+/// every other enrichment test drives a single CAN id). NOTE: the mock returns
+/// extraction responses positionally, so it cannot observe the `HashMap`
+/// iteration order that #2's sort makes deterministic; that ordering
+/// (lowest-CAN-id wins for a same-name contention) is a total-order-by-
+/// construction guarantee, exercised live by the real-`.so` `enrichment.rs`
+/// tests. Here we confirm the two-frame loop runs and produces enrichment.
+#[test]
+fn enrich_eos_merges_multiple_frames() {
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
+        .respond_json(
+            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"}],"warnings":[]}"#,
+        ) // end_stream → enrich_eos
+        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":100,"denominator":1}}]}"#)
+        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":200,"denominator":1}}]}"#);
+
+    let c = Client::with_backend(Box::new(m.clone()));
+    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+        .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    c.send_frame(
+        Timestamp(0),
+        CanId::standard(256).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 256");
+    c.send_frame(
+        Timestamp(1),
+        CanId::standard(512).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 512");
+    let result = c.end_stream().expect("end_stream");
+
+    let pr = result
+        .results
+        .iter()
+        .find(|r| r.verdict == Verdict::Fails)
+        .expect("a Fails verdict");
+    let e = pr
+        .enrichment
+        .as_ref()
+        .expect("the EOS violation carries enrichment merged from the cached frames");
+    assert!(
+        e.signals.iter().any(|(n, _)| n == "EngineSpeed"),
+        "merged enrichment should reference EngineSpeed, got: {:?}",
+        e.signals
+    );
+    let extract_calls = m
+        .captured()
+        .iter()
+        .filter(|s| *s == "<binary:extractAllSignals>")
+        .count();
+    assert_eq!(
+        extract_calls, 2,
+        "enrich_eos must extract from both cached frames"
+    );
+}
