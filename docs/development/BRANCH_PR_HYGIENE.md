@@ -72,6 +72,25 @@ followed.
 5. *Then* flip the `main` ruleset's **Enforcement status** to **Enabled** (next
    section), so every subsequent PR is gated.
 
+**Mutation testing → required (2026-06-20).** The `mutation testing` lane (all
+three bindings' drift gate in `pr-heavy-lanes.yml`) follows the same
+advisory-green → required rollout. But because its heavy caches (Mull-from-source,
+the build tree) only seed on `push: main`, adding it to the ruleset is gated on a
+**cache-seeding proof**, not merely a green PR:
+
+1. ✅ Merge the "cache + require the mutation lane" change (renames the job to
+   `mutation testing`; adds the `push: [main]` trigger so the caches seed under the
+   default branch). The check is not required yet.
+2. Let the `push: main` run of `pr-heavy-lanes.yml` finish and **save** the Mull +
+   build-tree caches.
+3. Open a throwaway one-line PR from a **fresh branch** and confirm the mutation
+   job's *"Build Mull-22 from source (cache miss)"* step shows **skipped (0s)** and
+   the FFI `.so` build is a warm relink — i.e. fresh branches actually inherit the
+   seeded caches (not just same-branch second-pushes).
+4. *Only then* add **`mutation testing`** to the `main` ruleset's required checks.
+   Flipping before step 3 risks a cold ~33-min run plus a from-source Mull build on
+   a merge-blocking path, with no bypass (the bypass list is empty by design).
+
 ## How to protect `main` (repo-admin — you must do this in GitHub)
 
 `main` is protected by **repository rulesets** (Settings → Rules → Rulesets) —
@@ -97,7 +116,9 @@ code, so it cannot live in this repo.
    - **Require status checks to pass**, then **Add checks** and select
      **`tools/run_ci.py (all gates)`** (the job's `name:`). ⚠️ The check only
      appears in that list **after it has run at least once** — that's why the
-     rollout merges `ci-speed` (a green workflow run) *before* this step.
+     rollout merges `ci-speed` (a green workflow run) *before* this step. Also add
+     **`mutation testing`** here once its cache-seeding proof passes (see the
+     mutation rollout note above) — both are required merge gates.
 4. Leave the **Bypass list empty** — any actor in it could merge around the gate
    (the ruleset equivalent of an admin override), reopening the hole this closes.
 5. Set **Enforcement status: Enabled** (this repo's UI offers only **Disabled**

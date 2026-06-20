@@ -199,6 +199,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Mutation testing is promoted to a required (merge-blocking) check, and its CI
+  lane is cached.** Previously the `mutation testing` lane in `pr-heavy-lanes.yml`
+  ran on every PR but was *advisory* — so a PR could merge with mutation red (a new
+  survivor / test gap). This change makes it *ready to require*: the job is renamed
+  `mutation testing (advisory)` → `mutation testing`, and it is activated by adding
+  that check to the `main` branch ruleset — a follow-up repo-settings step, gated on
+  the cache-seeding proof in `docs/development/BRANCH_PR_HYGIENE.md` (not active at
+  merge time). Once active it blocks merge: the drift gate is baseline-relative
+  (fails only on a collection crash or `observed > baseline`) and the suite is
+  deterministic, so it is a stable signal; the lane already ran on every PR, so
+  advisory merely discarded a signal we already paid to compute. **Caching** removes
+  the two big setup costs that made cold runs ~33 min: the workflow now also runs on
+  `push: [main]` so the Mull-from-source build cache (318s) and the FFI build tree
+  are written under the default branch where every PR branch can read them
+  (feature-branch caches don't cross-pollinate), and the mutation job restores the
+  shared build-tree cache so the `.so` build (338s) becomes a Shake no-op when no
+  Agda source changed. The C++ `-fpass-plugin` mutation compile is deliberately left
+  un-ccache'd (ccache cannot content-hash the Mull plugin, which would risk stale
+  mutation objects on a required gate). `push: [main]` runs are exempt from
+  `cancel-in-progress` so a rapid second merge cannot kill a cache-seeding run
+  before it saves; stability bench stays advisory (genuinely timing-flaky).
 - **Unified Excel column handling across all bindings** (Python / Go / C++ / Rust).
   A design review found the loaders had drifted on two axes, both latent (no gated
   test loaded the demo workbook's DBC sheet). **(1) Column presence:** the contract
