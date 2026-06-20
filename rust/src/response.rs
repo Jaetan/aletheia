@@ -278,12 +278,16 @@ pub struct ValidationIssue {
     pub detail: String,
 }
 
-/// Decode one validation-issue wire object: strict on `severity` (closed set),
-/// lenient on `code` ([`IssueCode::from_wire`] maps unknowns to `Unknown`).
+/// Decode one validation-issue wire object. Strict on field *presence/type*:
+/// `severity` and `code` must be present strings (a missing/non-string field is a
+/// protocol error, matching the peer bindings). Strict on the `severity`
+/// *vocabulary* (closed set), but lenient on the `code` *vocabulary*
+/// ([`IssueCode::from_wire`] maps an unrecognised — but present — code to
+/// `Unknown`, since the code set may grow).
 pub(crate) fn decode_issue(w: &Value) -> Result<ValidationIssue, Error> {
     Ok(ValidationIssue {
-        severity: IssueSeverity::from_wire(&str_field(w, "severity"))?,
-        code: IssueCode::from_wire(&str_field(w, "code")),
+        severity: IssueSeverity::from_wire(&req_str_field(w, "severity", "validation issue")?)?,
+        code: IssueCode::from_wire(&req_str_field(w, "code", "validation issue")?),
         detail: str_field(w, "detail"),
     })
 }
@@ -326,6 +330,16 @@ pub(crate) fn str_field(obj: &Value, key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
+}
+
+/// Read a *required* string field: a protocol error if it is missing or not a
+/// string (the strict counterpart to [`str_field`], matching the peer bindings,
+/// which reject a missing/non-string `code` / `name` rather than blanking it).
+pub(crate) fn req_str_field(obj: &Value, key: &str, ctx: &str) -> Result<String, Error> {
+    obj.get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| protocol(format!("{ctx}: missing or non-string {key:?} field")))
 }
 
 pub(crate) fn u32_field(obj: &Value, key: &str) -> Result<u32, Error> {
@@ -478,29 +492,37 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
         })
         .unwrap_or_else(|| Ok(Vec::new()))?;
     // `errors` entries are objects `{"name", "error"}`; `absent` entries are bare
-    // strings (`JArray (map JStringS ...)`). Decode each with its own shape.
+    // strings (`JArray (map JStringS ...)`). Strict on structure (a non-object
+    // error entry or non-string absent entry is a protocol error, matching the
+    // Go/C++/Python decoders) so wire-shape drift surfaces; the `error` reason
+    // field stays lenient (defaults to "" if absent, like the peers).
     let errors = obj
         .get("errors")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .map(|e| SignalError {
-                    name: str_field(e, "name"),
-                    reason: str_field(e, "error"),
+                .map(|e| {
+                    Ok(SignalError {
+                        name: req_str_field(e, "name", "extraction error")?,
+                        reason: str_field(e, "error"),
+                    })
                 })
-                .collect()
+                .collect::<Result<Vec<_>, Error>>()
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| Ok(Vec::new()))?;
     let absent = obj
         .get("absent")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter_map(Value::as_str)
-                .map(ToString::to_string)
-                .collect()
+                .map(|a| {
+                    a.as_str()
+                        .map(ToString::to_string)
+                        .ok_or_else(|| protocol("extraction 'absent' entry must be a string"))
+                })
+                .collect::<Result<Vec<_>, Error>>()
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| Ok(Vec::new()))?;
     Ok(ExtractionResult {
         values,
         errors,
@@ -541,5 +563,58 @@ pub(crate) fn decode_format_text(raw: &str) -> Result<String, Error> {
         other => Err(protocol(format!(
             "expected status \"success\", got {other:?}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_extraction_accepts_well_formed() {
+        let r = decode_extraction(
+            r#"{"values":[],"errors":[{"name":"S","error":"bad"}],"absent":["A"]}"#,
+        )
+        .expect("well-formed");
+        assert_eq!(
+            r.errors,
+            vec![SignalError {
+                name: "S".into(),
+                reason: "bad".into()
+            }]
+        );
+        assert_eq!(r.absent, vec!["A".to_string()]);
+    }
+
+    #[test]
+    fn decode_extraction_rejects_non_string_absent_entry() {
+        assert!(decode_extraction(r#"{"values":[],"errors":[],"absent":[123]}"#).is_err());
+    }
+
+    #[test]
+    fn decode_extraction_rejects_non_object_error_entry() {
+        assert!(decode_extraction(r#"{"values":[],"errors":["oops"],"absent":[]}"#).is_err());
+        // missing "name" inside an object entry is also rejected
+        assert!(
+            decode_extraction(r#"{"values":[],"errors":[{"error":"x"}],"absent":[]}"#).is_err()
+        );
+    }
+
+    #[test]
+    fn decode_validation_rejects_missing_issue_code() {
+        // A present-but-unknown code is fine (Unknown fallback); a *missing* code
+        // (or severity) is a protocol error.
+        let ok = decode_validation(
+            r#"{"status":"validation","has_errors":false,"issues":[{"severity":"warning","code":"some_future_code","detail":"d"}]}"#,
+        )
+        .expect("unknown-but-present code is accepted");
+        assert_eq!(
+            ok.issues[0].code,
+            IssueCode::Unknown("some_future_code".into())
+        );
+        assert!(decode_validation(
+            r#"{"status":"validation","has_errors":false,"issues":[{"severity":"warning","detail":"d"}]}"#,
+        )
+        .is_err());
     }
 }

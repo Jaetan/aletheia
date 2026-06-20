@@ -222,7 +222,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   (was `Vec<String>`). The previous type dropped the per-signal *reason* the core
   emits as `{"name", "error"}`, losing diagnostic information the Python
   (`errors: Mapping[str, str]`) and Go (`SignalError{Name, Error}`) bindings
-  retain — a cross-binding parity gap (review r24, #3). The new public
+  retain — a cross-binding parity gap (review r24, finding #1). The new public
   `aletheia::SignalError { name, reason }` carries both. *Migration:* read
   `err.name` (was the bare `String`); the reason is now available as `err.reason`.
 - **BREAKING (Rust): `ValidationIssue.severity` and `.code` are now typed enums**
@@ -411,9 +411,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
     now sorts by `(id, extended)`, matching Go's `slices.Sort` / Python's sort.
   - **`extract_signals` retains the per-signal error reason** (see Changed —
     `SignalError`).
-  - **Strict `decode_frame`** (`rust/src/response.rs`): an empty `property_batch`
-    or an unrecognised status/type is now a protocol error, not a silent `Ack` /
-    empty verdicts (mirrors Go's `parseFrameResponse`).
+  - **Stricter response decoding** (`rust/src/response.rs`): an empty
+    `property_batch` or an unrecognised status/type in `decode_frame` is now a
+    protocol error, not a silent `Ack` / empty verdicts (mirrors Go's
+    `parseFrameResponse`); and `decode_extraction` rejects a non-object `errors`
+    entry / a non-string `absent` entry, and `decode_issue` requires `code` and
+    `severity` to be present strings — instead of silently blanking/dropping them.
+    All match the Go / C++ / Python decoders, which reject these malformed shapes.
   - **Strict validation-severity decode** (see Changed — `IssueSeverity`).
   - **`Rational::from_f64` rejects exactly 2^63** instead of saturating it to
     `i64::MAX` (`rust/src/types.rs` + the `aletheia-excel` integer fast paths): the
