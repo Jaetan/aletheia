@@ -64,8 +64,10 @@ jobs:
     name: reproducible-build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # Push-iteration hygiene: a new commit cancels the stale repro run.  Its
-    # OWN group, so it never cancels the long advisory lanes below.
+    # Runs on every PR commit-state AND on push:main (to seed the build caches —
+    # see the header).  Push-iteration hygiene: a new PR commit cancels the stale
+    # repro run (push:main is exempt, below).  Its OWN group, so it never cancels
+    # the stability / mutation lanes below.
     concurrency:
       group: heavy-repro-${{ github.event.pull_request.number || github.ref }}
       # push:main is exempt — a seeding run must not be cancelled before it saves.
@@ -139,9 +141,11 @@ jobs:
     name: stability bench (advisory)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # Runs on every PR commit-state so the advisory result reflects the latest
-    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
-    # settled state.  Own group so it never cancels the repro / mutation lanes.
+    # Runs on every PR commit-state (so the advisory result reflects the latest
+    # commit) AND on push:main (to seed the build caches — see the header).
+    # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
+    # state; push:main is exempt (below).  Own group so it never cancels the
+    # repro / mutation lanes.
     concurrency:
       group: heavy-stability-${{ github.event.pull_request.number || github.ref }}
       # push:main is exempt — a seeding run must not be cancelled before it saves.
@@ -274,9 +278,11 @@ jobs:
     name: mutation testing
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # Runs on every PR commit-state so the required result reflects the latest
-    # commit; cancel-in-progress collapses rapid iteration to ~one run on the
-    # settled state.  Own group so it never cancels the repro / stability lanes.
+    # Runs on every PR commit-state (so the required result reflects the latest
+    # commit) AND on push:main (to seed the build caches — see the header).
+    # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
+    # state; push:main is exempt (below).  Own group so it never cancels the
+    # repro / stability lanes.
     concurrency:
       group: heavy-mutation-${{ github.event.pull_request.number || github.ref }}
       # push:main is exempt — a seeding run must not be cancelled before it saves.
