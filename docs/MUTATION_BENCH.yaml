@@ -47,8 +47,9 @@ bindings:
       - python/aletheia/types.py
     config:
       # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
-      # See python/pyproject.toml for the actual config (`paths_to_mutate`,
-      # `tests_dir`, etc.).
+      # See python/pyproject.toml for the actual config (`source_paths`,
+      # `pytest_add_cli_args_test_selection`, etc. — the mutmut 3.6 names;
+      # the older `paths_to_mutate`/`tests_dir` are deprecated and warn).
       pyproject_section: "tool.mutmut"
     invocation: |
       cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run

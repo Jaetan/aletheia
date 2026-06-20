@@ -261,13 +261,16 @@ skip_covered = false
 # both included.  See ``docs/MUTATION_BENCH.yaml`` for the canonical list and
 # the static gate that enforces it.
 #
-# Implementation note: mutmut 3.x copies ONLY the files in ``paths_to_mutate``
+# Implementation note: mutmut 3.x copies ONLY the files in ``source_paths``
 # plus those in ``also_copy`` to the ``mutants/`` work tree.  Tests run from
 # inside that tree, so the whole ``aletheia/`` package needs to be present
 # (siblings import each other).  We mutate just the 5 hot-path files via
-# ``paths_to_mutate``, and copy the rest of the package via ``also_copy`` so
+# ``source_paths``, and copy the rest of the package via ``also_copy`` so
 # every ``from aletheia import ...`` resolves inside ``mutants/``.
-paths_to_mutate = [
+# (``source_paths`` and ``pytest_add_cli_args_test_selection`` below are the
+# mutmut 3.6 names; the older ``paths_to_mutate`` / ``tests_dir`` are deprecated
+# and emit a UserWarning — we use the current names so the run is warning-clean.)
+source_paths = [
     "aletheia/client/_client.py",
     "aletheia/dbc/_converter.py",
     "aletheia/yaml_loader.py",
@@ -285,13 +288,13 @@ also_copy = [
 # carries a one-line equivalence/defensive rationale at the site (see
 # memory/feedback_mutation_no_defense_removal — never delete a guard).
 do_not_mutate_patterns = ["# pragma: no mutate"]
-tests_dir = ["tests/"]
+pytest_add_cli_args_test_selection = ["tests/"]
 # pytest invocation used to verify each mutant: keep cheap by skipping the
 # slowest non-mutation gates (the doc-example harness, the random-order lane,
 # the property-based hypothesis tests, the cross-binding parity tests — none
 # of them exercise the hot-path modules above with finer granularity than the
-# unit tests).  Mutmut walks ALL tests in tests_dir by default, so this
-# narrowing is via a deselect rather than a select.
+# unit tests).  Mutmut walks ALL tests in the test selection by default, so
+# this narrowing is via a deselect rather than a select.
 pytest_add_cli_args = [
     "--no-header",
     "-x",
@@ -321,4 +324,15 @@ pytest_add_cli_args = [
     "--ignore=tests/test_resources.py",
     "--ignore=tests/test_scheduler.py",
     "--ignore=tests/test_run_ci_runner.py",
+    "--ignore=tests/test_check_changelog.py",
+    # Two excel-loader tests resolve the SHARED cross-binding fixture via
+    # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
+    # "demo_workbook.xlsx"`` — repo-root from python/tests/, but python/ from
+    # the relocated python/mutants/tests/, so the file is outside the copied
+    # work-tree and they FileNotFoundError.  The rest of test_excel_loader.py
+    # uses tmp_path and survives relocation, so we deselect ONLY these two
+    # (keeping every other excel test's kill signal) rather than --ignore the
+    # whole file.  Integration/fixture checks, not hot-path coverage.
+    "--deselect=tests/test_excel_loader.py::test_demo_workbook_dbc_loads_as_standard_messages",
+    "--deselect=tests/test_excel_loader.py::test_demo_workbook_checks_match_the_api",
 ]
