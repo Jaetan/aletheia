@@ -87,26 +87,205 @@ pub struct SignalValue {
     pub value: Rational,
 }
 
+/// One signal's extraction error: the signal name and the core's reason string
+/// (e.g. "Value out of bounds"). Mirrors the Go `SignalError` / Python
+/// `errors: Mapping[str, str]` — the core emits each error as
+/// `{"name": …, "error": …}`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalError {
+    /// Signal name.
+    pub name: String,
+    /// Human-readable reason from the core.
+    pub reason: String,
+}
+
 /// The result of `extract_signals`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtractionResult {
     /// Successfully extracted signal values.
     pub values: Vec<SignalValue>,
-    /// Names of signals whose extraction errored.
-    pub errors: Vec<String>,
+    /// Signals whose extraction errored, with the core's reason.
+    pub errors: Vec<SignalError>,
     /// Names of signals absent from the frame (e.g. an inactive mux branch).
     pub absent: Vec<String>,
+}
+
+/// The severity of a validation issue. The core's severity set is closed
+/// (exactly `error` / `warning`), so an unknown wire value is rejected at decode
+/// — the deliberate counterpart to the forward-compatible [`IssueCode::Unknown`]
+/// (the code set may grow; the severity set will not). Mirrors the Python / Go /
+/// C++ typed severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssueSeverity {
+    /// A structural issue that prevents correct operation.
+    Error,
+    /// A non-fatal advisory.
+    Warning,
+}
+
+impl IssueSeverity {
+    fn from_wire(s: &str) -> Result<Self, Error> {
+        match s {
+            "error" => Ok(IssueSeverity::Error),
+            "warning" => Ok(IssueSeverity::Warning),
+            other => Err(protocol(format!("unknown validation severity {other:?}"))),
+        }
+    }
+
+    /// The wire string for this severity.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IssueSeverity::Error => "error",
+            IssueSeverity::Warning => "warning",
+        }
+    }
+}
+
+impl std::fmt::Display for IssueSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A machine-readable DBC validation issue code, mirroring the Agda `IssueCode`
+/// ADT and the Python / Go / C++ vocabularies. Unknown wire codes map to
+/// [`IssueCode::Unknown`] so a future core code round-trips rather than failing
+/// the decode (the code set may grow; cf. the strict [`IssueSeverity`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueCode {
+    /// Two messages share the same CAN id.
+    DuplicateMessageId,
+    /// Two signals in the same message share a name.
+    DuplicateSignalName,
+    /// A signal's scale factor is zero.
+    FactorZero,
+    /// A multiplexed signal's multiplexor was not found.
+    MultiplexorNotFound,
+    /// A multiplexor cycle was detected.
+    MultiplexorCycle,
+    /// A signal name is not unique across all messages.
+    GlobalNameCollision,
+    /// A signal's declared minimum exceeds its maximum.
+    MinExceedsMax,
+    /// A signal's bit range exceeds the message DLC.
+    SignalExceedsDlc,
+    /// Two signals overlap in the same message.
+    SignalOverlap,
+    /// A signal has zero bit length.
+    BitLengthZero,
+    /// Two messages share the same name.
+    DuplicateMessageName,
+    /// The offset/scale combination is out of representable range.
+    OffsetScaleRange,
+    /// A message has no signals.
+    EmptyMessage,
+    /// A signal's start bit is out of range.
+    StartBitOutOfRange,
+    /// A signal's bit length is excessive.
+    BitLengthExcessive,
+    /// A multiplexor uses non-unit scaling.
+    MultiplexorNonUnitScaling,
+    /// `BA_DEF_` declares the same attribute name twice.
+    DuplicateAttributeName,
+    /// A comment references an unknown target.
+    UnknownCommentTarget,
+    /// A `BO_TX_BU_` names an unknown message sender.
+    UnknownMessageSender,
+    /// A signal receiver is not a known node.
+    UnknownSignalReceiver,
+    /// A `VAL_` line references a `(canId, signalName)` with no matching signal.
+    UnknownValueDescriptionTarget,
+    /// A code outside the known vocabulary (forward-compatible).
+    Unknown(String),
+}
+
+impl IssueCode {
+    /// Map a wire code string to an [`IssueCode`], falling back to
+    /// [`IssueCode::Unknown`] for an unrecognised value.
+    #[must_use]
+    pub fn from_wire(s: &str) -> Self {
+        match s {
+            "duplicate_message_id" => IssueCode::DuplicateMessageId,
+            "duplicate_signal_name" => IssueCode::DuplicateSignalName,
+            "factor_zero" => IssueCode::FactorZero,
+            "multiplexor_not_found" => IssueCode::MultiplexorNotFound,
+            "multiplexor_cycle" => IssueCode::MultiplexorCycle,
+            "global_name_collision" => IssueCode::GlobalNameCollision,
+            "min_exceeds_max" => IssueCode::MinExceedsMax,
+            "signal_exceeds_dlc" => IssueCode::SignalExceedsDlc,
+            "signal_overlap" => IssueCode::SignalOverlap,
+            "bit_length_zero" => IssueCode::BitLengthZero,
+            "duplicate_message_name" => IssueCode::DuplicateMessageName,
+            "offset_scale_range" => IssueCode::OffsetScaleRange,
+            "empty_message" => IssueCode::EmptyMessage,
+            "start_bit_out_of_range" => IssueCode::StartBitOutOfRange,
+            "bit_length_excessive" => IssueCode::BitLengthExcessive,
+            "multiplexor_non_unit_scaling" => IssueCode::MultiplexorNonUnitScaling,
+            "duplicate_attribute_name" => IssueCode::DuplicateAttributeName,
+            "unknown_comment_target" => IssueCode::UnknownCommentTarget,
+            "unknown_message_sender" => IssueCode::UnknownMessageSender,
+            "unknown_signal_receiver" => IssueCode::UnknownSignalReceiver,
+            "unknown_value_description_target" => IssueCode::UnknownValueDescriptionTarget,
+            other => IssueCode::Unknown(other.to_string()),
+        }
+    }
+
+    /// The canonical wire string for this code.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            IssueCode::DuplicateMessageId => "duplicate_message_id",
+            IssueCode::DuplicateSignalName => "duplicate_signal_name",
+            IssueCode::FactorZero => "factor_zero",
+            IssueCode::MultiplexorNotFound => "multiplexor_not_found",
+            IssueCode::MultiplexorCycle => "multiplexor_cycle",
+            IssueCode::GlobalNameCollision => "global_name_collision",
+            IssueCode::MinExceedsMax => "min_exceeds_max",
+            IssueCode::SignalExceedsDlc => "signal_exceeds_dlc",
+            IssueCode::SignalOverlap => "signal_overlap",
+            IssueCode::BitLengthZero => "bit_length_zero",
+            IssueCode::DuplicateMessageName => "duplicate_message_name",
+            IssueCode::OffsetScaleRange => "offset_scale_range",
+            IssueCode::EmptyMessage => "empty_message",
+            IssueCode::StartBitOutOfRange => "start_bit_out_of_range",
+            IssueCode::BitLengthExcessive => "bit_length_excessive",
+            IssueCode::MultiplexorNonUnitScaling => "multiplexor_non_unit_scaling",
+            IssueCode::DuplicateAttributeName => "duplicate_attribute_name",
+            IssueCode::UnknownCommentTarget => "unknown_comment_target",
+            IssueCode::UnknownMessageSender => "unknown_message_sender",
+            IssueCode::UnknownSignalReceiver => "unknown_signal_receiver",
+            IssueCode::UnknownValueDescriptionTarget => "unknown_value_description_target",
+            IssueCode::Unknown(s) => s,
+        }
+    }
+}
+
+impl std::fmt::Display for IssueCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// A validation issue carried in a `parse_dbc_text` response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationIssue {
-    /// Severity (e.g. `warning`, `error`).
-    pub severity: String,
+    /// Severity.
+    pub severity: IssueSeverity,
     /// Machine-readable issue code.
-    pub code: String,
+    pub code: IssueCode,
     /// Human-readable detail.
     pub detail: String,
+}
+
+/// Decode one validation-issue wire object: strict on `severity` (closed set),
+/// lenient on `code` ([`IssueCode::from_wire`] maps unknowns to `Unknown`).
+pub(crate) fn decode_issue(w: &Value) -> Result<ValidationIssue, Error> {
+    Ok(ValidationIssue {
+        severity: IssueSeverity::from_wire(&str_field(w, "severity"))?,
+        code: IssueCode::from_wire(&str_field(w, "code")),
+        detail: str_field(w, "detail"),
+    })
 }
 
 /// The result of `validate_dbc`: every issue found, plus whether any are errors.
@@ -230,13 +409,29 @@ pub(crate) fn decode_ack_or_success(raw: &str) -> Result<(), Error> {
     }
 }
 
-/// Decode a `send_frame` response: `ack`, or a `property_batch` of verdicts.
+/// Decode a `send_frame` response: `ack`, or a non-empty `property_batch` of
+/// verdicts. Strict (mirrors Go `parseFrameResponse`): an empty batch or an
+/// unrecognised status/type is a protocol error, not a silent `Ack` — so
+/// wire-shape drift surfaces instead of being swallowed.
 pub(crate) fn decode_frame(raw: &str) -> Result<FrameResponse, Error> {
     let obj = parse_object(raw)?;
-    if obj.get("type").and_then(Value::as_str) == Some("property_batch") {
-        return Ok(FrameResponse::Verdicts(property_list(&obj)?));
+    if obj.get("status").and_then(Value::as_str) == Some("ack") {
+        return Ok(FrameResponse::Ack);
     }
-    Ok(FrameResponse::Ack)
+    if obj.get("type").and_then(Value::as_str) == Some("property_batch") {
+        let results = property_list(&obj)?;
+        if results.is_empty() {
+            return Err(protocol(
+                "property_batch response 'results' must be non-empty (zero-event frames are encoded as ack)",
+            ));
+        }
+        return Ok(FrameResponse::Verdicts(results));
+    }
+    Err(protocol(format!(
+        "unexpected frame response: status={:?}, type={:?}",
+        obj.get("status").and_then(Value::as_str),
+        obj.get("type").and_then(Value::as_str)
+    )))
 }
 
 /// Decode an `end_stream` (`status:"complete"`) response.
@@ -282,40 +477,42 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
                 .collect()
         })
         .unwrap_or_else(|| Ok(Vec::new()))?;
-    let names = |key: &str| -> Vec<String> {
-        obj.get(key)
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .map(|e| {
-                        e.as_str()
-                            .map(ToString::to_string)
-                            .unwrap_or_else(|| str_field(e, "name"))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    Ok(ExtractionResult {
-        values,
-        errors: names("errors"),
-        absent: names("absent"),
-    })
-}
-
-fn issue_list(obj: &Value) -> Vec<ValidationIssue> {
-    obj.get("issues")
+    // `errors` entries are objects `{"name", "error"}`; `absent` entries are bare
+    // strings (`JArray (map JStringS ...)`). Decode each with its own shape.
+    let errors = obj
+        .get("errors")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .map(|w| ValidationIssue {
-                    severity: str_field(w, "severity"),
-                    code: str_field(w, "code"),
-                    detail: str_field(w, "detail"),
+                .map(|e| SignalError {
+                    name: str_field(e, "name"),
+                    reason: str_field(e, "error"),
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let absent = obj
+        .get("absent")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(ExtractionResult {
+        values,
+        errors,
+        absent,
+    })
+}
+
+fn issue_list(obj: &Value) -> Result<Vec<ValidationIssue>, Error> {
+    obj.get("issues")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().map(decode_issue).collect())
+        .unwrap_or_else(|| Ok(Vec::new()))
 }
 
 /// Decode a `validateDBC` (`status:"validation"`) response.
@@ -324,7 +521,7 @@ pub(crate) fn decode_validation(raw: &str) -> Result<ValidationResult, Error> {
     match obj.get("status").and_then(Value::as_str) {
         Some("validation") => Ok(ValidationResult {
             has_errors: bool_field(&obj, "has_errors")?,
-            issues: issue_list(&obj),
+            issues: issue_list(&obj)?,
         }),
         other => Err(protocol(format!(
             "expected status \"validation\", got {other:?}"

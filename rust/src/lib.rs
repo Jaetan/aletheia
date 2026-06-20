@@ -68,8 +68,9 @@ pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use mock::MockBackend;
 pub use response::{
-    Enrichment, ExtractionResult, FrameResponse, PropertyResult, SignalValue, StreamResult,
-    StreamWarning, ValidationIssue, ValidationResult, Verdict,
+    Enrichment, ExtractionResult, FrameResponse, IssueCode, IssueSeverity, PropertyResult,
+    SignalError, SignalValue, StreamResult, StreamWarning, ValidationIssue, ValidationResult,
+    Verdict,
 };
 pub use types::{CanId, Dlc, Rational, TimeBound, Timestamp, MAX_EXTENDED_ID, MAX_STANDARD_ID};
 #[cfg(feature = "yaml")]
@@ -439,13 +440,17 @@ impl Client {
         if todo.is_empty() {
             return;
         }
-        // Snapshot the last frames so no borrow is held across extraction.
-        let frames: Vec<(CanId, Dlc, Vec<u8>)> = self
+        // Snapshot the last frames so no borrow is held across extraction. Sort
+        // by (id value, extended) so the first-seen merge below is deterministic
+        // regardless of `HashMap` iteration order — matching Go's `slices.Sort`
+        // and Python's sort-by-(canID, extended) enrichment-ordering contract.
+        let mut frames: Vec<(CanId, Dlc, Vec<u8>)> = self
             .last_frames
             .borrow()
             .iter()
             .map(|(id, (dlc, data))| (*id, *dlc, data.clone()))
             .collect();
+        frames.sort_by_key(|(id, _, _)| (id.value(), id.is_extended()));
         let mut merged: Vec<(String, Rational)> = Vec::new();
         let mut any_failed = false;
         for (id, dlc, data) in &frames {
