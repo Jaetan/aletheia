@@ -24,6 +24,7 @@ Cross-language divergence is a bug per `feedback_cross_language_parity.md`. This
 | **B.3 cantools removal** | Drop the Python dep as soon as B.3 reaches equivalence (B.3.g). |
 | **C.0 Cancellation SSOT** | Needs its own review round — including whether the doc should exist at all. |
 | **API shape** | Idiomatic per language; cross-binding identity is behavioral, not syntactic. |
+| **Seam shape** (R5, 2026-06-20) | Refines **API shape** for a *resource-owning seam* (DI interface / backend / handle-owning abstraction): parity = the same *substitutable seam*, not the same signature. The idiomatic choice is *where the resource lives* in that language; if mirroring a peer's seam would force a foreign idiom (raw pointers, `unsafe`, fake handles, manual `init`/`close`) onto implementors, diverge — e.g. Rust R5's `Backend` trait uses RAII handle-ownership (`FfiBackend` owns + `Drop`-closes; no `init`/`close`/`state`) vs the C-ABI-mirroring Go/C++/Python seams. The deciding question is "where does the resource live?", and the constraint is the abstraction's signature. |
 
 ## Matrix Granularity Rule
 
