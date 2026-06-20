@@ -210,3 +210,23 @@ fn build_with_backend_applies_logger_and_ignores_rts_cores() {
         "logger should have captured stream.started, got: {names:?}"
     );
 }
+
+/// The interior-NUL rejection is part of the public `Client::process` contract
+/// (enforced independently of the backend) and is also honored by the mock at
+/// the `Backend` level — matching `FfiBackend`, where a NUL cannot cross the C ABI.
+#[test]
+fn interior_nul_in_process_is_rejected_at_both_layers() {
+    // Client layer: rejected before the backend is consulted (no queued response
+    // needed), so the guarantee holds for every backend.
+    let m = MockBackend::new();
+    let c = Client::with_backend(Box::new(m.clone()));
+    assert!(matches!(c.process("a\0b"), Err(Error::NulInString)));
+    assert!(
+        m.captured().is_empty(),
+        "a NUL-rejected command must not reach (or be recorded by) the backend"
+    );
+
+    // Backend layer: the mock itself errors and records nothing, like FfiBackend.
+    assert!(matches!(m.process("x\0y"), Err(Error::NulInString)));
+    assert!(m.captured().is_empty());
+}

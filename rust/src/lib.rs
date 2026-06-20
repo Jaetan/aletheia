@@ -489,6 +489,13 @@ impl Client {
     /// Returns [`Error`] if the command contains an interior NUL, a required
     /// symbol is missing, or the core returns a null response.
     pub fn process(&self, command: &str) -> Result<String, Error> {
+        // The interior-NUL rejection is part of this public contract, not the
+        // backend's: the FFI boundary cannot carry a NUL, so enforce it here so
+        // it holds for every `Backend` (incl. a mock or custom double), not just
+        // `FfiBackend`.
+        if command.contains('\0') {
+            return Err(Error::NulInString);
+        }
         self.backend.process(command)
     }
 
