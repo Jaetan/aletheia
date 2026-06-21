@@ -30,9 +30,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
     `std::expected`, forwarding cancellation as-is and prefixing the frame index
     on other errors (mirroring `send_frames`).
   - **Rust** — sync `Client::send_frames_iter(impl IntoIterator<Item = Frame>) -> impl Iterator<Item = Result<FrameResponse, Error>>`
-    and async `AsyncClient::send_frames_stream(Vec<Frame>) -> impl Stream<Item = Result<FrameResponse, Error>>`
+    and async `AsyncClient::send_frames_stream(impl IntoIterator<Item = Frame>) -> impl Stream<Item = Result<FrameResponse, Error>>`
     (built on `futures-util`'s `unfold`, added under the existing runtime-agnostic
-    `async` feature). The async form is named `send_frames_stream`, not `_iter`,
+    `async` feature; the input iterator is `Send`-bound so the returned stream
+    stays `tokio::spawn`-able). The async form is named `send_frames_stream`, not `_iter`,
     because a `Stream` is the async-iterator trait, not `core::iter::Iterator` —
     the `_iter` suffix is reserved for `Iterator`-returning methods.
 

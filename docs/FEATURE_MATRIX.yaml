@@ -539,7 +539,7 @@ features:
       rust:
         status: implemented
         entry: "Client::send_frames_iter"
-        notes: "2026-06-22: sync Client::send_frames_iter(impl IntoIterator<Item=Frame>) -> impl Iterator<Item=Result<FrameResponse, Error>>; async AsyncClient::send_frames_stream(Vec<Frame>) -> impl Stream<Item=Result<FrameResponse, Error>> (futures-util unfold, runtime-agnostic; named _stream because a Stream is not an Iterator — the _iter suffix is reserved for Iterator-returning methods). Yields one outcome per frame; the first Err (an Error::Frame tagged with the failing frame's index) then fuses. Cancel by dropping / stopping iteration. See docs/architecture/CANCELLATION.md §3.4."
+        notes: "2026-06-22: sync Client::send_frames_iter(impl IntoIterator<Item=Frame>) -> impl Iterator<Item=Result<FrameResponse, Error>>; async AsyncClient::send_frames_stream(impl IntoIterator<Item=Frame>) -> impl Stream<Item=Result<FrameResponse, Error>> (futures-util unfold, runtime-agnostic, input-lazy with a Send-bound iterator so the stream stays spawnable; named _stream because a Stream is not an Iterator — the _iter suffix is reserved for Iterator-returning methods). Yields one outcome per frame; the first Err (an Error::Frame tagged with the failing frame's index) then fuses. Cancel by dropping / stopping iteration. See docs/architecture/CANCELLATION.md §3.4."
 
   # =====================================================================
   # Distribution / infrastructure

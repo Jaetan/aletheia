@@ -340,8 +340,11 @@ impl AsyncClient {
     /// generator is its async iterator; Rust splits the two traits, so the name
     /// does too). Each poll dispatches the next frame as its own worker job and
     /// awaits the reply, so:
-    /// - **Backpressure / streaming:** a slow or live source (channel, socket,
-    ///   file) drives the pace; only the current frame and its response are held.
+    /// - **Backpressure / streaming:** the input is any `IntoIterator<Item = Frame>`
+    ///   pulled one frame per poll (a `Vec` works, but so does a live producer —
+    ///   a channel/socket/file adapter), so a slow source drives the pace and
+    ///   neither the whole input nor the whole response set is materialized. The
+    ///   iterator is `Send`-bound so the returned stream stays `tokio::spawn`-able.
     /// - **Cancellation** (commit-prefix; see `docs/architecture/CANCELLATION.md`):
     ///   drop the stream (or stop polling) and the remaining frames are never
     ///   sent — every item already yielded stays committed. Dropping mid-poll
@@ -355,10 +358,14 @@ impl AsyncClient {
     /// - **Interleaving:** per-frame dispatch means another task's job on the
     ///   same `AsyncClient` may run between this stream's frames (a single stream
     ///   is sequential, so concurrent streaming on one client is already misuse).
-    pub fn send_frames_stream(
-        &self,
-        frames: Vec<Frame>,
-    ) -> impl Stream<Item = Result<FrameResponse, Error>> + '_ {
+    pub fn send_frames_stream<'a, I>(
+        &'a self,
+        frames: I,
+    ) -> impl Stream<Item = Result<FrameResponse, Error>> + 'a
+    where
+        I: IntoIterator<Item = Frame>,
+        I::IntoIter: Send + 'a,
+    {
         unfold(
             (self, frames.into_iter(), 0usize, false),
             |(client, mut it, index, stop)| async move {
@@ -432,6 +439,10 @@ mod tests {
         // guarantee is specifically about the *futures*, so pin that directly: if
         // any method future stops being Send, `check`'s body fails to compile.
         fn assert_send<F: core::future::Future + Send>(_: F) {}
+        // send_frames_stream returns a Stream (not a Future); its Send-ness is
+        // the documented `tokio::spawn` guarantee for the lazy form, so pin it
+        // the same way — it depends on the `I::IntoIter: Send` input bound.
+        fn assert_stream_send<S: super::Stream + Send>(_: S) {}
         fn check(c: &super::AsyncClient) {
             assert_send(c.start_stream());
             assert_send(c.send_frame(
@@ -443,6 +454,7 @@ mod tests {
                 None,
             ));
             assert_send(c.send_frames(Vec::new()));
+            assert_stream_send(c.send_frames_stream(Vec::<super::Frame>::new()));
         }
         // Reference (don't call) `check` so it is type-checked — proving the
         // assertions above — without constructing an AsyncClient (no `.so`).

@@ -18,7 +18,7 @@ yaml-rust2 = { version = "0.10", optional = true }
 # Async client (opt-in `async` feature) — runtime-agnostic: only the `oneshot`
 # reply channel, not a runtime. Works under tokio / async-std / smol.
 futures-channel = { version = "0.3", optional = true }
-# Stream combinators for the lazy async batch send (`send_frames_iter`): only
+# Stream combinators for the lazy async batch send (`send_frames_stream`): only
 # `stream::unfold` + the `Stream` trait — combinators, never a runtime, so the
 # crate stays runtime-agnostic. `alloc` (no `std`) keeps the surface minimal.
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["alloc"] }
