@@ -8,6 +8,7 @@ version = "2.0.0"
 dependencies = [
  "futures",
  "futures-channel",
+ "futures-util",
  "libloading",
  "serde_json",
  "yaml-rust2",

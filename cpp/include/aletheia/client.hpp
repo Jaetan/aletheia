@@ -19,11 +19,15 @@
 
 #include <aletheia/detail/cache_keys.hpp> // IWYU pragma: private, include "aletheia/client.hpp"
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <generator>
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -158,6 +162,49 @@ public:
     // and BatchResult::error carries ErrorKind::Cancellation.
     [[nodiscard]] auto send_frames(std::stop_token stop, std::span<const Frame> frames)
         -> BatchResult;
+    // Lazy streaming variant of send_frames: a std::generator that pulls one
+    // Frame from `frames` per resumption and co_yields its Result<FrameResponse>,
+    // never materializing the whole input or the whole response set. The C++23
+    // analogue of Python's send_frames_iter. Use it when the source is a live or
+    // large producer (a log reader, a socket); a contiguous batch already in
+    // memory can be passed as a std::span or std::views::all view over it.
+    //
+    // Contract (commit-prefix-and-report, per CANCELLATION.md §3.3): each value
+    // co_yielded with a value is a frame already committed to the stream state.
+    // The first failing frame is co_yielded as an std::unexpected (matching
+    // send_frames' shaping: cancellation forwarded as-is, otherwise the frame
+    // index is prefixed) and the generator then completes — no frame after a
+    // failure is sent. Cancellation is the generator protocol: stop pulling (or
+    // let `stop` fire) and the remaining frames are never sent.
+    //
+    // `frames` is taken by value into the coroutine frame, so it must own or
+    // view storage that outlives the iteration: pass an owning range by move, or
+    // a std::span / std::views::all view over a buffer you keep alive. The
+    // per-frame `send_frame` is the shared primitive (identical validation,
+    // logging, and cancellation as a single send); the eager send_frames is its
+    // collecting sibling.
+    template<std::ranges::input_range R>
+        requires std::convertible_to<std::ranges::range_reference_t<R>, const Frame&>
+    [[nodiscard]] auto send_frames_lazy(std::stop_token stop, R frames)
+        -> std::generator<Result<FrameResponse>> {
+        std::size_t index = 0;
+        for (auto&& f : frames) {
+            auto r = send_frame(stop, f);
+            if (!r.has_value()) {
+                const auto& e = r.error();
+                if (e.kind() == ErrorKind::Cancellation) {
+                    co_yield std::unexpected(e);
+                } else {
+                    co_yield std::unexpected(
+                        AletheiaError{e.kind(), std::format("frame {}: {}", index, e.message()),
+                                      e.code(), e.bound_info()});
+                }
+                co_return;
+            }
+            co_yield std::move(r);
+            ++index;
+        }
+    }
     // Properties with Verdict::Fails include an optional ViolationEnrichment
     // populated from the last-known frame values for each relevant CAN ID.
     [[nodiscard]] auto end_stream(std::stop_token stop) -> Result<StreamResult>;

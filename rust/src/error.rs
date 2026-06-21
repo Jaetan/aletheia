@@ -31,6 +31,23 @@ pub enum Error {
     /// The core returned a structured error response. `code` is the machine-
     /// readable wire code from the Agda kernel (e.g. `handler_no_dbc`).
     Core { code: String, message: String },
+    /// A per-frame error from a batch send (`send_frames` / `send_frames_iter` /
+    /// `send_frames_stream`), tagged with the **0-based index** of the offending
+    /// frame so the caller can locate which frame in the batch failed. `source`
+    /// is the underlying error for that frame. (The structured analogue of Go's
+    /// / C++'s `"frame N: …"` message prefix and Python's `BatchError.frame_index`.)
+    Frame { index: usize, source: Box<Error> },
+}
+
+impl Error {
+    /// Tag a per-frame error with its 0-based batch index. Internal constructor
+    /// for the batch-send paths; callers match on [`Error::Frame`].
+    pub(crate) fn at_frame(index: usize, source: Error) -> Error {
+        Error::Frame {
+            index,
+            source: Box::new(source),
+        }
+    }
 }
 
 impl fmt::Display for Error {
@@ -44,8 +61,16 @@ impl fmt::Display for Error {
             Error::Validation(msg) => write!(f, "validation error: {msg}"),
             Error::Protocol(msg) => write!(f, "protocol error: {msg}"),
             Error::Core { code, message } => write!(f, "core error [{code}]: {message}"),
+            Error::Frame { index, source } => write!(f, "frame {index}: {source}"),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Frame { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}

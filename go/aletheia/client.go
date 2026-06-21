@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"math"
 	"slices"
@@ -716,6 +717,76 @@ func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameRespons
 		results = append(results, resp)
 	}
 	return results, nil
+}
+
+// SendFramesSeq sends frames lazily, yielding one (FrameResponse, error) pair
+// per frame as the returned [iter.Seq2] is ranged. It is the streaming variant
+// of [Client.SendFrames] — the same relationship as strings.SplitSeq to
+// strings.Split — and the Go analogue of Python's send_frames_iter.
+//
+// Use it when the source is a live producer (a channel, a socket, a log
+// reader): frames are pulled from the input one at a time and each response is
+// yielded immediately, so neither the full input slice nor the full response
+// slice is ever materialized. Wrap an existing slice with slices.Values:
+//
+//	for resp, err := range client.SendFramesSeq(ctx, slices.Values(frames)) {
+//		if err != nil { /* handle; iteration has stopped */ break }
+//		_ = resp
+//	}
+//
+// Contract (commit-prefix-and-report, per CANCELLATION.md §3.2): each yielded
+// (resp, nil) is a frame already committed to the stream state — durable, not
+// rolled back. On the first failing frame the sequence yields (nil, err) once
+// and then ends; no frame after a failure is sent. Cancellation is the standard
+// range protocol: break the loop (or let ctx fire) and the remaining frames are
+// never sent, while every pair already yielded stays committed.
+//
+// The returned sequence is SINGLE-USE: range it exactly once. Unlike
+// strings.SplitSeq (pure, so harmless to re-range), this sends to a stateful
+// stream — ranging the same returned value twice would re-send the frames and
+// corrupt the stream. The peer bindings are single-use by construction (a
+// consumed Iterator/Stream/generator); Go's iter.Seq2 is a re-invocable
+// closure, so this is a caller obligation rather than a type guarantee.
+//
+// Locking differs from SendFrames deliberately: SendFrames holds the client
+// lock for the whole batch (atomic — no goroutine can interleave). This form
+// acquires and releases per frame, never across a yield, because the consumer
+// paces the stream and holding the lock across arbitrary consumer code would
+// starve Close and any concurrent caller for an unbounded time (matching
+// Python's per-frame-locked lazy form). Consequently another goroutine's call
+// may interleave between this stream's frames; a single stream is sequential, so
+// concurrent streaming on one client is already a misuse.
+func (c *Client) SendFramesSeq(ctx context.Context, frames iter.Seq[Frame]) iter.Seq2[FrameResponse, error] {
+	return func(yield func(FrameResponse, error) bool) {
+		i := 0
+		for f := range frames {
+			// Per-frame acquire (ctx-aware) + release BEFORE the yield — never
+			// hold the lock across consumer code (the 1-deep semaphore would
+			// deadlock a re-entrant consumer and starve Close otherwise).
+			release, err := c.acquire(ctx, "SendFramesSeq")
+			if err != nil {
+				yield(nil, err) // acquire already wraps with the method name
+				return
+			}
+			// Release via defer (not an explicit call) so a panic between acquire
+			// and the FFI return cannot leak the 1-deep semaphore and deadlock the
+			// client forever — matching SendFrames' panic-safety. The closure
+			// returns (so release runs) BEFORE the yield, so the lock is never
+			// held across consumer code.
+			resp, err := func() (FrameResponse, error) {
+				defer release()
+				return c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
+			}()
+			if err != nil {
+				yield(nil, fmt.Errorf("SendFramesSeq frame %d: %w", i, err))
+				return
+			}
+			if !yield(resp, nil) {
+				return // consumer stopped — commit-prefix; remaining frames unsent
+			}
+			i++
+		}
+	}
 }
 
 // SendError sends a CAN error event (no ID, no payload). Error frames signal

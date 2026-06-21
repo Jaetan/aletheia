@@ -852,12 +852,70 @@ impl Client {
     #[must_use]
     pub fn send_frames(&self, frames: &[Frame]) -> (Vec<FrameResponse>, Option<Error>) {
         let mut out = Vec::with_capacity(frames.len());
-        for f in frames {
+        for (i, f) in frames.iter().enumerate() {
             match self.send_frame(f.timestamp, f.id, f.dlc, &f.data, f.brs, f.esi) {
                 Ok(resp) => out.push(resp),
-                Err(e) => return (out, Some(e)),
+                // Tag the error with the failing frame's index so the caller can
+                // locate it (mirrors Go's / C++'s "frame N: …"; see [`Error::Frame`]).
+                Err(e) => return (out, Some(Error::at_frame(i, e))),
             }
         }
         (out, None)
+    }
+
+    /// Send frames **lazily**, yielding one `Result<FrameResponse, Error>` per
+    /// frame as the returned iterator is pulled.
+    ///
+    /// Unlike [`Client::send_frames`] — which takes a fully materialized
+    /// `&[Frame]` and collects every [`FrameResponse`] into a `Vec` before
+    /// returning — this consumes any `IntoIterator<Item = Frame>` one frame at a
+    /// time and yields each outcome immediately, never holding more than the
+    /// current frame and its response. Use it when the source is a live producer
+    /// (a channel, a socket, a file reader) and full materialization is wasteful
+    /// or impossible. This is the Rust analogue of Python's
+    /// `AletheiaClient.send_frames_iter`.
+    ///
+    /// **Contract** (commit-prefix-and-report; see
+    /// `docs/architecture/CANCELLATION.md`): each `Ok` is a frame already
+    /// committed to the stream state — durable, not rolled back. On the first
+    /// failing frame the iterator yields the `Err` — an [`Error::Frame`] tagged
+    /// with that frame's 0-based batch index, so the caller can locate it — and
+    /// then ends (it is fused: no frames after a failure are sent). Cancellation
+    /// is the standard
+    /// iterator protocol — stop pulling (break the `for`, or drop the iterator)
+    /// and the remaining frames are never sent; every value already yielded
+    /// stays committed.
+    ///
+    /// Because the iterator borrows `&self`, you may interleave other client
+    /// calls between pulls on the same single stream — the eager `&[Frame]` form
+    /// structurally could not. That is sound on one sequential stream; it is
+    /// simply a capability the lazy form adds.
+    pub fn send_frames_iter<'a, I>(
+        &'a self,
+        frames: I,
+    ) -> impl Iterator<Item = Result<FrameResponse, Error>> + 'a
+    where
+        I: IntoIterator<Item = Frame>,
+        I::IntoIter: 'a,
+    {
+        let mut it = frames.into_iter();
+        let mut index = 0usize;
+        let mut stopped = false;
+        core::iter::from_fn(move || {
+            if stopped {
+                return None;
+            }
+            let f = it.next()?;
+            let i = index;
+            index += 1;
+            match self.send_frame(f.timestamp, f.id, f.dlc, &f.data, f.brs, f.esi) {
+                Ok(resp) => Some(Ok(resp)),
+                Err(e) => {
+                    stopped = true;
+                    // Tag with the failing frame's index (see [`Error::Frame`]).
+                    Some(Err(Error::at_frame(i, e)))
+                }
+            }
+        })
     }
 }

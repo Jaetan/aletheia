@@ -18,6 +18,10 @@ yaml-rust2 = { version = "0.10", optional = true }
 # Async client (opt-in `async` feature) — runtime-agnostic: only the `oneshot`
 # reply channel, not a runtime. Works under tokio / async-std / smol.
 futures-channel = { version = "0.3", optional = true }
+# Stream combinators for the lazy async batch send (`send_frames_stream`): only
+# `stream::unfold` + the `Stream` trait — combinators, never a runtime, so the
+# crate stays runtime-agnostic. `alloc` (no `std`) keeps the surface minimal.
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 # Also a dev-dependency so the FEATURE_MATRIX parity gate
@@ -34,7 +38,7 @@ default = ["yaml"]
 # YAML check loader: load_checks_from_yaml / load_checks_from_yaml_file.
 yaml = ["dep:yaml-rust2"]
 # Async client: AsyncClient, a runtime-agnostic async mirror of Client.
-async = ["dep:futures-channel"]
+async = ["dep:futures-channel", "dep:futures-util"]
 
 [lib]
 name = "aletheia"

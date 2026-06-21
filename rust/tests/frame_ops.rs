@@ -5,8 +5,8 @@
 //! `libaletheia-ffi.so`. Set `ALETHEIA_LIB` to the built shared library.
 
 use aletheia::{
-    CanId, Client, Dlc, ExtractionResult, Formula, Frame, Predicate, Rational, SignalValue,
-    Timestamp,
+    CanId, Client, Dlc, ExtractionResult, Formula, Frame, FrameResponse, Predicate, Rational,
+    SignalValue, Timestamp,
 };
 
 const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
@@ -212,6 +212,59 @@ fn send_frames_batches_and_returns_per_frame_responses() {
     assert!(err.is_none(), "no transport error: {err:?}");
     assert_eq!(responses.len(), 2, "one response per frame");
     let _final = c.end_stream().expect("end stream");
+}
+
+#[test]
+fn send_frames_iter_matches_eager_responses_and_state() {
+    // Equivalence — the contract's load-bearing test: identical frames through
+    // send_frames (eager) and send_frames_iter (lazy) must yield identical
+    // per-frame responses AND leave the stream in the identical final state.
+    // This is what guarantees the eager and lazy loop wrappers cannot drift.
+    let setup = client();
+    let (dbc, _) = setup.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let id = CanId::standard(256).expect("id");
+    let msg = dbc.message_by_id(id).expect("EngineStatus");
+    let dlc = Dlc::new(8).expect("dlc");
+    let mk = |speed: i64, ts: u64| Frame {
+        timestamp: Timestamp(ts),
+        id,
+        dlc,
+        data: setup
+            .build_frame(msg, dlc, &[sv("EngineSpeed", speed, 1)])
+            .expect("build"),
+        brs: None,
+        esi: None,
+    };
+    // The middle frame violates Always(EngineSpeed < 1000) — a non-trivial mix
+    // of ack and verdict responses, so equality is a real check, not all-acks.
+    let frames = vec![mk(100, 0), mk(2000, 1000), mk(300, 2000)];
+    let prop = Formula::Always(Box::new(Formula::Atomic(Predicate::LessThan {
+        signal: "EngineSpeed".to_string(),
+        value: Rational::integer(1000),
+    })));
+    let streaming = |p: Formula| -> Client {
+        let c = client();
+        c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+        c.set_properties(&[p]).expect("set properties");
+        c.start_stream().expect("start stream");
+        c
+    };
+
+    let a = streaming(prop.clone());
+    let (eager, eager_err) = a.send_frames(&frames);
+    let a_end = a.end_stream().expect("end a");
+
+    let b = streaming(prop);
+    let lazy: Vec<FrameResponse> = b
+        .send_frames_iter(frames.clone())
+        .map(|r| r.expect("lazy frame ok"))
+        .collect();
+    let b_end = b.end_stream().expect("end b");
+
+    assert!(eager_err.is_none(), "eager transport error: {eager_err:?}");
+    assert_eq!(eager.len(), 3, "one response per frame");
+    assert_eq!(eager, lazy, "identical per-frame responses");
+    assert_eq!(a_end, b_end, "identical final stream state");
 }
 
 #[test]

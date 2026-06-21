@@ -139,17 +139,23 @@ For iter ops: `send_frames_iter(...)` yields per-frame `FrameResult` objects up 
 
 For batch ops: `SendFrames(ctx, frames)` returns `(committedResponses, ctx.Err())` — the `[]FrameResponse` slice contains the responses for the committed prefix; the error is the wrapped `ctx.Err()`. The length of the slice is the committed count.
 
+For iter ops: `SendFramesSeq(ctx, frames)` returns an `iter.Seq2[FrameResponse, error]`; ranging it yields one `(resp, nil)` per committed frame and, on the first failure or `ctx` cancellation, one terminal `(nil, err)` before the sequence ends. Breaking the `range` loop (or letting `ctx` fire) stops sending the remaining frames — the committed prefix is exactly the pairs already yielded. Unlike the batch-atomic `SendFrames`, the lock is acquired and released per frame (never held across a yield), so another goroutine may interleave between frames and `Close` is never starved by a slow consumer.
+
 For single-call ops (`SendFrame`, `SendError`, etc.): there is no batch-level partial work; either the call committed (returns its real result) or it didn't (returns `ctx.Err()` without side effect).
 
 ### 3.3 C++
 
 For batch ops: `send_frames(stop, frames)` returns `BatchResult` with the existing `responses: std::vector<FrameResponse>` field carrying the committed prefix and the `error: std::optional<AletheiaError>` field set to `ErrorKind::Cancellation`. The size of `responses` is the committed count.
 
+For iter ops: `send_frames_lazy(stop, frames)` returns a `std::generator<Result<FrameResponse>>`; each resumption co_yields one `Result` — a committed frame's response, or, on the first failure, an `std::unexpected` carrying `ErrorKind::Cancellation` for a `stop`-requested frame and otherwise a frame-index-prefixed error — and then completes. Stopping the range-`for` (or signalling `stop`) leaves the remaining frames unsent; the committed prefix is the values already pulled.
+
 For single-call ops: same as Go — either the call committed or it didn't.
 
 ### 3.4 Rust
 
 For batch ops: `send_frames(frames).await` returns `(Vec<FrameResponse>, Option<Error>)` — the `Vec` carries the responses for the committed prefix and the `Option<Error>` is the first transport error, mirroring the sync `Client::send_frames`. On normal completion the length of the `Vec` is the committed count. The async `send_frames` dispatches **one cancellable job per frame** (not one atomic batch job), so cancelling the *future* stops the batch at the next frame boundary and commits only a *prefix*: frames already dispatched are committed (a queued frame commits nothing; an in-flight frame's FFI call finishes on the worker, result discarded) and no further frames are sent — never all N. Because a dropped future yields *no* return value (see single-call ops below), to *observe* the committed prefix on cancellation, loop `send_frame` yourself and keep each result.
+
+For iter ops: the sync `Client::send_frames_iter(frames)` returns an `impl Iterator<Item = Result<FrameResponse, Error>>` and the async `AsyncClient::send_frames_stream(frames)` an `impl Stream<Item = Result<FrameResponse, Error>>` (named `_stream`, not `_iter`, because a `Stream` is the async-iterator trait, not `core::iter::Iterator`); each yields one `Ok` per committed frame and, on the first failure, one terminal `Err` (an `Error::Frame` tagged with the failing frame's batch index) before fusing. Dropping the iterator/stream (or simply stopping the pull) leaves the remaining frames unsent — the committed prefix is exactly the items already yielded, so unlike the eager `send_frames` (whose dropped future returns nothing) the lazy form lets you *observe* the prefix directly.
 
 For single-call ops: same as Go — either the call committed (the future resolved with its real result) or it didn't (the future was dropped before the job ran; no side effect). There is no `Error::Cancellation` value, because a dropped future yields *no* result by construction — the caller observes cancellation as "the `.await` never completed", the idiomatic Rust signal.
 
@@ -355,7 +361,7 @@ It does not invalidate any external state the caller has built up alongside Alet
 
 - `docs/architecture/DESIGN.md` — Aletheia's three-layer architecture (the GHC RTS constraint that drives Rule 1 lives there).
 - `docs/architecture/PROTOCOL.md` — JSON command / binary frame protocols. Cancellation is *not* part of the wire protocol; it is a binding-side concern.
-- `docs/FEATURE_MATRIX.yaml` — cross-binding capability matrix. Rows touched by this contract: `lazy_streaming_batch` (Python-only by language constraint), `cancellation_contract` (per-binding mechanic), and the operation rows that gain a cancellation primitive (Python `aletheia.asyncio.AletheiaClient`, Go `ctx`, C++ `std::stop_token`, Rust `AsyncClient` future-drop).
+- `docs/FEATURE_MATRIX.yaml` — cross-binding capability matrix. Rows touched by this contract: `lazy_streaming_batch` (all four bindings — Python `send_frames_iter`, Go `SendFramesSeq`, C++ `send_frames_lazy`, Rust `send_frames_iter` (sync) + `send_frames_stream` (async)), `cancellation_contract` (per-binding mechanic), and the operation rows that gain a cancellation primitive (Python `aletheia.asyncio.AletheiaClient`, Go `ctx`, C++ `std::stop_token`, Rust `AsyncClient` future-drop).
 
 ---
 
