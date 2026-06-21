@@ -17,11 +17,15 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -556,6 +560,189 @@ TEST_CASE("send_frames empty", "[client][batch]") {
     auto result = client.send_frames(std::stop_token{}, {});
     REQUIRE_FALSE(result.has_error());
     CHECK(result.responses.empty());
+}
+
+// ===========================================================================
+// send_frames_lazy (lazy streaming variant — std::generator)
+// ===========================================================================
+
+namespace {
+auto count_sentinel(const std::vector<std::string>& log, std::string_view want) -> std::size_t {
+    return static_cast<std::size_t>(std::ranges::count(log, want));
+}
+
+// A mock-backed client already past set_properties + start_stream, with the
+// given per-frame responses queued. Returns the client and a borrowed pointer
+// to its (now client-owned) mock for call-log inspection.
+auto streaming_client(std::initializer_list<const char*> frame_responses)
+    -> std::pair<AletheiaClient, MockBackend*> {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    for (const auto* r : frame_responses) {
+        backend->queue_response(r);
+    }
+    auto* mock = backend.get();
+    AletheiaClient client(std::move(backend));
+    auto prop = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
+    return {std::move(client), mock};
+}
+
+auto ack_frames(std::size_t count) -> std::vector<Frame> {
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames;
+    for (std::size_t i = 0; i < count; ++i) {
+        frames.push_back(
+            {Timestamp{static_cast<std::int64_t>((i + 1) * 1000)}, CanId{sid}, dlc, data});
+    }
+    return frames;
+}
+} // namespace
+
+TEST_CASE("send_frames_lazy yields one value per frame", "[client][batch][lazy]") {
+    auto [client, mock] =
+        streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"});
+    auto frames = ack_frames(3);
+
+    std::size_t n = 0;
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+        REQUIRE(r.has_value());
+        CHECK(std::holds_alternative<Ack>(*r));
+        ++n;
+    }
+    CHECK(n == 3);
+    CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 3);
+}
+
+TEST_CASE("send_frames_lazy stops after first error with frame index", "[client][batch][lazy]") {
+    auto [client, mock] = streaming_client({R"({"status":"ack"})"}); // only frame 0 reaches backend
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload good(8, std::byte{0});
+    FramePayload bad(3, std::byte{0}); // 3 bytes vs DLC 8
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, good},
+        {Timestamp{2000}, CanId{sid}, dlc, bad},
+        {Timestamp{3000}, CanId{sid}, dlc, good},
+    };
+
+    std::size_t oks = 0;
+    std::string err_msg;
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+        if (!r.has_value()) {
+            err_msg = std::string(r.error().message());
+            break;
+        }
+        ++oks;
+    }
+    CHECK(oks == 1);
+    CHECK(err_msg.find("frame 1") != std::string::npos); // index prefix mirrors send_frames
+    CHECK(err_msg.find("payload") != std::string::npos);
+    CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 1); // frame 2 never sent
+}
+
+TEST_CASE("send_frames_lazy surfaces violations and continues", "[client][batch][lazy]") {
+    auto [client, mock] = streaming_client({
+        R"({"status":"ack"})",
+        R"({"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000,"reason":"test"}]})",
+        R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})", // enrichment extract
+        R"({"status":"ack"})",
+    });
+    auto frames = ack_frames(3);
+
+    std::vector<FrameResponse> got;
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+        REQUIRE(r.has_value());
+        got.push_back(*r);
+    }
+    REQUIRE(got.size() == 3);
+    CHECK(std::holds_alternative<Ack>(got[0]));
+    CHECK(std::holds_alternative<PropertyBatch>(got[1])); // a violation does not stop the stream
+    CHECK(std::holds_alternative<Ack>(got[2]));
+    (void)mock;
+}
+
+TEST_CASE("send_frames_lazy empty source yields nothing", "[client][batch][lazy]") {
+    auto [client, mock] = streaming_client({});
+    std::vector<Frame> none;
+
+    std::size_t n = 0;
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(none))) {
+        (void)r;
+        ++n;
+    }
+    CHECK(n == 0);
+    CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 0);
+}
+
+TEST_CASE("send_frames_lazy commits only the consumed prefix", "[client][batch][lazy]") {
+    auto [client, mock] =
+        streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})",
+                          R"({"status":"ack"})", R"({"status":"ack"})"});
+    auto frames = ack_frames(5);
+
+    std::size_t got = 0;
+    for (auto&& r : client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(frames))) {
+        REQUIRE(r.has_value());
+        if (++got == 2) {
+            break; // stop pulling — commit-prefix
+        }
+    }
+    CHECK(got == 2);
+    CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 2); // frames 3-5 never sent
+}
+
+TEST_CASE("send_frames_lazy matches send_frames", "[client][batch][lazy]") {
+    auto responses = {R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"};
+
+    auto [eager_client, eager_mock] = streaming_client(responses);
+    auto eager_frames = ack_frames(3);
+    auto eager = eager_client.send_frames(std::stop_token{}, eager_frames);
+
+    auto [lazy_client, lazy_mock] = streaming_client(responses);
+    auto lazy_frames = ack_frames(3);
+    std::vector<FrameResponse> lazy;
+    for (auto&& r :
+         lazy_client.send_frames_lazy(std::stop_token{}, std::span<const Frame>(lazy_frames))) {
+        REQUIRE(r.has_value());
+        lazy.push_back(*r);
+    }
+
+    REQUIRE_FALSE(eager.has_error());
+    REQUIRE(eager.responses.size() == lazy.size());
+    for (std::size_t i = 0; i < lazy.size(); ++i) {
+        CHECK(eager.responses[i].index() == lazy[i].index());
+    }
+    CHECK(eager_mock->captured() == lazy_mock->captured()); // identical backend call log
+}
+
+TEST_CASE("send_frames_lazy honors stop_token mid-stream", "[client][batch][lazy]") {
+    // The stop-fired path (distinct from stopping by not-pulling): once stop is
+    // requested, the next frame's send_frame returns ErrorKind::Cancellation,
+    // which the generator co_yields as std::unexpected and then ends.
+    auto [client, mock] =
+        streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"});
+    auto frames = ack_frames(3);
+    std::stop_source source;
+
+    std::size_t oks = 0;
+    bool saw_cancellation = false;
+    for (auto&& r : client.send_frames_lazy(source.get_token(), std::span<const Frame>(frames))) {
+        if (!r.has_value()) {
+            saw_cancellation = r.error().kind() == ErrorKind::Cancellation;
+            break;
+        }
+        ++oks;
+        source.request_stop(); // cancel after the first committed frame
+    }
+    CHECK(oks == 1);
+    CHECK(saw_cancellation);
+    CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 1); // only the committed frame
 }
 
 // ===========================================================================

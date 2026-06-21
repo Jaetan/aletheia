@@ -9,7 +9,7 @@
 #![cfg(feature = "async")]
 
 use aletheia::{
-    check, AsyncClient, CanId, Dlc, FrameResponse, Rational, SignalValue, Timestamp, Verdict,
+    check, AsyncClient, CanId, Dlc, Frame, FrameResponse, Rational, SignalValue, Timestamp, Verdict,
 };
 use futures::executor::block_on;
 use futures::future::{ready, select};
@@ -86,5 +86,89 @@ fn cancelled_call_does_not_break_the_client() {
         c.parse_dbc_text(MINIMAL.to_string())
             .await
             .expect("parse after a cancelled call");
+    });
+}
+
+#[test]
+fn async_send_frames_stream_yields_per_frame() {
+    use futures::StreamExt;
+    block_on(async {
+        let c = AsyncClient::new().await.expect("init async client");
+        let (dbc, _) = c
+            .parse_dbc_text(MINIMAL.to_string())
+            .await
+            .expect("parse DBC text");
+        let id = CanId::standard(256).expect("id");
+        let msg = dbc.message_by_id(id).expect("EngineStatus").clone();
+        let dlc = Dlc::new(8).expect("dlc");
+        c.add_checks(vec![check::signal("EngineSpeed").never_exceeds(1000)])
+            .await
+            .expect("add_checks");
+        c.start_stream().await.expect("start stream");
+
+        let mut frames = Vec::new();
+        for (i, speed) in [100i64, 4000, 200].into_iter().enumerate() {
+            let data = c
+                .build_frame(
+                    msg.clone(),
+                    dlc,
+                    vec![SignalValue {
+                        name: "EngineSpeed".to_string(),
+                        value: Rational::integer(speed),
+                    }],
+                )
+                .await
+                .expect("build_frame");
+            frames.push(Frame {
+                timestamp: Timestamp(i as u64 * 1000),
+                id,
+                dlc,
+                data,
+                brs: None,
+                esi: None,
+            });
+        }
+
+        // Drain the lazy Stream — one worker job dispatched per poll.
+        let out: Vec<_> = c.send_frames_stream(frames).collect().await;
+        assert_eq!(out.len(), 3, "one item per frame");
+        assert!(out.iter().all(Result::is_ok), "all frames sent");
+        // The 4000 frame violates never_exceeds(1000) — the stream carries it.
+        let violated = out.iter().any(|r| {
+            matches!(r, Ok(FrameResponse::Verdicts(v)) if v.iter().any(|p| p.verdict == Verdict::Fails))
+        });
+        assert!(violated, "the over-limit frame must surface a violation");
+        let _ = c.end_stream().await.expect("end stream");
+    });
+}
+
+#[test]
+fn async_send_frames_stream_is_lazy_and_partially_consumable() {
+    use futures::StreamExt;
+    block_on(async {
+        let c = AsyncClient::new().await.expect("init async client");
+        c.parse_dbc_text(MINIMAL.to_string())
+            .await
+            .expect("parse DBC text");
+        let id = CanId::standard(256).expect("id");
+        let dlc = Dlc::new(8).expect("dlc");
+        c.start_stream().await.expect("start stream");
+        let frames: Vec<Frame> = (0u64..5)
+            .map(|i| Frame {
+                timestamp: Timestamp(i * 1000),
+                id,
+                dlc,
+                data: vec![0u8; 8],
+                brs: None,
+                esi: None,
+            })
+            .collect();
+
+        // Pull only the first 2 of 5 — the remaining 3 frames are never sent
+        // (the Stream is pull-driven; `unfold` stops once `take` is satisfied).
+        let prefix: Vec<_> = c.send_frames_stream(frames).take(2).collect().await;
+        assert_eq!(prefix.len(), 2, "only the consumed prefix is produced");
+        assert!(prefix.iter().all(Result::is_ok));
+        let _ = c.end_stream().await.expect("end stream");
     });
 }

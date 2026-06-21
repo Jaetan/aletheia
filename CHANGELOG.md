@@ -12,6 +12,49 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Lazy batch frame send across Go, C++, and Rust** (`go/`, `cpp/`, `rust/`;
+  FEATURE_MATRIX `lazy_streaming_batch` → `implemented` ×4, joining Python — and
+  emptying the matrix of its last `not_applicable` cell). A streaming variant of
+  the eager batch send that pulls one frame from the source and yields one
+  outcome at a time, materializing neither the whole input nor the whole response
+  set — for large or live sources (a log reader, a socket) where full
+  materialization is wasteful or impossible. Each binding presents it
+  idiomatically:
+  - **Go** — `Client.SendFramesSeq(ctx, iter.Seq[Frame]) iter.Seq2[FrameResponse, error]`,
+    a Go 1.23 range-over-func (the lazy variant of `SendFrames`, as
+    `strings.SplitSeq` is of `Split`; wrap a slice with `slices.Values`). It
+    locks per frame rather than holding the eager batch-atomic lock, so a slow
+    consumer never starves `Close`.
+  - **C++** — `AletheiaClient::send_frames_lazy(stop, R) -> std::generator<Result<FrameResponse>>`,
+    a C++23 coroutine over any `std::ranges::input_range` of `Frame`; it yields
+    `std::expected`, forwarding cancellation as-is and prefixing the frame index
+    on other errors (mirroring `send_frames`).
+  - **Rust** — sync `Client::send_frames_iter(impl IntoIterator<Item = Frame>) -> impl Iterator<Item = Result<FrameResponse, Error>>`
+    and async `AsyncClient::send_frames_stream(Vec<Frame>) -> impl Stream<Item = Result<FrameResponse, Error>>`
+    (built on `futures-util`'s `unfold`, added under the existing runtime-agnostic
+    `async` feature). The async form is named `send_frames_stream`, not `_iter`,
+    because a `Stream` is the async-iterator trait, not `core::iter::Iterator` —
+    the `_iter` suffix is reserved for `Iterator`-returning methods.
+
+  All three reuse the per-frame `send_frame` primitive that the eager form uses
+  (an eager-vs-lazy equivalence test in each binding guards against drift), yield
+  one success-or-error per frame and fuse after the first error, and honor the
+  commit-prefix-and-report cancellation contract — stop pulling and the remaining
+  frames are never sent while the yielded prefix stays committed (see
+  `docs/architecture/CANCELLATION.md` §3.2–§3.4). The terminal error is tagged
+  with the failing frame's 0-based batch index so the caller can locate it (Go /
+  C++ via a `frame N:` message prefix; Rust via a new structured
+  `Error::Frame { index, source }` variant; Python via `BatchError.frame_index`).
+  Python's eager *raise* stays the one idiomatic divergence; the other three
+  yield the error in-band (`std::expected` / `(T, error)` / `Result`).
+- **Rust batch error now carries the frame index** (`rust/`). `Client::send_frames`
+  and `AsyncClient::send_frames` (the eager forms) now wrap a per-frame failure in
+  the new `Error::Frame { index, source }` variant — previously the raw
+  underlying error, which dropped the batch position. This aligns Rust with the
+  Go / C++ eager forms (which already prefixed `frame N:`) and with the new lazy
+  forms. Behavior change: matching the specific inner variant now goes through
+  `Error::Frame.source`.
+
 - **Rust backend dependency-injection seam + test mock** (`rust/`, Rust-parity
   Slice R5 — the last in-plan slice; `mock_backend` + `backend_di_seam` →
   rust **36/40**). A public, open `trait Backend` (`rust/src/backend.rs`) is the

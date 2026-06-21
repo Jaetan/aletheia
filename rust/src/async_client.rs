@@ -32,6 +32,7 @@ use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use futures_channel::oneshot;
+use futures_util::stream::{unfold, Stream};
 
 use crate::{
     CanId, Check, Client, ClientBuilder, Dbc, DbcMessage, Dlc, Error, ExtractionResult, Formula,
@@ -308,7 +309,7 @@ impl AsyncClient {
         frames: Vec<Frame>,
     ) -> Result<(Vec<FrameResponse>, Option<Error>), Error> {
         let mut out = Vec::with_capacity(frames.len());
-        for f in frames {
+        for (i, f) in frames.into_iter().enumerate() {
             // One cancellable job per frame: the inner `Result` is the transport
             // outcome (first error stops the batch, mirroring the sync method);
             // an outer `Err` is a closed/stopped worker.
@@ -317,11 +318,65 @@ impl AsyncClient {
                 .await
             {
                 Ok(Ok(resp)) => out.push(resp),
-                Ok(Err(transport)) => return Ok((out, Some(transport))),
+                // Tag the transport error with the failing frame's index (see
+                // [`Error::Frame`]); a worker error is not frame-specific.
+                Ok(Err(transport)) => return Ok((out, Some(Error::at_frame(i, transport)))),
                 Err(worker) => return Err(worker),
             }
         }
         Ok((out, None))
+    }
+
+    /// Async, **lazy** mirror of the sync [`Client::send_frames_iter`] — a
+    /// [`Stream`] that sends one frame per poll, yielding each
+    /// `Result<FrameResponse, Error>` as it resolves, never materializing the
+    /// whole batch.
+    ///
+    /// Named `send_frames_stream` (not `_iter`): it returns a [`Stream`], the
+    /// async-iterator trait, which is *not* a [`core::iter::Iterator`] — the
+    /// `_iter` suffix is reserved for `Iterator`-returning methods (the sync
+    /// [`Client::send_frames_iter`]). This is the async analogue of Python's
+    /// `aletheia.asyncio.AletheiaClient.send_frames_iter` (Python's async
+    /// generator is its async iterator; Rust splits the two traits, so the name
+    /// does too). Each poll dispatches the next frame as its own worker job and
+    /// awaits the reply, so:
+    /// - **Backpressure / streaming:** a slow or live source (channel, socket,
+    ///   file) drives the pace; only the current frame and its response are held.
+    /// - **Cancellation** (commit-prefix; see `docs/architecture/CANCELLATION.md`):
+    ///   drop the stream (or stop polling) and the remaining frames are never
+    ///   sent — every item already yielded stays committed. Dropping mid-poll
+    ///   cancels at the frame boundary exactly as [`AsyncClient::send_frame`].
+    /// - **Errors** end the stream: the first failing frame yields its `Err`
+    ///   (a transport error tagged with the frame's index via [`Error::Frame`],
+    ///   *or* a closed/stopped worker — both surface as the yielded `Err`) and
+    ///   the stream then completes (fused). This collapses the eager method's
+    ///   `(Vec, Option<Error>)` + outer `Result` into one terminal `Err`,
+    ///   matching the sync iterator's single error channel.
+    /// - **Interleaving:** per-frame dispatch means another task's job on the
+    ///   same `AsyncClient` may run between this stream's frames (a single stream
+    ///   is sequential, so concurrent streaming on one client is already misuse).
+    pub fn send_frames_stream(
+        &self,
+        frames: Vec<Frame>,
+    ) -> impl Stream<Item = Result<FrameResponse, Error>> + '_ {
+        unfold(
+            (self, frames.into_iter(), 0usize, false),
+            |(client, mut it, index, stop)| async move {
+                if stop {
+                    return None;
+                }
+                let f = it.next()?;
+                let (item, next_index, stop_next) = match client
+                    .run(move |c| Ok(c.send_frame(f.timestamp, f.id, f.dlc, &f.data, f.brs, f.esi)))
+                    .await
+                {
+                    Ok(Ok(resp)) => (Ok(resp), index + 1, false),
+                    Ok(Err(transport)) => (Err(Error::at_frame(index, transport)), index, true),
+                    Err(worker) => (Err(worker), index, true),
+                };
+                Some((item, (client, it, next_index, stop_next)))
+            },
+        )
     }
 
     /// Async [`Client::process`] — the raw JSON escape hatch.

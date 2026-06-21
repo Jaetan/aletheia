@@ -529,14 +529,17 @@ features:
         entry: "aletheia.AletheiaClient.send_frames_iter"
         notes: "C.2 (2026-05-03): sync AletheiaClient.send_frames_iter is a Generator[FrameResult] that yields one frame at a time; cancel via consumer break / generator.close(). Async aletheia.asyncio.AletheiaClient.send_frames_iter is the async-iter analog with asyncio.CancelledError at frame boundaries. See docs/architecture/CANCELLATION.md §3.1."
       cpp:
-        status: not_applicable
-        reason: "Equivalent affordance is delivered by send_frames(stop, span) + commit-prefix-and-report on stop_token — span is materialized by the caller. A C++ coroutine-based iter would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it."
+        status: implemented
+        entry: "aletheia/client.hpp#send_frames_lazy"
+        notes: "2026-06-22: send_frames_lazy(stop, R) is a std::generator<Result<FrameResponse>> (C++23 coroutine) over any std::ranges::input_range of Frame — true input + output laziness; pass a std::span / std::views::all view over a buffer you keep alive, or move an owning range. Each frame is co_yielded as std::expected; the first failure is co_yielded as std::unexpected (frame-index-prefixed, mirroring send_frames) then the generator ends. Cancellation = stop pulling / stop_token. See docs/architecture/CANCELLATION.md §3.3."
       go:
-        status: not_applicable
-        reason: "Equivalent affordance is delivered by SendFrames(ctx, []Frame) + commit-prefix-and-report on ctx — slice is materialized by the caller. A channel-based iter would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it."
+        status: implemented
+        entry: "Client.SendFramesSeq"
+        notes: "2026-06-22: SendFramesSeq(ctx, iter.Seq[Frame]) returns iter.Seq2[FrameResponse, error] (Go 1.23 range-over-func — the lazy variant of SendFrames, as strings.SplitSeq is of Split; wrap a slice with slices.Values). Per-frame lock, not the eager batch-atomic hold, so it never starves Close; another goroutine may interleave. The first error yields (nil, err) then ends; cancel by breaking the range or via ctx. See docs/architecture/CANCELLATION.md §3.2."
       rust:
-        status: not_applicable
-        reason: "Equivalent affordance is delivered by send_frames(&[Frame]) -> (Vec<FrameResponse>, Option<Error>) + commit-prefix-and-report — the slice is materialized by the caller. An Iterator-based lazy variant would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it (mirrors the Go / C++ disposition)."
+        status: implemented
+        entry: "Client::send_frames_iter"
+        notes: "2026-06-22: sync Client::send_frames_iter(impl IntoIterator<Item=Frame>) -> impl Iterator<Item=Result<FrameResponse, Error>>; async AsyncClient::send_frames_stream(Vec<Frame>) -> impl Stream<Item=Result<FrameResponse, Error>> (futures-util unfold, runtime-agnostic; named _stream because a Stream is not an Iterator — the _iter suffix is reserved for Iterator-returning methods). Yields one outcome per frame; the first Err (an Error::Frame tagged with the failing frame's index) then fuses. Cancel by dropping / stopping iteration. See docs/architecture/CANCELLATION.md §3.4."
 
   # =====================================================================
   # Distribution / infrastructure
