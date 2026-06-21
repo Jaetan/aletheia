@@ -741,6 +741,13 @@ func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameRespons
 // range protocol: break the loop (or let ctx fire) and the remaining frames are
 // never sent, while every pair already yielded stays committed.
 //
+// The returned sequence is SINGLE-USE: range it exactly once. Unlike
+// strings.SplitSeq (pure, so harmless to re-range), this sends to a stateful
+// stream — ranging the same returned value twice would re-send the frames and
+// corrupt the stream. The peer bindings are single-use by construction (a
+// consumed Iterator/Stream/generator); Go's iter.Seq2 is a re-invocable
+// closure, so this is a caller obligation rather than a type guarantee.
+//
 // Locking differs from SendFrames deliberately: SendFrames holds the client
 // lock for the whole batch (atomic — no goroutine can interleave). This form
 // acquires and releases per frame, never across a yield, because the consumer
@@ -761,8 +768,15 @@ func (c *Client) SendFramesSeq(ctx context.Context, frames iter.Seq[Frame]) iter
 				yield(nil, err) // acquire already wraps with the method name
 				return
 			}
-			resp, err := c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
-			release()
+			// Release via defer (not an explicit call) so a panic between acquire
+			// and the FFI return cannot leak the 1-deep semaphore and deadlock the
+			// client forever — matching SendFrames' panic-safety. The closure
+			// returns (so release runs) BEFORE the yield, so the lock is never
+			// held across consumer code.
+			resp, err := func() (FrameResponse, error) {
+				defer release()
+				return c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
+			}()
 			if err != nil {
 				yield(nil, fmt.Errorf("SendFramesSeq frame %d: %w", i, err))
 				return

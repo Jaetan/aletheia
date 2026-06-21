@@ -71,6 +71,34 @@ fn stops_after_first_error_and_sends_no_more() {
 }
 
 #[test]
+fn lazy_and_eager_tag_the_same_failing_frame_index() {
+    // Error-path equivalence: both forms must report the SAME failing frame via
+    // Error::Frame { index } — the happy-path equivalence test does not cover this.
+    let mk = || {
+        let m = MockBackend::new();
+        m.respond_json(r#"{"status":"ack"}"#)
+            .respond_err(Error::Protocol("boom".to_string()));
+        m
+    };
+
+    let ce = Client::with_backend(Box::new(mk()));
+    let (_ok, eager_err) = ce.send_frames(&[frame(0), frame(1)]);
+
+    let cl = Client::with_backend(Box::new(mk()));
+    let lazy: Vec<_> = cl.send_frames_iter(vec![frame(0), frame(1)]).collect();
+
+    assert!(
+        matches!(eager_err, Some(Error::Frame { index: 1, .. })),
+        "eager error: {eager_err:?}"
+    );
+    assert!(
+        matches!(lazy.last(), Some(Err(Error::Frame { index: 1, .. }))),
+        "lazy last item: {:?}",
+        lazy.last()
+    );
+}
+
+#[test]
 fn empty_input_yields_nothing_and_sends_nothing() {
     let m = MockBackend::new();
     let c = Client::with_backend(Box::new(m.clone()));
