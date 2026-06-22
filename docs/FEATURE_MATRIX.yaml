@@ -329,11 +329,10 @@ features:
       Signal("X").less_than(v) (Python) / ltl::less_than(name, v) (C++) /
       Signal("X").LessThan(v) (Go) / Predicate::less_than(sig, v) (Rust).
       The ≤/≥ builders are spelled less_than_or_equal / greater_than_or_equal
-      in Python, Go, and Rust, but at_most / at_least in C++ (the underlying
-      Predicate variant is LessThanOrEqual / GreaterThanOrEqual in every
-      binding; a follow-up PR renames the C++ builders to match — BREAKING).
-      Each entry below pins the `less_than` representative (uniform across all
-      four); the gate catches its silent removal.
+      uniformly across all four bindings (the underlying Predicate variant is
+      LessThanOrEqual / GreaterThanOrEqual everywhere too).  Each entry below
+      pins the `less_than` representative (also uniform); the gate catches its
+      silent removal.
     bindings:
       python: { status: implemented, entry: aletheia.Signal.less_than }
       cpp:    { status: implemented, entry: "aletheia/ltl.hpp#less_than" }

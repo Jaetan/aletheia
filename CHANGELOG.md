@@ -32,12 +32,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   test in each binding guards against a method being wired to the wrong
   constructor), so the wire shape and `FormatFormula` rendering are unchanged.
   The matrix row pins the `less_than` representative; the gate fails on its
-  silent removal in any binding. Note: the ≤/≥ builders are
-  `less_than_or_equal` / `greater_than_or_equal` in Python, Go, and Rust, but
-  `at_most` / `at_least` in C++ — the one remaining builder-verb divergence
-  (the underlying `LessThanOrEqual` / `GreaterThanOrEqual` variant is uniform
-  across all four). A follow-up PR renames the C++ builders to match the Agda
-  interface (BREAKING).
+  silent removal in any binding. The ≤/≥ builders are now spelled
+  `less_than_or_equal` / `greater_than_or_equal` uniformly across all four
+  bindings — the C++ `at_most` / `at_least` builders were renamed to match (see
+  the BREAKING entry under Changed).
 - **Lazy batch frame send across Go, C++, and Rust** (`go/`, `cpp/`, `rust/`;
   FEATURE_MATRIX `lazy_streaming_batch` → `implemented` ×4, joining Python — and
   emptying the matrix of its last `not_applicable` cell). A streaming variant of
@@ -288,13 +286,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): the `ltl::` ≤/≥ predicate builders are renamed
+  `at_most` → `less_than_or_equal` and `at_least` → `greater_than_or_equal`**
+  (`cpp/include/aletheia/ltl.hpp`). This aligns the C++ builder verbs with the
+  Agda `ValuePredicate` constructors (`LessThanOrEqual` / `GreaterThanOrEqual`)
+  and with the Python / Go / Rust builders, which already used those names — the
+  last cross-binding builder-verb divergence (`predicate_dsl` parity). The
+  underlying `Predicate` variant structs were already named `LessThanOrEqual` /
+  `GreaterThanOrEqual`; only the free-function builders change. Migration:
+  `ltl::at_most(s, v)` → `ltl::less_than_or_equal(s, v)`, `ltl::at_least(s, v)`
+  → `ltl::greater_than_or_equal(s, v)`. (`never_exceeds` / `never_below` and the
+  wire shape are unaffected.)
 - **BREAKING (all bindings): `never_exceeds(v)` is now inclusive — `G(s <= v)`,
   not `G(s < v)`.** A frame with `signal == v` no longer reports a violation. This
   aligns the check vocabulary with the Agda core (`LessThanOrEqual` evaluates
   `x <= v`) and with its dual `never_below` (`>=`) and `stays_between` (inclusive
   on both ends); "never exceeds 220" now correctly lets 220 km/h pass. The
-  builders emit `LessThanOrEqual`/`at_most` instead of `LessThan`, and the rendered
-  condition is `"<= v"`. Affects `checks.signal(...).never_exceeds` (Python),
+  builders emit the `LessThanOrEqual` predicate instead of `LessThan`, and the
+  rendered condition is `"<= v"`. Affects `checks.signal(...).never_exceeds` (Python),
   `CheckSignalBuilder.NeverExceeds` (Go), `check::signal(...).never_exceeds` (C++),
   and `signal(...).never_exceeds` (Rust). To keep the old strict semantics, build
   the predicate directly (`less_than` / `LessThan{}` / `ltl::less_than` /

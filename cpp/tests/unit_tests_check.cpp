@@ -204,7 +204,7 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
     auto check_f =
         check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}).to_formula();
     auto manual_f = ltl::always(
-        ltl::atomic(ltl::at_most(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+        ltl::atomic(ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
 }

@@ -177,8 +177,9 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
     check(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{}}), "equals");
     check(ltl::less_than(SignalName{"S"}, PhysicalValue{Rational{}}), "lessThan");
     check(ltl::greater_than(SignalName{"S"}, PhysicalValue{Rational{}}), "greaterThan");
-    check(ltl::at_most(SignalName{"S"}, PhysicalValue{Rational{}}), "lessThanOrEqual");
-    check(ltl::at_least(SignalName{"S"}, PhysicalValue{Rational{}}), "greaterThanOrEqual");
+    check(ltl::less_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{}}), "lessThanOrEqual");
+    check(ltl::greater_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{}}),
+          "greaterThanOrEqual");
     check(ltl::between(SignalName{"S"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{100, 1}}),
           "between");
     check(ltl::changed_by(SignalName{"S"}, Delta{Rational{10, 1}}), "changedBy");
@@ -1491,10 +1492,11 @@ TEST_CASE("format_formula all predicate types", "[enrich]") {
     auto gt = ltl::atomic(ltl::greater_than(SignalName{"S"}, PhysicalValue{Rational{5, 1}}));
     CHECK(format_formula(gt) == "S > 5");
 
-    auto le = ltl::atomic(ltl::at_most(SignalName{"S"}, PhysicalValue{Rational{100, 1}}));
+    auto le =
+        ltl::atomic(ltl::less_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{100, 1}}));
     CHECK(format_formula(le) == "S <= 100");
 
-    auto ge = ltl::atomic(ltl::at_least(SignalName{"S"}, PhysicalValue{Rational{}}));
+    auto ge = ltl::atomic(ltl::greater_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{}}));
     CHECK(format_formula(ge) == "S >= 0");
 
     auto bw = ltl::atomic(ltl::between(SignalName{"S"}, PhysicalValue{Rational{10, 1}},

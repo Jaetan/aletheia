@@ -84,18 +84,23 @@ auto brake_response = check::when("Brake").exceeds(PhysicalValue{Rational{50, 1}
 ## Raw LTL DSL
 
 For full temporal control, build formulas directly with `ltl::`. Atomic
-predicates (`equals` / `less_than` / `greater_than`) compose under the temporal
-operators (`always` / `eventually` / `next` / `until`):
+predicates (`equals` / `less_than` / `greater_than` / `less_than_or_equal` /
+`greater_than_or_equal`) compose under the temporal operators (`always` /
+`eventually` / `next` / `until`):
 
 ```cpp
 using namespace aletheia;
 // always(Speed < 220)
 auto always_safe = ltl::always(ltl::atomic(
     ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+// always(Speed <= 220) — inclusive variant
+auto always_le = ltl::always(ltl::atomic(
+    ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
 // eventually(BrakePressed == 1)
 auto brakes_apply = ltl::eventually(ltl::atomic(
     ltl::equals(SignalName{"BrakePressed"}, PhysicalValue{Rational{1, 1}})));
 (void)always_safe;
+(void)always_le;
 (void)brakes_apply;
 ```
 
