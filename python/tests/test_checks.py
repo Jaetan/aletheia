@@ -25,14 +25,14 @@ class TestCheckSignal:
     """Test signal() one-shot convenience methods."""
 
     def test_never_exceeds(self) -> None:
-        """never_exceeds() produces G(s < v)."""
+        """never_exceeds() produces G(s <= v) — inclusive (s == v passes)."""
         result = signal("Speed").never_exceeds(220)
         assert isinstance(result, CheckResult)
         assert result.to_dict() == {
             "operator": "always",
             "formula": {
                 "operator": "atomic",
-                "predicate": {"predicate": "lessThan", "signal": "Speed", "value": 220},
+                "predicate": {"predicate": "lessThanOrEqual", "signal": "Speed", "value": 220},
             },
         }
 
@@ -243,9 +243,9 @@ class TestCheckEquivalence:
     """Every Check method must produce the same formula as its DSL equivalent."""
 
     def test_never_exceeds_eq_dsl(self) -> None:
-        """never_exceeds matches Signal.less_than.always."""
+        """never_exceeds matches Signal.less_than_or_equal.always (inclusive)."""
         check = signal("Speed").never_exceeds(220).to_dict()
-        dsl = Signal("Speed").less_than(220).always().to_dict()
+        dsl = Signal("Speed").less_than_or_equal(220).always().to_dict()
         assert check == dsl
 
     def test_never_below_eq_dsl(self) -> None:
@@ -329,7 +329,7 @@ class TestCheckDiagnostics:
         """Verify never exceeds."""
         r = signal("Speed").never_exceeds(220)
         assert r.signal_name == "Speed"
-        assert r.condition_desc == "< 220"
+        assert r.condition_desc == "<= 220"
 
     def test_never_below(self) -> None:
         """Verify never below."""
@@ -389,4 +389,4 @@ class TestCheckDiagnostics:
         """Diagnostic metadata survives .named() and .severity() chaining."""
         r = signal("Speed").never_exceeds(220).named("Speed limit").severity("critical")
         assert r.signal_name == "Speed"
-        assert r.condition_desc == "< 220"
+        assert r.condition_desc == "<= 220"

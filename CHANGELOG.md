@@ -262,6 +262,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (all bindings): `never_exceeds(v)` is now inclusive — `G(s <= v)`,
+  not `G(s < v)`.** A frame with `signal == v` no longer reports a violation. This
+  aligns the check vocabulary with the Agda core (`LessThanOrEqual` evaluates
+  `x <= v`) and with its dual `never_below` (`>=`) and `stays_between` (inclusive
+  on both ends); "never exceeds 220" now correctly lets 220 km/h pass. The
+  builders emit `LessThanOrEqual`/`at_most` instead of `LessThan`, and the rendered
+  condition is `"<= v"`. Affects `checks.signal(...).never_exceeds` (Python),
+  `CheckSignalBuilder.NeverExceeds` (Go), `check::signal(...).never_exceeds` (C++),
+  and `signal(...).never_exceeds` (Rust). To keep the old strict semantics, build
+  the predicate directly (`less_than` / `LessThan{}` / `ltl::less_than` /
+  `Predicate::LessThan`).
 - **BREAKING (Rust): `ExtractionResult.errors` is now `Vec<SignalError>`**
   (was `Vec<String>`). The previous type dropped the per-signal *reason* the core
   emits as `{"name", "error"}`, losing diagnostic information the Python

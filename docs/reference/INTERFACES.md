@@ -166,7 +166,7 @@ Each `checks.signal(...)` / `checks.when(...)` call returns a `CheckResult` obje
 
 ```python
 # Value bounds
-checks.signal("VehicleSpeed").never_exceeds(220)      # G(speed < 220)
+checks.signal("VehicleSpeed").never_exceeds(220)      # G(speed <= 220)
 checks.signal("BatteryVoltage").never_below(11.0)     # G(voltage >= 11.0)
 
 # Range
@@ -362,7 +362,7 @@ checks:
 
 | Condition | LTL | Meaning |
 |-----------|-----|---------|
-| `never_exceeds` | G(s < v) | Signal always below value |
+| `never_exceeds` | G(s <= v) | Signal stays at or below value (inclusive) |
 | `never_below` | G(s >= v) | Signal never drops below value |
 | `never_equals` | G(not(s == v)) | Signal never equals value |
 | `equals` | G(s == v) | Signal always equals value |

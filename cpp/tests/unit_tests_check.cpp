@@ -27,7 +27,7 @@ TEST_CASE("check::signal never_exceeds", "[check]") {
     auto result = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
     auto f = result.to_formula();
     REQUIRE(f);
-    CHECK(format_formula(*f) == "always(Speed < 220)");
+    CHECK(format_formula(*f) == "always(Speed <= 220)");
 }
 
 TEST_CASE("check::signal never_below", "[check]") {
@@ -140,7 +140,7 @@ TEST_CASE("Check metadata named and severity", "[check]") {
     CHECK(result.name() == "SpeedLimit");
     CHECK(result.check_severity() == "critical");
     CHECK(result.signal_name() == "Speed");
-    CHECK(result.condition_desc() == "< 220");
+    CHECK(result.condition_desc() == "<= 220");
 }
 
 TEST_CASE("Check signal_name and condition_desc populated", "[check]") {
@@ -204,7 +204,7 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
     auto check_f =
         check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}).to_formula();
     auto manual_f = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+        ltl::atomic(ltl::at_most(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
 }

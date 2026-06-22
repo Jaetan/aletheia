@@ -244,7 +244,7 @@ mod tests {
         let f = check::signal("Speed").never_exceeds(220);
         let d = build_diagnostic(f.formula());
         assert_eq!(d.signals, vec!["Speed".to_string()]);
-        assert_eq!(d.formula_desc, "always(Speed < 220)");
+        assert_eq!(d.formula_desc, "always(Speed <= 220)");
     }
 
     #[test]

@@ -148,12 +148,17 @@ class CheckSignal:
     # -- one-shot convenience methods ----------------------------------------
 
     def never_exceeds(self, value: float) -> CheckResult:
-        """``Signal(s).less_than(value).always()`` — G(s < v)."""
-        prop = Signal(self._name).less_than(value).always()
+        """``Signal(s).less_than_or_equal(value).always()`` — G(s <= v).
+
+        Inclusive: a frame with ``s == value`` does NOT violate (matches the
+        Agda core's ``LessThanOrEqual`` and the dual ``never_below`` ``>=``;
+        "never exceeds 220" lets 220 pass).
+        """
+        prop = Signal(self._name).less_than_or_equal(value).always()
         return CheckResult(
             _property=prop,
             signal_name=self._name,
-            condition_desc=f"< {value}",
+            condition_desc=f"<= {value}",
         )
 
     def never_below(self, value: float) -> CheckResult:

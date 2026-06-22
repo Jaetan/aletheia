@@ -58,7 +58,7 @@ fn streaming_violation_carries_enrichment() {
         e.signals
     );
     assert!(
-        e.formula_desc.contains("EngineSpeed < 1000"),
+        e.formula_desc.contains("EngineSpeed <= 1000"),
         "formula_desc: {}",
         e.formula_desc
     );
