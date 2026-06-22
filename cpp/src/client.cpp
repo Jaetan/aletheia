@@ -287,7 +287,10 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     };
 
     if (buf.size() < 6)
-        return {};
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("Truncated extraction buffer: {} bytes, need >= 6 for the header",
+                        buf.size())});
     const auto nvals = read_u16(0);
     const auto nerrs = read_u16(2);
     const auto nabss = read_u16(4);
@@ -296,7 +299,9 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     const auto expected_size = std::size_t{6} + (std::size_t{nvals} * 18) +
                                (std::size_t{nerrs} * 3) + (std::size_t{nabss} * 2);
     if (buf.size() < expected_size)
-        return {};
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol, std::format("Truncated extraction buffer: {} bytes, expected {}",
+                                             buf.size(), expected_size)});
     std::size_t off = 6;
 
     ExtractionResult result;
@@ -306,7 +311,8 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
         // guard above, but keeps the loop locally defensive against future
         // changes to the record layout or header computation.
         if (off + 18 > buf.size())
-            return {};
+            return std::unexpected(AletheiaError{
+                ErrorKind::Protocol, "Truncated extraction buffer while reading signal values"});
         auto idx = read_u16(off);
         auto num = read_i64(off + 2);
         auto den = read_i64(off + 10);
@@ -319,7 +325,8 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     result.errors.reserve(nerrs);
     for (std::uint16_t i = 0; i < nerrs; ++i) {
         if (off + 3 > buf.size())
-            return {};
+            return std::unexpected(AletheiaError{
+                ErrorKind::Protocol, "Truncated extraction buffer while reading signal errors"});
         auto idx = read_u16(off);
         auto code = static_cast<std::uint8_t>(buf[off + 2]);
         off += 3;
@@ -333,7 +340,8 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     result.absent.reserve(nabss);
     for (std::uint16_t i = 0; i < nabss; ++i) {
         if (off + 2 > buf.size())
-            return {};
+            return std::unexpected(AletheiaError{
+                ErrorKind::Protocol, "Truncated extraction buffer while reading absent signals"});
         auto idx = read_u16(off);
         off += 2;
         auto name =

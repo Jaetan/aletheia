@@ -240,3 +240,47 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
     DbcDefinition empty{.version = "1.0", .messages = {}};
     CHECK(empty.message_by_name(MessageName{"Anything"}) == nullptr);
 }
+
+// ===========================================================================
+// Stale cached-index safety (r25): the lazy index caches freeze positional
+// indices on first lookup.  If the caller then shrinks the public signals /
+// messages vector, an unguarded cached index is an out-of-bounds read (UB).
+// The guard turns a stale index into a defined "no longer present" (nullptr).
+// Each test builds the cache, shrinks the vector, then re-queries the dropped
+// entry: pre-fix this returned a garbage non-null pointer (or worse).
+// ===========================================================================
+
+TEST_CASE("DbcMessage::signal_by_name guards a stale cached index", "[dbc][safety]") {
+    auto dbc = make_mux_dbc();
+    DbcMessage msg = std::move(dbc.messages[0]); // fresh message; cache not yet built
+    // Build the signal-index cache (lazy ensure() runs exactly once here).
+    REQUIRE(msg.signal_by_name(SignalName{"Voltage"}) != nullptr);
+    // Drop the last signal — "Voltage"'s cached index is now out of bounds.
+    msg.signals.pop_back();
+    CHECK(msg.signal_by_name(SignalName{"Voltage"}) == nullptr);
+    // A still-present signal is unaffected by the guard.
+    CHECK(msg.signal_by_name(SignalName{"MuxSelector"}) != nullptr);
+}
+
+TEST_CASE("DbcDefinition::message_by_id guards a stale cached index", "[dbc][safety]") {
+    auto id_a = StandardId::create(0x200).value();
+    auto id_b = StandardId::create(0x201).value();
+    DbcMessage msg_a{.id = CanId{id_a},
+                     .name = MessageName{"A"},
+                     .dlc = Dlc::create(8).value(),
+                     .sender = NodeName{"ECU"},
+                     .signals = {}};
+    DbcMessage msg_b{.id = CanId{id_b},
+                     .name = MessageName{"B"},
+                     .dlc = Dlc::create(8).value(),
+                     .sender = NodeName{"ECU"},
+                     .signals = {}};
+    DbcDefinition dbc{.version = "1.0", .messages = {std::move(msg_a), std::move(msg_b)}};
+    // Build the id-index cache (B is frozen at index 1).
+    REQUIRE(dbc.message_by_id(CanId{id_b}) != nullptr);
+    // Drop the last message — B's cached index (1) is now out of bounds.
+    dbc.messages.pop_back();
+    CHECK(dbc.message_by_id(CanId{id_b}) == nullptr);
+    // The surviving message is still found.
+    CHECK(dbc.message_by_id(CanId{id_a}) != nullptr);
+}

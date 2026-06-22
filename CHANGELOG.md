@@ -487,6 +487,31 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **C++ / Go memory-safety hardening from the r25 review** — three latent
+  out-of-bounds / overflow defects, each now guarded and regression-tested
+  (a test that fails without the fix):
+  - **C++ `within(ms)` ms→µs overflow** (`cpp/include/aletheia/check.hpp`). The
+    `duration_cast<microseconds>` multiplied the millisecond bound by 1000 with
+    no guard, so a large bound (reachable from untrusted input, e.g. a YAML check
+    with `within_ms: 9300000000000000`) was signed-integer-overflow UB. Both
+    `within()` builders now route through a shared `detail::checked_ms_to_us`
+    helper that rejects `ms > INT64_MAX/1000` with `std::invalid_argument`,
+    mirroring the Go (`MaxInt64/usPerMillisecond`) and Rust guards.
+  - **C++ truncated binary extraction now errors instead of silently succeeding**
+    (`cpp/src/client.cpp`). `parse_extraction_bin` returned an empty *success*
+    (`return {}` → an empty `ExtractionResult`) on a short/truncated FFI buffer,
+    so a truncated response decoded as "zero signals" rather than a failure. All
+    five truncation paths now return an `ErrorKind::Protocol` error, which the
+    call sites already propagate (`extract_signals`) / log + surface as
+    `nullopt` (`extract_signals_internal`) — making their comments true. Matches
+    Go / Python, which already error.
+  - **C++ / Go stale cached-index out-of-bounds** (`cpp/src/dbc.cpp`,
+    `go/aletheia/dbc.go`). The lazy name/ID lookup caches freeze positional
+    indices on first build; if the caller then shrinks the public `messages` /
+    `signals` slice, the cached index was used to subscript the shrunk container
+    unchecked — an OOB read (UB in C++; a panic in Go). `signal_by_name`,
+    `message_by_id`, and `message_by_name` now bound-check the cached index in
+    both bindings (a stale index ⇒ "no longer present" ⇒ `nullptr` / `nil`).
 - **Rust binding review (r24) — 8 non-breaking fixes** (the two BREAKING ones are
   under Changed). All are cross-binding parity / determinism / strictness gaps
   that the `fmt`/`clippy`/`cargo test` gates cannot catch, found by the thorough

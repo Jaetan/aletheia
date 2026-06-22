@@ -93,7 +93,10 @@ auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal
         }
     });
     auto idx = signal_index_cache.find(name.get());
-    if (!idx) {
+    // Guard a stale cached index: the public `signals` vector may have shrunk
+    // since the cache was built, which would make `signals[*idx]` an OOB read.
+    // A stale index means "no longer present" → nullptr (the not-found contract).
+    if (!idx || *idx >= signals.size()) {
         return nullptr;
     }
     return &signals[*idx];
@@ -116,7 +119,9 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     auto ext = can_id_is_extended(id);
     const std::uint64_t key = static_cast<std::uint64_t>(id_value) | (ext ? (1ULL << 32U) : 0);
     auto idx = id_index_cache.find(key);
-    if (!idx) {
+    // Guard a stale cached index against a since-shrunk public `messages` vector
+    // (unchecked `messages[*idx]` would be an OOB read).
+    if (!idx || *idx >= messages.size()) {
         return nullptr;
     }
     return &messages[*idx];
@@ -129,7 +134,9 @@ auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcM
         }
     });
     auto idx = name_index_cache.find(name.get());
-    if (!idx) {
+    // Guard a stale cached index against a since-shrunk public `messages` vector
+    // (unchecked `messages[*idx]` would be an OOB read).
+    if (!idx || *idx >= messages.size()) {
         return nullptr;
     }
     return &messages[*idx];

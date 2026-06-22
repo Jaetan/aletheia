@@ -14,12 +14,19 @@
 #include <algorithm>
 #include <array>
 #include <barrier>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
+#include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 using namespace aletheia;
 namespace fs = std::filesystem;
@@ -222,6 +229,83 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     CHECK(result->values.size() == 2);
     CHECK(result->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(100.0));
     CHECK(result->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(3000.0));
+}
+
+namespace {
+
+// Delegates every backend operation to a real FFI backend so parse_dbc (which
+// populates the client's signal-name cache and thus arms the binary extraction
+// path) works for real — except extract_signals_bin, which returns a buffer too
+// short to hold even the 6-byte header.  Lets us drive parse_extraction_bin's
+// truncation path through the public API (r25): a truncated buffer must surface
+// a Protocol error, not decode as a silent zero-signal success.
+class TruncatingExtractBackend : public IBackend {
+public:
+    explicit TruncatingExtractBackend(std::unique_ptr<IBackend> inner) : inner_(std::move(inner)) {}
+
+    auto init() -> void* override { return inner_->init(); }
+    auto process(void* state, std::string_view input) -> std::string override {
+        return inner_->process(state, input);
+    }
+    auto close(void* state) -> void override { inner_->close(state); }
+
+    auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
+                           std::span<const std::byte> data, std::optional<bool> brs,
+                           std::optional<bool> esi) -> std::string override {
+        return inner_->send_frame_binary(state, ts, id, dlc, data, brs, esi);
+    }
+    auto send_error_binary(void* state, Timestamp ts) -> std::string override {
+        return inner_->send_error_binary(state, ts);
+    }
+    auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
+        return inner_->send_remote_binary(state, ts, id);
+    }
+    auto start_stream_binary(void* state) -> std::string override {
+        return inner_->start_stream_binary(state);
+    }
+    auto end_stream_binary(void* state) -> std::string override {
+        return inner_->end_stream_binary(state);
+    }
+    auto format_dbc_binary(void* state) -> std::string override {
+        return inner_->format_dbc_binary(state);
+    }
+    auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
+                                std::span<const std::byte> data) -> std::string override {
+        return inner_->extract_signals_binary(state, id, dlc, data);
+    }
+
+    // The method under test: hand back a 3-byte buffer (< the 6-byte header).
+    auto extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+                             std::span<const std::byte> /*data*/)
+        -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        return std::vector<std::byte>{std::byte{0}, std::byte{0}, std::byte{0}};
+    }
+
+private:
+    std::unique_ptr<IBackend> inner_;
+};
+
+} // namespace
+
+TEST_CASE("truncated binary extraction surfaces a Protocol error", "[integration]") {
+    auto lib = find_lib();
+    auto backend = std::make_unique<TruncatingExtractBackend>(make_ffi_backend(lib));
+    AletheiaClient client(std::move(backend));
+
+    // Loads the DBC for real → the client's signal-name cache is populated, so
+    // extract_signals takes the binary path and calls our truncating override.
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
+    // Pre-fix this returned a success-empty ExtractionResult (zero signals);
+    // the fix makes a truncated buffer a Protocol error.
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("build frame via real FFI", "[integration]") {

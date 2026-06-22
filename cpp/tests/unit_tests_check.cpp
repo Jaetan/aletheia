@@ -12,6 +12,8 @@
 #include <aletheia/enrich.hpp>
 
 #include <chrono>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -207,6 +209,43 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
         ltl::atomic(ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
+}
+
+// ===========================================================================
+// within(): ms→µs overflow guard (r25 — untrusted-YAML-reachable int64 UB).
+// duration_cast<microseconds>(ms) multiplies by 1000; without the guard a large
+// ms is signed-overflow UB.  The boundary is INT64_MAX/1000: that value is
+// accepted (×1000 < INT64_MAX), the next ms up is rejected.  Mirrors Go's
+// `MaxInt64/usPerMillisecond` guard.  Both within() call sites route through the
+// shared detail::checked_ms_to_us helper.
+// ===========================================================================
+
+TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check][overflow]") {
+    using std::chrono::milliseconds;
+    constexpr std::int64_t kMaxOk = std::numeric_limits<std::int64_t>::max() / 1000;
+
+    // when/then path.
+    auto when_then = [](std::int64_t ms) {
+        return check::when("A")
+            .exceeds(PhysicalValue{Rational{1, 1}})
+            .then("B")
+            .equals(PhysicalValue{Rational{1, 1}})
+            .within(milliseconds{ms});
+    };
+    CHECK_NOTHROW(when_then(kMaxOk));
+    CHECK_THROWS_AS(when_then(kMaxOk + 1), std::invalid_argument);
+
+    // settles_between path (the other within() call site).
+    auto settles = [](std::int64_t ms) {
+        return check::signal("S")
+            .settles_between(PhysicalValue{Rational{0, 1}}, PhysicalValue{Rational{10, 1}})
+            .within(milliseconds{ms});
+    };
+    CHECK_NOTHROW(settles(kMaxOk));
+    CHECK_THROWS_AS(settles(kMaxOk + 1), std::invalid_argument);
+
+    // The pre-existing negative-time guard still fires through the same helper.
+    CHECK_THROWS_AS(when_then(-1), std::invalid_argument);
 }
 
 TEST_CASE("Check stays_between matches manual ltl", "[check]") {

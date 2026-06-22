@@ -195,7 +195,10 @@ func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
 // the returned signal's slices mutates the parent message's signals.
 func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
 	if m.signalIndex != nil {
-		if idx, ok := m.signalIndex[string(name)]; ok {
+		// `idx < len` guards a stale cached index: the public Signals slice may
+		// have been shrunk since the index was built, which would panic on the
+		// subscript.  A stale index means "no longer present" → nil.
+		if idx, ok := m.signalIndex[string(name)]; ok && idx < len(m.Signals) {
 			out := m.Signals[idx]
 			return &out
 		}
@@ -635,7 +638,9 @@ func canIDKey(id CANID) uint64 {
 // The returned pointer is a deep copy; mutating it does not affect the DBCDefinition.
 func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
 	if d.idIndex != nil {
-		if idx, ok := d.idIndex[canIDKey(id)]; ok {
+		// `idx < len` guards a stale cached index against a since-shrunk public
+		// Messages slice (the subscript would otherwise panic) → nil.
+		if idx, ok := d.idIndex[canIDKey(id)]; ok && idx < len(d.Messages) {
 			return copyMessage(&d.Messages[idx])
 		}
 		return nil
@@ -653,7 +658,9 @@ func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
 // The returned pointer is a deep copy; mutating it does not affect the DBCDefinition.
 func (d *DBCDefinition) MessageByName(name MessageName) *DBCMessage {
 	if d.nameIndex != nil {
-		if idx, ok := d.nameIndex[string(name)]; ok {
+		// `idx < len` guards a stale cached index against a since-shrunk public
+		// Messages slice (the subscript would otherwise panic) → nil.
+		if idx, ok := d.nameIndex[string(name)]; ok && idx < len(d.Messages) {
 			return copyMessage(&d.Messages[idx])
 		}
 		return nil
