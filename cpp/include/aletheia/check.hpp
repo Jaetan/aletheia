@@ -165,13 +165,13 @@ public:
     // (inclusive — matches the Agda core's LessThanOrEqual and the dual
     // never_below's >=; "never exceeds 220" lets 220 pass).
     [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
-        auto f = ltl::always(ltl::atomic(ltl::at_most(SignalName{name_}, value)));
+        auto f = ltl::always(ltl::atomic(ltl::less_than_or_equal(SignalName{name_}, value)));
         return {std::move(f), name_,
                 std::function<std::string()>{[value]() { return "<= " + detail::fmt_pv(value); }}};
     }
 
     [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
-        auto f = ltl::always(ltl::atomic(ltl::at_least(SignalName{name_}, value)));
+        auto f = ltl::always(ltl::atomic(ltl::greater_than_or_equal(SignalName{name_}, value)));
         return {std::move(f), name_,
                 std::function<std::string()>{[value]() { return ">= " + detail::fmt_pv(value); }}};
     }

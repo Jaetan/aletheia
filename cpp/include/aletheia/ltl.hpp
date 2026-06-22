@@ -238,11 +238,11 @@ inline auto greater_than(SignalName name, PhysicalValue value) -> Predicate {
     return GreaterThan{.signal = std::move(name), .value = value};
 }
 
-inline auto at_most(SignalName name, PhysicalValue value) -> Predicate {
+inline auto less_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
     return LessThanOrEqual{.signal = std::move(name), .value = value};
 }
 
-inline auto at_least(SignalName name, PhysicalValue value) -> Predicate {
+inline auto greater_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
     return GreaterThanOrEqual{.signal = std::move(name), .value = value};
 }
 
