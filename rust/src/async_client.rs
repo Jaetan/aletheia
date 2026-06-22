@@ -56,12 +56,22 @@ pub struct AsyncClient {
 
 /// Spawn the worker thread (which builds and owns the sync `Client`) and return
 /// the handle once the worker reports a successful init.
-pub(crate) async fn spawn(builder: ClientBuilder) -> Result<AsyncClient, Error> {
+///
+/// `make_client` is the client factory, run **on the worker thread** so the
+/// `!Send` `Client` (and anything it captures) is born there: the FFI path
+/// passes `move || builder.build()`, the injection path
+/// `move || Ok(builder.build_with_backend(backend))`. The closure is `Send` so it
+/// can cross to the worker; whatever it captures (the injected backend, in the
+/// injection case) therefore must be `Send` too — see
+/// [`ClientBuilder::build_async_with_backend`](crate::ClientBuilder::build_async_with_backend).
+pub(crate) async fn spawn(
+    make_client: impl FnOnce() -> Result<Client, Error> + Send + 'static,
+) -> Result<AsyncClient, Error> {
     let (jobs_tx, jobs_rx) = mpsc::channel::<Job>();
     let (init_tx, init_rx) = oneshot::channel::<Result<(), Error>>();
     let worker = thread::spawn(move || {
         // Build the sync Client ON this thread — it is `!Send` + thread-pinned.
-        let client = match builder.build() {
+        let client = match make_client() {
             Ok(c) => {
                 if init_tx.send(Ok(())).is_err() {
                     return; // creator dropped before we reported success

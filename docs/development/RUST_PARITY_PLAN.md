@@ -179,7 +179,12 @@ be unit-tested without loading the `.so` (`rust/tests/mock_backend.rs`).
   contract avoids fabricated mock behavior.
 - **Terminal injection.** Injection is `ClientBuilder::build_with_backend(self,
   backend)` (not a stored field), keeping `ClientBuilder: Send` so the async
-  client can still move the builder onto its worker thread.
+  client can still move the builder onto its worker thread. (The async analogue
+  `ClientBuilder::build_async_with_backend(Box<dyn Backend + Send>)` — the same
+  seam for `AsyncClient`, the `+ Send` bound covering the backend's move to the
+  worker thread — was added in the r25 campaign to close the sync↔async
+  injection asymmetry and make the in-flight cancellation contract deterministically
+  testable without the `.so`.)
 
 - **Dependency:** best after R1–R4 stabilize the client surface the trait abstracts.
 - **Effort:** medium. **Done.**

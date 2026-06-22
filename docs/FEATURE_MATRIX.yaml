@@ -510,7 +510,7 @@ features:
       rust:
         status: implemented
         entry: Backend
-        notes: "Public, open `trait Backend` (rust/src/backend.rs); the Client holds a Box<dyn Backend>, injected via Client::with_backend / ClientBuilder::build_with_backend. Idiomatic divergence from the peer seams: no init/close/state in the trait — the production FfiBackend owns its session handle and closes it in Drop (RAII), so the trait never traffics in a raw pointer."
+        notes: "Public, open `trait Backend` (rust/src/backend.rs); the Client holds a Box<dyn Backend>, injected via Client::with_backend / ClientBuilder::build_with_backend. The async AsyncClient has its own injection entry — ClientBuilder::build_async_with_backend(Box<dyn Backend + Send>) — the +Send bound covers the backend moving to the worker thread (the sync seam takes a bare Box<dyn Backend> since the sync Client never leaves its thread). Idiomatic divergence from the peer seams: no init/close/state in the trait — the production FfiBackend owns its session handle and closes it in Drop (RAII), so the trait never traffics in a raw pointer."
 
   # =====================================================================
   # Ergonomics — Part 2 (all planned, design rounds required)
