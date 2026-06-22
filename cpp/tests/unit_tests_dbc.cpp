@@ -284,3 +284,47 @@ TEST_CASE("DbcDefinition::message_by_id guards a stale cached index", "[dbc][saf
     // The surviving message is still found.
     CHECK(dbc.message_by_id(CanId{id_a}) != nullptr);
 }
+
+// A stale cached index can stay IN bounds yet point at the wrong element if the
+// vector is reordered or replaced in place (not just shrunk).  A bounds-only
+// guard would return the wrong element; the key-match check returns not-found.
+
+TEST_CASE("DbcMessage::signal_by_name rejects an in-bounds but wrong cached index",
+          "[dbc][safety]") {
+    auto dbc = make_mux_dbc();
+    DbcMessage msg = std::move(dbc.messages[0]);
+    REQUIRE(msg.signal_by_name(SignalName{"Voltage"}) != nullptr); // cache: Voltage -> 3
+    // Replace the element at the cached index in place with a differently-named
+    // signal (size unchanged, so the cached index stays in bounds).
+    msg.signals[3].name = SignalName{"Renamed"};
+    // Bounds-only would return the "Renamed" signal; the name-match check rejects it.
+    CHECK(msg.signal_by_name(SignalName{"Voltage"}) == nullptr);
+    // An unchanged signal is still found.
+    CHECK(msg.signal_by_name(SignalName{"MuxSelector"}) != nullptr);
+}
+
+TEST_CASE("DbcDefinition::message_by_id rejects an in-bounds but wrong cached index",
+          "[dbc][safety]") {
+    auto id_a = StandardId::create(0x200).value();
+    auto id_b = StandardId::create(0x201).value();
+    auto id_c = StandardId::create(0x202).value();
+    DbcMessage msg_a{.id = CanId{id_a},
+                     .name = MessageName{"A"},
+                     .dlc = Dlc::create(8).value(),
+                     .sender = NodeName{"ECU"},
+                     .signals = {}};
+    DbcMessage msg_b{.id = CanId{id_b},
+                     .name = MessageName{"B"},
+                     .dlc = Dlc::create(8).value(),
+                     .sender = NodeName{"ECU"},
+                     .signals = {}};
+    DbcDefinition dbc{.version = "1.0", .messages = {std::move(msg_a), std::move(msg_b)}};
+    REQUIRE(dbc.message_by_id(CanId{id_b}) != nullptr); // cache: key(B) -> 1
+    // Replace the message at the cached index in place with a different id.
+    dbc.messages[1].id = CanId{id_c};
+    // Bounds-only would return the message now at index 1 (id C); the key-match
+    // check rejects it.
+    CHECK(dbc.message_by_id(CanId{id_b}) == nullptr);
+    // The unchanged message is still found.
+    CHECK(dbc.message_by_id(CanId{id_a}) != nullptr);
+}

@@ -505,13 +505,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
     call sites already propagate (`extract_signals`) / log + surface as
     `nullopt` (`extract_signals_internal`) — making their comments true. Matches
     Go / Python, which already error.
-  - **C++ / Go stale cached-index out-of-bounds** (`cpp/src/dbc.cpp`,
+  - **C++ / Go stale cached-index lookup** (`cpp/src/dbc.cpp`,
     `go/aletheia/dbc.go`). The lazy name/ID lookup caches freeze positional
-    indices on first build; if the caller then shrinks the public `messages` /
-    `signals` slice, the cached index was used to subscript the shrunk container
-    unchecked — an OOB read (UB in C++; a panic in Go). `signal_by_name`,
-    `message_by_id`, and `message_by_name` now bound-check the cached index in
-    both bindings (a stale index ⇒ "no longer present" ⇒ `nullptr` / `nil`).
+    indices on first build; if the caller then mutates the public `messages` /
+    `signals` slice, the cached index goes stale — out of bounds if the slice
+    shrank (OOB read UB in C++, a panic in Go), or in-bounds-but-wrong if it was
+    reordered or replaced in place (silently returning the wrong message/signal
+    for the requested key). `signal_by_name`, `message_by_id`, and
+    `message_by_name` now validate that the cached index still refers to the
+    requested entry in both bindings — a bounds check plus a key match; any
+    stale or mismatched index reads as not-found (`nullptr` / `nil`).
 - **Rust binding review (r24) — 8 non-breaking fixes** (the two BREAKING ones are
   under Changed). All are cross-binding parity / determinism / strictness gaps
   that the `fmt`/`clippy`/`cargo test` gates cannot catch, found by the thorough

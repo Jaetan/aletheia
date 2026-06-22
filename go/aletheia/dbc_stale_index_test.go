@@ -94,3 +94,80 @@ func TestSignalByName_StaleCachedIndexGuard(t *testing.T) {
 		t.Error("A must still be found after the shrink")
 	}
 }
+
+// The following tests cover the in-bounds-but-wrong case: the slice is mutated
+// in place (reordered / replaced) so a stale cached index stays in bounds but
+// names a different element. A bounds-only guard would return the wrong element;
+// the key-match check returns nil.
+
+func TestMessageByID_WrongCachedIndexGuard(t *testing.T) {
+	idA, _ := NewStandardID(0x200)
+	idB, _ := NewStandardID(0x201)
+	idC, _ := NewStandardID(0x202)
+	d := &DBCDefinition{
+		Version: "1.0",
+		Messages: []DBCMessage{
+			{ID: idA, Name: MessageName("A")},
+			{ID: idB, Name: MessageName("B")},
+		},
+	}
+	d.buildIndexes() // idIndex: A->0, B->1
+
+	if d.MessageByID(idB) == nil {
+		t.Fatal("B must be found before the in-place replace")
+	}
+	// Replace the message at the cached index in place with a different id.
+	d.Messages[1].ID = idC
+	if got := d.MessageByID(idB); got != nil {
+		t.Errorf("in-bounds but wrong cached index must return nil, got %+v", got)
+	}
+	if d.MessageByID(idA) == nil {
+		t.Error("A must still be found")
+	}
+}
+
+func TestMessageByName_WrongCachedIndexGuard(t *testing.T) {
+	idA, _ := NewStandardID(0x200)
+	idB, _ := NewStandardID(0x201)
+	d := &DBCDefinition{
+		Version: "1.0",
+		Messages: []DBCMessage{
+			{ID: idA, Name: MessageName("A")},
+			{ID: idB, Name: MessageName("B")},
+		},
+	}
+	d.buildIndexes() // nameIndex: A->0, B->1
+
+	if d.MessageByName(MessageName("B")) == nil {
+		t.Fatal("B must be found before the in-place replace")
+	}
+	d.Messages[1].Name = MessageName("Renamed")
+	if got := d.MessageByName(MessageName("B")); got != nil {
+		t.Errorf("in-bounds but wrong cached index must return nil, got %+v", got)
+	}
+	if d.MessageByName(MessageName("A")) == nil {
+		t.Error("A must still be found")
+	}
+}
+
+func TestSignalByName_WrongCachedIndexGuard(t *testing.T) {
+	m := DBCMessage{
+		Name: MessageName("Msg"),
+		Signals: []DBCSignal{
+			{Name: SignalName("A")},
+			{Name: SignalName("B")},
+		},
+	}
+	m.buildSignalIndex() // signalIndex: A->0, B->1
+
+	if m.SignalByName(SignalName("B")) == nil {
+		t.Fatal("B must be found before the in-place replace")
+	}
+	m.Signals[1].Name = SignalName("Renamed")
+	if got := m.SignalByName(SignalName("B")); got != nil {
+		t.Errorf("in-bounds but wrong cached index must return nil, got %+v", got)
+	}
+	if m.SignalByName(SignalName("A")) == nil {
+		t.Error("A must still be found")
+	}
+}
