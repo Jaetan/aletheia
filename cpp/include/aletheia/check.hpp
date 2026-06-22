@@ -23,8 +23,10 @@
 #include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <chrono>
+#include <cstdint>
 #include <format>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -44,6 +46,24 @@ namespace aletheia::detail {
 inline auto fmt_pv(PhysicalValue v) -> std::string {
     const auto& r = v.get();
     return format_rational_ffi(r.numerator(), r.denominator());
+}
+
+// Microseconds per millisecond — the ms→µs scale factor (matches enrich.cpp's
+// `us_per_millisecond`, Go's `usPerMillisecond`, Rust's `US_PER_MILLISECOND`).
+constexpr std::int64_t us_per_millisecond = 1'000;
+
+// Convert a millisecond bound into the Timestamp (microsecond) domain, rejecting
+// a negative bound and an ms→µs multiply that would overflow int64.  The overflow
+// is reachable from untrusted input (e.g. a YAML check with `within_ms:
+// 9300000000000000`), where `duration_cast<microseconds>` would otherwise be
+// signed-integer UB.  Mirrors the Go (`check.go`, `MaxInt64/usPerMillisecond`)
+// and Rust overflow guards.
+[[nodiscard]] inline auto checked_ms_to_us(std::chrono::milliseconds ms) -> Timestamp {
+    if (ms.count() < 0)
+        throw std::invalid_argument("time must be non-negative");
+    if (ms.count() > std::numeric_limits<Timestamp::rep>::max() / us_per_millisecond)
+        throw std::invalid_argument("time overflows microsecond conversion");
+    return std::chrono::duration_cast<Timestamp>(ms);
 }
 
 } // namespace aletheia::detail
@@ -139,9 +159,7 @@ public:
         , hi_(hi) {}
 
     [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
-        if (ms.count() < 0)
-            throw std::invalid_argument("time must be non-negative");
-        auto us = std::chrono::duration_cast<Timestamp>(ms);
+        auto us = detail::checked_ms_to_us(ms);
         auto f =
             ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
         return {std::move(f), signal_name_,
@@ -221,9 +239,7 @@ public:
         , then_desc_builder_(std::move(then_desc_builder)) {}
 
     [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
-        if (ms.count() < 0)
-            throw std::invalid_argument("time must be non-negative");
-        auto us = std::chrono::duration_cast<Timestamp>(ms);
+        auto us = detail::checked_ms_to_us(ms);
         auto f = ltl::always(ltl::either(ltl::negate(ltl::atomic(trigger_)),
                                          ltl::within(us, ltl::atomic(then_pred_))));
         return {std::move(f), then_signal_,

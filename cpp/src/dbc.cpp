@@ -93,7 +93,12 @@ auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal
         }
     });
     auto idx = signal_index_cache.find(name.get());
-    if (!idx) {
+    // A cached index is trusted only if the element there still matches the key.
+    // The public `signals` vector may have been mutated since the cache was built
+    // (shrunk, reordered, or replaced in place); a stale index could be OOB (UB)
+    // or point at the wrong signal.  The bounds term short-circuits before the
+    // name compare; either failure reads as not-found → nullptr.
+    if (!idx || *idx >= signals.size() || signals[*idx].name.get() != name.get()) {
         return nullptr;
     }
     return &signals[*idx];
@@ -103,20 +108,29 @@ auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal
 // DbcDefinition helpers
 // ---------------------------------------------------------------------------
 
+// Composite lookup key for the id index: the CAN id value plus the
+// standard/extended discriminator in bit 32 (a standard and an extended frame
+// may share a numeric id). Single source of truth for the cache build, the
+// lookup, and the stale-index validation below.
+static auto message_key(const CanId& id) -> std::uint64_t {
+    return static_cast<std::uint64_t>(can_id_value(id)) |
+           (can_id_is_extended(id) ? (1ULL << 32U) : 0);
+}
+
 auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     id_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < messages.size(); ++i) {
-            auto val = can_id_value(messages[i].id);
-            auto ext = can_id_is_extended(messages[i].id);
-            const std::uint64_t key = static_cast<std::uint64_t>(val) | (ext ? (1ULL << 32U) : 0);
-            map.emplace(key, i);
+            map.emplace(message_key(messages[i].id), i);
         }
     });
-    auto id_value = can_id_value(id);
-    auto ext = can_id_is_extended(id);
-    const std::uint64_t key = static_cast<std::uint64_t>(id_value) | (ext ? (1ULL << 32U) : 0);
+    const std::uint64_t key = message_key(id);
     auto idx = id_index_cache.find(key);
-    if (!idx) {
+    // A cached index is trusted only if the message there still has the requested
+    // id.  The public `messages` vector may have been mutated since the cache was
+    // built (shrunk, reordered, or replaced in place); a stale index could be OOB
+    // (UB) or point at the wrong message.  The bounds term short-circuits before
+    // the key compare; either failure reads as not-found → nullptr.
+    if (!idx || *idx >= messages.size() || message_key(messages[*idx].id) != key) {
         return nullptr;
     }
     return &messages[*idx];
@@ -129,7 +143,11 @@ auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcM
         }
     });
     auto idx = name_index_cache.find(name.get());
-    if (!idx) {
+    // A cached index is trusted only if the message there still has the requested
+    // name (the public `messages` vector may have been shrunk/reordered/replaced
+    // since the cache was built).  The bounds term short-circuits before the name
+    // compare; either failure reads as not-found → nullptr.
+    if (!idx || *idx >= messages.size() || messages[*idx].name.get() != name.get()) {
         return nullptr;
     }
     return &messages[*idx];
