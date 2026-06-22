@@ -12,6 +12,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Async backend dependency-injection seam for the Rust binding** (`rust/`,
+  feature `async`): `ClientBuilder::build_async_with_backend(Box<dyn Backend +
+  Send>)` builds an `AsyncClient` over an injected `Backend` without loading
+  `libaletheia-ffi.so` — the async analogue of the sync
+  `ClientBuilder::build_with_backend` shipped in R5. The injected backend is
+  moved to the async worker thread (where the `!Send` sync `Client` lives), so it
+  carries a `+ Send` bound — the only difference from the sync seam; the
+  `Backend` trait itself stays unbounded (the box coerces, dropping the marker).
+  Both async builders now route through a single client-factory `spawn`, so
+  `build_async` is behaviour-unchanged. This closes the sync↔async injection
+  asymmetry and lets the in-flight cancellation contract be tested
+  deterministically with a `Send` gating backend (no `.so`, no sleeps): the test
+  drives a call to the point the worker is mid-FFI — past the queued-cancel guard
+  — then drops the future and asserts the worker is not wedged and a fresh call
+  still succeeds. (FEATURE_MATRIX `backend_di_seam` Rust note extended; the
+  public `MockBackend` is `Rc`-based and intentionally `!Send`, so the gating
+  double is test-local.)
 - **Fluent comparison-predicate builders for the full Agda comparison family,
   Go + Rust** (`go/`, `rust/`; new FEATURE_MATRIX `predicate_dsl` row →
   `implemented` ×4). Python (`aletheia.dsl.Signal`) and C++ (`ltl::`) already

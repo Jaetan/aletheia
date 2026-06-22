@@ -255,7 +255,34 @@ impl ClientBuilder {
     /// As [`ClientBuilder::build`], propagated from the worker thread.
     #[cfg(feature = "async")]
     pub async fn build_async(self) -> Result<AsyncClient, Error> {
-        async_client::spawn(self).await
+        async_client::spawn(move || self.build()).await
+    }
+
+    /// Build a runtime-agnostic [`AsyncClient`] over an injected [`Backend`]
+    /// (feature `async`) — the async analogue of
+    /// [`ClientBuilder::build_with_backend`], for test substitution without the
+    /// `.so`. Applies this builder's logger / minimum level.
+    ///
+    /// The injected backend is **moved to the async worker thread** (where the
+    /// `!Send` sync `Client` lives), so — unlike the sync seam, which takes a bare
+    /// `Box<dyn Backend>` — it must be `Send`. That `+ Send` bound is the only
+    /// difference from [`ClientBuilder::build_with_backend`]; the [`Backend`]
+    /// trait itself stays unbounded (the box coerces to `Box<dyn Backend>`,
+    /// dropping the marker, when handed to the worker's sync client).
+    ///
+    /// Building the client is infallible (no `.so` to load), but spawning the
+    /// worker thread and awaiting its init handshake can still fail — hence
+    /// `Result`, matching [`ClientBuilder::build_async`].
+    ///
+    /// # Errors
+    /// [`Error::InitFailed`] if the worker thread panics before reporting
+    /// readiness.
+    #[cfg(feature = "async")]
+    pub async fn build_async_with_backend(
+        self,
+        backend: Box<dyn Backend + Send>,
+    ) -> Result<AsyncClient, Error> {
+        async_client::spawn(move || Ok(self.build_with_backend(backend))).await
     }
 }
 
