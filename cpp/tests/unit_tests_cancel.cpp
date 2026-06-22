@@ -195,6 +195,24 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
         worker_ok = r.has_value();
     });
 
+    // RAII safety net for the window between spawning `worker` and joining it
+    // below: if any REQUIRE here throws while the worker is parked inside
+    // HoldingBackend::process() (blocked on proceed_), the worker stays joinable
+    // and `worker`'s std::thread destructor would call std::terminate during the
+    // unwind. This guard releases the backend (so process() returns) and joins the
+    // worker before that destructor runs, turning an assertion failure into a fast,
+    // clean failure instead of a terminate. A shared_ptr<void> holding a null
+    // pointer with a deleter is a dependency-free scope guard — the deleter runs
+    // on scope exit, including an exception unwind. Declared after `worker` so it
+    // destructs first; on the happy path the explicit release()/join() below run
+    // first, leaving this a no-op (release() is idempotent; join() is skipped once
+    // the worker is no longer joinable).
+    const auto worker_guard = std::shared_ptr<void>(nullptr, [backend, &worker](void*) {
+        backend->release();
+        if (worker.joinable())
+            worker.join();
+    });
+
     // Deterministically wait until process() has entered the FFI (replaces the
     // 2s steady_clock deadline poll). The entered_ semaphore release/acquire
     // establishes happens-before, so reading call_count() here is race-free.
