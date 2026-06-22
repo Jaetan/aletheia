@@ -312,6 +312,20 @@ fn in_flight_cancel_via_injected_backend_leaves_the_worker_usable() {
     let client = block_on(ClientBuilder::default().build_async_with_backend(Box::new(gate)))
         .expect("build async client over the injected backend");
 
+    // Release the worker even if an assertion panics while it is parked in the
+    // gate: otherwise the unwind would drop `client`, whose `Drop` joins the
+    // worker — still blocked on `proceed` — turning a clean assertion failure
+    // into a join deadlock. Declared after `client` so it drops *before* it
+    // (releasing the worker before the join); `release()` is sticky/idempotent,
+    // so co-existing with the explicit happy-path release below is harmless.
+    struct ReleaseOnUnwind<'a>(&'a GatingBackend);
+    impl Drop for ReleaseOnUnwind<'_> {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+    let _release_guard = ReleaseOnUnwind(&probe);
+
     // Poll the call once so its job is enqueued. The enqueue (`sender.send(job)`)
     // runs synchronously on the first poll, before the future parks on the reply,
     // so a no-op waker suffices — we never await a wakeup; the rendezvous is
