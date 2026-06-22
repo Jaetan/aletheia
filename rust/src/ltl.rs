@@ -58,6 +58,54 @@ fn rational_le(a: Rational, b: Rational) -> bool {
 }
 
 impl Predicate {
+    /// `signal == value` (Agda `ValuePredicate.Equals`).
+    #[must_use]
+    pub fn equals(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
+        Predicate::Equals {
+            signal: signal.into(),
+            value: value.into(),
+        }
+    }
+
+    /// `signal < value` (Agda `ValuePredicate.LessThan`).
+    #[must_use]
+    pub fn less_than(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
+        Predicate::LessThan {
+            signal: signal.into(),
+            value: value.into(),
+        }
+    }
+
+    /// `signal > value` (Agda `ValuePredicate.GreaterThan`).
+    #[must_use]
+    pub fn greater_than(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
+        Predicate::GreaterThan {
+            signal: signal.into(),
+            value: value.into(),
+        }
+    }
+
+    /// `signal <= value` (Agda `ValuePredicate.LessThanOrEqual`).
+    #[must_use]
+    pub fn less_than_or_equal(signal: impl Into<String>, value: impl Into<Rational>) -> Predicate {
+        Predicate::LessThanOrEqual {
+            signal: signal.into(),
+            value: value.into(),
+        }
+    }
+
+    /// `signal >= value` (Agda `ValuePredicate.GreaterThanOrEqual`).
+    #[must_use]
+    pub fn greater_than_or_equal(
+        signal: impl Into<String>,
+        value: impl Into<Rational>,
+    ) -> Predicate {
+        Predicate::GreaterThanOrEqual {
+            signal: signal.into(),
+            value: value.into(),
+        }
+    }
+
     /// Encode the predicate as its `{"predicate":…}` wire object.
     ///
     /// # Errors
@@ -250,5 +298,79 @@ impl Formula {
                 metric_binary("metricRelease", *bound, left, right)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Predicate;
+    use crate::types::Rational;
+
+    #[test]
+    fn equals_constructor_builds_equals_variant() {
+        assert_eq!(
+            Predicate::equals("Speed", 220),
+            Predicate::Equals {
+                signal: "Speed".to_string(),
+                value: Rational::integer(220),
+            }
+        );
+    }
+
+    #[test]
+    fn less_than_constructor_builds_less_than_variant() {
+        assert_eq!(
+            Predicate::less_than("Speed", 220),
+            Predicate::LessThan {
+                signal: "Speed".to_string(),
+                value: Rational::integer(220),
+            }
+        );
+    }
+
+    #[test]
+    fn greater_than_constructor_builds_greater_than_variant() {
+        assert_eq!(
+            Predicate::greater_than("Speed", 220),
+            Predicate::GreaterThan {
+                signal: "Speed".to_string(),
+                value: Rational::integer(220),
+            }
+        );
+    }
+
+    #[test]
+    fn less_than_or_equal_constructor_builds_lte_variant() {
+        assert_eq!(
+            Predicate::less_than_or_equal("Speed", 220),
+            Predicate::LessThanOrEqual {
+                signal: "Speed".to_string(),
+                value: Rational::integer(220),
+            }
+        );
+    }
+
+    #[test]
+    fn greater_than_or_equal_constructor_builds_gte_variant() {
+        assert_eq!(
+            Predicate::greater_than_or_equal("Speed", 220),
+            Predicate::GreaterThanOrEqual {
+                signal: "Speed".to_string(),
+                value: Rational::integer(220),
+            }
+        );
+    }
+
+    #[test]
+    fn fractional_value_via_rational() {
+        // A fractional threshold is passed as an explicit Rational (no From<f64>).
+        let half = Rational::new(1, 2).expect("1/2 is a valid rational");
+        assert_eq!(
+            Predicate::less_than("Throttle", half),
+            Predicate::LessThan {
+                signal: "Throttle".to_string(),
+                value: half,
+            }
+        );
     }
 }

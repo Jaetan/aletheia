@@ -91,9 +91,12 @@ _ = brakeResponse
 ## LTL DSL
 
 For full temporal control, build formulas directly from the LTL struct types.
-Atomic predicates (`LessThan` / `GreaterThan` / `Equals`) compose under the
-temporal operators (`Always` / `Eventually` / `Next` / `Until`); metric variants
-(`AlwaysWithin` / `EventuallyWithin`) and `Never` / `Implies` are free functions:
+Atomic predicates (`LessThan` / `GreaterThan` / `Equals` / `LessThanOrEqual` /
+`GreaterThanOrEqual`) compose under the temporal operators (`Always` /
+`Eventually` / `Next` / `Until`); metric variants (`AlwaysWithin` /
+`EventuallyWithin`) and `Never` / `Implies` are free functions. The bare structs
+can also be built fluently with `aletheia.Signal(name)`, which mirrors Python's
+`aletheia.dsl.Signal`:
 
 ```go
 // always(Speed < 220)
@@ -102,7 +105,10 @@ alwaysSafe := aletheia.Always{Inner: aletheia.Atomic{
 // eventually(BrakePressed == 1)
 brakesApply := aletheia.Eventually{Inner: aletheia.Atomic{
     Predicate: aletheia.Equals{Signal: "BrakePressed", Value: aletheia.IntRational(1)}}}
-_, _ = alwaysSafe, brakesApply
+// The fluent Signal(...) builder is exact sugar for the bare predicate struct:
+sameAsAbove := aletheia.Always{Inner: aletheia.Atomic{
+    Predicate: aletheia.Signal("Speed").LessThan(aletheia.IntRational(220))}}
+_, _, _ = alwaysSafe, brakesApply, sameAsAbove
 ```
 
 Pass formulas to `client.SetProperties`, or `CheckResult`s to `client.AddChecks`
