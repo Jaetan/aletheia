@@ -30,6 +30,7 @@ type gateBackend struct {
 	resp        string
 	entered     chan struct{} // closed on first Process entry; lets tests synchronize without polling
 	enteredOnce sync.Once
+	releaseOnce sync.Once // guards close(release) so mid-test and teardown releases can't double-close
 }
 
 func newGateBackend(resp string) *gateBackend {
@@ -38,6 +39,35 @@ func newGateBackend(resp string) *gateBackend {
 		entered: make(chan struct{}),
 		resp:    resp,
 	}
+}
+
+// releaseWorker unblocks any Process call parked on `release`. Guarded by a
+// sync.Once so the test's intentional mid-test release and the teardown
+// safety-net release (see newGatedClient) cannot double-close the channel.
+func (b *gateBackend) releaseWorker() {
+	b.releaseOnce.Do(func() { close(b.release) })
+}
+
+// newGatedClient builds a Client over a fresh gateBackend and registers a
+// teardown that releases the worker BEFORE closing the client, on ANY test exit —
+// including a failing assertion's runtime.Goexit. This is the Go analogue of the
+// Python gated_backend helper's `finally: proceed.set()`: a Process call parked
+// on `release` holds the client lock, so closing the client first would deadlock
+// on lock acquisition. A bare t.Cleanup release would not suffice — a test's own
+// `defer c.Close()` runs during Goexit BEFORE t.Cleanup — so this helper owns
+// Close (tests must not add their own `defer c.Close()`).
+func newGatedClient(t *testing.T, resp string) (*Client, *gateBackend) {
+	t.Helper()
+	backend := newGateBackend(resp)
+	c, err := NewClient(backend)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() {
+		backend.releaseWorker()
+		c.Close()
+	})
+	return c, backend
 }
 
 func (*gateBackend) backend() {}
@@ -103,25 +133,12 @@ func (b *gateBackend) Close(_ unsafe.Pointer) {}
 // an already-cancelled context returns the wrapped ctx.Err() without making
 // the FFI call. This is CANCELLATION.md §1.1 at its most direct.
 func TestClient_CancelAtEntry(t *testing.T) {
-	// Cleanup-order note: the two defers below register the channel-close
-	// FIRST and the client-close SECOND, so LIFO gives client-close first
-	// (preventing it from using the release channel afterward) followed by
-	// channel-close.  Splitting (rather than combining into one deferred
-	// closure) keeps the channel-close registered even if NewClient fails
-	// before the client-close defer can be set up.
-	backend := newGateBackend(`{"status":"success"}`)
-	defer close(backend.release)
-
-	c, err := NewClient(backend)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	defer c.Close()
+	c, backend := newGatedClient(t, `{"status":"success"}`)
 
 	cctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel BEFORE the call
 
-	err = c.SetProperties(cctx, nil)
+	err := c.SetProperties(cctx, nil)
 	if err == nil {
 		t.Fatal("expected cancellation error, got nil")
 	}
@@ -146,12 +163,7 @@ func TestClient_CancelAtEntry(t *testing.T) {
 // at a post-lock check. This test specifically guards against regressing to
 // that behavior.
 func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
-	backend := newGateBackend(`{"status":"success"}`)
-	c, err := NewClient(backend)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	defer c.Close()
+	c, backend := newGatedClient(t, `{"status":"success"}`)
 
 	// Goroutine A: holds the lock by sitting inside backend.Process, which
 	// blocks on `release` until the test fires it. SetProperties takes the
@@ -205,7 +217,7 @@ func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 	}
 
 	// Release A and let it complete.
-	close(backend.release)
+	backend.releaseWorker()
 	select {
 	case err := <-aDone:
 		if err != nil {
@@ -346,12 +358,7 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 // clause: an FFI call already in progress runs to completion when ctx fires
 // mid-call. The next call sees the cancellation.
 func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
-	backend := newGateBackend(`{"status":"success"}`)
-	c, err := NewClient(backend)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	defer c.Close()
+	c, backend := newGatedClient(t, `{"status":"success"}`)
 
 	cctx, cancel := context.WithCancel(context.Background())
 
@@ -384,7 +391,7 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 
 	// Release. The call returns its real result with nil error (no propagation
 	// of the cancellation; the in-flight call ran to completion).
-	close(backend.release)
+	backend.releaseWorker()
 
 	select {
 	case err := <-done:
@@ -396,7 +403,7 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 	}
 
 	// Subsequent call honors the cancellation (cancelled ctx is sticky).
-	err = c.SetProperties(cctx, nil)
+	err := c.SetProperties(cctx, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled on next call, got %v", err)
 	}
