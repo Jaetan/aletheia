@@ -72,7 +72,9 @@ func CheckSignal(name string) CheckSignalBuilder {
 	return CheckSignalBuilder{name: name}
 }
 
-// NeverExceeds produces G(signal < value).
+// NeverExceeds produces G(signal <= value): the signal never goes above value,
+// and value itself is allowed (inclusive — matches the Agda core's
+// LessThanOrEqual and the dual NeverBelow's >=; "never exceeds 220" lets 220 pass).
 // Returns an error if value is NaN, infinite, or overflows int64 when scaled
 // to a rational (matching the Python and C++ bindings, which raise/throw rather
 // than silently clamping a malformed value to 0/1).
@@ -81,10 +83,10 @@ func (b CheckSignalBuilder) NeverExceeds(value PhysicalValue) (CheckResult, erro
 	if err != nil {
 		return CheckResult{}, err
 	}
-	f := Always{Inner: Atomic{Predicate: LessThan{Signal: SignalName(b.name), Value: r}}}
+	f := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: SignalName(b.name), Value: r}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		conditionDesc: fmt.Sprintf("< %g", float64(value)),
+		conditionDesc: fmt.Sprintf("<= %g", float64(value)),
 	}, nil
 }
 

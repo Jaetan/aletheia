@@ -1,0 +1,62 @@
+Confirmed: `ExtractSignalsBin` (782-835) has no `KeepAlive`, every sibling does, and no `SetFinalizer` exists. The C++ enrichment renders observed value via `{:g}` on `to_double()`. All findings verified against source. The data is sound; the downgrade reasoning on the Go finding is correct (cgo pointer-passing contract makes it a convention gap not a UAF). Writing the report now.
+
+# Aletheia Binding Review — ROUND 2 (gap-closer) Final Report
+
+## 1. Headline — did the dedicated SAFETY sweep change the round-1 "0 unsafe" verdict?
+
+**Partially.** The dedicated safety re-sweep found **2 PROVEN C++ undefined-behavior defects** that the round-1 "0 unsafe" verdict missed — both real UB sinks, both **medium** (neither is reachable from the production parse path today, which is why they land at medium not critical). It also **refuted** the one candidate use-after-free (Go), downgrading it to a style/convention gap.
+
+PROVEN safety/UB defects: **2** (both C++, both UB, both medium). PROVEN race/deadlock/UAF: **0**.
+
+The worst two:
+
+- **`cpp/include/aletheia/check.hpp:141-152, 220-235`** — signed-integer-overflow UB. `within()` casts ms→µs via `duration_cast<microseconds>` (`count*1000`, int64) behind only a `< 0` guard; large-positive `within_ms` overflows. **Trigger path:** untrusted YAML → `yaml.cpp:124` (`within_ms`) / `:147` / `:169-181` (`when`/`then`) → `get_int` (`yaml.cpp:52-61`, no upper cap) → `.within(ms)`. A YAML `within_ms: 9300000000000000` passes the `<0` guard, then `9.3e15 * 1000 ≈ 9.3e18 > INT64_MAX` = UB. Go (`check.go:200`) and Rust (`check.rs:46`, `checked_mul`) both guard this; C++ does not.
+- **`cpp/src/dbc.cpp:89-100, 106-136`** — out-of-bounds read UB via stale cache. `LazyIndex` caches name→positional indices once (`ensure` is a permanent no-op after first call, no `invalidate()` anywhere in `cpp/`), then `return &signals[*idx];` via unchecked `operator[]`. The indexed members are **public mutable** vectors (`dbc.hpp:113`, `:371`). **Trigger:** `d.message_by_id(idA)` populates cache → `d.messages.erase(...)` shrinks the vector → `d.message_by_id(idB)` returns stale index → `&messages[idx]` with `idx >= size()` = OOB UB. Peers (Rust/Python) linear-scan and have no stale-index hazard.
+
+## 2. Python deep-probe — under-reviewed files + Python's own parity gaps
+
+The Python decode/normalize path is the **most permissive of the four bindings** — it threads several unvalidated wire values that Go (and partly C++) reject. Five confirmed findings, all reachable via the **public, documented `MockBackend`** replaying canned bytes (no real `.so` needed) through `parse_dbc` / `format_dbc` / `end_stream` / `extract`:
+
+- DBC message decode skips CAN-id/DLC validation; signal decode skips startBit/bit-length — yet the **same file** validates `varType` and value-entry fields, so the "TypedDict can't validate" defense fails. (`dbc_normalize.py:489-523, 114-121`)
+- Multiplexed-signal decode accepts empty *and* missing `multiplex_values` (Go rejects both; C++ rejects missing only). (`dbc_normalize.py:114-121`)
+- `end_stream` warning decode uses `cast("int", ...)` (a runtime no-op) on `property_index` instead of the `validate_integer_field` helper it uses for the **identical field** elsewhere — a `1.5` wire value becomes a lying typed int. (`_streaming.py:550-558`) — **medium**, the explicitly-forbidden typed-cast-lie pattern on a value-bearing field.
+- `parse_extraction_buffer` silently discards the final offset — no trailing-byte rejection, where Go treats trailing bytes as provable Agda writer/reader drift. (`_client_bin.py:171-187`)
+
+These are conformance divergences, not UB (over-read is impossible — segments consume only what the header counts).
+
+## 3. Concurrency — proven race/deadlock/cancellation bug
+
+**None.** The dedicated concurrency sweep produced **zero** proven races, deadlocks, or cancellation defects. The candidate Go FFI use-after-free (the only concurrency-adjacent safety claim) was **refuted** — see §5 low findings.
+
+## 4. Consensus-wrong — behavior all four bindings get wrong vs the Agda core / PROTOCOL
+
+Two confirmed consensus-wrong findings, both flagged as **direction calls for the maintainer, NOT auto-fixed** (per the cross-binding "consistent-but-wrong-by-principle → fix ALL in lockstep" rule):
+
+- **`never_exceeds(v)` compiles to strict `G(s < v)` in all four bindings**, flagging the in-bound value `s == v` as a violation. Proven by **internal contradiction**: the same DSL defines `exceeds` as strict `>` (`checks.py:246-248, 282-284`), so `never_exceeds` must be `G(s <= v)`. The dual `never_below` uses the correct inclusive boundary (`>=`), making `never_exceeds` the lone outlier. This is the one finding promoted to **high** — it is a silent correctness defect locked in by tests (`rust/src/check.rs:469`) and leaked into docs (`TUTORIAL.md:219`).
+- **Observed signal value in `enriched_reason` rendered via lossy `%g`** (`1234.567 → 1234.57`; `1234567 → 1.23457e+06`) while the predicate side of the **same string** uses the exact Agda kernel `formatℚ` (`aletheia_format_rational`). Confirmed in Python/Go/C++. Rust is a **separate** divergence (internally consistent but uses its own `rat_str` → `1/2` not formatℚ's `0.5`). Go is additionally **structurally** lossy (`PhysicalValue = float64`, collapsed at `json.go:1131`). **low** — unpinned (tests only exercise integer-valued observed values where `%g` and formatℚ coincide).
+
+## 5. Findings by severity
+
+### HIGH (1)
+
+- **`never_exceeds` is strict `G(s < v)`, flags in-bound `s == v` as violation** — cross (py/go/cpp/rust). `python/aletheia/checks.py:150-166`; `go/aletheia/check.go:84`; `cpp/include/aletheia/check.hpp:165`; `rust/src/check.rs:142`. **Proof:** internal contradiction — same DSL's `exceeds` = strict `>` (`checks.py:246-248`), so `never_exceeds` must negate to `G(s <= v)`; the dual `never_below` correctly uses inclusive `>=`. Pinned wrong by `rust/src/check.rs:469` and `TUTORIAL.md:219`. **Disposition:** consistent-wrong → fix all four in lockstep. **Fix:** swap predicate strict→inclusive in all four (`less_than`→`less_than_or_equal` / `LessThanOrEqual` / `ltl::at_most`); retarget the pinning tests (do not keep `< 120`); add a boundary test asserting `s == v` does not violate; fix `TUTORIAL.md:219`.
+
+### MEDIUM (3)
+
+- **`within()` ms→µs overflow → signed-int-overflow UB on untrusted YAML** — cpp. `cpp/include/aletheia/check.hpp:141-152, 220-235`. **Proof:** only a `<0` guard before `duration_cast<microseconds>` (`count*1000`, int64); reachable via `yaml.cpp:124/147/169-181` → uncapped `get_int`. **Disposition:** diverges — Go (`check.go:200`) + Rust (`check.rs:46`) guard, C++ doesn't. **Fix:** guard the multiply before `duration_cast` in both `within` sites, mirroring Go/Rust; add unit + YAML oversize tests.
+- **`LazyIndex` stale index → unchecked `vector::operator[]` OOB read UB** — cpp. `cpp/src/dbc.cpp:89-100, 106-136`. **Proof:** cache is permanent after first build, no `invalidate()`; public mutable vectors (`dbc.hpp:113, :371`); shrink-after-query → `&messages[*idx]` with `idx >= size()`. **Disposition:** single-binding (peers linear-scan). **Fix:** make vectors private with cache-invalidating accessors, or drop the cache and linear-scan like the peers, or add a defensive `if (*idx >= size()) return nullptr;`; add a shrink-and-requery test.
+- **`end_stream` warning `property_index` decoded via no-op `cast("int", ...)`** — python. `python/aletheia/client/_streaming.py:550-558`. **Proof:** `typing.cast` is a runtime no-op; the identical `property_index` field uses `validate_integer_field` at `_response_parsers.py:233, :329`; Go raises (`json.go:1284-1286`). A `1.5` wire value becomes a corrupted typed int. **Disposition:** diverges. **Fix:** replace the bare cast with `validate_integer_field("property_index", ...)`; type-check `kind`/`detail` (or coerce to match Go's `getString` leniency).
+
+### LOW (5)
+
+- **DBC message/signal decode skips id/DLC/startBit/length validation** — python. `python/aletheia/client/_helpers/dbc_normalize.py:489-523, 114-121`. **Proof:** no id/dlc check on message build, no startBit/length check on signal; same file validates varType (`145-148`) + value-entry (`172-174`); Go (`json.go:1931-1965, 2038-2051`) + C++ (`json_parse.cpp:365-390`) reject. Reachable via public MockBackend. **Disposition:** diverges. **Fix:** add a `_normalize_message` helper + signal startBit/length checks raising `ProtocolError`; add the 512-65535 startBit / 65-255 length band to C++ for lockstep on Go's stricter direction.
+- **Multiplexed-signal decode accepts empty + missing `multiplex_values`** — python. `dbc_normalize.py:114-121`. **Proof:** never inspects `multiplexor`/`multiplex_values`; Go rejects both (`json.go:2128-2131`), C++ rejects missing only (`json_parse.cpp:315-323`). **Disposition:** diverges (3-way split). **Fix:** require present non-empty list when `multiplexor` present; add empty-array rejection to C++; converge on Go.
+- **`parse_extraction_buffer` ignores trailing bytes** — python. `python/aletheia/client/_client_bin.py:171-187`. **Proof:** final offset discarded into `_`, no `off != len(buf)` guard; Go rejects trailing bytes as drift (`json.go:1163-1165`); C++ guards only `<` not `>` (`client.cpp:298`). **Disposition:** diverges. **Fix:** keep the offset, raise `ProtocolError` on trailing bytes; add `> expected_size` rejection to C++ for lockstep.
+- **Observed value in `enriched_reason` rendered via lossy `%g`** — cross (py/go/cpp wrong; rust separate divergence). `python/_enrichment.py:410`; `go/enrich.go:263` + `formatValue:152`; `cpp/client.cpp:714`; rust `enrich.rs:218` (counter). **Proof:** predicate side uses exact `aletheia_format_rational`, observed side uses `%g` (`Fraction(1234567,1000):g → 1234.57`; `:g` scientific notation); Go additionally structurally lossy (`PhysicalValue = float64`, `json.go:1131`). Unpinned (tests only use integer-valued observed). **Disposition:** consistent-wrong → maintainer direction call. **Fix:** route observed render through `formatℚ` in py/go/cpp (Go needs to carry exact num/den through decode — larger fix); fold Rust's `rat_str`-vs-`formatℚ` divergence into the same decision; add a `1234.567/1234567` cross-binding test.
+- **`ExtractSignalsBin` omits the defensive `runtime.KeepAlive(data)` its siblings use** — go. `go/aletheia/ffi.go:782-835` (verified: no KeepAlive in range; siblings at `:505/632/689-692/763-767`; no `SetFinalizer` anywhere). **Proof DOWNGRADED — REFUTED as UAF:** the candidate use-after-free does not hold. cgo's pointer-passing contract keeps Go memory referenced by a live typed-pointer **argument** valid (not freed, not moved) for the call's duration; `dataPtr` is a genuine `*C.uint8_t` passed as a live arg, so the backing array cannot be marked dead before `call_extract_signals_bin` returns, and no `SetFinalizer` exists for `KeepAlive` to be load-bearing against. The siblings' KeepAlive comments say "Defensive against future inliner / GC" — convention, not a UAF guard. **Disposition:** single-binding (KeepAlive has no cross-binding analogue). **Fix:** add `runtime.KeepAlive(data)` after the C call returns to restore file-wide convention consistency — closes a style gap, not a live hazard.
+
+---
+
+Relevant files: `/home/nicolas/dev/agda/aletheia/cpp/include/aletheia/check.hpp`, `/home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp`, `/home/nicolas/dev/agda/aletheia/python/aletheia/checks.py`, `/home/nicolas/dev/agda/aletheia/python/aletheia/client/_helpers/dbc_normalize.py`, `/home/nicolas/dev/agda/aletheia/python/aletheia/client/_streaming.py`, `/home/nicolas/dev/agda/aletheia/python/aletheia/client/_client_bin.py`, `/home/nicolas/dev/agda/aletheia/python/aletheia/client/_enrichment.py`, `/home/nicolas/dev/agda/aletheia/go/aletheia/check.go`, `/home/nicolas/dev/agda/aletheia/go/aletheia/enrich.go`, `/home/nicolas/dev/agda/aletheia/go/aletheia/ffi.go`, `/home/nicolas/dev/agda/aletheia/rust/src/check.rs`, `/home/nicolas/dev/agda/aletheia/cpp/src/client.cpp`.
+
+Round-2 verified totals: **9 confirmed** (critical 0, high 1, medium 3, low 5). One candidate UAF refuted/downgraded to low. Net safety change vs round 1: **+2 proven C++ UB defects**; **0 proven races/deadlocks/UAF**.

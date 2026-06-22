@@ -135,15 +135,18 @@ pub struct Signal {
 }
 
 impl Signal {
-    /// `G(signal < value)` — the signal never reaches `value`.
+    /// `G(signal <= value)` — the signal never goes above `value`; `value`
+    /// itself is allowed (inclusive — matches the Agda core's `LessThanOrEqual`
+    /// and the dual [`never_below`](Self::never_below) `>=`; "never exceeds 220"
+    /// lets 220 pass).
     #[must_use]
     pub fn never_exceeds(self, value: impl Into<Rational>) -> Check {
         let v = value.into();
-        let f = always_pred(Predicate::LessThan {
+        let f = always_pred(Predicate::LessThanOrEqual {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, format!("< {}", rat_str(v)))
+        Check::new(f, self.name, format!("<= {}", rat_str(v)))
     }
 
     /// `G(signal >= value)` — the signal never drops below `value`.
@@ -467,17 +470,19 @@ mod tests {
     }
 
     #[test]
-    fn never_exceeds_is_always_less_than() {
+    fn never_exceeds_is_always_less_than_or_equal() {
+        // Inclusive: never_exceeds(v) compiles to G(s <= v), so s == v passes
+        // (matches Agda's LessThanOrEqual and the dual never_below's >=).
         let c = signal("Speed").never_exceeds(120);
         assert_eq!(
             *c.formula(),
-            Formula::Always(Box::new(atom(Predicate::LessThan {
+            Formula::Always(Box::new(atom(Predicate::LessThanOrEqual {
                 signal: "Speed".to_string(),
                 value: r(120),
             })))
         );
         assert_eq!(c.signal_name(), "Speed");
-        assert_eq!(c.condition_desc(), "< 120");
+        assert_eq!(c.condition_desc(), "<= 120");
     }
 
     #[test]
@@ -576,7 +581,7 @@ mod tests {
     #[test]
     fn fractional_value_via_rational() {
         let c = signal("Ratio").never_exceeds(Rational::new(1, 4).expect("rational"));
-        assert_eq!(c.condition_desc(), "< 1/4");
+        assert_eq!(c.condition_desc(), "<= 1/4");
     }
 
     #[test]

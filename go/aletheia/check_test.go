@@ -30,7 +30,7 @@ func TestCheckSignalNeverExceeds(t *testing.T) {
 		t.Fatalf("NeverExceeds: %v", err)
 	}
 	got := FormatFormula(r.Formula())
-	want := "always(Speed < 220)"
+	want := "always(Speed <= 220)"
 	if got != want {
 		t.Errorf("NeverExceeds: got %q, want %q", got, want)
 	}
@@ -188,8 +188,8 @@ func TestCheckMetadataNamedSeverity(t *testing.T) {
 	if r.SignalName() != "Speed" {
 		t.Errorf("SignalName: got %q, want %q", r.SignalName(), "Speed")
 	}
-	if r.ConditionDesc() != "< 220" {
-		t.Errorf("ConditionDesc: got %q, want %q", r.ConditionDesc(), "< 220")
+	if r.ConditionDesc() != "<= 220" {
+		t.Errorf("ConditionDesc: got %q, want %q", r.ConditionDesc(), "<= 220")
 	}
 }
 
@@ -282,7 +282,7 @@ func TestCheckBuilderRejectsNonFiniteValue(t *testing.T) {
 
 func TestCheckNeverExceedsMatchesManual(t *testing.T) {
 	checkF := mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula()
-	manualF := Always{Inner: Atomic{Predicate: LessThan{Signal: "Speed", Value: RationalFromFloat(220)}}}
+	manualF := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: "Speed", Value: RationalFromFloat(220)}}}
 	if FormatFormula(checkF) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkF), FormatFormula(manualF))

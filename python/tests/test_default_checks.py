@@ -151,12 +151,35 @@ class TestAddChecks:
             assert violation["status"] == "fails"
             enrichment = violation.get("enrichment")
             assert enrichment is not None
-            assert enrichment["formula_desc"] == "always(Speed < 5)"
+            assert enrichment["formula_desc"] == "always(Speed <= 5)"
             signals = enrichment["signals"]
             assert "Speed" in signals
             speed = signals["Speed"]
             assert speed is not None
             assert math.isclose(speed, 10.0)
+            client.end_stream()
+
+    def test_never_exceeds_boundary_is_inclusive(self) -> None:
+        """never_exceeds(v) is inclusive: Speed == v does NOT violate; Speed > v does.
+
+        Pins the Agda-grounded boundary semantics end-to-end (the core evaluates
+        LessThanOrEqual: x <= v, so x == v holds).
+        """
+        default = signal("Speed").never_exceeds(10).named("Speed limit")
+        with AletheiaClient(default_checks=[default]) as client:
+            client.parse_dbc(SIMPLE_DBC)
+            client.add_checks([])
+            client.start_stream()
+            # Speed = 100 raw * 0.1 = 10.0 kph == threshold → inclusive, no violation.
+            at_boundary = client.send_frame(0, 0x100, DLCCode(8), _make_frame(100, 1200))
+            assert not any(r.get("status") == "fails" for r in at_boundary.get("results", [])), (
+                f"Speed == 10 must NOT violate never_exceeds(10): {at_boundary}"
+            )
+            # Speed = 110 raw * 0.1 = 11.0 kph > threshold → violation.
+            above = client.send_frame(1000, 0x100, DLCCode(8), _make_frame(110, 1200))
+            assert any(r.get("status") == "fails" for r in above.get("results", [])), (
+                f"Speed == 11 must violate never_exceeds(10): {above}"
+            )
             client.end_stream()
 
 
