@@ -14,11 +14,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
-#include <semaphore>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -90,14 +90,17 @@ public:
 // test that it has entered the FFI (entered_), then blocks until the test
 // releases it (proceed_). This is a rendezvous — fully deterministic, no
 // sleeps or polling — mirroring Go's gateBackend (entered/release channels)
-// and Python's gated_backend (started/proceed events). The release/acquire
-// pair establishes happens-before, so the main thread reading call_count()
-// after wait_until_entered() is race-free.
+// and Python's gated_backend (started/proceed events). Two std::atomic_flag
+// give idempotent set/wait (like a threading.Event): set/notify and wait are
+// safe to call repeatedly, so even a set_properties that issued multiple
+// process() calls could never violate a semaphore's release-past-max
+// precondition. The release/acquire memory ordering establishes happens-before,
+// so the main thread reading call_count() after wait_until_entered() is race-free.
 class HoldingBackend : public StubStreamingBackend {
     static inline char sentinel = 0;
     std::size_t calls_ = 0;
-    std::binary_semaphore entered_{0}; // released when process() enters
-    std::binary_semaphore proceed_{0}; // acquired before process() returns
+    std::atomic_flag entered_; // set when process() enters the FFI
+    std::atomic_flag proceed_; // set by the test to release the in-flight call
 
 public:
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
@@ -106,14 +109,18 @@ public:
     void close(void* /*state*/) override {}
 
     // Blocks until process() has entered the FFI (deterministic rendezvous).
-    void wait_until_entered() { entered_.acquire(); }
+    void wait_until_entered() { entered_.wait(false, std::memory_order_acquire); }
     // Unblocks the in-flight process() call.
-    void release() { proceed_.release(); }
+    void release() {
+        proceed_.test_and_set(std::memory_order_release);
+        proceed_.notify_one();
+    }
 
     auto process(void* /*state*/, std::string_view /*input*/) -> std::string override {
         ++calls_;
-        entered_.release();
-        proceed_.acquire();
+        entered_.test_and_set(std::memory_order_release);
+        entered_.notify_one();
+        proceed_.wait(false, std::memory_order_acquire);
         return R"({"status":"success"})";
     }
 };
