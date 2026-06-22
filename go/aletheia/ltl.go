@@ -74,6 +74,55 @@ func (Between) predicate()            {}
 func (ChangedBy) predicate()          {}
 func (StableWithin) predicate()       {}
 
+// SignalBuilder begins a fluent, formula-level comparison-predicate chain.
+// Construct one with [Signal], then call a comparison method to obtain a
+// [Predicate] for use inside [Always], [Eventually], [Atomic], etc.
+//
+// It mirrors Python's `aletheia.dsl.Signal` and C++'s `ltl::` comparison
+// helpers. It is distinct from [CheckSignal], the higher-level check-DSL that
+// produces named [CheckResult] checks.
+type SignalBuilder struct {
+	name SignalName
+}
+
+// Signal begins a fluent comparison-predicate chain, e.g.
+//
+//	aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
+//
+// It mirrors Python's `aletheia.dsl.Signal`; the returned [Predicate] is
+// suitable for [Always], [Eventually], wrapping in [Atomic], etc. This is the
+// formula-level predicate DSL — distinct from [CheckSignal], the check-DSL.
+func Signal(name string) SignalBuilder { return SignalBuilder{name: SignalName(name)} }
+
+// Equals returns an [Equals] predicate testing whether the signal's value
+// equals v exactly. The value is already a [Rational], so no error is possible.
+func (s SignalBuilder) Equals(v Rational) Predicate { return Equals{Signal: s.name, Value: v} }
+
+// LessThan returns a [LessThan] predicate testing whether the signal's value is
+// strictly less than v. The value is already a [Rational], so no error is possible.
+func (s SignalBuilder) LessThan(v Rational) Predicate { return LessThan{Signal: s.name, Value: v} }
+
+// GreaterThan returns a [GreaterThan] predicate testing whether the signal's
+// value is strictly greater than v. The value is already a [Rational], so no
+// error is possible.
+func (s SignalBuilder) GreaterThan(v Rational) Predicate {
+	return GreaterThan{Signal: s.name, Value: v}
+}
+
+// LessThanOrEqual returns a [LessThanOrEqual] predicate testing whether the
+// signal's value is at most v. The value is already a [Rational], so no error
+// is possible.
+func (s SignalBuilder) LessThanOrEqual(v Rational) Predicate {
+	return LessThanOrEqual{Signal: s.name, Value: v}
+}
+
+// GreaterThanOrEqual returns a [GreaterThanOrEqual] predicate testing whether
+// the signal's value is at least v. The value is already a [Rational], so no
+// error is possible.
+func (s SignalBuilder) GreaterThanOrEqual(v Rational) Predicate {
+	return GreaterThanOrEqual{Signal: s.name, Value: v}
+}
+
 // Formula is an LTL formula over signal predicates.
 // Sealed: only types in this package may implement Formula.
 type Formula interface {

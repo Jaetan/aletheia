@@ -12,6 +12,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Fluent comparison-predicate builders for the full Agda comparison family,
+  Go + Rust** (`go/`, `rust/`; new FEATURE_MATRIX `predicate_dsl` row →
+  `implemented` ×4). Python (`aletheia.dsl.Signal`) and C++ (`ltl::`) already
+  exposed the full `ValuePredicate` comparison family —
+  `equals` / `less_than` / `greater_than` and the at-or-below / at-or-above pair
+  (`src/Aletheia/LTL/SignalPredicate/Types.agda`) — as a fluent surface; Go and
+  Rust did not, so the cross-binding contract was never pinned. Now:
+  - **Go** — `aletheia.Signal("X").LessThanOrEqual(v)` etc. via a new
+    `SignalBuilder` (`Signal(name) SignalBuilder` + the five comparison methods),
+    the formula-level predicate DSL, distinct from the higher-level check-DSL
+    (`CheckSignal`).
+  - **Rust** — `Predicate::less_than_or_equal(sig, v)` etc., five `#[must_use]`
+    associated constructors taking `impl Into<String>` / `impl Into<Rational>`
+    (mirroring C++'s free-function shape; Go/Python mirror each other's method
+    chain — same capability, native idiom per binding).
+
+  Each is sugar over the existing predicate structs/variants (a struct-equality
+  test in each binding guards against a method being wired to the wrong
+  constructor), so the wire shape and `FormatFormula` rendering are unchanged.
+  The matrix row pins the `less_than` representative; the gate fails on its
+  silent removal in any binding. Note: the ≤/≥ builders are
+  `less_than_or_equal` / `greater_than_or_equal` in Python, Go, and Rust, but
+  `at_most` / `at_least` in C++ — the one remaining builder-verb divergence
+  (the underlying `LessThanOrEqual` / `GreaterThanOrEqual` variant is uniform
+  across all four). A follow-up PR renames the C++ builders to match the Agda
+  interface (BREAKING).
 - **Lazy batch frame send across Go, C++, and Rust** (`go/`, `cpp/`, `rust/`;
   FEATURE_MATRIX `lazy_streaming_batch` → `implemented` ×4, joining Python — and
   emptying the matrix of its last `not_applicable` cell). A streaming variant of

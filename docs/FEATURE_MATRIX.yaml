@@ -320,6 +320,26 @@ features:
       go:     { status: implemented, entry: Client.SetProperties }
       rust: { status: implemented, entry: "Client::set_properties" }
 
+  - id: predicate_dsl
+    name: Fluent comparison-predicate DSL
+    description: |
+      Fluent builders for the Agda ValuePredicate comparison family —
+      equals, less_than, greater_than, and the at-or-below / at-or-above
+      pair — matching LTL/SignalPredicate/Types.agda.  Surfaces:
+      Signal("X").less_than(v) (Python) / ltl::less_than(name, v) (C++) /
+      Signal("X").LessThan(v) (Go) / Predicate::less_than(sig, v) (Rust).
+      The ≤/≥ builders are spelled less_than_or_equal / greater_than_or_equal
+      in Python, Go, and Rust, but at_most / at_least in C++ (the underlying
+      Predicate variant is LessThanOrEqual / GreaterThanOrEqual in every
+      binding; a follow-up PR renames the C++ builders to match — BREAKING).
+      Each entry below pins the `less_than` representative (uniform across all
+      four); the gate catches its silent removal.
+    bindings:
+      python: { status: implemented, entry: aletheia.Signal.less_than }
+      cpp:    { status: implemented, entry: "aletheia/ltl.hpp#less_than" }
+      go:     { status: implemented, entry: SignalBuilder.LessThan }
+      rust: { status: implemented, entry: "Predicate::less_than" }
+
   - id: streaming_ltl
     name: Streaming LTL monitor
     description: start_stream → send_frame (many) → end_stream; incremental verdict updates per frame.
