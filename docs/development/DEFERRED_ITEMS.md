@@ -487,6 +487,43 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ---
 
+## I. Portability / cross-architecture
+
+### I.1 — Go/C++ float→int overflow guard assumes amd64 conversion semantics
+
+- **Where** — `go/aletheia/types.go` (`FloatToRational` round-trip guard + its
+  in-code amd64 `NB`); `cpp/src/types.cpp:27-29` (the `from_double` post-cast
+  equality check it mirrors).
+- **Origin** — r25 B3 (P0 #5), 2026-06-24 — advisor-flagged while fixing the
+  amd64 silent-wrap.
+- **Today** — both guards reject an int64-overflowing integral float (e.g. 2^63)
+  by casting to int64 and comparing the round-trip back to double. Correct on
+  amd64, where an out-of-range float→int conversion **wraps** to MinInt64 (so the
+  round-trip fails and 2^63 is rejected). On arm64 the same conversion
+  **saturates** to MaxInt64, and `double(MaxInt64) == 2^63` is true, so the guard
+  would **falsely accept** 2^63 — re-introducing the silent wrong-value-with-no-
+  error bug B3 fixed. Rust/Python use range/scaling checks that don't depend on
+  conversion semantics. CI builds + tests amd64 only.
+- **Done looks like** — Go + C++ switch to an arch-independent bound check
+  (`v >= -2^63 && v < 2^63`, both exact float64 literals) that never performs an
+  out-of-range cast, so 2^63 is rejected on every architecture; Rust/Python
+  re-verified for the same property.
+- **Cost / risk** — **Low** (a few lines × 2 bindings + tests). Risk: it makes
+  Go/C++ use a different mechanism than the round-trip mirror they share today —
+  a deliberate cross-binding mechanism change, so land it as one lockstep edit.
+- **Blockers / deps** — **gated on a prior, larger question**: Aletheia runs on
+  non-amd64 only if the *entire* stack cross-compiles to that target — the
+  GHC/MAlonzo `.so`, the C++ binding, and the Rust binding all need a
+  known-complete cross-toolchain (GHC cross-compiler + clang + rustc) for the
+  chosen architecture. Until a concrete embedded target with verified cross
+  compilers for all three is selected, there is no architecture on which this
+  guard can be wrong, so the fix is not actionable.
+- **Verdict** — `HOLD` (target-gated). Promote to `DO` only once a concrete
+  non-amd64 embedded target with a verified full cross-toolchain is chosen;
+  revisit alongside that cross-compilation work.
+
+---
+
 ## Re-examination order (proposed)
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
@@ -497,6 +534,7 @@ Cheapest / highest-confidence first, so early wins de-risk the harder items:
 3. **E.2** (`WellFormedTextDBCAgg`) — investigate correctness relevance first.
 4. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
 5. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
+6. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
 
 **G.1** was resolved in the post-merge cleanup PR (2026-06-10) — a docs-only
 change independent of the Agda backlog above; see its ✅ DONE verdict.

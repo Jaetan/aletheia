@@ -131,6 +131,15 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "build_error_response",
         ),
+        # Strict-contract guard for the end-of-stream warning parser —
+        # exercised directly because end_stream's real-FFI tests only ever
+        # see well-formed kernel output; this catches the validate-not-cast
+        # of property_index (r25 R2 #6) on malformed/missing wire values.
+        (
+            "test_response_parsers.py",
+            "aletheia.client._response_parsers",
+            "parse_complete_warnings",
+        ),
         # Pre-__enter__ send-frame stub — a defensive raise shadowed by
         # send_frame's own _state guard, so a direct call is the only way to
         # exercise (and mutation-test) it.

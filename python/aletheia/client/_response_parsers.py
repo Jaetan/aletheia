@@ -19,6 +19,7 @@ from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import ProtocolError
 from aletheia.types import (
     AckResponse,
+    CompleteWarning,
     ErrorResponse,
     ParsedDBCResponse,
     PropertyBatchResponse,
@@ -343,3 +344,32 @@ def parse_finalization_results(
             enrich(result_entry)
         entries.append(result_entry)
     return entries
+
+
+def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
+    """Parse the ``warnings`` list of an end-of-stream ``complete`` response.
+
+    Mirrors :func:`parse_finalization_results`' defensive parsing: the FFI
+    JSON is untrusted, so ``property_index`` is run through
+    :func:`validate_integer_field` (which accepts the plain-int and
+    ``{"numerator": N, "denominator": 1}`` wire shapes and rejects a
+    non-integer, non-unit-denominator, or wrong-typed value) rather than
+    blindly ``cast``. Go's ``parseNumberAsInt64`` raises on the same inputs.
+    A missing ``property_index`` is a protocol violation and is rejected
+    rather than silently defaulted.
+    """
+    raw_warnings = cast("list[dict[str, object]]", response.get("warnings", []))
+    warnings: list[CompleteWarning] = []
+    for raw in raw_warnings:
+        raw_prop_index = raw.get("property_index")
+        if raw_prop_index is None:
+            msg = "Missing 'property_index' in end-of-stream warning entry"
+            raise ProtocolError(msg)
+        warnings.append(
+            {
+                "kind": cast("str", raw.get("kind", "")),
+                "property_index": validate_integer_field("property_index", raw_prop_index),
+                "detail": cast("str", raw.get("detail", "")),
+            }
+        )
+    return warnings

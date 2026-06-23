@@ -81,8 +81,25 @@ func FloatToRational(v float64) (Rational, error) {
 	if math.IsInf(v, 0) || math.IsNaN(v) {
 		return Rational{}, validationError(fmt.Sprintf("cannot convert %v to rational", v))
 	}
-	if v == math.Trunc(v) && v >= math.MinInt64 && v <= math.MaxInt64 {
-		return Rational{Numerator: int64(v), Denominator: 1}, nil
+	if v == math.Trunc(v) {
+		// Integer fast path with a round-trip guard. A naive bound like
+		// `v <= math.MaxInt64` is wrong: math.MaxInt64 (2^63-1) is not
+		// exactly representable as float64 and rounds UP to 2^63, so
+		// v == 2^63 would pass the bound and then int64(2^63) wraps to
+		// MinInt64 — a silently-wrong value returned with err == nil.
+		// Casting to int64 and back and comparing rejects exactly the
+		// values int64 cannot represent while still accepting MinInt64
+		// (-2^63, which round-trips). Mirrors cpp/src/types.cpp:27-29.
+		// NB: relies on amd64 conversion semantics (int64 of an
+		// out-of-range float wraps to MinInt64, so the round-trip fails);
+		// CI builds and tests amd64 only. arm64 saturates to MaxInt64 and
+		// would falsely accept 2^63 — target-gated follow-up, see
+		// docs/development/DEFERRED_ITEMS.md I.1.
+		if n := int64(v); float64(n) == v {
+			return Rational{Numerator: n, Denominator: 1}, nil
+		}
+		// Integral but not int64-representable (e.g. 2^63): fall through to
+		// the scaling path, whose overflow guard returns an error.
 	}
 	n, d, err := floatToRational(v)
 	if err != nil {
