@@ -523,7 +523,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `parse_finalization_results`) and runs `property_index` through
   `validate_integer_field` — the same validator used for the identical field in
   finalization results — raising `ProtocolError` on a bad or missing value, in
-  lockstep with Go's `parseNumberAsInt64`. From the r25 review (R2 #6).
+  lockstep with Go's `parseNumberAsInt64`. The parser also rejects a non-list
+  `warnings` payload or a non-object entry with a typed `ProtocolError` rather
+  than a bare `TypeError` / `AttributeError`. From the r25 review (R2 #6).
 - **C++ / Go memory-safety hardening from the r25 review** — three latent
   out-of-bounds / overflow defects, each now guarded and regression-tested
   (a test that fails without the fix):

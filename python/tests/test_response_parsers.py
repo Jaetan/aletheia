@@ -137,3 +137,13 @@ class TestParseCompleteWarnings:
             parse_complete_warnings(
                 cast("Response", {"warnings": [{"kind": "uncached_atom", "detail": "x"}]})
             )
+
+    def test_non_list_warnings_raises(self) -> None:
+        """A non-list ``warnings`` is a typed error, not a bare TypeError."""
+        with pytest.raises(ProtocolError, match="must be a list"):
+            parse_complete_warnings(cast("Response", {"warnings": "nope"}))
+
+    def test_non_object_warning_entry_raises(self) -> None:
+        """A non-object warning entry is a typed error, not an AttributeError."""
+        with pytest.raises(ProtocolError, match="must be an object"):
+            parse_complete_warnings(cast("Response", {"warnings": [42]}))

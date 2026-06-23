@@ -35,7 +35,7 @@ func TestRationalFromFloatPanicsOnNonFinite(t *testing.T) {
 // bound let 2^63 through because math.MaxInt64 rounds up to 2^63 as a float64;
 // the round-trip guard catches it. Mirrors cpp/src/types.cpp's post-cast check.
 func TestFloatToRationalRejectsInt64Overflow(t *testing.T) {
-	twoPow63 := math.Pow(2, 63) // exactly 2^63 == MaxInt64 + 1, NOT int64-representable
+	twoPow63 := math.Ldexp(1, 63) // exactly 2^63 == MaxInt64 + 1, NOT int64-representable
 	r, err := aletheia.FloatToRational(twoPow63)
 	if err == nil {
 		t.Fatalf("FloatToRational(2^63): expected error, got %d/%d (silently wrapped?)",

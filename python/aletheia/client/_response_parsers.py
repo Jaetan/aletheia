@@ -350,17 +350,26 @@ def parse_complete_warnings(response: Response) -> list[CompleteWarning]:
     """Parse the ``warnings`` list of an end-of-stream ``complete`` response.
 
     Mirrors :func:`parse_finalization_results`' defensive parsing: the FFI
-    JSON is untrusted, so ``property_index`` is run through
+    JSON is untrusted, so the ``warnings`` field must be a list and each
+    entry an object (else a typed :class:`ProtocolError`, not a bare
+    ``TypeError``/``AttributeError``), and ``property_index`` is run through
     :func:`validate_integer_field` (which accepts the plain-int and
     ``{"numerator": N, "denominator": 1}`` wire shapes and rejects a
     non-integer, non-unit-denominator, or wrong-typed value) rather than
-    blindly ``cast``. Go's ``parseNumberAsInt64`` raises on the same inputs.
-    A missing ``property_index`` is a protocol violation and is rejected
-    rather than silently defaulted.
+    blindly ``cast``. Go's ``parseNumberAsInt64`` and the per-entry
+    ``item.(map[string]any)`` check raise on the same inputs. A missing
+    ``property_index`` is a protocol violation and is rejected rather than
+    silently defaulted.
     """
-    raw_warnings = cast("list[dict[str, object]]", response.get("warnings", []))
+    raw_warnings = response.get("warnings", [])
+    if not is_object_list(raw_warnings):
+        msg = "'warnings' must be a list in end-of-stream complete response"
+        raise ProtocolError(msg)
     warnings: list[CompleteWarning] = []
     for raw in raw_warnings:
+        if not is_str_dict(raw):
+            msg = "end-of-stream warning entry must be an object"
+            raise ProtocolError(msg)
         raw_prop_index = raw.get("property_index")
         if raw_prop_index is None:
             msg = "Missing 'property_index' in end-of-stream warning entry"
