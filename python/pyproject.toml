@@ -119,7 +119,7 @@ dev = [
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
 # only the fuzz lane installs it.  Hypothesis stays in ``[dev]`` because
 # property tests run in every standard pytest invocation.
-fuzz = ["atheris>=3.0,<4"]
+fuzz = ["atheris>=3.1.0,<4"]
 # AGENTS.md Python cat 14(g) (NEW R18) opt-in mutation-testing extras.  mutmut
 # is the AGENTS.md-named first-choice tool; pinned to 3.x where the cli +
 # pyproject ``[tool.mutmut]`` config still works.  Lives in its own group
