@@ -33,7 +33,7 @@ jobs:
       STDLIB_VERSION: 'v2.3'
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
