@@ -56,7 +56,7 @@ include = ["aletheia", "aletheia.*"]
 aletheia = ["py.typed", "*.pyi"]
 
 [project.optional-dependencies]
-can = ["python-can>=4.0"]
+can = ["python-can>=4.6.1"]
 yaml = ["pyyaml>=6.0.3"]
 excel = ["openpyxl>=3.1.5"]
 # Self-reference the individual extras so version pins live in exactly one
