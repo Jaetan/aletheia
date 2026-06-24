@@ -309,8 +309,8 @@ static auto cmd_extract(const Args& a) -> int {
         for (const auto& v : res->values)
             values[v.name.get()] = v.value.get().to_double();
         Json errors = Json::object();
-        for (const auto& [name, err] : res->errors)
-            errors[name.get()] = err;
+        for (const auto& e : res->errors)
+            errors[e.name.get()] = e.reason;
         Json absent = Json::array();
         for (const auto& s : res->absent)
             absent.push_back(s.get());
@@ -326,8 +326,8 @@ static auto cmd_extract(const Args& a) -> int {
         std::cout << "  (no signals)\n";
     for (const auto& v : res->values)
         std::cout << "  " << v.name.get() << " = " << v.value.get().to_double() << '\n';
-    for (const auto& [name, err] : res->errors)
-        std::cout << "  error " << name.get() << ": " << err << '\n';
+    for (const auto& e : res->errors)
+        std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
     return k_exit_ok;
 }
 
