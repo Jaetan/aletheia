@@ -303,6 +303,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Dependency maintenance (Dependabot batch)** — raised dependency floors and a
+  CI action major: `actions/checkout` v6 → v7 (all 8 workflow refs), and in
+  `python/pyproject.toml` `ruff` ≥0.15.18, `basedpyright` ≥1.39.8, `hypothesis`
+  ≥6.155.7, `python-can` ≥4.6.1, `atheris` ≥3.1.0. All patch/minor bumps; the two
+  linter floors (ruff, basedpyright) were verified against the full tree
+  (`ruff check`/`format`, `basedpyright` 0/0/0, `pytest`, `pylint` 10.00) at the
+  new versions before merge. Supersedes Dependabot PRs #88–93.
 - **BREAKING (C++): the `ltl::` ≤/≥ predicate builders are renamed
   `at_most` → `less_than_or_equal` and `at_least` → `greater_than_or_equal`**
   (`cpp/include/aletheia/ltl.hpp`). This aligns the C++ builder verbs with the

@@ -56,7 +56,7 @@ include = ["aletheia", "aletheia.*"]
 aletheia = ["py.typed", "*.pyi"]
 
 [project.optional-dependencies]
-can = ["python-can>=4.0"]
+can = ["python-can>=4.6.1"]
 yaml = ["pyyaml>=6.0.3"]
 excel = ["openpyxl>=3.1.5"]
 # Self-reference the individual extras so version pins live in exactly one
@@ -92,13 +92,13 @@ dev = [
     # AGENTS.md Python cat 34(b) (NEW R18) — hypothesis-driven property
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
-    "hypothesis>=6.155.3,<7",
+    "hypothesis>=6.155.7,<7",
     "pylint>=4.0.6,<5",
-    "basedpyright>=1.0,<2",
+    "basedpyright>=1.39.8,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin (pre-1.0,
     # new rules land in minor bumps) per the gate mapping above.  Bumped to 0.15
     # for STABLE py314 lint-target support (0.13.x had it preview-only).
-    "ruff>=0.15.17,<0.16",
+    "ruff>=0.15.18,<0.16",
     # AGENTS.md Python cat 25 long-run sub-check (NEW R18) — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
@@ -119,7 +119,7 @@ dev = [
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
 # only the fuzz lane installs it.  Hypothesis stays in ``[dev]`` because
 # property tests run in every standard pytest invocation.
-fuzz = ["atheris>=3.0,<4"]
+fuzz = ["atheris>=3.1.0,<4"]
 # AGENTS.md Python cat 14(g) (NEW R18) opt-in mutation-testing extras.  mutmut
 # is the AGENTS.md-named first-choice tool; pinned to 3.x where the cli +
 # pyproject ``[tool.mutmut]`` config still works.  Lives in its own group
