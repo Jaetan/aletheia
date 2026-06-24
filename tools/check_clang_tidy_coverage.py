@@ -21,7 +21,7 @@ forgotten files) make the C++ lint coverage self-maintaining.
 Exit codes:
   0 — every cpp/src/**/*.cpp appears in the compile DB.
   1 — one or more source files are missing from the DB.
-  2 — compile_commands.json not found (run ``cmake -B build`` first).
+  2 — compile_commands.json not found (run ``cmake -S cpp -B cpp/build`` first).
 """
 
 from __future__ import annotations
@@ -70,7 +70,9 @@ def main(repo: Path | None = None) -> int:
     repo = (repo if repo is not None else git_toplevel()).resolve()
     db_path = repo / "cpp" / "build" / "compile_commands.json"
     if not db_path.is_file():
-        emit(f"check-clang-tidy-coverage: {db_path} not found; run 'cmake -B build' first")
+        emit(
+            f"check-clang-tidy-coverage: {db_path} not found; run 'cmake -S cpp -B cpp/build' first"
+        )
         return 2
 
     db = json.loads(db_path.read_text(encoding="utf-8"))
