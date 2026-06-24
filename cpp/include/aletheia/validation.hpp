@@ -42,7 +42,9 @@ struct ValidationIssue {
     // (code == IssueCode::Unknown, e.g. a future core code) round-trips rather
     // than collapsing to the literal "unknown" — mirrors Go's string-typed
     // IssueCode, Rust's IssueCode::Unknown(String), and Python's passthrough.
-    // For a known code it equals to_string(code).
+    // The JSON decoders populate this from the wire; for a decoder-produced
+    // issue with a known code it equals to_string(code). A manually constructed
+    // ValidationIssue may leave it empty.
     std::string code_raw;
     std::string detail;
 };
@@ -61,9 +63,11 @@ struct ValidationResult {
 [[nodiscard]] auto to_string(IssueCode code) -> std::string_view;
 
 // Render an issue's code for display, preserving the original wire string for an
-// unrecognized code: returns `code_raw` when `code == IssueCode::Unknown` (so a
-// future core code round-trips), else the canonical `to_string(code)` spelling.
-// Use this rather than `to_string(issue.code)` at presentation boundaries.
+// unrecognized code: returns `code_raw` when `code == IssueCode::Unknown` and
+// `code_raw` is non-empty (so a future core code round-trips), otherwise the
+// canonical `to_string(code)` spelling (which is "unknown" for an Unknown code
+// with no recorded wire string). Use this rather than `to_string(issue.code)`
+// at presentation boundaries.
 [[nodiscard]] auto issue_code_label(const ValidationIssue& issue) -> std::string_view;
 
 } // namespace aletheia

@@ -527,7 +527,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   verbatim wire code) and a new `issue_code_label(issue)` helper returns `code_raw`
   when the code is `Unknown`; the CLI `validate` output uses it. This matches Go's
   string-typed `IssueCode`, Rust's `IssueCode::Unknown(String)`, and Python's
-  passthrough. From the r25 review (P1 #16).
+  passthrough. From the r25 review (P1 #16). Note: adding `code_raw` to the public
+  `ValidationIssue` struct changes its layout (ABI) and aggregate-initialization —
+  construct via designated initializers (`{.severity = …, .code = …, .detail = …}`,
+  which the project already uses everywhere); positional `{sev, code, detail}` now
+  binds the third value to `code_raw`. The decoders set it; manual constructors may
+  leave it empty.
 - **Go `FloatToRational` no longer silently wraps an int64-overflowing integral
   value** (`go/aletheia/types.go`). The integer fast path guarded with
   `v >= math.MinInt64 && v <= math.MaxInt64`, but `math.MaxInt64` (2⁶³−1) is not

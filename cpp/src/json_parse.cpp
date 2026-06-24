@@ -206,8 +206,8 @@ static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::i
     // so a non-positive denominator is a wire-format violation — rejected here
     // rather than silently sign-normalized.  Mirrors Python
     // (extract_rational_from_dict), Go (parseRational), and Rust (Rational::new),
-    // which all reject den <= 0 at the wire (feedback_cross_binding_wire_symmetry)
-    // instead of rewriting it, so a malformed payload surfaces rather than hiding.
+    // which all reject den <= 0 at the wire instead of rewriting it, so a
+    // malformed payload surfaces rather than hiding.
     if (den <= 0)
         throw std::runtime_error("Non-positive denominator in rational: " + j.dump());
     return {num, den};
