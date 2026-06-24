@@ -27,6 +27,7 @@ from aletheia.client._log import LogEvent, log_event
 from aletheia.client._mixin_state import ClientHostState
 from aletheia.client._response_parsers import (
     build_error_response,
+    parse_complete_warnings,
     parse_event_response,
     parse_finalization_results,
     parse_frame_response,
@@ -547,15 +548,7 @@ class StreamingMixin(ClientHostState):
                 response,
                 self._enrich_finalization_result,
             )
-            raw_warnings = cast("list[dict[str, object]]", response.get("warnings", []))
-            warnings: list[CompleteWarning] = [
-                {
-                    "kind": cast("str", w.get("kind", "")),
-                    "property_index": cast("int", w.get("property_index", 0)),
-                    "detail": cast("str", w.get("detail", "")),
-                }
-                for w in raw_warnings
-            ]
+            warnings: list[CompleteWarning] = parse_complete_warnings(response)
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()

@@ -504,6 +504,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Go `FloatToRational` no longer silently wraps an int64-overflowing integral
+  value** (`go/aletheia/types.go`). The integer fast path guarded with
+  `v >= math.MinInt64 && v <= math.MaxInt64`, but `math.MaxInt64` (2⁶³−1) is not
+  exactly representable as `float64` and rounds *up* to 2⁶³, so `2⁶³` passed the
+  bound and `int64(2⁶³)` wrapped to `MinInt64`, returned with `err == nil` — a
+  silently-wrong value. The fast path now uses a round-trip guard
+  (`n := int64(v); float64(n) == v`), mirroring `cpp/src/types.cpp`: it accepts
+  every int64-representable integer (including `MinInt64`) and rejects the rest,
+  which fall through to the scaling path's existing overflow error. From the r25
+  review (P0 #5).
+- **Python `end_stream` now validates the warning `property_index` instead of
+  casting it** (`python/aletheia/client/`). The end-of-stream `complete`-response
+  warning parser used `cast("int", w.get("property_index", 0))` — a no-op at
+  runtime — so a malformed FFI value (a string, a non-unit-denominator rational,
+  or an absent field) flowed through mistyped or silently defaulted to `0`. The
+  warning parse moved into `parse_complete_warnings` (beside
+  `parse_finalization_results`) and runs `property_index` through
+  `validate_integer_field` — the same validator used for the identical field in
+  finalization results — raising `ProtocolError` on a bad or missing value, in
+  lockstep with Go's `parseNumberAsInt64`. The parser also rejects a non-list
+  `warnings` payload or a non-object entry with a typed `ProtocolError` rather
+  than a bare `TypeError` / `AttributeError`. From the r25 review (R2 #6).
 - **C++ / Go memory-safety hardening from the r25 review** — three latent
   out-of-bounds / overflow defects, each now guarded and regression-tested
   (a test that fails without the fix):

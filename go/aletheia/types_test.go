@@ -29,6 +29,35 @@ func TestRationalFromFloatPanicsOnNonFinite(t *testing.T) {
 	}
 }
 
+// TestFloatToRationalRejectsInt64Overflow locks in that an integral float that
+// overflows int64 (2^63, since the max int64 is 2^63-1) is rejected with an
+// error rather than silently wrapping to MinInt64. The old `v <= math.MaxInt64`
+// bound let 2^63 through because math.MaxInt64 rounds up to 2^63 as a float64;
+// the round-trip guard catches it. Mirrors cpp/src/types.cpp's post-cast check.
+func TestFloatToRationalRejectsInt64Overflow(t *testing.T) {
+	twoPow63 := math.Ldexp(1, 63) // exactly 2^63 == MaxInt64 + 1, NOT int64-representable
+	r, err := aletheia.FloatToRational(twoPow63)
+	if err == nil {
+		t.Fatalf("FloatToRational(2^63): expected error, got %d/%d (silently wrapped?)",
+			r.Numerator, r.Denominator)
+	}
+}
+
+// TestFloatToRationalAcceptsMinInt64 confirms the round-trip guard still accepts
+// the smallest int64 (-2^63, which IS exactly representable) as an exact n/1
+// rational — the guard must reject only the unrepresentable (positive) side.
+func TestFloatToRationalAcceptsMinInt64(t *testing.T) {
+	minInt64 := float64(math.MinInt64) // -2^63, exactly representable as float64
+	r, err := aletheia.FloatToRational(minInt64)
+	if err != nil {
+		t.Fatalf("FloatToRational(-2^63): unexpected error: %v", err)
+	}
+	if r.Numerator != math.MinInt64 || r.Denominator != 1 {
+		t.Fatalf("FloatToRational(-2^63) = %d/%d, want %d/1", r.Numerator, r.Denominator,
+			int64(math.MinInt64))
+	}
+}
+
 func TestStandardID_Range(t *testing.T) {
 	_, err := aletheia.NewStandardID(2048)
 	if err == nil {
