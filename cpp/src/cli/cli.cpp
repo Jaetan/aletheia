@@ -252,7 +252,7 @@ static auto cmd_validate(const Args& a) -> int {
         Json issues = Json::array();
         for (const auto& i : res->issues)
             issues.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
-                              {"code", std::string{aletheia::to_string(i.code)}},
+                              {"code", std::string{aletheia::issue_code_label(i)}},
                               {"detail", i.detail}});
         return emit_json({{"status", res->has_errors ? "fail" : "pass"},
                           {"has_errors", res->has_errors},
@@ -270,7 +270,7 @@ static auto cmd_validate(const Args& a) -> int {
         std::string sev{aletheia::to_string(i.severity)};
         for (char& c : sev)
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::to_string(i.code) << ": "
+        std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
                   << i.detail << '\n';
     }
     return res->has_errors ? k_exit_violations : k_exit_ok;

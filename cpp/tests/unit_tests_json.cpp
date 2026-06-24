@@ -292,19 +292,18 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
 // real Mull-19 survivors in json_parse.cpp's parse_rational_dict /
 // parse_rational_as_int (each test names the mutant it kills).
 
-TEST_CASE("parse_extraction normalizes a negative-denominator rational",
-          "[json][parse][mutation]") {
-    // {1,-3} must normalize to {-1,3}.  Kills cxx_minus_to_noop at
-    // json_parse.cpp:212-213 (num=-num / den=-den): drop either and the result
-    // is {1,3} (wrong sign) or the Rational den>0 ctor rejects den=-3.
+TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][parse][error]") {
+    // {1,-3} must be REJECTED, not silently sign-normalized: the kernel emits a
+    // positive denominator (ℕ⁺ invariant), so a negative one is a wire-format
+    // violation.  Mirrors Python / Go / Rust, which all reject den <= 0 at the
+    // wire rather than rewriting it.
     auto result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Ratio", "value": {"numerator": 1, "denominator": -3}}],
         "errors": [],
         "absent": []
     })");
-    REQUIRE(result.has_value());
-    CHECK(result->values[0].value == PhysicalValue{Rational{-1, 3}});
+    CHECK_FALSE(result.has_value());
 }
 
 TEST_CASE("parse_frame_response integer property_index uses exact division",
@@ -569,7 +568,7 @@ TEST_CASE("parse_dbc_response with empty signals array", "[json][parse]") {
     CHECK(result->messages[0].signals.empty());
 }
 
-TEST_CASE("parse_validation with unknown issue code returns Unknown", "[json][parse]") {
+TEST_CASE("parse_validation preserves the wire string for an unknown issue code", "[json][parse]") {
     auto result = detail::parse_validation(R"({
         "status": "validation",
         "has_errors": true,
@@ -578,7 +577,25 @@ TEST_CASE("parse_validation with unknown issue code returns Unknown", "[json][pa
         ]
     })");
     REQUIRE(result.has_value());
+    // The enum degrades to Unknown (forward-compatible)...
     CHECK(result->issues[0].code == IssueCode::Unknown);
+    // ...but the original wire code survives (round-trips) rather than being lost
+    // to the literal "unknown" — matching Go / Rust / Python.
+    CHECK(result->issues[0].code_raw == "some_future_code");
+    CHECK(issue_code_label(result->issues[0]) == "some_future_code");
+}
+
+TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[json][parse]") {
+    auto result = detail::parse_validation(R"({
+        "status": "validation",
+        "has_errors": true,
+        "issues": [
+            {"severity": "error", "code": "factor_zero", "detail": "factor is zero"}
+        ]
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->issues[0].code == IssueCode::FactorZero);
+    CHECK(issue_code_label(result->issues[0]) == "factor_zero");
 }
 
 TEST_CASE("parse_validation rejects unknown severity string", "[json][parse][error]") {
@@ -1195,10 +1212,13 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
         "errors": [], "absent": []
     })");
     CHECK_FALSE(result.has_value());
-    // Assert the specific "Zero denominator" wording, not just "denominator":
-    // the latter also matches the Rational ctor's "denominator must be positive",
-    // so a den == 0 check that fell through to {num, 0} would pass a loose match.
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Zero denominator"));
+    // Assert parse_rational_dict's own "Non-positive denominator" wording, not
+    // just "denominator": the latter also matches the Rational ctor's
+    // "denominator must be positive", so a den == 0 check that fell through to
+    // {num, 0} would pass a loose match. (den == 0 is rejected by the same
+    // den <= 0 guard that rejects negative denominators.)
+    CHECK_THAT(std::string{result.error().message()},
+               ContainsSubstring("Non-positive denominator"));
 }
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {

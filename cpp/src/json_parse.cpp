@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <exception>
 #include <expected>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -197,27 +196,20 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
                          std::move(bound_info)};
 }
 
-// Decode a JSON {numerator, denominator} object into a normalized (num, den)
-// pair with den > 0.  Throws on zero denominator or normalization overflow
-// (INT64_MIN cannot be negated).  Caller is responsible for first verifying
+// Decode a JSON {numerator, denominator} object into a (num, den) pair,
+// validating den > 0.  Caller is responsible for first verifying
 // `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
 static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
     auto num = j.at("numerator").get<std::int64_t>();
     auto den = j.at("denominator").get<std::int64_t>();
-    // Branch on sign first: a negative denominator is normalized (num/den both
-    // negated, with the asymmetric INT64_MIN guard); a zero denominator is
-    // rejected in the non-negative arm.  Ordering the den == 0 check after the
-    // den < 0 branch keeps the "< 0" boundary observable — routing den == 0
-    // through normalization would yield {num, 0}, which every caller rejects
-    // (Rational ctor) or crashes on (num % 0), distinct from this clean throw.
-    if (den < 0) {
-        if (num == std::numeric_limits<std::int64_t>::min())
-            throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
-        num = -num;
-        den = -den;
-    } else if (den == 0) {
-        throw std::runtime_error("Zero denominator in rational: " + j.dump());
-    }
+    // The kernel emits rationals with a positive denominator (the ℕ⁺ invariant),
+    // so a non-positive denominator is a wire-format violation — rejected here
+    // rather than silently sign-normalized.  Mirrors Python
+    // (extract_rational_from_dict), Go (parseRational), and Rust (Rational::new),
+    // which all reject den <= 0 at the wire (feedback_cross_binding_wire_symmetry)
+    // instead of rewriting it, so a malformed payload surfaces rather than hiding.
+    if (den <= 0)
+        throw std::runtime_error("Non-positive denominator in rational: " + j.dump());
     return {num, den};
 }
 
@@ -286,9 +278,8 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
     if (j.is_number_integer())
         return j.get<std::int64_t>();
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        // parse_rational_dict normalizes den > 0, so the asymmetric INT64_MIN/-1
-        // overflow check from the pre-extraction code is subsumed by the helper's
-        // general (den<0, num==INT64_MIN) check.  After normalization num/den is safe.
+        // parse_rational_dict validates den > 0 (rejects non-positive), so the
+        // num / den division below is safe.
         auto [num, den] = parse_rational_dict(j);
         if (num % den != 0)
             throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
@@ -743,9 +734,11 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
                 return std::unexpected(
                     make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
             }
+            auto code_str = issue.value("code", "");
             issues.push_back({
                 .severity = severity,
-                .code = parse_issue_code(issue.value("code", "")),
+                .code = parse_issue_code(code_str),
+                .code_raw = code_str,
                 .detail = issue.value("detail", ""),
             });
         }
@@ -984,9 +977,11 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
                     return std::unexpected(
                         make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
                 }
+                auto code_str = issue.value("code", "");
                 warnings.push_back({
                     .severity = severity,
-                    .code = parse_issue_code(issue.value("code", "")),
+                    .code = parse_issue_code(code_str),
+                    .code_raw = code_str,
                     .detail = issue.value("detail", ""),
                 });
             }
@@ -1038,6 +1033,14 @@ auto to_string(IssueCode code) -> std::string_view {
         if (c == code)
             return name;
     return "unknown";
+}
+
+auto issue_code_label(const ValidationIssue& issue) -> std::string_view {
+    // Preserve the original wire string for an unrecognized code so a future
+    // core code round-trips instead of degrading to the literal "unknown".
+    if (issue.code == IssueCode::Unknown && !issue.code_raw.empty())
+        return issue.code_raw;
+    return to_string(issue.code);
 }
 
 } // namespace aletheia

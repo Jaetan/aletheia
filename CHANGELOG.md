@@ -511,6 +511,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **C++ now rejects a negative-denominator rational on JSON decode instead of
+  silently sign-normalizing it** (`cpp/src/json_parse.cpp`). `parse_rational_dict`
+  flipped the signs of a `{numerator, denominator}` payload with `denominator < 0`
+  and accepted it; the kernel emits a positive denominator (the ℕ⁺ invariant), so
+  a negative one is a wire-format violation. It now throws (surfaced as an
+  `ErrorKind::Protocol` error) for `denominator <= 0`, matching Python
+  (`extract_rational_from_dict`), Go (`parseRational`), and Rust (`Rational::new`),
+  which already reject it. From the r25 review (P1 #8).
+- **C++ preserves the original wire string for an unrecognized validation issue
+  code** (`cpp/include/aletheia/validation.hpp`, `cpp/src/json_parse.cpp`).
+  An unknown `code` collapsed to the bare `IssueCode::Unknown` enumerator and
+  rendered as the literal `"unknown"`, discarding the wire string — so a future
+  core code could not round-trip. `ValidationIssue` gains a `code_raw` field (the
+  verbatim wire code) and a new `issue_code_label(issue)` helper returns `code_raw`
+  when the code is `Unknown`; the CLI `validate` output uses it. This matches Go's
+  string-typed `IssueCode`, Rust's `IssueCode::Unknown(String)`, and Python's
+  passthrough. From the r25 review (P1 #16).
 - **Go `FloatToRational` no longer silently wraps an int64-overflowing integral
   value** (`go/aletheia/types.go`). The integer fast path guarded with
   `v >= math.MinInt64 && v <= math.MaxInt64`, but `math.MaxInt64` (2⁶³−1) is not
