@@ -56,6 +56,14 @@ auto validate_loader_path(const std::filesystem::path& path, std::string_view ki
 /// `InputBoundExceededError` shape (Python / Go / C++) stays identical.
 auto check_file_size_bound(const std::filesystem::path& path) -> Result<void>;
 
+/// Reject if an in-memory input's byte length exceeds `max_dbc_text_bytes`.
+/// The inline-string analogue of `check_file_size_bound`, for loaders that
+/// receive their input as a `std::string`/`std::string_view` (e.g. the inline
+/// YAML loader) rather than a file path.  Same structured
+/// `InputBoundExceededError` shape, so the cross-binding trust boundary holds
+/// on inline input too (Go / Rust bound their inline loaders likewise).
+auto check_input_size_bound(std::uint64_t observed) -> Result<void>;
+
 /// Walk the ZIP archive's central directory and reject when the sum of
 /// uncompressed entry sizes exceeds `max_dbc_text_bytes` — defense
 /// against ZIP bombs where a small archive (e.g. ~50 KiB) decompresses

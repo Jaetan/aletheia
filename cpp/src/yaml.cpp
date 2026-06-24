@@ -257,6 +257,12 @@ auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vec
 }
 
 auto load_checks_from_yaml_string(std::string_view yaml) -> Result<std::vector<CheckResult>> {
+    // Bound the in-memory input before the YAML::Load copy/parse, mirroring the
+    // file loader's check_file_size_bound (and Go/Rust, which bound their inline
+    // YAML loaders).  AGENTS.md trust boundary: every check loader, file or
+    // inline, caps input at max_dbc_text_bytes.
+    if (auto v = detail::check_input_size_bound(yaml.size()); !v)
+        return std::unexpected(v.error());
     try {
         auto root = YAML::Load(std::string(yaml));
         return parse_yaml_checks(root);

@@ -532,6 +532,20 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     CHECK(bound_info->limit == 64ULL * 1024 * 1024);
 }
 
+TEST_CASE("yaml: inline string size cap rejected", "[yaml][hardening]") {
+    // The inline loader must enforce the same 64 MiB bound as the file loader
+    // (and Go/Rust inline loaders) — an untrusted in-memory payload is a trust
+    // boundary too.
+    const std::string oversize(65UL * 1024 * 1024, 'a'); // 65 MiB > 64 MiB cap
+    auto result = load_checks_from_yaml_string(oversize);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
+    const auto& bound_info = result.error().bound_info();
+    REQUIRE(bound_info.has_value());
+    CHECK(bound_info->bound_kind == "input_length_bytes");
+    CHECK(bound_info->limit == 64ULL * 1024 * 1024);
+}
+
 TEST_CASE("yaml: then stays_between missing min/max", "[yaml][error]") {
     auto result = load_checks_from_yaml_string(R"(
 checks:

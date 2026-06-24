@@ -198,22 +198,36 @@ auto validate_loader_path(const std::filesystem::path& path, std::string_view ki
     return {};
 }
 
+// Build the structured InputBoundExceeded error shared by the file- and
+// in-memory size checks.  `subject` ("File size" / "Input size") prefixes the
+// message; the cross-binding bound_info shape (kind/observed/limit) is identical
+// regardless of the input source.
+static auto make_input_bound_error(std::uint64_t observed, std::string_view subject)
+    -> AletheiaError {
+    InputBoundExceededError info{.bound_kind = std::string{bound_kind_input_length_bytes},
+                                 .observed = observed,
+                                 .limit = max_dbc_text_bytes};
+    return AletheiaError{ErrorKind::InputBoundExceeded,
+                         std::string{subject} + " " + std::to_string(observed) + " exceeds limit " +
+                             std::to_string(max_dbc_text_bytes) + " bytes",
+                         ErrorCode::InputBoundExceeded, std::move(info)};
+}
+
 auto check_file_size_bound(const std::filesystem::path& path) -> Result<void> {
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
     if (ec)
         return std::unexpected(AletheiaError{
             ErrorKind::Validation, "Could not stat file: " + path.string() + ": " + ec.message()});
-    if (size > max_dbc_text_bytes) {
-        InputBoundExceededError info{.bound_kind = std::string{bound_kind_input_length_bytes},
-                                     .observed = static_cast<std::uint64_t>(size),
-                                     .limit = max_dbc_text_bytes};
-        return std::unexpected(AletheiaError{ErrorKind::InputBoundExceeded,
-                                             "File size " + std::to_string(size) +
-                                                 " exceeds limit " +
-                                                 std::to_string(max_dbc_text_bytes) + " bytes",
-                                             ErrorCode::InputBoundExceeded, std::move(info)});
-    }
+    if (size > max_dbc_text_bytes)
+        return std::unexpected(
+            make_input_bound_error(static_cast<std::uint64_t>(size), "File size"));
+    return {};
+}
+
+auto check_input_size_bound(std::uint64_t observed) -> Result<void> {
+    if (observed > max_dbc_text_bytes)
+        return std::unexpected(make_input_bound_error(observed, "Input size"));
     return {};
 }
 
