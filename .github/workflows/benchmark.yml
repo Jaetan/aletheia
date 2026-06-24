@@ -61,7 +61,7 @@ jobs:
       BENCH: ${{ github.event.inputs.bench || 'throughput' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up GHC + cabal
         run: |
