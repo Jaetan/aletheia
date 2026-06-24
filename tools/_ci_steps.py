@@ -374,13 +374,24 @@ def _run_lints(runner: Runner) -> None:
     )
     runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
 
-    # clang-tidy (AGENTS.md § lint gates, mandatory): the C++ sources —
-    # src/*.cpp plus the CLI sources under src/cli/ (the aletheia-cli host
-    # binary + aletheia::run_cli), which the top-level glob does not match.
+    # clang-tidy (AGENTS.md § lint gates, mandatory): lint every C++ TU under
+    # cpp/src via run-clang-tidy driven by compile_commands.json.  The compile
+    # database is the single source of truth for coverage, so no subdirectory
+    # (e.g. src/detail/) can be silently dropped the way the old hand-maintained
+    # `src/*.cpp` glob dropped it.  The `cpp/src/` path regex scopes the run to
+    # our sources — third-party `_deps`, tests, and benchmarks are excluded.
     runner.step(
         "clang-tidy",
-        "clang-tidy-22 -p build src/*.cpp src/cli/*.cpp",
+        "run-clang-tidy-22 -quiet -p build cpp/src/",
         cwd=runner.repo_root / "cpp",
+    )
+    # Coverage guard: every cpp/src/**/*.cpp must appear in the compile DB, so a
+    # source someone forgets to wire into a CMake target fails CI rather than
+    # being silently unbuilt + unlinted (run-clang-tidy only lints compiled TUs).
+    runner.step(
+        "check-clang-tidy-coverage",
+        [runner.python, "-m", "tools.check_clang_tidy_coverage"],
+        cwd=runner.repo_root,
     )
 
     # Rust lints: rustfmt (check) + clippy (deny warnings) — the cargo

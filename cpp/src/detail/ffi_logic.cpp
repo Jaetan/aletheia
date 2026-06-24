@@ -6,6 +6,14 @@
 
 #include "ffi_logic.hpp"
 
+#include <aletheia/error.hpp>
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+
 namespace aletheia::detail {
 
 auto rts_init_args(int rts_cores) -> std::optional<std::array<std::string, 4>> {
