@@ -766,9 +766,10 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
             values.push_back({.name = SignalName{v.at("name").get<std::string>()},
                               .value = PhysicalValue{parse_signal_value(v.at("value"))}});
 
-        std::vector<std::pair<SignalName, std::string>> errors;
+        std::vector<SignalError> errors;
         for (const auto& e : j.value("errors", Json::array()))
-            errors.emplace_back(SignalName{e.at("name").get<std::string>()}, e.value("error", ""));
+            errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
+                              .reason = e.value("error", "")});
 
         std::vector<SignalName> absent;
         for (const auto& a : j.value("absent", Json::array()))

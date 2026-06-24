@@ -8,7 +8,6 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <utility>
 #include <variant>
 #include <vector>
 
@@ -36,9 +35,17 @@ struct ViolationEnrichment {
 // Signal extraction result
 // ---------------------------------------------------------------------------
 
+// A single failed signal extraction: the signal name plus the human-readable
+// reason from the core. Mirrors Go's `SignalError{Name, Error}`, Rust's
+// `SignalError{name, reason}`, and Python's `errors: Mapping[str, str]`.
+struct SignalError {
+    SignalName name;
+    std::string reason;
+};
+
 struct ExtractionResult {
     std::vector<SignalValue> values;
-    std::vector<std::pair<SignalName, std::string>> errors;
+    std::vector<SignalError> errors;
     std::vector<SignalName> absent;
 
     [[nodiscard]] auto get(const SignalName& name,

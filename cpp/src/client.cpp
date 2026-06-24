@@ -335,7 +335,7 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
         auto msg = code < extraction_error_messages.size()
                        ? std::string{extraction_error_messages[code]}
                        : std::format("Unknown error code {}", code);
-        result.errors.emplace_back(std::move(name), std::move(msg));
+        result.errors.push_back({.name = std::move(name), .reason = std::move(msg)});
     }
     result.absent.reserve(nabss);
     for (std::uint16_t i = 0; i < nabss; ++i) {

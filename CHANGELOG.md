@@ -303,6 +303,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): `ExtractionResult::errors` is now `std::vector<SignalError>`**
+  (was `std::vector<std::pair<SignalName, std::string>>`)
+  (`cpp/include/aletheia/response.hpp`). A new `struct SignalError { SignalName
+  name; std::string reason; }` replaces the anonymous pair, matching Go's
+  `SignalError{Name, Error}`, Rust's `SignalError{name, reason}`, and Python's
+  `errors: Mapping[str, str]` — and the project's no-anonymous-composite-types
+  rule (`.first`/`.second` were non-self-documenting). Migration: `err.first` →
+  `err.name`, `err.second` → `err.reason`. From the r25 review (P1 #9).
 - **C++ clang-tidy gate now lints every TU under `cpp/src` (was: a hand-maintained
   glob that silently skipped `src/detail/`)** (`tools/_ci_steps.py`). The gate ran
   `clang-tidy-22 -p build src/*.cpp src/cli/*.cpp` — a non-recursive glob that
