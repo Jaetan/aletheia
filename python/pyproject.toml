@@ -98,7 +98,7 @@ dev = [
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin (pre-1.0,
     # new rules land in minor bumps) per the gate mapping above.  Bumped to 0.15
     # for STABLE py314 lint-target support (0.13.x had it preview-only).
-    "ruff>=0.15.18,<0.16",
+    "ruff>=0.15.19,<0.16",
     # AGENTS.md Python cat 25 long-run sub-check (NEW R18) — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
