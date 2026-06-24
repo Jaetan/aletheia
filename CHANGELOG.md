@@ -511,6 +511,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **C++ inline YAML check loader now enforces the 64 MiB input bound**
+  (`cpp/src/yaml.cpp`). `load_checks_from_yaml_string` parsed an unbounded
+  in-memory payload, while the file loader (`load_checks_from_yaml`) and the
+  Go/Rust inline loaders all cap input at `max_dbc_text_bytes`. It now checks
+  `yaml.size()` before the parse via a shared `check_input_size_bound` helper
+  (the in-memory analogue of `check_file_size_bound`), returning the same
+  structured `InputBoundExceeded` error. Closes the trust-boundary gap. From the
+  r25 review (P1 #7).
+- **C++ `build_frame` / `update_frame` now report a distinct error for a CAN ID
+  with no DBC message** (`cpp/src/client.cpp`). `resolve_signals` only did a
+  per-signal lookup, so a CAN ID absent from the DBC produced a misleading
+  "signal '…' not found" error (and a zero-signal call silently succeeded). A
+  message-existence guard now returns "no DBC message for CAN ID {id}
+  (extended={…})" before the per-signal loop, matching Go (`resolveSignalIndices`)
+  and Python (`_resolve_signal_indices`). From the r25 review (P1 #15).
+- **C++ Excel template headers are now bold** (`cpp/src/excel.cpp`). The
+  `create_excel_template` writer emitted plain header cells while its docstring
+  claimed bold — and Python (openpyxl) and Go (excelize) both bold their headers.
+  Header cells now carry a bold font (verified by a save→reopen round-trip test),
+  making the docstring true and the templates consistent across bindings. From
+  the r25 review (P1 #12).
 - **C++ now rejects a negative-denominator rational on JSON decode instead of
   silently sign-normalizing it** (`cpp/src/json_parse.cpp`). `parse_rational_dict`
   flipped the signs of a `{numerator, denominator}` payload with `denominator < 0`

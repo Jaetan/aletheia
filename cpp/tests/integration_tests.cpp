@@ -331,6 +331,27 @@ TEST_CASE("build frame via real FFI", "[integration]") {
     CHECK((*result)[3] == std::byte{0x0B});
 }
 
+TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[integration]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    // 0x200 has no message in the DBC (only 0x100 does). The error must name the
+    // missing message ("no DBC message for CAN ID"), distinct from the per-signal
+    // "signal not found", matching Go (resolveSignalIndices) and Python.
+    auto id = CanId{StandardId::create(0x200).value()};
+    std::vector<SignalValue> signals{
+        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}},
+    };
+    auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK(std::string_view{result.error().message()}.find("no DBC message for CAN ID") !=
+          std::string_view::npos);
+}
+
 TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);

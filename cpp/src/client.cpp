@@ -391,6 +391,17 @@ auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> sign
     auto id_value = can_id_value(id);
     auto is_extended = can_id_is_extended(id);
 
+    // Distinguish "this CAN ID has no DBC message" from "this message lacks this
+    // signal": without this guard a missing message collapses into the per-signal
+    // "signal not found" error below (misleading), and a zero-signal call would
+    // silently succeed.  Mirrors Go (resolveSignalIndices) and Python
+    // (_resolve_signal_indices), which guard message-existence before iterating.
+    if (!signal_names_.contains(detail::MessageKey{id_value, is_extended})) {
+        return std::unexpected(AletheiaError{
+            ErrorKind::Validation,
+            std::format("no DBC message for CAN ID {} (extended={})", id_value, is_extended)});
+    }
+
     ResolvedSignals resolved;
     resolved.indices.reserve(signals.size());
     resolved.numerators.reserve(signals.size());

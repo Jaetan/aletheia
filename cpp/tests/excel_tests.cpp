@@ -488,6 +488,26 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
     CHECK(v16.get<std::string>() == "Multiplex Value");
 }
 
+TEST_CASE("excel: template headers are bold", "[excel][template]") {
+    TempFile tf("excel_template_bold.xlsx");
+    auto result = create_excel_template(tf.path);
+    REQUIRE(result.has_value());
+
+    // Reopen and verify the header cell's font is bold — round-trips through the
+    // save. Python (openpyxl Font(bold=True)) and Go (excelize Font{Bold:true})
+    // bold their template headers; this pins C++ parity.
+    OpenXLSX::XLDocument doc;
+    doc.open(tf.path.string());
+    auto& styles = doc.styles();
+    auto ws = doc.workbook().worksheet("DBC");
+    const auto fmt_idx = ws.cell(1, 1).cellFormat();
+    const auto font_idx = styles.cellFormats()[fmt_idx].fontIndex();
+    const bool is_bold = styles.fonts()[font_idx].bold();
+    doc.close();
+
+    CHECK(is_bold);
+}
+
 TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
     TempFile tf("excel_template_checks_hdr.xlsx");
     auto result = create_excel_template(tf.path);

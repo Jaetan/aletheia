@@ -466,9 +466,13 @@ static auto worksheet_exists(OpenXLSX::XLDocument& doc, std::string_view name) -
 // Write header row helper
 // ---------------------------------------------------------------------------
 
-static void write_header_row(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers) {
-    for (std::size_t i = 0; i < headers.size(); ++i)
-        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = headers[i];
+static void write_header_row(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers,
+                             OpenXLSX::XLStyleIndex header_fmt) {
+    for (std::size_t i = 0; i < headers.size(); ++i) {
+        auto cell = ws.cell(1, static_cast<std::uint16_t>(i + 1));
+        cell.value() = headers[i];
+        cell.setCellFormat(header_fmt);
+    }
 }
 
 // ===========================================================================
@@ -671,19 +675,28 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         doc.create(path.string(), OpenXLSX::XLForceOverwrite);
 
         // Rename default sheet to DBC
+        // Bold cell format for the header rows, created once and applied to every
+        // header cell.  Python (openpyxl Font(bold=True)) and Go (excelize
+        // Font{Bold: true}) bold their template headers; match them.
+        auto& styles = doc.styles();
+        const auto bold_font = styles.fonts().create();
+        styles.fonts()[bold_font].setBold(true);
+        const auto header_fmt = styles.cellFormats().create();
+        styles.cellFormats()[header_fmt].setFontIndex(bold_font);
+
         doc.workbook().worksheet("Sheet1").setName("DBC");
         auto ws_dbc = doc.workbook().worksheet("DBC");
-        write_header_row(ws_dbc, dbc_headers());
+        write_header_row(ws_dbc, dbc_headers(), header_fmt);
 
         // Checks sheet
         doc.workbook().addWorksheet("Checks");
         auto ws_checks = doc.workbook().worksheet("Checks");
-        write_header_row(ws_checks, checks_headers());
+        write_header_row(ws_checks, checks_headers(), header_fmt);
 
         // When-Then sheet
         doc.workbook().addWorksheet("When-Then");
         auto ws_wt = doc.workbook().worksheet("When-Then");
-        write_header_row(ws_wt, when_then_headers());
+        write_header_row(ws_wt, when_then_headers(), header_fmt);
 
         doc.save();
         doc.close();
