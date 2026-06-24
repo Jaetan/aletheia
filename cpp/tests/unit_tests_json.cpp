@@ -269,7 +269,8 @@ TEST_CASE("parse_extraction response", "[json][parse]") {
     CHECK(result->values[0].value == PhysicalValue{Rational{241, 2}});
     CHECK(result->values[1].value == PhysicalValue{Rational{3000, 1}});
     CHECK(result->errors.size() == 1);
-    CHECK(result->errors[0].first == SignalName{"BadSig"});
+    CHECK(result->errors[0].name == SignalName{"BadSig"});
+    CHECK(result->errors[0].reason == "overflow");
     CHECK(result->absent.size() == 1);
     CHECK(result->absent[0] == SignalName{"MuxedTemp"});
 }
