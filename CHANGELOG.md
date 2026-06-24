@@ -544,6 +544,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   value is exact and byte-identical to the predicate. From the r25 review (§4 #2);
   first slice of the "all bindings delegate rational rendering to the proven core"
   directive (Rust + Go to follow).
+- **C++ inline YAML check loader now enforces the 64 MiB input bound**
   (`cpp/src/yaml.cpp`). `load_checks_from_yaml_string` parsed an unbounded
   in-memory payload, while the file loader (`load_checks_from_yaml`) and the
   Go/Rust inline loaders all cap input at `max_dbc_text_bytes`. It now checks
