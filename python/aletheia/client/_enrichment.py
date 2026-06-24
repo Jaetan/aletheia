@@ -407,7 +407,10 @@ def format_enriched_reason(
     for sig in diag.signals:
         val = values.get(sig)
         if val is not None:
-            parts.append(f"{sig} = {val:g}")
+            # Render the observed value via the kernel formatℚ (same renderer as
+            # the predicate threshold) — exact, not lossy %g, and byte-identical
+            # to the other bindings. `val` is an exact Fraction (DecRat).
+            parts.append(f"{sig} = {_format_rational(val)}")
     if not parts:
         base = "violated: " + diag.formula_desc
     else:

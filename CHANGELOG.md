@@ -534,6 +534,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Python & C++ enrichment now render the observed signal value exactly via the
+  kernel `formatℚ`, not lossy `%g`** (`python/aletheia/client/_enrichment.py`,
+  `cpp/src/client.cpp`). A violation's `enriched_reason` interpolated the observed
+  value through `%g` / `Rational::to_double()`, mangling large integers
+  (`1234567` → `1.23457e+06`) and rounding non-terminating fractions
+  (`740/3` → `246.667`). Both now delegate to the same Agda kernel renderer the
+  predicate threshold already uses (`aletheia_format_rational`), so the observed
+  value is exact and byte-identical to the predicate. From the r25 review (§4 #2);
+  first slice of the "all bindings delegate rational rendering to the proven core"
+  directive (Rust + Go to follow).
 - **C++ inline YAML check loader now enforces the 64 MiB input bound**
   (`cpp/src/yaml.cpp`). `load_checks_from_yaml_string` parsed an unbounded
   in-memory payload, while the file loader (`load_checks_from_yaml`) and the

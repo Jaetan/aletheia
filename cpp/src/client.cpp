@@ -3,6 +3,7 @@
 // AletheiaClient — orchestrates backend + JSON serialization/parsing.
 #include <aletheia/client.hpp>
 #include <aletheia/detail/cache_keys.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/enrich.hpp>
 #include <aletheia/limits.hpp>
 
@@ -729,8 +730,12 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
             if (auto it = values.find(sig); it != values.end()) {
                 if (!first)
                     reason += ", ";
-                reason +=
-                    std::format("{} = {:g}", std::string_view{sig}, it->second.get().to_double());
+                // Render the observed value via the kernel formatℚ (same renderer
+                // as the predicate threshold) — exact, not lossy %g/to_double(),
+                // and byte-identical to the other bindings.
+                reason += std::format("{} = {}", std::string_view{sig},
+                                      detail::format_rational_ffi(it->second.get().numerator(),
+                                                                  it->second.get().denominator()));
                 first = false;
             }
         }
