@@ -303,6 +303,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **C++ clang-tidy gate now lints every TU under `cpp/src` (was: a hand-maintained
+  glob that silently skipped `src/detail/`)** (`tools/_ci_steps.py`). The gate ran
+  `clang-tidy-22 -p build src/*.cpp src/cli/*.cpp` — a non-recursive glob that
+  never matched `cpp/src/detail/`, so three files (`loader_utils.cpp`,
+  `ffi_logic.cpp`, `rts_init.cpp`) were never linted and accumulated violations
+  that passed CI. It now runs `run-clang-tidy-22 -p build cpp/src/`, driven by
+  `compile_commands.json`, so the build system is the single source of truth for
+  coverage and no subdirectory can be silently dropped again. A new
+  `tools.check_clang_tidy_coverage` guard additionally fails CI if any
+  `cpp/src/**/*.cpp` is absent from the compile DB (a file forgotten in
+  CMakeLists would otherwise be silently unbuilt and unlinted). Fixes the
+  previously-unlinted violations this surfaced: `loader_utils.cpp` (5 ZIP-walker
+  functions moved from an anonymous namespace to `static`, per the adopted style)
+  and `ffi_logic.cpp` (missing direct `#include`s). Internal only — no behavior
+  change.
 - **Dependency maintenance (Dependabot batch)** — raised dependency floors and a
   CI action major: `actions/checkout` v6 → v7 (all 8 workflow refs), and in
   `python/pyproject.toml` `ruff` ≥0.15.18, `basedpyright` ≥1.39.8, `hypothesis`

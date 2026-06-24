@@ -33,20 +33,18 @@
 
 namespace aletheia::detail {
 
-namespace {
-
 // ---------------------------------------------------------------------------
 // Little-endian primitive readers — ZIP fields are always LE per APPNOTE 4.4.
 // ---------------------------------------------------------------------------
 
-auto load_le16(const char* p) -> std::uint16_t {
+static auto load_le16(const char* p) -> std::uint16_t {
     std::array<std::uint8_t, 2> b{};
     std::memcpy(b.data(), p, b.size());
     return static_cast<std::uint16_t>(static_cast<std::uint16_t>(b[0]) |
                                       static_cast<std::uint16_t>(b[1] << 8U));
 }
 
-auto load_le32(const char* p) -> std::uint32_t {
+static auto load_le32(const char* p) -> std::uint32_t {
     std::array<std::uint8_t, 4> b{};
     std::memcpy(b.data(), p, b.size());
     return static_cast<std::uint32_t>(b[0]) | (static_cast<std::uint32_t>(b[1]) << 8U) |
@@ -59,7 +57,7 @@ auto load_le32(const char* p) -> std::uint32_t {
 // `std::vector<char>` because `ifstream::read` takes `char*` and casting
 // `std::byte*` would force a `reinterpret_cast` (banned by
 // cppcoreguidelines-pro-type-reinterpret-cast).
-auto char_at(const std::vector<char>& v, std::size_t off) -> const char* {
+static auto char_at(const std::vector<char>& v, std::size_t off) -> const char* {
     return std::to_address(v.begin() + static_cast<std::ptrdiff_t>(off));
 }
 
@@ -82,6 +80,12 @@ auto char_at(const std::vector<char>& v, std::size_t off) -> const char* {
 // last (22 + comment_length) bytes of the file.  We scan the trailing
 // 64 KiB + 22 bytes for the signature.
 
+// The ZIP type + signature constants live in an anonymous namespace: the
+// adopted clang-tidy style keeps file-local *types* (not functions) in an anon
+// namespace, giving EOCD internal linkage so its common name can't ODR-clash
+// across TUs.
+namespace {
+
 constexpr std::uint32_t k_eocd_sig = 0x06054b50;
 constexpr std::uint32_t k_cd_entry_sig = 0x02014b50;
 constexpr std::size_t k_eocd_min_size = 22;
@@ -93,7 +97,9 @@ struct EOCD {
     std::uint32_t cd_size;
 };
 
-auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::optional<EOCD> {
+} // namespace
+
+static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::optional<EOCD> {
     if (file_size < k_eocd_min_size)
         return std::nullopt;
 
@@ -143,7 +149,8 @@ auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::optional<EOCD
 
 constexpr std::size_t k_cd_entry_min = 46;
 
-auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd) -> std::optional<std::uint64_t> {
+static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
+    -> std::optional<std::uint64_t> {
     std::vector<char> cd(eocd.cd_size);
     f.seekg(eocd.cd_offset, std::ios::beg);
     f.read(cd.data(), static_cast<std::streamsize>(eocd.cd_size));
@@ -172,8 +179,6 @@ auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd) -> std::optional
     }
     return total;
 }
-
-} // namespace
 
 // ===========================================================================
 // Public helpers
