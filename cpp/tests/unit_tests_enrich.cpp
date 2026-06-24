@@ -116,6 +116,48 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
                ContainsSubstring("[core: Atomic: predicate failed]"));
 }
 
+TEST_CASE("send_frame enrichment renders the observed value exactly (kernel formatℚ)",
+          "[client][enrich]") {
+    // r25 B5a: the observed value renders via the kernel formatℚ (the renderer
+    // the predicate threshold already uses), not lossy %g/to_double(). 740/3 is
+    // non-terminating: old `{:g}` gave "246.667"; formatℚ gives the exact "740/3".
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({
+        "type": "property_batch",
+        "results": [{"status": "fails", "type": "property",
+                     "property_index": 0, "timestamp": 2000000}]
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": {"numerator": 740, "denominator": 3}}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    REQUIRE(result.has_value());
+    REQUIRE(std::holds_alternative<PropertyBatch>(*result));
+    auto* v = std::get<PropertyBatch>(*result).first_violation();
+    REQUIRE(v != nullptr);
+    REQUIRE(v->enrichment.has_value());
+    CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("Speed = 740/3"));
+    CHECK_THAT(v->enrichment->enriched_reason, !ContainsSubstring("246.667"));
+}
+
 TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
