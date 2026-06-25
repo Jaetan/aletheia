@@ -258,6 +258,12 @@ def _run_binding_tests(runner: Runner) -> None:
         f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race",
         cwd=runner.repo_root / "go" / "excel",
     )
+    # ALETHEIA_LIB pins the .so explicitly so no test depends on the renderer's
+    # cwd-relative probe (`../../build/...` from cpp/build) — uniform, cwd-
+    # independent resolution, exactly as the Go / Rust steps above. The rational
+    # renderer no longer self-initialises the RTS (point 2), so the render tests
+    # rely on a deterministically-located .so to bring the runtime up.
+    cpp_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "ctest",
         # Pin to clang-22 — the supported toolchain (latest stable), the SAME
@@ -267,7 +273,7 @@ def _run_binding_tests(runner: Runner) -> None:
         # <expected>); clang-22 is version-pinned + installed by the workflow via
         # apt.llvm.org (no update-alternatives roulette).
         "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 "
-        + "> /dev/null && cmake --build build && ctest --test-dir build",
+        + f"> /dev/null && cmake --build build && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
     # Rust binding — loads libaletheia-ffi.so at runtime (like Go / C++). The
@@ -472,6 +478,11 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     # ctest battery against -DALETHEIA_SANITIZER=undefined and asserts
     # every test passes.  Vendored zippy.hpp UB filtered via
     # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
+    # ALETHEIA_LIB pins the .so (same Haskell .so the regular ctest step uses), so
+    # the render tests resolve it deterministically rather than via the renderer's
+    # cwd-relative probe. Defined locally — this is a separate function from the
+    # core ctest step, so its `cpp_lib` is out of scope here.
+    cpp_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "ubsan ctest",
         # clang-22 (the supported toolchain — matches the regular ctest + mutation
@@ -481,7 +492,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         # libstdc++-14's <expected> (std::expected, C++23).
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
         + "-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null"
-        + " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
+        + f" && cmake --build build-ubsan && ALETHEIA_LIB={cpp_lib} ctest --test-dir build-ubsan",
         cwd=runner.repo_root / "cpp",
         # Own lane (not "cpp"): ubsan uses a SEPARATE build-ubsan/ dir, so it runs
         # concurrently with the cpp lane's ctest→clang-tidy on build/ — splitting

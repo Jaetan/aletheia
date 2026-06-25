@@ -337,6 +337,41 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   (`reflect.DeepEqual`) instead of by rendered string. Migration: rendering a
   formula now requires a live `Client`; compare `Formula` values directly. From
   the r25 review (point 2, Go-first).
+- **BREAKING (C++): the rational renderer no longer self-initialises the GHC
+  runtime — it is vocal (throws `AletheiaException(Ffi)`) when the runtime is
+  down — and a null kernel return now throws instead of fabricating `"0"`**
+  (`cpp/src/{rational_renderer,client}.cpp`, `cpp/src/detail/rts_init.{hpp,cpp}`).
+  The C++ slice of the cross-binding "whine if the runtime is uninitialised" pass
+  (after Go). Like Go's, the renderer is the only FFI entry point not routed
+  through `FfiBackend`; it used to `dlopen` + `hs_init` the `.so` itself on first
+  use, latching a default `-N1` that squandered the `FfiBackend`'s bus-count `-N`
+  (the RTS is one-shot per process). It now reads the shared
+  `detail::rts_initialized()` and throws rather than self-initialising, so
+  `make_ffi_backend` is the sole runtime initialiser; the previous silent `"0"`
+  null-fallback (the same anti-pattern the pass exists to remove) is now a throw,
+  matching Go/Rust. Consequently the render paths react per the established
+  render-fail contract: `Check::condition_desc()` and `Client::set_properties`
+  *propagate* the runtime-not-initialised error (reachable, pre-backend), while
+  `format_enriched_reason` (the eval path, where the runtime is necessarily up
+  because the frame was just processed) *degrades* to the formula description
+  rather than ever sinking an already-processed frame. The renderer-first
+  `rts.cores_mismatch` warning path is therefore gone (the renderer never inits).
+  Migration: rendering (a check description or an observed value) now requires an
+  `FfiBackend` to exist in the process — create one via `make_ffi_backend` first.
+  - **CI (`tools/_ci_steps.py`): the C++ `ctest` + `ubsan ctest` steps now pin
+    `ALETHEIA_LIB`** to `<repo>/build/libaletheia-ffi.so`, exactly as the Go and
+    Rust steps already do, so every test resolves the one `.so` deterministically
+    rather than via the renderer's cwd-relative probe — uniform, cwd-independent
+    resolution (the C++ harness was the lone outlier). The relative heuristic stays
+    as the bare-`ctest` local-dev fallback.
+  - **Tests**: a Catch2 listener (`cpp/tests/rts_setup_listener.cpp`, the C++
+    analogue of Go's package `TestMain`) brings the runtime up once per process for
+    the render-dependent mock-backend binaries (`unit_tests`, `log_events_tests`)
+    that create no real backend; real-backend binaries do not link it. The former
+    renderer-first cores-mismatch test is replaced by
+    `rts_init_renderer_uninitialized_tests.cpp`, asserting a pre-backend render
+    throws the runtime-not-initialised error (its own process, RTS deterministically
+    down).
 - **BREAKING (Rust): all rational *display* rendering now delegates to the verified
   kernel's `formatℚ` (the `aletheia_format_rational` FFI), and
   `Check::condition_desc()` returns `Result<String, Error>`** (was `&str`)

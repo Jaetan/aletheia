@@ -1,33 +1,24 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Shared GHC RTS init state — used by both `rational_renderer.cpp` and
-// `ffi_backend.cpp` so the two independent `dlopen`+`hs_init` sites
-// coordinate on a single source of truth.
+// Shared GHC RTS init state — `ffi_backend.cpp` initialises the RTS and
+// `rational_renderer.cpp` reads this state to decide whether it may call the
+// kernel, so the two TUs coordinate on a single source of truth.
 //
-// Why this exists (R23 — CPP-D-17.1).  Before this TU, each of the two
-// .cpp files held its own function-static `rts_state` (initialized flag
-// + cores), so the GHC RTS could be initialized twice without either
-// side knowing.  GHC's `hs_init` is idempotent — the second call is
-// silently a no-op even when the new argv would have set `+RTS -N<n>`.
-// That made the renderer-first-then-FfiBackend ordering drop the user's
-// `rts_cores` arg without triggering the `rts.cores_mismatch` warning,
-// because FfiBackend's local `rts_state.initialized` flag stayed
-// `false` and FfiBackend thought it was the first init.
+// FfiBackend (`make_ffi_backend`) is the sole RTS initialiser: its constructor
+// runs `hs_init` once and records the requested cores here. The rational
+// renderer is a *consumer* — it dlopens the .so for the format/free symbols but
+// does NOT init the RTS; before calling the kernel it checks `rts_initialized()`
+// and throws if the runtime is down (point 2 — "whine if uninitialised") rather
+// than self-initialising, which would latch a default `-N` and squander the
+// FfiBackend's bus-count `-N` (GHC's `hs_init` is one-shot per process).
 //
-// Sharing the state across both TUs closes the gap: whichever singleton
-// initializes the RTS first records the cores it requested in
-// `rts_init_state()`, and the other singleton sees `initialized == true`
-// when it tries to init.  FfiBackend then surfaces the renderer's
-// `cores == 1` vs. user's `rts_cores > 1` as the existing
-// `rts_mismatch_info()` warning — the warning that would have silently
-// vanished under the per-TU state.
+// The `cores` field backs FfiBackend's `rts.cores_mismatch` warning when more
+// than one FfiBackend is created with differing `rts_cores` (first init wins).
 //
-// Lifecycle invariant: the GHC RTS is process-global, so `hs_init` is
-// called at most once per process.  The state set here lives for the
-// process lifetime; there is no teardown path — `hs_exit` is never
-// called (GHC RTS does not support reinitialization), so the state
-// is never reset.
+// Lifecycle invariant: the GHC RTS is process-global, so `hs_init` is called at
+// most once per process; there is no teardown (`hs_exit` is never called, as the
+// GHC RTS does not support reinitialization), so the state is never reset.
 
 #pragma once
 
@@ -49,5 +40,10 @@ struct RTSInitState {
 // every TU that links against aletheia-cpp.  Lock `RTSInitState::mu`
 // before reading or writing `initialized` / `cores`.
 auto rts_init_state() -> RTSInitState&;
+
+// Whether the GHC RTS has been initialised (by an FfiBackend). The rational
+// renderer checks this before calling the kernel and throws if it is false,
+// rather than self-initialising. Acquires `RTSInitState::mu` internally.
+auto rts_initialized() -> bool;
 
 } // namespace aletheia::detail

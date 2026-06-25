@@ -5,13 +5,14 @@
 // identical Rational pretty-printer (R20 cluster Y stage 2).
 //
 // Single source of truth: every render flows through
-// `aletheia_format_rational` in libaletheia-ffi.so.  The library is
-// dlopened on first use via `std::call_once` — independently of
-// `FfiBackend`, so unit tests that never instantiate a backend still
-// route through the same Agda kernel function.  No local C++ fallback
-// exists; `format_value(const Rational&)` (in `enrich.cpp`) is
-// byte-identical to Python's and Go's output by construction, not by a
-// test corpus.
+// `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
+// the library on first use via `std::call_once` for the format/free symbols,
+// but does NOT initialise the GHC RTS — that is an FfiBackend's job.  If the
+// runtime is not up it throws (point 2) rather than self-initialising (which
+// would squander the FfiBackend's bus-count -N; the RTS is one-shot per
+// process).  No local C++ fallback exists; `format_value(const Rational&)`
+// (in `enrich.cpp`) is byte-identical to Python's and Go's output by
+// construction, not by a test corpus.
 
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
@@ -32,7 +33,6 @@ namespace aletheia::detail {
 
 namespace {
 
-using HsInitFn = void (*)(int*, char***);
 using FormatRationalFn = char* (*)(std::int64_t, std::int64_t);
 using FreeStrFn = void (*)(char*);
 
@@ -115,8 +115,9 @@ static auto find_library_path() -> std::filesystem::path {
     return {};
 }
 
-// dlopen + dlsym + hs_init the library.  Records either the resolved
-// function pointers or a load-error string in the singleton state.
+// dlopen + dlsym the library.  Records either the resolved function
+// pointers or a load-error string in the singleton state.  Does NOT
+// initialise the GHC RTS (point 2 — that is an FfiBackend's job).
 // Called exactly once per process via `std::call_once`.
 static void init_renderer() {
     auto& s = state();
@@ -139,9 +140,6 @@ static void init_renderer() {
         }
         return sym;
     };
-    void* hs_init_sym = load_sym("hs_init");
-    if (hs_init_sym == nullptr)
-        return;
     void* fmt_sym = load_sym("aletheia_format_rational");
     if (fmt_sym == nullptr)
         return;
@@ -149,31 +147,8 @@ static void init_renderer() {
     if (free_sym == nullptr)
         return;
 
-    // hs_init is idempotent in GHC; if `FfiBackend` has already
-    // initialised the RTS (with `+RTS -N<cores>` flags maybe), this
-    // no-op call doesn't disturb that.  If we win the race, FfiBackend
-    // observes `rts.initialized == true` via the shared `rts_init_state`
-    // (R23 — CPP-D-17.1) and routes through its cores-mismatch warning
-    // path instead of attempting a second `hs_init` whose argv would
-    // be silently dropped.
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto hs_init = reinterpret_cast<HsInitFn>(hs_init_sym);
-    {
-        auto& rts = detail::rts_init_state();
-        const std::scoped_lock lk{rts.mu};
-        if (!rts.initialized) {
-            hs_init(nullptr, nullptr);
-            rts.initialized = true;
-            // Renderer always calls hs_init with nullptr argv, so the RTS
-            // takes its default -N (typically 1 unless GHCRTS env var
-            // overrides).  Record `1` so FfiBackend's mismatch detection
-            // can surface the user's `rts_cores > 1` request as a downgrade.
-            rts.cores = 1;
-        }
-        // If `rts.initialized` was already true (FfiBackend ran first),
-        // hs_init is intentionally not called — the RTS is up.
-    }
-
+    // The renderer does NOT initialise the GHC RTS (point 2): an FfiBackend is
+    // the sole initialiser, so it only resolves the format/free symbols here.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     s.format_fn = reinterpret_cast<FormatRationalFn>(fmt_sym);
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -192,14 +167,21 @@ static void ensure_loaded() {
 
 auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
     ensure_loaded();
+    // The renderer is a consumer of a runtime an FfiBackend must bring up: be
+    // vocal (throw) when it is down rather than self-initialising (which would
+    // squander the FfiBackend's bus-count -N) or calling the kernel with the RTS
+    // uninitialised (undefined behaviour). The caller must create a backend first.
+    if (!rts_initialized())
+        throw AletheiaException(AletheiaError{
+            ErrorKind::Ffi, "GHC runtime not initialized: create a backend before rendering"});
     auto& s = state();
     char* raw = s.format_fn(num, denom);
-    if (raw == nullptr) {
-        // Defensive: the Agda function always returns a non-null
-        // CString (denom = 0 returns the literal "0").  Reach here
-        // only on a catastrophic Haskell-side allocation failure.
-        return std::string{"0"};
-    }
+    if (raw == nullptr)
+        // Unreachable for a well-formed rational (the kernel never returns null);
+        // throw rather than fabricating "0" — a null means a kernel/ABI
+        // malfunction, and a silent "0" would hide the bug. Matches Rust/Go.
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Ffi, "aletheia_format_rational returned a null pointer"});
     auto deleter = [&s](char* p) { s.free_fn(p); };
     const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
     return std::string{raw};

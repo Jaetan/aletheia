@@ -388,7 +388,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         tests/unit_tests_cancel.cpp
         tests/unit_tests_input_bounds.cpp
         tests/unit_tests_property.cpp
-        tests/unit_tests_ffi_logic.cpp)
+        tests/unit_tests_ffi_logic.cpp
+        tests/rts_setup_listener.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
@@ -448,21 +449,21 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set_tests_properties(excel_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
-    # R23 — CPP-D-17.1: cross-singleton RTS init ordering test.  Must run
-    # in its own process because the GHC RTS is process-global and `hs_init`
-    # is one-shot; sharing a process with any FfiBackend-first test would
-    # race on the first init.  This binary triggers the lazy
-    # `format_rational_ffi` first (renderer-first init), then constructs
-    # an FfiBackend with `rts_cores = 4`, and asserts the
-    # `rts.cores_mismatch` warning fires — which requires the shared
-    # `detail::rts_init_state` introduced in `cpp/src/detail/rts_init.hpp`.
-    add_executable(rts_init_renderer_first_tests tests/rts_init_renderer_first_tests.cpp)
-    target_link_libraries(rts_init_renderer_first_tests
+    # Point 2 ("whine if uninitialised"): renderer-uninitialised vocal test. The
+    # renderer no longer self-initialises the GHC RTS (an FfiBackend is the sole
+    # initialiser), so a pre-backend `format_rational_ffi` must throw. Must run in
+    # its own process because the GHC RTS is process-global: any FfiBackend-first
+    # test sharing the process would bring the runtime up and defeat the assertion.
+    add_executable(rts_init_renderer_uninitialized_tests
+        tests/rts_init_renderer_uninitialized_tests.cpp)
+    target_link_libraries(rts_init_renderer_uninitialized_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
-    add_test(NAME rts_init_renderer_first_tests COMMAND rts_init_renderer_first_tests)
-    # Pass repo root via env var per CPP-D-18.1 reproducible-build
-    # invariant (no compile-time CMAKE_CURRENT_SOURCE_DIR defines).
-    set_tests_properties(rts_init_renderer_first_tests PROPERTIES
+    add_test(NAME rts_init_renderer_uninitialized_tests
+        COMMAND rts_init_renderer_uninitialized_tests)
+    # Pass repo root via env var per CPP-D-18.1 reproducible-build invariant (no
+    # compile-time CMAKE_CURRENT_SOURCE_DIR defines); the local-dev fallback when
+    # ALETHEIA_LIB is unset.
+    set_tests_properties(rts_init_renderer_uninitialized_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # Layer 6: Feature matrix parity test (yaml-cpp, Catch2). Reads
@@ -494,7 +495,10 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # workflow capturing LogRecord events, and asserts each emitted event is
     # a member of the canonical name set. The "missing mechanism" gate added
     # alongside R18 cluster 10's surface fix (Go's rogue dbc.text_parsed event).
-    add_executable(log_events_tests tests/test_log_events_parity.cpp)
+    # rts_setup_listener.cpp: set_properties renders the condition descriptions,
+    # which (point 2) needs the GHC RTS up; this mock-backend test creates no real
+    # FfiBackend, so the listener brings the runtime up for the process.
+    add_executable(log_events_tests tests/test_log_events_parity.cpp tests/rts_setup_listener.cpp)
     target_include_directories(log_events_tests PRIVATE src)
     target_link_libraries(log_events_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)

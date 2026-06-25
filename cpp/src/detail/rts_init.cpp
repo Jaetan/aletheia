@@ -6,11 +6,19 @@
 
 #include "rts_init.hpp"
 
+#include <mutex>
+
 namespace aletheia::detail {
 
 auto rts_init_state() -> RTSInitState& {
     static RTSInitState s;
     return s;
+}
+
+auto rts_initialized() -> bool {
+    auto& s = rts_init_state();
+    const std::scoped_lock lk{s.mu};
+    return s.initialized;
 }
 
 } // namespace aletheia::detail
