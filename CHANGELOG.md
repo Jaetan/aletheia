@@ -12,6 +12,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Rust documentation is now gated in CI** (`tools/_ci_steps.py`): the rust lint
+  section runs `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+  --document-private-items` for both the main crate (with `--all-features`) and the
+  `rust/excel/` crate, so broken or redundant intra-doc links fail the build
+  instead of accumulating silently (the gap that let several warnings pile up
+  unnoticed). The pre-existing warnings this surfaced are fixed in the same change:
+  `log.rs` (`[Client]` and `[ALL]` now link via their paths), `yaml.rs`
+  (`MAX_INPUT_BYTES` demoted from a public→private link to a plain code span), and
+  `async_client.rs` (a redundant explicit `[Client]` target dropped; the
+  `AsyncClient` link in `lib.rs` resolves once `--all-features` is on). Doc/CI only
+  — no runtime or API change. `cargo doc --no-deps` runs no doctests, so the gate
+  needs no `.so`.
 - **Async backend dependency-injection seam for the Rust binding** (`rust/`,
   feature `async`): `ClientBuilder::build_async_with_backend(Box<dyn Backend +
   Send>)` builds an `AsyncClient` over an injected `Backend` without loading

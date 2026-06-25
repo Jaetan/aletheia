@@ -100,7 +100,7 @@ pub struct LogRecord<'a> {
 /// a closure is a `Logger`; implement the trait directly for a stateful sink.
 ///
 /// `Send + Sync` is required so the logger can be shared with a future async
-/// client's worker thread; it does not make the synchronous [`Client`] itself
+/// client's worker thread; it does not make the synchronous [`Client`](crate::Client) itself
 /// `Send`.
 pub trait Logger: Send + Sync {
     /// Handle one record. The minimum-level filter is applied by the caller
@@ -118,7 +118,7 @@ impl<F: Fn(&LogRecord) + Send + Sync> Logger for F {
 /// authoritative in `docs/LOG_EVENTS.yaml` and shared with the Python / Go / C++
 /// bindings (Python's `LogEvent` enum is the analogue). All 16 names are defined
 /// here, so downstream code can refer to any vocabulary event uniformly across
-/// bindings even where this client does not yet emit it; [`ALL`] lists them and
+/// bindings even where this client does not yet emit it; [`ALL`](events::ALL) lists them and
 /// the `log_events` parity test pins the set to the YAML. The subset this client
 /// emits today is noted per-constant.
 pub mod events {

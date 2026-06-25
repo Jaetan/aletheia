@@ -394,16 +394,30 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root,
     )
 
-    # Rust lints: rustfmt (check) + clippy (deny warnings) — the cargo
-    # equivalents of gofmt+vet / clang-format+clang-tidy.
+    # Rust lints: rustfmt (check) + clippy (deny warnings) + rustdoc (deny
+    # warnings) — the cargo equivalents of gofmt+vet / clang-format+clang-tidy.
+    # cargo doc catches broken/redundant intra-doc links (--document-private-items
+    # so internal docs are checked too; --all-features so the `async` items the docs
+    # link to resolve). It needs no .so — `--no-deps` documents only this crate and
+    # does not run doctests.
     runner.step(
         "cargo fmt + clippy",
         "cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings",
         cwd=runner.repo_root / "rust",
     )
     runner.step(
+        "cargo doc (warnings = errors)",
+        'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features',
+        cwd=runner.repo_root / "rust",
+    )
+    runner.step(
         "cargo fmt + clippy (excel crate)",
         "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+        cwd=runner.repo_root / "rust" / "excel",
+    )
+    runner.step(
+        "cargo doc (excel crate, warnings = errors)",
+        'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items',
         cwd=runner.repo_root / "rust" / "excel",
     )
 

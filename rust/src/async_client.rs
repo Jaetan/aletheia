@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! Runtime-agnostic async client (feature `async`) — an async mirror of
-//! [`Client`](crate::Client).
+//! [`Client`].
 //!
 //! The sync `Client` is `!Send` (a thread-pinned `StreamState`), so [`AsyncClient`]
 //! owns it on a dedicated **worker thread** and talks to it over a channel: each
