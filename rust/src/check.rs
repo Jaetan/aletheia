@@ -149,9 +149,11 @@ impl Check {
     /// bindings).
     ///
     /// # Errors
-    /// [`Error`] if the kernel renderer's library cannot be loaded. Only reachable
-    /// when rendered with no usable `.so` — e.g. a check inspected before any
-    /// [`Client`](crate::Client) exists; with a live client it cannot fail.
+    /// [`Error`] if the kernel renderer's shared library cannot be loaded. The
+    /// renderer loads `libaletheia-ffi.so` itself, independently of any backend, so
+    /// this depends only on whether the library is locatable (see `ALETHEIA_LIB`) —
+    /// not on whether a [`Client`](crate::Client) exists (a `MockBackend` client
+    /// does not load the `.so` for you).
     pub fn condition_desc(&self) -> Result<String, Error> {
         render_desc(&self.condition_desc)
     }

@@ -629,7 +629,10 @@ impl Client {
     ///
     /// # Errors
     /// [`Error::Validation`] if any formula is invalid (bad predicate / depth),
-    /// or [`Error::Core`] if the core rejects the set (e.g. no DBC loaded).
+    /// [`Error::Core`] if the core rejects the set (e.g. no DBC loaded), or a
+    /// library-load error ([`Error::LibraryLoad`] / [`Error::SymbolMissing`]) if the
+    /// kernel rational renderer cannot be loaded while building the per-property
+    /// enrichment diagnostics (it renders the predicate thresholds via the FFI).
     pub fn set_properties(&self, properties: &[Formula]) -> Result<(), Error> {
         let mut arr = Vec::with_capacity(properties.len());
         for f in properties {

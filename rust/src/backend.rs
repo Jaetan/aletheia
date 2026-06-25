@@ -301,9 +301,10 @@ fn ensure_rts_for_render(lib: &'static Library) -> Result<(), Error> {
 ///
 /// # Errors
 /// [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` is not loadable
-/// or the export is absent. Once the library is usable the call cannot fail for a
-/// well-formed rational: the kernel never emits a zero denominator and the input's
-/// denominator is positive by construction, so "render fails" ⟺ "library unusable".
+/// or the export is absent, or [`Error::Protocol`] in the unreachable case of a
+/// null return (an ABI/kernel malfunction). The call cannot fail for a well-formed
+/// rational once the library is usable: the kernel never emits a zero denominator
+/// and the input's denominator is positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
     let lib = library()?;
@@ -315,9 +316,13 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     // pointer is a GHC-allocated CString released by the `Response` guard.
     let ptr = unsafe { f(r.numerator(), r.denominator()) };
     if ptr.is_null() {
-        // Unreachable for a well-formed rational (the kernel never returns null);
-        // mirror Python's defensive "0" so the sole real failure stays lib-load.
-        return Ok("0".to_string());
+        // Unreachable for a well-formed rational (the kernel never returns null and
+        // the denominator is positive by construction). Surface a typed error rather
+        // than a fabricated value: a null means an ABI/kernel malfunction, and a
+        // silent "0" would both violate no-local-fallback and hide the bug.
+        return Err(Error::Protocol(
+            "aletheia_format_rational returned a null pointer".to_string(),
+        ));
     }
     Ok(Response { ptr, free_str }.into_string())
 }
