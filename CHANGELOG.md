@@ -303,6 +303,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Rust): all rational *display* rendering now delegates to the verified
+  kernel's `formatℚ` (the `aletheia_format_rational` FFI), and
+  `Check::condition_desc()` returns `Result<String, Error>`** (was `&str`)
+  (`rust/src/{check,enrich,backend,lib}.rs`). The Rust binding previously rendered
+  thresholds and observed signal values with a local reduced-fraction helper
+  (`rat_str`, the R3a divergence), so a threshold of `1/4` printed as `"1/4"`; it
+  now renders through the proven kernel — terminating fractions as decimals
+  (`"0.25"`), non-terminating as `"p/q"` (`"1/3"`) — byte-identical to the Python,
+  Go, and C++ bindings by construction (no local fallback). This covers all three
+  rational-rendering surfaces: check-builder condition descriptions, enrichment
+  predicate thresholds, and enrichment observed values. Because the kernel renderer
+  is a fallible FFI (it needs `libaletheia-ffi.so`), descriptions render *lazily*
+  at read-time, so building a check stays infallible (`never_exceeds(v)` etc. keep
+  returning `Check`; the fluent `when().then()…within()` chain stays `?`-free) and
+  only *reading* `condition_desc()` can fail. `set_properties` propagates a render
+  failure (a setup error), while the streaming enrichment path degrades
+  best-effort — it never fails an already-processed frame (and the render is
+  unreachable there anyway: the values came from an extraction that already loaded
+  the library). `rat_str` is retained only for inverted-range *validation error
+  messages*, which must report a bad range without depending on a fallible FFI
+  load. Migration: `check.condition_desc()` → `check.condition_desc()?` (or
+  `.unwrap()`); fractional thresholds/values now print as decimals where they
+  terminate. Renderer correctness and canonicality are proven once in Agda
+  (`formatℚ-chars-represents` faithfulness + the decimal/fraction shape lemmas +
+  `formatRational-canonical`), so redundant per-value rendering tests were removed
+  rather than re-asserted per binding. From the r25 review (B5a render delegation).
 - **BREAKING (C++): `ExtractionResult::errors` is now `std::vector<SignalError>`**
   (was `std::vector<std::pair<SignalName, std::string>>`)
   (`cpp/include/aletheia/response.hpp`). A new `struct SignalError { SignalName
