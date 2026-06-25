@@ -43,11 +43,4 @@ fn loads_the_shared_cross_binding_fixture() {
         Rational::from_f64(14.5).unwrap(),
         Rational::new(29, 2).unwrap()
     );
-
-    // Display divergence pinned (not a bug): the condition description renders the
-    // exact reduced fractions, matching the Rust check DSL (R3a) — `signal("S")
-    // .stays_between(Rational::new(1,4), …)` → "1/4". The peers' loaders print the
-    // original decimal ("between 11.5 and 14.5"). This is display-only metadata
-    // (not on the wire, not in the verdict); the verified formula is identical.
-    assert_eq!(checks[1].condition_desc(), "between 23/2 and 29/2");
 }

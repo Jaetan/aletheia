@@ -403,7 +403,13 @@ impl Client {
         diag: &PropertyDiagnostic,
         values: Vec<(String, Rational)>,
     ) {
-        let enriched_reason = enrich::format_enriched_reason(diag, &values, &pr.reason);
+        // Best-effort on the eval path: a render failure is unreachable here (the
+        // values came from an extraction that already loaded the library, so the
+        // renderer's library is loaded too). Degrade to the no-values reason rather
+        // than fail an already-processed frame — no local fallback (we omit the
+        // values, never render them locally). See `enrich::reason_without_values`.
+        let enriched_reason = enrich::format_enriched_reason(diag, &values, &pr.reason)
+            .unwrap_or_else(|_| enrich::reason_without_values(diag, &pr.reason));
         pr.enrichment = Some(Enrichment {
             signals: values,
             formula_desc: diag.formula_desc.clone(),
@@ -634,7 +640,10 @@ impl Client {
         response::decode_ack_or_success(&raw)?;
         // Cache one diagnostic per property (index = property_index) for
         // client-side violation enrichment, and reset the per-stream frame cache.
-        *self.diags.borrow_mut() = properties.iter().map(enrich::build_diagnostic).collect();
+        *self.diags.borrow_mut() = properties
+            .iter()
+            .map(enrich::build_diagnostic)
+            .collect::<Result<Vec<_>, _>>()?;
         self.last_frames.borrow_mut().clear();
         self.emit(
             LogLevel::Info,

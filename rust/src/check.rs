@@ -15,17 +15,61 @@
 //! combinators (until / release / metric / and / or) stay on [`Formula`] for
 //! power users — this module covers the common check vocabulary the peers expose.
 
+use crate::backend::format_rational;
 use crate::error::Error;
 use crate::ltl::{Formula, Predicate};
 use crate::types::{Rational, TimeBound};
 
 const US_PER_MS: u64 = 1000;
 
-/// Render a rational for a condition description (`5`, or `1/4`). Shared with the
-/// enrichment formatter so a value renders identically in both surfaces (the
-/// local reduced-fraction form pinned in R3a, a documented display-only
-/// divergence from the peers' FFI decimals).
-pub(crate) fn rat_str(r: Rational) -> String {
+/// One piece of a check's deferred condition description. Literal text is fixed
+/// when the check is built; a [`Rational`] is rendered lazily at
+/// [`Check::condition_desc`] read-time via the kernel `formatℚ` (the SSOT
+/// renderer). Deferring keeps check *construction* infallible — only reading the
+/// description can surface a library-load error — so the fluent builder chain
+/// (`when().then().equals().within()`) stays `?`-free.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DescPart {
+    /// Fixed text — an operator, a separator, or the `within {n}ms` suffix.
+    Lit(String),
+    /// A threshold rendered via the kernel at read-time.
+    Rat(Rational),
+}
+
+/// An operator prefix followed by a single rational, e.g. `"<= "` + `v`.
+fn op_desc(op: &str, v: Rational) -> Vec<DescPart> {
+    vec![DescPart::Lit(op.to_string()), DescPart::Rat(v)]
+}
+
+/// `between {lo} and {hi}`.
+fn between_desc(lo: Rational, hi: Rational) -> Vec<DescPart> {
+    vec![
+        DescPart::Lit("between ".to_string()),
+        DescPart::Rat(lo),
+        DescPart::Lit(" and ".to_string()),
+        DescPart::Rat(hi),
+    ]
+}
+
+/// Render a deferred description, delegating every threshold to the kernel
+/// `formatℚ` so the output is byte-identical to the other bindings (no local
+/// fallback).
+fn render_desc(parts: &[DescPart]) -> Result<String, Error> {
+    let mut out = String::new();
+    for part in parts {
+        match part {
+            DescPart::Lit(s) => out.push_str(s),
+            DescPart::Rat(r) => out.push_str(&format_rational(*r)?),
+        }
+    }
+    Ok(out)
+}
+
+/// Render a rational into an inverted-range **validation error message** (`5`, or
+/// `1/4`). Display descriptions delegate to the kernel `formatℚ` (see [`DescPart`]
+/// / [`render_desc`]); `rat_str` is retained only for these error strings, which
+/// must report a bad range without depending on a fallible FFI library load.
+fn rat_str(r: Rational) -> String {
     if r.denominator() == 1 {
         r.numerator().to_string()
     } else {
@@ -66,11 +110,11 @@ pub struct Check {
     name: String,
     severity: String,
     signal_name: String,
-    condition_desc: String,
+    condition_desc: Vec<DescPart>,
 }
 
 impl Check {
-    fn new(formula: Formula, signal_name: String, condition_desc: String) -> Check {
+    fn new(formula: Formula, signal_name: String, condition_desc: Vec<DescPart>) -> Check {
         Check {
             formula,
             name: String::new(),
@@ -100,10 +144,16 @@ impl Check {
     pub fn signal_name(&self) -> &str {
         &self.signal_name
     }
-    /// Human-readable description of the condition.
-    #[must_use]
-    pub fn condition_desc(&self) -> &str {
-        &self.condition_desc
+    /// Human-readable description of the condition, with thresholds rendered via
+    /// the kernel `formatℚ` (the SSOT renderer; byte-identical to the other
+    /// bindings).
+    ///
+    /// # Errors
+    /// [`Error`] if the kernel renderer's library cannot be loaded. Only reachable
+    /// when rendered with no usable `.so` — e.g. a check inspected before any
+    /// [`Client`](crate::Client) exists; with a live client it cannot fail.
+    pub fn condition_desc(&self) -> Result<String, Error> {
+        render_desc(&self.condition_desc)
     }
 
     /// Return a copy with the human-readable name set.
@@ -146,7 +196,7 @@ impl Signal {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, format!("<= {}", rat_str(v)))
+        Check::new(f, self.name, op_desc("<= ", v))
     }
 
     /// `G(signal >= value)` — the signal never drops below `value`.
@@ -157,7 +207,7 @@ impl Signal {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, format!(">= {}", rat_str(v)))
+        Check::new(f, self.name, op_desc(">= ", v))
     }
 
     /// `G(lo <= signal <= hi)`.
@@ -182,11 +232,7 @@ impl Signal {
             min: lo,
             max: hi,
         });
-        Ok(Check::new(
-            f,
-            self.name,
-            format!("between {} and {}", rat_str(lo), rat_str(hi)),
-        ))
+        Ok(Check::new(f, self.name, between_desc(lo, hi)))
     }
 
     /// `G(¬(signal == value))` — the signal never equals `value`.
@@ -197,7 +243,7 @@ impl Signal {
             signal: self.name.clone(),
             value: v,
         });
-        Check::new(f, self.name, format!("!= {}", rat_str(v)))
+        Check::new(f, self.name, op_desc("!= ", v))
     }
 
     /// Begin an `equals(value).always()` chain.
@@ -238,7 +284,7 @@ impl SignalEquals {
             signal: self.name.clone(),
             value: self.value,
         });
-        Check::new(f, self.name, format!("= {}", rat_str(self.value)))
+        Check::new(f, self.name, op_desc("= ", self.value))
     }
 }
 
@@ -275,15 +321,9 @@ impl Settles {
                 max: self.hi,
             }),
         );
-        Ok(Check::new(
-            f,
-            self.name,
-            format!(
-                "between {} and {} within {ms}ms",
-                rat_str(self.lo),
-                rat_str(self.hi)
-            ),
-        ))
+        let mut desc = between_desc(self.lo, self.hi);
+        desc.push(DescPart::Lit(format!(" within {ms}ms")));
+        Ok(Check::new(f, self.name, desc))
     }
 }
 
@@ -368,7 +408,7 @@ impl ThenSignal {
             signal: self.name.clone(),
             value: v,
         };
-        self.respond(response, format!("= {}", rat_str(v)), None)
+        self.respond(response, op_desc("= ", v), None)
     }
     /// Response: the then-signal exceeds `value`.
     #[must_use]
@@ -378,7 +418,7 @@ impl ThenSignal {
             signal: self.name.clone(),
             value: v,
         };
-        self.respond(response, format!("> {}", rat_str(v)), None)
+        self.respond(response, op_desc("> ", v), None)
     }
     /// Response: the then-signal stays between `lo` and `hi` (inverted range is
     /// surfaced from [`ThenCondition::within`]).
@@ -399,17 +439,13 @@ impl ThenSignal {
             min: lo,
             max: hi,
         };
-        self.respond(
-            response,
-            format!("between {} and {}", rat_str(lo), rat_str(hi)),
-            range_err,
-        )
+        self.respond(response, between_desc(lo, hi), range_err)
     }
 
     fn respond(
         self,
         response: Predicate,
-        desc: String,
+        desc: Vec<DescPart>,
         range_err: Option<String>,
     ) -> ThenCondition {
         ThenCondition {
@@ -428,7 +464,7 @@ pub struct ThenCondition {
     trigger: Predicate,
     response: Predicate,
     then_signal: String,
-    then_desc: String,
+    then_desc: Vec<DescPart>,
     /// The rendered inverted-range error (with `lo`/`hi`), captured from
     /// `stays_between` and surfaced here so the chain stays fluent.
     range_err: Option<String>,
@@ -450,11 +486,9 @@ impl ThenCondition {
             Formula::Atomic(self.trigger),
             Formula::eventually_within(bound, Formula::Atomic(self.response)),
         )));
-        Ok(Check::new(
-            f,
-            self.then_signal,
-            format!("{} within {ms}ms", self.then_desc),
-        ))
+        let mut desc = self.then_desc;
+        desc.push(DescPart::Lit(format!(" within {ms}ms")));
+        Ok(Check::new(f, self.then_signal, desc))
     }
 }
 
@@ -482,7 +516,7 @@ mod tests {
             })))
         );
         assert_eq!(c.signal_name(), "Speed");
-        assert_eq!(c.condition_desc(), "<= 120");
+        assert_eq!(c.condition_desc().unwrap(), "<= 120");
     }
 
     #[test]
@@ -507,7 +541,7 @@ mod tests {
                 value: r(3),
             })
         );
-        assert_eq!(c.condition_desc(), "!= 3");
+        assert_eq!(c.condition_desc().unwrap(), "!= 3");
     }
 
     #[test]
@@ -548,7 +582,7 @@ mod tests {
                 })
             )
         );
-        assert_eq!(c.condition_desc(), "between 0 and 10 within 100ms");
+        assert_eq!(c.condition_desc().unwrap(), "between 0 and 10 within 100ms");
     }
 
     #[test]
@@ -576,12 +610,6 @@ mod tests {
             )))
         );
         assert_eq!(c.signal_name(), "Light");
-    }
-
-    #[test]
-    fn fractional_value_via_rational() {
-        let c = signal("Ratio").never_exceeds(Rational::new(1, 4).expect("rational"));
-        assert_eq!(c.condition_desc(), "<= 1/4");
     }
 
     #[test]

@@ -27,7 +27,7 @@ use libloading::{Library, Symbol};
 
 use crate::error::Error;
 use crate::log::{events, LogField, LogLevel, LogRecord, LogValue, Logger};
-use crate::types::{CanId, Dlc, Timestamp};
+use crate::types::{CanId, Dlc, Rational, Timestamp};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
 pub(crate) type StateHandle = *mut c_void;
@@ -274,6 +274,52 @@ fn ensure_rts(
         }
     }
     RTS_INIT.get_or_init(|| init_rts(lib, latched)).clone()
+}
+
+/// Ensure the GHC RTS is initialised for a library call that may run *before* any
+/// [`FfiBackend`] exists — the rational renderer reaches this
+/// when a [`Check`](crate::check::Check) built under a
+/// [`MockBackend`](crate::MockBackend) renders its `condition_desc()`, or when
+/// `set_properties` runs on a mock. The renderer is a MAlonzo foreign export, so
+/// calling it with the RTS down is undefined behaviour, not a catchable error.
+///
+/// Delegates to [`ensure_rts`] — the single one-shot init — with the default spec
+/// (no backend `-N`, no logger). GHC's `hs_init` is one-shot and fixes `-N` for the
+/// process, so whichever caller runs first latches the spec: a real `FfiBackend`
+/// (created before it processes anything) always wins its `-N`; a renderer-first
+/// call uses GHC defaults, which is harmless because rendering a single rational is
+/// not parallel work. Mirrors the C++ (`rational_renderer.cpp`) and Python
+/// (`_enrichment.py`) renderers, which share the backend's RTS init the same way.
+fn ensure_rts_for_render(lib: &'static Library) -> Result<(), Error> {
+    ensure_rts(lib, None, None, LogLevel::Warn)
+}
+
+/// Render a [`Rational`] via the verified Agda kernel's `formatℚ` (the FFI export
+/// `aletheia_format_rational`) — the single source of truth for rational display,
+/// byte-identical to the Python / Go / C++ bindings by construction (no local
+/// fallback). Lazily loads `libaletheia-ffi.so` and ensures the RTS on first use.
+///
+/// # Errors
+/// [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` is not loadable
+/// or the export is absent. Once the library is usable the call cannot fail for a
+/// well-formed rational: the kernel never emits a zero denominator and the input's
+/// denominator is positive by construction, so "render fails" ⟺ "library unusable".
+pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
+    type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
+    let lib = library()?;
+    ensure_rts_for_render(lib)?;
+    let f = unsafe { symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0") }?;
+    let free_str =
+        unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+    // SAFETY: numerator/denominator are plain `i64` the kernel renders; the returned
+    // pointer is a GHC-allocated CString released by the `Response` guard.
+    let ptr = unsafe { f(r.numerator(), r.denominator()) };
+    if ptr.is_null() {
+        // Unreachable for a well-formed rational (the kernel never returns null);
+        // mirror Python's defensive "0" so the sole real failure stays lib-load.
+        return Ok("0".to_string());
+    }
+    Ok(Response { ptr, free_str }.into_string())
 }
 
 /// Human spec for the RTS core count (`default` or `-N<k>`).
