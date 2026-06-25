@@ -10,12 +10,25 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 	"github.com/xuri/excelize/v2"
 )
+
+// assertSameFormula compares two LTL formulas structurally. The Excel loader
+// should produce the same formula as the reference check; this replaces a prior
+// comparison via aletheia.FormatFormula (now internal — the public surface is the
+// PropertyDiagnostic type) and is a stronger check than the old rendered-string
+// equality.
+func assertSameFormula(t *testing.T, want, got aletheia.Formula) {
+	t.Helper()
+	if !reflect.DeepEqual(want, got) {
+		t.Errorf("formula mismatch:\n want: %#v\n  got: %#v", want, got)
+	}
+}
 
 // mustCheck panics if a check builder returned an error, else returns the
 // CheckResult — for sites where the value is known-valid and only the formula
@@ -145,11 +158,7 @@ func TestLoadExcelNeverExceeds(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelNeverBelow(t *testing.T) {
@@ -163,11 +172,7 @@ func TestLoadExcelNeverBelow(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Voltage").NeverBelow(11.5)).Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Voltage").NeverBelow(11.5)).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelStaysBetween(t *testing.T) {
@@ -185,11 +190,7 @@ func TestLoadExcelStaysBetween(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
-	want := aletheia.FormatFormula(reference.Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, reference.Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelNeverEquals(t *testing.T) {
@@ -203,11 +204,7 @@ func TestLoadExcelNeverEquals(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("ErrorCode").NeverEquals(255)).Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, mustCheck(aletheia.CheckSignal("ErrorCode").NeverEquals(255)).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelEqualsAlways(t *testing.T) {
@@ -221,11 +218,7 @@ func TestLoadExcelEqualsAlways(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Gear").Equals(0).Always()).Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Gear").Equals(0).Always()).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelSettlesBetween(t *testing.T) {
@@ -240,11 +233,7 @@ func TestLoadExcelSettlesBetween(t *testing.T) {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
 	expected, _ := aletheia.CheckSignal("CoolantTemp").SettlesBetween(80, 100).Within(5000)
-	want := aletheia.FormatFormula(expected.Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelMultipleChecks(t *testing.T) {
@@ -278,11 +267,7 @@ func TestLoadExcelWhenExceedsThenEquals(t *testing.T) {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
 	expected, _ := aletheia.CheckWhen("BrakePedal").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
-	want := aletheia.FormatFormula(expected.Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
@@ -294,11 +279,7 @@ func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	expected, _ := aletheia.CheckWhen("Ignition").Equals(1).Then("RPM").Exceeds(500).Within(2000)
-	want := aletheia.FormatFormula(expected.Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
@@ -310,11 +291,7 @@ func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	expected, _ := aletheia.CheckWhen("FuelLevel").DropsBelow(10).Then("FuelWarning").StaysBetween(1, 1).Within(50)
-	want := aletheia.FormatFormula(expected.Formula())
-	got := aletheia.FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
+	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
 // ===========================================================================
@@ -997,17 +974,9 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
 	// First is simple check, second is when/then.
-	want0 := aletheia.FormatFormula(mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula())
-	got0 := aletheia.FormatFormula(checks[0].Formula())
-	if got0 != want0 {
-		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)
-	}
+	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula(), checks[0].Formula())
 	expected1, _ := aletheia.CheckWhen("Brake").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
-	want1 := aletheia.FormatFormula(expected1.Formula())
-	got1 := aletheia.FormatFormula(checks[1].Formula())
-	if got1 != want1 {
-		t.Errorf("check[1] formula mismatch: got %q, want %q", got1, want1)
-	}
+	assertSameFormula(t, expected1.Formula(), checks[1].Formula())
 }
 
 // ===========================================================================

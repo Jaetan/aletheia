@@ -7,12 +7,13 @@
 // Rational pretty-printer (R20 cluster Y stage 2).
 //
 // Single source of truth: every render flows through
-// `aletheia_format_rational` in libaletheia-ffi.so.  The library is
-// dlopened on first use via sync.Once — independently of `FFIBackend`,
-// so tests that never instantiate a backend (e.g. `enrich_test.go`)
-// still route through the same Agda kernel function.  No local Go
-// fallback exists; `formatRational(r)` is byte-identical to Python's
-// and C++'s output by construction, not by a test corpus.
+// `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
+// the library and resolves its symbols on first use, but does NOT
+// initialise the GHC RTS — that is an FFIBackend's job.  If the runtime is
+// not yet up the renderer returns an error rather than self-initialising
+// (which would squander the backend's bus-count -N; the RTS is one-shot per
+// process).  No local Go fallback exists; `formatRational(r)` is
+// byte-identical to Python's and C++'s output by construction.
 
 package aletheia
 
@@ -24,9 +25,6 @@ package aletheia
 #include <stdlib.h>
 
 // Cgo trampolines local to this file.
-static void renderer_call_hs_init(void *fn) {
-    ((void (*)(int*, char***))fn)(NULL, NULL);
-}
 static char* renderer_call_format_rational(void *fn, int64_t num, int64_t denom) {
     return ((char* (*)(int64_t, int64_t))fn)(num, denom);
 }
@@ -37,7 +35,6 @@ static void renderer_call_free_str(void *fn, char *ptr) {
 import "C"
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -118,9 +115,9 @@ func findFFILibrary() string {
 }
 
 // loadRendererFFI dlopens libaletheia-ffi.so and resolves the format /
-// free symbols.  Coordinates the GHC RTS handshake with FFIBackend via
-// the package-shared `hsInitMu` / `hsInitDone` so a concurrent
-// NewFFIBackend cannot race a second hs_init call.
+// free symbols.  It does NOT initialise the GHC RTS: the renderer is a
+// consumer of a runtime that an FFIBackend must bring up (see
+// formatRationalFFI), so it only loads the symbols it calls.
 func loadRendererFFI() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -137,10 +134,6 @@ func loadRendererFFI() error {
 		return ffiError("renderer dlopen failed: " + C.GoString(C.dlerror()))
 	}
 
-	hsInit, err := rendererDlsym(handle, "hs_init")
-	if err != nil {
-		return err
-	}
 	fmtFn, err := rendererDlsym(handle, "aletheia_format_rational")
 	if err != nil {
 		return err
@@ -149,17 +142,6 @@ func loadRendererFFI() error {
 	if err != nil {
 		return err
 	}
-
-	// Initialize the GHC RTS exactly once per process.  Coordinates with
-	// FFIBackend via the shared `hsInitMu` / `hsInitDone`: whoever runs
-	// first wins; the loser observes `hsInitDone == true` and skips.
-	hsInitMu.Lock()
-	if !hsInitDone {
-		C.renderer_call_hs_init(hsInit)
-		hsInitCores = 1
-		hsInitDone = true
-	}
-	hsInitMu.Unlock()
 
 	rendererFormatFn = fmtFn
 	rendererFreeFn = freeFn
@@ -188,27 +170,29 @@ func ensureRendererLoaded() error {
 	return rendererInitErr
 }
 
-// formatRationalFFI renders a Rational via the Agda kernel.
-// Initializes the FFI on first call.  Panics if the library cannot be
-// loaded — `formatRational` is invoked from display paths (not the
-// streaming hot path) and the .so is required for the package to
-// function; surfacing the failure as a panic keeps the call signature
-// pure (no error return) while turning a missing-library state into a
-// loud failure rather than a silent fallback.
-func formatRationalFFI(num, denom int64) string {
+// formatRationalFFI renders a Rational via the Agda kernel.  It resolves
+// the renderer symbols on first call but does NOT initialise the GHC RTS:
+// the renderer is a consumer of a runtime that an FFIBackend must bring up.
+// If the runtime is not initialised it returns an error ("be vocal") rather
+// than self-initialising — self-initialising would latch a default -N and
+// squander the FFIBackend's bus-count -N (the RTS is one-shot per process).
+// The caller must create a Client (FFIBackend) before any rendering.
+func formatRationalFFI(num, denom int64) (string, error) {
 	if err := ensureRendererLoaded(); err != nil {
-		panic(fmt.Sprintf("aletheia: formatRational requires libaletheia-ffi.so: %v", err))
+		return "", err
+	}
+	if !hsInitialized() {
+		return "", ffiError("GHC runtime not initialized: create a Client (FFIBackend) before rendering")
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	raw := C.renderer_call_format_rational(rendererFormatFn, C.int64_t(num), C.int64_t(denom))
 	if raw == nil {
-		// Defensive: the Agda function always returns a non-null
-		// CString (denom = 0 returns the literal "0").  Reach here
-		// only on a catastrophic Haskell-side allocation failure.
-		return "0"
+		// Defensive: the Agda function always returns a non-null CString.
+		// Reach here only on a catastrophic Haskell-side allocation failure.
+		return "0", nil
 	}
 	defer C.renderer_call_free_str(rendererFreeFn, raw)
-	return C.GoString(raw)
+	return C.GoString(raw), nil
 }
