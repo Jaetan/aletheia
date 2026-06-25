@@ -722,29 +722,40 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
                                    const std::map<SignalName, PhysicalValue>& values,
                                    std::string_view core_reason) -> std::string {
     std::string reason;
-    if (values.empty()) {
-        reason = "violated: " + diag.formula_desc;
-    } else {
-        bool first = true;
-        for (const auto& sig : diag.signals) {
-            if (auto it = values.find(sig); it != values.end()) {
-                if (!first)
-                    reason += ", ";
-                // Render the observed value via the kernel formatℚ (same renderer
-                // as the predicate threshold) — exact, not lossy %g/to_double(),
-                // and byte-identical to the other bindings.
-                reason += std::format("{} = {}", std::string_view{sig},
-                                      detail::format_rational_ffi(it->second.get().numerator(),
-                                                                  it->second.get().denominator()));
-                first = false;
+    bool rendered = false;
+    if (!values.empty()) {
+        // Best-effort on the eval path: rendering the observed values needs the
+        // runtime, which is up here (the frame was processed through it) — so this
+        // is unreachable — but never sink an already-processed frame if the kernel
+        // renderer throws. Degrade to the formula description (no value rendered,
+        // no local fallback). set_properties, by contrast, propagates the throw.
+        try {
+            std::string parts;
+            bool first = true;
+            for (const auto& sig : diag.signals) {
+                if (auto it = values.find(sig); it != values.end()) {
+                    if (!first)
+                        parts += ", ";
+                    // Render the observed value via the kernel formatℚ (same renderer
+                    // as the predicate threshold) — exact, not lossy %g/to_double(),
+                    // and byte-identical to the other bindings.
+                    parts +=
+                        std::format("{} = {}", std::string_view{sig},
+                                    detail::format_rational_ffi(it->second.get().numerator(),
+                                                                it->second.get().denominator()));
+                    first = false;
+                }
             }
-        }
-        if (first) {
-            reason = "violated: " + diag.formula_desc;
-        } else {
-            reason += " (formula: " + diag.formula_desc + ")";
+            if (!first) {
+                reason = parts + " (formula: " + diag.formula_desc + ")";
+                rendered = true;
+            }
+        } catch (const AletheiaException&) {
+            rendered = false;
         }
     }
+    if (!rendered)
+        reason = "violated: " + diag.formula_desc;
     if (!core_reason.empty())
         reason += " [core: " + std::string{core_reason} + "]";
     return reason;
