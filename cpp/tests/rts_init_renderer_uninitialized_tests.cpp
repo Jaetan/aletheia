@@ -32,8 +32,13 @@ namespace fs = std::filesystem;
 namespace {
 
 auto find_lib() -> fs::path {
+    // Existence-check ALETHEIA_LIB and fall through if stale, mirroring the
+    // renderer's find_library_path: a stale env value must not shadow a present
+    // .so, else the renderer would miss the library and this test would throw the
+    // wrong error (missing-library, not runtime-not-initialised).
     if (auto* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
-        return env;
+        if (const fs::path p{env}; fs::exists(p))
+            return p;
     }
     if (auto* repo = std::getenv("ALETHEIA_REPO_ROOT"); repo != nullptr && *repo != '\0') {
         const fs::path candidate = fs::path{repo} / "build" / "libaletheia-ffi.so";
