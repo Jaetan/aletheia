@@ -26,6 +26,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <string_view>
 
 namespace fs = std::filesystem;
 
@@ -33,17 +34,25 @@ namespace {
 
 auto find_lib() -> fs::path {
     // Existence-check ALETHEIA_LIB and fall through if stale, mirroring the
-    // renderer's find_library_path: a stale env value must not shadow a present
-    // .so, else the renderer would miss the library and this test would throw the
-    // wrong error (missing-library, not runtime-not-initialised).
-    if (auto* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
-        if (const fs::path p{env}; fs::exists(p))
-            return p;
+    // renderer's find_library_path verbatim (getenv → string_view !empty →
+    // fs::exists): a stale env value must not shadow a present .so, else the
+    // renderer would miss the library and this test would throw the wrong error
+    // (missing-library, not runtime-not-initialised). Only when EVERY candidate is
+    // exhausted do we SKIP — locating the .so is a hard precondition for the test.
+    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+        const std::string_view env_sv{env};
+        if (!env_sv.empty()) {
+            if (const fs::path p{env_sv}; fs::exists(p))
+                return p;
+        }
     }
-    if (auto* repo = std::getenv("ALETHEIA_REPO_ROOT"); repo != nullptr && *repo != '\0') {
-        const fs::path candidate = fs::path{repo} / "build" / "libaletheia-ffi.so";
-        if (fs::exists(candidate))
-            return candidate;
+    if (auto* repo = std::getenv("ALETHEIA_REPO_ROOT")) {
+        const std::string_view repo_sv{repo};
+        if (!repo_sv.empty()) {
+            const fs::path candidate = fs::path{repo_sv} / "build" / "libaletheia-ffi.so";
+            if (fs::exists(candidate))
+                return candidate;
+        }
     }
     SKIP(
         "libaletheia-ffi.so not found — set ALETHEIA_LIB or build with 'cabal run shake -- build'");

@@ -27,18 +27,25 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <string_view>
 
 namespace {
 
 // Locate libaletheia-ffi.so the same way the renderer's find_library_path does:
 // ALETHEIA_LIB (pinned by CI), else the build-tree relative paths ctest runs from.
-// Mirrors the renderer's existence-check-then-fall-through so a stale env value
-// doesn't shadow a present .so.
+// Each candidate is existence-checked and falls through to the next if it does not
+// resolve (so a stale env value cannot shadow a present .so); the empty path is
+// returned only when EVERY candidate is exhausted, which leaves the runtime down
+// and the render-dependent tests fail vocally. Uses the same getenv → string_view
+// (!empty) → fs::exists shape as find_library_path verbatim.
 auto find_test_lib() -> std::filesystem::path {
     namespace fs = std::filesystem;
-    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
-        if (const fs::path p{env}; fs::exists(p))
-            return p;
+    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+        const std::string_view env_sv{env};
+        if (!env_sv.empty()) {
+            if (const fs::path p{env_sv}; fs::exists(p))
+                return p;
+        }
     }
     for (const auto* candidate : {"../../build/libaletheia-ffi.so", "../build/libaletheia-ffi.so",
                                   "build/libaletheia-ffi.so"}) {
