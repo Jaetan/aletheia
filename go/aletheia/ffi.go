@@ -8,8 +8,9 @@ package aletheia
 // FFI backend — loads libaletheia-ffi.so via cgo + dlopen.
 //
 // This file uses cgo to call dlopen/dlsym from <dlfcn.h>. The GHC RTS
-// is initialized exactly once per process (via sync.Once) and never
-// finalized — hs_exit() is not supported for reinitialization.
+// is initialized exactly once per process (guarded by hsInitMu / hsInitDone,
+// shared with renderer.go) and never finalized — hs_exit() is not supported
+// for reinitialization.
 
 // #cgo LDFLAGS: -ldl
 //
@@ -166,6 +167,17 @@ var (
 	// end of a stability run indicates an unmatched Init/Close pair.
 	stablePtrCount atomic.Int64
 )
+
+// hsInitialized reports whether the GHC RTS has been initialized (by an
+// FFIBackend constructor). The rational renderer checks this before calling
+// the kernel: FFI calls require the RTS to be up, so the renderer is vocal
+// (returns an error) rather than self-initialising when it is not. Reads the
+// shared hsInitDone under hsInitMu (a plain bool, not atomic).
+func hsInitialized() bool {
+	hsInitMu.Lock()
+	defer hsInitMu.Unlock()
+	return hsInitDone
+}
 
 // StablePtrCount returns the current number of live Haskell StablePtrs
 // allocated via [FFIBackend.Init] and not yet released by

@@ -593,10 +593,19 @@ func (c *Client) SetProperties(ctx context.Context, properties []Formula) error 
 	if err := parseSuccessResponse(resp); err != nil {
 		return err
 	}
-	c.diags = make([]PropertyDiagnostic, len(properties))
+	// Build into a temp slice first: buildDiagnostic renders predicate
+	// thresholds via the kernel and fails if the GHC runtime is not up (a
+	// mock-backend client with no FFIBackend), so a failure must not leave
+	// c.diags half-populated.
+	diags := make([]PropertyDiagnostic, len(properties))
 	for i, f := range properties {
-		c.diags[i] = BuildDiagnostic(f)
+		d, err := buildDiagnostic(f)
+		if err != nil {
+			return err
+		}
+		diags[i] = d
 	}
+	c.diags = diags
 	c.cache = newExtractCache()
 	if c.logger != nil {
 		c.logger.LogAttrs(ctx, slog.LevelInfo, "properties.set",

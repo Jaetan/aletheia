@@ -315,6 +315,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Go): the rational renderer no longer self-initialises the GHC
+  runtime (it is vocal — returns an error — when the runtime is down), and the
+  enrichment helper *functions* `FormatFormula` / `BuildDiagnostic` /
+  `CollectSignals` are now package-private**
+  (`go/aletheia/{renderer,ffi,enrich,client}.go`). First slice of the
+  cross-binding "whine if the runtime is uninitialised" pass. The renderer is the
+  only FFI entry point not routed through `FFIBackend`; it used to `dlopen` +
+  `hs_init` the `.so` itself on first use, which could latch a default `-N` and
+  squander the `FFIBackend`'s bus-count `-N` (the RTS is one-shot per process). It
+  now checks `hsInitialized()` and returns an error rather than self-initialising
+  or panicking, so an `FFIBackend` (via a `Client`) is the sole runtime
+  initialiser. Consequently `formatRationalFFI` / `formatRational` / the formula
+  printer / `buildDiagnostic` became fallible, and `Client.SetProperties` now
+  propagates a runtime-not-initialised error (it builds per-property diagnostics,
+  which render predicate thresholds). The three *functions* were exported only so
+  external-package tests could reach them — the peers keep them internal (Rust
+  private, Python underscore module) and only the `PropertyDiagnostic` *type* is
+  public — so they are now lowercase, with the main-module tests reaching them via
+  `export_test.go` and `go/excel`'s loader tests comparing formulas structurally
+  (`reflect.DeepEqual`) instead of by rendered string. Migration: rendering a
+  formula now requires a live `Client`; compare `Formula` values directly. From
+  the r25 review (point 2, Go-first).
 - **BREAKING (Rust): all rational *display* rendering now delegates to the verified
   kernel's `formatℚ` (the `aletheia_format_rational` FFI), and
   `Check::condition_desc()` returns `Result<String, Error>`** (was `&str`)

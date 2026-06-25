@@ -88,11 +88,11 @@ func (b *FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byt
 // Close is a no-op without cgo.
 func (b *FFIBackend) Close(_ unsafe.Pointer) {}
 
-// formatRationalFFI is a no-FFI stub.  Panics on call: the cross-binding
-// Rational pretty-printer requires the Agda kernel, which is unreachable
-// without cgo.  Mirrors the panic stance of the other FFI methods on
-// this stub.  Use MockBackend for non-cgo unit tests; calls to
-// `formatRational` (display path) are not supported in !cgo builds.
-func formatRationalFFI(_ int64, _ int64) string {
-	panic("aletheia: formatRational requires cgo on linux; build with CGO_ENABLED=1")
+// formatRationalFFI is a no-FFI stub.  Returns an error on call: the
+// cross-binding Rational pretty-printer requires the Agda kernel, which is
+// unreachable without cgo.  Mirrors the error stance of the other FFI methods
+// on this stub.  Use MockBackend for non-cgo unit tests; the `formatRational`
+// display path is not supported in !cgo builds.
+func formatRationalFFI(_ int64, _ int64) (string, error) {
+	return "", ffiError("formatRational requires cgo on linux; build with CGO_ENABLED=1")
 }

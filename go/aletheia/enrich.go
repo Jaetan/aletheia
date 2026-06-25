@@ -14,10 +14,11 @@ import (
 // calls the same function as Python and C++, so the same Rational
 // value renders to byte-identical output everywhere.
 //
-// The library is dlopened on first use via the lazy-load in
-// `renderer.go`; no local Go fallback exists.  A missing
-// `libaletheia-ffi.so` panics rather than silently diverging.
-func formatRational(r Rational) string {
+// The renderer dlopens the library on first use (renderer.go) but does NOT
+// initialise the GHC RTS; an FFIBackend must have brought it up.  If the
+// runtime is not initialised the render returns an error rather than
+// self-initialising — no local Go fallback exists.
+func formatRational(r Rational) (string, error) {
 	return formatRationalFFI(r.Numerator, r.Denominator)
 }
 
@@ -38,77 +39,118 @@ type ViolationEnrichment struct {
 	CoreReason     string // raw reason from the Agda core (e.g., "MetricEventually: window expired"); may be empty
 }
 
-// BuildDiagnostic creates a PropertyDiagnostic from a formula. Always succeeds.
-func BuildDiagnostic(f Formula) PropertyDiagnostic {
-	return PropertyDiagnostic{
-		Signals:     CollectSignals(f),
-		FormulaDesc: FormatFormula(f),
+// buildDiagnostic creates a PropertyDiagnostic from a formula.  Internal:
+// the public surface is the PropertyDiagnostic type (mirrors Rust
+// `build_diagnostic` / Python `_enrichment`); tests reach it via
+// export_test.go.
+//
+// Returns an error if the kernel rational renderer is unavailable — the GHC
+// runtime is not initialised (create an FFIBackend first), since the formula
+// description renders predicate thresholds through it.
+func buildDiagnostic(f Formula) (PropertyDiagnostic, error) {
+	desc, err := formatFormula(f)
+	if err != nil {
+		return PropertyDiagnostic{}, err
 	}
+	return PropertyDiagnostic{
+		Signals:     collectSignals(f),
+		FormulaDesc: desc,
+	}, nil
 }
 
-// FormatFormula returns a human-readable representation of an LTL formula.
-func FormatFormula(f Formula) string {
-	return formatFormulaInner(f, false)
+// formatFormula returns a human-readable representation of an LTL formula.
+// Internal — exposed to tests via export_test.go.
+//
+// Returns an error if the kernel rational renderer is unavailable (see
+// buildDiagnostic): predicate thresholds render through it.
+func formatFormula(f Formula) (string, error) {
+	p := &formulaPrinter{}
+	s := p.render(f, false)
+	return s, p.err
 }
 
-// formatFormulaInner formats a formula. When parenthesizeBinary is true, binary
+// formulaPrinter renders a formula with a sticky error: render / predicate /
+// rat short-circuit once the kernel renderer has failed, so the per-node logic
+// stays free of explicit error threading and the single error is read once by
+// formatFormula.
+type formulaPrinter struct {
+	err error
+}
+
+// rat renders one Rational via the kernel, stickying any error.
+func (p *formulaPrinter) rat(r Rational) string {
+	if p.err != nil {
+		return ""
+	}
+	s, err := formatRational(r)
+	if err != nil {
+		p.err = err
+		return ""
+	}
+	return s
+}
+
+// render formats a formula. When parenthesizeBinary is true, binary
 // operators (and, or, until, release) are wrapped in parentheses to avoid ambiguity.
-func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
+func (p *formulaPrinter) render(f Formula, parenthesizeBinary bool) string {
+	if p.err != nil {
+		return ""
+	}
 	switch v := f.(type) {
 	case Atomic:
-		return formatPredicate(v.Predicate)
+		return p.predicate(v.Predicate)
 	case Not:
-		return "not(" + formatFormulaInner(v.Inner, false) + ")"
+		return "not(" + p.render(v.Inner, false) + ")"
 	case And:
-		s := formatFormulaInner(v.Left, true) + " and " + formatFormulaInner(v.Right, true)
+		s := p.render(v.Left, true) + " and " + p.render(v.Right, true)
 		if parenthesizeBinary {
 			return "(" + s + ")"
 		}
 		return s
 	case Or:
-		s := formatFormulaInner(v.Left, true) + " or " + formatFormulaInner(v.Right, true)
+		s := p.render(v.Left, true) + " or " + p.render(v.Right, true)
 		if parenthesizeBinary {
 			return "(" + s + ")"
 		}
 		return s
 	case Next:
-		return "next(" + formatFormulaInner(v.Inner, false) + ")"
+		return "next(" + p.render(v.Inner, false) + ")"
 	case WeakNext:
-		return "weak_next(" + formatFormulaInner(v.Inner, false) + ")"
+		return "weak_next(" + p.render(v.Inner, false) + ")"
 	case Always:
 		// Detect Never pattern: Always{Not{Atomic{p}}}
 		if n, ok := v.Inner.(Not); ok {
 			if a, ok := n.Inner.(Atomic); ok {
-				return "never " + formatPredicate(a.Predicate)
+				return "never " + p.predicate(a.Predicate)
 			}
 		}
-		return "always(" + formatFormulaInner(v.Inner, false) + ")"
+		return "always(" + p.render(v.Inner, false) + ")"
 	case Eventually:
-		return "eventually(" + formatFormulaInner(v.Inner, false) + ")"
+		return "eventually(" + p.render(v.Inner, false) + ")"
 	case Until:
-		s := formatFormulaInner(v.Left, true) + " until " + formatFormulaInner(v.Right, true)
+		s := p.render(v.Left, true) + " until " + p.render(v.Right, true)
 		if parenthesizeBinary {
 			return "(" + s + ")"
 		}
 		return s
 	case Release:
-		s := formatFormulaInner(v.Left, true) + " release " + formatFormulaInner(v.Right, true)
+		s := p.render(v.Left, true) + " release " + p.render(v.Right, true)
 		if parenthesizeBinary {
 			return "(" + s + ")"
 		}
 		return s
 	case MetricAlways:
-		return "always within " + formatTimebound(v.Bound) + " (" + formatFormulaInner(v.Inner, false) + ")"
+		return "always within " + formatTimebound(v.Bound) + " (" + p.render(v.Inner, false) + ")"
 	case MetricEventually:
-		return "eventually within " + formatTimebound(v.Bound) + " (" + formatFormulaInner(v.Inner, false) + ")"
+		return "eventually within " + formatTimebound(v.Bound) + " (" + p.render(v.Inner, false) + ")"
 	case MetricUntil:
-		s := formatFormulaInner(v.Left, true) + " until within " + formatTimebound(v.Bound) + " " + formatFormulaInner(v.Right, true)
+		s := p.render(v.Left, true) + " until within " + formatTimebound(v.Bound) + " " + p.render(v.Right, true)
 		if parenthesizeBinary {
 			return "(" + s + ")"
 		}
 		return s
 	case MetricRelease:
-		s := formatFormulaInner(v.Left, true) + " release within " + formatTimebound(v.Bound) + " " + formatFormulaInner(v.Right, true)
+		s := p.render(v.Left, true) + " release within " + formatTimebound(v.Bound) + " " + p.render(v.Right, true)
 		if parenthesizeBinary {
 			return "(" + s + ")"
 		}
@@ -118,31 +160,34 @@ func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 	}
 }
 
-// formatPredicate returns a human-readable representation of a predicate.
-// Display path only — Rational values flow through formatRational, which
-// renders terminating decimals via %g and falls back to reduced N/D for
-// non-terminating fractions (e.g. Rational{1, 3} → "1/3", not "0.333333").
-func formatPredicate(p Predicate) string {
-	switch v := p.(type) {
+// predicate renders a predicate, stickying any kernel-renderer error.
+// Display path only — Rational values flow through the kernel (formatRational),
+// which renders terminating fractions as decimals and non-terminating ones as
+// reduced N/D (e.g. Rational{1, 3} → "1/3").
+func (p *formulaPrinter) predicate(pred Predicate) string {
+	if p.err != nil {
+		return ""
+	}
+	switch v := pred.(type) {
 	case Equals:
-		return fmt.Sprintf("%s = %s", v.Signal, formatRational(v.Value))
+		return fmt.Sprintf("%s = %s", v.Signal, p.rat(v.Value))
 	case LessThan:
-		return fmt.Sprintf("%s < %s", v.Signal, formatRational(v.Value))
+		return fmt.Sprintf("%s < %s", v.Signal, p.rat(v.Value))
 	case GreaterThan:
-		return fmt.Sprintf("%s > %s", v.Signal, formatRational(v.Value))
+		return fmt.Sprintf("%s > %s", v.Signal, p.rat(v.Value))
 	case LessThanOrEqual:
-		return fmt.Sprintf("%s <= %s", v.Signal, formatRational(v.Value))
+		return fmt.Sprintf("%s <= %s", v.Signal, p.rat(v.Value))
 	case GreaterThanOrEqual:
-		return fmt.Sprintf("%s >= %s", v.Signal, formatRational(v.Value))
+		return fmt.Sprintf("%s >= %s", v.Signal, p.rat(v.Value))
 	case Between:
-		return fmt.Sprintf("%s <= %s <= %s", formatRational(v.Min), v.Signal, formatRational(v.Max))
+		return fmt.Sprintf("%s <= %s <= %s", p.rat(v.Min), v.Signal, p.rat(v.Max))
 	case ChangedBy:
 		if v.Delta.Numerator >= 0 {
-			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatRational(v.Delta))
+			return fmt.Sprintf("Δ%s >= %s", v.Signal, p.rat(v.Delta))
 		}
-		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatRational(v.Delta))
+		return fmt.Sprintf("Δ%s <= %s", v.Signal, p.rat(v.Delta))
 	case StableWithin:
-		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatRational(v.Tolerance))
+		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, p.rat(v.Tolerance))
 	default:
 		return "<unknown predicate>"
 	}
@@ -168,8 +213,9 @@ func formatTimebound(t TimeBound) string {
 	return fmt.Sprintf("%dμs", us)
 }
 
-// CollectSignals returns all signal names referenced in a formula, deduplicated, in order.
-func CollectSignals(f Formula) []SignalName {
+// collectSignals returns all signal names referenced in a formula, deduplicated, in order.
+// Internal (mirrors the peers); exposed to tests via export_test.go.
+func collectSignals(f Formula) []SignalName {
 	var signals []SignalName
 	seen := make(map[SignalName]bool)
 	collectSignalsInto(f, &signals, seen)
