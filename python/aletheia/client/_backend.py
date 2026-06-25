@@ -290,9 +290,9 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         RTSState.acquire(self._lib, rts_cores)
         self._rts_cores = rts_cores
         # Register this library as the Rational renderer.  The renderer
-        # module also lazy-loads on demand for callers that bypass
-        # FFIBackend, so this registration is an eager optimisation rather
-        # than a strict requirement.
+        # loads its symbols lazily but NEVER initialises the RTS itself, so
+        # this backend's RTS init (above) is what makes rendering work — a
+        # caller that renders without any FFIBackend gets a vocal FFIError.
         set_renderer_lib(self._lib)
 
     @property

@@ -4,7 +4,9 @@
 
 from fractions import Fraction
 
-from aletheia import PropertyDiagnostic
+import pytest
+
+from aletheia import FFIError, PropertyDiagnostic
 from aletheia.client._enrichment import (
     build_diagnostic,
     collect_signals,
@@ -12,6 +14,13 @@ from aletheia.client._enrichment import (
     format_formula,
 )
 from aletheia.dsl import Signal
+
+# Every test here renders rational thresholds via the kernel (format_formula /
+# build_diagnostic), which since point 2 requires a live GHC RTS — the renderer no
+# longer self-initialises. Request the lazy ``rts_up`` fixture (conftest.py)
+# module-wide so the RTS comes up when these tests RUN, not at collection time.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 
 # ===========================================================================
 # Formula pretty-printer
@@ -368,3 +377,65 @@ class TestFormatEnrichedReason:
         reason = format_enriched_reason(diag, values)
         assert "Speed = 245" in reason
         assert "always(Speed < 220)" in reason
+
+
+class TestRendererVocalWhenRTSDown:
+    """Point 2: the renderer is vocal when the GHC RTS is uninitialised.
+
+    Raises ``FFIError`` when the RTS is down and on a null kernel return — never a
+    silent self-init or a fabricated ``"0"`` (parity with Go #104 / C++ #105). The
+    eval path (observed values of an already-processed frame) degrades instead of
+    propagating.
+    """
+
+    def test_format_formula_raises_when_rts_uninitialized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A reachable-path render with the RTS down raises, not a fabricated value."""
+        # Patch the STATE, not hs_initialized itself, so the real source-of-truth
+        # chain (RTSState.initialized -> hs_initialized -> the guard) is exercised.
+        monkeypatch.setattr("aletheia.client._ffi.RTSState.initialized", False)
+        f = Signal("Speed").less_than(220).always().to_dict()
+        with pytest.raises(FFIError, match="runtime not initialized"):
+            format_formula(f)
+
+    def test_format_formula_raises_on_null_render(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A null kernel pointer raises ``FFIError``, not a silent ``"0"``."""
+
+        # The RTS is genuinely up (the rts_up fixture), so hs_initialized() really
+        # returns True; stub only the renderer lib to return a null pointer.
+        class _NullLib:
+            """Renderer-lib stub whose ``aletheia_format_rational`` returns null."""
+
+            def aletheia_format_rational(self, _num: object, _den: object) -> None:
+                """Return None to simulate the catastrophic null-pointer return."""
+
+            def aletheia_free_str(self, _ptr: object) -> None:
+                """No-op: nothing to free when the pointer is null."""
+
+        monkeypatch.setattr(
+            "aletheia.client._enrichment._get_or_load_renderer_lib",
+            _NullLib,
+        )
+        f = Signal("Speed").less_than(220).always().to_dict()
+        with pytest.raises(FFIError, match="null"):
+            format_formula(f)
+
+    def test_enriched_reason_degrades_on_render_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Eval path: a render failure degrades the whole reason.
+
+        Still appends ``[core: ...]`` and never sinks the already-processed frame.
+        """
+        f = Signal("Speed").less_than(220).always().to_dict()
+        diag = build_diagnostic(f)  # real render (RTS up via the module fixture)
+
+        def _boom(_value: Fraction) -> str:
+            msg = "simulated null render"
+            raise FFIError(msg)
+
+        monkeypatch.setattr("aletheia.client._enrichment._format_rational", _boom)
+        values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
+        reason = format_enriched_reason(diag, values, core_reason="kernel: X")
+        assert reason == "violated: " + diag.formula_desc + " [core: kernel: X]"
