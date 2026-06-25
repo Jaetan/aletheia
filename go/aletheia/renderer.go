@@ -189,9 +189,11 @@ func formatRationalFFI(num, denom int64) (string, error) {
 
 	raw := C.renderer_call_format_rational(rendererFormatFn, C.int64_t(num), C.int64_t(denom))
 	if raw == nil {
-		// Defensive: the Agda function always returns a non-null CString.
-		// Reach here only on a catastrophic Haskell-side allocation failure.
-		return "0", nil
+		// Unreachable for a well-formed rational (the kernel never returns null);
+		// surface it as an error rather than a fabricated "0" — a null means a
+		// kernel/ABI malfunction, and a silent "0" would hide the bug and violate
+		// the "be vocal" contract. Matches the Rust binding's null handling (#101).
+		return "", ffiError("aletheia_format_rational returned a null pointer")
 	}
 	defer C.renderer_call_free_str(rendererFreeFn, raw)
 	return C.GoString(raw), nil

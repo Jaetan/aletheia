@@ -51,7 +51,17 @@ func TestRenderWithoutRuntimeIsVocal(t *testing.T) {
 		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestRenderWithoutRuntimeIsVocal$", "-test.v")
-	cmd.Env = append(os.Environ(), skipRTSInitEnv+"=1", "ALETHEIA_LIB="+lib)
+	// Strip any inherited ALETHEIA_LIB / skip-flag before setting ours, so the
+	// child sees no duplicate keys (CI already exports ALETHEIA_LIB; a duplicate
+	// could be resolved to the inherited value by the child's getenv).
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "ALETHEIA_LIB=") || strings.HasPrefix(e, skipRTSInitEnv+"=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	cmd.Env = append(env, skipRTSInitEnv+"=1", "ALETHEIA_LIB="+lib)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("subprocess failed (%v):\n%s", err, out)
