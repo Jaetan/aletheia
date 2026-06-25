@@ -251,7 +251,7 @@ fn describe(d: &Data) -> String {
 /// Load signal checks from an Excel workbook.
 ///
 /// Reads the `Checks` and `When-Then` sheets (either or both may be present) and
-/// compiles each row through the [`check`](aletheia::check) DSL into a [`Check`].
+/// compiles each row through the [`check`] DSL into a [`Check`].
 ///
 /// # Errors
 /// [`Error::Validation`] if the path is a symlink / non-regular file, the file or

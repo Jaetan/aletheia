@@ -41,7 +41,7 @@ fn present(y: &Yaml) -> bool {
 
 /// Load checks from inline YAML content.
 ///
-/// Rejects input larger than the shared 64 MiB bound ([`MAX_INPUT_BYTES`]).
+/// Rejects input larger than the shared 64 MiB bound (`MAX_INPUT_BYTES`).
 ///
 /// # Errors
 /// [`Error::Validation`] if the input exceeds the size bound, the document is
@@ -77,7 +77,7 @@ fn load_checks_within(content: &str, limit: usize) -> Result<Vec<Check>, Error> 
 ///
 /// Mirrors the Go and Python loaders' trust-boundary hardening: the path is
 /// rejected if it is a symbolic link or a non-regular file, and the file's size
-/// is checked against the shared 64 MiB bound ([`MAX_INPUT_BYTES`]) **before** it
+/// is checked against the shared 64 MiB bound (`MAX_INPUT_BYTES`) **before** it
 /// is read, so an adversarial path cannot trigger a huge read.
 ///
 /// # Errors
