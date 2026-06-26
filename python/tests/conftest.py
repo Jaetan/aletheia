@@ -10,9 +10,12 @@ from typing import TYPE_CHECKING
 import pytest
 from _canonical_dbc import CANONICAL_DBC, make_dbc
 
-from aletheia import Signal
+from aletheia import FFIBackend, Signal
+from aletheia.client._ffi import RTSState
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from aletheia.dsl import Property
     from aletheia.types import DBCDefinition
 
@@ -31,6 +34,28 @@ class CANFrame:
     can_id: int
     dlc: int
     data: bytearray
+
+
+@pytest.fixture(scope="module")
+def rts_up() -> Iterator[FFIBackend]:
+    """Bring the GHC RTS up for renderer-dependent tests, lazily.
+
+    Since point 2 the rational renderer no longer self-initialises the RTS — an
+    ``FFIBackend`` is the sole initialiser — so ``format_formula`` /
+    ``build_diagnostic`` (which render rational thresholds) need a live RTS.
+    Request it module-wide with ``pytestmark = pytest.mark.usefixtures("rts_up")``
+    rather than at import: the RTS comes up when the module's tests run, not during
+    collection. ``RTSState.acquire`` is idempotent (refcounted), so this composes
+    with any client a test creates.
+    """
+    backend = FFIBackend()
+    try:
+        yield backend
+    finally:
+        # Balance the RTSState.acquire() in FFIBackend.__init__ so the module's
+        # refcount nets to zero. release() does NOT call hs_exit — the RTS is
+        # one-shot and stays up for the rest of the process.
+        RTSState.release()
 
 
 @pytest.fixture

@@ -372,6 +372,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
     `rts_init_renderer_uninitialized_tests.cpp`, asserting a pre-backend render
     throws the runtime-not-initialised error (its own process, RTS deterministically
     down).
+- **BREAKING (Python): the rational renderer no longer self-initialises the GHC
+  runtime — it is vocal (raises `FFIError`) when the runtime is down — and a null
+  kernel return now raises instead of fabricating `"0"`**
+  (`python/aletheia/client/{_enrichment,_ffi,_backend}.py`). The Python slice of
+  the cross-binding "whine if the runtime is uninitialised" pass (after Go and
+  C++). The renderer is the only FFI entry point not routed through `FFIBackend`;
+  `_get_or_load_renderer_lib` used to `hs_init` the `.so` itself on first render,
+  latching a default `-N1` that squandered the `FFIBackend`'s bus-count `-N` (the
+  RTS is one-shot per process) and tracking init state disjointly from `RTSState`.
+  The two init paths are now unified behind a single `_ffi.hs_initialized()` source
+  of truth; `_get_or_load_renderer_lib` loads symbols only (never `hs_init`), and
+  `_format_rational` checks `hs_initialized()` and raises rather than
+  self-initialising, so an `FFIBackend` (via an `AletheiaClient`) is the sole
+  runtime initialiser. The previous silent `"0"` null-fallback is now a raise,
+  matching Go/C++/Rust. Per the established render-fail contract: reachable paths
+  (`format_formula` / `build_diagnostic`, which render predicate thresholds)
+  *propagate* the runtime-not-initialised error, while `format_enriched_reason`
+  (the eval path, runtime necessarily up because the frame was just processed)
+  *degrades* to the formula description (still appending `[core: ...]`) rather than
+  sinking an already-processed frame. The enrichment helpers were already
+  binding-internal (the private `aletheia.client._enrichment` module), so no
+  privatisation was needed — already at parity with Go's now-private functions.
+  Migration: rendering a formula or an observed value now requires a live
+  `AletheiaClient` / `FFIBackend`.
 - **BREAKING (Rust): all rational *display* rendering now delegates to the verified
   kernel's `formatℚ` (the `aletheia_format_rational` FFI), and
   `Check::condition_desc()` returns `Result<String, Error>`** (was `&str`)

@@ -108,6 +108,18 @@ class RTSState:
                 cls.refcount -= 1
 
 
+def hs_initialized() -> bool:
+    """Return whether the GHC RTS has been initialized.
+
+    The single source of truth for RTS readiness.  ``RTSState.acquire``
+    (called by :class:`FFIBackend`) is the sole initializer; the rational
+    renderer consults this to stay *vocal* — it must never self-initialize
+    the RTS, because doing so would latch a default ``-N`` and squander a
+    backend's bus-count ``-N`` (the RTS is one-shot per process).
+    """
+    return RTSState.initialized
+
+
 def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     """Configure ``argtypes``/``restype`` for every Aletheia FFI entry point.
 
