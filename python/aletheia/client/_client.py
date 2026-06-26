@@ -531,7 +531,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         Raises:
             FFIError: The rational renderer cannot load
                 ``libaletheia-ffi.so`` when ``build_diagnostic`` reaches
-                ``_format_rational``.  Kernel-side properties have already
+                ``format_rational``.  Kernel-side properties have already
                 been committed at this point; ``self._diags`` is cleared so
                 subsequent stream iterations do not observe partial state.
             ValidationError: A formula contains a predicate value the

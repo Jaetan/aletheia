@@ -144,7 +144,7 @@ def _walk_formula(
 # :meth:`aletheia.client._backend.FFIBackend.__init__` so production
 # paths use the loaded backend's library.  The renderer NEVER initialises
 # the GHC RTS itself: an ``FFIBackend`` is the sole initialiser (it owns the
-# bus-count ``-N``), and rendering is *vocal* — :func:`_format_rational`
+# bus-count ``-N``), and rendering is *vocal* — :func:`format_rational`
 # raises ``FFIError`` when the RTS is down.  :func:`_get_or_load_renderer_lib`
 # lazily loads ``libaletheia-ffi.so`` for its symbols only (no ``hs_init``).
 # Consequence: ``format_formula`` / ``build_diagnostic`` (which render rational
@@ -176,7 +176,7 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
     the sole initialiser).  The lazy path covers the window where the RTS is
     up but the backend has not yet registered its library; a caller that
     reaches the renderer with the RTS down gets a vocal ``FFIError`` from
-    :func:`_format_rational`, never a silent self-init.
+    :func:`format_rational`, never a silent self-init.
     """
     # Thread-safe lazy-load.  Mirrors Go's sync.Once and C++'s
     # std::call_once — without the lock, two concurrent first-callers
@@ -191,13 +191,13 @@ def _get_or_load_renderer_lib() -> ctypes.CDLL:
             # Load the symbols only — do NOT call ``hs_init`` here.  The GHC
             # RTS is one-shot per process and owned by ``FFIBackend`` (it
             # carries the bus-count ``-N``); self-initialising would latch a
-            # default ``-N`` and squander the backend's.  See _format_rational.
+            # default ``-N`` and squander the backend's.  See format_rational.
             configure_ffi_signatures(lib)
             _RENDERER_LIB[0] = lib
     return lib
 
 
-def _format_rational(value: Fraction) -> str:
+def format_rational(value: Fraction) -> str:
     """Render an exact rational via the Agda kernel renderer.
 
     Delegates to :func:`Aletheia.DBC.RationalRenderer.formatRational` in
@@ -238,17 +238,17 @@ def _format_predicate(pred: SignalPredicate) -> str:
     """Format a signal predicate as a human-readable string."""
     if _is_comparison(pred):
         op = _COMPARISON_OPS[pred["predicate"]]
-        return f"{pred['signal']} {op} {_format_rational(pred['value'])}"
+        return f"{pred['signal']} {op} {format_rational(pred['value'])}"
     if pred["predicate"] == "between":
-        lo = _format_rational(pred["min"])
-        hi = _format_rational(pred["max"])
+        lo = format_rational(pred["min"])
+        hi = format_rational(pred["max"])
         return f"{lo} <= {pred['signal']} <= {hi}"
     if pred["predicate"] == "changedBy":
         delta = pred["delta"]
         sign = ">=" if delta >= 0 else "<="
-        return f"Δ{pred['signal']} {sign} {_format_rational(delta)}"
+        return f"Δ{pred['signal']} {sign} {format_rational(delta)}"
     if pred["predicate"] == "stableWithin":
-        return f"|Δ{pred['signal']}| <= {_format_rational(pred['tolerance'])}"
+        return f"|Δ{pred['signal']}| <= {format_rational(pred['tolerance'])}"
     return "<unknown predicate>"
 
 
@@ -436,7 +436,7 @@ def format_enriched_reason(
                 # Render the observed value via the kernel formatℚ (same renderer
                 # as the predicate threshold) — exact, not lossy %g, and byte-
                 # identical to the other bindings. `val` is an exact Fraction.
-                parts.append(f"{sig} = {_format_rational(val)}")
+                parts.append(f"{sig} = {format_rational(val)}")
     except FFIError:
         # Eval-path degrade (parity with C++ client.cpp format_enriched_reason):
         # this renders an ALREADY-PROCESSED frame's observed values, so a render
