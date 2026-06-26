@@ -243,13 +243,15 @@ func (c *Client) resolveSignalIndices(signals []SignalValue, id CANID, cmdName s
 		if !found {
 			return nil, nil, nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
 		}
-		n, d, err := floatToRational(float64(sv.Value))
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: signal %q: %w", cmdName, sv.Name, err)
+		// SignalValue.Value is an exact Rational (build via RationalFromFloat).
+		// Validate the denominator the wire requires; a Rational has no
+		// NaN/Inf, so only the denominator needs checking.
+		if err := validateRational(fmt.Sprintf("%s: signal %q", cmdName, sv.Name), sv.Value); err != nil {
+			return nil, nil, nil, err
 		}
 		indices = append(indices, uint32(idx))
-		nums = append(nums, n)
-		dens = append(dens, d)
+		nums = append(nums, sv.Value.Numerator)
+		dens = append(dens, sv.Value.Denominator)
 	}
 	return indices, nums, dens, nil
 }
@@ -1039,7 +1041,7 @@ func (c *Client) enrichPropertyResult(ctx context.Context, pr *PropertyResult) {
 // all signals referenced in a diagnostic. Caller must hold the client lock.
 // ctx is forwarded to slog so request-scoped attrs propagate into
 // structured-log records.
-func (c *Client) extractLastKnownValues(ctx context.Context, diag PropertyDiagnostic) map[SignalName]PhysicalValue {
+func (c *Client) extractLastKnownValues(ctx context.Context, diag PropertyDiagnostic) map[SignalName]Rational {
 	if len(c.lastFrames) == 0 || len(diag.Signals) == 0 {
 		return nil
 	}
@@ -1047,7 +1049,7 @@ func (c *Client) extractLastKnownValues(ctx context.Context, diag PropertyDiagno
 	for _, s := range diag.Signals {
 		wanted[s] = true
 	}
-	values := make(map[SignalName]PhysicalValue)
+	values := make(map[SignalName]Rational)
 	// Sort map keys for deterministic enrichment output. The uint64 key encodes
 	// (CAN ID value, extended flag) via canIDKey, so the natural ordering sorts
 	// by value then by extended-flag.
@@ -1086,7 +1088,7 @@ func (c *Client) extractLastKnownValues(ctx context.Context, diag PropertyDiagno
 // extractSignalValues extracts signal values for a diagnostic from a frame, using the cache.
 // Caller must hold the client lock.  ctx is forwarded to slog so request-scoped
 // attrs propagate into structured-log records.
-func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnostic, id CANID, dlc DLC, data FramePayload) map[SignalName]PhysicalValue {
+func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnostic, id CANID, dlc DLC, data FramePayload) map[SignalName]Rational {
 	if c.cache == nil {
 		return nil
 	}
@@ -1117,7 +1119,7 @@ func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnosti
 		}
 		return nil
 	}
-	values := make(map[SignalName]PhysicalValue)
+	values := make(map[SignalName]Rational)
 	for _, sig := range diag.Signals {
 		if val, found := result.Get(sig); found {
 			values[sig] = val

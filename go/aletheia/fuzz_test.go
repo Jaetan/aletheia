@@ -22,6 +22,7 @@
 package aletheia
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"testing"
 )
@@ -92,6 +93,39 @@ func FuzzDecodeBinaryFrame(f *testing.F) {
 		_, _ = parseExtractionBin(buf, names)
 		// No panic = success.
 	})
+}
+
+// binExtractionValue builds a one-value binary extraction buffer (the layout
+// parseExtractionBin reads: nvals/nerrs/nabss u16 header + one 18-byte value of
+// idx:u16, num:u64, den:u64) for the given numerator/denominator.
+func binExtractionValue(num, den int64) []byte {
+	buf := make([]byte, 6+18)
+	binary.LittleEndian.PutUint16(buf[0:2], 1) // nvals = 1
+	binary.LittleEndian.PutUint16(buf[6:8], 0) // value idx = 0
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(num))
+	binary.LittleEndian.PutUint64(buf[16:24], uint64(den))
+	return buf
+}
+
+// TestParseExtractionBin_RejectsNonPositiveDenominator pins the binary path's
+// denominator validation in lockstep with the JSON path
+// (TestZeroDenominatorRational): a successful extraction value never has den <= 0,
+// so a zero or negative denominator is a corrupt buffer and must error rather
+// than producing an invalid Rational that would reach the kernel renderer.
+func TestParseExtractionBin_RejectsNonPositiveDenominator(t *testing.T) {
+	for _, den := range []int64{0, -3} {
+		if _, err := parseExtractionBin(binExtractionValue(1, den), []string{"Sig"}); err == nil {
+			t.Errorf("den=%d: expected error for non-positive denominator, got nil", den)
+		}
+	}
+	// Control: a positive denominator decodes to the exact rational.
+	res, err := parseExtractionBin(binExtractionValue(1, 3), []string{"Sig"})
+	if err != nil {
+		t.Fatalf("den=3: unexpected error: %v", err)
+	}
+	if want := (Rational{Numerator: 1, Denominator: 3}); res.Values[0].Value != want {
+		t.Errorf("got %v, want %v", res.Values[0].Value, want)
+	}
 }
 
 // FuzzParseRationalNumber covers the wire-format Rational parser

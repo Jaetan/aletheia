@@ -6,17 +6,77 @@ package aletheia
 import (
 	"fmt"
 	"math"
+	"strings"
 )
+
+// descPart is one piece of a check's deferred condition description: literal
+// text (isRat == false) or a threshold rendered lazily via the kernel formatℚ
+// (isRat == true). Deferring keeps check *construction* infallible — only
+// reading ConditionDesc() can surface a renderer error (the renderer is vocal
+// when the GHC runtime is down) — so the fluent builder chain never fails
+// mid-construction. Mirrors Rust's DescPart, C++'s deferred
+// condition_desc_builder_, and Python's _desc_parts.
+type descPart struct {
+	lit   string
+	rat   Rational
+	isRat bool
+}
+
+func litPart(s string) descPart   { return descPart{lit: s} }
+func ratPart(r Rational) descPart { return descPart{rat: r, isRat: true} }
+
+// opDesc is an operator prefix followed by a single threshold, e.g. "<= " + r.
+func opDesc(op string, r Rational) []descPart {
+	return []descPart{litPart(op), ratPart(r)}
+}
+
+// betweenDesc renders "between {lo} and {hi}" with both bounds deferred to the
+// kernel renderer.
+func betweenDesc(lo, hi Rational) []descPart {
+	return []descPart{litPart("between "), ratPart(lo), litPart(" and "), ratPart(hi)}
+}
+
+// withinDesc appends a " within {ms}ms" literal suffix to a deferred
+// description (returns a fresh slice; never aliases parts).
+func withinDesc(parts []descPart, timeMs int64) []descPart {
+	out := make([]descPart, 0, len(parts)+1)
+	out = append(out, parts...)
+	return append(out, litPart(fmt.Sprintf(" within %dms", timeMs)))
+}
+
+// renderDesc renders a deferred description, delegating every threshold to the
+// kernel formatℚ (the SSOT renderer) so the output is byte-identical to the Go
+// formula printer and the other bindings — no local fallback. An empty parts
+// renders to "" without touching the FFI.
+//
+// Returns an error if the kernel renderer is unavailable — the GHC runtime is
+// not initialised (create an FFIBackend first); the renderer is vocal and never
+// self-initialises.
+func renderDesc(parts []descPart) (string, error) {
+	var b strings.Builder
+	for _, p := range parts {
+		if !p.isRat {
+			b.WriteString(p.lit)
+			continue
+		}
+		s, err := formatRational(p.rat)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(s)
+	}
+	return b.String(), nil
+}
 
 // CheckResult is the terminal object produced by a check builder chain.
 // It wraps an LTL formula with optional metadata for display/reporting.
 // Metadata (name, severity) is not sent to the Agda core.
 type CheckResult struct {
-	formula       Formula
-	name          string
-	severity      string
-	signalName    string
-	conditionDesc string
+	formula    Formula
+	name       string
+	severity   string
+	signalName string
+	descParts  []descPart
 }
 
 // Formula returns the LTL formula for this check.
@@ -43,8 +103,13 @@ func (r CheckResult) CheckSeverity() string { return r.severity }
 // SignalName returns the primary signal name for this check.
 func (r CheckResult) SignalName() SignalName { return SignalName(r.signalName) }
 
-// ConditionDesc returns a human-readable description of the check condition.
-func (r CheckResult) ConditionDesc() string { return r.conditionDesc }
+// ConditionDesc returns a human-readable description of the check condition,
+// with thresholds rendered via the kernel formatℚ (the SSOT renderer; byte-
+// identical to the formula printer and the Python / C++ / Rust check
+// descriptions). Rendered lazily, so reading it requires a live GHC RTS (an
+// FFIBackend) and returns an error when the runtime is down — check
+// construction itself stays infallible.
+func (r CheckResult) ConditionDesc() (string, error) { return renderDesc(r.descParts) }
 
 // firstError returns the first non-nil error, or nil. Used to thread a
 // value-conversion failure through a fluent builder chain to its terminal
@@ -86,7 +151,7 @@ func (b CheckSignalBuilder) NeverExceeds(value PhysicalValue) (CheckResult, erro
 	f := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: SignalName(b.name), Value: r}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		conditionDesc: fmt.Sprintf("<= %g", float64(value)),
+		descParts: opDesc("<= ", r),
 	}, nil
 }
 
@@ -100,7 +165,7 @@ func (b CheckSignalBuilder) NeverBelow(value PhysicalValue) (CheckResult, error)
 	f := Always{Inner: Atomic{Predicate: GreaterThanOrEqual{Signal: SignalName(b.name), Value: r}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		conditionDesc: fmt.Sprintf(">= %g", float64(value)),
+		descParts: opDesc(">= ", r),
 	}, nil
 }
 
@@ -122,7 +187,7 @@ func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) (CheckResult, err
 	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: rLo, Max: rHi}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		conditionDesc: fmt.Sprintf("between %g and %g", float64(lo), float64(hi)),
+		descParts: betweenDesc(rLo, rHi),
 	}, nil
 }
 
@@ -136,7 +201,7 @@ func (b CheckSignalBuilder) NeverEquals(value PhysicalValue) (CheckResult, error
 	f := Never(Equals{Signal: SignalName(b.name), Value: r})
 	return CheckResult{
 		formula: f, signalName: b.name,
-		conditionDesc: fmt.Sprintf("!= %g", float64(value)),
+		descParts: opDesc("!= ", r),
 	}, nil
 }
 
@@ -146,10 +211,10 @@ func (b CheckSignalBuilder) NeverEquals(value PhysicalValue) (CheckResult, error
 func (b CheckSignalBuilder) Equals(value PhysicalValue) CheckSignalPredicate {
 	r, err := FloatToRational(float64(value))
 	return CheckSignalPredicate{
-		formula:       Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: r}}},
-		signalName:    b.name,
-		conditionDesc: fmt.Sprintf("= %g", float64(value)),
-		valueErr:      err,
+		formula:    Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: r}}},
+		signalName: b.name,
+		descParts:  opDesc("= ", r),
+		valueErr:   err,
 	}
 }
 
@@ -166,10 +231,10 @@ func (b CheckSignalBuilder) SettlesBetween(lo, hi PhysicalValue) SettlesBuilder 
 
 // CheckSignalPredicate is an intermediate needing .Always() to finish.
 type CheckSignalPredicate struct {
-	formula       Formula
-	signalName    string
-	conditionDesc string
-	valueErr      error // populated by Equals when the value is not convertible; surfaced from Always()
+	formula    Formula
+	signalName string
+	descParts  []descPart
+	valueErr   error // populated by Equals when the value is not convertible; surfaced from Always()
 }
 
 // Always confirms the predicate must hold at every time step.
@@ -180,7 +245,7 @@ func (p CheckSignalPredicate) Always() (CheckResult, error) {
 	}
 	return CheckResult{
 		formula: p.formula, signalName: p.signalName,
-		conditionDesc: p.conditionDesc,
+		descParts: p.descParts,
 	}, nil
 }
 
@@ -221,8 +286,7 @@ func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
 	return CheckResult{
 		formula:    f,
 		signalName: b.signalName,
-		conditionDesc: fmt.Sprintf("between %g and %g within %dms",
-			float64(b.lo), float64(b.hi), timeMs),
+		descParts:  withinDesc(betweenDesc(rLo, rHi), timeMs),
 	}, nil
 }
 
@@ -283,11 +347,11 @@ type ThenSignalBuilder struct {
 func (b ThenSignalBuilder) Equals(value PhysicalValue) ThenCondition {
 	r, err := FloatToRational(float64(value))
 	return ThenCondition{
-		trigger:    b.trigger,
-		thenPred:   Equals{Signal: SignalName(b.thenName), Value: r},
-		thenSignal: b.thenName,
-		thenDesc:   fmt.Sprintf("= %g", float64(value)),
-		valueErr:   firstError(b.valueErr, err),
+		trigger:       b.trigger,
+		thenPred:      Equals{Signal: SignalName(b.thenName), Value: r},
+		thenSignal:    b.thenName,
+		thenDescParts: opDesc("= ", r),
+		valueErr:      firstError(b.valueErr, err),
 	}
 }
 
@@ -295,11 +359,11 @@ func (b ThenSignalBuilder) Equals(value PhysicalValue) ThenCondition {
 func (b ThenSignalBuilder) Exceeds(value PhysicalValue) ThenCondition {
 	r, err := FloatToRational(float64(value))
 	return ThenCondition{
-		trigger:    b.trigger,
-		thenPred:   GreaterThan{Signal: SignalName(b.thenName), Value: r},
-		thenSignal: b.thenName,
-		thenDesc:   fmt.Sprintf("> %g", float64(value)),
-		valueErr:   firstError(b.valueErr, err),
+		trigger:       b.trigger,
+		thenPred:      GreaterThan{Signal: SignalName(b.thenName), Value: r},
+		thenSignal:    b.thenName,
+		thenDescParts: opDesc("> ", r),
+		valueErr:      firstError(b.valueErr, err),
 	}
 }
 
@@ -310,11 +374,11 @@ func (b ThenSignalBuilder) StaysBetween(lo, hi PhysicalValue) ThenCondition {
 	rLo, loErr := FloatToRational(float64(lo))
 	rHi, hiErr := FloatToRational(float64(hi))
 	tc := ThenCondition{
-		trigger:    b.trigger,
-		thenPred:   Between{Signal: SignalName(b.thenName), Min: rLo, Max: rHi},
-		thenSignal: b.thenName,
-		thenDesc:   fmt.Sprintf("between %g and %g", float64(lo), float64(hi)),
-		valueErr:   firstError(b.valueErr, loErr, hiErr),
+		trigger:       b.trigger,
+		thenPred:      Between{Signal: SignalName(b.thenName), Min: rLo, Max: rHi},
+		thenSignal:    b.thenName,
+		thenDescParts: betweenDesc(rLo, rHi),
+		valueErr:      firstError(b.valueErr, loErr, hiErr),
 	}
 	if lo > hi {
 		tc.rangeErr = validationError(fmt.Sprintf("stays_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
@@ -324,12 +388,12 @@ func (b ThenSignalBuilder) StaysBetween(lo, hi PhysicalValue) ThenCondition {
 
 // ThenCondition holds trigger + response predicates and needs .Within() to finish.
 type ThenCondition struct {
-	trigger    Predicate
-	thenPred   Predicate
-	thenSignal string
-	thenDesc   string
-	rangeErr   error // populated by ThenSignalBuilder.StaysBetween when lo > hi
-	valueErr   error // populated when a when/then value is not convertible to a rational
+	trigger       Predicate
+	thenPred      Predicate
+	thenSignal    string
+	thenDescParts []descPart
+	rangeErr      error // populated by ThenSignalBuilder.StaysBetween when lo > hi
+	valueErr      error // populated when a when/then value is not convertible to a rational
 }
 
 // Within completes the causal check: G(trigger → F≤t(response)).
@@ -351,13 +415,13 @@ func (c ThenCondition) Within(timeMs int64) (CheckResult, error) {
 		Atomic{Predicate: c.trigger},
 		EventuallyWithin(us, Atomic{Predicate: c.thenPred}),
 	)}
-	desc := ""
-	if c.thenDesc != "" {
-		desc = fmt.Sprintf("%s within %dms", c.thenDesc, timeMs)
+	var desc []descPart
+	if len(c.thenDescParts) > 0 {
+		desc = withinDesc(c.thenDescParts, timeMs)
 	}
 	return CheckResult{
-		formula:       f,
-		signalName:    c.thenSignal,
-		conditionDesc: desc,
+		formula:    f,
+		signalName: c.thenSignal,
+		descParts:  desc,
 	}, nil
 }

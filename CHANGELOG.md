@@ -315,6 +315,33 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Go): the Check API and the signal-extraction read path now carry /
+  render exact rationals through the kernel `formatℚ`** (`go/aletheia/{check,result,enrich,json,client}.go`,
+  `go/cmd/aletheia`). The Go slice of the r25 render-delegation pass (B5a-4),
+  bringing Go in line with Python's `Fraction` and C++'s `Rational`-backed value.
+  Two coupled changes:
+  - **Check descriptions → kernel.** `CheckResult.ConditionDesc()` now returns
+    `(string, error)` and renders thresholds via the kernel `formatℚ` lazily
+    (mirroring Rust's `DescPart` / C++'s deferred builder / Python's `_desc_parts`),
+    so it requires a live GHC RTS and reports an error when the runtime is down.
+    Construction stays infallible. This removes the local `fmt.Sprintf("%g", …)`
+    descriptions, which diverged from the kernel for values `%g` renders in
+    scientific notation (`1e+06` vs the canonical `1000000`).
+  - **Extraction value type `float64` → `Rational`.** `SignalValue.Value` is now
+    an exact `Rational` (shared by the `BuildFrame` / `UpdateFrame` INPUT and the
+    extraction OUTPUT, matching C++'s shared `SignalValue`); `ExtractionResult.Get`
+    returns `(Rational, bool)`; `ViolationEnrichment.Signals` is
+    `map[SignalName]Rational`; and the observed values in enriched violation
+    reasons render via the kernel (eval-path degrade on failure, parity with
+    Python / C++). The binary and JSON extraction decoders now carry the exact
+    `numerator`/`denominator` the kernel sends instead of collapsing to
+    `float64(num)/float64(den)` (so e.g. `1/3` is preserved exactly, not
+    `0.333…`); a non-positive denominator is rejected on both paths. Migration:
+    build input signals with `RationalFromFloat(…)` (e.g.
+    `SignalValue{Name: "Speed", Value: RationalFromFloat(120.5)}`); read extracted
+    values as `Rational`. The `aletheia` CLI's `extract --json` now emits each
+    value as a bare integer or `{"numerator","denominator"}` object (matching the
+    Python CLI's `FractionJSONEncoder`), where it previously emitted a lossy float.
 - **BREAKING (Python): `CheckResult.condition_desc` now renders its rational
   thresholds through the kernel `formatℚ` (cross-binding-canonical) and is a lazy
   property rather than a stored string** (`python/aletheia/checks.py`,

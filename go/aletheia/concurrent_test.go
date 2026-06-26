@@ -47,8 +47,9 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractSignals fell through to a real failure: %v", err)
 	}
-	if len(result.Values) != 1 || result.Values[0].Name != "Speed" || result.Values[0].Value != 150.0 {
-		t.Errorf("expected Speed=150.0 via JSON fallback, got %+v", result.Values)
+	if len(result.Values) != 1 || result.Values[0].Name != "Speed" ||
+		result.Values[0].Value != (aletheia.Rational{Numerator: 150, Denominator: 1}) {
+		t.Errorf("expected Speed=150 via JSON fallback, got %+v", result.Values)
 	}
 }
 

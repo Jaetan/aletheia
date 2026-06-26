@@ -693,28 +693,6 @@ func serializeRational(r Rational) any {
 
 // --- Deserialization (JSON from Agda core → Go) ---
 
-// parseNumber handles the three number formats Agda emits:
-// plain int, plain float, or {"numerator": n, "denominator": d}.
-func parseNumber(v any) (float64, error) {
-	switch n := v.(type) {
-	case float64:
-		return n, nil
-	case map[string]any:
-		// Agda emits rationals as {"numerator": n, "denominator": d} with plain numbers.
-		numF, ok1 := n["numerator"].(float64)
-		denF, ok2 := n["denominator"].(float64)
-		if !ok1 || !ok2 {
-			return 0, protocolError(fmt.Sprintf("expected {numerator: number, denominator: number}, got %v", n))
-		}
-		if denF == 0 {
-			return 0, protocolError("zero denominator in rational")
-		}
-		return numF / denF, nil
-	default:
-		return 0, protocolError(fmt.Sprintf("expected number, got %T: %v", v, v))
-	}
-}
-
 // parseNumberAsInt64 parses a JSON number as an exact integer.
 // Note: Go's json.Unmarshal decodes all numbers as float64 (53-bit mantissa),
 // so integers above 2^53 lose precision silently. This is acceptable for CAN
@@ -1019,7 +997,7 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 		if !ok {
 			return nil, protocolError("expected object in values array")
 		}
-		val, err := parseNumber(v["value"])
+		r, err := parseRational(v["value"])
 		if err != nil {
 			return nil, wrapProtocolError("invalid signal value", err)
 		}
@@ -1029,7 +1007,7 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 		}
 		values = append(values, SignalValue{
 			Name:  SignalName(name),
-			Value: PhysicalValue(val),
+			Value: r,
 		})
 	}
 
@@ -1123,12 +1101,15 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		num := int64(binary.LittleEndian.Uint64(buf[off+2 : off+10]))
 		den := int64(binary.LittleEndian.Uint64(buf[off+10 : off+18]))
 		off += 18
-		name := signalNameByIndex(names, idx)
-		var value float64
-		if den != 0 {
-			value = float64(num) / float64(den)
+		// Carry the exact rational the kernel computed — no float round-trip.
+		// Reject a non-positive denominator to match the JSON path
+		// (parseRational) and the wire-symmetry contract; a successful
+		// extraction value never has den <= 0, so this is a corrupt buffer.
+		if den <= 0 {
+			return nil, protocolError(fmt.Sprintf("non-positive denominator %d in extracted signal value", den))
 		}
-		result.Values = append(result.Values, SignalValue{Name: name, Value: PhysicalValue(value)})
+		name := signalNameByIndex(names, idx)
+		result.Values = append(result.Values, SignalValue{Name: name, Value: Rational{Numerator: num, Denominator: den}})
 	}
 
 	for range nerrs {

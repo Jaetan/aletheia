@@ -3,10 +3,18 @@
 
 package aletheia
 
-// SignalValue is a single extracted signal name-value pair.
+// SignalValue is a single signal name-value pair.
+//
+// Value is an exact [Rational], shared by the frame-building INPUT
+// ([Client.BuildFrame] / [Client.UpdateFrame]) and the extraction OUTPUT
+// ([ExtractionResult.Values]).  On extraction it carries the exact value the
+// Agda kernel computes (the wire sends numerator/denominator), so no precision
+// is lost to a float round-trip — matching Python's Fraction and C++'s
+// Rational-backed PhysicalValue.  Build a Value from a float with
+// [RationalFromFloat] (e.g. SignalValue{Name: "Speed", Value: RationalFromFloat(120.5)}).
 type SignalValue struct {
 	Name  SignalName
-	Value PhysicalValue
+	Value Rational
 }
 
 // SignalError is a single signal extraction error.
@@ -22,20 +30,22 @@ type ExtractionResult struct {
 	Values []SignalValue
 	Errors []SignalError
 	Absent []SignalName
-	index  map[SignalName]PhysicalValue // built at construction by buildIndex
+	index  map[SignalName]Rational // built at construction by buildIndex
 }
 
 // buildIndex populates the lookup index from Values. Called once at construction.
 func (r *ExtractionResult) buildIndex() {
-	r.index = make(map[SignalName]PhysicalValue, len(r.Values))
+	r.index = make(map[SignalName]Rational, len(r.Values))
 	for _, sv := range r.Values {
 		r.index[sv.Name] = sv.Value
 	}
 }
 
-// Get looks up a signal by name, returning its value and true if found.
-// Returns (0, false) if the signal is not present or the index was not built.
-func (r *ExtractionResult) Get(name SignalName) (PhysicalValue, bool) {
+// Get looks up a signal by name, returning its exact value and true if found.
+// Returns (Rational{}, false) if the signal is not present or the index was not
+// built.  The value is the exact rational the kernel computed (no float
+// round-trip); render it for display via the kernel formatℚ.
+func (r *ExtractionResult) Get(name SignalName) (Rational, bool) {
 	v, ok := r.index[name]
 	return v, ok
 }
