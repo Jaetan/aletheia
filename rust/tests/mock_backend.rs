@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! The [`Backend`] dependency-injection seam and the [`MockBackend`] test double
-//! (Slice R5). Unlike every other Rust test file, these run **without**
-//! `libaletheia-ffi.so`: the whole point of the seam is to exercise the
-//! [`Client`] against a recorded/replayed mock. No `ALETHEIA_LIB` is needed.
+//! (Slice R5). The seam exercises the [`Client`] against a recorded/replayed mock
+//! command backend. Most tests need no `libaletheia-ffi.so`; the four that render
+//! predicate thresholds (`add_checks` → `set_properties`) do, because the rational
+//! renderer is a process-global MAlonzo export that always loads the real `.so` and
+//! is vocal when the RTS is down (point 2) — they call [`rts_up`] to bring the RTS
+//! up. The mock only ever replaces the command backend, never the renderer.
 
 use std::sync::{Arc, Mutex};
 
@@ -13,6 +16,15 @@ use aletheia::{
     check, Backend, CanId, Client, Dlc, Error, FrameResponse, LogRecord, MockBackend, Rational,
     SignalInjection, Timestamp, Verdict,
 };
+
+/// Bring the GHC RTS up via a throwaway real backend, so the (now-vocal) rational
+/// renderer works while the rest of the flow runs over the mock. The renderer is a
+/// process-global MAlonzo export that always loads the real `.so`; the RTS is
+/// one-shot, so the throwaway client can drop immediately (the init stays latched).
+/// Mirrors the C++ `rts_setup_listener` / Python `rts_up` fixture.
+fn rts_up() {
+    drop(Client::new().expect("init GHC RTS (set ALETHEIA_LIB to a built libaletheia-ffi.so)"));
+}
 
 /// The mock records the exact `<binary:OP>` sentinel for every binary-path op —
 /// never a fabricated JSON command the real backend would not emit (the
@@ -83,12 +95,15 @@ fn mock_records_the_canonical_binary_sentinels() {
     );
 }
 
-/// A [`Client`] built over an injected mock runs a full streaming flow with no
-/// `.so` loaded — and a decided violation fans out to a *second*, hidden backend
-/// call (`extract_signals_binary`) for client-side enrichment. The mock must
-/// service that extra call; the test pins both the fan-out and the enrichment.
+/// A [`Client`] built over an injected mock runs a full streaming flow — the mock
+/// services the command backend, while the rational renderer (a process-global
+/// MAlonzo export) still loads the real `.so`, so [`rts_up`] brings the GHC RTS up.
+/// A decided violation fans out to a *second*, hidden backend call
+/// (`extract_signals_binary`) for client-side enrichment; the test pins both the
+/// fan-out and the enrichment.
 #[test]
 fn client_over_mock_enriches_via_a_hidden_extract_call() {
+    rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
     m.respond_json(r#"{"status":"ack"}"#) // add_checks → set_properties (process)
         .respond_json(r#"{"status":"ack"}"#) // start_stream
@@ -235,6 +250,7 @@ fn interior_nul_in_process_is_rejected_at_both_layers() {
 /// logged as `enrichment.property_index_oob` (previously untested skip path).
 #[test]
 fn out_of_range_property_index_is_skipped_and_logged() {
+    rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&captured);
     let m = MockBackend::new();
@@ -286,6 +302,7 @@ fn out_of_range_property_index_is_skipped_and_logged() {
 /// `enrichment.extraction_failed` (previously untested warn path).
 #[test]
 fn extraction_failure_during_enrichment_is_logged() {
+    rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&captured);
     let m = MockBackend::new();
@@ -338,6 +355,7 @@ fn extraction_failure_during_enrichment_is_logged() {
 /// tests. Here we confirm the two-frame loop runs and produces enrichment.
 #[test]
 fn enrich_eos_merges_multiple_frames() {
+    rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
     m.respond_json(r#"{"status":"ack"}"#) // add_checks
         .respond_json(r#"{"status":"ack"}"#) // start_stream
