@@ -3,7 +3,7 @@
 
 //! The [`Backend`] dependency-injection seam and the [`MockBackend`] test double
 //! (Slice R5). The seam exercises the [`Client`] against a recorded/replayed mock
-//! command backend. Most tests need no `libaletheia-ffi.so`; the two that render
+//! command backend. Most tests need no `libaletheia-ffi.so`; the four that render
 //! predicate thresholds (`add_checks` → `set_properties`) do, because the rational
 //! renderer is a process-global MAlonzo export that always loads the real `.so` and
 //! is vocal when the RTS is down (point 2) — they call [`rts_up`] to bring the RTS

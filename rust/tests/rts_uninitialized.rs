@@ -11,7 +11,7 @@
 //! typed runtime-not-initialised error rather than self-initialising or fabricating
 //! a value. Mirrors C++'s dedicated `rts_init_renderer_uninitialized_tests` binary.
 
-use aletheia::{check, Client, MockBackend};
+use aletheia::{check, Client, Error, MockBackend};
 
 #[test]
 fn renderer_is_vocal_when_the_rts_is_uninitialised() {
@@ -26,14 +26,11 @@ fn renderer_is_vocal_when_the_rts_is_uninitialised() {
         .add_checks(&[check::signal("Speed").never_exceeds(120)])
         .expect_err("rendering a threshold with the RTS down must be vocal, not silent");
 
-    // Assert the SPECIFIC error. `format_rational` loads the `.so` (for its symbols)
-    // BEFORE checking the RTS, so a missing library surfaces as a different
-    // (library-load) error — this test is only meaningful as "RTS down" when the
-    // `.so` is present, so pin the exact message rather than accept any `Err`.
-    let msg = err.to_string();
+    // Match the variant, not a message substring: RTS-down is its own typed error,
+    // distinct from a missing-library error (`format_rational` loads the `.so` first,
+    // so a missing one would be `Error::LibraryLoad`, not this).
     assert!(
-        msg.contains("runtime not initialized"),
-        "expected the runtime-not-initialised error (the .so must be present so this is not a \
-         missing-library error); got: {msg}"
+        matches!(err, Error::RtsNotInitialized),
+        "expected Error::RtsNotInitialized; got: {err:?}"
     );
 }

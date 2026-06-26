@@ -18,6 +18,13 @@ pub enum Error {
     SymbolMissing(String),
     /// `aletheia_init` returned a null handle (the RTS did not initialise correctly).
     InitFailed,
+    /// The GHC RTS has not been initialised: a render (a check description, a
+    /// formula, or an observed value) was attempted before any `FfiBackend` /
+    /// `Client` brought the runtime up. The renderer is *vocal* — it never
+    /// self-initialises (that would latch a default `-N` and squander the backend's
+    /// bus-count). Distinct from [`Error::Protocol`] (a wire/ABI malfunction) so
+    /// callers can tell a local precondition failure from an actual core problem.
+    RtsNotInitialized,
     /// A string crossing the C boundary contained an interior NUL byte.
     NulInString,
     /// The core returned a null response pointer.
@@ -56,6 +63,10 @@ impl fmt::Display for Error {
             Error::LibraryLoad { path, source } => write!(f, "failed to load {path}: {source}"),
             Error::SymbolMissing(name) => write!(f, "missing FFI symbol: {name}"),
             Error::InitFailed => write!(f, "aletheia_init returned null"),
+            Error::RtsNotInitialized => write!(
+                f,
+                "GHC runtime not initialized: create a Client (FfiBackend) before rendering"
+            ),
             Error::NulInString => write!(f, "string contained an interior NUL byte"),
             Error::NullResponse => write!(f, "core returned a null response"),
             Error::Validation(msg) => write!(f, "validation error: {msg}"),

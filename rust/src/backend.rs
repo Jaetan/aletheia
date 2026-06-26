@@ -300,12 +300,12 @@ pub(crate) fn ensure_rts_for_test() {
 /// undefined behaviour. Mirrors Go (#104), C++ (#105), and Python (#106).
 ///
 /// # Errors
-/// [`Error::Protocol`] if the GHC runtime is not initialised (no backend created),
-/// or in the unreachable case of a null return (an ABI/kernel malfunction);
-/// [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` is not loadable or
-/// the export is absent. The call cannot fail for a well-formed rational once a
-/// backend is up: the kernel never emits a zero denominator and the input's
-/// denominator is positive by construction.
+/// [`Error::RtsNotInitialized`] if the GHC runtime is not initialised (no backend
+/// created), or [`Error::Protocol`] in the unreachable case of a null return (an
+/// ABI/kernel malfunction); [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the
+/// `.so` is not loadable or the export is absent. The call cannot fail for a
+/// well-formed rational once a backend is up: the kernel never emits a zero
+/// denominator and the input's denominator is positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
     let lib = library()?;
@@ -314,12 +314,7 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     // ensure_rts. Return before the FFI call: invoking the MAlonzo export with the
     // RTS down is undefined behaviour, not a catchable error.
     match RTS_INIT.get() {
-        None => {
-            return Err(Error::Protocol(
-                "GHC runtime not initialized: create a Client (FfiBackend) before rendering"
-                    .to_string(),
-            ));
-        }
+        None => return Err(Error::RtsNotInitialized),
         Some(Err(e)) => return Err(e.clone()),
         Some(Ok(())) => {}
     }
