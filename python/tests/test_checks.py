@@ -12,9 +12,17 @@ Tests cover:
 
 import pytest
 
-from aletheia import ValidationError
+from aletheia import FFIError, ValidationError
 from aletheia.checks import CheckResult, signal, when
 from aletheia.dsl import Property, Signal
+
+# ``CheckResult.condition_desc`` renders its rational thresholds via the kernel
+# ``formatℚ`` (B5a-3 — cross-binding-canonical with Go / C++ / Rust), which since
+# the point-2 vocal change requires a live GHC RTS.  Bring it up module-wide via
+# the shared ``rts_up`` conftest fixture (an ``FFIBackend`` is the sole RTS
+# initialiser); ``RTSState.acquire`` is refcounted so this composes with any
+# real-FFI client a test creates.
+pytestmark = pytest.mark.usefixtures("rts_up")
 
 # ============================================================================
 # CheckSignal — one-shot methods
@@ -390,3 +398,36 @@ class TestCheckDiagnostics:
         r = signal("Speed").never_exceeds(220).named("Speed limit").severity("critical")
         assert r.signal_name == "Speed"
         assert r.condition_desc == "<= 220"
+
+    def test_float_threshold_renders_kernel_canonical(self) -> None:
+        """A float threshold renders via the kernel formatℚ, not Python's float repr.
+
+        This is the cross-binding canonicalization B5a-3 introduces: an
+        integer-valued float ``120.0`` now renders ``"120"`` (kernel-canonical,
+        matching Go / C++ / Rust, all of which route check descriptions through
+        the kernel), where the old construction-time f-string produced ``"120.0"``.
+        """
+        assert signal("Speed").never_exceeds(120.0).condition_desc == "<= 120"
+        assert signal("V").stays_between(1.0, 2.0).condition_desc == "between 1 and 2"
+        assert when("B").exceeds(50.0).then("L").equals(1.0).within(100).condition_desc == (
+            "= 1 within 100ms"
+        )
+
+    def test_condition_desc_propagates_render_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """condition_desc surfaces a renderer FFIError — a reachable path propagates.
+
+        The renderer is vocal (point 2); reading a check's description is a
+        reachable path, so a render failure must propagate rather than be
+        swallowed or degraded (contrast the eval-path degrade in
+        ``format_enriched_reason``).
+        """
+
+        def _boom(_value: object) -> str:
+            msg = "renderer unavailable"
+            raise FFIError(msg)
+
+        monkeypatch.setattr("aletheia.checks.format_rational", _boom)
+        with pytest.raises(FFIError, match="renderer unavailable"):
+            _ = signal("Speed").never_exceeds(220).condition_desc

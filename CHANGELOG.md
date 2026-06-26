@@ -315,6 +315,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Python): `CheckResult.condition_desc` now renders its rational
+  thresholds through the kernel `formatℚ` (cross-binding-canonical) and is a lazy
+  property rather than a stored string** (`python/aletheia/checks.py`,
+  `python/aletheia/client/_enrichment.py`). The Check-API slice of the r25
+  render-delegation pass (B5a-3), bringing Python in line with Go / C++ / Rust,
+  all of which already route check descriptions through the kernel. Previously the
+  description was an eager construction-time f-string of the *raw* value, so a
+  float threshold rendered with Python's `repr` — `signal("Speed").never_exceeds(120.0)`
+  gave `"<= 120.0"` — diverging from the kernel-canonical `"120"` that the other
+  bindings (and the predicate pretty-printer) produce. Now each threshold is
+  coerced with `to_predicate_fraction` (the same coercion the LTL predicate value
+  uses) and rendered on read via the kernel, so the description and the predicate
+  agree exactly and match the peers byte-for-byte. Two consequences: (1) the
+  rendered string changes for non-integer-valued float inputs (`120.0` → `"120"`);
+  (2) reading `condition_desc` now requires a live GHC RTS — like
+  `format_formula` / `build_diagnostic` since the point-2 vocal change, it raises
+  `FFIError` when no client/backend has initialised the runtime (construction
+  stays infallible; the structured parts are captured eagerly). The internal
+  renderer `_format_rational` is renamed `format_rational` (a public-named
+  function in the still-private `_enrichment` module), now shared by the
+  enrichment and check layers — mirroring Rust's `pub(crate) format_rational` and
+  C++'s `detail::format_rational_ffi`. Migration: read `condition_desc` only with
+  a live `AletheiaClient` (or `FFIBackend`); expect kernel-canonical threshold
+  strings.
 - **BREAKING (Go): the rational renderer no longer self-initialises the GHC
   runtime (it is vocal — returns an error — when the runtime is down), and the
   enrichment helper *functions* `FormatFormula` / `BuildDiagnostic` /

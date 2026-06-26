@@ -22,10 +22,18 @@ Every check compiles to the same LTL Property used by the DSL layer.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
+from aletheia.client._enrichment import format_rational
 from aletheia.client._types import ValidationError
-from aletheia.dsl import Predicate, Property, Signal, require_non_negative_time_ms
+from aletheia.dsl import (
+    Predicate,
+    Property,
+    Signal,
+    require_non_negative_time_ms,
+    to_predicate_fraction,
+)
 
 if TYPE_CHECKING:
     from aletheia.types import LTLFormula
@@ -43,6 +51,51 @@ def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:
         raise ValidationError(msg)
 
 
+# One piece of a check's deferred condition description.  Literal text (``str``)
+# is fixed when the check is built; a threshold (``Fraction``) is rendered lazily
+# at ``CheckResult.condition_desc`` read-time via the kernel ``formatℚ`` (the SSOT
+# renderer, ``aletheia.client._enrichment.format_rational``).  Deferring keeps
+# check *construction* infallible — only reading the description can surface an
+# ``FFIError`` (the renderer needs a live GHC RTS since the point-2 vocal change)
+# — so the fluent builder chain (``when().then().equals().within()``) never raises
+# mid-chain.  Mirrors Rust's ``DescPart`` (check.rs) and C++'s deferred
+# ``condition_desc_builder_`` (check.hpp).
+type _DescPart = str | Fraction
+
+
+def _op_desc(op: str, value: float) -> tuple[_DescPart, ...]:
+    """Build an operator prefix followed by a single threshold, e.g. ``"<= "`` + ``v``.
+
+    The threshold is converted with :func:`to_predicate_fraction` (the same
+    coercion the predicate value uses), so the rendered description and the LTL
+    predicate agree exactly — a float ``120.0`` becomes ``Fraction(120)`` and
+    renders as the kernel-canonical ``"120"``, not ``"120.0"``.
+    """
+    return (op, to_predicate_fraction(value))
+
+
+def _between_desc(lo: float, hi: float) -> tuple[_DescPart, ...]:
+    """``between {lo} and {hi}`` with both bounds deferred to the kernel renderer."""
+    return ("between ", to_predicate_fraction(lo), " and ", to_predicate_fraction(hi))
+
+
+def _render_desc(parts: tuple[_DescPart, ...]) -> str:
+    """Render a deferred description, delegating every threshold to the kernel.
+
+    Literal parts pass through verbatim; each :class:`~fractions.Fraction`
+    threshold is rendered via :func:`~aletheia.client._enrichment.format_rational`
+    (the kernel ``formatℚ``), so the output is byte-identical to the Go / C++ /
+    Rust check descriptions (no local fallback).  An empty *parts* renders to
+    ``""`` without touching the FFI.
+
+    Raises:
+        FFIError: the GHC runtime is not initialised (no client/backend created)
+            — the renderer is *vocal* and never self-initialises the RTS.
+
+    """
+    return "".join(part if isinstance(part, str) else format_rational(part) for part in parts)
+
+
 @dataclass(frozen=True, slots=True)
 class CheckResult:
     """Terminal object wrapping a Property with optional metadata.
@@ -54,13 +107,34 @@ class CheckResult:
     Immutable — ``named()`` / ``severity()`` return new instances rather
     than mutating in place, so a single check template can be shared
     across concurrent sessions without one rename bleeding into another.
+
+    ``condition_desc`` is a *lazy* property, not a stored field: its rational
+    thresholds are rendered on read via the kernel ``formatℚ`` (cross-binding-
+    identical with Go / C++ / Rust), so reading it requires a live GHC RTS and
+    raises ``FFIError`` when the runtime is down.  Check *construction* stays
+    infallible — the structured parts are captured eagerly in ``_desc_parts``.
     """
 
     _property: Property
     name: str = ""
     check_severity: str = ""
     signal_name: str = ""
-    condition_desc: str = ""
+    _desc_parts: tuple[_DescPart, ...] = ()
+
+    # -- derived / read-only -------------------------------------------------
+
+    @property
+    def condition_desc(self) -> str:
+        """Human-readable condition (thresholds via the kernel ``formatℚ``).
+
+        Rendered lazily from :attr:`_desc_parts`; empty for a raw ``Property``
+        wrapped directly in a ``CheckResult``.
+
+        Raises:
+            FFIError: the GHC runtime is not initialised (no client/backend).
+
+        """
+        return _render_desc(self._desc_parts)
 
     # -- chainable "setters" (return new instance) --------------------------
 
@@ -95,19 +169,19 @@ class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
         self,
         prop: Property,
         signal_name: str = "",
-        condition_desc: str = "",
+        desc_parts: tuple[_DescPart, ...] = (),
     ) -> None:
         """Capture the predicate and the signal/condition metadata."""
         self._property = prop
         self._signal_name = signal_name
-        self._condition_desc = condition_desc
+        self._desc_parts = desc_parts
 
     def always(self) -> CheckResult:
         """Require the predicate to hold at every time step."""
         return CheckResult(
             _property=self._property,
             signal_name=self._signal_name,
-            condition_desc=self._condition_desc,
+            _desc_parts=self._desc_parts,
         )
 
 
@@ -134,7 +208,7 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
         return CheckResult(
             _property=prop,
             signal_name=self._signal_name,
-            condition_desc=f"between {self._lo} and {self._hi} within {time_ms}ms",
+            _desc_parts=(*_between_desc(self._lo, self._hi), f" within {time_ms}ms"),
         )
 
 
@@ -158,7 +232,7 @@ class CheckSignal:
         return CheckResult(
             _property=prop,
             signal_name=self._name,
-            condition_desc=f"<= {value}",
+            _desc_parts=_op_desc("<= ", value),
         )
 
     def never_below(self, value: float) -> CheckResult:
@@ -167,7 +241,7 @@ class CheckSignal:
         return CheckResult(
             _property=prop,
             signal_name=self._name,
-            condition_desc=f">= {value}",
+            _desc_parts=_op_desc(">= ", value),
         )
 
     def stays_between(self, lo: float, hi: float) -> CheckResult:
@@ -177,7 +251,7 @@ class CheckSignal:
         return CheckResult(
             _property=prop,
             signal_name=self._name,
-            condition_desc=f"between {lo} and {hi}",
+            _desc_parts=_between_desc(lo, hi),
         )
 
     def never_equals(self, value: float) -> CheckResult:
@@ -186,7 +260,7 @@ class CheckSignal:
         return CheckResult(
             _property=prop,
             signal_name=self._name,
-            condition_desc=f"!= {value}",
+            _desc_parts=_op_desc("!= ", value),
         )
 
     # -- two-step methods (need another call to finish) ----------------------
@@ -194,7 +268,7 @@ class CheckSignal:
     def equals(self, value: float) -> CheckSignalPredicate:
         """Begin an ``equals(v).always()`` chain."""
         prop = Signal(self._name).equals(value).always()
-        return CheckSignalPredicate(prop, self._name, f"= {value}")
+        return CheckSignalPredicate(prop, self._name, _op_desc("= ", value))
 
     def settles_between(self, lo: float, hi: float) -> SettlesBuilder:
         """Begin a ``settles_between(lo, hi).within(ms)`` chain."""
@@ -215,7 +289,7 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
         trigger: Predicate,
         then_pred: Predicate,
         then_signal: str = "",
-        then_desc: str = "",
+        then_desc: tuple[_DescPart, ...] = (),
     ) -> None:
         """Capture the trigger / then predicates and the response metadata."""
         self._trigger = trigger
@@ -227,11 +301,11 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
         """``G(trigger → F≤t(then_predicate))``."""
         require_non_negative_time_ms(time_ms)
         prop = self._trigger.implies(self._then_pred.within(time_ms)).always()
-        desc = f"{self._then_desc} within {time_ms}ms" if self._then_desc else ""
+        desc = (*self._then_desc, f" within {time_ms}ms") if self._then_desc else ()
         return CheckResult(
             _property=prop,
             signal_name=self._then_signal,
-            condition_desc=desc,
+            _desc_parts=desc,
         )
 
 
@@ -246,12 +320,12 @@ class ThenSignal:
     def equals(self, value: float) -> ThenCondition:
         """Then-signal equals *value*."""
         pred = Signal(self._then_name).equals(value)
-        return ThenCondition(self._trigger, pred, self._then_name, f"= {value}")
+        return ThenCondition(self._trigger, pred, self._then_name, _op_desc("= ", value))
 
     def exceeds(self, value: float) -> ThenCondition:
         """Then-signal exceeds *value*."""
         pred = Signal(self._then_name).greater_than(value)
-        return ThenCondition(self._trigger, pred, self._then_name, f"> {value}")
+        return ThenCondition(self._trigger, pred, self._then_name, _op_desc("> ", value))
 
     def stays_between(self, lo: float, hi: float) -> ThenCondition:
         """Then-signal stays between *lo* and *hi*."""
@@ -261,7 +335,7 @@ class ThenSignal:
             self._trigger,
             pred,
             self._then_name,
-            f"between {lo} and {hi}",
+            _between_desc(lo, hi),
         )
 
 

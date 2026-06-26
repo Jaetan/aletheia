@@ -435,7 +435,7 @@ class TestRendererVocalWhenRTSDown:
             msg = "simulated null render"
             raise FFIError(msg)
 
-        monkeypatch.setattr("aletheia.client._enrichment._format_rational", _boom)
+        monkeypatch.setattr("aletheia.client._enrichment.format_rational", _boom)
         values: dict[str, Fraction | None] = {"Speed": Fraction(245)}
         reason = format_enriched_reason(diag, values, core_reason="kernel: X")
         assert reason == "violated: " + diag.formula_desc + " [core: kernel: X]"
