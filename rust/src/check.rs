@@ -497,6 +497,7 @@ impl ThenCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::ensure_rts_for_test;
 
     fn r(n: i64) -> Rational {
         Rational::integer(n)
@@ -518,6 +519,7 @@ mod tests {
             })))
         );
         assert_eq!(c.signal_name(), "Speed");
+        ensure_rts_for_test(); // condition_desc renders the threshold via the kernel
         assert_eq!(c.condition_desc().unwrap(), "<= 120");
     }
 
@@ -543,6 +545,7 @@ mod tests {
                 value: r(3),
             })
         );
+        ensure_rts_for_test(); // condition_desc renders the threshold via the kernel
         assert_eq!(c.condition_desc().unwrap(), "!= 3");
     }
 
@@ -584,6 +587,7 @@ mod tests {
                 })
             )
         );
+        ensure_rts_for_test(); // condition_desc renders the threshold via the kernel
         assert_eq!(c.condition_desc().unwrap(), "between 0 and 10 within 100ms");
     }
 

@@ -396,6 +396,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   privatisation was needed — already at parity with Go's now-private functions.
   Migration: rendering a formula or an observed value now requires a live
   `AletheiaClient` / `FFIBackend`.
+- **BREAKING (Rust): the rational renderer no longer self-initialises the GHC
+  runtime — it is vocal (returns `Err(Error::Protocol)`) when the runtime is down**
+  (`rust/src/backend.rs`). The final slice of the cross-binding "whine if the
+  runtime is uninitialised" pass (after Go #104, C++ #105, Python #106). The
+  renderer is the only FFI entry point not routed through `FfiBackend`;
+  `format_rational` used to call `ensure_rts_for_render` (a self-init via the
+  default `-N`) on first use, which could latch GHC defaults and squander the
+  `FfiBackend`'s bus-count `-N` (the RTS is one-shot per process). It now checks the
+  one-shot `RTS_INIT` latch — `Some` exactly when a real `FfiBackend` has run
+  `ensure_rts` — and returns an error rather than self-initialising, so a `Client` /
+  `FfiBackend` is the sole runtime initialiser. The error is returned *before* the
+  FFI call, because invoking the MAlonzo export with the RTS down is undefined
+  behaviour. (The null-return path already returned `Err` since the B5a-2 delegation,
+  and the eval path already degrades via `reason_without_values` at the caller, so
+  neither changed.) Consequently `format_rational` / `Check::condition_desc` /
+  `build_diagnostic` / `set_properties` surface a runtime-not-initialised error when
+  no backend exists. Migration: rendering a check description, a formula, or an
+  observed value now requires a live `Client` / `FfiBackend`.
 - **BREAKING (Rust): all rational *display* rendering now delegates to the verified
   kernel's `formatℚ` (the `aletheia_format_rational` FFI), and
   `Check::condition_desc()` returns `Result<String, Error>`** (was `&str`)

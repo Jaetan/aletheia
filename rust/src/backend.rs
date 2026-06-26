@@ -276,39 +276,53 @@ fn ensure_rts(
     RTS_INIT.get_or_init(|| init_rts(lib, latched)).clone()
 }
 
-/// Ensure the GHC RTS is initialised for a library call that may run *before* any
-/// [`FfiBackend`] exists — the rational renderer reaches this
-/// when a [`Check`](crate::check::Check) built under a
-/// [`MockBackend`](crate::MockBackend) renders its `condition_desc()`, or when
-/// `set_properties` runs on a mock. The renderer is a MAlonzo foreign export, so
-/// calling it with the RTS down is undefined behaviour, not a catchable error.
-///
-/// Delegates to [`ensure_rts`] — the single one-shot init — with the default spec
-/// (no backend `-N`, no logger). GHC's `hs_init` is one-shot and fixes `-N` for the
-/// process, so whichever caller runs first latches the spec: a real `FfiBackend`
-/// (created before it processes anything) always wins its `-N`; a renderer-first
-/// call uses GHC defaults, which is harmless because rendering a single rational is
-/// not parallel work. Mirrors the C++ (`rational_renderer.cpp`) and Python
-/// (`_enrichment.py`) renderers, which share the backend's RTS init the same way.
-fn ensure_rts_for_render(lib: &'static Library) -> Result<(), Error> {
-    ensure_rts(lib, None, None, LogLevel::Warn)
+/// Test-only: bring the GHC RTS up for unit tests that render. The production
+/// renderer no longer self-initialises (an [`FfiBackend`] is the sole initialiser —
+/// see [`format_rational`]), so unit tests that exercise the renderer
+/// (`check.rs`'s `condition_desc`, `enrich.rs`'s diagnostics) bring it up
+/// explicitly. Idempotent via the one-shot [`RTS_INIT`] latch, so a per-test call
+/// is cheap after the first. Mirrors the C++ `rts_setup_listener` / Python `rts_up`
+/// fixture, which bring the RTS up for their render-dependent mock-backend tests.
+#[cfg(test)]
+pub(crate) fn ensure_rts_for_test() {
+    let lib = library().expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)");
+    ensure_rts(lib, None, None, LogLevel::Warn).expect("init GHC RTS for test");
 }
 
 /// Render a [`Rational`] via the verified Agda kernel's `formatℚ` (the FFI export
 /// `aletheia_format_rational`) — the single source of truth for rational display,
 /// byte-identical to the Python / Go / C++ bindings by construction (no local
-/// fallback). Lazily loads `libaletheia-ffi.so` and ensures the RTS on first use.
+/// fallback). Loads `libaletheia-ffi.so` for its symbols, but is *vocal*: it never
+/// initialises the GHC RTS itself. An [`FfiBackend`] (via a [`Client`](crate::Client))
+/// is the sole initialiser (it owns the bus-count `-N`), so a render with the RTS
+/// down returns an error rather than self-initialising — and the error is returned
+/// *before* the FFI call, because invoking the MAlonzo export with the RTS down is
+/// undefined behaviour. Mirrors Go (#104), C++ (#105), and Python (#106).
 ///
 /// # Errors
-/// [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` is not loadable
-/// or the export is absent, or [`Error::Protocol`] in the unreachable case of a
-/// null return (an ABI/kernel malfunction). The call cannot fail for a well-formed
-/// rational once the library is usable: the kernel never emits a zero denominator
-/// and the input's denominator is positive by construction.
+/// [`Error::Protocol`] if the GHC runtime is not initialised (no backend created),
+/// or in the unreachable case of a null return (an ABI/kernel malfunction);
+/// [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` is not loadable or
+/// the export is absent. The call cannot fail for a well-formed rational once a
+/// backend is up: the kernel never emits a zero denominator and the input's
+/// denominator is positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
     let lib = library()?;
-    ensure_rts_for_render(lib)?;
+    // Vocal: the renderer never initialises the RTS — an FfiBackend is the sole
+    // initialiser, so RTS_INIT is Some exactly when a real backend has run
+    // ensure_rts. Return before the FFI call: invoking the MAlonzo export with the
+    // RTS down is undefined behaviour, not a catchable error.
+    match RTS_INIT.get() {
+        None => {
+            return Err(Error::Protocol(
+                "GHC runtime not initialized: create a Client (FfiBackend) before rendering"
+                    .to_string(),
+            ));
+        }
+        Some(Err(e)) => return Err(e.clone()),
+        Some(Ok(())) => {}
+    }
     let f = unsafe { symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0") }?;
     let free_str =
         unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;

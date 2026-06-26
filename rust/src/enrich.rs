@@ -270,6 +270,7 @@ pub(crate) fn format_enriched_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::ensure_rts_for_test;
     use crate::check;
 
     fn r(n: i64) -> Rational {
@@ -278,6 +279,7 @@ mod tests {
 
     #[test]
     fn never_shape_and_signals() {
+        ensure_rts_for_test(); // build_diagnostic renders the formula description
         let f = check::signal("Speed").never_exceeds(220);
         let d = build_diagnostic(f.formula()).unwrap();
         assert_eq!(d.signals, vec!["Speed".to_string()]);
@@ -286,7 +288,8 @@ mod tests {
 
     #[test]
     fn never_equals_renders_as_never() {
-        // never_equals builds Always(Not(Atomic(Equals))) → the `never P` shape.
+        ensure_rts_for_test(); // build_diagnostic renders the formula description
+                               // never_equals builds Always(Not(Atomic(Equals))) → the `never P` shape.
         let f = check::signal("Mode").never_equals(3);
         assert_eq!(
             build_diagnostic(f.formula()).unwrap().formula_desc,
@@ -296,6 +299,7 @@ mod tests {
 
     #[test]
     fn collect_dedups_across_when_then() {
+        ensure_rts_for_test(); // build_diagnostic renders the formula description
         let f = check::when("Brake")
             .exceeds(50)
             .then("Light")
@@ -314,6 +318,7 @@ mod tests {
 
     #[test]
     fn enriched_reason_with_and_without_values() {
+        ensure_rts_for_test(); // the `with`-values branch renders the observed value
         let diag = PropertyDiagnostic {
             signals: vec!["Speed".to_string()],
             formula_desc: "always(Speed < 220)".to_string(),
