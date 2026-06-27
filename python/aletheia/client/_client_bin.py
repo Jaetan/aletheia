@@ -183,7 +183,10 @@ def parse_extraction_buffer(
     nvals, nerrs, nabss = map(int, struct.unpack_from("<HHH", buf, 0))
     values, off = _parse_values_segment(buf, _HEADER_BYTES, nvals, names)
     errors, off = _parse_errors_segment(buf, off, nerrs, names)
-    absent, _ = _parse_absent_segment(buf, off, nabss, names)
+    absent, off = _parse_absent_segment(buf, off, nabss, names)
+    if off != len(buf):
+        msg = f"Binary extraction buffer has trailing bytes: consumed {off} of {len(buf)}"
+        raise ProtocolError(msg)
     return SignalExtractionResult(values=values, errors=errors, absent=tuple(absent))
 
 

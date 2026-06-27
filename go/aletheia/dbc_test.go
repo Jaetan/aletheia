@@ -132,7 +132,7 @@ func TestFormatDBC(t *testing.T) {
 					"id":291,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU",
 					"signals":[{
 						"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian",
-						"signed":false,"factor":{"numerator":1,"denominator":10},"offset":0,"minimum":0,"maximum":300,"unit":"km/h"
+						"signed":false,"factor":{"numerator":1,"denominator":10},"offset":0,"minimum":0,"maximum":300,"unit":"km/h","presence":"always"
 					}]
 				}]
 			}
@@ -176,10 +176,10 @@ func TestFormatDBC_Success(t *testing.T) {
 					"signals":[{
 						"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian",
 						"signed":false,"factor":{"numerator":1,"denominator":10},
-						"offset":0,"minimum":0,"maximum":300,"unit":"km/h"
+						"offset":0,"minimum":0,"maximum":300,"unit":"km/h","presence":"always"
 					},{
 						"name":"RPM","startBit":16,"length":16,"byteOrder":"little_endian",
-						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":8000,"unit":"rpm"
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":8000,"unit":"rpm","presence":"always"
 					}]
 				}]
 			}
@@ -514,11 +514,11 @@ func TestFormatDBC_Multiplexed(t *testing.T) {
 					"id":512,"extended":false,"name":"MuxMsg","dlc":8,"sender":"ECU",
 					"signals":[{
 						"name":"MuxSel","startBit":0,"length":8,"byteOrder":"little_endian",
-						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":3,"unit":""
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":3,"unit":"","presence":"always"
 					},{
 						"name":"TempA","startBit":8,"length":16,"byteOrder":"little_endian",
 						"signed":false,"factor":{"numerator":1,"denominator":10},"offset":-40,"minimum":-40,"maximum":215,"unit":"degC",
-						"multiplexor":"MuxSel","multiplex_values":[0]
+						"presence":"multiplexed","multiplexor":"MuxSel","multiplex_values":[0]
 					}]
 				}]
 			}
@@ -986,6 +986,155 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
 	requireErrorContains(t, err, "out of range")
+}
+
+// --- Signal presence-discriminator validation tests ---
+//
+// The decoder reads the explicit "presence" field ("always"/"multiplexed")
+// the core emits for every signal, rather than inferring multiplexing from a
+// bare "multiplexor" field (cross-binding parity with Rust/C++/Python).
+
+func TestFormatDBC_UnknownPresence(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU",
+					"signals":[{
+						"name":"Sig","startBit":0,"length":8,"byteOrder":"little_endian",
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"sometimes"
+					}]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.FormatDBC(ctx)
+	if err == nil {
+		t.Fatal("expected error for unknown presence")
+	}
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+	requireErrorContains(t, err, "unknown signal presence")
+}
+
+func TestFormatDBC_MissingPresence(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU",
+					"signals":[{
+						"name":"Sig","startBit":0,"length":8,"byteOrder":"little_endian",
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":""
+					}]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err = c.FormatDBC(ctx); err == nil {
+		t.Fatal("expected error for missing presence")
+	}
+}
+
+func TestFormatDBC_MultiplexedMissingMultiplexor(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU",
+					"signals":[{
+						"name":"Sig","startBit":0,"length":8,"byteOrder":"little_endian",
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"",
+						"presence":"multiplexed","multiplex_values":[0]
+					}]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err = c.FormatDBC(ctx); err == nil {
+		t.Fatal("expected error for multiplexed signal without a multiplexor")
+	}
+}
+
+func TestFormatDBC_MultiplexValueOverflow(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU",
+					"signals":[{
+						"name":"Sig","startBit":0,"length":8,"byteOrder":"little_endian",
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"",
+						"presence":"multiplexed","multiplexor":"M","multiplex_values":[5000000000]
+					}]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err = c.FormatDBC(ctx); err == nil {
+		t.Fatal("expected error for multiplex value over u32")
+	}
+}
+
+func TestFormatDBC_NonBoolExtended(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":"true","name":"Msg","dlc":8,"sender":"ECU",
+					"signals":[]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err = c.FormatDBC(ctx); err == nil {
+		t.Fatal("expected error for non-boolean extended")
+	}
 }
 
 // --- Group R6-K: Empty name validation tests ---

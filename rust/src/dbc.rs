@@ -27,7 +27,7 @@ use serde_json::{json, Value};
 use crate::error::Error;
 use crate::response::ValidationIssue;
 use crate::response::{parse_object, protocol, rational_from_value, str_field, u32_field};
-use crate::types::{CanId, Rational};
+use crate::types::{CanId, Dlc, Rational, MAX_EXTENDED_ID, MAX_STANDARD_ID};
 
 // ── Leaf types ──────────────────────────────────────────────────────────────
 
@@ -417,15 +417,35 @@ fn decode_presence(sig: &Value) -> Result<Presence, Error> {
     match str_field(sig, "presence").as_str() {
         "always" => Ok(Presence::Always),
         "multiplexed" => {
-            let values = arr(sig, "multiplex_values")
+            let multiplexor = str_field(sig, "multiplexor");
+            if multiplexor.is_empty() {
+                return Err(protocol(
+                    "multiplexed signal requires a non-empty \"multiplexor\"",
+                ));
+            }
+            let raw = arr(sig, "multiplex_values");
+            if raw.is_empty() {
+                return Err(protocol(
+                    "multiplexed signal requires a non-empty \"multiplex_values\" array",
+                ));
+            }
+            let values = raw
                 .iter()
                 .map(|v| {
-                    v.as_u64()
-                        .ok_or_else(|| protocol("multiplex_values entry is not a u64"))
+                    let n = v
+                        .as_u64()
+                        .ok_or_else(|| protocol("multiplex_values entry is not a u64"))?;
+                    if n > u64::from(u32::MAX) {
+                        return Err(protocol(format!(
+                            "multiplex_values entry {n} exceeds u32 range (0-{})",
+                            u32::MAX
+                        )));
+                    }
+                    Ok(n)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Presence::Multiplexed {
-                multiplexor: str_field(sig, "multiplexor"),
+                multiplexor,
                 values,
             })
         }
@@ -448,10 +468,20 @@ fn rational_field(obj: &Value, key: &str) -> Result<Rational, Error> {
 }
 
 fn decode_signal(sig: &Value) -> Result<DbcSignal, Error> {
+    let start_bit = u32_field(sig, "startBit")?;
+    if start_bit > 511 {
+        return Err(protocol(format!(
+            "startBit {start_bit} out of range (0-511)"
+        )));
+    }
+    let length = u32_field(sig, "length")?;
+    if !(1..=64).contains(&length) {
+        return Err(protocol(format!("bit length {length} out of range (1-64)")));
+    }
     Ok(DbcSignal {
         name: str_field(sig, "name"),
-        start_bit: u32_field(sig, "startBit")?,
-        length: u32_field(sig, "length")?,
+        start_bit,
+        length,
         byte_order: decode_byte_order(sig)?,
         signed: sig.get("signed").and_then(Value::as_bool).unwrap_or(false),
         factor: rational_field(sig, "factor")?,
@@ -470,14 +500,35 @@ fn decode_message(msg: &Value) -> Result<DbcMessage, Error> {
         .iter()
         .map(decode_signal)
         .collect::<Result<Vec<_>, _>>()?;
+    let extended = match msg.get("extended") {
+        None => false,
+        Some(v) => v
+            .as_bool()
+            .ok_or_else(|| protocol("message \"extended\" must be a boolean"))?,
+    };
+    let id = u32_field(msg, "id")?;
+    let max_id = if extended {
+        MAX_EXTENDED_ID
+    } else {
+        u32::from(MAX_STANDARD_ID)
+    };
+    if id > max_id {
+        return Err(protocol(format!(
+            "CAN ID {id} exceeds {bits}-bit range (0-{max_id})",
+            bits = if extended { 29 } else { 11 }
+        )));
+    }
+    let dlc = u32_field(msg, "dlc")?;
+    Dlc::from_bytes(dlc as usize).map_err(|_| {
+        protocol(format!(
+            "DLC byte count {dlc} is not a valid CAN/CAN-FD length"
+        ))
+    })?;
     Ok(DbcMessage {
-        id: u32_field(msg, "id")?,
-        extended: msg
-            .get("extended")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        id,
+        extended,
         name: str_field(msg, "name"),
-        dlc: u32_field(msg, "dlc")?,
+        dlc,
         sender: str_field(msg, "sender"),
         senders: str_array(msg, "senders"),
         signals,
@@ -634,9 +685,15 @@ fn decode_attribute(a: &Value) -> Result<Attribute, Error> {
 }
 
 fn decode_env_var(e: &Value) -> Result<EnvironmentVar, Error> {
+    let var_type = i64_field(e, "varType")?;
+    if !(0..=2).contains(&var_type) {
+        return Err(protocol(format!(
+            "environment variable varType {var_type} out of range (0-2)"
+        )));
+    }
     Ok(EnvironmentVar {
         name: str_field(e, "name"),
-        var_type: i64_field(e, "varType")?,
+        var_type,
         initial: rational_field(e, "initial")?,
         minimum: rational_field(e, "minimum")?,
         maximum: rational_field(e, "maximum")?,
@@ -1292,5 +1349,189 @@ mod tests {
             has_fraction,
             "minimal should exercise a fractional rational"
         );
+    }
+
+    // ── decode-validation: reject malformed core output (positive + rejection cases) ──
+    // These call the private decoders directly; the corpus snapshots above are the
+    // positive end-to-end witness that the core's own output still decodes.
+    use super::{decode_env_var, decode_message, decode_presence, decode_signal};
+
+    fn valid_signal() -> Value {
+        json!({
+            "name": "S", "startBit": 0, "length": 8, "byteOrder": "little_endian",
+            "signed": false, "factor": 1, "offset": 0, "minimum": 0, "maximum": 100,
+            "unit": "", "receivers": [], "valueDescriptions": [], "presence": "always"
+        })
+    }
+
+    fn valid_message() -> Value {
+        json!({
+            "id": 0x100, "extended": false, "name": "M", "dlc": 8,
+            "sender": "", "senders": [], "signals": []
+        })
+    }
+
+    fn valid_env_var() -> Value {
+        json!({ "name": "E", "varType": 0, "initial": 0, "minimum": 0, "maximum": 10 })
+    }
+
+    // message id range (per `extended`) + DLC byte-count
+    #[test]
+    fn message_rejects_standard_id_over_11_bits() {
+        let mut m = valid_message();
+        m["id"] = json!(0x800); // 2048 > MAX_STANDARD_ID (0x7FF)
+        assert!(decode_message(&m).is_err());
+    }
+
+    #[test]
+    fn message_accepts_max_standard_id() {
+        let mut m = valid_message();
+        m["id"] = json!(0x7FF);
+        assert!(decode_message(&m).is_ok());
+    }
+
+    #[test]
+    fn message_rejects_extended_id_over_29_bits() {
+        let mut m = valid_message();
+        m["extended"] = json!(true);
+        m["id"] = json!(0x2000_0000u64); // 1<<29 > MAX_EXTENDED_ID (0x1FFFFFFF)
+        assert!(decode_message(&m).is_err());
+    }
+
+    #[test]
+    fn message_accepts_max_extended_id() {
+        let mut m = valid_message();
+        m["extended"] = json!(true);
+        m["id"] = json!(0x1FFF_FFFFu64);
+        assert!(decode_message(&m).is_ok());
+    }
+
+    #[test]
+    fn message_rejects_invalid_dlc_byte_count() {
+        let mut m = valid_message();
+        m["dlc"] = json!(9); // 9 is not a valid CAN/CAN-FD byte count
+        assert!(decode_message(&m).is_err());
+    }
+
+    #[test]
+    fn message_accepts_canfd_dlc_byte_count() {
+        let mut m = valid_message();
+        m["dlc"] = json!(64); // valid CAN-FD length
+        assert!(decode_message(&m).is_ok());
+    }
+
+    #[test]
+    fn message_rejects_non_bool_extended() {
+        let mut m = valid_message();
+        m["extended"] = json!("true"); // string, not bool
+        assert!(decode_message(&m).is_err());
+    }
+
+    // signal startBit 0-511 / length 1-64
+    #[test]
+    fn signal_rejects_start_bit_over_511() {
+        let mut s = valid_signal();
+        s["startBit"] = json!(512);
+        assert!(decode_signal(&s).is_err());
+    }
+
+    #[test]
+    fn signal_accepts_max_start_bit() {
+        let mut s = valid_signal();
+        s["startBit"] = json!(511);
+        assert!(decode_signal(&s).is_ok());
+    }
+
+    #[test]
+    fn signal_rejects_zero_length() {
+        let mut s = valid_signal();
+        s["length"] = json!(0);
+        assert!(decode_signal(&s).is_err());
+    }
+
+    #[test]
+    fn signal_rejects_length_over_64() {
+        let mut s = valid_signal();
+        s["length"] = json!(65);
+        assert!(decode_signal(&s).is_err());
+    }
+
+    #[test]
+    fn signal_accepts_max_length() {
+        let mut s = valid_signal();
+        s["length"] = json!(64);
+        assert!(decode_signal(&s).is_ok());
+    }
+
+    #[test]
+    fn signal_accepts_min_length() {
+        let mut s = valid_signal();
+        s["length"] = json!(1); // minimum valid length (lower boundary)
+        assert!(decode_signal(&s).is_ok());
+    }
+
+    // multiplexed presence requires non-empty multiplexor + values
+    #[test]
+    fn presence_rejects_multiplexed_with_empty_values() {
+        let sig =
+            json!({ "presence": "multiplexed", "multiplexor": "Mode", "multiplex_values": [] });
+        assert!(decode_presence(&sig).is_err());
+    }
+
+    #[test]
+    fn presence_rejects_multiplexed_with_missing_values() {
+        let sig = json!({ "presence": "multiplexed", "multiplexor": "Mode" });
+        assert!(decode_presence(&sig).is_err());
+    }
+
+    #[test]
+    fn presence_rejects_multiplexed_with_empty_multiplexor() {
+        let sig = json!({ "presence": "multiplexed", "multiplexor": "", "multiplex_values": [0] });
+        assert!(decode_presence(&sig).is_err());
+    }
+
+    #[test]
+    fn presence_accepts_multiplexed_with_values() {
+        let sig =
+            json!({ "presence": "multiplexed", "multiplexor": "Mode", "multiplex_values": [0, 1] });
+        assert!(matches!(
+            decode_presence(&sig),
+            Ok(Presence::Multiplexed { .. })
+        ));
+    }
+
+    // multiplex_values entries are bounded to u32 (cross-binding parity with Go)
+    #[test]
+    fn presence_rejects_multiplex_value_over_u32() {
+        let sig = json!({
+            "presence": "multiplexed",
+            "multiplexor": "Mode",
+            "multiplex_values": [5_000_000_000_u64], // > u32::MAX
+        });
+        assert!(decode_presence(&sig).is_err());
+    }
+
+    // unknown presence discriminator rejected
+    #[test]
+    fn presence_rejects_unknown_discriminator() {
+        let sig = json!({ "presence": "sometimes" });
+        assert!(decode_presence(&sig).is_err());
+    }
+
+    // environment-variable varType 0-2
+    #[test]
+    fn env_var_rejects_var_type_out_of_range() {
+        let mut e = valid_env_var();
+        e["varType"] = json!(3);
+        assert!(decode_env_var(&e).is_err());
+    }
+
+    #[test]
+    fn env_var_accepts_var_type_boundaries() {
+        for vt in 0..=2 {
+            let mut e = valid_env_var();
+            e["varType"] = json!(vt);
+            assert!(decode_env_var(&e).is_ok(), "varType {vt} should decode");
+        }
     }
 }

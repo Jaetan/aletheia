@@ -299,10 +299,12 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     // ~1.5 MB — far below SIZE_MAX on any supported platform.
     const auto expected_size = std::size_t{6} + (std::size_t{nvals} * 18) +
                                (std::size_t{nerrs} * 3) + (std::size_t{nabss} * 2);
-    if (buf.size() < expected_size)
+    // Exact-size check: too short is truncation, too long is trailing bytes.
+    if (buf.size() != expected_size)
         return std::unexpected(AletheiaError{
-            ErrorKind::Protocol, std::format("Truncated extraction buffer: {} bytes, expected {}",
-                                             buf.size(), expected_size)});
+            ErrorKind::Protocol,
+            std::format("Extraction buffer size mismatch: {} bytes, expected exactly {}",
+                        buf.size(), expected_size)});
     std::size_t off = 6;
 
     ExtractionResult result;

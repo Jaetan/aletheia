@@ -292,6 +292,40 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
 // DBC parsing (for formatDBC response)
 // ---------------------------------------------------------------------------
 
+// Decode the explicit `presence` discriminator the core emits for every signal
+// ("always" / "multiplexed") rather than inferring multiplexing from the bare
+// presence of a `multiplexor` field (parity with Go/Rust/Python). A multiplexed
+// signal requires a non-empty multiplexor and a non-empty multiplex_values array
+// of u32 selectors.
+static auto parse_signal_presence(const Json& j) -> SignalPresence {
+    const auto presence_str = j.value("presence", std::string{});
+    if (presence_str == "always")
+        return AlwaysPresent{};
+    if (presence_str != "multiplexed")
+        throw std::runtime_error("unknown signal presence: " + presence_str);
+    auto mux_name = j.value("multiplexor", std::string{});
+    if (mux_name.empty())
+        throw std::runtime_error("multiplexed signal requires a non-empty \"multiplexor\"");
+    if (!j.contains("multiplex_values") || !j.at("multiplex_values").is_array() ||
+        j.at("multiplex_values").empty())
+        throw std::runtime_error(
+            "multiplexed signal requires a non-empty \"multiplex_values\" array");
+    const auto& arr = j.at("multiplex_values");
+    std::vector<MultiplexValue> vals;
+    vals.reserve(arr.size());
+    for (const auto& elem : arr) {
+        // Read wide, then bound to u32 — nlohmann's get<uint32_t> would silently
+        // truncate an out-of-range value rather than reject it.
+        const auto v = elem.get<std::int64_t>();
+        if (v < 0 || v > 0xFFFF'FFFFLL) // u32 max — parity with Go's MaxUint32 bound
+            throw std::runtime_error("multiplex_values entry " + std::to_string(v) +
+                                     " out of range (0-4294967295)");
+        vals.emplace_back(static_cast<std::uint32_t>(v));
+    }
+    return Multiplexed{.multiplexor = SignalName{std::move(mux_name)},
+                       .multiplex_values = std::move(vals)};
+}
+
 static auto parse_signal_def(const Json& j) -> DbcSignal {
     auto bo_str = j.value("byteOrder", "little_endian");
     ByteOrder bo{};
@@ -302,16 +336,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
     else
         throw std::runtime_error("Unrecognized byteOrder: " + bo_str);
 
-    SignalPresence presence = AlwaysPresent{};
-    if (j.contains("multiplexor")) {
-        const auto& arr = j.at("multiplex_values");
-        std::vector<MultiplexValue> vals;
-        vals.reserve(arr.size());
-        for (const auto& elem : arr)
-            vals.emplace_back(elem.get<std::uint32_t>());
-        presence = Multiplexed{.multiplexor = SignalName{j.at("multiplexor").get<std::string>()},
-                               .multiplex_values = std::move(vals)};
-    }
+    auto presence = parse_signal_presence(j);
 
     std::vector<std::string> receivers;
     if (j.contains("receivers")) {
@@ -332,10 +357,19 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
             });
     }
 
+    const auto start_bit_raw = j.at("startBit").get<std::uint32_t>();
+    if (start_bit_raw > 511)
+        throw std::runtime_error("startBit " + std::to_string(start_bit_raw) +
+                                 " out of range (0-511)");
+    const auto length_raw = j.at("length").get<std::uint32_t>();
+    if (length_raw < 1 || length_raw > 64)
+        throw std::runtime_error("bit length " + std::to_string(length_raw) +
+                                 " out of range (1-64)");
+
     return DbcSignal{
         .name = SignalName{j.at("name").get<std::string>()},
-        .start_bit = BitPosition{j.at("startBit").get<std::uint16_t>()},
-        .bit_length = BitLength{j.at("length").get<std::uint8_t>()},
+        .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_raw)},
+        .bit_length = BitLength{static_cast<std::uint8_t>(length_raw)},
         .byte_order = bo,
         .is_signed = j.value("signed", false),
         .factor = RationalFactor{parse_rational(j.at("factor"))},

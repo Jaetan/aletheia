@@ -103,6 +103,23 @@ impl Dlc {
     pub fn to_bytes(self) -> usize {
         DLC_TABLE[self.0 as usize]
     }
+
+    /// Construct a DLC from a payload byte count — the inverse of
+    /// [`Dlc::to_bytes`]. Accepts only the valid CAN/CAN-FD byte counts
+    /// (`0..=8`, then `12, 16, 20, 24, 32, 48, 64`); the wire-symmetric mirror
+    /// of the Go binding's `BytesToDLC` and the C++ binding's `bytes_to_dlc`.
+    ///
+    /// # Errors
+    /// [`Error::Validation`] if `bytes` is not a valid CAN/CAN-FD byte count.
+    pub fn from_bytes(bytes: usize) -> Result<Self, Error> {
+        DLC_TABLE
+            .iter()
+            .position(|&b| b == bytes)
+            .map(|code| Dlc(code as u8))
+            .ok_or_else(|| {
+                Error::Validation(format!("{bytes} is not a valid CAN/CAN-FD DLC byte count"))
+            })
+    }
 }
 
 /// An exact rational value — the precision currency of LTL predicates
@@ -285,5 +302,19 @@ mod tests {
         let r = Rational::from_f64(max_int_double).expect("in-range integer double");
         assert_eq!(r.numerator(), 9_223_372_036_854_773_760);
         assert_eq!(r.denominator(), 1);
+    }
+
+    #[test]
+    fn dlc_from_bytes_round_trips_and_rejects_invalid() {
+        use super::Dlc;
+        // `from_bytes` is the exact inverse of `to_bytes` over every valid code.
+        for code in 0..=15u8 {
+            let dlc = Dlc::new(code).expect("0..=15 is valid");
+            let back = Dlc::from_bytes(dlc.to_bytes()).expect("a real byte count round-trips");
+            assert_eq!(back, dlc, "round-trip failed for code {code}");
+        }
+        // 9 bytes is not a valid length (the table jumps 8 -> 12); 65 exceeds CAN-FD's 64.
+        assert!(Dlc::from_bytes(9).is_err());
+        assert!(Dlc::from_bytes(65).is_err());
     }
 }

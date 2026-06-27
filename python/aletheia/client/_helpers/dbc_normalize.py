@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING, cast, get_args
 
 from aletheia._loader_utils import is_pure_int
 from aletheia.client._helpers.rational import parse_rational
-from aletheia.client._types import ProtocolError
+from aletheia.client._types import (
+    DLCByteCount,
+    ProtocolError,
+    ValidationError,
+    bytes_to_dlc,
+    validate_can_id,
+)
 from aletheia.types import (
     AttrScope,
     DBCAttrAssign,
@@ -41,6 +47,12 @@ if TYPE_CHECKING:
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
+
+# Signal bit-layout bounds the core guarantees (see Aletheia.DBC.SignalWF).
+_MAX_START_BIT = 511
+_MAX_BIT_LENGTH = 64
+# Multiplex selector values are u32 (cross-binding parity with Go/C++/Rust).
+_MAX_MULTIPLEX_VALUE = (1 << 32) - 1
 
 # Fields in a DBCEnvironmentVar that carry ℚ on the Agda wire.
 _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
@@ -118,7 +130,52 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue]) -> DBCSignal:
     for field in _NUMERIC_SIGNAL_FIELDS:
         if field in sig:
             sig[field] = parse_rational(sig[field])
+    _validate_signal_bits(sig)
+    _validate_signal_presence(sig)
     return cast("DBCSignal", sig)
+
+
+def _validate_signal_bits(sig: Mapping[str, object]) -> None:
+    """Reject an out-of-range startBit (0-511) or bit length (1-64)."""
+    start_bit = sig.get("startBit")
+    if not is_pure_int(start_bit) or not 0 <= start_bit <= _MAX_START_BIT:
+        msg = f"Expected signal 'startBit' in 0-{_MAX_START_BIT}, got {start_bit!r}"
+        raise ProtocolError(msg)
+    length = sig.get("length")
+    if not is_pure_int(length) or not 1 <= length <= _MAX_BIT_LENGTH:
+        msg = f"Expected signal 'length' in 1-{_MAX_BIT_LENGTH}, got {length!r}"
+        raise ProtocolError(msg)
+
+
+def _validate_signal_presence(sig: Mapping[str, object]) -> None:
+    """Validate the explicit ``presence`` discriminator the core emits.
+
+    Mirrors the Rust binding: ``presence`` is required and must be ``"always"``
+    or ``"multiplexed"``; a multiplexed signal additionally requires a non-empty
+    ``multiplexor`` and a non-empty ``multiplex_values`` list of non-negative
+    integers.
+    """
+    presence = sig.get("presence")
+    if presence == "always":
+        return
+    if presence == "multiplexed":
+        multiplexor = sig.get("multiplexor")
+        if not isinstance(multiplexor, str) or not multiplexor:
+            msg = "Multiplexed signal requires a non-empty 'multiplexor'"
+            raise ProtocolError(msg)
+        values = sig.get("multiplex_values")
+        if not isinstance(values, list) or not values:
+            msg = "Multiplexed signal requires a non-empty 'multiplex_values' array"
+            raise ProtocolError(msg)
+        for entry in cast("list[object]", values):
+            if not is_pure_int(entry) or not 0 <= entry <= _MAX_MULTIPLEX_VALUE:
+                msg = (
+                    f"Expected 'multiplex_values' entry in 0-{_MAX_MULTIPLEX_VALUE}, got {entry!r}"
+                )
+                raise ProtocolError(msg)
+        return
+    msg = f"Expected signal 'presence' to be 'always' or 'multiplexed', got {presence!r}"
+    raise ProtocolError(msg)
 
 
 def _normalize_signal_group(raw: Mapping[str, JSONValue]) -> DBCSignalGroup:
@@ -486,6 +543,32 @@ def _normalize_attribute(raw: Mapping[str, JSONValue]) -> DBCAttribute:
     raise ProtocolError(msg)
 
 
+def _validate_message_meta(message: Mapping[str, object]) -> None:
+    """Reject an out-of-range CAN id (per ``extended``) or invalid DLC byte count.
+
+    Reuses the binding's canonical ``validate_can_id`` / ``bytes_to_dlc`` bounds
+    (the SSOT), re-raising their ``ValidationError`` as a ``ProtocolError`` to
+    keep the decode path's error type uniform.
+    """
+    can_id = message.get("id")
+    if not is_pure_int(can_id):
+        msg = f"Expected message 'id' to be an int, got {can_id!r}"
+        raise ProtocolError(msg)
+    extended = message.get("extended", False)
+    if not isinstance(extended, bool):
+        msg = f"Expected message 'extended' to be a bool, got {extended!r}"
+        raise ProtocolError(msg)
+    dlc = message.get("dlc")
+    if not is_pure_int(dlc):
+        msg = f"Expected message 'dlc' to be an int, got {dlc!r}"
+        raise ProtocolError(msg)
+    try:
+        validate_can_id(can_id, extended=extended)
+        bytes_to_dlc(DLCByteCount(dlc))
+    except ValidationError as e:
+        raise ProtocolError(str(e)) from e
+
+
 def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
     """Normalize Agda's formatDBC JSON into a proper DBCDefinition.
 
@@ -520,6 +603,7 @@ def normalize_dbc(raw: Mapping[str, JSONValue]) -> DBCDefinition:
             signals.append(normalize_signal(s))
         msg_dict: dict[str, object] = dict(m)
         msg_dict["signals"] = signals
+        _validate_message_meta(msg_dict)
         messages.append(cast("DBCMessage", msg_dict))
     result: DBCDefinition = {
         "version": str(raw.get("version", "")),

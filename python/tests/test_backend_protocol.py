@@ -266,7 +266,8 @@ def test_extract_signals_json_fallback_when_backend_binary_unsupported() -> None
             # to the JSON path BEFORE ever calling extract_signals_bin (the path
             # we want to exercise).
             b'{"status":"success","dbc":{"version":"",'
-            + b'"messages":[{"id":256,"extended":false,"signals":[{"name":"Sig"}]}]'
+            + b'"messages":[{"id":256,"extended":false,"dlc":8,"signals":'
+            + b'[{"name":"Sig","startBit":0,"length":8,"presence":"always"}]}]'
             + b'},"warnings":[]}',
             # extract_signals_binary JSON fallback returns success + empty lists.
             b'{"status":"success","values":[],"errors":[],"absent":[]}',

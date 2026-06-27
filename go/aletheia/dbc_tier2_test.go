@@ -438,7 +438,7 @@ func TestDBCSignalReceivers_EmptyWhenAbsent(t *testing.T) {
 					"offset":{"numerator":0,"denominator":1},
 					"minimum":{"numerator":0,"denominator":1},
 					"maximum":{"numerator":255,"denominator":1},
-					"unit":""
+					"unit":"","presence":"always"
 				}]
 			}]
 		}

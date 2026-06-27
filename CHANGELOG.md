@@ -315,6 +315,35 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **DBC decode-validation tightened to lockstep across all four bindings**
+  (`go/aletheia/json.go`, `python/aletheia/client/_helpers/dbc_normalize.py` +
+  `_client_bin.py`, `rust/src/{dbc,types}.rs`, `cpp/src/{json_parse,client}.cpp`).
+  The DBC-response and binary-extraction decoders now reject malformed core output
+  uniformly, instead of each binding accepting a different subset — closing a gap
+  where the same wire bytes could decode in one binding yet be rejected (or
+  silently mis-decoded) in another. Not API-breaking: the public surfaces are
+  unchanged and well-formed core output is unaffected; only adversarial/corrupted
+  input is now rejected. The unified contract:
+  - **Signal `presence` is read from the explicit discriminator** (`"always"` /
+    `"multiplexed"`) the core emits for every signal, rather than inferred from a
+    bare `multiplexor` field. Go and C++ previously inferred; both now read
+    `presence` (matching Rust and Python). A `"multiplexed"` signal requires a
+    non-empty `multiplexor` and a non-empty `multiplex_values` array.
+  - **`multiplex_values` selectors are bounded to u32** in every binding. Go
+    already enforced this; Rust and Python previously accepted out-of-range values
+    and C++'s `get<uint32_t>` silently truncated them.
+  - **CAN id** is range-checked per the `extended` flag (11-bit / 29-bit) and
+    **DLC** must be a valid CAN/CAN-FD byte count — Rust gained a public
+    `Dlc::from_bytes` for this (the inverse of `Dlc::to_bytes`, the wire-symmetric
+    mirror of Go's `BytesToDLC` / C++'s `bytes_to_dlc`). A present `extended` flag
+    must be a JSON boolean (Go/Rust previously treated a non-boolean as `false` and
+    Python coerced it — e.g. the string `"false"` became `True`; C++ already
+    rejected). **`startBit`** is 0–511, bit **`length`** 1–64, and
+    environment-variable **`varType`** is 0–2. Each binding that lacked one of these
+    gained it (Go and C++ id/DLC were already strict).
+  - **The binary signal-extraction buffer must be consumed exactly** — Python and
+    C++ now reject trailing bytes past the computed layout (Go already did; the
+    Rust binding decodes extraction via the JSON path).
 - **BREAKING (Go): the Check API and the signal-extraction read path now carry /
   render exact rationals through the kernel `formatℚ`** (`go/aletheia/{check,result,enrich,json,client}.go`,
   `go/cmd/aletheia`). The Go slice of the r25 render-delegation pass (B5a-4),

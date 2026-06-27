@@ -235,13 +235,16 @@ namespace {
 
 // Delegates every backend operation to a real FFI backend so parse_dbc (which
 // populates the client's signal-name cache and thus arms the binary extraction
-// path) works for real — except extract_signals_bin, which returns a buffer too
-// short to hold even the 6-byte header.  Lets us drive parse_extraction_bin's
-// truncation path through the public API (r25): a truncated buffer must surface
-// a Protocol error, not decode as a silent zero-signal success.
-class TruncatingExtractBackend : public IBackend {
+// path) works for real — except extract_signals_bin, which hands back a
+// caller-supplied buffer.  Lets us drive parse_extraction_bin's size-validation
+// paths through the public API: a buffer that is too short (truncation) OR
+// too long (trailing bytes) must surface a Protocol error, not decode as a
+// silent success.
+class FixedBinExtractBackend : public IBackend {
 public:
-    explicit TruncatingExtractBackend(std::unique_ptr<IBackend> inner) : inner_(std::move(inner)) {}
+    FixedBinExtractBackend(std::unique_ptr<IBackend> inner, std::vector<std::byte> buf)
+        : inner_(std::move(inner))
+        , buf_(std::move(buf)) {}
 
     auto init() -> void* override { return inner_->init(); }
     auto process(void* state, std::string_view input) -> std::string override {
@@ -274,26 +277,29 @@ public:
         return inner_->extract_signals_binary(state, id, dlc, data);
     }
 
-    // The method under test: hand back a 3-byte buffer (< the 6-byte header).
+    // The method under test: hand back the caller-supplied buffer verbatim.
     auto extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                              std::span<const std::byte> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        return std::vector<std::byte>{std::byte{0}, std::byte{0}, std::byte{0}};
+        return buf_;
     }
 
 private:
     std::unique_ptr<IBackend> inner_;
+    std::vector<std::byte> buf_;
 };
 
 } // namespace
 
 TEST_CASE("truncated binary extraction surfaces a Protocol error", "[integration]") {
     auto lib = find_lib();
-    auto backend = std::make_unique<TruncatingExtractBackend>(make_ffi_backend(lib));
+    // A 3-byte buffer is shorter than the mandatory 6-byte header.
+    auto backend = std::make_unique<FixedBinExtractBackend>(
+        make_ffi_backend(lib), std::vector<std::byte>(3, std::byte{0}));
     AletheiaClient client(std::move(backend));
 
     // Loads the DBC for real → the client's signal-name cache is populated, so
-    // extract_signals takes the binary path and calls our truncating override.
+    // extract_signals takes the binary path and calls our fixed-buffer override.
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
@@ -304,6 +310,27 @@ TEST_CASE("truncated binary extraction surfaces a Protocol error", "[integration
     auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     // Pre-fix this returned a success-empty ExtractionResult (zero signals);
     // the fix makes a truncated buffer a Protocol error.
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("binary extraction with trailing bytes surfaces a Protocol error", "[integration]") {
+    auto lib = find_lib();
+    // A valid all-zero 6-byte header (0 values / 0 errors / 0 abs) is exactly
+    // expected_size == 6; the 7th byte is trailing data the layout does not
+    // account for, so the decoder must reject it rather than ignore the tail.
+    auto backend = std::make_unique<FixedBinExtractBackend>(
+        make_ffi_backend(lib), std::vector<std::byte>(7, std::byte{0}));
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
 }
