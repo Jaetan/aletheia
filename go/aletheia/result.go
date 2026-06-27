@@ -44,7 +44,7 @@ func (r *ExtractionResult) buildIndex() {
 // Get looks up a signal by name, returning its exact value and true if found.
 // Returns (Rational{}, false) if the signal is not present or the index was not
 // built.  The value is the exact rational the kernel computed (no float
-// round-trip); render it for display via the kernel formatℚ.
+// round-trip); read Numerator/Denominator for exact arithmetic.
 func (r *ExtractionResult) Get(name SignalName) (Rational, bool) {
 	v, ok := r.index[name]
 	return v, ok

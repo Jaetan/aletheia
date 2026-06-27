@@ -1101,14 +1101,14 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		num := int64(binary.LittleEndian.Uint64(buf[off+2 : off+10]))
 		den := int64(binary.LittleEndian.Uint64(buf[off+10 : off+18]))
 		off += 18
+		name := signalNameByIndex(names, idx)
 		// Carry the exact rational the kernel computed — no float round-trip.
 		// Reject a non-positive denominator to match the JSON path
 		// (parseRational) and the wire-symmetry contract; a successful
 		// extraction value never has den <= 0, so this is a corrupt buffer.
 		if den <= 0 {
-			return nil, protocolError(fmt.Sprintf("non-positive denominator %d in extracted signal value", den))
+			return nil, protocolError(fmt.Sprintf("non-positive denominator %d for extracted signal %q (index %d)", den, name, idx))
 		}
-		name := signalNameByIndex(names, idx)
 		result.Values = append(result.Values, SignalValue{Name: name, Value: Rational{Numerator: num, Denominator: den}})
 	}
 
