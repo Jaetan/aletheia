@@ -2098,31 +2098,40 @@ func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 	}, nil
 }
 
-// parseSignalPresence decodes the multiplexor "presence" object that
-// names the multiplexor signal plus the mux values under which a
-// multiplexed signal is active.
+// parseSignalPresence decodes the explicit "presence" discriminator the core
+// emits for every signal — "always" or "multiplexed" — rather than inferring
+// multiplexing from the bare presence of a "multiplexor" field (matches the
+// Rust/C++/Python bindings). A multiplexed signal additionally requires a
+// non-empty "multiplexor" name and a non-empty "multiplex_values" array.
 func parseSignalPresence(j map[string]any) (SignalPresence, error) {
-	muxName := getString(j, "multiplexor")
-	if muxName == "" {
+	switch presence := getString(j, "presence"); presence {
+	case "always":
 		return AlwaysPresent{}, nil
-	}
-	rawVals, ok := j["multiplex_values"].([]any)
-	if !ok || len(rawVals) == 0 {
-		return nil, protocolError("multiplex_values must be a non-empty array")
-	}
-	muxVals := make([]MultiplexValue, 0, len(rawVals))
-	for i, rv := range rawVals {
-		v, err := parseNumberAsInt64(rv)
-		if err != nil {
-			return nil, wrapProtocolError(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
+	case "multiplexed":
+		muxName := getString(j, "multiplexor")
+		if muxName == "" {
+			return nil, protocolError("multiplexed signal requires a non-empty \"multiplexor\"")
 		}
-		if v < 0 || v > math.MaxUint32 {
-			return nil, protocolError(fmt.Sprintf("multiplex_values[%d] %d out of range (0-%d)", i, v, uint32(math.MaxUint32)))
+		rawVals, ok := j["multiplex_values"].([]any)
+		if !ok || len(rawVals) == 0 {
+			return nil, protocolError("multiplexed signal requires a non-empty \"multiplex_values\" array")
 		}
-		muxVals = append(muxVals, MultiplexValue(v))
+		muxVals := make([]MultiplexValue, 0, len(rawVals))
+		for i, rv := range rawVals {
+			v, err := parseNumberAsInt64(rv)
+			if err != nil {
+				return nil, wrapProtocolError(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
+			}
+			if v < 0 || v > math.MaxUint32 {
+				return nil, protocolError(fmt.Sprintf("multiplex_values[%d] %d out of range (0-%d)", i, v, uint32(math.MaxUint32)))
+			}
+			muxVals = append(muxVals, MultiplexValue(v))
+		}
+		return Multiplexed{
+			Multiplexor:     SignalName(muxName),
+			MultiplexValues: muxVals,
+		}, nil
+	default:
+		return nil, protocolError(fmt.Sprintf("unknown signal presence %q", presence))
 	}
-	return Multiplexed{
-		Multiplexor:     SignalName(muxName),
-		MultiplexValues: muxVals,
-	}, nil
 }

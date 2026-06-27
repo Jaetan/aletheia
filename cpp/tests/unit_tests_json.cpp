@@ -444,7 +444,8 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
                     "offset": 0,
                     "minimum": 0,
                     "maximum": 255,
-                    "unit": ""
+                    "unit": "",
+                    "presence": "always"
                 }]
             }]
         }
@@ -1032,7 +1033,7 @@ TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][d
                 "offset": {"numerator": 0, "denominator": 1},
                 "minimum": {"numerator": 0, "denominator": 1},
                 "maximum": {"numerator": 255, "denominator": 1},
-                "unit": ""
+                "unit": "", "presence": "always"
             }]
         }]}
     })");
@@ -1553,4 +1554,95 @@ TEST_CASE("format_formula metric release", "[enrich]") {
                       .right = std::make_unique<LtlFormula>(
                           ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})))}};
     CHECK(format_formula(f) == "A = 1 release within 500ms B = 0");
+}
+
+// ===========================================================================
+// Decode-validation tightening (parse_dbc_response rejects malformed
+// signal/message metadata).  The base is the serializer's own output for
+// make_test_dbc(), so each positive case proves well-formed core output still
+// decodes; each rejection mutates exactly one field.
+// ===========================================================================
+
+namespace {
+auto base_dbc_response() -> json {
+    auto cmd = json::parse(detail::serialize_parse_dbc(make_test_dbc()));
+    json resp;
+    resp["status"] = "success";
+    resp["dbc"] = cmd.at("dbc");
+    return resp;
+}
+
+auto first_signal(json& resp) -> json& {
+    return resp.at("dbc").at("messages").at(0).at("signals").at(0);
+}
+} // namespace
+
+TEST_CASE("parse_dbc_response accepts well-formed metadata", "[json][parse][dbc][validation]") {
+    CHECK(detail::parse_dbc_response(base_dbc_response().dump()).has_value());
+}
+
+// signal startBit 0-511 / length 1-64
+TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
+          "[json][parse][dbc][validation]") {
+    auto reject = [](const char* field, int value) {
+        auto j = base_dbc_response();
+        first_signal(j)[field] = value;
+        return !detail::parse_dbc_response(j.dump()).has_value();
+    };
+    auto accept = [](const char* field, int value) {
+        auto j = base_dbc_response();
+        first_signal(j)[field] = value;
+        return detail::parse_dbc_response(j.dump()).has_value();
+    };
+    CHECK(reject("startBit", 512));
+    CHECK(accept("startBit", 511)); // boundary
+    CHECK(reject("length", 0));
+    CHECK(reject("length", 65));
+    CHECK(accept("length", 64)); // CAN-FD boundary
+}
+
+// explicit presence discriminator (unknown / missing rejected)
+TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
+          "[json][parse][dbc][validation]") {
+    {
+        auto j = base_dbc_response();
+        first_signal(j)["presence"] = "sometimes";
+        CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+    }
+    {
+        auto j = base_dbc_response();
+        first_signal(j).erase("presence");
+        CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+    }
+}
+
+// multiplexed presence requires non-empty multiplexor + values
+TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
+          "[json][parse][dbc][validation]") {
+    auto make_mux = [](const char* mux, json values) {
+        auto j = base_dbc_response();
+        auto& sig = first_signal(j);
+        sig["presence"] = "multiplexed";
+        sig["multiplexor"] = mux;
+        sig["multiplex_values"] = std::move(values);
+        return j;
+    };
+    // empty values
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", json::array()).dump()).has_value());
+    // empty multiplexor
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("", json::array({0})).dump()).has_value());
+    // missing values
+    {
+        auto j = base_dbc_response();
+        auto& sig = first_signal(j);
+        sig["presence"] = "multiplexed";
+        sig["multiplexor"] = "Mode";
+        sig.erase("multiplex_values");
+        CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+    }
+    // multiplex value above the u32 range
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", json::array({5000000000LL})).dump())
+                    .has_value());
+    // well-formed multiplexed — accepted
+    CHECK(detail::parse_dbc_response(make_mux("Mode", json::array({0, 1})).dump()).has_value());
 }

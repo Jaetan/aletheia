@@ -220,7 +220,8 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
                     "name": "Speed", "startBit": 0, "length": 16,
                     "byteOrder": "little_endian", "signed": false,
                     "factor": {"numerator": 1, "denominator": 10},
-                    "offset": 0, "minimum": 0, "maximum": 300, "unit": "km/h"
+                    "offset": 0, "minimum": 0, "maximum": 300, "unit": "km/h",
+                    "presence": "always"
                 }]
             }]
         }

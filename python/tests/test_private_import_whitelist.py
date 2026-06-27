@@ -71,6 +71,24 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client_bin",
             "parse_extraction_buffer",
         ),
+        # Decode-validation lockstep — exercises the private decoders
+        # directly to assert they reject malformed core output (out-of-range
+        # ids/bits, bad presence discriminator, trailing extraction bytes).
+        (
+            "test_dbc_decode_validation.py",
+            "aletheia.client._client_bin",
+            "parse_extraction_buffer",
+        ),
+        (
+            "test_dbc_decode_validation.py",
+            "aletheia.client._helpers.dbc_normalize",
+            "normalize_dbc",
+        ),
+        (
+            "test_dbc_decode_validation.py",
+            "aletheia.client._helpers.dbc_normalize",
+            "normalize_signal",
+        ),
         # Rational-helper conversions — kept internal because the public
         # API takes ``Fraction`` directly; the helpers convert user-supplied
         # floats/strings for the loader paths and don't need to be called
