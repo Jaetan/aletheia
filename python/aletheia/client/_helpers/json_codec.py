@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING
 
-from aletheia.client._helpers.rational import parse_rational
+from aletheia.client._helpers.rational import decode_wire_rational
 from aletheia.client._types import ProtocolError
 from aletheia.types import is_str_dict
 
@@ -25,7 +25,7 @@ def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:
             msg = f"Expected signal name to be str, got {type(name_raw)}"
             raise ProtocolError(msg)
         value_raw = item.get("value")
-        values[name_raw] = parse_rational(value_raw)
+        values[name_raw] = decode_wire_rational(value_raw)
     return values
 
 

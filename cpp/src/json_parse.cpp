@@ -119,6 +119,33 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
     return {kind, std::move(msg), code};
 }
 
+// Reject a JSON float in an integer-only wire position.  nlohmann silently
+// `static_cast`s a JSON float to an integer type on `get<intT>()` (e.g.
+// 5.9 → 5), corrupting the value *before* any range check runs.  The FFI wire
+// and DBC integer-position fields are integer-only by construction — the Agda
+// core never emits a float there — so a non-integer number is a wire-format
+// violation and is rejected here rather than silently truncated.  Exact
+// rationals travel as `{numerator, denominator}` objects, never as floats.
+//
+// `require_int` accepts negatives (signed positions); `require_uint` rejects
+// negatives as well as floats (`is_number_unsigned` is false for both).  Both
+// preserve the caller's existing range check, which still runs on the returned
+// integer.
+template<typename T>
+static auto require_int(const Json& j, std::string_view context) -> T {
+    if (!j.is_number_integer())
+        throw std::runtime_error(std::string{context} + " must be an integer, got: " + j.dump());
+    return j.get<T>();
+}
+
+template<typename T>
+static auto require_uint(const Json& j, std::string_view context) -> T {
+    if (!j.is_number_unsigned())
+        throw std::runtime_error(std::string{context} +
+                                 " must be a non-negative integer, got: " + j.dump());
+    return j.get<T>();
+}
+
 // Parse JSON with the `max_nesting_depth` bound enforced via nlohmann's
 // SAX-style parse callback.  Defense-in-depth against malformed-but-bound-
 // passing responses (the FFI-entry size cap fires first for oversize inputs;
@@ -200,8 +227,8 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
 // validating den > 0.  Caller is responsible for first verifying
 // `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
 static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
-    auto num = j.at("numerator").get<std::int64_t>();
-    auto den = j.at("denominator").get<std::int64_t>();
+    auto num = require_int<std::int64_t>(j.at("numerator"), "rational numerator");
+    auto den = require_int<std::int64_t>(j.at("denominator"), "rational denominator");
     // The kernel emits rationals with a positive denominator (the ℕ⁺ invariant),
     // so a non-positive denominator is a wire-format violation — rejected here
     // rather than silently sign-normalized.  Mirrors Python
@@ -214,13 +241,15 @@ static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::i
 }
 
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.
-// Returns Rational for exact precision (no double truncation).
+// Returns Rational for exact precision (no double truncation).  A bare float is
+// rejected (falls through to the throw below): the wire carries exact rationals
+// only, so a float here is a wire-format violation rather than a value to
+// approximate.  Mirrors parse_rational / parse_rational_as_int, which have no
+// float branch, and the Go/Rust/Python decoders, which all reject a float here.
 // Throws on unrecognized formats; callers catch at the public API boundary.
 static auto parse_signal_value(const Json& j) -> Rational {
     if (j.is_number_integer())
         return Rational{j.get<std::int64_t>(), 1};
-    if (j.is_number())
-        return Rational::from_double(j.get<double>());
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
         auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
@@ -316,7 +345,7 @@ static auto parse_signal_presence(const Json& j) -> SignalPresence {
     for (const auto& elem : arr) {
         // Read wide, then bound to u32 — nlohmann's get<uint32_t> would silently
         // truncate an out-of-range value rather than reject it.
-        const auto v = elem.get<std::int64_t>();
+        const auto v = require_int<std::int64_t>(elem, "multiplex_values entry");
         if (v < 0 || v > 0xFFFF'FFFFLL) // u32 max — parity with Go's MaxUint32 bound
             throw std::runtime_error("multiplex_values entry " + std::to_string(v) +
                                      " out of range (0-4294967295)");
@@ -352,16 +381,16 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         value_descriptions.reserve(arr.size());
         for (const auto& elem : arr)
             value_descriptions.push_back(DbcValueEntry{
-                .value = elem.at("value").get<std::int64_t>(),
+                .value = require_int<std::int64_t>(elem.at("value"), "valueDescriptions value"),
                 .description = elem.at("description").get<std::string>(),
             });
     }
 
-    const auto start_bit_raw = j.at("startBit").get<std::uint32_t>();
+    const auto start_bit_raw = require_uint<std::uint32_t>(j.at("startBit"), "startBit");
     if (start_bit_raw > 511)
         throw std::runtime_error("startBit " + std::to_string(start_bit_raw) +
                                  " out of range (0-511)");
-    const auto length_raw = j.at("length").get<std::uint32_t>();
+    const auto length_raw = require_uint<std::uint32_t>(j.at("length"), "length");
     if (length_raw < 1 || length_raw > 64)
         throw std::runtime_error("bit length " + std::to_string(length_raw) +
                                  " out of range (1-64)");
@@ -406,11 +435,11 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
 }
 
 static auto parse_message_def(const Json& j) -> DbcMessage {
-    auto id_val = j.at("id").get<std::uint32_t>();
+    auto id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
     const bool extended = j.value("extended", false);
     const CanId id = json_to_can_id(id_val, extended);
 
-    auto dlc_result = bytes_to_dlc(j.at("dlc").get<std::size_t>());
+    auto dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
     if (!dlc_result)
         throw std::runtime_error("Invalid DLC: " + dlc_result.error());
 
@@ -462,7 +491,7 @@ static auto parse_env_var_type(int raw, const std::string& name) -> DbcVarType {
 
 static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
     auto name = j.at("name").get<std::string>();
-    const auto raw_type = j.at("varType").get<int>();
+    const auto raw_type = require_int<int>(j.at("varType"), "varType");
     return DbcEnvironmentVar{
         .name = name,
         .var_type = parse_env_var_type(raw_type, name),
@@ -476,7 +505,7 @@ static auto parse_value_table(const Json& j) -> DbcValueTable {
     std::vector<DbcValueEntry> entries;
     for (const auto& e : j.at("entries"))
         entries.push_back(DbcValueEntry{
-            .value = e.at("value").get<std::int64_t>(),
+            .value = require_int<std::int64_t>(e.at("value"), "valueTable entry value"),
             .description = e.at("description").get<std::string>(),
         });
     return DbcValueTable{
@@ -496,7 +525,7 @@ static auto parse_node(const Json& j) -> DbcNode {
 }
 
 static auto parse_can_id_fields(const Json& j, std::uint32_t& id, bool& extended) -> void {
-    id = j.at("id").get<std::uint32_t>();
+    id = require_uint<std::uint32_t>(j.at("id"), "CAN id");
     extended = j.value("extended", false);
 }
 
@@ -552,8 +581,8 @@ static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
 static auto parse_attr_type(const Json& j) -> DbcAttrType {
     const auto kind = j.at("kind").get<std::string>();
     if (kind == "int")
-        return DbcAttrTypeInt{.min = j.at("min").get<std::int64_t>(),
-                              .max = j.at("max").get<std::int64_t>()};
+        return DbcAttrTypeInt{.min = require_int<std::int64_t>(j.at("min"), "int attribute min"),
+                              .max = require_int<std::int64_t>(j.at("max"), "int attribute max")};
     if (kind == "float")
         return DbcAttrTypeFloat{.min = parse_rational(j.at("min")),
                                 .max = parse_rational(j.at("max"))};
@@ -566,23 +595,26 @@ static auto parse_attr_type(const Json& j) -> DbcAttrType {
         return DbcAttrTypeEnum{.values = std::move(values)};
     }
     if (kind == "hex")
-        return DbcAttrTypeHex{.min = j.at("min").get<std::int64_t>(),
-                              .max = j.at("max").get<std::int64_t>()};
+        return DbcAttrTypeHex{.min = require_int<std::int64_t>(j.at("min"), "hex attribute min"),
+                              .max = require_int<std::int64_t>(j.at("max"), "hex attribute max")};
     throw std::runtime_error("Unknown attribute type kind: " + kind);
 }
 
 static auto parse_attr_value(const Json& j) -> DbcAttrValue {
     const auto kind = j.at("kind").get<std::string>();
     if (kind == "int")
-        return DbcAttrValueInt{.value = j.at("value").get<std::int64_t>()};
+        return DbcAttrValueInt{.value =
+                                   require_int<std::int64_t>(j.at("value"), "int attribute value")};
     if (kind == "float")
         return DbcAttrValueFloat{.value = parse_rational(j.at("value"))};
     if (kind == "string")
         return DbcAttrValueString{.value = j.at("value").get<std::string>()};
     if (kind == "enum")
-        return DbcAttrValueEnum{.value = j.at("value").get<std::int64_t>()};
+        return DbcAttrValueEnum{
+            .value = require_int<std::int64_t>(j.at("value"), "enum attribute value")};
     if (kind == "hex")
-        return DbcAttrValueHex{.value = j.at("value").get<std::int64_t>()};
+        return DbcAttrValueHex{.value =
+                                   require_int<std::int64_t>(j.at("value"), "hex attribute value")};
     throw std::runtime_error("Unknown attribute value kind: " + kind);
 }
 
@@ -649,13 +681,13 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 // at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
 // and Go `parseUnresolvedValueDescs`.
 static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
-    auto id_val = j.at("id").get<std::uint32_t>();
+    auto id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
     const bool extended = j.value("extended", false);
     const CanId can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
     for (const auto& e : j.at("entries"))
         entries.push_back(DbcValueEntry{
-            .value = e.at("value").get<std::int64_t>(),
+            .value = require_int<std::int64_t>(e.at("value"), "value-description value"),
             .description = e.at("description").get<std::string>(),
         });
     return DbcRawValueDesc{
@@ -833,7 +865,8 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
         FramePayload payload;
         payload.reserve(data.size());
         for (const auto& byte_val : data)
-            payload.push_back(static_cast<std::byte>(byte_val.get<std::uint8_t>()));
+            payload.push_back(
+                static_cast<std::byte>(require_uint<std::uint8_t>(byte_val, "frame data byte")));
         return payload;
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));

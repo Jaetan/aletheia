@@ -30,7 +30,8 @@ from hypothesis import strategies as st
 
 from aletheia import ProtocolError
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.client._helpers.rational import parse_rational
+from aletheia.client._helpers.json_codec import parse_values_list
+from aletheia.client._helpers.rational import decode_wire_rational
 from aletheia.types import (
     ByteOrder,
     DBCDefinition,
@@ -140,21 +141,20 @@ def test_load_json_total_on_printable_ascii(payload: str) -> None:
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
     denominator=st.integers(min_value=1, max_value=10**18),
 )
-def test_parse_rational_accepts_positive_denominator(
+def test_decode_wire_rational_accepts_positive_denominator(
     numerator: int,
     denominator: int,
 ) -> None:
-    """`parse_rational` accepts positive-denominator rationals exactly.
+    """`decode_wire_rational` accepts positive-denominator rationals exactly.
 
     The Agda kernel's DecRat stores denominators as ``ℕ⁺`` (strictly positive).
-    Python's ``parse_rational`` mirrors that contract by rejecting
-    non-positive denominators on the wire (cross-binding parity with Go's
-    ``validateRational`` and C++'s ``Rational::make``) — silent
-    Fraction-sign-flipping a negative denominator would hide a wire-format
-    violation.
+    `decode_wire_rational` mirrors that contract by rejecting non-positive
+    denominators on the wire (cross-binding parity with Go's ``validateRational``
+    and C++'s ``Rational::make``) — silent Fraction-sign-flipping a negative
+    denominator would hide a wire-format violation.
     """
     rational_dict = {"numerator": numerator, "denominator": denominator}
-    parsed = parse_rational(rational_dict)
+    parsed = decode_wire_rational(rational_dict)
     assert parsed.denominator > 0
     assert parsed == Fraction(numerator, denominator)
 
@@ -163,24 +163,59 @@ def test_parse_rational_accepts_positive_denominator(
     numerator=st.integers(min_value=-(10**18), max_value=10**18),
     denominator=st.integers(min_value=-(10**18), max_value=0),
 )
-def test_parse_rational_rejects_non_positive_denominator(
+def test_decode_wire_rational_rejects_non_positive_denominator(
     numerator: int,
     denominator: int,
 ) -> None:
-    """`parse_rational` rejects non-positive denominator with ProtocolError.
+    """`decode_wire_rational` rejects non-positive denominator with ProtocolError.
 
     Cross-binding parity: Go ``validateRational`` rejects
     ``<= 0``; C++ ``Rational::make`` rejects the same;
-    Python now rejects too instead of silently sign-flipping via Fraction.
+    Python rejects too instead of silently sign-flipping via Fraction.
     """
     rational_dict = {"numerator": numerator, "denominator": denominator}
     try:
-        parse_rational(rational_dict)
+        decode_wire_rational(rational_dict)
     except ProtocolError:
         pass
     else:
         msg = f"expected ProtocolError for denominator={denominator}"
         raise AssertionError(msg)
+
+
+# --- B6d: the wire decoder rejects floats (a computed value on the internal
+# wire must be an exact rational, never a float). decode_wire_rational accepts
+# only an int or a {numerator, denominator} object; a float, string, or bool is
+# a wire-format violation, so a float can never slip onto the wire. ---
+
+
+def test_decode_wire_rational_rejects_float() -> None:
+    """A bare float on the wire is a format violation (B6c's leak, Python side)."""
+    for bad in (1.5, 150.0, float("nan"), float("inf")):
+        with pytest.raises(ProtocolError):
+            decode_wire_rational(bad)
+
+
+def test_decode_wire_rational_rejects_string_and_bool() -> None:
+    """The wire carries int or {num,den} only; a string or bool is rejected."""
+    for bad in ("1/2", "0.1", True, False):
+        with pytest.raises(ProtocolError):
+            decode_wire_rational(bad)
+
+
+def test_decode_wire_rational_accepts_int_and_dict_exactly() -> None:
+    """The two wire shapes round-trip exactly, including above 2^53."""
+    assert decode_wire_rational(150) == Fraction(150)
+    assert decode_wire_rational({"numerator": 1, "denominator": 10}) == Fraction(1, 10)
+    big = 9007199254740993  # 2^53 + 1
+    assert decode_wire_rational(big) == Fraction(big)
+
+
+def test_parse_values_list_wire_rejects_float_value() -> None:
+    """The extraction-value wire decoder rejects a float, accepts the int shape."""
+    with pytest.raises(ProtocolError):
+        parse_values_list([{"name": "Speed", "value": 150.0}])
+    assert parse_values_list([{"name": "Speed", "value": 150}]) == {"Speed": Fraction(150)}
 
 
 @given(

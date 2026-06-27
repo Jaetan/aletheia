@@ -255,7 +255,7 @@ TEST_CASE("parse_extraction response", "[json][parse]") {
     auto result = detail::parse_extraction(R"({
         "status": "success",
         "values": [
-            {"name": "Speed", "value": 120.5},
+            {"name": "Speed", "value": {"numerator": 241, "denominator": 2}},
             {"name": "RPM", "value": 3000}
         ],
         "errors": [
@@ -305,6 +305,122 @@ TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][pa
         "absent": []
     })");
     CHECK_FALSE(result.has_value());
+}
+
+// ── Strict-integer wire decoder: reject floats in integer-only positions ─────
+// The FFI wire and DBC integer-position fields carry exact integers or
+// {numerator, denominator} rationals only.  nlohmann silently static_casts a
+// JSON float to an integer type on get<intT>() (5.9 -> 5) *before* any range
+// check runs, so an unguarded read would corrupt the value rather than reject
+// it.  These tests pin the reject-float behavior across the three regions
+// (parse_signal_value, parse_rational_dict, the integer-position helpers).
+// Go, Rust, and Python already reject floats here.
+
+TEST_CASE("parse_extraction rejects a float signal value", "[json][parse][validation]") {
+    // Region 1: parse_signal_value no longer has a float branch — a bare float
+    // is a wire-format violation, not a value to approximate via from_double.
+    auto result = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 120.5}],
+        "errors": [],
+        "absent": []
+    })");
+    CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE("parse_extraction still accepts integer and rational signal values",
+          "[json][parse][validation]") {
+    // Positive case: the canonical integer and {num,den} shapes decode after
+    // the float branch is dropped.
+    auto result = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [
+            {"name": "RPM", "value": 3000},
+            {"name": "Ratio", "value": {"numerator": 1, "denominator": 3}}
+        ],
+        "errors": [],
+        "absent": []
+    })");
+    REQUIRE(result.has_value());
+    REQUIRE(result->values.size() == 2);
+    CHECK(result->values[0].value == PhysicalValue{Rational{3000, 1}});
+    CHECK(result->values[1].value == PhysicalValue{Rational{1, 3}});
+}
+
+TEST_CASE("parse_extraction rejects a float rational component", "[json][parse][validation]") {
+    // Region 2: parse_rational_dict guards numerator/denominator.  Without the
+    // guard {"numerator": 1.5, ...} truncates to 1, fabricating the value 1/2.
+    auto result = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "Ratio", "value": {"numerator": 1.5, "denominator": 2}}],
+        "errors": [],
+        "absent": []
+    })");
+    CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE("parse_dbc_response rejects a float in a signed integer position",
+          "[json][parse][validation]") {
+    // valueDescriptions[].value is a signed integer position (require_int): a
+    // float must be rejected rather than truncated.
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "", "messages": [{
+            "id": 256, "name": "M", "dlc": 8, "sender": "", "extended": false,
+            "signals": [{
+                "name": "S", "startBit": 0, "length": 8, "byteOrder": "little_endian",
+                "signed": false, "factor": 1, "offset": 0, "minimum": 0, "maximum": 255,
+                "unit": "", "presence": "always",
+                "valueDescriptions": [{"value": 1.5, "description": "x"}]
+            }]
+        }]}
+    })");
+    CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE("parse_dbc_response rejects a float startBit instead of truncating",
+          "[json][parse][validation]") {
+    // startBit 5.5 truncates to 5, which is inside the 0-511 range — so the bug
+    // would silently accept the signal with the WRONG start bit.  Pin the
+    // boundary: the float is rejected, and integer 5 at the same position still
+    // decodes to start_bit == 5.  (Removing the require_uint guard flips the
+    // first CHECK_FALSE green->red.)
+    auto make = [](const std::string& start_bit) {
+        return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
+               R"("id":256,"name":"M","dlc":8,"sender":"","extended":false,"signals":[{)" +
+               R"("name":"S","startBit":)" + start_bit +
+               R"(,"length":8,"byteOrder":"little_endian","signed":false,)" +
+               R"("factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}]}]}})";
+    };
+    CHECK_FALSE(detail::parse_dbc_response(make("5.5")).has_value());
+    auto ok = detail::parse_dbc_response(make("5"));
+    REQUIRE(ok.has_value());
+    REQUIRE(ok->messages.size() == 1);
+    REQUIRE(ok->messages[0].signals.size() == 1);
+    CHECK(ok->messages[0].signals[0].start_bit.get() == 5);
+}
+
+TEST_CASE("parse_dbc_response rejects a float in unsigned id and dlc positions",
+          "[json][parse][validation]") {
+    // CAN id and dlc are unsigned positions (require_uint).  A float in either
+    // truncates to an in-range integer without the guard.
+    auto make = [](const std::string& id, const std::string& dlc) {
+        return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
+               R"("id":)" + id + R"(,"name":"M","dlc":)" + dlc +
+               R"(,"sender":"","extended":false,"signals":[]}]}})";
+    };
+    CHECK_FALSE(detail::parse_dbc_response(make("256.5", "8")).has_value());
+    CHECK_FALSE(detail::parse_dbc_response(make("256", "8.5")).has_value());
+}
+
+TEST_CASE("parse_frame_data rejects a float data byte", "[json][parse][validation]") {
+    // Frame data bytes are an unsigned position (require_uint): a float byte
+    // must be rejected, not truncated.
+    auto bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 2.5, 3]})");
+    CHECK_FALSE(bad.has_value());
+    auto ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
+    REQUIRE(ok.has_value());
+    CHECK(ok->size() == 3);
 }
 
 TEST_CASE("parse_frame_response integer property_index uses exact division",

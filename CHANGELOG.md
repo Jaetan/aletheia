@@ -792,6 +792,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Python & C++ reject floats on the internal wire decode**
+  (`python/aletheia/client/_helpers/`, `cpp/src/json_parse.cpp`). A computed value
+  crossing the FFI boundary — an extraction signal value, a DBC
+  factor/offset/min/max read back from the core, an env-var or attribute bound —
+  must be an exact rational (a bare integer or a `{numerator, denominator}`
+  object), never a float; a float on the wire would mean a computation escaped the
+  rational kernel. Both bindings now reject one:
+  - **Python**: a single strict `decode_wire_rational` (rejects float / string /
+    bool) replaces the lenient `parse_rational` on *both* wire paths — extraction
+    responses (`json_codec.parse_values_list`) and DBC responses (`dbc_normalize`,
+    which despite its name decodes `parseDBC`/`formatDBC` *responses*, not user
+    input). `parse_rational` — which silently coerced a float via
+    `Fraction(x).limit_denominator` — is retired; it had no UI caller.
+  - **C++** (`json_parse.cpp`): the `Rational::from_double` branch in
+    `parse_signal_value` is dropped, `parse_rational_dict` guards its
+    numerator/denominator, and ~17 integer-position reads route through new
+    `require_int`/`require_uint` helpers that reject a JSON float (nlohmann
+    silently truncates `5.9 → 5` before the range check) — and, for unsigned
+    positions, a negative.
+  Go (decoder via `UseNumber`) and Rust (serde `as_i64`) were already strict, so
+  all four bindings now agree. The UI float-input converters are untouched (a
+  follow-up replaces them with an exact Agda decimal parser). Boundary tests per
+  binding; the C++ guard is revert-probed (a float `startBit` truncated-and-passed
+  without it).
 - **Go decodes JSON response numbers exactly, not through `float64`**
   (`go/aletheia/json.go`). `parseResponse` used `json.Unmarshal`, which decodes
   every JSON number as a `float64` — so a rational numerator/denominator above

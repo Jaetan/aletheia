@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast, get_args
 
 from aletheia._loader_utils import is_pure_int
-from aletheia.client._helpers.rational import parse_rational
+from aletheia.client._helpers.rational import decode_wire_rational
 from aletheia.client._types import (
     DLCByteCount,
     ProtocolError,
@@ -129,7 +129,7 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue]) -> DBCSignal:
     sig.update(raw_sig)
     for field in _NUMERIC_SIGNAL_FIELDS:
         if field in sig:
-            sig[field] = parse_rational(sig[field])
+            sig[field] = decode_wire_rational(sig[field])
     _validate_signal_bits(sig)
     _validate_signal_presence(sig)
     return cast("DBCSignal", sig)
@@ -219,7 +219,7 @@ def _normalize_environment_var(raw: Mapping[str, JSONValue]) -> DBCEnvironmentVa
         if field not in raw:
             msg = f"Expected environment var field {field!r}"
             raise ProtocolError(msg)
-        ev[field] = parse_rational(raw[field])
+        ev[field] = decode_wire_rational(raw[field])
     return cast("DBCEnvironmentVar", ev)
 
 
@@ -388,8 +388,8 @@ def _normalize_attr_type(raw: Mapping[str, JSONValue]) -> DBCAttrType:
             raise ProtocolError(msg)
         return {
             "kind": "float",
-            "min": parse_rational(raw["min"]),
-            "max": parse_rational(raw["max"]),
+            "min": decode_wire_rational(raw["min"]),
+            "max": decode_wire_rational(raw["max"]),
         }
     if kind == "string":
         return {"kind": "string"}
@@ -423,7 +423,7 @@ def _normalize_attr_value(raw: Mapping[str, JSONValue]) -> DBCAttrValue:
         if "value" not in raw:
             msg = "Expected attribute value float 'value'"
             raise ProtocolError(msg)
-        return {"kind": "float", "value": parse_rational(raw["value"])}
+        return {"kind": "float", "value": decode_wire_rational(raw["value"])}
     if kind == "string":
         value = _require_str_field(raw, "value", "attribute value string")
         return {"kind": "string", "value": value}

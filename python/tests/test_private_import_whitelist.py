@@ -101,14 +101,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "float_to_rational",
         ),
         (
-            "test_types_and_conditions.py",
+            "test_property_hypothesis.py",
             "aletheia.client._helpers.rational",
-            "parse_rational",
+            "decode_wire_rational",
         ),
         (
             "test_property_hypothesis.py",
-            "aletheia.client._helpers.rational",
-            "parse_rational",
+            "aletheia.client._helpers.json_codec",
+            "parse_values_list",
         ),
         (
             "test_types_and_conditions.py",
