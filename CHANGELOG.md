@@ -792,6 +792,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Go `DBCDefinition.MessageByID` / `MessageByName` now return a genuine deep
+  copy** (`go/aletheia/dbc.go`). `copyMessage`'s doc promised a deep copy, but it
+  cloned only the top-level `Signals` slice header — the returned message shared
+  the original's `Senders` backing array and each signal's `Receivers`,
+  `ValueDescriptions`, and (for a `Multiplexed` presence) `MultiplexValues`
+  backing arrays. A caller mutating any of those nested slices on the returned
+  message silently corrupted the `DBC`'s stored definition. Every externally
+  reachable reference field is now cloned (`slices.Clone`); the unexported,
+  build-once `signalIndex` cache stays shared by design (it is read-only, never
+  mutated in place, and remains valid for the cloned same-order signals). A new
+  `TestMessageByName_DeepCopyIndependence` mutates each cloned field and asserts
+  the original is unaffected, with a content-equality guard that the clone is
+  faithful (and that an `AlwaysPresent` presence is not clobbered).
 - **Python & C++ enrichment now render the observed signal value exactly via the
   kernel `formatℚ`, not lossy `%g`** (`python/aletheia/client/_enrichment.py`,
   `cpp/src/client.cpp`). A violation's `enriched_reason` interpolated the observed
