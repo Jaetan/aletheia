@@ -1463,6 +1463,13 @@ mod tests {
         assert!(decode_signal(&s).is_ok());
     }
 
+    #[test]
+    fn signal_accepts_min_length() {
+        let mut s = valid_signal();
+        s["length"] = json!(1); // minimum valid length (lower boundary)
+        assert!(decode_signal(&s).is_ok());
+    }
+
     // multiplexed presence requires non-empty multiplexor + values
     #[test]
     fn presence_rejects_multiplexed_with_empty_values() {

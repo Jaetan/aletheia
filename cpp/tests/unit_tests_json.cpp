@@ -1604,6 +1604,7 @@ TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
     CHECK(reject("startBit", 512));
     CHECK(accept("startBit", 511)); // boundary
     CHECK(reject("length", 0));
+    CHECK(accept("length", 1)); // minimum valid length (lower boundary)
     CHECK(reject("length", 65));
     CHECK(accept("length", 64)); // CAN-FD boundary
 }
