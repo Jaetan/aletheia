@@ -6,9 +6,13 @@ package aletheia
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
+	"strconv"
+	"strings"
 )
 
 // --- Serialization (Go → JSON for Agda core) ---
@@ -639,44 +643,49 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 // decoding path.
 func parseRational(v any) (Rational, error) {
 	switch n := v.(type) {
-	case float64:
-		// Agda sends integers as float64 in JSON.
-		if math.Trunc(n) != n {
-			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional float64: %v", n))
+	case json.Number, float64:
+		// A scalar number is the integer rational n/1.
+		i, cls := decodeJSONInt(v)
+		switch cls {
+		case intParseFractional:
+			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional: %v", v))
+		case intParseOverflow:
+			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", v))
+		case intParseNotNumber:
+			return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 		}
-		if n > math.MaxInt64 || n < math.MinInt64 {
-			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", n))
-		}
-		return Rational{Numerator: int64(n), Denominator: 1}, nil
+		return Rational{Numerator: i, Denominator: 1}, nil
 	case map[string]any:
-		num, ok1 := n["numerator"].(float64)
-		den, ok2 := n["denominator"].(float64)
-		if !ok1 || !ok2 {
+		rawNum, okNum := n["numerator"]
+		rawDen, okDen := n["denominator"]
+		if !okNum || !okDen {
 			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
 		}
-		// Reject non-integer components before any int64 cast: `int64(0.5)`
-		// silently truncates to 0, which would mis-classify a fractional
-		// denominator as "zero denominator" and a fractional numerator as
-		// a silent precision loss.  R20 cluster H — GO-B-12.1.
-		if num != math.Trunc(num) || den != math.Trunc(den) {
-			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", num, den))
+		num, numCls := decodeJSONInt(rawNum)
+		den, denCls := decodeJSONInt(rawDen)
+		if numCls == intParseNotNumber || denCls == intParseNotNumber {
+			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
 		}
-		if num > math.MaxInt64 || num < math.MinInt64 || den > math.MaxInt64 || den < math.MinInt64 {
-			return Rational{}, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", num, den))
+		// Reject non-integer components first: a fractional denominator must not
+		// be mis-reported as a "zero denominator", nor a fractional numerator
+		// silently truncated.
+		if numCls == intParseFractional || denCls == intParseFractional {
+			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", rawNum, rawDen))
+		}
+		if numCls == intParseOverflow || denCls == intParseOverflow {
+			return Rational{}, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
 		}
 		if den == 0 {
 			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
 		}
-		// Reject negative denominators rather than rewriting them.
-		// Python and the Agda core reject `den < 0` at parse time;
-		// silently rewriting here would let asymmetric wire shapes
-		// pass through Go-only paths and surface as parity failures
-		// (per `feedback_cross_binding_wire_symmetry.md`).  R19
-		// cluster 7 — GO-B-8.2.
+		// Reject negative denominators rather than rewriting them: Python and
+		// the Agda core reject den < 0 at parse time, so silently rewriting here
+		// would let asymmetric wire shapes pass through Go-only paths and surface
+		// as cross-binding parity failures.
 		if den < 0 {
 			return Rational{}, protocolError(fmt.Sprintf("negative denominator in rational: %v", v))
 		}
-		return Rational{Numerator: int64(num), Denominator: int64(den)}, nil
+		return Rational{Numerator: num, Denominator: den}, nil
 	default:
 		return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 	}
@@ -693,38 +702,89 @@ func serializeRational(r Rational) any {
 
 // --- Deserialization (JSON from Agda core → Go) ---
 
-// parseNumberAsInt64 parses a JSON number as an exact integer.
-// Note: Go's json.Unmarshal decodes all numbers as float64 (53-bit mantissa),
-// so integers above 2^53 lose precision silently. This is acceptable for CAN
-// fields (IDs ≤ 29 bits, timestamps ≪ 2^53).
-func parseNumberAsInt64(v any) (int64, error) {
+// intParse classifies the outcome of decoding a JSON number as an int64.
+type intParse int
+
+const (
+	intParseOK         intParse = iota // an exact int64
+	intParseNotNumber                  // not a JSON number at all
+	intParseFractional                 // numeric, but has a fractional part
+	intParseOverflow                   // integer-valued, but outside int64
+)
+
+// decodeJSONInt converts a JSON-decoded number to an exact int64. Under the
+// parseResponse UseNumber decoder a number arrives as a json.Number, which
+// strconv.ParseInt reads exactly for every int64 — no float64 53-bit-mantissa
+// loss. A float64 (a hand-built map, a direct caller, or a legacy json.Unmarshal
+// value) is still accepted but keeps the historical 2^53 limit. The json.Number
+// float64 fallback only fires for non-canonical integer forms (e.g. "1e3") the
+// core does not emit; the canonical-integer hot path stays exact.
+func decodeJSONInt(v any) (int64, intParse) {
 	switch n := v.(type) {
+	case json.Number:
+		i, err := strconv.ParseInt(n.String(), 10, 64)
+		if err == nil {
+			return i, intParseOK
+		}
+		// ParseInt rejects fractional ("1.5"), exponent ("1e3"), and out-of-range
+		// forms. The core emits canonical integer literals for num/den (the peers'
+		// integer-only readers — C++ get<int64_t>, Rust as_i64, Python int — would
+		// already break otherwise), so rejecting non-canonical forms here matches
+		// them and avoids a float64 round-trip that would re-introduce 2^53 loss.
+		if errors.Is(err, strconv.ErrRange) {
+			return 0, intParseOverflow
+		}
+		return 0, intParseFractional
 	case float64:
 		if n != math.Trunc(n) {
-			return 0, protocolError(fmt.Sprintf("expected integer, got fractional: %v", n))
+			return 0, intParseFractional
 		}
 		if n > math.MaxInt64 || n < math.MinInt64 {
-			return 0, protocolError(fmt.Sprintf("integer out of int64 range: %v", n))
+			return 0, intParseOverflow
 		}
-		return int64(n), nil
+		return int64(n), intParseOK
+	default:
+		return 0, intParseNotNumber
+	}
+}
+
+// parseNumberAsInt64 parses a JSON number (or a rational object that reduces to
+// an integer) as an exact int64 — see decodeJSONInt for the exactness contract.
+func parseNumberAsInt64(v any) (int64, error) {
+	switch n := v.(type) {
+	case json.Number, float64:
+		i, cls := decodeJSONInt(v)
+		switch cls {
+		case intParseFractional:
+			return 0, protocolError(fmt.Sprintf("expected integer, got fractional: %v", v))
+		case intParseOverflow:
+			return 0, protocolError(fmt.Sprintf("integer out of int64 range: %v", v))
+		case intParseNotNumber:
+			return 0, protocolError(fmt.Sprintf("expected integer, got %T: %v", v, v))
+		}
+		return i, nil
 	case map[string]any:
-		// Agda emits rationals as {"numerator": n, "denominator": d} with plain numbers.
-		numF, ok1 := n["numerator"].(float64)
-		denF, ok2 := n["denominator"].(float64)
-		if !ok1 || !ok2 {
+		// Agda emits rationals as {"numerator": n, "denominator": d}.
+		rawNum, okNum := n["numerator"]
+		rawDen, okDen := n["denominator"]
+		num, numCls := decodeJSONInt(rawNum)
+		den, denCls := decodeJSONInt(rawDen)
+		if !okNum || !okDen || numCls == intParseNotNumber || denCls == intParseNotNumber {
 			return 0, protocolError(fmt.Sprintf("expected {numerator: number, denominator: number}, got %v", n))
 		}
-		if numF != math.Trunc(numF) || denF != math.Trunc(denF) {
-			return 0, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", numF, denF))
+		if numCls == intParseFractional || denCls == intParseFractional {
+			return 0, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", rawNum, rawDen))
 		}
-		numI, denI := int64(numF), int64(denF)
-		if denI == 0 {
+		if numCls == intParseOverflow || denCls == intParseOverflow {
+			return 0, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
+		}
+		if den == 0 {
 			return 0, protocolError("zero denominator in rational")
 		}
-		if numI%denI != 0 {
-			return 0, protocolError(fmt.Sprintf("expected integer, got non-exact rational %d/%d", numI, denI))
+		if num%den != 0 {
+			return 0, protocolError(fmt.Sprintf("expected integer, got non-exact rational %d/%d", num, den))
 		}
-		return numI / denI, nil
+		return num / den, nil
 	default:
 		return 0, protocolError(fmt.Sprintf("expected integer, got %T: %v", v, v))
 	}
@@ -772,10 +832,25 @@ func getObject(m map[string]any, key string) map[string]any {
 
 // parseResponse unmarshals an Agda core response into a generic map
 // before typed parsers narrow it to a concrete response variant.
+//
+// A UseNumber decoder is used (not json.Unmarshal) so every JSON number lands as
+// a json.Number — an exact decimal string — rather than a float64, whose 53-bit
+// mantissa would silently round rational numerators/denominators above 2^53. The
+// three numeric helpers (parseRational, parseNumberAsInt64, jsonNumberToUint64)
+// read json.Number exactly. json.Unmarshal rejects trailing bytes after the
+// top-level value but a Decoder does not, so that rejection is re-asserted
+// explicitly here (a response must be exactly one JSON value).
 func parseResponse(raw string) (map[string]any, error) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
 	var m map[string]any
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+	if err := dec.Decode(&m); err != nil {
 		return nil, wrapProtocolError("invalid JSON response", err)
+	}
+	if err := dec.Decode(new(json.RawMessage)); err == nil {
+		return nil, protocolError("unexpected trailing data after JSON response")
+	} else if !errors.Is(err, io.EOF) {
+		return nil, wrapProtocolError("invalid trailing data after JSON response", err)
 	}
 	return m, nil
 }
@@ -834,6 +909,15 @@ func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundEx
 // Rejects negatives, non-integers, and overflowing magnitudes.
 func jsonNumberToUint64(v any) (uint64, bool) {
 	switch n := v.(type) {
+	case json.Number:
+		// observed/limit are canonical integers from the core; ParseUint reads the
+		// full uint64 range exactly. A non-canonical form (e.g. "1e3") the core
+		// never emits is simply not a uint64 here.
+		i, err := strconv.ParseUint(n.String(), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return i, true
 	case float64:
 		if n < 0 || n > float64(^uint64(0)) || n != float64(uint64(n)) {
 			return 0, false
