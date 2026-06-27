@@ -335,7 +335,7 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 	if v.Enrichment.FormulaDesc != "always(Speed < 220)" {
 		t.Errorf("FormulaDesc = %q", v.Enrichment.FormulaDesc)
 	}
-	if val, ok := v.Enrichment.Signals["Speed"]; !ok || val != 245 {
+	if val, ok := v.Enrichment.Signals["Speed"]; !ok || val != aletheia.RationalFromFloat(245) {
 		t.Errorf("Signals = %v, want Speed=245", v.Enrichment.Signals)
 	}
 	if !strings.Contains(v.Enrichment.EnrichedReason, "Speed = 245") {
@@ -466,7 +466,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	}
 
 	// Both should have the same value — only 1 extraction call was made.
-	if v2.Enrichment.Signals["Speed"] != 245 {
+	if v2.Enrichment.Signals["Speed"] != aletheia.RationalFromFloat(245) {
 		t.Errorf("expected cached Speed=245, got %v", v2.Enrichment.Signals["Speed"])
 	}
 
@@ -592,7 +592,7 @@ func TestEndStream_Enriched(t *testing.T) {
 	// EOS enrichment now includes last-known signal values.
 	if pr.Enrichment.Signals == nil {
 		t.Error("expected non-nil Signals from EOS enrichment")
-	} else if pr.Enrichment.Signals["Speed"] != 150 {
+	} else if pr.Enrichment.Signals["Speed"] != aletheia.RationalFromFloat(150) {
 		t.Errorf("expected Speed=150, got %v", pr.Enrichment.Signals["Speed"])
 	}
 	if !strings.Contains(pr.Enrichment.EnrichedReason, "Speed = 150") {
@@ -643,7 +643,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 		t.Fatalf("stream 1: expected PropertyBatch, got %T", resp)
 	}
 	v1 := b1.FirstViolation()
-	if v1 == nil || v1.Enrichment == nil || v1.Enrichment.Signals["Speed"] != 100 {
+	if v1 == nil || v1.Enrichment == nil || v1.Enrichment.Signals["Speed"] != aletheia.RationalFromFloat(100) {
 		t.Fatalf("stream 1: expected Speed=100, got %+v", v1)
 	}
 	_, err = c.EndStream(ctx)
@@ -665,7 +665,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 		t.Fatalf("stream 2: expected PropertyBatch, got %T", resp)
 	}
 	v2 := b2.FirstViolation()
-	if v2 == nil || v2.Enrichment == nil || v2.Enrichment.Signals["Speed"] != 200 {
+	if v2 == nil || v2.Enrichment == nil || v2.Enrichment.Signals["Speed"] != aletheia.RationalFromFloat(200) {
 		t.Fatalf("stream 2: expected Speed=200, got %+v", v2)
 	}
 }

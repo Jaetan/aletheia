@@ -186,16 +186,16 @@ var canfdProperties = []aletheia.Formula{
 
 // CAN 2.0B signal values for frame building.
 var can20Signals = []aletheia.SignalValue{
-	{Name: "EngineSpeed", Value: 2000.0},
-	{Name: "EngineTemp", Value: 90.0},
+	{Name: "EngineSpeed", Value: aletheia.IntRational(2000)},
+	{Name: "EngineTemp", Value: aletheia.IntRational(90)},
 }
 
 // CAN-FD signal values for frame building.
 var canfdSignals = []aletheia.SignalValue{
-	{Name: "GPSSpeed", Value: 20.0},
-	{Name: "YawRate", Value: 0.0},
-	{Name: "WheelSpeedFL", Value: 10.0},
-	{Name: "WheelSpeedFR", Value: 10.0},
+	{Name: "GPSSpeed", Value: aletheia.IntRational(20)},
+	{Name: "YawRate", Value: aletheia.IntRational(0)},
+	{Name: "WheelSpeedFL", Value: aletheia.IntRational(10)},
+	{Name: "WheelSpeedFR", Value: aletheia.IntRational(10)},
 }
 
 // ---------------------------------------------------------------------------

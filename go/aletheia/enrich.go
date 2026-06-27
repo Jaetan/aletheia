@@ -33,7 +33,7 @@ type PropertyDiagnostic struct {
 // formula structure; it differs from Violation.Reason and PropertyResult.Reason,
 // which are raw strings from the Agda core.
 type ViolationEnrichment struct {
-	Signals        map[SignalName]PhysicalValue // actual values from frame (nil if extraction failed)
+	Signals        map[SignalName]Rational // exact actual values from frame (nil if extraction failed)
 	FormulaDesc    string
 	EnrichedReason string
 	CoreReason     string // raw reason from the Agda core (e.g., "MetricEventually: window expired"); may be empty
@@ -193,9 +193,6 @@ func (p *formulaPrinter) predicate(pred Predicate) string {
 	}
 }
 
-// formatValue formats a float64 without trailing zeros.
-func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
-
 const (
 	usPerSecond      = 1_000_000
 	usPerMillisecond = 1_000
@@ -298,27 +295,44 @@ func predicateSignal(p Predicate) SignalName {
 
 // formatEnrichedReason builds the enriched reason string from a diagnostic, signal values,
 // and the raw core reason. When coreReason is non-empty it is appended as context.
-func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]PhysicalValue, coreReason string) string {
-	var base string
-	if len(values) == 0 {
-		base = "violated: " + diag.FormulaDesc
-	} else {
-		var parts []string
-		for _, sig := range diag.Signals {
-			if val, ok := values[sig]; ok {
-				parts = append(parts, fmt.Sprintf("%s = %s", sig, formatValue(float64(val))))
-			}
-		}
-		if len(parts) == 0 {
-			base = "violated: " + diag.FormulaDesc
-		} else {
-			base = strings.Join(parts, ", ") + " (formula: " + diag.FormulaDesc + ")"
-		}
-	}
+func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]Rational, coreReason string) string {
+	base := formatObservedBase(diag, values)
 	if coreReason != "" {
 		return base + " [core: " + coreReason + "]"
 	}
 	return base
+}
+
+// formatObservedBase renders the observed-values portion of an enriched reason.
+// Each observed value renders via the kernel formatℚ (formatRational) — exact,
+// not lossy %g, and byte-identical to the other bindings.
+//
+// Eval-path degrade (parity with Python format_enriched_reason and C++
+// client.cpp): this renders an ALREADY-PROCESSED frame's observed values, so the
+// GHC runtime is necessarily up (a frame was just processed) and a render
+// failure can only be a catastrophic null kernel return — degrade the whole
+// reason to the formula description rather than propagating, so an enriched
+// reason never sinks a processed frame.
+func formatObservedBase(diag PropertyDiagnostic, values map[SignalName]Rational) string {
+	if len(values) == 0 {
+		return "violated: " + diag.FormulaDesc
+	}
+	var parts []string
+	for _, sig := range diag.Signals {
+		val, ok := values[sig]
+		if !ok {
+			continue
+		}
+		s, err := formatRational(val)
+		if err != nil {
+			return "violated: " + diag.FormulaDesc
+		}
+		parts = append(parts, fmt.Sprintf("%s = %s", sig, s))
+	}
+	if len(parts) == 0 {
+		return "violated: " + diag.FormulaDesc
+	}
+	return strings.Join(parts, ", ") + " (formula: " + diag.FormulaDesc + ")"
 }
 
 // --- Extraction cache ---

@@ -20,6 +20,18 @@ func mustCheck(r CheckResult, err error) CheckResult {
 	return r
 }
 
+// mustDesc renders a CheckResult's condition description, failing the test on a
+// renderer error. ConditionDesc renders thresholds via the kernel formatℚ, so it
+// needs the GHC runtime up — TestMain (main_test.go) brings it up package-wide.
+func mustDesc(t *testing.T, r CheckResult) string {
+	t.Helper()
+	s, err := r.ConditionDesc()
+	if err != nil {
+		t.Fatalf("ConditionDesc: %v", err)
+	}
+	return s
+}
+
 // ===========================================================================
 // One-shot methods
 // ===========================================================================
@@ -188,8 +200,8 @@ func TestCheckMetadataNamedSeverity(t *testing.T) {
 	if r.SignalName() != "Speed" {
 		t.Errorf("SignalName: got %q, want %q", r.SignalName(), "Speed")
 	}
-	if r.ConditionDesc() != "<= 220" {
-		t.Errorf("ConditionDesc: got %q, want %q", r.ConditionDesc(), "<= 220")
+	if got := mustDesc(t, r); got != "<= 220" {
+		t.Errorf("ConditionDesc: got %q, want %q", got, "<= 220")
 	}
 }
 
@@ -198,16 +210,16 @@ func TestCheckSignalNameAndConditionDesc(t *testing.T) {
 	if r1.SignalName() != "V" {
 		t.Errorf("r1 SignalName: got %q", r1.SignalName())
 	}
-	if r1.ConditionDesc() != ">= 11.5" {
-		t.Errorf("r1 ConditionDesc: got %q", r1.ConditionDesc())
+	if got := mustDesc(t, r1); got != ">= 11.5" {
+		t.Errorf("r1 ConditionDesc: got %q", got)
 	}
 
 	r2 := mustCheck(CheckSignal("E").NeverEquals(0))
 	if r2.SignalName() != "E" {
 		t.Errorf("r2 SignalName: got %q", r2.SignalName())
 	}
-	if r2.ConditionDesc() != "!= 0" {
-		t.Errorf("r2 ConditionDesc: got %q", r2.ConditionDesc())
+	if got := mustDesc(t, r2); got != "!= 0" {
+		t.Errorf("r2 ConditionDesc: got %q", got)
 	}
 }
 
@@ -219,8 +231,19 @@ func TestCheckWhenThenMetadata(t *testing.T) {
 	if r.SignalName() != "Light" {
 		t.Errorf("SignalName: got %q, want %q", r.SignalName(), "Light")
 	}
-	if r.ConditionDesc() != "= 1 within 100ms" {
-		t.Errorf("ConditionDesc: got %q, want %q", r.ConditionDesc(), "= 1 within 100ms")
+	if got := mustDesc(t, r); got != "= 1 within 100ms" {
+		t.Errorf("ConditionDesc: got %q, want %q", got, "= 1 within 100ms")
+	}
+}
+
+// TestCheckConditionDescKernelCanonical pins that ConditionDesc renders
+// thresholds through the kernel formatℚ, not Go's %g.  1e6 is the discriminator:
+// %g renders it "1e+06" (scientific), the kernel renders the canonical
+// "1000000" — so this both proves the delegation and matches the other bindings.
+func TestCheckConditionDescKernelCanonical(t *testing.T) {
+	r := mustCheck(CheckSignal("X").NeverExceeds(1000000))
+	if got := mustDesc(t, r); got != "<= 1000000" {
+		t.Errorf("ConditionDesc: got %q, want %q (kernel-canonical, not %%g's 1e+06)", got, "<= 1000000")
 	}
 }
 

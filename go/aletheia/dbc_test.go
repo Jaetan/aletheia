@@ -270,7 +270,7 @@ func TestExtractSignals(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{
 			"status":"success",
-			"values":[{"name":"Speed","value":120.5}],
+			"values":[{"name":"Speed","value":{"numerator":241,"denominator":2}}],
 			"errors":[],
 			"absent":["Temp"]
 		}`),
@@ -292,8 +292,9 @@ func TestExtractSignals(t *testing.T) {
 	if result.Values[0].Name != "Speed" {
 		t.Errorf("expected Speed, got %s", result.Values[0].Name)
 	}
-	if result.Values[0].Value != 120.5 {
-		t.Errorf("expected 120.5, got %f", result.Values[0].Value)
+	want := aletheia.Rational{Numerator: 241, Denominator: 2} // 120.5, exact
+	if result.Values[0].Value != want {
+		t.Errorf("expected %v, got %v", want, result.Values[0].Value)
 	}
 
 	// Test Get helper
@@ -301,8 +302,8 @@ func TestExtractSignals(t *testing.T) {
 	if !ok {
 		t.Error("Get(Speed) should succeed")
 	}
-	if val != 120.5 {
-		t.Errorf("Get(Speed) = %f, want 120.5", val)
+	if val != want {
+		t.Errorf("Get(Speed) = %v, want %v", val, want)
 	}
 	_, ok = result.Get("Nonexistent")
 	if ok {
@@ -338,9 +339,11 @@ func TestExtractSignals_RationalValue(t *testing.T) {
 	if !ok {
 		t.Fatal("expected Ratio signal")
 	}
-	expected := 1.0 / 3.0
-	if diff := val - aletheia.PhysicalValue(expected); diff > 0.0001 || diff < -0.0001 {
-		t.Errorf("expected ~%f, got %f", expected, val)
+	// 1/3 is carried EXACTLY (the whole point of the Rational read path): the
+	// old float path collapsed it to 0.3333…; now Get returns the exact rational.
+	want := aletheia.Rational{Numerator: 1, Denominator: 3}
+	if val != want {
+		t.Errorf("expected %v, got %v", want, val)
 	}
 }
 
@@ -364,7 +367,7 @@ func TestBuildFrame(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
 	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{
-		{Name: "Speed", Value: 120.5},
+		{Name: "Speed", Value: aletheia.RationalFromFloat(120.5)},
 	})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
@@ -395,7 +398,7 @@ func TestUpdateFrame(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
 	payload, err := c.UpdateFrame(ctx, sid, dlc8(), data, []aletheia.SignalValue{
-		{Name: "Speed", Value: 100.0},
+		{Name: "Speed", Value: aletheia.RationalFromFloat(100.0)},
 	})
 	if err != nil {
 		t.Fatalf("UpdateFrame: %v", err)
@@ -679,7 +682,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	_, err = c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: 100}})
+	_, err = c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: aletheia.RationalFromFloat(100)}})
 	requireErrorContains(t, err, "out of range")
 }
 
@@ -699,7 +702,7 @@ func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: 100}})
+	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: aletheia.RationalFromFloat(100)}})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
 	}

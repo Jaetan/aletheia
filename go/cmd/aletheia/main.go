@@ -352,9 +352,9 @@ func cmdExtract(argv []string) int {
 		return die(err.Error())
 	}
 	if *asJSON {
-		values := make(map[string]float64, len(res.Values))
+		values := make(map[string]any, len(res.Values))
 		for _, v := range res.Values {
-			values[string(v.Name)] = float64(v.Value)
+			values[string(v.Name)] = rationalJSON(v.Value)
 		}
 		errs := make(map[string]string, len(res.Errors))
 		for _, e := range res.Errors {
@@ -385,7 +385,7 @@ func cmdExtract(argv []string) int {
 		if unit != "" {
 			unit = " " + unit
 		}
-		fmt.Printf("  %-20s = %g%s\n", string(v.Name), float64(v.Value), unit)
+		fmt.Printf("  %-20s = %g%s\n", string(v.Name), rationalFloat(v.Value), unit)
 	}
 	if len(res.Errors) > 0 {
 		fmt.Println("\nErrors:")
@@ -401,6 +401,26 @@ func cmdExtract(argv []string) int {
 		fmt.Printf("Absent: %s\n", strings.Join(names, ", "))
 	}
 	return exitOK
+}
+
+// rationalJSON renders an extracted Rational for the --json output, matching the
+// other bindings' CLIs (Python's FractionJSONEncoder): a bare integer when the
+// denominator is 1, else a {"numerator","denominator"} object.  Extracted values
+// are exact rationals (the kernel sends numerator/denominator), so this preserves
+// that exactness on the wire instead of collapsing to a lossy float.
+func rationalJSON(r aletheia.Rational) any {
+	if r.Denominator == 1 {
+		return r.Numerator
+	}
+	return map[string]int64{"numerator": r.Numerator, "denominator": r.Denominator}
+}
+
+// rationalFloat converts an extracted Rational to a float64 for the human-readable
+// text column (%g), mirroring Python's CLI `{value:g}`.  The library keeps the
+// exact Rational; only this display is floated.  Extraction guarantees a positive
+// denominator (both decode paths reject den <= 0).
+func rationalFloat(r aletheia.Rational) float64 {
+	return float64(r.Numerator) / float64(r.Denominator)
 }
 
 // --- signals --------------------------------------------------------------
