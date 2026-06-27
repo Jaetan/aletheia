@@ -288,8 +288,13 @@ jobs:
       # push:main is exempt — a seeding run must not be cancelled before it saves.
       cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
-      - name: Checkout
+      - name: Checkout (full history)
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
       - name: Set up GHC + cabal
         run: |

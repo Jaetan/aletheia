@@ -315,6 +315,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The `mutation testing` lane is now diff-scoped per binding** (`tools/mutation_run.py`,
+  `.github/workflows/pr-heavy-lanes.yml`). On a PR, only the binding engine(s) whose
+  directory the branch diff vs `main` touches are run — a Go-only PR runs `gremlins`
+  alone instead of also paying for `mutmut` (Python) and `Mull` (C++), cutting the
+  lane's ~24 min wall-clock toward ~8 min for single-binding changes. Skipping an
+  unchanged binding is coverage-neutral: its survivor count is unchanged from its
+  baseline by construction. The scoping fails SAFE to the full run — a change under
+  a shared artifact (the Agda `src/` → `.so` every binding dlopens, this harness, or
+  `docs/MUTATION_BENCH.yaml`), an empty diff (push:main / the post-merge backstop), a
+  missing `main` ref, or `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` all run every binding.
+  Per-binding scoping maps the *whole* binding directory (source, tests, and config),
+  since mutation tools kill mutants by running that binding's tests — so a test-only
+  edit still scopes its binding in (under-scoping would silently skip a regression;
+  over-scoping only costs time). The required `mutation testing` check still reports
+  green on a docs-only PR (zero engines run, exit 0). CI/tooling only — no runtime or
+  API change.
 - **BREAKING (Python): `CheckResult.condition_desc` now renders its rational
   thresholds through the kernel `formatℚ` (cross-binding-canonical) and is a lazy
   property rather than a stored string** (`python/aletheia/checks.py`,
