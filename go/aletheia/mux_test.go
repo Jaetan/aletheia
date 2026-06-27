@@ -4,6 +4,7 @@
 package aletheia_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
@@ -295,6 +296,169 @@ func TestMessageByName_CopyIndependence(t *testing.T) {
 	original := dbc.MessageByName("MuxMessage")
 	if original.Sender == "Modified" {
 		t.Error("mutation of returned copy affected the original sender")
+	}
+}
+
+// richCopyDBC returns a single-message DBC whose every reference-typed field is
+// non-empty — Senders, each signal's Receivers / ValueDescriptions, and a
+// Multiplexed signal's MultiplexValues — so the deep-copy independence test below
+// is not silently vacuous on an empty slice.
+func richCopyDBC() aletheia.DBCDefinition {
+	return aletheia.DBCDefinition{
+		Version: "1.0",
+		Messages: []aletheia.DBCMessage{
+			{
+				ID: mustStdID(0x310), Name: "Rich", DLC: mustDLC(8), Sender: "ECU",
+				Senders: []string{"GW", "BCM"},
+				Signals: []aletheia.DBCSignal{
+					{
+						Name: "Mode", StartBit: 0, BitLength: 8,
+						ByteOrder: aletheia.LittleEndian,
+						Factor:    aletheia.Rational{Numerator: 1, Denominator: 1},
+						Offset:    aletheia.Rational{Numerator: 0, Denominator: 1},
+						Minimum:   aletheia.Rational{Numerator: 0, Denominator: 1},
+						Maximum:   aletheia.Rational{Numerator: 3, Denominator: 1},
+						Presence:  aletheia.AlwaysPresent{},
+						Receivers: []string{"NodeA", "NodeB"},
+						ValueDescriptions: []aletheia.DBCValueEntry{
+							{Value: 0, Description: "off"},
+							{Value: 1, Description: "on"},
+						},
+					},
+					{
+						Name: "Level", StartBit: 8, BitLength: 16,
+						ByteOrder: aletheia.LittleEndian,
+						Factor:    aletheia.Rational{Numerator: 1, Denominator: 1},
+						Offset:    aletheia.Rational{Numerator: 0, Denominator: 1},
+						Minimum:   aletheia.Rational{Numerator: 0, Denominator: 1},
+						Maximum:   aletheia.Rational{Numerator: 100, Denominator: 1},
+						Presence: aletheia.Multiplexed{
+							Multiplexor:     "Mode",
+							MultiplexValues: []aletheia.MultiplexValue{0, 1},
+						},
+						Receivers: []string{"NodeC"},
+					},
+				},
+			},
+		},
+	}
+}
+
+// TestMessageByName_DeepCopyIndependence pins copyMessage as a TRUE deep copy:
+// every reference field is cloned, so a caller mutating a nested backing array of
+// the returned message cannot reach the DBC's stored definition. The content-
+// equality block guards the converse — that the clone is faithful, not garbage
+// (and that an AlwaysPresent presence is not clobbered into a zero Multiplexed).
+func TestMessageByName_DeepCopyIndependence(t *testing.T) {
+	dbc := richCopyDBC()
+	orig := &dbc.Messages[0]
+
+	cp := dbc.MessageByName("Rich")
+	if cp == nil {
+		t.Fatal("expected non-nil message")
+	}
+	if !slices.Equal(cp.Senders, orig.Senders) {
+		t.Errorf("Senders not copied faithfully: %v vs %v", cp.Senders, orig.Senders)
+	}
+	if !slices.Equal(cp.Signals[0].Receivers, orig.Signals[0].Receivers) {
+		t.Error("Receivers not copied faithfully")
+	}
+	if !slices.Equal(cp.Signals[0].ValueDescriptions, orig.Signals[0].ValueDescriptions) {
+		t.Error("ValueDescriptions not copied faithfully")
+	}
+	cpMux := muxOf(t, "copy signal[1]", cp.Signals[1])
+	origMux := muxOf(t, "orig signal[1]", orig.Signals[1])
+	if !slices.Equal(cpMux.MultiplexValues, origMux.MultiplexValues) {
+		t.Error("MultiplexValues not copied faithfully")
+	}
+	if _, ok := cp.Signals[0].Presence.(aletheia.AlwaysPresent); !ok {
+		t.Errorf("AlwaysPresent presence not preserved in the copy: got %T", cp.Signals[0].Presence)
+	}
+
+	t.Run("Senders", func(t *testing.T) {
+		c := dbc.MessageByName("Rich")
+		c.Senders[0] = "MUTATED"
+		if dbc.Messages[0].Senders[0] == "MUTATED" {
+			t.Error("mutating the copy's Senders backing array affected the original")
+		}
+	})
+	t.Run("Receivers", func(t *testing.T) {
+		c := dbc.MessageByName("Rich")
+		c.Signals[0].Receivers[0] = "MUTATED"
+		if dbc.Messages[0].Signals[0].Receivers[0] == "MUTATED" {
+			t.Error("mutating the copy's Receivers backing array affected the original")
+		}
+	})
+	t.Run("ValueDescriptions", func(t *testing.T) {
+		c := dbc.MessageByName("Rich")
+		c.Signals[0].ValueDescriptions[0].Description = "MUTATED"
+		if dbc.Messages[0].Signals[0].ValueDescriptions[0].Description == "MUTATED" {
+			t.Error("mutating the copy's ValueDescriptions backing array affected the original")
+		}
+	})
+	t.Run("MultiplexValues", func(t *testing.T) {
+		c := dbc.MessageByName("Rich")
+		if c == nil {
+			t.Fatal("expected non-nil message")
+		}
+		mux := muxOf(t, "copy signal[1]", c.Signals[1])
+		mux.MultiplexValues[0] = 99
+		got := muxOf(t, "orig signal[1]", dbc.Messages[0].Signals[1]).MultiplexValues[0]
+		if got == 99 {
+			t.Error("mutating the copy's MultiplexValues backing array affected the original")
+		}
+	})
+}
+
+// muxOf returns the value-form Multiplexed presence of sig, failing the test
+// (rather than panicking on an unchecked assertion) if it was clobbered.
+func muxOf(t *testing.T, label string, sig aletheia.DBCSignal) aletheia.Multiplexed {
+	t.Helper()
+	mux, ok := sig.Presence.(aletheia.Multiplexed)
+	if !ok {
+		t.Fatalf("%s: presence is %T, want Multiplexed", label, sig.Presence)
+	}
+	return mux
+}
+
+// TestCopyMessage_PointerMultiplexedDeepCopy covers the *Multiplexed presence
+// form. SignalPresence is sealed by a value-receiver method, so *Multiplexed also
+// satisfies it and a manually constructed signal may hold Presence:
+// &Multiplexed{...}; copyMessage must clone its MultiplexValues too, not alias.
+func TestCopyMessage_PointerMultiplexedDeepCopy(t *testing.T) {
+	dbc := aletheia.DBCDefinition{
+		Version: "1.0",
+		Messages: []aletheia.DBCMessage{{
+			ID: mustStdID(0x320), Name: "PtrMux", DLC: mustDLC(8), Sender: "ECU",
+			Signals: []aletheia.DBCSignal{{
+				Name: "Sel", StartBit: 0, BitLength: 8,
+				ByteOrder: aletheia.LittleEndian,
+				Factor:    aletheia.Rational{Numerator: 1, Denominator: 1},
+				Offset:    aletheia.Rational{Numerator: 0, Denominator: 1},
+				Minimum:   aletheia.Rational{Numerator: 0, Denominator: 1},
+				Maximum:   aletheia.Rational{Numerator: 7, Denominator: 1},
+				Presence: &aletheia.Multiplexed{
+					Multiplexor:     "Sel",
+					MultiplexValues: []aletheia.MultiplexValue{3, 4},
+				},
+			}},
+		}},
+	}
+	c := dbc.MessageByName("PtrMux")
+	if c == nil {
+		t.Fatal("expected non-nil message")
+	}
+	cpMux, ok := c.Signals[0].Presence.(*aletheia.Multiplexed)
+	if !ok {
+		t.Fatalf("copy presence: got %T, want *Multiplexed", c.Signals[0].Presence)
+	}
+	cpMux.MultiplexValues[0] = 99
+	origMux, ok := dbc.Messages[0].Signals[0].Presence.(*aletheia.Multiplexed)
+	if !ok {
+		t.Fatalf("orig presence: got %T, want *Multiplexed", dbc.Messages[0].Signals[0].Presence)
+	}
+	if origMux.MultiplexValues[0] == 99 {
+		t.Error("mutating the copy's *Multiplexed MultiplexValues affected the original")
 	}
 }
 

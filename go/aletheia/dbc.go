@@ -3,6 +3,8 @@
 
 package aletheia
 
+import "slices"
+
 // SignalPresence describes when a signal is present in a frame.
 type SignalPresence interface {
 	signalPresence() // sealed
@@ -687,9 +689,36 @@ func (d *DBCDefinition) MessageByName(name MessageName) *DBCMessage {
 	return nil
 }
 
-// copyMessage returns a deep copy of a DBCMessage, including its Signals slice.
+// copyMessage returns a deep copy of a DBCMessage so a caller can freely mutate
+// the result without aliasing the DBC's stored definition. Every externally
+// reachable reference field is cloned: the Senders and Signals slices, and within
+// each signal the Receivers and ValueDescriptions slices plus a Multiplexed
+// (or *Multiplexed) presence's MultiplexValues. (All scalar/value fields — including Rational,
+// which is a plain Numerator/Denominator pair — are copied by the struct
+// assignment.) The unexported signalIndex is intentionally shared: it is a
+// read-only name→index cache built once by buildSignalIndex and never mutated in
+// place, and it stays valid for the cloned (same-order) Signals; SignalByName's
+// idx<len + name-match guard tolerates staleness identically whether it is shared
+// or cloned, so cloning it would buy nothing observable.
 func copyMessage(m *DBCMessage) *DBCMessage {
 	out := *m
-	out.Signals = append([]DBCSignal(nil), m.Signals...)
+	out.Senders = slices.Clone(m.Senders)
+	out.Signals = slices.Clone(m.Signals)
+	for i := range out.Signals {
+		out.Signals[i].Receivers = slices.Clone(m.Signals[i].Receivers)
+		out.Signals[i].ValueDescriptions = slices.Clone(m.Signals[i].ValueDescriptions)
+		// SignalPresence is sealed by a value-receiver method, so both Multiplexed
+		// and *Multiplexed satisfy it; clone MultiplexValues in either form (the
+		// pointer form needs a fresh struct so the new pointer does not alias).
+		switch p := out.Signals[i].Presence.(type) {
+		case Multiplexed:
+			p.MultiplexValues = slices.Clone(p.MultiplexValues)
+			out.Signals[i].Presence = p
+		case *Multiplexed:
+			clone := *p
+			clone.MultiplexValues = slices.Clone(clone.MultiplexValues)
+			out.Signals[i].Presence = &clone
+		}
+	}
 	return &out
 }
