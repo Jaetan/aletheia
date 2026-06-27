@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 _INT64_MAX = (1 << 63) - 1
 _INT64_MIN = -(1 << 63)
 _DECIMAL_PRECISION_DEN = 1_000_000_000
-_RATIONAL_STR_PARTS = 2
 
 
 def float_to_rational(value: float) -> tuple[int, int]:
@@ -138,64 +137,27 @@ def validate_integer_field(field_name: str, raw_value: object) -> int:
     return numerator
 
 
-def _parse_rational_str(value_raw: str) -> Fraction | None:
-    """Parse a rational from string form (``'n/d'`` or a plain numeric string).
+def decode_wire_rational(value_raw: object) -> Fraction:
+    """Decode an exact rational from a core *response* (the internal wire).
 
-    Returns the ``Fraction``, or ``None`` when the string is not parseable
-    (the caller then raises the generic type error).  Raises
-    :class:`ProtocolError` on a non-positive denominator in explicit
-    ``'n/d'`` form.
-    """
-    if "/" in value_raw:
-        parts = value_raw.split("/")
-        if len(parts) == _RATIONAL_STR_PARTS:
-            try:
-                numerator_s = int(parts[0])
-                denominator_s = int(parts[1])
-            except ValueError:
-                pass
-            else:
-                if denominator_s <= 0:
-                    msg = f"Expected positive denominator in rational string, got {value_raw!r}"
-                    raise ProtocolError(msg)
-                return Fraction(numerator_s, denominator_s)
-    try:
-        return Fraction(value_raw)
-    except ValueError, ZeroDivisionError:
-        return None
-
-
-def parse_rational(value_raw: object) -> Fraction:
-    """Parse a value that may be a number, rational dict, or rational string.
-
-    Returns a Fraction to preserve the Agda core's exact rational precision
-    end-to-end — JSON rational dicts {"numerator": n, "denominator": d}
-    become Fraction(n, d) with no float quantization.
-
-    For legacy float inputs (rare — Agda's formatRational emits integers as
-    ints and non-integers as rational dicts) we still go through Fraction,
-    using its float-from-string heuristic to avoid binary float artifacts.
+    Computed values cross the FFI boundary as exact rationals only — a bare
+    integer or a ``{"numerator": n, "denominator": d}`` object — never a float:
+    a float on the wire would mean a computed value escaped the rational kernel.
+    A float, string, or bool is therefore a wire-format violation, rejected here:
+    nothing internal to the program is ever a float (a decimal is an exact
+    rational, carried as an int or a {numerator, denominator} object).
     """
     if isinstance(value_raw, bool):
-        # bool is a subclass of int; reject explicitly to avoid True → Fraction(1)
-        msg = "Expected signal value to be number, rational dict, or rational string, got bool"
+        # bool is an int subclass; reject so True/False can't slip through.
+        msg = "Expected a wire rational (int or {numerator, denominator}), got bool"
         raise ProtocolError(msg)
     if isinstance(value_raw, int):
         return Fraction(value_raw)
-    if isinstance(value_raw, float):
-        if math.isnan(value_raw) or math.isinf(value_raw):
-            msg = f"Cannot convert {value_raw!r} to rational"
-            raise ProtocolError(msg)
-        return Fraction(value_raw).limit_denominator(_DECIMAL_PRECISION_DEN)
     if is_str_dict(value_raw):
         n, d = extract_rational_from_dict(value_raw, "rational")
         return Fraction(n, d)
-    if isinstance(value_raw, str):
-        parsed = _parse_rational_str(value_raw)
-        if parsed is not None:
-            return parsed
     msg = (
-        "Expected signal value to be number, rational dict, "
-        f"or rational string, got {type(value_raw).__name__}"
+        "Expected a wire rational (int or {numerator, denominator}), "
+        f"got {type(value_raw).__name__}"
     )
     raise ProtocolError(msg)

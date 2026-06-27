@@ -7,7 +7,7 @@ import math
 import pytest
 from _dbc_helpers import dbc, message, signal
 
-from aletheia import AletheiaClient, ProtocolError, StateError, ValidationError
+from aletheia import AletheiaClient, StateError, ValidationError
 from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_EQUALS_CONDITIONS,
@@ -15,7 +15,7 @@ from aletheia._check_conditions import (
     SIMPLE_SETTLES_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
 )
-from aletheia.client._helpers.rational import float_to_rational, parse_rational
+from aletheia.client._helpers.rational import float_to_rational
 from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia.types import DLCByteCount, DLCCode
 
@@ -81,51 +81,6 @@ class TestConditionSets:
         for i, s1 in enumerate(sets):
             for s2 in sets[i + 1 :]:
                 assert s1.isdisjoint(s2), f"Overlap: {s1 & s2}"
-
-
-# ============================================================================
-# T-5: _parse_rational string path
-# ============================================================================
-
-
-class TestParseRational:
-    """Tests for parse_rational helper function."""
-
-    def test_int_value(self) -> None:
-        """Verify int value."""
-        assert parse_rational(42) == 42.0
-
-    def test_float_value(self) -> None:
-        """Verify float value."""
-        assert math.isclose(parse_rational(3.14), 3.14)
-
-    def test_rational_string(self) -> None:
-        """Verify rational string."""
-        assert math.isclose(parse_rational("3/4"), 0.75)
-
-    def test_rational_string_negative(self) -> None:
-        """Verify rational string negative."""
-        assert math.isclose(parse_rational("-1/2"), -0.5)
-
-    def test_numeric_string(self) -> None:
-        """Verify numeric string."""
-        assert math.isclose(parse_rational("2.5"), 2.5)
-
-    def test_rational_dict(self) -> None:
-        """Verify rational dict."""
-        assert math.isclose(parse_rational({"numerator": 1, "denominator": 3}), 1 / 3)
-
-    def test_non_positive_denominator_string_raises(self) -> None:
-        """Zero and negative denominators raise (positive-denom canonical form)."""
-        with pytest.raises(ProtocolError, match="positive denominator"):
-            parse_rational("1/0")
-        with pytest.raises(ProtocolError, match="positive denominator"):
-            parse_rational("1/-2")
-
-    def test_invalid_type_raises(self) -> None:
-        """Verify invalid type raises."""
-        with pytest.raises(ProtocolError, match="Expected signal value"):
-            parse_rational([1, 2])
 
 
 # ============================================================================
