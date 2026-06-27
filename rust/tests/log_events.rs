@@ -47,6 +47,8 @@ fn rust_emitted() -> Vec<(&'static str, LogLevel)> {
         (events::REMOTE_EVENT_SENT, LogLevel::Debug),
         (events::ENRICHMENT_PROPERTY_INDEX_OOB, LogLevel::Warn),
         (events::ENRICHMENT_EXTRACTION_FAILED, LogLevel::Warn),
+        (events::EXTRACTION_PROCESS_FAILED, LogLevel::Warn),
+        (events::EXTRACTION_PARSE_FAILED, LogLevel::Warn),
         (events::ENDSTREAM_UNCACHED_ATOM, LogLevel::Warn),
     ]
 }

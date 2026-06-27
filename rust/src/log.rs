@@ -143,25 +143,28 @@ pub mod events {
     /// An end-of-stream warning: an atom referenced a signal the cache never observed. *(emitted)*
     pub const ENDSTREAM_UNCACHED_ATOM: &str = "endstream.uncached_atom";
 
-    // --- Vocabulary completeness (not yet emitted by this client) ---
-    // Enrichment events arrive with the client-side violation-enrichment slice
-    // (R4b); the cache / extraction events belong to an extraction-cache layer
-    // this binding does not implement. Defined for cross-binding uniformity.
-
-    /// A violation referenced a property index outside the registered set.
+    /// A violation referenced a property index outside the registered set. *(emitted)*
     pub const ENRICHMENT_PROPERTY_INDEX_OOB: &str = "enrichment.property_index_oob";
-    /// Signal extraction for violation enrichment returned no result.
+    /// Signal extraction for violation enrichment returned no result. *(emitted)*
     pub const ENRICHMENT_EXTRACTION_FAILED: &str = "enrichment.extraction_failed";
+    /// An extraction request failed at the FFI process boundary. *(emitted)*
+    pub const EXTRACTION_PROCESS_FAILED: &str = "extraction.process_failed";
+    /// An extraction response could not be parsed. *(emitted)*
+    pub const EXTRACTION_PARSE_FAILED: &str = "extraction.parse_failed";
+
+    // --- Vocabulary completeness (defined but not emitted by this client) ---
+    // The cache.* events instrument an extraction-result memoization cache this
+    // binding does not implement (see docs/FEATURE_MATRIX.yaml
+    // `violation_enrichment`: the extraction-cache layer is a perf optimization,
+    // not part of the cross-binding contract). Defined here so downstream code can
+    // refer to the full vocabulary uniformly across bindings.
+
     /// Signal extraction served a cached payload.
     pub const CACHE_HIT: &str = "cache.hit";
     /// Signal extraction missed the cache and called through to the core.
     pub const CACHE_MISS: &str = "cache.miss";
     /// The extraction cache reached its capacity bound.
     pub const CACHE_FULL: &str = "cache.full";
-    /// An extraction request failed at the FFI process boundary.
-    pub const EXTRACTION_PROCESS_FAILED: &str = "extraction.process_failed";
-    /// An extraction response could not be parsed.
-    pub const EXTRACTION_PARSE_FAILED: &str = "extraction.parse_failed";
 
     /// Every event in the canonical vocabulary, in `docs/LOG_EVENTS.yaml` order.
     pub const ALL: [&str; 16] = [
