@@ -25,6 +25,14 @@ Optional per-binding skip (useful for partial runs in CI lanes):
   - ALETHEIA_MUTATION_SKIP_GO=1
   - ALETHEIA_MUTATION_SKIP_CPP=1
 
+Diff scoping (automatic): on a PR branch only the binding(s) whose directory the
+diff vs ``main`` touches are run; the rest are skipped, since an unchanged
+binding's survivor count is unchanged from its baseline by construction.  A
+change to a shared artifact (the Agda ``src/`` → ``.so``, this harness, or
+``docs/MUTATION_BENCH.yaml``) forces ALL bindings, as does push:main / an empty
+diff (the post-merge backstop).  Set ``ALETHEIA_MUTATION_NO_DIFF_SCOPE=1`` to
+force the full run regardless.  See ``bindings_in_scope``.
+
 Artifacts written:
 
   benchmarks/mutation/<short_sha>/
@@ -55,6 +63,7 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 import yaml
 
 from tools._common import (
+    find_executable,
     prepare_artifact_dir,
     run_capture,
     short_sha,
@@ -471,19 +480,109 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     return MutationReport("cpp", "mull", killed, survived, raw)
 
 
-# (skip-env-var, runner) per binding, in the order reports are produced.
-RUNNERS: list[tuple[str, Callable[[Path], MutationReport]]] = [
-    ("ALETHEIA_MUTATION_SKIP_PYTHON", run_python),
-    ("ALETHEIA_MUTATION_SKIP_GO", run_go),
-    ("ALETHEIA_MUTATION_SKIP_CPP", run_cpp),
+# ── Diff-scope ──────────────────────────────────────────────────────────────
+# A binding's mutation result can only change if its own source, tests, or
+# mutation config changed — OR if a shared artifact every binding depends on
+# changed (the .so they all dlopen, or this harness / the baselines).  So on a
+# PR we run only the affected engine(s); an unchanged binding's survivor count
+# is definitionally unchanged from its baseline, so skipping it is coverage-
+# neutral.  Mirrors ``tools/_ci_steps._build_graph_changed``'s fail-safe
+# ``git diff main...HEAD`` precedent.
+#
+# Per-binding paths map to the WHOLE binding directory, not just its source:
+# mutmut / Mull kill mutants by RUNNING that binding's tests, so a test-only or
+# mutation-config-only edit can raise a binding's survivor count.  Under-scoping
+# a binding is a correctness bug (a real regression skipped); over-scoping only
+# costs time — so per-binding we scope generously.
+_BINDING_DIRS: dict[str, str] = {
+    "python": "python/",
+    "go": "go/",
+    "cpp": "cpp/",
+}
+
+# A change under any of these can alter the shared ``.so`` every binding dlopens,
+# or this harness / the baselines themselves — so it forces ALL bindings.  This
+# set IS precision-sensitive: a miss here under-scopes (the dangerous direction),
+# unlike the generous per-binding dirs above.
+_GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
+    "src/",  # Agda → MAlonzo → libaletheia-ffi.so (every binding dlopens it)
+    "haskell-shim/",  # FFI shim → .so
+    "Shakefile.hs",  # build graph → .so
+    "shake.cabal",
+    "aletheia.agda-lib",
+    "tools/mutation_run.py",  # this harness
+    "tools/_common.py",  # the harness's shared helpers
+    "docs/MUTATION_BENCH.yaml",  # the per-binding baselines the drift gate reads
+    ".github/workflows/pr-heavy-lanes.yml",  # the lane definition
+)
+
+# Escape hatch: force every binding to run regardless of the diff.
+_NO_DIFF_SCOPE_ENV = "ALETHEIA_MUTATION_NO_DIFF_SCOPE"
+
+
+def bindings_in_scope(repo_root: Path) -> set[str] | None:
+    """Bindings whose mutation result the branch diff vs ``main`` could change.
+
+    Returns ``None`` — meaning "run ALL bindings", the fail-SAFE answer — when:
+
+      * the escape-hatch env var is set,
+      * git is absent / the diff cannot be computed (no ``git`` binary, no
+        ``main`` ref, git error),
+      * the diff is EMPTY (push:main / on-main: ``HEAD == main`` — the
+        cache-seeding + post-merge backstop run), or
+      * any GLOBAL path changed (shared ``.so`` / harness / baselines).
+
+    Otherwise returns the set of bindings whose directory the diff touched —
+    possibly empty (e.g. a docs-only PR), meaning "run NONE".
+    """
+    if os.environ.get(_NO_DIFF_SCOPE_ENV) == "1":
+        return None
+    try:
+        git = find_executable("git")
+    except RuntimeError:
+        return None  # no `git` binary on PATH — fail safe to the full run
+    result = run_capture(
+        [git, "-C", str(repo_root), "diff", "--name-only", "main...HEAD"],
+    )
+    if result.returncode != 0:
+        return None  # no `main` ref / git error — fail safe to the full run
+    changed = [line for line in result.stdout.splitlines() if line]
+    if not changed:
+        return None  # push:main / no diff — run the full backstop
+    if any(line.startswith(_GLOBAL_MUTATION_PATHS) for line in changed):
+        return None
+    return {
+        binding
+        for binding, prefix in _BINDING_DIRS.items()
+        if any(line.startswith(prefix) for line in changed)
+    }
+
+
+# (binding-name, skip-env-var, runner) per binding, in the order reports are produced.
+RUNNERS: list[tuple[str, str, Callable[[Path], MutationReport]]] = [
+    ("python", "ALETHEIA_MUTATION_SKIP_PYTHON", run_python),
+    ("go", "ALETHEIA_MUTATION_SKIP_GO", run_go),
+    ("cpp", "ALETHEIA_MUTATION_SKIP_CPP", run_cpp),
 ]
 
 
-def _run_enabled_bindings(artifact_dir: Path) -> list[MutationReport]:
-    """Run each non-skipped binding, archive its JSON, and collect the reports."""
+def _run_enabled_bindings(artifact_dir: Path, in_scope: set[str] | None) -> list[MutationReport]:
+    """Run each enabled, in-scope binding; archive its JSON; collect the reports.
+
+    A binding is skipped when its explicit skip env var is set, or when diff
+    scoping is active (``in_scope is not None``) and the binding is out of scope.
+    Each skip is logged so a scoped run is never silent about what it did not run
+    (per ``feedback_gate_claim_integrity``).
+    """
     reports: list[MutationReport] = []
-    for skip_var, runner in RUNNERS:
+    for name, skip_var, runner in RUNNERS:
         if os.environ.get(skip_var) == "1":
+            _ = sys.stderr.write(f"[mutation] skip {name}: {skip_var}=1\n")
+            continue
+        if in_scope is not None and name not in in_scope:
+            _ = sys.stderr.write(
+                f"[mutation] skip {name}: no change under {_BINDING_DIRS[name]} (diff-scoped)\n"
+            )
             continue
         rep = runner(artifact_dir)
         (artifact_dir / f"{rep.binding}.json").write_text(json.dumps(rep.to_dict(), indent=2))
@@ -527,7 +626,14 @@ def main() -> int:
     sha = short_sha(REPO_ROOT)
     artifact_dir = prepare_artifact_dir(ARTIFACT_BASE, sha)
 
-    reports = _run_enabled_bindings(artifact_dir)
+    in_scope = bindings_in_scope(REPO_ROOT)
+    if in_scope is None:
+        _ = sys.stderr.write("[mutation] diff-scope: running ALL bindings\n")
+    else:
+        _ = sys.stderr.write(
+            f"[mutation] diff-scope: changed bindings only → {sorted(in_scope) or 'NONE'}\n"
+        )
+    reports = _run_enabled_bindings(artifact_dir, in_scope)
 
     # Drift gate: compare each binding's survived count to the baseline in
     # the YAML spec.  null baseline = first run, no gating yet.  Otherwise,
@@ -540,6 +646,7 @@ def main() -> int:
     summary = {
         "commit": sha,
         "artifact_dir": str(artifact_dir.relative_to(REPO_ROOT)),
+        "diff_scope": "all" if in_scope is None else sorted(in_scope),
         "runs": [r.to_dict() for r in reports],
         "drift": drift,
         "passed": not any_drift,
