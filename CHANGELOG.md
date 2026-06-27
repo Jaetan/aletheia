@@ -12,6 +12,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Rust binding now emits `extraction.process_failed` / `extraction.parse_failed`**
+  (`rust/src/lib.rs`), closing a logging-parity gap with Go/Python/C++. The public
+  `extract_signals` — and, through it, the violation-enrichment loop (`extract_all`
+  funnels through `extract_signals`, mirroring Go's shared `extractSignalsLocked`
+  primitive) — now logs a `Warn` event with `canId` + `error` fields when the
+  backend call fails at the FFI/process boundary, and when a well-formed response
+  cannot be decoded; the single pair of emit sites covers both the public API and
+  enrichment. The `rust/src/log.rs` event-vocabulary doc is corrected to match
+  reality: the two enrichment events and the two extraction events are marked
+  emitted (the enrichment pair was already wired but still filed under "not
+  emitted"), leaving only the three `cache.*` events un-emitted — those instrument
+  an extraction-result memoization cache this binding deliberately does not
+  implement (a perf optimization, not part of the cross-binding contract; see
+  FEATURE_MATRIX `violation_enrichment`). The Go package doc (`go/aletheia/doc.go`)
+  is likewise corrected to list all 16 events (it had omitted
+  `endstream.uncached_atom`). New Rust behavioural tests assert each extraction
+  event fires (process vs parse) without the other; the `log_events` parity gate's
+  emitted-set is extended in lockstep.
 - **Rust documentation is now gated in CI** (`tools/_ci_steps.py`): the rust lint
   section runs `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
   --document-private-items` for both the main crate (with `--all-features`) and the

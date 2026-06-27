@@ -84,4 +84,5 @@
 //	enrichment.extraction_failed    (Client, Warn)
 //	extraction.process_failed       (Client, Warn)
 //	extraction.parse_failed         (Client, Warn)
+//	endstream.uncached_atom         (Client, Warn)
 package aletheia

@@ -814,8 +814,38 @@ impl Client {
         data: &[u8],
     ) -> Result<ExtractionResult, Error> {
         validate_frame_len(dlc, data)?;
-        let raw = self.backend.extract_signals_binary(id, dlc, data)?;
-        response::decode_extraction(&raw)
+        // A backend failure (FFI/process boundary) and a parse failure are the two
+        // observable extraction errors; each is logged at Warn with the same
+        // `canId` + `error` fields as Go's `extractSignalsLocked` (client.go) and
+        // the Python/C++ bindings. Both the public API and the enrichment loop
+        // funnel through here (`extract_all` calls `extract_signals`), so a single
+        // pair of emit sites covers both paths — mirroring Go's shared primitive.
+        let raw = match self.backend.extract_signals_binary(id, dlc, data) {
+            Ok(raw) => raw,
+            Err(e) => {
+                let msg = e.to_string();
+                self.emit(
+                    LogLevel::Warn,
+                    events::EXTRACTION_PROCESS_FAILED,
+                    &[
+                        LogField::new("canId", LogValue::U64(u64::from(id.value()))),
+                        LogField::new("error", LogValue::Str(&msg)),
+                    ],
+                );
+                return Err(e);
+            }
+        };
+        response::decode_extraction(&raw).inspect_err(|e| {
+            let msg = e.to_string();
+            self.emit(
+                LogLevel::Warn,
+                events::EXTRACTION_PARSE_FAILED,
+                &[
+                    LogField::new("canId", LogValue::U64(u64::from(id.value()))),
+                    LogField::new("error", LogValue::Str(&msg)),
+                ],
+            );
+        })
     }
 
     /// Build a CAN frame payload from named signal values (zero-filled base).

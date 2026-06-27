@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 
 use aletheia::log::events;
 use aletheia::{
-    check, Backend, CanId, Client, Dlc, Error, FrameResponse, LogRecord, MockBackend, Rational,
-    SignalInjection, Timestamp, Verdict,
+    check, Backend, CanId, Client, Dlc, Error, FrameResponse, LogField, LogRecord, LogValue,
+    MockBackend, Rational, SignalInjection, Timestamp, Verdict,
 };
 
 /// Bring the GHC RTS up via a throwaway real backend, so the (now-vocal) rational
@@ -344,6 +344,112 @@ fn extraction_failure_during_enrichment_is_logged() {
     assert!(m
         .captured()
         .contains(&"<binary:extractAllSignals>".to_string()));
+}
+
+/// A backend error from the public `extract_signals` (the FFI/process boundary)
+/// is logged as `extraction.process_failed` and surfaced — mirroring Go's
+/// `extractSignalsLocked` process-failure path. Because the enrichment loop
+/// funnels through this same `extract_signals`, the one emit site covers both.
+#[test]
+fn extract_signals_process_failure_is_logged() {
+    // Capture (event, carries canId=256, carries a non-empty error) so the test
+    // pins the structured fields — not just the event name — locking in the
+    // cross-binding `canId` + `error` field contract Go/Python/C++ also emit.
+    let captured: Arc<Mutex<Vec<(String, bool, bool)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&captured);
+    let m = MockBackend::new();
+    m.respond_err(Error::Core {
+        code: "boom".to_string(),
+        message: "backend unavailable".to_string(),
+    });
+    let c = Client::builder()
+        .logger(move |rec: &LogRecord| {
+            let has_can_id = rec
+                .fields
+                .contains(&LogField::new("canId", LogValue::U64(256)));
+            let has_error = rec
+                .fields
+                .iter()
+                .any(|f| f.key == "error" && matches!(f.value, LogValue::Str(s) if !s.is_empty()));
+            sink.lock()
+                .expect("lock")
+                .push((rec.event.to_string(), has_can_id, has_error));
+        })
+        .build_with_backend(Box::new(m.clone()));
+    let err = c
+        .extract_signals(
+            CanId::standard(256).unwrap(),
+            Dlc::new(8).unwrap(),
+            &[0u8; 8],
+        )
+        .expect_err("a backend error must surface");
+    assert!(matches!(err, Error::Core { .. }), "got: {err:?}");
+    let records = captured.lock().expect("lock").clone();
+    let process = records
+        .iter()
+        .find(|(e, _, _)| e == events::EXTRACTION_PROCESS_FAILED)
+        .expect("expected extraction.process_failed");
+    assert!(process.1, "extraction.process_failed must carry canId=256");
+    assert!(
+        process.2,
+        "extraction.process_failed must carry a non-empty error"
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|(e, _, _)| e == events::EXTRACTION_PARSE_FAILED),
+        "a process failure must not also emit parse_failed"
+    );
+}
+
+/// A well-formed backend call whose payload cannot be decoded is logged as
+/// `extraction.parse_failed` and surfaced — the parse-boundary peer of
+/// `extraction.process_failed`.
+#[test]
+fn extract_signals_parse_failure_is_logged() {
+    // Same field-level assertion as the process-failure peer (see that test).
+    let captured: Arc<Mutex<Vec<(String, bool, bool)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&captured);
+    let m = MockBackend::new();
+    m.respond_json("not a valid extraction object"); // backend OK, decode fails
+    let c = Client::builder()
+        .logger(move |rec: &LogRecord| {
+            let has_can_id = rec
+                .fields
+                .contains(&LogField::new("canId", LogValue::U64(256)));
+            let has_error = rec
+                .fields
+                .iter()
+                .any(|f| f.key == "error" && matches!(f.value, LogValue::Str(s) if !s.is_empty()));
+            sink.lock()
+                .expect("lock")
+                .push((rec.event.to_string(), has_can_id, has_error));
+        })
+        .build_with_backend(Box::new(m.clone()));
+    let err = c
+        .extract_signals(
+            CanId::standard(256).unwrap(),
+            Dlc::new(8).unwrap(),
+            &[0u8; 8],
+        )
+        .expect_err("an unparseable response must surface");
+    assert!(matches!(err, Error::Protocol(_)), "got: {err:?}");
+    let records = captured.lock().expect("lock").clone();
+    let parse = records
+        .iter()
+        .find(|(e, _, _)| e == events::EXTRACTION_PARSE_FAILED)
+        .expect("expected extraction.parse_failed");
+    assert!(parse.1, "extraction.parse_failed must carry canId=256");
+    assert!(
+        parse.2,
+        "extraction.parse_failed must carry a non-empty error"
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|(e, _, _)| e == events::EXTRACTION_PROCESS_FAILED),
+        "a parse failure must not also emit process_failed"
+    );
 }
 
 /// Exercises the end-of-stream multi-frame merge loop (previously untested —
