@@ -345,8 +345,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 - **The `mutation testing` lane is now diff-scoped per binding** (`tools/mutation_run.py`,
   `.github/workflows/pr-heavy-lanes.yml`). On a PR, only the binding engine(s) whose
   directory the branch diff vs `main` touches are run — a Go-only PR runs `gremlins`
-  alone instead of also paying for `mutmut` (Python) and `Mull` (C++), cutting the
-  lane's ~24 min wall-clock toward ~8 min for single-binding changes. Skipping an
+  alone instead of also paying for `mutmut` (Python) and `Mull` (C++): a go-only PR's
+  lane drops ~24→~16 min (gremlins is the slow ~12.5 min engine + ~4 min setup), a
+  Python-only or C++-only PR wins more by skipping gremlins, and a docs-only PR runs
+  no engine (~4 min setup only — measured on the UPD PR). Skipping an
   unchanged binding is coverage-neutral: its survivor count is unchanged from its
   baseline by construction. The scoping fails SAFE to the full run — a change under
   a shared artifact (the Agda `src/` → `.so` every binding dlopens, this harness, or
