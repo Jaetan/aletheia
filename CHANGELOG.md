@@ -792,6 +792,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Go decodes JSON response numbers exactly, not through `float64`**
+  (`go/aletheia/json.go`). `parseResponse` used `json.Unmarshal`, which decodes
+  every JSON number as a `float64` — so a rational numerator/denominator above
+  2^53 was silently rounded (e.g. `9007199254740993` → `…992`), the one binding
+  doing so (Python `json` → `int`, C++ `get<std::int64_t>`, Rust serde `as_i64`
+  all read these exactly). It now uses a `json.Decoder` with `UseNumber()`, so
+  numbers arrive as `json.Number` and the three numeric helpers (`parseRational`,
+  `parseNumberAsInt64`, `jsonNumberToUint64`) read them exactly via
+  `strconv.ParseInt`/`ParseUint` (a `float64` path is retained for hand-built
+  maps / direct callers). The trailing-byte rejection that `json.Unmarshal`
+  provides — but a bare `Decoder` does not — is re-asserted explicitly (a
+  response must be exactly one JSON value).
+  A boundary test feeds `9007199254740993` through the real `parseResponse`
+  path and asserts it survives exactly.
 - **Go `DBCDefinition.MessageByID` / `MessageByName` now return a genuine deep
   copy** (`go/aletheia/dbc.go`). `copyMessage`'s doc promised a deep copy, but it
   cloned only the top-level `Signals` slice header — the returned message shared

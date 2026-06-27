@@ -26,7 +26,7 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 		aletheia.RespondParseDBC(testDBC()), // ParseDBC
 		aletheia.Respond(`{
 			"status":"success",
-			"values":[{"name":"Speed","value":150.0}],
+			"values":[{"name":"Speed","value":150}],
 			"errors":[],
 			"absent":[]
 		}`), // ExtractSignals via JSON fallback

@@ -27,11 +27,11 @@ import (
 // non-zero-denominator Rational.  Catches: overflow on extreme numerators,
 // silent normalization differences, lost precision for negative numbers.
 //
-// The round-trip goes through JSON marshal+unmarshal because that is the
-// actual code path: serializeRational emits a map with int64 values, and
-// parseResponse → parseRational receives them as float64 (Go's encoding/json
-// default for numeric values inside any).  Bypassing the marshal step
-// hides the int64-vs-float64 conversion that the FFI boundary always does.
+// The round-trip goes through a JSON marshal+unmarshal because that mirrors the
+// FFI boundary's int64→JSON→any conversion. This variant decodes via the default
+// json.Unmarshal (numbers as float64), exercising parseRational's retained
+// float64 path; the exact json.Number path that parseResponse now uses — and its
+// behaviour above 2^53 — is covered by TestParseResponse_ExactLargeRational.
 func TestProperty_RationalRoundTrip(t *testing.T) {
 	property := func(num int32, denomNonZero uint16) bool {
 		denom := int64(denomNonZero) + 1
