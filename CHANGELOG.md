@@ -335,10 +335,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   - **CAN id** is range-checked per the `extended` flag (11-bit / 29-bit) and
     **DLC** must be a valid CAN/CAN-FD byte count — Rust gained a public
     `Dlc::from_bytes` for this (the inverse of `Dlc::to_bytes`, the wire-symmetric
-    mirror of Go's `BytesToDLC` / C++'s `bytes_to_dlc`). **`startBit`** is 0–511,
-    bit **`length`** 1–64, and environment-variable **`varType`** is 0–2. Each
-    binding that lacked one of these gained it (Go and C++ id/DLC were already
-    strict).
+    mirror of Go's `BytesToDLC` / C++'s `bytes_to_dlc`). A present `extended` flag
+    must be a JSON boolean (Go/Rust previously treated a non-boolean as `false` and
+    Python coerced it — e.g. the string `"false"` became `True`; C++ already
+    rejected). **`startBit`** is 0–511, bit **`length`** 1–64, and
+    environment-variable **`varType`** is 0–2. Each binding that lacked one of these
+    gained it (Go and C++ id/DLC were already strict).
   - **The binary signal-extraction buffer must be consumed exactly** — Python and
     C++ now reject trailing bytes past the computed layout (Go already did; the
     Rust binding decodes extraction via the JSON path).

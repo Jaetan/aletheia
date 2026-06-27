@@ -500,10 +500,12 @@ fn decode_message(msg: &Value) -> Result<DbcMessage, Error> {
         .iter()
         .map(decode_signal)
         .collect::<Result<Vec<_>, _>>()?;
-    let extended = msg
-        .get("extended")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let extended = match msg.get("extended") {
+        None => false,
+        Some(v) => v
+            .as_bool()
+            .ok_or_else(|| protocol("message \"extended\" must be a boolean"))?,
+    };
     let id = u32_field(msg, "id")?;
     let max_id = if extended {
         MAX_EXTENDED_ID
@@ -1416,6 +1418,13 @@ mod tests {
         let mut m = valid_message();
         m["dlc"] = json!(64); // valid CAN-FD length
         assert!(decode_message(&m).is_ok());
+    }
+
+    #[test]
+    fn message_rejects_non_bool_extended() {
+        let mut m = valid_message();
+        m["extended"] = json!("true"); // string, not bool
+        assert!(decode_message(&m).is_err());
     }
 
     // signal startBit 0-511 / length 1-64

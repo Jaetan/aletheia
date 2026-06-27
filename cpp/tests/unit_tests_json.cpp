@@ -1581,6 +1581,13 @@ TEST_CASE("parse_dbc_response accepts well-formed metadata", "[json][parse][dbc]
     CHECK(detail::parse_dbc_response(base_dbc_response().dump()).has_value());
 }
 
+TEST_CASE("parse_dbc_response rejects a non-boolean extended flag",
+          "[json][parse][dbc][validation]") {
+    auto j = base_dbc_response();
+    j.at("dbc").at("messages").at(0)["extended"] = "true";
+    CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
+}
+
 // signal startBit 0-511 / length 1-64
 TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
           "[json][parse][dbc][validation]") {

@@ -1916,7 +1916,14 @@ func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
 	if idVal < 0 {
 		return nil, protocolError(fmt.Sprintf("negative message id: %d", idVal))
 	}
-	extended := getBool(j, "extended")
+	extended := false
+	if v, ok := j["extended"]; ok {
+		b, isBool := v.(bool)
+		if !isBool {
+			return nil, protocolError("message \"extended\" must be a boolean")
+		}
+		extended = b
+	}
 
 	var id CANID
 	if extended {

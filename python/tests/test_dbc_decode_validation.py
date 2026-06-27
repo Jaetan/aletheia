@@ -81,6 +81,11 @@ class TestMessageMetaValidation:
         """Accept the 64-byte CAN-FD maximum."""
         assert normalize_dbc(_dbc_with_message({"dlc": 64}))["messages"]
 
+    def test_rejects_non_bool_extended(self) -> None:
+        """Reject a present-but-non-boolean extended flag (no string coercion)."""
+        with pytest.raises(ProtocolError):
+            normalize_dbc(_dbc_with_message({"extended": "true"}))
+
 
 class TestSignalBitValidation:
     """Signal ``startBit`` 0-511 / ``length`` 1-64."""

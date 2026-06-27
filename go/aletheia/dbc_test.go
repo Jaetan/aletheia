@@ -1113,6 +1113,30 @@ func TestFormatDBC_MultiplexValueOverflow(t *testing.T) {
 	}
 }
 
+func TestFormatDBC_NonBoolExtended(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":"true","name":"Msg","dlc":8,"sender":"ECU",
+					"signals":[]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err = c.FormatDBC(ctx); err == nil {
+		t.Fatal("expected error for non-boolean extended")
+	}
+}
+
 // --- Group R6-K: Empty name validation tests ---
 
 func TestExtractSignals_EmptySignalName(t *testing.T) {

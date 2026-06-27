@@ -554,7 +554,10 @@ def _validate_message_meta(message: Mapping[str, object]) -> None:
     if not is_pure_int(can_id):
         msg = f"Expected message 'id' to be an int, got {can_id!r}"
         raise ProtocolError(msg)
-    extended = bool(message.get("extended", False))
+    extended = message.get("extended", False)
+    if not isinstance(extended, bool):
+        msg = f"Expected message 'extended' to be a bool, got {extended!r}"
+        raise ProtocolError(msg)
     dlc = message.get("dlc")
     if not is_pure_int(dlc):
         msg = f"Expected message 'dlc' to be an int, got {dlc!r}"
