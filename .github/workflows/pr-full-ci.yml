@@ -42,17 +42,21 @@ jobs:
 
       # Cache the ghcup-installed GHC + cabal so `ghcup install` becomes a fast
       # no-op after the first run (the cold download/unpack of GHC dominates the
-      # "Set up GHC + cabal" step).  Additive + self-healing: a bad/empty cache
-      # just re-downloads, never breaks the build.  Split restore/save (same
-      # rationale as the cabal store below) so the toolchain persists even when a
-      # later gate fails — a red iteration would otherwise re-download GHC on
-      # every push.  Shared key with benchmark.yml (same content).
+      # "Set up GHC + cabal" step).  Effective only because that step overrides
+      # GHCUP_INSTALL_BASE_PREFIX to $HOME (the runner bakes /usr/local, which
+      # this path would not capture).  Additive + self-healing: a bad/empty
+      # cache just re-downloads, never breaks the build.  Split restore/save
+      # (same rationale as the cabal store below) so the toolchain persists even
+      # when a later gate fails — a red iteration would otherwise re-download GHC
+      # on every push.  Shared key with benchmark.yml (same content).  Key is
+      # -v2: -v1 cached an empty ~/.ghcup (before the prefix override) and GHA
+      # cache keys are immutable.
       - name: Restore ghcup toolchain (GHC + cabal)
         id: ghcup-cache
         uses: actions/cache/restore@v5
         with:
           path: ~/.ghcup
-          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
+          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v2
 
       - name: Set up GHC + cabal
         run: |
@@ -64,12 +68,17 @@ jobs:
           # ~/.cabal/store/ghc-<ver>/package.db).  Export for later steps too.
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
           export CABAL_DIR="${HOME}/.cabal"
-          # The runner ships a root-owned ghcup (/usr/local/.ghcup), so ghcup's
-          # attempts to refresh its own cache-file timestamps warn with
-          # "setFileTimes: permission denied" — benign but noisy, which trains
-          # readers to ignore the log.  Take ownership first so the warning
-          # disappears and real warnings stay meaningful.  Tolerant: never fail
-          # the build over log hygiene if the path differs on a future runner.
+          # The runner bakes GHCUP_INSTALL_BASE_PREFIX=/usr/local, so ghcup
+          # installs toolchains under /usr/local/.ghcup — which the ~/.ghcup
+          # cache does NOT capture (GHC was re-downloaded on every run).
+          # Override the prefix to $HOME so installs land in ~/.ghcup and the
+          # cache warms `ghcup install` on later runs.
+          echo "GHCUP_INSTALL_BASE_PREFIX=${HOME}" >> "${GITHUB_ENV}"
+          export GHCUP_INSTALL_BASE_PREFIX="${HOME}"
+          # Belt-and-suspenders: with installs in $HOME, ghcup no longer writes
+          # /usr/local, but keep the tolerant chown as cheap insurance for any
+          # residual access (it only ever suppressed benign "permission denied"
+          # log noise; the `|| true` means it never fails the build).
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
@@ -81,7 +90,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.ghcup
-          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
+          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v2
 
       # Caches the prebuilt Agda library + executable so only the FIRST run
       # builds Agda (~15-20 min on the 4-core runner); later runs restore it
