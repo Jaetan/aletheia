@@ -72,60 +72,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # Cache the ghcup-installed GHC + cabal so `ghcup install` becomes a fast
-      # no-op after the first run (the cold download/unpack of GHC dominates the
-      # "Set up GHC + cabal" step).  Effective only because that step overrides
-      # GHCUP_INSTALL_BASE_PREFIX to $HOME (the runner bakes /usr/local, which
-      # this path would not capture).  Additive + self-healing: a bad/empty
-      # cache just re-downloads, never breaks the build.  Split restore/save
-      # (like the cabal store) so the toolchain persists even when a later gate
-      # fails — a red iteration would otherwise re-download GHC on every push.
-      # Per-workflow key (ghcup-bench-*, distinct from pr-full-ci's
-      # ghcup-fullci-*): a shared key let the two concurrent workflows race to
-      # save it, and the concurrent first-seed produced a 213 B (empty) entry.
-      # Separate keys mean each workflow saves its own toolchain with no race.
-      - name: Restore ghcup toolchain (GHC + cabal)
-        id: ghcup-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.ghcup
-          key: ghcup-bench-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
-
       - name: Set up GHC + cabal
         run: |
           set -euo pipefail
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
           export CABAL_DIR="${HOME}/.cabal"
-          # The runner bakes GHCUP_INSTALL_BASE_PREFIX=/usr/local, so ghcup
-          # installs toolchains under /usr/local/.ghcup — which the ~/.ghcup
-          # cache does NOT capture (GHC was re-downloaded on every run).
-          # Override the prefix to $HOME so installs land in ~/.ghcup and the
-          # cache warms `ghcup install` on later runs.
-          echo "GHCUP_INSTALL_BASE_PREFIX=${HOME}" >> "${GITHUB_ENV}"
-          export GHCUP_INSTALL_BASE_PREFIX="${HOME}"
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
-
-      # TEMPORARY diagnostic: confirm what the ghcup save below actually captures
-      # (the v2 cache seeded at 213 B despite GHC installing to ~/.ghcup).
-      - name: DEBUG ghcup layout before save (temporary)
-        run: |
-          echo "HOME=$HOME  GHCUP_INSTALL_BASE_PREFIX=${GHCUP_INSTALL_BASE_PREFIX:-<unset>}"
-          echo "== du -sh ~/.ghcup =="; du -sh ~/.ghcup 2>/dev/null || echo "(absent)"
-          echo "== ls -la ~/.ghcup =="; ls -la ~/.ghcup 2>/dev/null || true
-          echo "== du -sh ~/.ghcup/* =="; du -sh ~/.ghcup/* 2>/dev/null || true
-          echo "== ghc on PATH =="; command -v ghc && readlink -f "$(command -v ghc)" || true
-          echo "== ghc-9.6.7 dirs =="; find "$HOME" /usr/local /opt -maxdepth 4 -type d -name '9.6.7' 2>/dev/null | head
-
-      - name: Save ghcup toolchain (persists even if a later gate fails)
-        if: steps.ghcup-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: ~/.ghcup
-          key: ghcup-bench-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
 
       # Reuses pr-full-ci.yml's cabal cache key so the (15-20 min) Agda build is
       # warm whenever that workflow has populated it.
