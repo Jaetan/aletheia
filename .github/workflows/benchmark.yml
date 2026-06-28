@@ -23,7 +23,7 @@ on:
     # one would flip the default to "deny unless matched".  workflow_dispatch
     # ignores path filters, so manual exploratory runs are unaffected.
     paths-ignore:
-      - '**.md'
+      - '**/*.md'
       - 'docs/**'
   # Manual: ad-hoc numbers with custom parameters (the gate is PR-only, so
   # exploratory dispatch runs are never gated).
@@ -260,9 +260,15 @@ jobs:
       # / Catch2) so configure does not re-download each tarball every run.
       # Distinct key from pr-full-ci.yml's `cpp-deps-*` (which caches THREE build
       # dirs); a shared key would clobber that 3-dir cache with this lane's
-      # single cpp/build/_deps.  Combined cache (small + re-fetchable).
-      - name: Cache C++ FetchContent deps (benchmark lane)
-        uses: actions/cache@v5
+      # single cpp/build/_deps.  Split restore/save (like ccache + the cabal
+      # store): the combined action saves only on overall job SUCCESS, so a
+      # failed benchmark/regression-gate iteration would drop the deps and force
+      # a re-download next run (and re-expose the transient OpenXLSX 504 the
+      # FetchContent fetch has hit before).  The save below persists them even
+      # on a red later step.
+      - name: Restore C++ FetchContent deps (benchmark lane)
+        id: cpp-deps-cache
+        uses: actions/cache/restore@v5
         with:
           path: cpp/build/_deps
           key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
@@ -325,3 +331,14 @@ jobs:
         with:
           path: ~/.ccache
           key: ccache-bench-${{ runner.os }}-clang22-${{ github.sha }}
+
+      # Save the FetchContent deps (populated during the cmake configure above)
+      # even if a later step failed — `!cancelled()` matches the ccache save.
+      # Skip on an exact-key hit (immutable keys); the key is content-addressed
+      # on CMakeLists.txt, so on a re-run with unchanged deps this no-ops.
+      - name: Save C++ FetchContent deps (benchmark lane)
+        if: ${{ !cancelled() && steps.cpp-deps-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: cpp/build/_deps
+          key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
