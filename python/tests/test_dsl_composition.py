@@ -257,11 +257,11 @@ class TestEdgeCases:
         assert inner_pred["delta"] == -10
 
     def test_fractional_values(self) -> None:
-        """Fractional values work in comparisons.
+        """A decimal threshold is passed as an exact ``Fraction``.
 
-        The DSL converts floats via 10^9 scaling (matching Go ``floatToRational``
-        and C++ ``Rational::from_double``) so 12.65 becomes exactly Fraction(253, 20)
-        rather than the IEEE 754 binary fraction.  See ``to_predicate_fraction``.
+        ``Fraction("12.65")`` is exactly ``Fraction(253, 20)`` (the float principle:
+        a decimal is an exact rational, never an IEEE-754 ``float``); the conversion
+        runs through :func:`~aletheia.dsl.to_predicate_fraction`.
         """
         pred = Signal("Voltage").equals(Fraction("12.65"))
         formula = cast("AtomicFormula", pred.to_formula())

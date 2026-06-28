@@ -1031,14 +1031,6 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 }
 
 // ===========================================================================
-// Rational conversion
-// ===========================================================================
-
-// FloatToRational tests live here (rather than the aletheia package) because
-// the Excel loader is the primary user-input boundary that exercises the
-// error-returning variant; GPS-grade DBC factors (e.g. 1e-7) and overflow
-// from typo'd spreadsheet cells are the motivating cases.
-// ===========================================================================
 // Custom sheet names
 // ===========================================================================
 
