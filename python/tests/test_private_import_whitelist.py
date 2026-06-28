@@ -201,6 +201,11 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # security check needs to be tested in isolation with monkeypatched
         # env vars and synthetic permission modes.
         ("test_ffi_loader_security.py", "aletheia.client._ffi", "find_ffi_library"),
+        # Raw-FFI smoke test for ``aletheia_parse_decimal`` (the decimal→rational
+        # SSOT).  Phase 0 ships the export but no high-level wrapper yet, so the
+        # test resolves the .so via ``find_ffi_library`` and calls the symbol
+        # directly through ctypes to cover the shim marshaling path.
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "find_ffi_library"),
         # CAN-FD BRS / ESI encoding helper (R19 Phase 2 cluster 18 —
         # AGDA-D-10.1).  ``encode_maybe_bool`` mirrors the Haskell shim's
         # ``mkMaybeBool`` and is exercised directly to lock the

@@ -23,6 +23,7 @@
 # Function exports (d_*)
 # ============================================================================
 F: Aletheia/DBC/RationalRenderer:d_formatRational_166
+F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_16
 F: Aletheia/Main/JSON:d_processJSONLine_70
 F: Aletheia/Main/Binary:d_processFrameDirect_12
 F: Aletheia/Main/Binary:d_processEventDirect_18

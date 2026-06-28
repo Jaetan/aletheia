@@ -12,6 +12,36 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **`aletheia_parse_decimal` FFI export — the kernel single source of truth for
+  decimal→rational.** A new Agda module `Aletheia.DBC.TextParser.DecimalEntry`
+  (`parseDecimal : String → Maybe ℚ`) parses a decimal string into the exact
+  rational it denotes by delegating wholesale to the verified `parseDecRat`
+  grammar (`-?digits[.digits+]`; no `'+'`, no leading `'.'`, no exponent) and
+  requiring full consumption (trailing input is rejected, unlike the library
+  `runParser`). The Haskell shim (`aletheia_parse_decimal`) returns the bindings'
+  wire shape — bare `{"numerator":N,"denominator":D}` on success (the exact form
+  `decode_wire_rational` consumes), a `{"status":"error",...}` envelope keyed by
+  `message` with code `decimal_parse_failed` / `decimal_overflow` and the
+  offending `input` echoed on failure — catching Int64 overflow at the marshaling
+  boundary via `toIntegralSized` (the kernel rational is unbounded). This is the
+  input half of the float principle: a decimal is an exact `DecRat`
+  (denominator `2^a·5^b`), never a float. The accepted grammar now lives once in
+  the verified kernel, so it cannot drift between bindings. Phase 0 ships the
+  export + a proof; the per-binding rewire (deleting the float→rational
+  heuristics) follows. (`src/Aletheia/DBC/TextParser/DecimalEntry.agda`,
+  `haskell-shim/src/AletheiaFFI.hs`, `haskell-shim/src/AletheiaFFI/Marshal.hs`.)
+- **`parseDecimal` is proven a weak inverse of the decimal emitter**
+  (`src/Aletheia/DBC/TextParser/DecimalEntry/Properties.agda`):
+  `parseDecimal-chars (showDecRat-dec-chars d) ≡ just d` (every `DecRat` recovered
+  from its canonical decimal text), a `map toℚ` corollary at the ℚ layer the FFI
+  returns, and `parseDecimal-chars (showInt-chars z) ≡ just (fromℤ z)` (the
+  common user-typed bare integer the emitter never prints as `"42"`). Both
+  discharge from the already-proven suffix-aware roundtrips in
+  `…DecRatParse.Properties.Phase6Suffix` specialised to full consumption; the
+  module is registered in `Shakefile.hs` `proofModules` so `check-properties`
+  gates it. A raw-ctypes smoke test (`python/tests/test_parse_decimal_ffi.py`)
+  covers the shim marshaling path end-to-end (success / parse-failure / Int64
+  overflow). Module count 273 → 275.
 - **Rust binding now emits `extraction.process_failed` / `extraction.parse_failed`**
   (`rust/src/lib.rs`), closing a logging-parity gap with Go/Python/C++. The public
   `extract_signals` — and, through it, the violation-enrichment loop (`extract_all`
@@ -792,6 +822,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **FFI validation-error envelopes now key the human reason as `message`, not
+  `error`** (`haskell-shim/src/AletheiaFFI/Marshal.hs` `mkErrorJson`). The
+  cross-binding error-envelope convention — the Agda `responseToJSON` emitter and
+  all four bindings — reads `message`; the shim's `mkErrorJson` was the lone
+  hold-out keying `error`, so a binding reading a null-guard / FFI-validation
+  failure (`code: ffi_validation_error`) surfaced `"Unknown error"` instead of the
+  real reason. (The per-signal extraction object `{name, error}` is a different,
+  narrower shape and correctly keeps `error`.)
+- **The `checkFFINames` mangled-name extractor is robust to surrounding
+  punctuation** (`Shakefile.hs` `extractFFIName`). It located the qualifier by
+  `drop (length qualifier + 1)` on the whitespace-delimited word, which assumed
+  the word *started* with the qualifier — so a paren-prefixed call
+  (`unsafeCoerce (AgdaX.d_f_12 …`) or a backtick-wrapped mention in a comment
+  mis-extracted to `.d_f_12`, spuriously failing the FFI-name drift gate. It now
+  finds the qualifier prefix anywhere in the word and takes the trailing digits,
+  so the FFI wrapper can call the export in the natural idiom; the renderer twin
+  only passed by happening to be a standalone word.
 - **Python & C++ reject floats on the internal wire decode**
   (`python/aletheia/client/_helpers/`, `cpp/src/json_parse.cpp`). A computed value
   crossing the FFI boundary — an extraction signal value, a DBC

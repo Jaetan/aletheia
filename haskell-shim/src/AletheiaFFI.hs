@@ -30,11 +30,13 @@ import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
 import qualified MAlonzo.Code.Aletheia.DBC.RationalRenderer as AgdaRR
+import qualified MAlonzo.Code.Aletheia.DBC.TextParser.DecimalEntry as AgdaDE
 import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Aletheia.Main.JSON as AgdaJSON
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
 import qualified MAlonzo.Code.Aletheia.Trace.CANTrace as AgdaTrace
 import qualified MAlonzo.Code.Aletheia.Trace.Time as AgdaTime
+import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 
@@ -336,6 +338,32 @@ aletheia_format_rational num denom =
                | otherwise = (num, denom)
         result = AgdaRR.d_formatRational_166 (toInteger n) (toInteger d)
     in newCString (T.unpack (unsafeCoerce result :: T.Text))
+
+-- ============================================================================
+-- DECIMAL → EXACT RATIONAL (kernel SSOT for decimal parsing)
+-- ============================================================================
+
+-- | Parse a decimal string into the exact rational it denotes, returning the
+-- bindings' wire shape: `{"numerator":N,"denominator":D}` on success, or a
+-- `{"status":"error",...}` envelope (code `decimal_parse_failed` /
+-- `decimal_overflow`, with the offending `input` echoed) on failure.
+--
+-- This is the cross-binding single source of truth for decimal→rational: every
+-- binding routes user decimal input through here rather than re-deriving a
+-- float→rational heuristic, so the accepted grammar cannot drift between
+-- languages.  The kernel parser (`parseDecimal`) yields an unbounded ℚ; the
+-- Int64-wire bound is enforced here at the marshaling boundary (mirrors
+-- `mkAgdaRational`).  Caller frees the returned CString via `aletheia_free_str`.
+foreign export ccall aletheia_parse_decimal :: CString -> IO CString
+aletheia_parse_decimal :: CString -> IO CString
+aletheia_parse_decimal inputCStr
+  | inputCStr == nullPtr =
+      newCString (mkDecimalErrorJson "decimal_parse_failed" "null input string" "")
+  | otherwise = do
+      s <- peekCString inputCStr
+      let result = unsafeCoerce (AgdaDE.d_parseDecimal_16 (T.pack s))
+                     :: Maybe AgdaRational.T_ℚ_6
+      newCString (decimalResultJson s result)
 
 foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
 aletheia_free_buf :: Ptr Word8 -> IO ()

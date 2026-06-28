@@ -11,6 +11,7 @@
 -- surface — no marshaling, no validation, no error formatting.
 module AletheiaFFI.Marshal where
 
+import Data.Bits (toIntegralSized)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 import Unsafe.Coerce (unsafeCoerce)
@@ -22,9 +23,47 @@ import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 
--- | Format a validation error as a JSON error response string.
+-- | Format a validation error as a JSON error response string.  The text is
+-- carried in `message` — the cross-binding error-envelope convention (Agda
+-- `responseToJSON` and all four bindings read `message`; the per-signal
+-- extraction object `{name,error}` is a different, narrower shape).
 mkErrorJson :: String -> String
-mkErrorJson msg = "{\"status\":\"error\",\"code\":\"ffi_validation_error\",\"error\":" ++ show msg ++ "}"
+mkErrorJson msg = "{\"status\":\"error\",\"code\":\"ffi_validation_error\",\"message\":" ++ show msg ++ "}"
+
+-- | Error envelope for `aletheia_parse_decimal`.  A precise `code` for
+-- programmatic dispatch (`decimal_parse_failed` / `decimal_overflow`), the
+-- human reason in `message` (the convention `mkErrorJson` uses), and the
+-- offending `input` echoed back (structured-extra, like the bound-exceeded
+-- `observed`/`limit` triple).
+mkDecimalErrorJson :: String -> String -> String -> String
+mkDecimalErrorJson code msg input =
+    "{\"status\":\"error\",\"code\":" ++ show code
+    ++ ",\"message\":" ++ show msg
+    ++ ",\"input\":" ++ show input
+    ++ "}"
+
+-- | Render the result of `parseDecimal` as the FFI wire string.  Success is
+-- the bare `{"numerator":N,"denominator":D}` shape the bindings'
+-- `decode_wire_rational` consumes; the pair is already in lowest terms with a
+-- positive denominator (the `DecRat` canonical invariant; `toℚ` gives
+-- denominator `2^a·5^b ≥ 1`).  `nothing` → a parse-failure envelope; a
+-- numerator/denominator outside the Int64 wire range → an overflow envelope.
+-- Int64 is the wire bound; the kernel rational is unbounded, so the bound
+-- check lives here at the marshaling boundary (mirrors `mkAgdaRational`).
+decimalResultJson :: String -> Maybe AgdaRational.T_ℚ_6 -> String
+decimalResultJson input Nothing =
+    mkDecimalErrorJson "decimal_parse_failed"
+        "not a valid decimal literal: expected -?digits or -?digits.digits+ (at least one digit after '.'; no '+' sign, no leading '.', no exponent)"
+        input
+decimalResultJson input (Just q) =
+    let num = AgdaRational.d_numerator_14 q
+        den = AgdaRational.d_denominatorℕ_20 q
+    in case (toIntegralSized num :: Maybe Int64, toIntegralSized den :: Maybe Int64) of
+        (Just n, Just d) ->
+            "{\"numerator\":" ++ show n ++ ",\"denominator\":" ++ show d ++ "}"
+        _ -> mkDecimalErrorJson "decimal_overflow"
+                "decimal numerator or denominator exceeds the Int64 wire range"
+                input
 
 -- | Typed FFI error carrying either a free-form string (legacy validation
 -- messages) or a structured adversarial-input bound violation that mirrors
