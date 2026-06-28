@@ -150,15 +150,29 @@ extractFFIName :: String -> String -> String -> Maybe String
 extractFFIName qualifier funcName content =
     let prefix = "d_" ++ funcName ++ "_"
         qualPrefix = qualifier ++ "." ++ prefix
-        qualLen = length qualifier + 1 -- qualifier + "."
-    in listToMaybe [cleaned | line <- lines content,
-                              qualifier `isInfixOf` line,
-                              funcName `isInfixOf` line,
-                              let parts = words line,
-                              name <- parts,
-                              qualPrefix `isInfixOf` name,
-                              let cleaned = drop qualLen name,
-                              prefix `isInfixOf` cleaned]
+        -- Text immediately following the first occurrence of `needle` in `s`
+        -- (Nothing if absent).  Locating the qualifier prefix WITHIN the word —
+        -- rather than assuming the word starts with it — makes extraction robust
+        -- to surrounding punctuation: a paren-prefixed call `(AgdaX.d_f_12` or a
+        -- backtick-wrapped mention in a comment both yield the same name.
+        afterNeedle needle s
+          | Just rest <- stripPrefix needle s = Just rest
+          | (_ : t)   <- s                    = afterNeedle needle t
+          | otherwise                         = Nothing
+        -- Drop a Haskell `--` line comment before matching, so a mangled name
+        -- merely MENTIONED in prose cannot satisfy the gate — only the actual
+        -- wrapper call (code) counts.
+        beforeComment s
+          | "--" `isPrefixOf` s = ""
+          | (c : cs) <- s       = c : beforeComment cs
+          | otherwise           = ""
+    in listToMaybe [ prefix ++ takeWhile isDigit rest
+                   | line <- lines content,
+                     let code = beforeComment line,
+                     qualifier `isInfixOf` code,
+                     funcName `isInfixOf` code,
+                     name <- words code,
+                     Just rest <- [afterNeedle qualPrefix name] ]
 
 -- | Check that the FFI wrapper uses the correct mangled name for a single function.
 checkOneFFIName :: String -> String -> String -> String -> Action ()
@@ -219,6 +233,7 @@ ffiExports =
     , FFIExport "AgdaBin"   "processExtractBin"        "Aletheia/Main/Binary"
     , FFIExport "AgdaState" "initialState"             "Aletheia/Protocol/StreamState/Types"
     , FFIExport "AgdaRR"    "formatRational"           "Aletheia/DBC/RationalRenderer"
+    , FFIExport "AgdaDE"    "parseDecimal"             "Aletheia/DBC/TextParser/DecimalEntry"
     ]
 
 -- | Load the MAlonzo module contents needed by `ffiExports`, deduplicating
@@ -378,6 +393,8 @@ proofModules =
     -- RationalRenderer itself IS reached from Main (FFI shim); .Properties is not.
     , "Aletheia/DBC/RationalRenderer/Properties.agda"
     , "Aletheia/DBC/RationalRenderer/Faithful.agda"
+    -- DecimalEntry itself IS reached from Main (FFI shim); .Properties is not.
+    , "Aletheia/DBC/TextParser/DecimalEntry/Properties.agda"
     -- TextParser / TextFormatter aggregators: not proofs, but pulling them in
     -- forces the full submodule tree to type-check (unreachable from Main).
     , "Aletheia/DBC/TextParser.agda"

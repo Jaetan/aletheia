@@ -83,6 +83,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.TextParser.DecRatParse.Properties.Phase3Naturals
                       MAlonzo.Code.Aletheia.DBC.TextParser.DecRatParse.Properties.Phase4Composition
                       MAlonzo.Code.Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix
+                      MAlonzo.Code.Aletheia.DBC.TextParser.DecimalEntry
                       MAlonzo.Code.Aletheia.DBC.TextParser.EnvVars
                       MAlonzo.Code.Aletheia.DBC.TextParser.ExtendedMux
                       MAlonzo.Code.Aletheia.DBC.TextParser.Format

@@ -140,3 +140,11 @@ open import Aletheia.Protocol.ResponseFormat public
 -- per-binding implementations with a single Agda kernel function.
 open import Aletheia.DBC.RationalRenderer public
   using ()
+
+-- Decimal-string → exact rational entry point for the FFI shim.
+-- Exposed so `aletheia_parse_decimal` can call `parseDecimal` (the kernel's
+-- single source of truth for decimal→rational across all bindings).  Opened
+-- only to force MAlonzo compilation of the module; nothing is brought into
+-- Main's scope (`using ()`).
+open import Aletheia.DBC.TextParser.DecimalEntry public
+  using ()
