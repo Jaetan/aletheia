@@ -37,7 +37,7 @@ checks.signal("VehicleSpeed").never_exceeds(220)
 ### Signal never drops below a value
 
 ```python
-checks.signal("BatteryVoltage").never_below(11.0)
+checks.signal("BatteryVoltage").never_below(11)
 ```
 
 ```yaml
@@ -49,7 +49,7 @@ checks.signal("BatteryVoltage").never_below(11.0)
 ### Signal stays in a range
 
 ```python
-checks.signal("BatteryVoltage").stays_between(11.5, 14.5)
+checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))
 ```
 
 ```yaml
@@ -111,14 +111,14 @@ Signal("EngineRPM").changed_by(500).eventually()
 
 ```python
 # Temperature stable within ±2 degrees frame-to-frame
-Signal("CoolantTemp").stable_within(2.0).always()
+Signal("CoolantTemp").stable_within(2).always()
 ```
 
 ### Combine stability with a time window
 
 ```python
 # After warmup, temperature must stabilize within ±1 degree
-Signal("CoolantTemp").stable_within(1.0).within(30000)
+Signal("CoolantTemp").stable_within(1).within(30000)
 ```
 
 ---

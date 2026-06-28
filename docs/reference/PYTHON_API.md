@@ -83,6 +83,8 @@ The `Signal` class provides fluent methods for building atomic predicates.
 #### Basic Comparisons
 
 ```python
+from fractions import Fraction
+
 from aletheia import Signal
 
 # Equality
@@ -94,8 +96,8 @@ Signal("Speed").greater_than(0)             # Speed > 0
 Signal("Speed").less_than_or_equal(200)     # Speed <= 200
 Signal("Speed").greater_than_or_equal(60)   # Speed >= 60
 
-# Range checking
-Signal("BatteryVoltage").between(11.5, 14.5)  # 11.5 <= voltage <= 14.5
+# Range checking — decimals are exact Fractions (the float principle: no float)
+Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5"))  # 11.5 <= v <= 14.5
 ```
 
 #### Change Detection
@@ -112,7 +114,7 @@ Signal("RPM").changed_by(500)    # RPM increased by 500+
 
 ```python
 # Signal stayed within tolerance of previous value
-Signal("Temperature").stable_within(2.0)  # Temperature stable within +/-2
+Signal("Temperature").stable_within(2)  # Temperature stable within +/-2
 ```
 
 **Note**: `stable_within` checks `|value_now - value_prev| <= tolerance`
@@ -396,8 +398,8 @@ properties = [
     # P1: Speed always in valid range
     Signal("Speed").between(0, 300).always(),
 
-    # P2: Voltage always stable
-    Signal("BatteryVoltage").between(11.5, 14.5).always(),
+    # P2: Voltage always stable (decimals are exact Fractions — no float)
+    Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5")).always(),
 
     # P3: No critical errors
     Signal("CriticalError").equals(1).never(),
@@ -581,11 +583,13 @@ dbc_out = client.format_dbc()
 Set LTL checks, merging with default checks from the constructor. Calls `set_properties()` which auto-derives enrichment diagnostics.
 
 ```python
+from fractions import Fraction
+
 from aletheia import checks
 
 check_list = [
     checks.signal("Speed").never_exceeds(220),
-    checks.signal("Voltage").stays_between(11.5, 14.5),
+    checks.signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")),
 ]
 response = client.add_checks(check_list)
 assert response["status"] == "success"

@@ -8,7 +8,10 @@ Designed for automotive technicians: fill in cells, press Run.
 The workbook used here is demo_workbook.xlsx — open it alongside this
 script to see what the spreadsheet looks like.
 
-No FFI or Agda build required — this demo only generates formulas.
+Numeric cells are TEXT-formatted and parsed exactly by the verified Agda kernel
+(the float principle: a decimal is an exact rational, never a lossy float), so a
+live client must be up while loading — hence the ``with AletheiaClient()`` blocks
+below. Build the library first: ``cabal run shake -- build``.
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -19,7 +22,12 @@ No FFI or Agda build required — this demo only generates formulas.
 import tempfile
 from pathlib import Path
 
-from aletheia import create_template, load_checks_from_excel, load_dbc_from_excel
+from aletheia import (
+    AletheiaClient,
+    create_template,
+    load_checks_from_excel,
+    load_dbc_from_excel,
+)
 from aletheia.checks import signal, when
 
 WORKBOOK = Path(__file__).parent / "demo_workbook.xlsx"
@@ -55,7 +63,10 @@ print("=" * 60)
 
 print(f"\n  Workbook: {WORKBOOK.name}")
 
-checks = load_checks_from_excel(WORKBOOK)
+# A live client brings up the verified kernel that parses the workbook's
+# (text-formatted) decimal cells exactly — decimal parsing is RTS-gated.
+with AletheiaClient():
+    checks = load_checks_from_excel(WORKBOOK)
 print(f"  Loaded {len(checks)} checks:")
 
 for i, check in enumerate(checks, 1):
@@ -72,7 +83,8 @@ print("\n" + "=" * 60)
 print("SECTION 3: Load DBC from Excel")
 print("=" * 60)
 
-dbc = load_dbc_from_excel(WORKBOOK)
+with AletheiaClient():
+    dbc = load_dbc_from_excel(WORKBOOK)
 
 print(f"\n  {len(dbc['messages'])} messages:")
 for msg in dbc["messages"]:

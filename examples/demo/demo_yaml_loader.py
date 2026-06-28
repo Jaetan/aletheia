@@ -5,7 +5,10 @@
 Load signal checks from a YAML file — version-controllable, CI/CD-friendly
 check definitions without writing Python.
 
-No FFI or Agda build required — this demo only generates formulas.
+Decimal values are parsed exactly by the verified Agda kernel (the float
+principle: a decimal is an exact rational, never a lossy float), so a live client
+must be up while loading — hence the ``with AletheiaClient()`` blocks below. Build
+the library first: ``cabal run shake -- build``.
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -13,11 +16,11 @@ No FFI or Agda build required — this demo only generates formulas.
 # each script reads and runs in isolation; deduplicating would couple them.
 # pylint: disable=duplicate-code
 
-import json
 from pathlib import Path
 
-from aletheia import load_checks
+from aletheia import AletheiaClient, load_checks
 from aletheia.checks import signal, when
+from aletheia.types import dump_json
 
 # =============================================================================
 # SECTION 1: Load Checks from File
@@ -28,7 +31,10 @@ print("SECTION 1: Load Checks from File")
 print("=" * 60)
 
 yaml_path = Path(__file__).parent / "demo_checks.yaml"
-checks = load_checks(yaml_path)
+# A live client brings up the verified kernel that parses the file's decimal
+# values exactly — decimal parsing is RTS-gated.
+with AletheiaClient():
+    checks = load_checks(yaml_path)
 
 print(f"\nLoaded {len(checks)} checks from {yaml_path.name}")
 
@@ -36,7 +42,7 @@ for i, check in enumerate(checks, 1):
     name = check.name or "<unnamed>"
     sev = check.check_severity or "-"
     print(f"\n  {i}. {name} [{sev}]")
-    print(f"     {json.dumps(check.to_dict(), separators=(',', ':'))[:80]}...")
+    print(f"     {dump_json(check.to_dict())[:80]}...")
 
 
 # =============================================================================
@@ -47,7 +53,8 @@ print("\n" + "=" * 60)
 print("SECTION 2: Inline YAML")
 print("=" * 60)
 
-inline_checks = load_checks("""
+with AletheiaClient():
+    inline_checks = load_checks("""
 checks:
   - name: "Quick speed check"
     signal: VehicleSpeed
@@ -59,7 +66,7 @@ checks:
 print(f"\nLoaded {len(inline_checks)} check(s) from inline YAML")
 print(f"  Name: {inline_checks[0].name}")
 print(f"  Severity: {inline_checks[0].check_severity}")
-print(f"  Formula:\n{json.dumps(inline_checks[0].to_dict(), indent=2)}")
+print(f"  Formula:\n{dump_json(inline_checks[0].to_dict(), indent=2)}")
 
 
 # =============================================================================

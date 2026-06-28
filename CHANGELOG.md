@@ -363,6 +363,38 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **B6e Phase 1 — every binding now parses decimals through the kernel SSOT; the
+  float→rational heuristics are gone (BREAKING, all four bindings).** Each binding
+  exposes `from_decimal` (Python `aletheia.from_decimal` → `Fraction`; C++
+  `Rational::from_decimal`; Go `aletheia.FromDecimal`; Rust `Rational::from_decimal`)
+  which delegates to the Phase 0 kernel export `aletheia_parse_decimal` and decodes
+  via each binding's existing wire decoder — so the accepted grammar
+  (`-?digits[.digits+]`, no `'+'`/leading-`.`/exponent) and the exact rational it
+  denotes are identical everywhere and cannot drift. The float principle is now
+  enforced end-to-end: numeric API parameters take an exact type (Python
+  `int | Fraction`; Go check builders take `Rational`; C++/Rust unchanged — already
+  `Strong<Rational>` / `impl Into<Rational>`), a bare `float`/`f64` is no longer
+  accepted, and a float survives only at print-out (`to_double`/`Float64`/
+  `format_rational`). Decimal parsing is **RTS-gated and vocal**: it requires a live
+  backend (an `FfiBackend`/`Client` is the sole RTS initialiser) and returns a typed
+  runtime-not-initialised error rather than self-initialising — so the previously
+  pure YAML/Excel loaders now require a backend before loading a file with numeric
+  fields. Go additionally drops the error return from its now-infallible check
+  terminals (`NeverExceeds`/`NeverBelow`/`NeverEquals`, `Equals(...).Always()`),
+  matching Python/Rust, and gains an overflow-safe `lo > hi` range comparator
+  (`math/big`, replacing a cross-multiply that overflowed `int64`). YAML keeps
+  accepting integer literals (exact); a YAML decimal scalar is read as its original
+  text and parsed exactly (Python's loader disables the implicit-float resolver).
+- **Excel loaders adopt an all-text contract across all four bindings (BREAKING).**
+  A spreadsheet number cell stores a lossy IEEE-754 double, so every *numeric* field
+  must now be a **text-formatted** cell, parsed exactly via `from_decimal`; a
+  number-typed cell — integer or decimal — is rejected with a message naming the
+  row, the column, the offending value and the reason (`"… is a number cell (got X);
+  format it as TEXT …"`), so a single stray number cell in a column of text is
+  locatable from the error alone. Booleans (the `Signed` column) and the hex
+  `Message ID` are exempt (a boolean accepts native/`1`/`0`/`TRUE`/`FALSE`; the ID
+  keeps its hex/decimal parse). The shared `examples/demo/demo_workbook.xlsx`
+  fixture (loaded by every binding's tests) is regenerated all-text accordingly.
 - **DBC decode-validation tightened to lockstep across all four bindings**
   (`go/aletheia/json.go`, `python/aletheia/client/_helpers/dbc_normalize.py` +
   `_client_bin.py`, `rust/src/{dbc,types}.rs`, `cpp/src/{json_parse,client}.cpp`).
@@ -807,6 +839,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **The per-binding float→rational heuristics (B6e Phase 1, BREAKING).** Deleted
+  in favour of the kernel SSOT `from_decimal`: Python `float_to_rational` /
+  `coerce_to_rational` / `to_signal_fraction` (`rational.py`, `types.py`); C++
+  `Rational::from_double` (`types.hpp`/`types.cpp`); Go `PhysicalValue` (the
+  `float64` newtype), `RationalFromFloat`, `FloatToRational`, `floatToRational`
+  (`types.go`/`client.go`); Rust `Rational::from_f64` (and the now-dead `gcd`
+  helper) (`types.rs`). Python's `fraction_to_rational` was **kept but renamed**
+  `fraction_to_wire_pair` — it does the exact int64 numerator/denominator
+  extraction the binary-frame FFI needs, which is unrelated to decimal *input*.
 - Dead JSON **streaming** commands from the Agda core's command protocol —
   `startStream`, `sendFrame`, `extractAllSignals`, `endStream`, and `formatDBC`
   (their `StreamCommand` constructors, `Routing.agda` parsers, and

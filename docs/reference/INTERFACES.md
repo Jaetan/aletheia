@@ -68,7 +68,7 @@ checks.signal("Speed").never_exceeds(220)
     aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
 ```
 ```go
-aletheia.CheckSignal("Speed").NeverExceeds(220)
+aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
 ```
 
 **Raw DSL** — the same property built directly in LTL:
@@ -157,6 +157,8 @@ The Check API wraps the DSL with industry vocabulary. Each method returns a
 same JSON that the verified Agda core processes.
 
 ```python
+from fractions import Fraction
+
 from aletheia import checks
 ```
 
@@ -165,12 +167,12 @@ Each `checks.signal(...)` / `checks.when(...)` call returns a `CheckResult` obje
 ### Simple Signal Checks
 
 ```python
-# Value bounds
+# Value bounds (decimals are exact Fractions — the float principle: no float)
 checks.signal("VehicleSpeed").never_exceeds(220)      # G(speed <= 220)
-checks.signal("BatteryVoltage").never_below(11.0)     # G(voltage >= 11.0)
+checks.signal("BatteryVoltage").never_below(11)       # G(voltage >= 11)
 
 # Range
-checks.signal("BatteryVoltage").stays_between(11.5, 14.5)  # G(11.5 <= v <= 14.5)
+checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))  # G(11.5 <= v <= 14.5)
 
 # Equality
 checks.signal("FaultCode").never_equals(255)           # G(not(fault == 255))
@@ -240,12 +242,14 @@ check.to_dict()       # LTL formula (same with or without metadata)
 ### Using Checks with AletheiaClient
 
 ```python
+from fractions import Fraction
+
 from aletheia import AletheiaClient, checks
 from aletheia.dbc import dbc_to_json
 
 check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220),
-    checks.signal("BatteryVoltage").stays_between(11.5, 14.5),
+    checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5")),
     checks.when("BrakePedal").exceeds(50)
          .then("BrakeLight").equals(1).within(100),
 ]

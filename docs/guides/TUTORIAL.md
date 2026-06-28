@@ -204,7 +204,7 @@ check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220)
         .named("Speed limit").severity("safety"),
 
-    checks.signal("BatteryVoltage").stays_between(11.5, 14.5)
+    checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))
         .named("Battery range").severity("warning"),
 
     checks.signal("FaultCode").never_equals(255)
@@ -219,7 +219,7 @@ check_list = [
 checks.signal("Speed").never_exceeds(220)        # G(speed < 220)
 
 # Lower bound
-checks.signal("Voltage").never_below(11.0)       # G(voltage >= 11.0)
+checks.signal("Voltage").never_below(11)          # G(voltage >= 11)
 
 # Range
 checks.signal("Temp").stays_between(80, 100)     # G(80 <= temp <= 100)
@@ -291,14 +291,14 @@ Signal("Speed").greater_than(0)
 Signal("Speed").less_than_or_equal(200)
 Signal("Speed").greater_than_or_equal(60)
 
-# Range
-Signal("Voltage").between(11.5, 14.5)
+# Range — decimals are exact Fractions (the float principle: no float)
+Signal("Voltage").between(Fraction("11.5"), Fraction("14.5"))
 
 # Change detection: directional (sign of delta determines direction)
 Signal("Speed").changed_by(-10)    # Speed decreased by 10+
 
 # Stability: |now - prev| <= tolerance
-Signal("Temperature").stable_within(2.0)  # Temperature stable within +/-2
+Signal("Temperature").stable_within(2)  # Temperature stable within +/-2
 ```
 
 ### Step 2: Temporal Operators
