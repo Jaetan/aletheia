@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for utility types, DLC conversion, rational parsing, and condition sets."""
 
-import math
-
 import pytest
 from _dbc_helpers import dbc, message, signal
 
@@ -15,7 +13,6 @@ from aletheia._check_conditions import (
     SIMPLE_SETTLES_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
 )
-from aletheia.client._helpers.rational import float_to_rational
 from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia.types import DLCByteCount, DLCCode
 
@@ -84,53 +81,6 @@ class TestConditionSets:
 
 
 # ============================================================================
-# T-7: float_to_rational binary FFI conversion
-# ============================================================================
-
-
-class TestFloatToRational:
-    """Tests for float_to_rational 10^9 scaling."""
-
-    def test_integer_value(self) -> None:
-        """Verify integer value."""
-        n, d = float_to_rational(42.0)
-        assert n == 42_000_000_000
-        assert d == 1_000_000_000
-
-    def test_fractional_value(self) -> None:
-        """Verify fractional value."""
-        n, d = float_to_rational(3.14)
-        assert n == 3_140_000_000
-        assert d == 1_000_000_000
-        assert math.isclose(n / d, 3.14)
-
-    def test_zero(self) -> None:
-        """Verify zero."""
-        n, d = float_to_rational(0.0)
-        assert n == 0
-        assert d == 1_000_000_000
-
-    def test_negative(self) -> None:
-        """Verify negative."""
-        n, d = float_to_rational(-1.5)
-        assert n == -1_500_000_000
-        assert d == 1_000_000_000
-
-    def test_small_value(self) -> None:
-        """Verify small value."""
-        n, d = float_to_rational(0.001)
-        assert n == 1_000_000
-        assert d == 1_000_000_000
-        assert math.isclose(n / d, 0.001)
-
-    def test_roundtrip_precision(self) -> None:
-        """Values round-trip through float_to_rational with 9 decimal places."""
-        for value in [0.0, 1.0, -1.0, 0.123456789, 220.0, 0.01, 65535.0]:
-            n, d = float_to_rational(value)
-            assert math.isclose(n / d, value, abs_tol=1e-9)
-
-
-# ============================================================================
 # T-8: Signal index cache integration
 # ============================================================================
 
@@ -158,7 +108,7 @@ class TestSignalIndexCache:
             frame = client.build_frame(
                 can_id=256,
                 dlc=DLCCode(8),
-                signals={"Sig0": 1.0, "Sig1": 2.0},
+                signals={"Sig0": 1, "Sig1": 2},
             )
             assert len(frame) == 8
 
@@ -172,7 +122,7 @@ class TestSignalIndexCache:
             )
             client.parse_dbc(dbc1)
             # Sanity: dbc1 is live.
-            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1.0})
+            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1})
 
             dbc2 = dbc(
                 [
@@ -182,8 +132,8 @@ class TestSignalIndexCache:
             client.parse_dbc(dbc2)
             # dbc1's 256 key must be gone; dbc2's 512 key must be live.
             with pytest.raises(ValidationError, match="no DBC message for CAN ID 256"):
-                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1.0})
-            client.build_frame(can_id=512, dlc=DLCCode(8), signals={"NewSig": 1.0})
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"OldSig": 1})
+            client.build_frame(can_id=512, dlc=DLCCode(8), signals={"NewSig": 1})
 
     def test_build_frame_without_dbc_raises(self) -> None:
         """build_frame before parse_dbc raises with 'DBC not loaded'."""
@@ -191,7 +141,7 @@ class TestSignalIndexCache:
             AletheiaClient() as client,
             pytest.raises(StateError, match="DBC not loaded"),
         ):
-            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
+            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1})
 
     def test_build_frame_unknown_signal_raises(self) -> None:
         """build_frame with unknown signal name raises."""
@@ -203,7 +153,25 @@ class TestSignalIndexCache:
             )
             client.parse_dbc(dbc_def)
             with pytest.raises(ValidationError, match="unknown signal"):
-                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"NoSuchSig": 1.0})
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"NoSuchSig": 1})
+
+    def test_build_frame_rejects_bool_signal_value(self) -> None:
+        """A ``bool`` signal value is rejected at the wire boundary.
+
+        ``bool`` is an ``int`` subclass, so the static type ``int | Fraction``
+        accepts ``True`` with no cast — only the runtime validator
+        (``to_exact_fraction`` via ``_resolve_signal_indices``) catches it, so a
+        mistaken boolean cannot be silently encoded as ``1`` on the wire.
+        """
+        with AletheiaClient() as client:
+            dbc_def = dbc(
+                [
+                    message(256, "Msg", [signal("Sig", length=8, maximum=255)]),
+                ]
+            )
+            client.parse_dbc(dbc_def)
+            with pytest.raises(TypeError, match="boolean"):
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": True})
 
     def test_dlc_payload_mismatch_extract(self) -> None:
         """extract_signals rejects payload/DLC size mismatch."""

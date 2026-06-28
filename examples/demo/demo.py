@@ -168,10 +168,10 @@ print("=" * 60)
 if violations:
     for i, v in enumerate(violations[:_MAX_SHOWN], 1):
         ts = v.get("timestamp")
-        ts_us = ts["numerator"] if ts is not None else 0
+        ts_us = ts if ts is not None else 0  # timestamp is an integer microsecond count
         print(f"\n  Violation {i}:")
         print(f"    Timestamp: {ts_us // 1000}ms")
-        print(f"    Property:  {v['property_index']['numerator']}")
+        print(f"    Property:  {v['property_index']}")
         reason = v.get("reason")
         if reason is not None:
             print(f"    Reason:    {reason}")

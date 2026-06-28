@@ -686,7 +686,7 @@ func makeProperties(count int) []aletheia.Formula {
 	templates := []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(8000)}}},
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-40), Max: aletheia.IntRational(215)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.RationalFromFloat(6553.5)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.Rational{Numerator: 13107, Denominator: 2}}}},
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(7000)}}},
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineTemp", Value: aletheia.IntRational(200)}}},
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.IntRational(5000)}}},

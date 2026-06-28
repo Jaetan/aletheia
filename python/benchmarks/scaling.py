@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from fractions import Fraction
 from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
@@ -156,7 +157,7 @@ def _property_templates() -> list[Callable[[], Property]]:
     return [
         lambda: Signal("EngineSpeed").between(0, 8000).always(),
         lambda: Signal("EngineTemp").between(-40, 215).always(),
-        lambda: Signal("BrakePressure").less_than(6553.5).always(),
+        lambda: Signal("BrakePressure").less_than(Fraction("6553.5")).always(),
         lambda: Signal("EngineSpeed").less_than(7000).always(),
         lambda: Signal("EngineTemp").less_than(200).always(),
         lambda: Signal("BrakePressure").less_than(5000).always(),
@@ -242,7 +243,7 @@ def _complexity_levels() -> list[ComplexityLevel]:
             [
                 Signal("EngineSpeed").between(0, 8000).always().to_dict(),
                 Signal("EngineTemp").between(-40, 215).always().to_dict(),
-                Signal("BrakePressure").less_than(6553.5).always().to_dict(),
+                Signal("BrakePressure").less_than(Fraction("6553.5")).always().to_dict(),
             ],
         ),
         (

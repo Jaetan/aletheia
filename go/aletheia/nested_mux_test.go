@@ -148,7 +148,7 @@ func TestNestedMux_FullChainMatch_ExtractsLeaf(t *testing.T) {
 	if !ok {
 		t.Fatal("Detail should be present")
 	}
-	if v != aletheia.RationalFromFloat(43981) {
+	if v != aletheia.IntRational(43981) {
 		t.Errorf("Detail = %v, want 43981", v)
 	}
 }

@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -71,41 +70,30 @@ void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& hea
         ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = headers[i];
 }
 
-/// Write a data row (2-indexed), interpreting each fixture string as the value
-/// it represents — integers as integers, decimals as doubles, TRUE/FALSE as
-/// booleans, everything else (including a hex id like "0x100") as text. This
-/// mirrors how a real Excel file stores cells, so the strict loader sees native
-/// types. To author a number deliberately stored as *text* (the strict-rejection
-/// tests), write the cell directly with `std::string`.
+/// Write a data row (2-indexed) under the float-principle all-text contract: a
+/// boolean fixture string ("TRUE"/"FALSE") becomes a native bool cell, and
+/// EVERYTHING ELSE — numbers (e.g. "220", "0.1") AND text (e.g. a hex id like
+/// "0x100") — is written as a TEXT cell. The loader now requires numeric fields
+/// to be text-formatted so the exact decimal is parsed by the kernel SSOT
+/// (Rational::from_decimal); a number stored natively is rejected. To author a
+/// number deliberately stored as a *native number* cell (the strict-rejection
+/// tests), write it directly with an int64/double value.
 void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& values) {
     for (std::size_t i = 0; i < values.size(); ++i) {
         const std::string& s = values[i];
         if (s.empty())
             continue;
         const auto col = static_cast<std::uint16_t>(i + 1);
-        const char* const first = s.data();
-        const char* const last = s.data() + s.size();
-        std::int64_t iv = 0;
-        if (auto [p, ec] = std::from_chars(first, last, iv); ec == std::errc{} && p == last) {
-            ws.cell(row, col).value() = iv;
-            continue;
-        }
-        double dv = 0.0;
-        if (auto [p, ec] = std::from_chars(first, last, dv); ec == std::errc{} && p == last) {
-            ws.cell(row, col).value() = dv;
-            continue;
-        }
         std::string upper = s;
         std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
             return static_cast<char>(std::toupper(ch));
         });
-        if (upper == "TRUE") {
+        if (upper == "TRUE")
             ws.cell(row, col).value() = true;
-        } else if (upper == "FALSE") {
+        else if (upper == "FALSE")
             ws.cell(row, col).value() = false;
-        } else {
-            ws.cell(row, col).value() = s;
-        }
+        else
+            ws.cell(row, col).value() = s; // numbers AND text → TEXT cell
     }
 }
 
@@ -668,15 +656,15 @@ TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
     doc.workbook().worksheet("Sheet1").setName("Checks");
     auto ws = doc.workbook().worksheet("Checks");
     write_header(ws, checks_hdr);
-    // Row 2: data (numeric Value written natively, matching a real workbook)
+    // Row 2: data (numeric Value written as TEXT per the all-text contract)
     ws.cell(2, 2).value() = std::string("Speed");
     ws.cell(2, 3).value() = std::string("never_exceeds");
-    ws.cell(2, 4).value() = std::int64_t{220};
+    ws.cell(2, 4).value() = std::string("220");
     // Row 3: empty (no cells set — skipped)
     // Row 4: data
     ws.cell(4, 2).value() = std::string("Voltage");
     ws.cell(4, 3).value() = std::string("never_below");
-    ws.cell(4, 4).value() = 11.5;
+    ws.cell(4, 4).value() = std::string("11.5");
     doc.save();
     doc.close();
 
@@ -879,12 +867,14 @@ TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardeni
 // Strict-coercion + cross-binding portability locks (R3c)
 // ===========================================================================
 
-// A numeric field stored as TEXT must be rejected, not silently parsed. This
-// locks the strict-coercion decision; the demo workbook can't exercise it (it
-// stores numbers natively). The cell is written directly as a std::string to
-// force a text cell, bypassing the type-inferring write_row helper.
-TEST_CASE("excel: strict rejects a Value stored as text", "[excel][strict]") {
-    TempFile tf("excel_strict_text_value.xlsx");
+// The float principle INVERTS the coercion contract: a numeric field stored as a
+// native NUMBER cell must be rejected (a float64 has already lost the authored
+// precision), so numbers must be text-formatted and parsed exactly by the kernel
+// SSOT. The demo workbook can't exercise this (it stores numbers as text). The
+// Value cell is written directly as a native int to force a number cell,
+// bypassing the all-text write_row helper.
+TEST_CASE("excel: strict rejects a Value stored as a native number", "[excel][strict]") {
+    TempFile tf("excel_strict_number_value.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("Checks");
@@ -892,17 +882,17 @@ TEST_CASE("excel: strict rejects a Value stored as text", "[excel][strict]") {
     write_header(ws, checks_hdr);
     ws.cell(2, 2).value() = std::string("Speed");
     ws.cell(2, 3).value() = std::string("never_exceeds");
-    ws.cell(2, 4).value() = std::string("220"); // number-as-TEXT
+    ws.cell(2, 4).value() = std::int64_t{220}; // Value as a native NUMBER cell
     doc.save();
     doc.close();
 
     auto result = load_checks_from_excel(tf.path);
     REQUIRE_FALSE(result.has_value());
-    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("must be a number"));
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("format it as TEXT"));
 }
 
-TEST_CASE("excel: DBC strict rejects a Factor stored as text", "[excel][strict][dbc]") {
-    TempFile tf("excel_strict_text_factor.xlsx");
+TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[excel][strict][dbc]") {
+    TempFile tf("excel_strict_number_factor.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("DBC");
@@ -910,24 +900,28 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as text", "[excel][strict][
     write_header(ws, dbc_hdr);
     // dbc_hdr: ID, Name, DLC, Signal, Start Bit, Length, Byte Order, Signed,
     //          Factor(9), Offset(10), Min(11), Max(12), ...
-    ws.cell(2, 1).value() = std::int64_t{256};
+    // Every numeric field is text (the all-text contract) EXCEPT Factor, which is
+    // a native number cell — so the loader reaches the Factor parse and rejects
+    // it (DLC / Start Bit / Length are read before Factor and would otherwise
+    // trip "format it as TEXT" on the wrong field).
+    ws.cell(2, 1).value() = std::string("256");
     ws.cell(2, 2).value() = std::string("Msg");
-    ws.cell(2, 3).value() = std::int64_t{8};
+    ws.cell(2, 3).value() = std::string("8");
     ws.cell(2, 4).value() = std::string("Sig");
-    ws.cell(2, 5).value() = std::int64_t{0};
-    ws.cell(2, 6).value() = std::int64_t{8};
+    ws.cell(2, 5).value() = std::string("0");
+    ws.cell(2, 6).value() = std::string("8");
     ws.cell(2, 7).value() = std::string("little_endian");
     ws.cell(2, 8).value() = false;
-    ws.cell(2, 9).value() = std::string("0.25"); // Factor as number-as-TEXT
-    ws.cell(2, 10).value() = std::int64_t{0};
-    ws.cell(2, 11).value() = std::int64_t{0};
-    ws.cell(2, 12).value() = std::int64_t{1};
+    ws.cell(2, 9).value() = 0.25; // Factor as a native NUMBER cell
+    ws.cell(2, 10).value() = std::string("0");
+    ws.cell(2, 11).value() = std::string("0");
+    ws.cell(2, 12).value() = std::string("1");
     doc.save();
     doc.close();
 
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE_FALSE(result.has_value());
-    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("must be a number"));
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("format it as TEXT"));
 }
 
 // Cross-binding portability lock: the shared demo workbook's DBC sheet omits the

@@ -26,7 +26,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula())
+	want := FormatFormula(CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -46,7 +46,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(mustCheck(CheckSignal("Voltage").NeverBelow(11.5)).Formula())
+	want := FormatFormula(CheckSignal("Voltage").NeverBelow(Rational{Numerator: 23, Denominator: 2}).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -67,7 +67,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	reference, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	reference, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
@@ -91,7 +91,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(mustCheck(CheckSignal("ErrorCode").NeverEquals(255)).Formula())
+	want := FormatFormula(CheckSignal("ErrorCode").NeverEquals(IntRational(255)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -111,7 +111,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(mustCheck(CheckSignal("Gear").Equals(0).Always()).Formula())
+	want := FormatFormula(CheckSignal("Gear").Equals(IntRational(0)).Always().Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -133,7 +133,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := CheckSignal("CoolantTemp").SettlesBetween(80, 100).Within(5000)
+	expected, _ := CheckSignal("CoolantTemp").SettlesBetween(IntRational(80), IntRational(100)).Within(5000)
 	want := FormatFormula(expected.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
@@ -158,12 +158,12 @@ checks:
 	if len(checks) != 2 {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
-	want0 := FormatFormula(mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula())
+	want0 := FormatFormula(CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula())
 	got0 := FormatFormula(checks[0].Formula())
 	if got0 != want0 {
 		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)
 	}
-	reference1, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	reference1, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
@@ -198,7 +198,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := CheckWhen("BrakePedal").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
+	expected, _ := CheckWhen("BrakePedal").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100)
 	want := FormatFormula(expected.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
@@ -225,7 +225,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := CheckWhen("Ignition").Equals(1).Then("RPM").Exceeds(500).Within(2000)
+	expected, _ := CheckWhen("Ignition").Equals(IntRational(1)).Then("RPM").Exceeds(IntRational(500)).Within(2000)
 	want := FormatFormula(expected.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
@@ -253,7 +253,7 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := CheckWhen("FuelLevel").DropsBelow(10).Then("FuelWarning").StaysBetween(1, 1).Within(50)
+	expected, _ := CheckWhen("FuelLevel").DropsBelow(IntRational(10)).Then("FuelWarning").StaysBetween(IntRational(1), IntRational(1)).Within(50)
 	want := FormatFormula(expected.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
@@ -383,7 +383,7 @@ func TestLoadYAMLFromFile(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula())
+	want := FormatFormula(CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -418,7 +418,7 @@ func TestLoadYAMLFromFileFunc(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	reference, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	reference, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
@@ -478,10 +478,12 @@ checks:
 }
 
 // TestLoadYAMLRejectsNonFiniteValue is the regression test for the silent-clamp
-// bug: a NaN / ±Inf / int64-overflowing value in a check file must make the
-// loader FAIL (matching the Python and C++ loaders), not silently clamp to 0/1.
-// Covers the simple, settles, and when/then dispatch paths — yaml.v3 parses
-// `.nan` / `.inf` into NaN / +Inf float64s, which the builders then reject.
+// bug: a non-decimal (`.nan` / `.inf`) or int64-overflowing value in a check
+// file must make the loader FAIL (matching the Python / C++ / Rust loaders), not
+// silently clamp to 0/1. Under the decimal SSOT the literal text is parsed by the
+// kernel FromDecimal, so `.nan` / `.inf` are rejected as invalid decimal
+// literals and a too-large value as an Int64-wire overflow. Covers the simple,
+// settles, and when/then dispatch paths.
 func TestLoadYAMLRejectsNonFiniteValue(t *testing.T) {
 	cases := []struct {
 		name, yaml, want string
@@ -489,22 +491,22 @@ func TestLoadYAMLRejectsNonFiniteValue(t *testing.T) {
 		{
 			name: "simple NaN",
 			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n",
-			want: "cannot convert NaN to rational",
+			want: "not a valid decimal literal",
 		},
 		{
 			name: "simple overflow",
-			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 9999999999.5\n",
-			want: "overflows int64",
+			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n",
+			want: "Int64 wire range",
 		},
 		{
 			name: "settles Inf bound",
 			yaml: "checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_ms: 100\n",
-			want: "cannot convert +Inf to rational",
+			want: "not a valid decimal literal",
 		},
 		{
 			name: "when-clause NaN",
 			yaml: "checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: .nan\n    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_ms: 100\n",
-			want: "cannot convert NaN to rational",
+			want: "not a valid decimal literal",
 		},
 	}
 	for _, tc := range cases {

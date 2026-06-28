@@ -367,7 +367,7 @@ func TestBuildFrame(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
 	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{
-		{Name: "Speed", Value: aletheia.RationalFromFloat(120.5)},
+		{Name: "Speed", Value: aletheia.Rational{Numerator: 241, Denominator: 2}},
 	})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
@@ -398,7 +398,7 @@ func TestUpdateFrame(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
 	payload, err := c.UpdateFrame(ctx, sid, dlc8(), data, []aletheia.SignalValue{
-		{Name: "Speed", Value: aletheia.RationalFromFloat(100.0)},
+		{Name: "Speed", Value: aletheia.IntRational(100)},
 	})
 	if err != nil {
 		t.Fatalf("UpdateFrame: %v", err)
@@ -596,7 +596,7 @@ func TestChangedByPredicate(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "RPM", Delta: aletheia.RationalFromFloat(500)}},
+		aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "RPM", Delta: aletheia.IntRational(500)}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -626,7 +626,7 @@ func TestBetweenPredicate(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: aletheia.RationalFromFloat(-40), Max: aletheia.RationalFromFloat(120)}},
+		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: aletheia.IntRational(-40), Max: aletheia.IntRational(120)}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
@@ -682,7 +682,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	_, err = c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: aletheia.RationalFromFloat(100)}})
+	_, err = c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: aletheia.IntRational(100)}})
 	requireErrorContains(t, err, "out of range")
 }
 
@@ -702,7 +702,7 @@ func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: aletheia.RationalFromFloat(100)}})
+	payload, err := c.BuildFrame(ctx, sid, dlc, []aletheia.SignalValue{{Name: "Speed", Value: aletheia.IntRational(100)}})
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
 	}
@@ -864,7 +864,7 @@ func TestBetween_MinExceedsMax(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: aletheia.RationalFromFloat(100), Max: aletheia.RationalFromFloat(50)}},
+		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: aletheia.IntRational(100), Max: aletheia.IntRational(50)}},
 	})
 	if err == nil {
 		t.Fatal("expected error for Between with Min > Max")

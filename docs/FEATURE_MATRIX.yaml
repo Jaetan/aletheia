@@ -434,6 +434,16 @@ features:
         entry: "excel:load_checks_from_excel"
         notes: "Separate crate at rust/excel/ (aletheia-excel) to isolate the calamine + rust_xlsxwriter dependency chain. Other entries: load_dbc_from_excel, create_template."
 
+  - id: decimal_input
+    name: Decimal input (kernel SSOT)
+    description: Parse a decimal string into the exact rational it denotes via the verified Agda kernel (aletheia_parse_decimal) — the float principle, where a decimal is an exact rational and a float appears only at print-out. The single source of truth all loaders/builders delegate to; RTS-gated (a backend must be live).
+    related: B6e
+    bindings:
+      python: { status: implemented, entry: aletheia.from_decimal }
+      cpp:    { status: implemented, entry: "aletheia/types.hpp#from_decimal" }
+      go:     { status: implemented, entry: FromDecimal }
+      rust:   { status: implemented, entry: "Rational::from_decimal" }
+
   # =====================================================================
   # Observability and diagnostics
   # =====================================================================

@@ -133,7 +133,7 @@ def _run_ltl_part(normal: list[CANFrame], frozen: list[CANFrame]) -> int:
 
     if frozen_violations:
         ts = frozen_violations[0].get("timestamp")
-        ts_val = ts["numerator"] / ts["denominator"] if ts is not None else 0
+        ts_val = ts if ts is not None else 0  # timestamp is an integer microsecond count
         print(f"\n  First violation at timestamp: {ts_val} us")
         print("  The frozen counter was detected at the first frame after")
         print("  the ECU freeze (where the counter stays at the same value).")

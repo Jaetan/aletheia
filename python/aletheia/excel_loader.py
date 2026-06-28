@@ -74,8 +74,8 @@ from aletheia._check_conditions import (
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia._loader_utils import (
     get_bool,
-    get_int,
-    get_number,
+    get_excel_int,
+    get_excel_number,
     get_str,
     is_str,
     reject_symlink_loader_path,
@@ -88,7 +88,6 @@ from aletheia.types import (
     DBCSignalAlways,
     DBCSignalMultiplexed,
     DLCByteCount,
-    to_signal_fraction,
 )
 
 if TYPE_CHECKING:
@@ -457,14 +456,14 @@ def _parse_simple_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
         raise ValidationError(msg)
 
     if condition in SIMPLE_VALUE_CONDITIONS:
-        result = dispatch_simple(signal, condition, get_number(d, "Value", _row_ctx(row_num)))
+        result = dispatch_simple(signal, condition, get_excel_number(d, "Value", _row_ctx(row_num)))
     elif condition in SIMPLE_RANGE_CONDITIONS:
         if "Min" not in d or "Max" not in d:
             msg = f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
             raise ValidationError(msg)
         result = checks.signal(signal).stays_between(
-            get_number(d, "Min", _row_ctx(row_num)),
-            get_number(d, "Max", _row_ctx(row_num)),
+            get_excel_number(d, "Min", _row_ctx(row_num)),
+            get_excel_number(d, "Max", _row_ctx(row_num)),
         )
     elif condition in SIMPLE_SETTLES_CONDITIONS:
         if "Min" not in d or "Max" not in d:
@@ -476,13 +475,13 @@ def _parse_simple_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
         result = (
             checks.signal(signal)
             .settles_between(
-                get_number(d, "Min", _row_ctx(row_num)),
-                get_number(d, "Max", _row_ctx(row_num)),
+                get_excel_number(d, "Min", _row_ctx(row_num)),
+                get_excel_number(d, "Max", _row_ctx(row_num)),
             )
-            .within(get_int(d, "Time (ms)", _row_ctx(row_num)))
+            .within(get_excel_int(d, "Time (ms)", _row_ctx(row_num)))
         )
     elif condition in SIMPLE_EQUALS_CONDITIONS:
-        value = get_number(d, "Value", _row_ctx(row_num))
+        value = get_excel_number(d, "Value", _row_ctx(row_num))
         result = checks.signal(signal).equals(value).always()
     else:
         msg = f"Row {row_num}: unknown condition '{condition}'"
@@ -496,7 +495,7 @@ def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResul
     # When clause
     when_signal = get_str(d, "When Signal", _row_ctx(row_num))
     when_cond = get_str(d, "When Condition", _row_ctx(row_num))
-    when_value = get_number(d, "When Value", _row_ctx(row_num))
+    when_value = get_excel_number(d, "When Value", _row_ctx(row_num))
 
     if when_cond not in WHEN_CONDITIONS:
         msg = f"Row {row_num}: unknown when condition '{when_cond}'"
@@ -515,9 +514,9 @@ def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResul
     then_builder = when_result.then(then_signal)
 
     if then_cond == "equals":
-        then_result = then_builder.equals(get_number(d, "Then Value", _row_ctx(row_num)))
+        then_result = then_builder.equals(get_excel_number(d, "Then Value", _row_ctx(row_num)))
     elif then_cond == "exceeds":
-        then_result = then_builder.exceeds(get_number(d, "Then Value", _row_ctx(row_num)))
+        then_result = then_builder.exceeds(get_excel_number(d, "Then Value", _row_ctx(row_num)))
     else:  # stays_between
         if "Then Min" not in d or "Then Max" not in d:
             msg = (
@@ -525,11 +524,11 @@ def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResul
             )
             raise ValidationError(msg)
         then_result = then_builder.stays_between(
-            get_number(d, "Then Min", _row_ctx(row_num)),
-            get_number(d, "Then Max", _row_ctx(row_num)),
+            get_excel_number(d, "Then Min", _row_ctx(row_num)),
+            get_excel_number(d, "Then Max", _row_ctx(row_num)),
         )
 
-    result = then_result.within(get_int(d, "Within (ms)", _row_ctx(row_num)))
+    result = then_result.within(get_excel_int(d, "Within (ms)", _row_ctx(row_num)))
     return _apply_metadata(result, d)
 
 
@@ -562,31 +561,31 @@ def _parse_dbc_signal(row: Mapping[str, CellValue], row_num: int) -> DBCSignal:
     if has_muxor:
         mux_signal: DBCSignalMultiplexed = {
             "name": get_str(row, "Signal", ctx),
-            "startBit": get_int(row, "Start Bit", ctx),
-            "length": get_int(row, "Length", ctx),
+            "startBit": get_excel_int(row, "Start Bit", ctx),
+            "length": get_excel_int(row, "Length", ctx),
             "byteOrder": byte_order,
             "signed": get_bool(row, "Signed", ctx),
-            "factor": to_signal_fraction(get_number(row, "Factor", ctx)),
-            "offset": to_signal_fraction(get_number(row, "Offset", ctx)),
-            "minimum": to_signal_fraction(get_number(row, "Min", ctx)),
-            "maximum": to_signal_fraction(get_number(row, "Max", ctx)),
+            "factor": get_excel_number(row, "Factor", ctx),
+            "offset": get_excel_number(row, "Offset", ctx),
+            "minimum": get_excel_number(row, "Min", ctx),
+            "maximum": get_excel_number(row, "Max", ctx),
             "unit": unit_str,
             "presence": "multiplexed",
             "multiplexor": get_str(row, "Multiplexor", ctx),
-            "multiplex_values": [get_int(row, "Multiplex Value", ctx)],
+            "multiplex_values": [get_excel_int(row, "Multiplex Value", ctx)],
         }
         return mux_signal
 
     always_signal: DBCSignalAlways = {
         "name": get_str(row, "Signal", ctx),
-        "startBit": get_int(row, "Start Bit", ctx),
-        "length": get_int(row, "Length", ctx),
+        "startBit": get_excel_int(row, "Start Bit", ctx),
+        "length": get_excel_int(row, "Length", ctx),
         "byteOrder": byte_order,
         "signed": get_bool(row, "Signed", ctx),
-        "factor": to_signal_fraction(get_number(row, "Factor", ctx)),
-        "offset": to_signal_fraction(get_number(row, "Offset", ctx)),
-        "minimum": to_signal_fraction(get_number(row, "Min", ctx)),
-        "maximum": to_signal_fraction(get_number(row, "Max", ctx)),
+        "factor": get_excel_number(row, "Factor", ctx),
+        "offset": get_excel_number(row, "Offset", ctx),
+        "minimum": get_excel_number(row, "Min", ctx),
+        "maximum": get_excel_number(row, "Max", ctx),
         "unit": unit_str,
         "presence": "always",
     }
@@ -606,7 +605,7 @@ def _parse_dbc_rows(rows: list[dict[str, CellValue]]) -> DBCDefinition:
             msg_id=_parse_message_id(row.get("Message ID"), _row_ctx(row_num)),
             name=get_str(row, "Message Name", _row_ctx(row_num)),
             extended=is_extended,
-            dlc=get_int(row, "DLC", _row_ctx(row_num)),
+            dlc=get_excel_int(row, "DLC", _row_ctx(row_num)),
         )
         if key not in groups:
             insertion_order.append(key)

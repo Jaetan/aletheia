@@ -37,7 +37,7 @@ checks.signal("VehicleSpeed").never_exceeds(220)
 ### Signal never drops below a value
 
 ```python
-checks.signal("BatteryVoltage").never_below(11.0)
+checks.signal("BatteryVoltage").never_below(11)
 ```
 
 ```yaml
@@ -49,7 +49,9 @@ checks.signal("BatteryVoltage").never_below(11.0)
 ### Signal stays in a range
 
 ```python
-checks.signal("BatteryVoltage").stays_between(11.5, 14.5)
+from fractions import Fraction
+
+checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))
 ```
 
 ```yaml
@@ -111,14 +113,14 @@ Signal("EngineRPM").changed_by(500).eventually()
 
 ```python
 # Temperature stable within ±2 degrees frame-to-frame
-Signal("CoolantTemp").stable_within(2.0).always()
+Signal("CoolantTemp").stable_within(2).always()
 ```
 
 ### Combine stability with a time window
 
 ```python
 # After warmup, temperature must stabilize within ±1 degree
-Signal("CoolantTemp").stable_within(1.0).within(30000)
+Signal("CoolantTemp").stable_within(1).within(30000)
 ```
 
 ---
@@ -335,7 +337,7 @@ aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ### Build a frame from signal values
 
 ```python
-frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
+frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 # Returns bytearray with VehicleSpeed encoded
 ```
 
@@ -346,7 +348,7 @@ client.start_stream()
 for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
     # Modify speed to test property with altered values
     modified = client.update_frame(
-        can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130.0}
+        can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130}
     )
     response = client.send_frame(ts, can_id, dlc, modified)
 client.end_stream()

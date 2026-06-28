@@ -329,7 +329,7 @@ def main() -> int:
 
     dbc = dbc_to_json(str(_DBC_PATH))
     checks = [
-        signal("VehicleSpeed").never_exceeds(50.0).named("Speed limit").severity("critical"),
+        signal("VehicleSpeed").never_exceeds(50).named("Speed limit").severity("critical"),
     ]
 
     _run_client_layer(dbc, checks, args.frames, args.runs)

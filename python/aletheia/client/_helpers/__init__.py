@@ -4,8 +4,8 @@
 
 Split into three sub-modules by concern:
 
-* ``rational`` — ℚ arithmetic + parsing + validation (float / Fraction /
-  rational-dict / rational-string).
+* ``rational`` — ℚ arithmetic + parsing + validation (decimal-string via the
+  kernel ``from_decimal`` SSOT / Fraction / int / rational-dict wire shapes).
 * ``dbc_normalize`` — outbound (Python TypedDict → wire JSON, ``NotRequired``
   padding) and inbound (Agda formatDBC JSON → ``DBCDefinition``) normalisation.
 * ``json_codec`` — protocol-level list parsers (signal values / errors /

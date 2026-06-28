@@ -6,6 +6,21 @@ Only covers the subset of PyYAML API used by Aletheia's yaml_loader module.
 PyYAML is a third-party library that does not ship inline types.
 """
 
-from typing import IO
+import re
+from typing import IO, ClassVar
 
 def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> object: ...
+
+class SafeLoader:
+    """Subset of ``yaml.SafeLoader`` used by the no-float loader subclass.
+
+    ``yaml_implicit_resolvers`` maps a scalar's first character (or ``None``
+    for the catch-all bucket) to the ``(tag, regexp)`` pairs that classify it;
+    the no-float loader rebuilds this table without the float tag so a decimal
+    scalar stays a string (the float principle).
+    """
+
+    yaml_implicit_resolvers: ClassVar[dict[str | None, list[tuple[str, re.Pattern[str]]]]]
+    def __init__(self, stream: str | bytes | IO[str] | IO[bytes]) -> None: ...
+    def get_single_data(self) -> object: ...
+    def dispose(self) -> None: ...

@@ -25,7 +25,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
-from aletheia.client._helpers.rational import float_to_rational
+from aletheia.client._helpers.rational import to_exact_fraction
 from aletheia.client._types import ValidationError
 from aletheia.types import (
     AlwaysFormula,
@@ -47,43 +47,26 @@ from aletheia.types import (
     WeakNextFormula,
 )
 
-# Predicate value inputs accept any rational-coercible numeric type.
-# `Fraction(int)` and `Fraction(Fraction)` are exact; `Fraction(float)`
-# preserves whatever float64 already encoded — pass `Fraction(n, d)` for
-# exact 1/10-style values.  The Agda kernel and C++ binding both accept
-# the canonical rational dict on the wire.
-type _RationalInput = int | float | Fraction
+# Predicate value inputs are exact: an integer or a :class:`~fractions.Fraction`.
+# The float principle — no float ever crosses the API: a decimal is an
+# exact rational, so callers pass ``Fraction(n, d)`` (or :func:`aletheia.from_decimal`
+# for a decimal string) rather than a lossy ``float``.  The Agda kernel and the
+# Go / C++ / Rust bindings all accept the canonical rational dict on the wire.
+type _RationalInput = int | Fraction
 
 
-def to_predicate_fraction(value: float | Fraction) -> Fraction:
-    """Convert a numeric predicate input to a Fraction matching Go/C++ from_double.
+def to_predicate_fraction(value: _RationalInput) -> Fraction:
+    """Convert an exact numeric predicate input to a :class:`~fractions.Fraction`.
 
-    Mirrors Go ``floatToRational`` (``client.go``) and C++ ``Rational::from_double``
-    (``types.cpp``) exactly: float inputs go through ``round(value * 10^9), 10^9``
-    so the user-side construction produces structurally identical Rationals across
-    all three bindings.  Without this, ``Signal.equals(0.1)`` in Python would
-    produce ``Fraction(0.1)`` = the exact IEEE 754 binary fraction
-    (3602879701896397/36028797018963968), which the predicate pretty-printer
-    would then render as a 56-character exact decimal — while Go and C++ render
-    the same call as ``"0.1"``.
-
-    Differs from :func:`to_signal_fraction` (which uses ``limit_denominator``):
-    ``Fraction(0.333333).limit_denominator(10**9)`` finds the closest fraction
-    with denominator <= 10^9 (returns ``Fraction(1, 3)``); ``round-and-scale``
-    produces ``Fraction(333333, 10**6)``.  For predicate inputs Go-parity
-    matters more than continued-fraction simplification.
-
-    Raises:
-        ValidationError: When *value* is NaN, infinite, or overflows int64
-        when scaled (delegated to :func:`float_to_rational`).
-
+    The DSL-facing entry to the float-principle validator
+    :func:`~aletheia.client._helpers.rational.to_exact_fraction` — the single
+    source of truth shared with the client's signal-value path. An ``int`` or a
+    ``Fraction`` flows through exactly, while a ``float`` (lossy: ``Fraction(0.1)``
+    is not ``1/10``) or a ``bool`` (``Fraction(True)`` would silently become
+    ``1``) is rejected; pass a ``Fraction`` or :func:`aletheia.from_decimal` for
+    an exact decimal.
     """
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return Fraction(value)
-    n, d = float_to_rational(value)
-    return Fraction(n, d)
+    return to_exact_fraction(value)
 
 
 def _atomic(predicate: SignalPredicate) -> AtomicFormula:
@@ -158,7 +141,7 @@ class Signal:
         """Signal equals a specific value.
 
         Args:
-            value: Expected signal value (int / float / Fraction; coerced to exact Fraction)
+            value: Expected signal value (int or Fraction; coerced to exact Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -180,7 +163,7 @@ class Signal:
         """Signal is less than a value.
 
         Args:
-            value: Upper bound (exclusive); int / float / Fraction (coerced to Fraction)
+            value: Upper bound (exclusive); int or Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -202,7 +185,7 @@ class Signal:
         """Signal is greater than a value.
 
         Args:
-            value: Lower bound (exclusive); int / float / Fraction (coerced to Fraction)
+            value: Lower bound (exclusive); int or Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -224,7 +207,7 @@ class Signal:
         """Signal is less than or equal to a value.
 
         Args:
-            value: Upper bound (inclusive); int / float / Fraction (coerced to Fraction)
+            value: Upper bound (inclusive); int or Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -243,7 +226,7 @@ class Signal:
         """Signal is greater than or equal to a value.
 
         Args:
-            value: Lower bound (inclusive); int / float / Fraction (coerced to Fraction)
+            value: Lower bound (inclusive); int or Fraction (coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -269,7 +252,7 @@ class Signal:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("BatteryVoltage").between(11.5, 14.5)
+            Signal("BatteryVoltage").between(from_decimal("11.5"), from_decimal("14.5"))
 
         """
         lo = to_predicate_fraction(min_val)
@@ -289,7 +272,7 @@ class Signal:
         Negative delta: curr - prev <= delta (decreased by at least |delta|)
 
         Args:
-            delta: Signed change threshold (int / float / Fraction; coerced to Fraction)
+            delta: Signed change threshold (int or Fraction; coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
@@ -313,13 +296,13 @@ class Signal:
         Checks |signal_now - signal_prev| <= tolerance
 
         Args:
-            tolerance: Maximum allowed absolute change (int / float / Fraction; coerced to Fraction)
+            tolerance: Maximum allowed absolute change (int or Fraction; coerced to Fraction)
 
         Returns:
             Predicate that can be used in temporal operators
 
         Example:
-            Signal("Temp").stable_within(2.0)  # Temperature stable within +/-2
+            Signal("Temp").stable_within(2)  # Temperature stable within +/-2
 
         """
         formula: AtomicFormula = _atomic(

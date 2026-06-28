@@ -62,16 +62,18 @@ and the loader search order are covered in the
 ## Check API
 
 `aletheia.CheckSignal(name)` builds a property from a fluent, plain-English
-condition — the recommended starting point (no LTL knowledge required). Each
-terminal returns a `(CheckResult, error)`; the error guards against a malformed
-value (NaN / ±∞ / int64 overflow when scaled to a rational), matching the Python
-and C++ bindings rather than silently clamping. Register the `CheckResult` with
-`AddChecks`. `PhysicalValue` is a `float64`, so numeric literals work directly:
+condition — the recommended starting point (no LTL knowledge required). Numeric
+thresholds are exact `Rational`s (the float principle — no `float64`): build them
+with `aletheia.IntRational(n)` for whole numbers or `aletheia.FromDecimal("0.25")`
+for decimals. The single-value terminals (`NeverExceeds` / `NeverBelow` /
+`NeverEquals`) are infallible; the range terminals (`StaysBetween` /
+`SettlesBetween`) and the causal `.Within(ms)` return `(CheckResult, error)`,
+guarding against `lo > hi`. Register the `CheckResult` with `AddChecks`:
 
 ```go
-speedLimit, _ := aletheia.CheckSignal("Speed").NeverExceeds(220) // (CheckResult, error)
-coolant, _ := aletheia.CheckSignal("Coolant").StaysBetween(80, 105)
-gear, _ := aletheia.CheckSignal("Gear").NeverEquals(-1)
+speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+coolant, _ := aletheia.CheckSignal("Coolant").StaysBetween(aletheia.IntRational(80), aletheia.IntRational(105))
+gear := aletheia.CheckSignal("Gear").NeverEquals(aletheia.IntRational(-1))
 _, _, _ = speedLimit, coolant, gear
 ```
 
@@ -80,8 +82,8 @@ Response-time / causal checks use `CheckWhen(...).Then(...)` and close with a
 then be `.Named(...)` and given a `.Severity(...)`:
 
 ```go
-brakeResponse, _ := aletheia.CheckWhen("Brake").Exceeds(50).
-    Then("Decel").Exceeds(2).Within(500) // decel must follow within 500 ms
+brakeResponse, _ := aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).
+    Then("Decel").Exceeds(aletheia.IntRational(2)).Within(500) // decel must follow within 500 ms
 brakeResponse = brakeResponse.Named("brake response").Severity("safety")
 _ = brakeResponse
 ```
@@ -129,8 +131,9 @@ factor := aletheia.IntRational(220)    // exact rational 220/1
 _, _, _ = id, dlc, factor
 ```
 
-Use `aletheia.NewExtendedID` for 29-bit IDs, and `aletheia.IntRational` (exact)
-or `aletheia.RationalFromFloat` to build a `Rational`.
+Use `aletheia.NewExtendedID` for 29-bit IDs, and `aletheia.IntRational` (a whole
+number) or `aletheia.FromDecimal("0.25")` (an exact decimal, via the verified
+kernel) to build a `Rational`.
 
 ---
 
@@ -172,10 +175,7 @@ BO_ 256 Engine: 8 ECU
         return
     }
 
-    speedLimit, err := aletheia.CheckSignal("Speed").NeverExceeds(220)
-    if err != nil {
-        return
-    }
+    speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
     checks := []aletheia.CheckResult{speedLimit}
     if err := client.AddChecks(ctx, checks); err != nil {
         return

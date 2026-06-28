@@ -62,7 +62,7 @@ class TestAletheiaClientBasics:
         """Test frame building."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            frame = client.build_frame(can_id=256, dlc=DLCCode(8), signals={"TestSignal": 1000.0})
+            frame = client.build_frame(can_id=256, dlc=DLCCode(8), signals={"TestSignal": 1000})
             assert len(frame) == 8
             # Verify by extracting
             result = client.extract_signals(can_id=256, dlc=DLCCode(8), data=frame)
@@ -77,7 +77,7 @@ class TestAletheiaClientBasics:
                 can_id=256,
                 dlc=DLCCode(8),
                 frame=original,
-                signals={"TestSignal": 200.0},
+                signals={"TestSignal": 200},
             )
             assert len(updated) == 8
             # Verify
@@ -169,7 +169,7 @@ class TestAletheiaClientMixedOperations:
                 can_id=256,
                 dlc=DLCCode(8),
                 frame=original,
-                signals={"TestSignal": 75.0},
+                signals={"TestSignal": 75},
             )
 
             # Send the updated frame
@@ -186,7 +186,7 @@ class TestAletheiaClientMixedOperations:
             client.start_stream()
 
             # Build a frame while streaming
-            frame = client.build_frame(can_id=256, dlc=DLCCode(8), signals={"TestSignal": 500.0})
+            frame = client.build_frame(can_id=256, dlc=DLCCode(8), signals={"TestSignal": 500})
 
             # Send it
             response = client.send_frame(timestamp=1000, can_id=256, dlc=DLCCode(8), data=frame)
@@ -445,7 +445,7 @@ class TestAletheiaClientWithDemoDBC:
             client.parse_dbc(demo_dbc)
 
             # Build a frame with speed = 72 kph
-            frame = client.build_frame(can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 72.0})
+            frame = client.build_frame(can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 72})
 
             # Extract and verify
             result = client.extract_signals(can_id=0x100, dlc=DLCCode(8), data=frame)
@@ -463,7 +463,7 @@ class TestAletheiaClientWithDemoDBC:
                 frame = client.build_frame(
                     can_id=0x100,
                     dlc=DLCCode(8),
-                    signals={"VehicleSpeed": 50.0 + i},
+                    signals={"VehicleSpeed": 50 + i},
                 )
                 response = client.send_frame(
                     timestamp=i * 100000,
@@ -477,7 +477,7 @@ class TestAletheiaClientWithDemoDBC:
             fault_frame = client.build_frame(
                 can_id=0x100,
                 dlc=DLCCode(8),
-                signals={"VehicleSpeed": 130.0},
+                signals={"VehicleSpeed": 130},
             )
             response = client.send_frame(
                 timestamp=500000,
@@ -512,7 +512,7 @@ class TestStateMachineErrors:
     def test_build_frame_without_dbc(self) -> None:
         """build_frame before parse_dbc raises StateError client-side."""
         with AletheiaClient() as client, pytest.raises(StateError, match="DBC not loaded"):
-            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
+            client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1})
 
     def test_send_frame_without_stream(self, simple_dbc: DBCDefinition) -> None:
         """send_frame before start_stream returns error response."""

@@ -14,15 +14,15 @@ AletheiaClient provides streaming LTL checking and signal operations:
 
         # Signal operations work anytime after DBC loaded
         result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
-        speed = result.get("VehicleSpeed", 0.0)
+        speed = result.get("VehicleSpeed", 0)
 
         # Build frames from signal values
-        frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 50.0})
+        frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 50})
 
         # Update specific signals in a frame
         modified = client.update_frame(
             can_id=0x100, dlc=8, frame=data,
-            signals={"VehicleSpeed": 130.0},
+            signals={"VehicleSpeed": 130},
         )
 
         # Streaming LTL checking
@@ -81,6 +81,7 @@ from aletheia.client._backend import (
 )
 from aletheia.client._client import AletheiaClient
 from aletheia.client._ffi import RTSState
+from aletheia.client._helpers.rational import from_decimal
 from aletheia.client._types import (
     AletheiaError,
     BatchError,
@@ -196,6 +197,7 @@ __all__ = [
     "dbc_to_text",
     "dlc_to_bytes",
     "eventually_always",
+    "from_decimal",
     "infinitely_often",
     "is_multiplexed",
     "iter_can_log",  # pip install aletheia[can]

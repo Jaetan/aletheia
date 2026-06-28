@@ -76,7 +76,7 @@ class TestSignalComparison:
 
     def test_less_than_or_equal(self) -> None:
         """Signal.less_than_or_equal() creates correct predicate."""
-        pred = Signal("Voltage").less_than_or_equal(14.5)
+        pred = Signal("Voltage").less_than_or_equal(Fraction("14.5"))
         formula = cast("AtomicFormula", pred.to_formula())
         assert formula == {
             "operator": "atomic",
@@ -85,7 +85,7 @@ class TestSignalComparison:
 
     def test_greater_than_or_equal(self) -> None:
         """Signal.greater_than_or_equal() creates correct predicate."""
-        pred = Signal("Voltage").greater_than_or_equal(11.5)
+        pred = Signal("Voltage").greater_than_or_equal(Fraction("11.5"))
         formula = cast("AtomicFormula", pred.to_formula())
         assert formula == {
             "operator": "atomic",
@@ -94,7 +94,7 @@ class TestSignalComparison:
 
     def test_between(self) -> None:
         """Signal.between() creates correct predicate."""
-        pred = Signal("Temperature").between(-40.0, 125.0)
+        pred = Signal("Temperature").between(-40, 125)
         formula = cast("AtomicFormula", pred.to_formula())
         assert formula == {
             "operator": "atomic",
@@ -130,17 +130,41 @@ class TestSignalComparison:
         inner_pred = cast("GreaterThanPredicate", formula["predicate"])
         assert inner_pred["value"] == -40
 
-    def test_comparison_with_float(self) -> None:
-        """Comparison with float values works.
+    def test_comparison_with_exact_decimal_fraction(self) -> None:
+        """A decimal threshold is passed as an exact ``Fraction``.
 
-        The DSL converts floats via 10^9 scaling (matching Go ``floatToRational``
-        and C++ ``Rational::from_double``) so 12.6 becomes exactly Fraction(63, 5)
-        rather than the IEEE 754 binary fraction.  See ``to_predicate_fraction``.
+        ``Fraction("12.6")`` is exactly ``Fraction(63, 5)`` (the float principle:
+        a decimal is an exact rational, never an IEEE-754 ``float``).  Pass a
+        ``Fraction`` or :func:`aletheia.from_decimal`; the conversion runs through
+        :func:`~aletheia.dsl.to_predicate_fraction`.
         """
-        pred = Signal("Voltage").equals(12.6)
+        pred = Signal("Voltage").equals(Fraction("12.6"))
         formula = cast("AtomicFormula", pred.to_formula())
         inner_pred = cast("EqualsPredicate", formula["predicate"])
         assert inner_pred["value"] == Fraction(63, 5)
+
+    def test_comparison_with_float_rejected(self) -> None:
+        """A raw ``float`` threshold is rejected (the float principle).
+
+        ``Fraction(0.1)`` would capture the binary-rounding error, so an untyped
+        caller passing a ``float`` raises ``TypeError`` instead of silently
+        encoding a lossy value.
+        """
+        with pytest.raises(TypeError, match="float"):
+            Signal("Voltage").equals(cast("Fraction", 0.1)).to_formula()
+
+    def test_comparison_with_bool_rejected(self) -> None:
+        """A ``bool`` threshold is rejected.
+
+        ``bool`` is an ``int`` subclass, so ``Fraction(True)`` would silently
+        become ``1``; the validator rejects it so a mistaken boolean cannot turn
+        into a numeric threshold.
+        """
+        # bool is an int subclass, so the static type ``int | Fraction`` accepts
+        # it with no cast — only the runtime validator catches it.
+        bool_value = True
+        with pytest.raises(TypeError, match="boolean"):
+            Signal("Voltage").equals(bool_value).to_formula()
 
     def test_comparison_with_large_number(self) -> None:
         """Comparison with large numbers works."""

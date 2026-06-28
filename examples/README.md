@@ -65,7 +65,7 @@ The example script demonstrates three temporal properties:
 
 1. **Range constraint**: `Signal("EngineSpeed").between(0, 8000).always()`
 2. **Temperature bounds**: `Signal("EngineTemp").between(-40, 215).always()`
-3. **Safety limit**: `Signal("BrakePressure").less_than(6553.5).always()`
+3. **Safety limit**: `Signal("BrakePressure").less_than(Fraction("6553.5")).always()`
 
 ## Python DSL Usage
 

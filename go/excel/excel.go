@@ -10,7 +10,6 @@ package excel
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -351,11 +350,11 @@ func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, er
 
 	switch {
 	case aletheia.IsSimpleValueCondition(condition):
-		v, err := xlsxNumber(d, "Value", rowNum)
+		v, err := xlsxRational(d, "Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = aletheia.DispatchSimple(signal, condition, aletheia.PhysicalValue(v))
+		result, err = aletheia.DispatchSimple(signal, condition, v)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
@@ -367,15 +366,15 @@ func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, er
 		if _, ok := d["Max"]; !ok {
 			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
 		}
-		lo, err := xlsxNumber(d, "Min", rowNum)
+		lo, err := xlsxRational(d, "Min", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		hi, err := xlsxNumber(d, "Max", rowNum)
+		hi, err := xlsxRational(d, "Max", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = aletheia.CheckSignal(signal).StaysBetween(aletheia.PhysicalValue(lo), aletheia.PhysicalValue(hi))
+		result, err = aletheia.CheckSignal(signal).StaysBetween(lo, hi)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
@@ -390,11 +389,11 @@ func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, er
 		if _, ok := d["Time (ms)"]; !ok {
 			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Time (ms)'", rowNum))
 		}
-		lo, err := xlsxNumber(d, "Min", rowNum)
+		lo, err := xlsxRational(d, "Min", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		hi, err := xlsxNumber(d, "Max", rowNum)
+		hi, err := xlsxRational(d, "Max", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
@@ -402,20 +401,17 @@ func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, er
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = aletheia.CheckSignal(signal).SettlesBetween(aletheia.PhysicalValue(lo), aletheia.PhysicalValue(hi)).Within(ms)
+		result, err = aletheia.CheckSignal(signal).SettlesBetween(lo, hi).Within(ms)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
 
 	case aletheia.IsSimpleEqualsCondition(condition):
-		v, err := xlsxNumber(d, "Value", rowNum)
+		v, err := xlsxRational(d, "Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = aletheia.CheckSignal(signal).Equals(aletheia.PhysicalValue(v)).Always()
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
+		result = aletheia.CheckSignal(signal).Equals(v).Always()
 
 	default:
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
@@ -458,7 +454,7 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
-	whenValue, err := xlsxNumber(d, "When Value", rowNum)
+	whenValue, err := xlsxRational(d, "When Value", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
@@ -467,7 +463,7 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
 	}
 
-	whenResult, err := aletheia.DispatchWhen(aletheia.CheckWhen(whenSignal), whenCond, aletheia.PhysicalValue(whenValue))
+	whenResult, err := aletheia.DispatchWhen(aletheia.CheckWhen(whenSignal), whenCond, whenValue)
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
@@ -496,20 +492,20 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 	var result aletheia.CheckResult
 	switch thenCond {
 	case "equals":
-		v, err := xlsxNumber(d, "Then Value", rowNum)
+		v, err := xlsxRational(d, "Then Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.Equals(aletheia.PhysicalValue(v)).Within(withinMs)
+		result, err = thenBuilder.Equals(v).Within(withinMs)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
 	case "exceeds":
-		v, err := xlsxNumber(d, "Then Value", rowNum)
+		v, err := xlsxRational(d, "Then Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.Exceeds(aletheia.PhysicalValue(v)).Within(withinMs)
+		result, err = thenBuilder.Exceeds(v).Within(withinMs)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
@@ -520,15 +516,15 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 		if _, ok := d["Then Max"]; !ok {
 			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
 		}
-		lo, err := xlsxNumber(d, "Then Min", rowNum)
+		lo, err := xlsxRational(d, "Then Min", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		hi, err := xlsxNumber(d, "Then Max", rowNum)
+		hi, err := xlsxRational(d, "Then Max", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.StaysBetween(aletheia.PhysicalValue(lo), aletheia.PhysicalValue(hi)).Within(withinMs)
+		result, err = thenBuilder.StaysBetween(lo, hi).Within(withinMs)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
@@ -802,41 +798,48 @@ func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
 	return c.value, nil
 }
 
-// xlsxNumber requires a real number cell — a number stored as text is rejected
-// (strict coercion: catches a column accidentally formatted as Text).
-func xlsxNumber(d map[string]xlsxCell, key string, rowNum int) (float64, error) {
+// xlsxRational requires a TEXT-formatted numeric cell. A spreadsheet number
+// cell stores an IEEE-754 double — lossy for decimals — so under the all-text
+// contract a numeric value MUST be entered as text, and its exact literal is
+// parsed by the kernel [aletheia.FromDecimal] (the cross-binding decimal SSOT:
+// a decimal is an exact rational, never a float). A native number cell is
+// rejected. RTS-gated (decimal parsing runs the kernel), so loading a workbook
+// with numeric fields needs a live FFIBackend.
+func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Rational, error) {
 	c, ok := d[key]
 	if !ok || c.value == "" {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	if c.isText {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a number, got text %q; format the cell as a number", rowNum, key, c.value))
+	if !c.isText {
+		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
+			rowNum, key, c.value))
 	}
-	n, err := strconv.ParseFloat(c.value, 64)
-	if err != nil {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a number, got %q", rowNum, key, c.value))
-	}
-	return n, nil
+	return aletheia.FromDecimal(strings.TrimSpace(c.value))
 }
 
+// xlsxInt requires a TEXT-formatted whole-number cell: the kernel
+// [aletheia.FromDecimal] parses the literal exactly and a unit-denominator
+// check rejects a fractional value. A native number cell is rejected (the
+// all-text contract — see [xlsxRational]).
 func xlsxInt(d map[string]xlsxCell, key string, rowNum int) (int64, error) {
 	c, ok := d[key]
 	if !ok || c.value == "" {
 		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	if c.isText {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got text %q; format the cell as a number", rowNum, key, c.value))
+	if !c.isText {
+		return 0, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
+			rowNum, key, c.value))
 	}
-	// xlsx stores every number as a double, so an integral value may render as
-	// "8" or "8.0"; accept either, reject a fractional value.
-	if n, err := strconv.ParseInt(c.value, 10, 64); err == nil {
-		return n, nil
+	r, err := aletheia.FromDecimal(strings.TrimSpace(c.value))
+	if err != nil {
+		return 0, err
 	}
-	f, err := strconv.ParseFloat(c.value, 64)
-	if err != nil || f != math.Floor(f) {
+	if r.Denominator != 1 {
 		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, c.value))
 	}
-	return int64(f), nil
+	return r.Numerator, nil
 }
 
 // xlsxBool accepts the multi-form boolean Python's get_bool accepts: a native
@@ -854,14 +857,6 @@ func xlsxBool(d map[string]xlsxCell, key string, rowNum int) (bool, error) {
 	default:
 		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, c.value))
 	}
-}
-
-func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Rational, error) {
-	v, err := xlsxNumber(d, key, rowNum)
-	if err != nil {
-		return aletheia.Rational{}, err
-	}
-	return aletheia.FloatToRational(v)
 }
 
 // applyMetadata sets optional name and severity from Excel row data (text cells

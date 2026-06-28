@@ -242,6 +242,15 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     ]
     lib.aletheia_format_rational.restype = ctypes.c_void_p
 
+    # Cross-binding decimal → exact rational SSOT (the float principle).
+    # Takes a decimal string, returns an owned CString (free via
+    # ``aletheia_free_str``): a bare ``{"numerator","denominator"}`` wire
+    # rational on success, or a ``{"status":"error",...}`` envelope on a parse
+    # failure / Int64 overflow.  Consumed by
+    # ``aletheia.client._helpers.rational.from_decimal``.
+    lib.aletheia_parse_decimal.argtypes = [ctypes.c_char_p]
+    lib.aletheia_parse_decimal.restype = ctypes.c_void_p
+
 
 def _validate_lib_path(p: Path, source: str) -> None:
     """Reject a candidate ``libaletheia-ffi.so`` path that fails security gates.

@@ -5,7 +5,9 @@
 The Check API provides industry-vocabulary wrappers over the LTL DSL.
 Every check compiles to the same verified LTL property used by the DSL layer.
 
-No FFI or Agda build required — this demo only generates formulas.
+Decimal thresholds are exact `Fraction`s (the float principle: never a lossy
+float). Building checks needs no FFI; serializing a formula uses `dump_json`
+(Fraction-aware).
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -13,10 +15,11 @@ No FFI or Agda build required — this demo only generates formulas.
 # each script reads and runs in isolation; deduplicating would couple them.
 # pylint: disable=duplicate-code
 
-import json
+from fractions import Fraction
 
 from aletheia import Signal
 from aletheia.checks import signal, when
+from aletheia.types import dump_json
 
 # =============================================================================
 # SECTION 1: Simple Signal Checks
@@ -29,8 +32,8 @@ print("=" * 60)
 check1 = signal("VehicleSpeed").never_exceeds(220)
 print("\n1. signal('VehicleSpeed').never_exceeds(220)")
 
-check2 = signal("BatteryVoltage").stays_between(11.5, 14.5)
-print("2. signal('BatteryVoltage').stays_between(11.5, 14.5)")
+check2 = signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))
+print('2. signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))')
 
 check3 = signal("CoolantTemp").settles_between(80, 100).within(5000)
 print("3. signal('CoolantTemp').settles_between(80, 100).within(5000)")
@@ -41,8 +44,8 @@ print("4. signal('FaultCode').never_equals(255)")
 check5 = signal("ParkingBrake").equals(1).always()
 print("5. signal('ParkingBrake').equals(1).always()")
 
-check6 = signal("BatteryVoltage").never_below(11.0)
-print("6. signal('BatteryVoltage').never_below(11.0)")
+check6 = signal("BatteryVoltage").never_below(11)
+print("6. signal('BatteryVoltage').never_below(11)")
 
 
 # =============================================================================
@@ -88,7 +91,7 @@ print("SECTION 4: Generated LTL Formula")
 print("=" * 60)
 
 print("\nsignal('VehicleSpeed').never_exceeds(220) produces:\n")
-print(json.dumps(check1.to_dict(), indent=2))
+print(dump_json(check1.to_dict(), indent=2))
 
 
 # =============================================================================

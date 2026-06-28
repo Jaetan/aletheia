@@ -5,20 +5,8 @@ package aletheia
 
 import (
 	"errors"
-	"math"
 	"testing"
 )
-
-// mustCheck panics if a check builder returned an error, else returns the
-// CheckResult — for sites where the value is known-valid and only the formula
-// is under test. Takes the builder's (CheckResult, error) pair directly so a
-// builder call spreads into it: mustCheck(CheckSignal("S").NeverExceeds(1)).
-func mustCheck(r CheckResult, err error) CheckResult {
-	if err != nil {
-		panic("unexpected check-builder error: " + err.Error())
-	}
-	return r
-}
 
 // mustDesc renders a CheckResult's condition description, failing the test on a
 // renderer error. ConditionDesc renders thresholds via the kernel formatℚ, so it
@@ -37,10 +25,7 @@ func mustDesc(t *testing.T, r CheckResult) string {
 // ===========================================================================
 
 func TestCheckSignalNeverExceeds(t *testing.T) {
-	r, err := CheckSignal("Speed").NeverExceeds(220)
-	if err != nil {
-		t.Fatalf("NeverExceeds: %v", err)
-	}
+	r := CheckSignal("Speed").NeverExceeds(IntRational(220))
 	got := FormatFormula(r.Formula())
 	want := "always(Speed <= 220)"
 	if got != want {
@@ -49,10 +34,7 @@ func TestCheckSignalNeverExceeds(t *testing.T) {
 }
 
 func TestCheckSignalNeverBelow(t *testing.T) {
-	r, err := CheckSignal("Voltage").NeverBelow(11.5)
-	if err != nil {
-		t.Fatalf("NeverBelow: %v", err)
-	}
+	r := CheckSignal("Voltage").NeverBelow(Rational{Numerator: 23, Denominator: 2})
 	got := FormatFormula(r.Formula())
 	want := "always(Voltage >= 11.5)"
 	if got != want {
@@ -61,7 +43,7 @@ func TestCheckSignalNeverBelow(t *testing.T) {
 }
 
 func TestCheckSignalStaysBetween(t *testing.T) {
-	r, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	r, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
@@ -73,31 +55,28 @@ func TestCheckSignalStaysBetween(t *testing.T) {
 }
 
 func TestCheckSignalStaysBetweenInverted(t *testing.T) {
-	_, err := CheckSignal("Voltage").StaysBetween(14.5, 11.5)
+	_, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 29, Denominator: 2}, Rational{Numerator: 23, Denominator: 2})
 	if err == nil {
 		t.Fatal("expected error for inverted range")
 	}
 }
 
 func TestCheckSignalSettlesBetweenInverted(t *testing.T) {
-	_, err := CheckSignal("Temp").SettlesBetween(80, 60).Within(500)
+	_, err := CheckSignal("Temp").SettlesBetween(IntRational(80), IntRational(60)).Within(500)
 	if err == nil {
 		t.Fatal("expected error for inverted range")
 	}
 }
 
 func TestCheckWhenThenStaysBetweenInverted(t *testing.T) {
-	_, err := CheckWhen("Brake").Exceeds(50).Then("Speed").StaysBetween(10, 0).Within(200)
+	_, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(10), IntRational(0)).Within(200)
 	if err == nil {
 		t.Fatal("expected error for inverted range")
 	}
 }
 
 func TestCheckSignalNeverEquals(t *testing.T) {
-	r, err := CheckSignal("ErrorCode").NeverEquals(255)
-	if err != nil {
-		t.Fatalf("NeverEquals: %v", err)
-	}
+	r := CheckSignal("ErrorCode").NeverEquals(IntRational(255))
 	got := FormatFormula(r.Formula())
 	want := "never ErrorCode = 255"
 	if got != want {
@@ -110,10 +89,7 @@ func TestCheckSignalNeverEquals(t *testing.T) {
 // ===========================================================================
 
 func TestCheckSignalEqualsAlways(t *testing.T) {
-	r, err := CheckSignal("Gear").Equals(0).Always()
-	if err != nil {
-		t.Fatalf("Equals.Always: %v", err)
-	}
+	r := CheckSignal("Gear").Equals(IntRational(0)).Always()
 	got := FormatFormula(r.Formula())
 	want := "always(Gear = 0)"
 	if got != want {
@@ -122,7 +98,7 @@ func TestCheckSignalEqualsAlways(t *testing.T) {
 }
 
 func TestCheckSignalSettlesBetweenWithin(t *testing.T) {
-	r, err := CheckSignal("Temp").SettlesBetween(60, 80).Within(500)
+	r, err := CheckSignal("Temp").SettlesBetween(IntRational(60), IntRational(80)).Within(500)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -138,7 +114,7 @@ func TestCheckSignalSettlesBetweenWithin(t *testing.T) {
 // ===========================================================================
 
 func TestCheckWhenThenEqualsWithin(t *testing.T) {
-	r, err := CheckWhen("Brake").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
+	r, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -150,7 +126,7 @@ func TestCheckWhenThenEqualsWithin(t *testing.T) {
 }
 
 func TestCheckWhenDropsBelowThenWithin(t *testing.T) {
-	r, err := CheckWhen("Voltage").DropsBelow(11).Then("Warning").Equals(1).Within(50)
+	r, err := CheckWhen("Voltage").DropsBelow(IntRational(11)).Then("Warning").Equals(IntRational(1)).Within(50)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -162,7 +138,7 @@ func TestCheckWhenDropsBelowThenWithin(t *testing.T) {
 }
 
 func TestCheckWhenEqualsThenExceedsWithin(t *testing.T) {
-	r, err := CheckWhen("Ignition").Equals(1).Then("FuelPump").Exceeds(0).Within(50)
+	r, err := CheckWhen("Ignition").Equals(IntRational(1)).Then("FuelPump").Exceeds(IntRational(0)).Within(50)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -174,7 +150,7 @@ func TestCheckWhenEqualsThenExceedsWithin(t *testing.T) {
 }
 
 func TestCheckWhenThenStaysBetweenWithin(t *testing.T) {
-	r, err := CheckWhen("Brake").Exceeds(50).Then("Speed").StaysBetween(0, 10).Within(200)
+	r, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(0), IntRational(10)).Within(200)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -190,7 +166,7 @@ func TestCheckWhenThenStaysBetweenWithin(t *testing.T) {
 // ===========================================================================
 
 func TestCheckMetadataNamedSeverity(t *testing.T) {
-	r := mustCheck(CheckSignal("Speed").NeverExceeds(220)).Named("SpeedLimit").Severity("critical")
+	r := CheckSignal("Speed").NeverExceeds(IntRational(220)).Named("SpeedLimit").Severity("critical")
 	if r.Name() != "SpeedLimit" {
 		t.Errorf("Name: got %q, want %q", r.Name(), "SpeedLimit")
 	}
@@ -206,7 +182,7 @@ func TestCheckMetadataNamedSeverity(t *testing.T) {
 }
 
 func TestCheckSignalNameAndConditionDesc(t *testing.T) {
-	r1 := mustCheck(CheckSignal("V").NeverBelow(11.5))
+	r1 := CheckSignal("V").NeverBelow(Rational{Numerator: 23, Denominator: 2})
 	if r1.SignalName() != "V" {
 		t.Errorf("r1 SignalName: got %q", r1.SignalName())
 	}
@@ -214,7 +190,7 @@ func TestCheckSignalNameAndConditionDesc(t *testing.T) {
 		t.Errorf("r1 ConditionDesc: got %q", got)
 	}
 
-	r2 := mustCheck(CheckSignal("E").NeverEquals(0))
+	r2 := CheckSignal("E").NeverEquals(IntRational(0))
 	if r2.SignalName() != "E" {
 		t.Errorf("r2 SignalName: got %q", r2.SignalName())
 	}
@@ -224,7 +200,7 @@ func TestCheckSignalNameAndConditionDesc(t *testing.T) {
 }
 
 func TestCheckWhenThenMetadata(t *testing.T) {
-	r, err := CheckWhen("Brake").Exceeds(50).Then("Light").Equals(1).Within(100)
+	r, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Light").Equals(IntRational(1)).Within(100)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
@@ -241,7 +217,7 @@ func TestCheckWhenThenMetadata(t *testing.T) {
 // %g renders it "1e+06" (scientific), the kernel renders the canonical
 // "1000000" — so this both proves the delegation and matches the other bindings.
 func TestCheckConditionDescKernelCanonical(t *testing.T) {
-	r := mustCheck(CheckSignal("X").NeverExceeds(1000000))
+	r := CheckSignal("X").NeverExceeds(IntRational(1000000))
 	if got := mustDesc(t, r); got != "<= 1000000" {
 		t.Errorf("ConditionDesc: got %q, want %q (kernel-canonical, not %%g's 1e+06)", got, "<= 1000000")
 	}
@@ -252,50 +228,16 @@ func TestCheckConditionDescKernelCanonical(t *testing.T) {
 // ===========================================================================
 
 func TestCheckSettlesBetweenNegativeTime(t *testing.T) {
-	_, err := CheckSignal("T").SettlesBetween(0, 100).Within(-1)
+	_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(100)).Within(-1)
 	if err == nil {
 		t.Error("expected error for negative time")
 	}
 }
 
 func TestCheckWhenThenNegativeTime(t *testing.T) {
-	_, err := CheckWhen("A").Exceeds(0).Then("B").Equals(1).Within(-1)
+	_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(-1)
 	if err == nil {
 		t.Error("expected error for negative time")
-	}
-}
-
-// TestCheckBuilderRejectsNonFiniteValue locks in the cross-binding contract:
-// a NaN / Inf value must FAIL (matching the Python and C++ bindings), never
-// silently clamp to 0/1 as the old physicalAsRational path did. Covers every
-// builder shape — terminal, two-step, range, settles, and the when/then chain.
-func TestCheckBuilderRejectsNonFiniteValue(t *testing.T) {
-	nan := PhysicalValue(math.NaN())
-	inf := PhysicalValue(math.Inf(1))
-
-	if _, err := CheckSignal("S").NeverExceeds(nan); err == nil {
-		t.Error("NeverExceeds(NaN): expected error, got nil")
-	}
-	if _, err := CheckSignal("S").NeverBelow(inf); err == nil {
-		t.Error("NeverBelow(Inf): expected error, got nil")
-	}
-	if _, err := CheckSignal("S").NeverEquals(nan); err == nil {
-		t.Error("NeverEquals(NaN): expected error, got nil")
-	}
-	if _, err := CheckSignal("S").Equals(nan).Always(); err == nil {
-		t.Error("Equals(NaN).Always: expected error, got nil")
-	}
-	if _, err := CheckSignal("S").StaysBetween(nan, 10); err == nil {
-		t.Error("StaysBetween(NaN, _): expected error, got nil")
-	}
-	if _, err := CheckSignal("S").SettlesBetween(0, inf).Within(100); err == nil {
-		t.Error("SettlesBetween(_, Inf).Within: expected error, got nil")
-	}
-	if _, err := CheckWhen("A").Exceeds(nan).Then("B").Equals(1).Within(100); err == nil {
-		t.Error("when Exceeds(NaN): expected error, got nil")
-	}
-	if _, err := CheckWhen("A").Exceeds(1).Then("B").Equals(inf).Within(100); err == nil {
-		t.Error("then Equals(Inf): expected error, got nil")
 	}
 }
 
@@ -304,8 +246,8 @@ func TestCheckBuilderRejectsNonFiniteValue(t *testing.T) {
 // ===========================================================================
 
 func TestCheckNeverExceedsMatchesManual(t *testing.T) {
-	checkF := mustCheck(CheckSignal("Speed").NeverExceeds(220)).Formula()
-	manualF := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: "Speed", Value: RationalFromFloat(220)}}}
+	checkF := CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula()
+	manualF := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: "Speed", Value: IntRational(220)}}}
 	if FormatFormula(checkF) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkF), FormatFormula(manualF))
@@ -313,11 +255,11 @@ func TestCheckNeverExceedsMatchesManual(t *testing.T) {
 }
 
 func TestCheckStaysBetweenMatchesManual(t *testing.T) {
-	checkR, err := CheckSignal("V").StaysBetween(11.5, 14.5)
+	checkR, err := CheckSignal("V").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
-	manualF := Always{Inner: Atomic{Predicate: Between{Signal: "V", Min: RationalFromFloat(11.5), Max: RationalFromFloat(14.5)}}}
+	manualF := Always{Inner: Atomic{Predicate: Between{Signal: "V", Min: Rational{Numerator: 23, Denominator: 2}, Max: Rational{Numerator: 29, Denominator: 2}}}}
 	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkR.Formula()), FormatFormula(manualF))
@@ -325,8 +267,8 @@ func TestCheckStaysBetweenMatchesManual(t *testing.T) {
 }
 
 func TestCheckNeverEqualsMatchesManual(t *testing.T) {
-	checkF := mustCheck(CheckSignal("Err").NeverEquals(255)).Formula()
-	manualF := Never(Equals{Signal: "Err", Value: RationalFromFloat(255)})
+	checkF := CheckSignal("Err").NeverEquals(IntRational(255)).Formula()
+	manualF := Never(Equals{Signal: "Err", Value: IntRational(255)})
 	if FormatFormula(checkF) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
 			FormatFormula(checkF), FormatFormula(manualF))
@@ -334,13 +276,13 @@ func TestCheckNeverEqualsMatchesManual(t *testing.T) {
 }
 
 func TestCheckSettlesMatchesManual(t *testing.T) {
-	checkR, err := CheckSignal("T").SettlesBetween(60, 80).Within(500)
+	checkR, err := CheckSignal("T").SettlesBetween(IntRational(60), IntRational(80)).Within(500)
 	if err != nil {
 		t.Fatalf("Within: %v", err)
 	}
 	manualF := AlwaysWithin(
 		TimeBound{Microseconds: 500_000},
-		Atomic{Predicate: Between{Signal: "T", Min: RationalFromFloat(60), Max: RationalFromFloat(80)}},
+		Atomic{Predicate: Between{Signal: "T", Min: IntRational(60), Max: IntRational(80)}},
 	)
 	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
@@ -360,12 +302,12 @@ func TestAddChecks(t *testing.T) {
 	}
 	defer client.Close()
 
-	staysBetween, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	staysBetween, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
 	checks := []CheckResult{
-		mustCheck(CheckSignal("Speed").NeverExceeds(220)),
+		CheckSignal("Speed").NeverExceeds(IntRational(220)),
 		staysBetween,
 	}
 	if err := client.AddChecks(ctx, checks); err != nil {
@@ -375,7 +317,7 @@ func TestAddChecks(t *testing.T) {
 
 func TestAddChecksWithDefaults(t *testing.T) {
 	mock := NewMockBackend(Respond(`{"status": "success"}`))
-	defaultCheck, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	defaultCheck, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
@@ -387,7 +329,7 @@ func TestAddChecksWithDefaults(t *testing.T) {
 
 	// AddChecks should prepend the default check
 	sessionChecks := []CheckResult{
-		mustCheck(CheckSignal("Speed").NeverExceeds(220)),
+		CheckSignal("Speed").NeverExceeds(IntRational(220)),
 	}
 	if err := client.AddChecks(ctx, sessionChecks); err != nil {
 		t.Errorf("AddChecks with defaults: %v", err)
@@ -396,7 +338,7 @@ func TestAddChecksWithDefaults(t *testing.T) {
 
 func TestSerializeFormulaDepthLimit(t *testing.T) {
 	// Build a formula nested 101 levels deep (exceeds maxFormulaDepth=100).
-	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: RationalFromFloat(1)}}
+	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: IntRational(1)}}
 	for i := 0; i < 101; i++ {
 		f = Not{Inner: f}
 	}

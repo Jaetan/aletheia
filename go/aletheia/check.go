@@ -6,6 +6,7 @@ package aletheia
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 )
 
@@ -111,16 +112,28 @@ func (r CheckResult) SignalName() SignalName { return SignalName(r.signalName) }
 // construction itself stays infallible.
 func (r CheckResult) ConditionDesc() (string, error) { return renderDesc(r.descParts) }
 
-// firstError returns the first non-nil error, or nil. Used to thread a
-// value-conversion failure through a fluent builder chain to its terminal
-// (CheckResult, error) method.
-func firstError(errs ...error) error {
-	for _, e := range errs {
-		if e != nil {
-			return e
-		}
+// ratLessOrEqual reports whether a <= b for two rationals with positive
+// denominators. It cross-multiplies through math/big so large operands cannot
+// overflow int64 — the naive `a.num*b.den <= b.num*a.den` wraps for big values.
+// This is LOCAL (not an FFI call): an overflow-safe rational comparison is
+// trivial, so routing a <= test through the kernel would be overreach (the Go
+// binding's deliberate deviation from the decimal SSOT, which covers
+// parse / render only). Mirrors Rust's i128 cross-multiply in check.rs.
+func ratLessOrEqual(a, b Rational) bool {
+	left := new(big.Int).Mul(big.NewInt(a.Numerator), big.NewInt(b.Denominator))
+	right := new(big.Int).Mul(big.NewInt(b.Numerator), big.NewInt(a.Denominator))
+	return left.Cmp(right) <= 0
+}
+
+// ratStr formats a Rational for an inverted-range error message as plain
+// num/den text (a bare integer when the denominator is 1). It does NOT use the
+// kernel renderer: a validation-error path must not acquire an RTS dependency
+// (the lo>hi rejection has to work — and be testable — without a live runtime).
+func ratStr(r Rational) string {
+	if r.Denominator == 1 {
+		return fmt.Sprintf("%d", r.Numerator)
 	}
-	return nil
+	return fmt.Sprintf("%d/%d", r.Numerator, r.Denominator)
 }
 
 // ---------------------------------------------------------------------------
@@ -140,91 +153,66 @@ func CheckSignal(name string) CheckSignalBuilder {
 // NeverExceeds produces G(signal <= value): the signal never goes above value,
 // and value itself is allowed (inclusive — matches the Agda core's
 // LessThanOrEqual and the dual NeverBelow's >=; "never exceeds 220" lets 220 pass).
-// Returns an error if value is NaN, infinite, or overflows int64 when scaled
-// to a rational (matching the Python and C++ bindings, which raise/throw rather
-// than silently clamping a malformed value to 0/1).
-func (b CheckSignalBuilder) NeverExceeds(value PhysicalValue) (CheckResult, error) {
-	r, err := FloatToRational(float64(value))
-	if err != nil {
-		return CheckResult{}, err
-	}
-	f := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: SignalName(b.name), Value: r}}}
+// The value is an exact [Rational] (use [IntRational] for an integer or the
+// kernel [FromDecimal] for a decimal); construction is infallible.
+func (b CheckSignalBuilder) NeverExceeds(value Rational) CheckResult {
+	f := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: SignalName(b.name), Value: value}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		descParts: opDesc("<= ", r),
-	}, nil
+		descParts: opDesc("<= ", value),
+	}
 }
 
-// NeverBelow produces G(signal >= value).
-// Returns an error if value cannot be converted to a rational (see [CheckSignalBuilder.NeverExceeds]).
-func (b CheckSignalBuilder) NeverBelow(value PhysicalValue) (CheckResult, error) {
-	r, err := FloatToRational(float64(value))
-	if err != nil {
-		return CheckResult{}, err
-	}
-	f := Always{Inner: Atomic{Predicate: GreaterThanOrEqual{Signal: SignalName(b.name), Value: r}}}
+// NeverBelow produces G(signal >= value). The value is an exact [Rational];
+// construction is infallible (see [CheckSignalBuilder.NeverExceeds]).
+func (b CheckSignalBuilder) NeverBelow(value Rational) CheckResult {
+	f := Always{Inner: Atomic{Predicate: GreaterThanOrEqual{Signal: SignalName(b.name), Value: value}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		descParts: opDesc(">= ", r),
-	}, nil
+		descParts: opDesc(">= ", value),
+	}
 }
 
 // StaysBetween produces G(lo <= signal <= hi).
-// Returns an error if either bound cannot be converted to a rational, or if
-// lo > hi (an inverted range is always false).
-func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) (CheckResult, error) {
-	rLo, err := FloatToRational(float64(lo))
-	if err != nil {
-		return CheckResult{}, err
+// Returns an error if lo > hi (an inverted range is always false).
+func (b CheckSignalBuilder) StaysBetween(lo, hi Rational) (CheckResult, error) {
+	if !ratLessOrEqual(lo, hi) {
+		return CheckResult{}, validationError(fmt.Sprintf("stays_between: lo (%s) must be <= hi (%s)", ratStr(lo), ratStr(hi)))
 	}
-	rHi, err := FloatToRational(float64(hi))
-	if err != nil {
-		return CheckResult{}, err
-	}
-	if lo > hi {
-		return CheckResult{}, validationError(fmt.Sprintf("stays_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
-	}
-	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: rLo, Max: rHi}}}
+	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: lo, Max: hi}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
-		descParts: betweenDesc(rLo, rHi),
+		descParts: betweenDesc(lo, hi),
 	}, nil
 }
 
-// NeverEquals produces G(¬(signal = value)).
-// Returns an error if value cannot be converted to a rational (see [CheckSignalBuilder.NeverExceeds]).
-func (b CheckSignalBuilder) NeverEquals(value PhysicalValue) (CheckResult, error) {
-	r, err := FloatToRational(float64(value))
-	if err != nil {
-		return CheckResult{}, err
-	}
-	f := Never(Equals{Signal: SignalName(b.name), Value: r})
+// NeverEquals produces G(¬(signal = value)). The value is an exact [Rational];
+// construction is infallible (see [CheckSignalBuilder.NeverExceeds]).
+func (b CheckSignalBuilder) NeverEquals(value Rational) CheckResult {
+	f := Never(Equals{Signal: SignalName(b.name), Value: value})
 	return CheckResult{
 		formula: f, signalName: b.name,
-		descParts: opDesc("!= ", r),
-	}, nil
+		descParts: opDesc("!= ", value),
+	}
 }
 
-// Equals begins an equals(v).Always() chain. A value that cannot be converted
-// to a rational is captured and surfaced from [CheckSignalPredicate.Always] so
-// the fluent chain is unbroken (mirroring the rangeErr pattern).
-func (b CheckSignalBuilder) Equals(value PhysicalValue) CheckSignalPredicate {
-	r, err := FloatToRational(float64(value))
+// Equals begins an equals(v).Always() chain. The value is an exact [Rational],
+// so construction is infallible.
+func (b CheckSignalBuilder) Equals(value Rational) CheckSignalPredicate {
 	return CheckSignalPredicate{
-		formula:    Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: r}}},
+		formula:    Always{Inner: Atomic{Predicate: Equals{Signal: SignalName(b.name), Value: value}}},
 		signalName: b.name,
-		descParts:  opDesc("= ", r),
-		valueErr:   err,
+		descParts:  opDesc("= ", value),
 	}
 }
 
 // SettlesBetween begins a settles_between(lo, hi).Within(ms) chain.
 // An inverted range (lo > hi) is captured and surfaced from Within() so the
 // fluent chain is unbroken.
-func (b CheckSignalBuilder) SettlesBetween(lo, hi PhysicalValue) SettlesBuilder {
+func (b CheckSignalBuilder) SettlesBetween(lo, hi Rational) SettlesBuilder {
 	sb := SettlesBuilder{signalName: b.name, lo: lo, hi: hi}
-	if lo > hi {
-		sb.rangeErr = validationError(fmt.Sprintf("settles_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
+	if !ratLessOrEqual(lo, hi) {
+		sb.rangeErr = validationError(fmt.Sprintf("settles_between: lo (%s) must be <= hi (%s)", ratStr(lo), ratStr(hi)))
 	}
 	return sb
 }
@@ -234,25 +222,20 @@ type CheckSignalPredicate struct {
 	formula    Formula
 	signalName string
 	descParts  []descPart
-	valueErr   error // populated by Equals when the value is not convertible; surfaced from Always()
 }
 
 // Always confirms the predicate must hold at every time step.
-// Returns the value-conversion error captured by [CheckSignalBuilder.Equals], if any.
-func (p CheckSignalPredicate) Always() (CheckResult, error) {
-	if p.valueErr != nil {
-		return CheckResult{}, p.valueErr
-	}
+func (p CheckSignalPredicate) Always() CheckResult {
 	return CheckResult{
 		formula: p.formula, signalName: p.signalName,
 		descParts: p.descParts,
-	}, nil
+	}
 }
 
 // SettlesBuilder is an intermediate for SettlesBetween().Within().
 type SettlesBuilder struct {
 	signalName string
-	lo, hi     PhysicalValue
+	lo, hi     Rational
 	rangeErr   error // populated by SettlesBetween when lo > hi; surfaced from Within()
 }
 
@@ -267,26 +250,18 @@ func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
 	if timeMs > math.MaxInt64/usPerMillisecond {
 		return CheckResult{}, validationError(fmt.Sprintf("time %d ms overflows microsecond conversion", timeMs))
 	}
-	rLo, err := FloatToRational(float64(b.lo))
-	if err != nil {
-		return CheckResult{}, err
-	}
-	rHi, err := FloatToRational(float64(b.hi))
-	if err != nil {
-		return CheckResult{}, err
-	}
 	f := AlwaysWithin(
 		TimeBound{Microseconds: timeMs * usPerMillisecond},
 		Atomic{Predicate: Between{
 			Signal: SignalName(b.signalName),
-			Min:    rLo,
-			Max:    rHi,
+			Min:    b.lo,
+			Max:    b.hi,
 		}},
 	)
 	return CheckResult{
 		formula:    f,
 		signalName: b.signalName,
-		descParts:  withinDesc(betweenDesc(rLo, rHi), timeMs),
+		descParts:  withinDesc(betweenDesc(b.lo, b.hi), timeMs),
 	}, nil
 }
 
@@ -304,84 +279,69 @@ func CheckWhen(name string) WhenSignalBuilder {
 	return WhenSignalBuilder{name: name}
 }
 
-// Exceeds fires when signal exceeds value. A non-convertible value is captured
-// and surfaced from [ThenCondition.Within].
-func (b WhenSignalBuilder) Exceeds(value PhysicalValue) WhenCondition {
-	r, err := FloatToRational(float64(value))
-	return WhenCondition{trigger: GreaterThan{Signal: SignalName(b.name), Value: r}, valueErr: err}
+// Exceeds fires when signal exceeds value. The value is an exact [Rational].
+func (b WhenSignalBuilder) Exceeds(value Rational) WhenCondition {
+	return WhenCondition{trigger: GreaterThan{Signal: SignalName(b.name), Value: value}}
 }
 
-// Equals fires when signal equals value. A non-convertible value is captured
-// and surfaced from [ThenCondition.Within].
-func (b WhenSignalBuilder) Equals(value PhysicalValue) WhenCondition {
-	r, err := FloatToRational(float64(value))
-	return WhenCondition{trigger: Equals{Signal: SignalName(b.name), Value: r}, valueErr: err}
+// Equals fires when signal equals value. The value is an exact [Rational].
+func (b WhenSignalBuilder) Equals(value Rational) WhenCondition {
+	return WhenCondition{trigger: Equals{Signal: SignalName(b.name), Value: value}}
 }
 
-// DropsBelow fires when signal drops below value. A non-convertible value is
-// captured and surfaced from [ThenCondition.Within].
-func (b WhenSignalBuilder) DropsBelow(value PhysicalValue) WhenCondition {
-	r, err := FloatToRational(float64(value))
-	return WhenCondition{trigger: LessThan{Signal: SignalName(b.name), Value: r}, valueErr: err}
+// DropsBelow fires when signal drops below value. The value is an exact [Rational].
+func (b WhenSignalBuilder) DropsBelow(value Rational) WhenCondition {
+	return WhenCondition{trigger: LessThan{Signal: SignalName(b.name), Value: value}}
 }
 
 // WhenCondition holds a trigger predicate and needs .Then() to continue.
 type WhenCondition struct {
-	trigger  Predicate
-	valueErr error // populated when the trigger value is not convertible; threaded to ThenCondition
+	trigger Predicate
 }
 
 // Then specifies the signal that must respond to the trigger.
 func (c WhenCondition) Then(signalName string) ThenSignalBuilder {
-	return ThenSignalBuilder{trigger: c.trigger, thenName: signalName, valueErr: c.valueErr}
+	return ThenSignalBuilder{trigger: c.trigger, thenName: signalName}
 }
 
 // ThenSignalBuilder builds the response side of a when/then check.
 type ThenSignalBuilder struct {
 	trigger  Predicate
 	thenName string
-	valueErr error // carried from the when-clause; combined with the then-value error
 }
 
-// Equals requires the then-signal to equal value.
-func (b ThenSignalBuilder) Equals(value PhysicalValue) ThenCondition {
-	r, err := FloatToRational(float64(value))
+// Equals requires the then-signal to equal value (an exact [Rational]).
+func (b ThenSignalBuilder) Equals(value Rational) ThenCondition {
 	return ThenCondition{
 		trigger:       b.trigger,
-		thenPred:      Equals{Signal: SignalName(b.thenName), Value: r},
+		thenPred:      Equals{Signal: SignalName(b.thenName), Value: value},
 		thenSignal:    b.thenName,
-		thenDescParts: opDesc("= ", r),
-		valueErr:      firstError(b.valueErr, err),
+		thenDescParts: opDesc("= ", value),
 	}
 }
 
-// Exceeds requires the then-signal to exceed value.
-func (b ThenSignalBuilder) Exceeds(value PhysicalValue) ThenCondition {
-	r, err := FloatToRational(float64(value))
+// Exceeds requires the then-signal to exceed value (an exact [Rational]).
+func (b ThenSignalBuilder) Exceeds(value Rational) ThenCondition {
 	return ThenCondition{
 		trigger:       b.trigger,
-		thenPred:      GreaterThan{Signal: SignalName(b.thenName), Value: r},
+		thenPred:      GreaterThan{Signal: SignalName(b.thenName), Value: value},
 		thenSignal:    b.thenName,
-		thenDescParts: opDesc("> ", r),
-		valueErr:      firstError(b.valueErr, err),
+		thenDescParts: opDesc("> ", value),
 	}
 }
 
 // StaysBetween requires the then-signal to stay between lo and hi.
-// An inverted range (lo > hi) or a non-convertible bound is captured and
-// surfaced from Within() so the fluent chain is unbroken.
-func (b ThenSignalBuilder) StaysBetween(lo, hi PhysicalValue) ThenCondition {
-	rLo, loErr := FloatToRational(float64(lo))
-	rHi, hiErr := FloatToRational(float64(hi))
+// An inverted range (lo > hi) is captured and surfaced from Within() so the
+// fluent chain is unbroken.
+func (b ThenSignalBuilder) StaysBetween(lo, hi Rational) ThenCondition {
 	tc := ThenCondition{
 		trigger:       b.trigger,
-		thenPred:      Between{Signal: SignalName(b.thenName), Min: rLo, Max: rHi},
+		thenPred:      Between{Signal: SignalName(b.thenName), Min: lo, Max: hi},
 		thenSignal:    b.thenName,
-		thenDescParts: betweenDesc(rLo, rHi),
-		valueErr:      firstError(b.valueErr, loErr, hiErr),
+		thenDescParts: betweenDesc(lo, hi),
 	}
-	if lo > hi {
-		tc.rangeErr = validationError(fmt.Sprintf("stays_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
+	if !ratLessOrEqual(lo, hi) {
+		tc.rangeErr = validationError(fmt.Sprintf("stays_between: lo (%s) must be <= hi (%s)", ratStr(lo), ratStr(hi)))
 	}
 	return tc
 }
@@ -393,14 +353,10 @@ type ThenCondition struct {
 	thenSignal    string
 	thenDescParts []descPart
 	rangeErr      error // populated by ThenSignalBuilder.StaysBetween when lo > hi
-	valueErr      error // populated when a when/then value is not convertible to a rational
 }
 
 // Within completes the causal check: G(trigger → F≤t(response)).
 func (c ThenCondition) Within(timeMs int64) (CheckResult, error) {
-	if c.valueErr != nil {
-		return CheckResult{}, c.valueErr
-	}
 	if c.rangeErr != nil {
 		return CheckResult{}, c.rangeErr
 	}

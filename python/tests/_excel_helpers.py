@@ -52,18 +52,32 @@ def active_sheet(wb: Workbook) -> Worksheet:
     return ws
 
 
+def _as_text_cells(row: list[CellValue]) -> list[CellValue]:
+    """Render every numeric (non-bool) cell as its text form (the all-text contract).
+
+    A spreadsheet number cell stores a lossy IEEE-754 double, so the loaders require
+    numeric fields to be TEXT-formatted; the ``make_*`` builders therefore write
+    ``220`` / ``0.25`` as ``"220"`` / ``"0.25"`` so a row of plain Python literals
+    produces an all-text sheet, exactly like the shared ``demo_workbook.xlsx``
+    fixture.  Booleans (the ``Signed`` column) and strings pass through untouched.
+    Tests that must produce a genuine *number* cell (to verify it is rejected) use
+    :func:`make_number_cell_workbook` instead.
+    """
+    return [str(c) if isinstance(c, (int, float)) and not isinstance(c, bool) else c for c in row]
+
+
 def make_checks_workbook(
     tmp_path: Path,
     rows: list[list[CellValue]],
     filename: str = "test.xlsx",
 ) -> Path:
-    """Shortcut: workbook with only a Checks sheet."""
+    """Shortcut: workbook with only a Checks sheet (numerics written as text)."""
     wb = openpyxl.Workbook()
     ws = active_sheet(wb)
     ws.title = "Checks"
     ws.append(CHECKS_HEADERS)
     for row in rows:
-        ws.append(row)
+        ws.append(_as_text_cells(row))
     p = tmp_path / filename
     wb.save(str(p))
     return p
@@ -74,13 +88,13 @@ def make_when_then_workbook(
     rows: list[list[CellValue]],
     filename: str = "test.xlsx",
 ) -> Path:
-    """Shortcut: workbook with only a When-Then sheet."""
+    """Shortcut: workbook with only a When-Then sheet (numerics written as text)."""
     wb = openpyxl.Workbook()
     ws = active_sheet(wb)
     ws.title = "When-Then"
     ws.append(WHEN_THEN_HEADERS)
     for row in rows:
-        ws.append(row)
+        ws.append(_as_text_cells(row))
     p = tmp_path / filename
     wb.save(str(p))
     return p
@@ -91,13 +105,39 @@ def make_dbc_workbook(
     rows: list[list[CellValue]],
     filename: str = "test.xlsx",
 ) -> Path:
-    """Shortcut: workbook with only a DBC sheet."""
+    """Shortcut: workbook with only a DBC sheet (numerics written as text)."""
     wb = openpyxl.Workbook()
     ws = active_sheet(wb)
     ws.title = "DBC"
     ws.append(DBC_HEADERS)
     for row in rows:
-        ws.append(row)
+        ws.append(_as_text_cells(row))
+    p = tmp_path / filename
+    wb.save(str(p))
+    return p
+
+
+def make_number_cell_workbook(
+    tmp_path: Path,
+    title: str,
+    headers: list[str],
+    row: list[CellValue],
+    filename: str = "test.xlsx",
+) -> Path:
+    """Build a one-row workbook writing cells with their NATIVE types.
+
+    A numeric literal becomes a real *number* cell (a lossy IEEE-754 double).  The
+    all-text-contract rejection tests need a genuine number cell to verify it is
+    refused; the stringifying ``make_*`` builders deliberately cannot produce one.
+    Author the row mostly as text and leave only the cell under test as a number
+    literal, so the rejection fires on that field rather than on whichever numeric
+    column the loader happens to read first.
+    """
+    wb = openpyxl.Workbook()
+    ws = active_sheet(wb)
+    ws.title = title
+    ws.append(headers)
+    ws.append(row)
     p = tmp_path / filename
     wb.save(str(p))
     return p
@@ -119,10 +159,10 @@ ENGINE_RPM_ROW: list[CellValue] = [
     16,
     "little_endian",
     False,
-    0.25,
+    "0.25",
     0,
     0,
-    16383.75,
+    "16383.75",
     "rpm",
 ]
 ENGINE_TEMP_ROW: list[CellValue] = [
@@ -151,10 +191,10 @@ BRAKE_PRESSURE_ROW: list[CellValue] = [
     16,
     "big_endian",
     False,
-    0.1,
+    "0.1",
     0,
     0,
-    6553.5,
+    "6553.5",
     "bar",
 ]
 ENGINE_RPM_HEX_ID_ROW: list[CellValue] = [
@@ -167,10 +207,10 @@ ENGINE_RPM_HEX_ID_ROW: list[CellValue] = [
     16,
     "little_endian",
     False,
-    0.25,
+    "0.25",
     0,
     0,
-    16383.75,
+    "16383.75",
     "rpm",
 ]
 ENGINE_TEMP_SIGNED_ROW: list[CellValue] = [
@@ -231,10 +271,10 @@ ENGINE_RPM_NO_UNIT_ROW: list[CellValue] = [
     16,
     "little_endian",
     False,
-    0.25,
+    "0.25",
     0,
     0,
-    16383.75,
+    "16383.75",
     None,
 ]
 INVALID_BYTE_ORDER_ROW: list[CellValue] = [

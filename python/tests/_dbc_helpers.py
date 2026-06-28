@@ -11,14 +11,14 @@ overrides without changing the wire format.
 
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import TYPE_CHECKING, TypedDict
 
 from aletheia import AletheiaClient
 from aletheia._dbc_types import empty_dbc_tier2
-from aletheia.types import DLCByteCount, to_signal_fraction
+from aletheia.types import DLCByteCount
 
 if TYPE_CHECKING:
-    from fractions import Fraction
     from typing import Unpack
 
     from aletheia._dbc_types import ByteOrder, SignalPresence
@@ -37,10 +37,10 @@ class SignalOverrides(TypedDict, total=False):
     length: int
     byte_order: ByteOrder
     signed: bool
-    factor: float | Fraction
-    offset: float | Fraction
-    minimum: float | Fraction
-    maximum: float | Fraction
+    factor: int | Fraction
+    offset: int | Fraction
+    minimum: int | Fraction
+    maximum: int | Fraction
     unit: str
     presence: SignalPresence
     receivers: list[str]
@@ -61,10 +61,10 @@ class MuxSignalOverrides(TypedDict, total=False):
     length: int
     byte_order: ByteOrder
     signed: bool
-    factor: float | Fraction
-    offset: float | Fraction
-    minimum: float | Fraction
-    maximum: float | Fraction
+    factor: int | Fraction
+    offset: int | Fraction
+    minimum: int | Fraction
+    maximum: int | Fraction
     unit: str
     receivers: list[str]
 
@@ -72,9 +72,9 @@ class MuxSignalOverrides(TypedDict, total=False):
 def signal(name: str, **overrides: Unpack[SignalOverrides]) -> DBCSignal:
     """Build a DBC signal dict with sensible defaults; kwargs override.
 
-    Numeric fields are converted to :class:`Fraction` via
-    :func:`to_signal_fraction` to match ``DBCSignalAlways`` exactly (the
-    Agda core's exact-rational representation).
+    Numeric override fields are exact ``int``/``Fraction`` inputs (the float
+    principle); they are wrapped in :class:`Fraction` to match
+    ``DBCSignalAlways`` exactly (the Agda core's exact-rational representation).
     """
     return {
         "name": name,
@@ -82,10 +82,10 @@ def signal(name: str, **overrides: Unpack[SignalOverrides]) -> DBCSignal:
         "length": overrides.get("length", 16),
         "byteOrder": overrides.get("byte_order", "little_endian"),
         "signed": overrides.get("signed", False),
-        "factor": to_signal_fraction(overrides.get("factor", 1)),
-        "offset": to_signal_fraction(overrides.get("offset", 0)),
-        "minimum": to_signal_fraction(overrides.get("minimum", 0)),
-        "maximum": to_signal_fraction(overrides.get("maximum", 65535)),
+        "factor": Fraction(overrides.get("factor", 1)),
+        "offset": Fraction(overrides.get("offset", 0)),
+        "minimum": Fraction(overrides.get("minimum", 0)),
+        "maximum": Fraction(overrides.get("maximum", 65535)),
         "unit": overrides.get("unit", ""),
         "presence": overrides.get("presence", "always"),
         "receivers": overrides.get("receivers", []),
@@ -103,7 +103,7 @@ def mux_signal(
     The canonical multiplexed wire form carries ``presence='multiplexed'`` plus
     the ``multiplexor`` / ``multiplex_values`` pair.  Centralising the
     constructor here keeps the verbose field block in one place (pylint R0801)
-    and mirrors :func:`signal` (defaults + ``to_signal_fraction`` numerics).
+    and mirrors :func:`signal` (defaults + exact ``Fraction`` numerics).
     """
     return {
         "name": name,
@@ -111,10 +111,10 @@ def mux_signal(
         "length": overrides.get("length", 8),
         "byteOrder": overrides.get("byte_order", "little_endian"),
         "signed": overrides.get("signed", False),
-        "factor": to_signal_fraction(overrides.get("factor", 1)),
-        "offset": to_signal_fraction(overrides.get("offset", 0)),
-        "minimum": to_signal_fraction(overrides.get("minimum", 0)),
-        "maximum": to_signal_fraction(overrides.get("maximum", 255)),
+        "factor": Fraction(overrides.get("factor", 1)),
+        "offset": Fraction(overrides.get("offset", 0)),
+        "minimum": Fraction(overrides.get("minimum", 0)),
+        "maximum": Fraction(overrides.get("maximum", 255)),
         "unit": overrides.get("unit", ""),
         "presence": "multiplexed",
         "multiplexor": multiplexor,

@@ -10,8 +10,9 @@ package aletheia
 // ([ExtractionResult.Values]).  On extraction it carries the exact value the
 // Agda kernel computes (the wire sends numerator/denominator), so no precision
 // is lost to a float round-trip — matching Python's Fraction and C++'s
-// Rational-backed PhysicalValue.  Build a Value from a float with
-// [RationalFromFloat] (e.g. SignalValue{Name: "Speed", Value: RationalFromFloat(120.5)}).
+// Rational-backed value.  Build a Value with [IntRational] (integers) or the
+// kernel [FromDecimal] (a decimal string, exact — never a float64), e.g.
+// SignalValue{Name: "Speed", Value: IntRational(120)}.
 type SignalValue struct {
 	Name  SignalName
 	Value Rational

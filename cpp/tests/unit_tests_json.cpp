@@ -318,7 +318,8 @@ TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][pa
 
 TEST_CASE("parse_extraction rejects a float signal value", "[json][parse][validation]") {
     // Region 1: parse_signal_value no longer has a float branch — a bare float
-    // is a wire-format violation, not a value to approximate via from_double.
+    // is a wire-format violation, not a value to approximate. Exact rationals
+    // travel as {numerator, denominator}; decimals are parsed by the kernel SSOT.
     auto result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Speed", "value": 120.5}],

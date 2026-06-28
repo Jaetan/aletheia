@@ -7,16 +7,78 @@ import (
 	"archive/zip"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 	"github.com/xuri/excelize/v2"
 )
+
+// TestMain brings the GHC runtime up once for the whole package. The Excel
+// loaders parse every numeric cell through the kernel decimal SSOT
+// (aletheia.FromDecimal), which is RTS-gated, so a throwaway FFIBackend's
+// constructor runs hs_init and the RTS persists process-wide (hs_exit is never
+// called). Best-effort: if the .so is absent, loader tests fail with the kernel's
+// "runtime not initialized" error rather than silently passing.
+func TestMain(m *testing.M) {
+	if lib := findFFILib(); lib != "" {
+		if _, err := aletheia.NewFFIBackend(lib); err != nil {
+			fmt.Fprintf(os.Stderr, "TestMain: could not start GHC runtime: %v\n", err)
+		}
+	}
+	os.Exit(m.Run())
+}
+
+// findFFILib locates libaletheia-ffi.so for the RTS bring-up: ALETHEIA_LIB env
+// (operator / CI override) first, then the build-tree relative-path heuristic.
+func findFFILib() string {
+	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
+		if _, err := os.Stat(env); err == nil {
+			return env
+		}
+	}
+	for _, c := range []string{
+		"../../build/libaletheia-ffi.so",
+		"../build/libaletheia-ffi.so",
+		"build/libaletheia-ffi.so",
+	} {
+		if abs, err := filepath.Abs(c); err == nil {
+			if _, err := os.Stat(abs); err == nil {
+				return abs
+			}
+		}
+	}
+	return ""
+}
+
+// cellText renders a test-row value as the TEXT string the all-text contract
+// requires: under the decimal SSOT a numeric field MUST be a text cell (its
+// exact literal parsed by aletheia.FromDecimal), so the workbook builders write
+// every value as text. Floats use the 'f' format (no exponent) so the literal is
+// a valid decimal grammar token.
+func cellText(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		if x {
+			return "TRUE"
+		}
+		return "FALSE"
+	default:
+		return fmt.Sprintf("%v", x)
+	}
+}
 
 // assertSameFormula compares two LTL formulas structurally. The Excel loader
 // should produce the same formula as the reference check; this replaces a prior
@@ -28,17 +90,6 @@ func assertSameFormula(t *testing.T, want, got aletheia.Formula) {
 	if !reflect.DeepEqual(want, got) {
 		t.Errorf("formula mismatch:\n want: %#v\n  got: %#v", want, got)
 	}
-}
-
-// mustCheck panics if a check builder returned an error, else returns the
-// CheckResult — for sites where the value is known-valid and only the formula
-// is under test. Takes the builder's (CheckResult, error) pair directly so a
-// builder call spreads into it.
-func mustCheck(r aletheia.CheckResult, err error) aletheia.CheckResult {
-	if err != nil {
-		panic("unexpected check-builder error: " + err.Error())
-	}
-	return r
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +130,7 @@ func makeChecksWorkbook(t *testing.T, rows [][]any) string {
 				continue
 			}
 			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowIdx+2)
-			_ = f.SetCellValue("Checks", cell, val)
+			_ = f.SetCellValue("Checks", cell, cellText(val))
 		}
 	}
 	path := filepath.Join(t.TempDir(), "test.xlsx")
@@ -106,7 +157,7 @@ func makeWhenThenWorkbook(t *testing.T, rows [][]any) string {
 				continue
 			}
 			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowIdx+2)
-			_ = f.SetCellValue("When-Then", cell, val)
+			_ = f.SetCellValue("When-Then", cell, cellText(val))
 		}
 	}
 	path := filepath.Join(t.TempDir(), "test.xlsx")
@@ -133,7 +184,7 @@ func makeDBCWorkbook(t *testing.T, rows [][]any) string {
 				continue
 			}
 			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowIdx+2)
-			_ = f.SetCellValue("DBC", cell, val)
+			_ = f.SetCellValue("DBC", cell, cellText(val))
 		}
 	}
 	path := filepath.Join(t.TempDir(), "test.xlsx")
@@ -158,7 +209,7 @@ func TestLoadExcelNeverExceeds(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula(), checks[0].Formula())
+	assertSameFormula(t, aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220)).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelNeverBelow(t *testing.T) {
@@ -172,7 +223,7 @@ func TestLoadExcelNeverBelow(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Voltage").NeverBelow(11.5)).Formula(), checks[0].Formula())
+	assertSameFormula(t, aletheia.CheckSignal("Voltage").NeverBelow(aletheia.Rational{Numerator: 23, Denominator: 2}).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelStaysBetween(t *testing.T) {
@@ -186,7 +237,7 @@ func TestLoadExcelStaysBetween(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	reference, err := aletheia.CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	reference, err := aletheia.CheckSignal("Voltage").StaysBetween(aletheia.Rational{Numerator: 23, Denominator: 2}, aletheia.Rational{Numerator: 29, Denominator: 2})
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
@@ -204,7 +255,7 @@ func TestLoadExcelNeverEquals(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	assertSameFormula(t, mustCheck(aletheia.CheckSignal("ErrorCode").NeverEquals(255)).Formula(), checks[0].Formula())
+	assertSameFormula(t, aletheia.CheckSignal("ErrorCode").NeverEquals(aletheia.IntRational(255)).Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelEqualsAlways(t *testing.T) {
@@ -218,7 +269,7 @@ func TestLoadExcelEqualsAlways(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Gear").Equals(0).Always()).Formula(), checks[0].Formula())
+	assertSameFormula(t, aletheia.CheckSignal("Gear").Equals(aletheia.IntRational(0)).Always().Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelSettlesBetween(t *testing.T) {
@@ -232,7 +283,7 @@ func TestLoadExcelSettlesBetween(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := aletheia.CheckSignal("CoolantTemp").SettlesBetween(80, 100).Within(5000)
+	expected, _ := aletheia.CheckSignal("CoolantTemp").SettlesBetween(aletheia.IntRational(80), aletheia.IntRational(100)).Within(5000)
 	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
@@ -266,7 +317,7 @@ func TestLoadExcelWhenExceedsThenEquals(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := aletheia.CheckWhen("BrakePedal").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
+	expected, _ := aletheia.CheckWhen("BrakePedal").Exceeds(aletheia.IntRational(50)).Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(100)
 	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
@@ -278,7 +329,7 @@ func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected, _ := aletheia.CheckWhen("Ignition").Equals(1).Then("RPM").Exceeds(500).Within(2000)
+	expected, _ := aletheia.CheckWhen("Ignition").Equals(aletheia.IntRational(1)).Then("RPM").Exceeds(aletheia.IntRational(500)).Within(2000)
 	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
@@ -290,7 +341,7 @@ func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected, _ := aletheia.CheckWhen("FuelLevel").DropsBelow(10).Then("FuelWarning").StaysBetween(1, 1).Within(50)
+	expected, _ := aletheia.CheckWhen("FuelLevel").DropsBelow(aletheia.IntRational(10)).Then("FuelWarning").StaysBetween(aletheia.IntRational(1), aletheia.IntRational(1)).Within(50)
 	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
@@ -817,16 +868,16 @@ func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
 }
 
 // TestLoadExcelRejectsOverflowValue is the Excel-side regression for the
-// silent-clamp bug: a value that overflows int64 when scaled to a rational must
-// make the loader FAIL (it dispatches through the same check builders as the
-// YAML loader), not silently clamp to 0/1. (NaN / ±Inf are not representable in
-// .xlsx number cells, so the overflow path is the reachable Excel case.)
+// silent-clamp bug: a value whose exact rational overflows the Int64 wire range
+// must make the loader FAIL (it dispatches through the kernel decimal SSOT, the
+// same FromDecimal path as the YAML loader), not silently clamp. The value is a
+// text cell carrying the literal verbatim — a float64 could not represent it.
 func TestLoadExcelRejectsOverflowValue(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", 9999999999.5, nil, nil, nil, nil},
+		{nil, "Speed", "never_exceeds", "99999999999999999999.5", nil, nil, nil, nil},
 	})
 	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "overflows int64")
+	requireErrorContains(t, err, "Int64 wire range")
 }
 
 func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
@@ -910,12 +961,12 @@ func TestLoadExcelEmptyRowSkipped(t *testing.T) {
 	// Row 2: Speed never_exceeds 220
 	_ = f.SetCellValue("Checks", "B2", "Speed")
 	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
-	_ = f.SetCellValue("Checks", "D2", 220)
+	_ = f.SetCellValue("Checks", "D2", "220")
 	// Row 3: empty (skipped)
 	// Row 4: Voltage never_below 11.5
 	_ = f.SetCellValue("Checks", "B4", "Voltage")
 	_ = f.SetCellValue("Checks", "C4", "never_below")
-	_ = f.SetCellValue("Checks", "D4", 11.5)
+	_ = f.SetCellValue("Checks", "D4", "11.5")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gaps.xlsx")
@@ -946,7 +997,7 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 	}
 	_ = f.SetCellValue("Checks", "B2", "Speed")
 	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
-	_ = f.SetCellValue("Checks", "D2", 220)
+	_ = f.SetCellValue("Checks", "D2", "220")
 
 	// When-Then sheet
 	_, _ = f.NewSheet("When-Then")
@@ -956,11 +1007,11 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 	}
 	_ = f.SetCellValue("When-Then", "B2", "Brake")
 	_ = f.SetCellValue("When-Then", "C2", "exceeds")
-	_ = f.SetCellValue("When-Then", "D2", 50)
+	_ = f.SetCellValue("When-Then", "D2", "50")
 	_ = f.SetCellValue("When-Then", "E2", "BrakeLight")
 	_ = f.SetCellValue("When-Then", "F2", "equals")
-	_ = f.SetCellValue("When-Then", "G2", 1)
-	_ = f.SetCellValue("When-Then", "J2", 100)
+	_ = f.SetCellValue("When-Then", "G2", "1")
+	_ = f.SetCellValue("When-Then", "J2", "100")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "combined.xlsx")
@@ -974,88 +1025,9 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
 	// First is simple check, second is when/then.
-	assertSameFormula(t, mustCheck(aletheia.CheckSignal("Speed").NeverExceeds(220)).Formula(), checks[0].Formula())
-	expected1, _ := aletheia.CheckWhen("Brake").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
+	assertSameFormula(t, aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220)).Formula(), checks[0].Formula())
+	expected1, _ := aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(100)
 	assertSameFormula(t, expected1.Formula(), checks[1].Formula())
-}
-
-// ===========================================================================
-// Rational conversion
-// ===========================================================================
-
-// FloatToRational tests live here (rather than the aletheia package) because
-// the Excel loader is the primary user-input boundary that exercises the
-// error-returning variant; GPS-grade DBC factors (e.g. 1e-7) and overflow
-// from typo'd spreadsheet cells are the motivating cases.
-func TestFloatToRationalInteger(t *testing.T) {
-	r, err := aletheia.FloatToRational(42.0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Numerator != 42 || r.Denominator != 1 {
-		t.Errorf("expected 42/1, got %d/%d", r.Numerator, r.Denominator)
-	}
-}
-
-func TestFloatToRationalFraction(t *testing.T) {
-	r, err := aletheia.FloatToRational(0.25)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Float64() != 0.25 {
-		t.Errorf("expected 0.25, got %f", r.Float64())
-	}
-	// 0.25 with 10^9 scale produces 250000000/1000000000 before GCD; the
-	// Haskell side normalises to 1/4.  Go-side keeps the scaled form so
-	// the binding-boundary contract is "user passes float, kernel sees
-	// num/denom with denominator divides 1e9".
-	if r.Numerator != 250_000_000 || r.Denominator != 1_000_000_000 {
-		t.Errorf("expected 250000000/1000000000, got %d/%d", r.Numerator, r.Denominator)
-	}
-}
-
-func TestFloatToRationalNegative(t *testing.T) {
-	r, err := aletheia.FloatToRational(-40.0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Numerator != -40 || r.Denominator != 1 {
-		t.Errorf("expected -40/1, got %d/%d", r.Numerator, r.Denominator)
-	}
-}
-
-func TestFloatToRationalNegativeFraction(t *testing.T) {
-	r, err := aletheia.FloatToRational(-0.5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Float64() != -0.5 {
-		t.Errorf("expected -0.5, got %f", r.Float64())
-	}
-	if r.Numerator != -500_000_000 || r.Denominator != 1_000_000_000 {
-		t.Errorf("expected -500000000/1000000000, got %d/%d", r.Numerator, r.Denominator)
-	}
-}
-
-func TestFloatToRationalOverflow(t *testing.T) {
-	_, err := aletheia.FloatToRational(math.MaxFloat64)
-	if err == nil {
-		t.Fatal("expected error for overflow, got nil")
-	}
-}
-
-// Cluster 5 regression guard: GPS-grade DBC factor 1e-7 must produce a
-// nonzero rational under the 10^9 scale.  The pre-cluster-5 10^6 scale
-// rounded 1e-7 down to 0/1, silently breaking GPS-grade signal precision
-// (GO-B-8.1).
-func TestFloatToRationalGPSFactor(t *testing.T) {
-	r, err := aletheia.FloatToRational(1e-7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Numerator != 100 || r.Denominator != 1_000_000_000 {
-		t.Errorf("GPS factor 1e-7: expected 100/1000000000, got %d/%d", r.Numerator, r.Denominator)
-	}
 }
 
 // ===========================================================================
@@ -1072,7 +1044,7 @@ func TestLoadExcelCustomSheetNames(t *testing.T) {
 	}
 	_ = f.SetCellValue("MyChecks", "B2", "Speed")
 	_ = f.SetCellValue("MyChecks", "C2", "never_exceeds")
-	_ = f.SetCellValue("MyChecks", "D2", 220)
+	_ = f.SetCellValue("MyChecks", "D2", "220")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "custom.xlsx")
@@ -1174,7 +1146,7 @@ func TestLoadChecks_RejectsSymlink(t *testing.T) {
 	}
 	_ = f.SetCellValue("Checks", "B2", "Speed")
 	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
-	_ = f.SetCellValue("Checks", "D2", 220)
+	_ = f.SetCellValue("Checks", "D2", "220")
 	if err := f.SaveAs(real_); err != nil {
 		t.Fatalf("SaveAs: %v", err)
 	}
@@ -1275,23 +1247,59 @@ func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
 // TestLoadExcelChecksRejectsNumberAsText locks the strict-coercion decision:
 // a numeric field stored as TEXT must be rejected, not silently parsed. (The
 // demo workbook can't exercise this — it stores numbers natively.)
-func TestLoadExcelChecksRejectsNumberAsText(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		// "220" is a Go string → a text cell in the Value column.
-		{"bad", "Speed", "never_exceeds", "220"},
-	})
+// TestLoadExcelChecksRejectsNumberCell locks the all-text contract: a numeric
+// field stored as a native NUMBER cell (a lossy float) is rejected — the exact
+// value must be entered as text and parsed by the kernel decimal SSOT. Built
+// inline because the workbook helpers stringify every value to text.
+func TestLoadExcelChecksRejectsNumberCell(t *testing.T) {
+	f := excelize.NewFile()
+	defer f.Close()
+	if err := f.SetSheetName("Sheet1", "Checks"); err != nil {
+		t.Fatal(err)
+	}
+	for i, h := range checksHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue("Checks", cell, h)
+	}
+	_ = f.SetCellValue("Checks", "B2", "Speed")
+	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
+	_ = f.SetCellValue("Checks", "D2", 220) // native number cell → rejected
+	path := filepath.Join(t.TempDir(), "checks.xlsx")
+	if err := f.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
 	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "must be a number")
+	requireErrorContains(t, err, "format it as TEXT")
 }
 
-// TestLoadExcelDBCRejectsNumberAsText is the DBC-side strict lock.
-func TestLoadExcelDBCRejectsNumberAsText(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		// Factor "0.25" as text (col index 9 in dbcHeaders).
-		{256, "M", "FALSE", 8, "Sig", 0, 8, "little_endian", "FALSE", "0.25", 0, 0, 1, "u"},
-	})
+// TestLoadExcelDBCRejectsNumberCell is the DBC-side all-text lock: the Factor
+// stored as a native number cell is rejected (a lossy float). Built inline so
+// only the Factor cell is a real number while every other field is text.
+func TestLoadExcelDBCRejectsNumberCell(t *testing.T) {
+	f := excelize.NewFile()
+	defer f.Close()
+	if err := f.SetSheetName("Sheet1", "DBC"); err != nil {
+		t.Fatal(err)
+	}
+	for i, h := range dbcHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue("DBC", cell, h)
+	}
+	textCells := map[string]string{
+		"A2": "256", "B2": "M", "C2": "FALSE", "D2": "8", "E2": "Sig",
+		"F2": "0", "G2": "8", "H2": "little_endian", "I2": "FALSE",
+		"K2": "0", "L2": "0", "M2": "1", "N2": "u",
+	}
+	for cell, v := range textCells {
+		_ = f.SetCellValue("DBC", cell, v)
+	}
+	_ = f.SetCellValue("DBC", "J2", 0.25) // Factor as a native number cell → rejected
+	path := filepath.Join(t.TempDir(), "dbc.xlsx")
+	if err := f.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
 	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "must be a number")
+	requireErrorContains(t, err, "format it as TEXT")
 }
 
 // TestLoadExcelDemoWorkbookDBC is the cross-binding portability lock: the shared

@@ -7,6 +7,7 @@ and that property indices are consistent across defaults + session checks.
 """
 
 import math
+from fractions import Fraction
 
 from _dbc_helpers import dbc, message
 from _dbc_helpers import signal as dbc_signal
@@ -22,9 +23,21 @@ SIMPLE_DBC = dbc(
             0x100,
             "TestMsg",
             [
-                dbc_signal("Speed", start_bit=0, length=16, factor=0.1, maximum=6553.5, unit="kph"),
                 dbc_signal(
-                    "Voltage", start_bit=16, length=16, factor=0.01, maximum=655.35, unit="V"
+                    "Speed",
+                    start_bit=0,
+                    length=16,
+                    factor=Fraction("0.1"),
+                    maximum=Fraction("6553.5"),
+                    unit="kph",
+                ),
+                dbc_signal(
+                    "Voltage",
+                    start_bit=16,
+                    length=16,
+                    factor=Fraction("0.01"),
+                    maximum=Fraction("655.35"),
+                    unit="V",
                 ),
             ],
         ),

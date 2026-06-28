@@ -289,11 +289,12 @@ def _run_binding_tests(runner: Runner) -> None:
         cwd=runner.repo_root / "rust",
     )
     # Optional aletheia-excel crate (separate Cargo manifest at rust/excel/, like
-    # go/excel/): the main `cargo test` at rust/ does not reach it. Its tests load
-    # only the pure-Rust check/DBC API (no .so), so no ALETHEIA_LIB is needed.
+    # go/excel/): the main `cargo test` at rust/ does not reach it. The
+    # loaders parse decimal cells via the kernel (RTS-gated), so its tests load the
+    # .so — ALETHEIA_LIB pins the freshly built one (like the main cargo step).
     runner.step(
         "cargo test (excel crate)",
-        "cargo test",
+        f"ALETHEIA_LIB={rust_lib} cargo test",
         cwd=runner.repo_root / "rust" / "excel",
     )
 

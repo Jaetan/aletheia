@@ -56,14 +56,14 @@ func mergeConditions(sets ...map[string]bool) map[string]bool {
 // conditions (stays_between, settles_between, equals) have their own shapes
 // and are not dispatched through this helper. Exported for the Excel loader
 // subpackage and any external plug-ins that accept the same vocabulary.
-func DispatchSimple(signal, condition string, value PhysicalValue) (CheckResult, error) {
+func DispatchSimple(signal, condition string, value Rational) (CheckResult, error) {
 	switch condition {
 	case "never_exceeds":
-		return CheckSignal(signal).NeverExceeds(value)
+		return CheckSignal(signal).NeverExceeds(value), nil
 	case "never_below":
-		return CheckSignal(signal).NeverBelow(value)
+		return CheckSignal(signal).NeverBelow(value), nil
 	case "never_equals":
-		return CheckSignal(signal).NeverEquals(value)
+		return CheckSignal(signal).NeverEquals(value), nil
 	default:
 		return CheckResult{}, validationError(fmt.Sprintf("unknown simple condition: %q", condition))
 	}
@@ -72,7 +72,7 @@ func DispatchSimple(signal, condition string, value PhysicalValue) (CheckResult,
 // DispatchWhen maps a when-condition keyword to a WhenCondition. Exported
 // alongside [DispatchSimple] for the same reason — the Excel subpackage and
 // external loaders share the vocabulary.
-func DispatchWhen(builder WhenSignalBuilder, condition string, value PhysicalValue) (WhenCondition, error) {
+func DispatchWhen(builder WhenSignalBuilder, condition string, value Rational) (WhenCondition, error) {
 	switch condition {
 	case "exceeds":
 		return builder.Exceeds(value), nil

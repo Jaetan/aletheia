@@ -32,7 +32,7 @@ func TestWithLogger(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestWithLogger_Enrichment(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestWithoutLogger(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 	defer c.Close()
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(220)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}

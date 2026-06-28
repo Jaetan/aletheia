@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace aletheia::detail {
 
@@ -27,6 +28,18 @@ namespace aletheia::detail {
 // on first call.  Throws `AletheiaException(Ffi)` if the library is
 // not loadable.
 auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+
+// Parse a decimal literal into an exact rational via the Agda kernel's
+// `aletheia_parse_decimal`, returning the RAW JSON wire envelope (a bare
+// `{"numerator","denominator"}` on success, or `{"status":"error",...}` on a
+// parse failure / int64 overflow).  Symmetric with `format_rational_ffi`: it
+// shares the renderer's lazy-load + vocal-RTS contract — it does NOT initialise
+// the GHC RTS (an FfiBackend is the sole initialiser), so it throws
+// `AletheiaException(Ffi)` when the runtime is down rather than self-initialising.
+// The caller decodes the envelope via `detail::decode_decimal_response`
+// (in json.hpp) — this TU stays JSON-free.  Throws `AletheiaException(Ffi)` if
+// the library is not loadable or the runtime is uninitialised.
+auto parse_decimal_ffi(std::string_view input) -> std::string;
 
 // Register a preferred `libaletheia-ffi.so` path for the lazy-load.
 // Called by `make_ffi_backend(lib_path, ...)` so the renderer (which

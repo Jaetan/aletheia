@@ -389,6 +389,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         tests/unit_tests_input_bounds.cpp
         tests/unit_tests_property.cpp
         tests/unit_tests_ffi_logic.cpp
+        tests/unit_tests_decimal.cpp
         tests/rts_setup_listener.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
@@ -433,21 +434,32 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
     add_test(NAME dbc_corpus_parity_tests COMMAND dbc_corpus_parity_tests)
 
-    # Layer 4: YAML loader tests (yaml-cpp, Catch2)
-    add_executable(yaml_tests tests/yaml_tests.cpp)
+    # Layer 4: YAML loader tests (yaml-cpp, Catch2). rts_setup_listener.cpp:
+    # numeric check fields are now parsed via the kernel decimal SSOT
+    # (Rational::from_decimal), which is RTS-gated; the listener brings the GHC
+    # RTS up once for the process (this binary creates no FfiBackend of its own,
+    # so there is no rts.cores_mismatch race). ALETHEIA_LIB pins the .so for the
+    # listener (a ctest runtime env var, not a compile-time define — the
+    # CPP-D-18.1 reproducible-build invariant does not apply).
+    add_executable(yaml_tests tests/yaml_tests.cpp tests/rts_setup_listener.cpp)
     target_link_libraries(yaml_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME yaml_tests COMMAND yaml_tests)
+    set_tests_properties(yaml_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
 
-    # Layer 5: Excel loader tests (OpenXLSX, Catch2)
-    add_executable(excel_tests tests/excel_tests.cpp)
+    # Layer 5: Excel loader tests (OpenXLSX, Catch2). rts_setup_listener.cpp for
+    # the same reason as yaml_tests — numeric cells are parsed via the kernel
+    # decimal SSOT (RTS-gated).
+    add_executable(excel_tests tests/excel_tests.cpp tests/rts_setup_listener.cpp)
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
     # Repo root via env var (CPP-D-18.1) so the cross-binding portability test
-    # can load the shared examples/demo/demo_workbook.xlsx fixture.
+    # can load the shared examples/demo/demo_workbook.xlsx fixture; ALETHEIA_LIB
+    # pins the .so for the RTS listener.
     set_tests_properties(excel_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
 
     # Point 2 ("whine if uninitialised"): renderer-uninitialised vocal test. The
     # renderer no longer self-initialises the GHC RTS (an FfiBackend is the sole

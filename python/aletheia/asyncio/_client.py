@@ -327,7 +327,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         can_id: int,
         dlc: DLCCode,
         frame: bytes | bytearray,
-        signals: Mapping[str, float | Fraction],
+        signals: Mapping[str, int | Fraction],
         *,
         extended: bool = False,
     ) -> bytearray:
@@ -345,7 +345,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         self,
         can_id: int,
         dlc: DLCCode,
-        signals: Mapping[str, float | Fraction],
+        signals: Mapping[str, int | Fraction],
         *,
         extended: bool = False,
     ) -> bytearray:

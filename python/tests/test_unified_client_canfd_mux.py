@@ -86,7 +86,7 @@ class TestCANFDFrames:
             frame = client.build_frame(
                 can_id=0x200,
                 dlc=DLCCode(9),
-                signals={"BaseSignal": 42.0, "WideSignal": 1000.0},
+                signals={"BaseSignal": 42, "WideSignal": 1000},
             )
             assert len(frame) == 12
             # Round-trip: extract back
@@ -101,7 +101,7 @@ class TestCANFDFrames:
             frame = client.build_frame(
                 can_id=0x300,
                 dlc=DLCCode(15),
-                signals={"FirstByte": 200.0, "LastWord": 5000.0},
+                signals={"FirstByte": 200, "LastWord": 5000},
             )
             assert len(frame) == 64
             result = client.extract_signals(can_id=0x300, dlc=DLCCode(15), data=frame)
@@ -115,13 +115,13 @@ class TestCANFDFrames:
             original = client.build_frame(
                 can_id=0x200,
                 dlc=DLCCode(9),
-                signals={"BaseSignal": 10.0, "WideSignal": 500.0},
+                signals={"BaseSignal": 10, "WideSignal": 500},
             )
             updated = client.update_frame(
                 can_id=0x200,
                 dlc=DLCCode(9),
                 frame=original,
-                signals={"WideSignal": 9999.0},
+                signals={"WideSignal": 9999},
             )
             assert len(updated) == 12
             result = client.extract_signals(can_id=0x200, dlc=DLCCode(9), data=updated)

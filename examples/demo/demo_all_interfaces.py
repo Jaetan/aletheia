@@ -7,7 +7,10 @@ they produce identical LTL formulas:
 
     Excel -> YAML -> Check API -> DSL -> same verified Agda core
 
-No FFI or Agda build required.
+Decimals are exact `Fraction`s in code, and the YAML/Excel loaders parse decimal
+text via the verified Agda kernel (the float principle: never a lossy float), so a
+live client must be up while loading — hence the `with AletheiaClient()` blocks.
+Build the library first: `cabal run shake -- build`.
 """
 
 # Standalone teaching demos intentionally repeat small setup/teardown
@@ -16,11 +19,13 @@ No FFI or Agda build required.
 # pylint: disable=duplicate-code
 
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 
 from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
 
 from aletheia import (
+    AletheiaClient,
     Signal,
     load_checks,
     load_checks_from_excel,
@@ -67,7 +72,7 @@ print("TIER 1: Raw DSL (developer)")
 print("=" * 60)
 
 dsl_1 = Signal("VehicleSpeed").less_than(220).always().to_dict()
-dsl_2 = Signal("BatteryVoltage").between(11.5, 14.5).always().to_dict()
+dsl_2 = Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5")).always().to_dict()
 dsl_3 = (
     Signal("BrakePedal")
     .greater_than(50)
@@ -91,7 +96,7 @@ print("TIER 2: Check API (scripter)")
 print("=" * 60)
 
 api_1 = signal("VehicleSpeed").never_exceeds(220).to_dict()
-api_2 = signal("BatteryVoltage").stays_between(11.5, 14.5).to_dict()
+api_2 = signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
 api_3 = when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100).to_dict()
 
 print("\n  signal('VehicleSpeed').never_exceeds(220)")
@@ -130,7 +135,9 @@ checks:
     within_ms: 100
 """
 
-yaml_checks = load_checks(YAML_SRC)
+# Loading parses the YAML's decimal values via the verified kernel (RTS-gated).
+with AletheiaClient():
+    yaml_checks = load_checks(YAML_SRC)
 yaml_1 = yaml_checks[0].to_dict()
 yaml_2 = yaml_checks[1].to_dict()
 yaml_3 = yaml_checks[2].to_dict()
@@ -153,19 +160,22 @@ with tempfile.TemporaryDirectory() as tmpdir:
     assert ws is not None
     ws.title = "Checks"
     ws.append(CHECKS_HEADERS)
-    ws.append([None, "VehicleSpeed", "never_exceeds", 220, None, None, None, None])
-    ws.append([None, "BatteryVoltage", "stays_between", None, 11.5, 14.5, None, None])
+    # Numeric cells are TEXT-formatted (the all-text contract — a number cell
+    # stores a lossy float), parsed exactly by the kernel on load.
+    ws.append([None, "VehicleSpeed", "never_exceeds", "220", None, None, None, None])
+    ws.append([None, "BatteryVoltage", "stays_between", None, "11.5", "14.5", None, None])
 
     ws_wt = wb.create_sheet("When-Then")
     ws_wt.append(WHEN_THEN_HEADERS)
     ws_wt.append(
-        [None, "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, None]
+        [None, "BrakePedal", "exceeds", "50", "BrakeLight", "equals", "1", None, None, "100", None]
     )
 
     xlsx_path = Path(tmpdir) / "checks.xlsx"
     wb.save(str(xlsx_path))
 
-    excel_checks = load_checks_from_excel(xlsx_path)
+    with AletheiaClient():
+        excel_checks = load_checks_from_excel(xlsx_path)
     excel_1 = excel_checks[0].to_dict()
     excel_2 = excel_checks[1].to_dict()
     excel_3 = excel_checks[2].to_dict()

@@ -195,6 +195,8 @@ Use the fluent Check API for programmatic verification.
 ### Step 1: Import and Define Checks
 
 ```python
+from fractions import Fraction
+
 from aletheia import AletheiaClient, checks
 from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log
@@ -204,7 +206,7 @@ check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220)
         .named("Speed limit").severity("safety"),
 
-    checks.signal("BatteryVoltage").stays_between(11.5, 14.5)
+    checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5"))
         .named("Battery range").severity("warning"),
 
     checks.signal("FaultCode").never_equals(255)
@@ -219,7 +221,7 @@ check_list = [
 checks.signal("Speed").never_exceeds(220)        # G(speed < 220)
 
 # Lower bound
-checks.signal("Voltage").never_below(11.0)       # G(voltage >= 11.0)
+checks.signal("Voltage").never_below(11)          # G(voltage >= 11)
 
 # Range
 checks.signal("Temp").stays_between(80, 100)     # G(80 <= temp <= 100)
@@ -280,6 +282,8 @@ Full LTL control with Signal, Predicate, and Property types.
 ### Step 1: Signal Predicates
 
 ```python
+from fractions import Fraction
+
 from aletheia import Signal
 
 # Equality
@@ -291,14 +295,14 @@ Signal("Speed").greater_than(0)
 Signal("Speed").less_than_or_equal(200)
 Signal("Speed").greater_than_or_equal(60)
 
-# Range
-Signal("Voltage").between(11.5, 14.5)
+# Range — decimals are exact Fractions (the float principle: no float)
+Signal("Voltage").between(Fraction("11.5"), Fraction("14.5"))
 
 # Change detection: directional (sign of delta determines direction)
 Signal("Speed").changed_by(-10)    # Speed decreased by 10+
 
 # Stability: |now - prev| <= tolerance
-Signal("Temperature").stable_within(2.0)  # Temperature stable within +/-2
+Signal("Temperature").stable_within(2)  # Temperature stable within +/-2
 ```
 
 ### Step 2: Temporal Operators
@@ -374,11 +378,11 @@ with AletheiaClient() as client:
     speed = result.get("VehicleSpeed", default=0.0)
 
     # Build a frame from signal values
-    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 
     # Update specific signals in an existing frame
     modified = client.update_frame(
-        can_id=0x100, dlc=8, frame=frame, signals={"VehicleSpeed": 130.0}
+        can_id=0x100, dlc=8, frame=frame, signals={"VehicleSpeed": 130}
     )
 ```
 

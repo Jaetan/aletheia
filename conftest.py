@@ -214,6 +214,10 @@ class _DocGlobals(TypedDict):
     Signal: type[aletheia.Signal]
     Predicate: type[aletheia.Predicate]
     Property: type[aletheia.Property]
+    # Exact decimals in fences: `between(Fraction("11.5"), ...)` — the float
+    # principle (no float crosses the API). Injected like the aletheia names so
+    # fences need not repeat `from fractions import Fraction`.
+    Fraction: type[Fraction]
     AletheiaError: type[aletheia.AletheiaError]
     ProtocolError: type[aletheia.ProtocolError]
     ValidationError: type[aletheia.ValidationError]
@@ -269,6 +273,7 @@ def _make_globals() -> _DocGlobals:
         "Signal": Signal,
         "Predicate": Predicate,
         "Property": Property,
+        "Fraction": Fraction,
         "AletheiaError": AletheiaError,
         "ProtocolError": ProtocolError,
         "ValidationError": ValidationError,

@@ -13,7 +13,6 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -153,50 +152,50 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
     return it->second.value;
 }
 
-// get_number requires a real number cell — a number stored as text is rejected.
-static auto get_number(const CellMap& cells, const std::string& key, const std::string& ctx_str)
-    -> double {
+// get_decimal requires a TEXT cell holding a decimal literal.  The float
+// principle INVERTS the old contract: a number-typed cell is rejected (a
+// float64 has already lost the authored precision), so numeric fields must be
+// authored as text-formatted cells and parsed exactly by the kernel decimal
+// SSOT (Rational::from_decimal).  RTS-gated: an FfiBackend must be live first;
+// the loader's outer `catch (const std::runtime_error&)` converts both the
+// runtime-down and the malformed-literal throws into a Validation Result.
+static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
+    -> Rational {
     auto it = cells.find(key);
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    if (it->second.is_text)
-        throw std::runtime_error(ctx_str + ": '" + key + "' must be a number, got text \"" +
-                                 it->second.value + "\"; format the cell as a number");
-    // std::from_chars is locale-independent (unlike std::stod).
-    const auto& sv = it->second.value;
-    double result = 0.0;
-    const auto* const end = sv_end_ptr(sv);
-    auto [ptr, ec] = std::from_chars(sv.data(), end, result);
-    if (ec != std::errc{} || ptr != end)
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    return result;
+    if (!it->second.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " +
+                                 it->second.value +
+                                 "); format it as TEXT so the exact value is preserved "
+                                 "(a number cell stores a lossy float)");
+    return Rational::from_decimal(it->second.value);
 }
 
+// get_int requires a TEXT cell holding a whole number (DLC / Start Bit / Length
+// / Multiplex Value / Time).  Same inverted contract as get_decimal: a numeric
+// cell is rejected; the text is parsed exactly via the kernel decimal SSOT and
+// must reduce to denominator 1.
 static auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::int64_t {
     auto it = cells.find(key);
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    if (it->second.is_text)
-        throw std::runtime_error(ctx_str + ": '" + key + "' must be a whole number, got text \"" +
-                                 it->second.value + "\"; format the cell as a number");
-    const auto& sv = it->second.value;
-    const auto* const end = sv_end_ptr(sv);
-    // A clean integer string ("8") parses exactly; a Float-typed whole number
-    // stringifies as "8.000000", so fall back to a double + floor check.
-    std::int64_t ival = 0;
-    if (auto [iptr, iec] = std::from_chars(sv.data(), end, ival); iec == std::errc{} && iptr == end)
-        return ival;
-    double dval = 0.0;
-    auto [dptr, dec] = std::from_chars(sv.data(), end, dval);
-    if (dec != std::errc{} || dptr != end || dval != std::floor(dval))
-        throw std::runtime_error(ctx_str + ": '" + key + "' value " + sv +
+    if (!it->second.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " +
+                                 it->second.value +
+                                 "); format it as TEXT so the exact value is preserved "
+                                 "(a number cell stores a lossy float)");
+    auto value = Rational::from_decimal(it->second.value);
+    if (value.denominator() != 1)
+        throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second.value +
                                  " is not a whole number");
-    return static_cast<std::int64_t>(dval);
+    return value.numerator();
 }
 
-// get_bool accepts the multi-form boolean Python's get_bool accepts: a native
-// boolean, an integral 1/0, or TRUE/FALSE text (case-insensitive).
+// get_bool accepts the multi-form boolean the peer bindings accept: a native
+// boolean, an integral 1/0, or TRUE/FALSE/1/0 text (case-insensitive). Booleans
+// are exempt from the all-text contract (which governs only numeric cells).
 static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> bool {
     auto it = cells.find(key);
@@ -280,18 +279,15 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 
     CheckResult result = [&]() -> CheckResult {
         if (detail::is_simple_value_condition(condition)) {
-            auto value =
-                PhysicalValue{Rational::from_double(get_number(cells, "Value", row_ctx(row_num)))};
+            auto value = PhysicalValue{get_decimal(cells, "Value", row_ctx(row_num))};
             return detail::dispatch_simple(signal, condition, value);
         }
         if (detail::is_simple_range_condition(condition)) {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
                 throw std::runtime_error(row_ctx(row_num) + ": condition '" + condition +
                                          "' requires 'Min' and 'Max'");
-            auto lo =
-                PhysicalValue{Rational::from_double(get_number(cells, "Min", row_ctx(row_num)))};
-            auto hi =
-                PhysicalValue{Rational::from_double(get_number(cells, "Max", row_ctx(row_num)))};
+            auto lo = PhysicalValue{get_decimal(cells, "Min", row_ctx(row_num))};
+            auto hi = PhysicalValue{get_decimal(cells, "Max", row_ctx(row_num))};
             return check::signal(signal).stays_between(lo, hi);
         }
         if (detail::is_simple_settles_condition(condition)) {
@@ -301,16 +297,13 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
             if (!has_key(cells, "Time (ms)"))
                 throw std::runtime_error(row_ctx(row_num) +
                                          ": condition 'settles_between' requires 'Time (ms)'");
-            auto lo =
-                PhysicalValue{Rational::from_double(get_number(cells, "Min", row_ctx(row_num)))};
-            auto hi =
-                PhysicalValue{Rational::from_double(get_number(cells, "Max", row_ctx(row_num)))};
+            auto lo = PhysicalValue{get_decimal(cells, "Min", row_ctx(row_num))};
+            auto hi = PhysicalValue{get_decimal(cells, "Max", row_ctx(row_num))};
             auto ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", row_ctx(row_num))};
             return check::signal(signal).settles_between(lo, hi).within(ms);
         }
         // equals
-        auto value =
-            PhysicalValue{Rational::from_double(get_number(cells, "Value", row_ctx(row_num)))};
+        auto value = PhysicalValue{get_decimal(cells, "Value", row_ctx(row_num))};
         return check::signal(signal).equals(value).always();
     }();
 
@@ -330,8 +323,7 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
     auto when_signal = get_str(cells, "When Signal", row_ctx(row_num));
     auto when_cond = get_str(cells, "When Condition", row_ctx(row_num));
-    auto when_value =
-        PhysicalValue{Rational::from_double(get_number(cells, "When Value", row_ctx(row_num)))};
+    auto when_value = PhysicalValue{get_decimal(cells, "When Value", row_ctx(row_num))};
 
     if (!detail::is_when_condition(when_cond))
         throw std::runtime_error(row_ctx(row_num) + ": unknown when condition '" + when_cond + "'");
@@ -350,13 +342,11 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
 
     CheckResult result = [&]() -> CheckResult {
         if (then_cond == "equals") {
-            auto val = PhysicalValue{
-                Rational::from_double(get_number(cells, "Then Value", row_ctx(row_num)))};
+            auto val = PhysicalValue{get_decimal(cells, "Then Value", row_ctx(row_num))};
             return then_builder.equals(val).within(within_ms);
         }
         if (then_cond == "exceeds") {
-            auto val = PhysicalValue{
-                Rational::from_double(get_number(cells, "Then Value", row_ctx(row_num)))};
+            auto val = PhysicalValue{get_decimal(cells, "Then Value", row_ctx(row_num))};
             return then_builder.exceeds(val).within(within_ms);
         }
         // stays_between
@@ -364,10 +354,8 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
             throw std::runtime_error(
                 row_ctx(row_num) +
                 ": then condition 'stays_between' requires 'Then Min' and 'Then Max'");
-        auto lo =
-            PhysicalValue{Rational::from_double(get_number(cells, "Then Min", row_ctx(row_num)))};
-        auto hi =
-            PhysicalValue{Rational::from_double(get_number(cells, "Then Max", row_ctx(row_num)))};
+        auto lo = PhysicalValue{get_decimal(cells, "Then Min", row_ctx(row_num))};
+        auto hi = PhysicalValue{get_decimal(cells, "Then Max", row_ctx(row_num))};
         return then_builder.stays_between(lo, hi).within(within_ms);
     }();
 
@@ -444,10 +432,10 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         .bit_length = BitLength{static_cast<std::uint8_t>(bit_length_val)},
         .byte_order = byte_order,
         .is_signed = get_bool(cells, "Signed", ctx_str),
-        .factor = RationalFactor{Rational::from_double(get_number(cells, "Factor", ctx_str))},
-        .offset = RationalOffset{Rational::from_double(get_number(cells, "Offset", ctx_str))},
-        .minimum = RationalBound{Rational::from_double(get_number(cells, "Min", ctx_str))},
-        .maximum = RationalBound{Rational::from_double(get_number(cells, "Max", ctx_str))},
+        .factor = RationalFactor{get_decimal(cells, "Factor", ctx_str)},
+        .offset = RationalOffset{get_decimal(cells, "Offset", ctx_str)},
+        .minimum = RationalBound{get_decimal(cells, "Min", ctx_str)},
+        .maximum = RationalBound{get_decimal(cells, "Max", ctx_str)},
         .unit = Unit{unit_str},
         .presence = presence,
     };

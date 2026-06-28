@@ -121,24 +121,6 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     )
 
 
-def to_signal_fraction(value: float | Fraction) -> Fraction:
-    """Convert a decimal-intent numeric input to a Fraction for DBCSignal fields.
-
-    Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
-    decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
-    IEEE-754 approximation's monstrous denominator.  Existing Fraction inputs
-    flow through unchanged; integers are exact via the general path
-    (``limit_denominator`` is a no-op on an integer value — its denominator is
-    already 1, well under the cap), so no separate int branch is needed.
-    """
-    if isinstance(value, Fraction):
-        return value
-    return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN_PROTOCOLS)
-
-
-_DECIMAL_PRECISION_DEN_PROTOCOLS = 1_000_000_000  # mirrors client/_helpers.py
-
-
 type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
 """A JSON value: the leaf scalars plus JSON arrays/objects.
 

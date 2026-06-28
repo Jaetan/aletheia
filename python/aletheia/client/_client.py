@@ -12,7 +12,7 @@ from aletheia.client._backend import Backend, FFIBackend
 from aletheia.client._enrichment import build_diagnostic
 from aletheia.client._ffi import parse_json_object
 from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
-from aletheia.client._helpers.rational import coerce_to_rational
+from aletheia.client._helpers.rational import fraction_to_wire_pair, to_exact_fraction
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
     parse_parsed_dbc_response,
@@ -273,7 +273,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
     def _resolve_signal_indices(
         self,
-        signals: Mapping[str, float | Fraction],
+        signals: Mapping[str, int | Fraction],
         can_id: int,
         cmd_name: str,
         *,
@@ -281,8 +281,10 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
     ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
         """Resolve signal names to (indices, numerators, denominators).
 
-        Accepts float or Fraction inputs — Fraction flows through losslessly
-        via ``coerce_to_rational``, matching the Agda core's ℚ arithmetic.
+        Accepts exact int or Fraction inputs (the float principle — no float
+        ever crosses the API); each is validated by :func:`to_exact_fraction`
+        (rejecting a runtime ``float`` or ``bool``) then flows through losslessly
+        via :func:`fraction_to_wire_pair`, matching the Agda core's ℚ arithmetic.
         """
         lookup = self._signal_lookup.get((can_id, extended))
         if lookup is None:
@@ -299,7 +301,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if idx is None:
                 msg = f"{cmd_name}: unknown signal '{name}'"
                 raise ValidationError(msg)
-            n, d = coerce_to_rational(value)
+            n, d = fraction_to_wire_pair(to_exact_fraction(value))
             indices.append(idx)
             nums.append(n)
             dens.append(d)

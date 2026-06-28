@@ -90,16 +90,10 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "normalize_signal",
         ),
         # Rational-helper conversions — kept internal because the public
-        # API takes ``Fraction`` directly; the helpers convert user-supplied
-        # floats/strings for the loader paths and don't need to be called
-        # from user code.
+        # API takes ``Fraction`` directly; the helpers convert wire rationals
+        # for the decode paths and don't need to be called from user code.
         # PY-D-16.1 (R23): _helpers.py split into a package; the test paths
         # below pin to the new submodule layout.
-        (
-            "test_types_and_conditions.py",
-            "aletheia.client._helpers.rational",
-            "float_to_rational",
-        ),
         (
             "test_property_hypothesis.py",
             "aletheia.client._helpers.rational",
@@ -206,6 +200,11 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # test resolves the .so via ``find_ffi_library`` and calls the symbol
         # directly through ctypes to cover the shim marshaling path.
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "find_ffi_library"),
+        # Demo-script gate: runs every examples/demo/*.py as a subprocess and
+        # resolves the .so the same way the binding does, passing it through as
+        # ALETHEIA_LIB — the public surface is ``AletheiaClient`` (which the demos
+        # use); the gate itself needs the resolver to locate the freshly built .so.
+        ("test_demo_scripts.py", "aletheia.client._ffi", "find_ffi_library"),
         # CAN-FD BRS / ESI encoding helper (R19 Phase 2 cluster 18 —
         # AGDA-D-10.1).  ``encode_maybe_bool`` mirrors the Haskell shim's
         # ``mkMaybeBool`` and is exercised directly to lock the

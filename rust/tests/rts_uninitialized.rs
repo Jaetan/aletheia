@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! Point 2: the rational renderer is *vocal* when the GHC RTS is uninitialised.
+//! Point 2: the rational renderer — and decimal parsing — are *vocal* when the
+//! GHC RTS is uninitialised.
 //!
 //! Its own test binary because the GHC RTS is process-global and one-shot: any real
 //! `Client`/`AsyncClient` (`Client::new()`) in the same binary would bring the RTS
@@ -11,7 +12,7 @@
 //! typed runtime-not-initialised error rather than self-initialising or fabricating
 //! a value. Mirrors C++'s dedicated `rts_init_renderer_uninitialized_tests` binary.
 
-use aletheia::{check, Client, Error, MockBackend};
+use aletheia::{check, Client, Error, MockBackend, Rational};
 
 #[test]
 fn renderer_is_vocal_when_the_rts_is_uninitialised() {
@@ -29,6 +30,19 @@ fn renderer_is_vocal_when_the_rts_is_uninitialised() {
     // Match the variant, not a message substring: RTS-down is its own typed error,
     // distinct from a missing-library error (`format_rational` loads the `.so` first,
     // so a missing one would be `Error::LibraryLoad`, not this).
+    assert!(
+        matches!(err, Error::RtsNotInitialized),
+        "expected Error::RtsNotInitialized; got: {err:?}"
+    );
+}
+
+#[test]
+fn from_decimal_is_vocal_when_the_rts_is_uninitialised() {
+    // Decimal parsing delegates to the kernel (RTS-gated, exactly like the
+    // renderer); with no backend up it must return the typed RTS-down error, not
+    // self-initialise or fabricate a value.
+    let err =
+        Rational::from_decimal("3.14").expect_err("from_decimal with the RTS down must be vocal");
     assert!(
         matches!(err, Error::RtsNotInitialized),
         "expected Error::RtsNotInitialized; got: {err:?}"

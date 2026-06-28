@@ -5,7 +5,6 @@ package aletheia
 
 import (
 	"fmt"
-	"math"
 	"time"
 )
 
@@ -24,9 +23,6 @@ type NodeName string
 // Unit is a physical unit string (e.g. "km/h", "degC").
 type Unit string
 
-// PhysicalValue is a physical signal reading (e.g. 120.5 km/h).
-type PhysicalValue float64
-
 // Rational represents an exact numerator/denominator value.
 // Used for DBC signal parameters (factor, offset, min, max) where
 // precision beyond float64 matters. Denominator is always positive.
@@ -42,71 +38,9 @@ func (r Rational) Float64() float64 {
 
 // IntRational returns an exact [Rational] for an integer literal.
 // Useful for predicate construction: “Equals{Value: IntRational(220)}“.
+// For a decimal value, parse it exactly via [FromDecimal] (the kernel decimal
+// SSOT) — never construct one from a float64.
 func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 1} }
-
-// RationalFromFloat converts a float64 to a [Rational] via 10^9 scaling.
-// Integer-valued floats get the exact “n/1“ form; non-integer floats
-// fall through to ~9 decimal-digit (≈ ppb) precision shared with the
-// FFI signal-value path.
-//
-// It PANICS on NaN, ±Inf, or a value that overflows int64 when scaled — these
-// are programmer errors in the intended use: manual predicate construction with
-// compile-time literals (“Equals{Value: aletheia.RationalFromFloat(11.5)}“),
-// where the input is known-good (this is the [regexp.MustCompile] convention).
-// For exact-precision use prefer “Rational{Numerator: 23, Denominator: 2}“.
-// For runtime / user-supplied inputs that may be invalid (e.g. YAML- or
-// Excel-loaded checks) use [FloatToRational], which returns an error instead of
-// panicking — the check builders ([CheckSignalBuilder] etc.) funnel through it
-// for exactly this reason.
-func RationalFromFloat(v float64) Rational {
-	r, err := FloatToRational(v)
-	if err != nil {
-		panic("RationalFromFloat: " + err.Error())
-	}
-	return r
-}
-
-// FloatToRational converts a float64 to a [Rational] via 10^9 scaling
-// and returns an error for NaN, ±Inf, or values that overflow int64
-// when scaled.  Mirrors [strconv.ParseFloat]'s error-returning shape;
-// use this at user-input boundaries (e.g. Excel-loaded checks) where
-// silently mishandling a bad value would mask data entry mistakes.  See
-// [RationalFromFloat] for the panic-on-invalid convenience form used
-// for compile-time literals.
-//
-// Integer-valued floats get the exact “n/1“ form (matching
-// [RationalFromFloat]); non-integer floats produce ~9 decimal-digit
-// precision via the shared 10^9-scale path.
-func FloatToRational(v float64) (Rational, error) {
-	if math.IsInf(v, 0) || math.IsNaN(v) {
-		return Rational{}, validationError(fmt.Sprintf("cannot convert %v to rational", v))
-	}
-	if v == math.Trunc(v) {
-		// Integer fast path with a round-trip guard. A naive bound like
-		// `v <= math.MaxInt64` is wrong: math.MaxInt64 (2^63-1) is not
-		// exactly representable as float64 and rounds UP to 2^63, so
-		// v == 2^63 would pass the bound and then int64(2^63) wraps to
-		// MinInt64 — a silently-wrong value returned with err == nil.
-		// Casting to int64 and back and comparing rejects exactly the
-		// values int64 cannot represent while still accepting MinInt64
-		// (-2^63, which round-trips). Mirrors cpp/src/types.cpp:27-29.
-		// NB: relies on amd64 conversion semantics (int64 of an
-		// out-of-range float wraps to MinInt64, so the round-trip fails);
-		// CI builds and tests amd64 only. arm64 saturates to MaxInt64 and
-		// would falsely accept 2^63 — target-gated follow-up, see
-		// docs/development/DEFERRED_ITEMS.md I.1.
-		if n := int64(v); float64(n) == v {
-			return Rational{Numerator: n, Denominator: 1}, nil
-		}
-		// Integral but not int64-representable (e.g. 2^63): fall through to
-		// the scaling path, whose overflow guard returns an error.
-	}
-	n, d, err := floatToRational(v)
-	if err != nil {
-		return Rational{}, err
-	}
-	return Rational{Numerator: n, Denominator: d}, nil
-}
 
 // Timestamp is a point in time, measured in microseconds since trace start.
 type Timestamp struct {

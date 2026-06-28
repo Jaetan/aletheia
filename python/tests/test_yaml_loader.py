@@ -12,6 +12,7 @@ Tests cover:
 """
 
 import textwrap
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import pytest
@@ -22,6 +23,10 @@ from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+# Loading a decimal scalar goes through the kernel SSOT ``from_decimal`` (the
+# float principle), which is RTS-gated; bring the GHC RTS up module-wide.
+pytestmark = pytest.mark.usefixtures("rts_up")
 
 # ============================================================================
 # Simple checks — each condition type
@@ -55,7 +60,7 @@ class TestLoadSimpleChecks:
         """)
         )
         assert len(checks) == 1
-        assert checks[0].to_dict() == signal("Voltage").never_below(11.5).to_dict()
+        assert checks[0].to_dict() == signal("Voltage").never_below(Fraction("11.5")).to_dict()
 
     def test_stays_between(self) -> None:
         """Verify stays between."""
@@ -69,7 +74,9 @@ class TestLoadSimpleChecks:
         """)
         )
         assert len(checks) == 1
-        assert checks[0].to_dict() == (signal("Voltage").stays_between(11.5, 14.5).to_dict())
+        assert checks[0].to_dict() == (
+            signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
+        )
 
     def test_never_equals(self) -> None:
         """Verify never equals."""
@@ -130,7 +137,9 @@ class TestLoadSimpleChecks:
         )
         assert len(checks) == 2
         assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
-        assert checks[1].to_dict() == (signal("Voltage").stays_between(11.5, 14.5).to_dict())
+        assert checks[1].to_dict() == (
+            signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
+        )
 
 
 # ============================================================================

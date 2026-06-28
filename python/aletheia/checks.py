@@ -11,7 +11,7 @@ Usage:
 
     # Simple signal bounds
     signal("Speed").never_exceeds(220)
-    signal("Voltage").stays_between(11.5, 14.5)
+    signal("Voltage").stays_between(from_decimal("11.5"), from_decimal("14.5"))
 
     # Causal / response checks
     when("Brake").exceeds(50).then("BrakeLight").equals(1).within(100)
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from aletheia.types import LTLFormula
 
 
-def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:
+def _require_lo_le_hi(lo: int | Fraction, hi: int | Fraction, method_name: str) -> None:
     """Reject inverted intervals in two-bound check builders.
 
     Raises:
@@ -63,18 +63,18 @@ def _require_lo_le_hi(lo: float, hi: float, method_name: str) -> None:
 type _DescPart = str | Fraction
 
 
-def _op_desc(op: str, value: float) -> tuple[_DescPart, ...]:
+def _op_desc(op: str, value: int | Fraction) -> tuple[_DescPart, ...]:
     """Build an operator prefix followed by a single threshold, e.g. ``"<= "`` + ``v``.
 
     The threshold is converted with :func:`to_predicate_fraction` (the same
     coercion the predicate value uses), so the rendered description and the LTL
-    predicate agree exactly — a float ``120.0`` becomes ``Fraction(120)`` and
-    renders as the kernel-canonical ``"120"``, not ``"120.0"``.
+    predicate agree exactly — an integer ``120`` becomes ``Fraction(120)`` and
+    renders as the kernel-canonical ``"120"``.
     """
     return (op, to_predicate_fraction(value))
 
 
-def _between_desc(lo: float, hi: float) -> tuple[_DescPart, ...]:
+def _between_desc(lo: int | Fraction, hi: int | Fraction) -> tuple[_DescPart, ...]:
     """``between {lo} and {hi}`` with both bounds deferred to the kernel renderer."""
     return ("between ", to_predicate_fraction(lo), " and ", to_predicate_fraction(hi))
 
@@ -188,7 +188,7 @@ class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
 class SettlesBuilder:  # pylint: disable=too-few-public-methods
     """Intermediate for ``settles_between(lo, hi).within(ms)``."""
 
-    def __init__(self, signal_name: str, lo: float, hi: float) -> None:
+    def __init__(self, signal_name: str, lo: int | Fraction, hi: int | Fraction) -> None:
         """Capture the signal name and the (lo, hi) bound pair."""
         self._signal_name = signal_name
         self._lo = lo
@@ -221,7 +221,7 @@ class CheckSignal:
 
     # -- one-shot convenience methods ----------------------------------------
 
-    def never_exceeds(self, value: float) -> CheckResult:
+    def never_exceeds(self, value: int | Fraction) -> CheckResult:
         """``Signal(s).less_than_or_equal(value).always()`` — G(s <= v).
 
         Inclusive: a frame with ``s == value`` does NOT violate (matches the
@@ -235,7 +235,7 @@ class CheckSignal:
             _desc_parts=_op_desc("<= ", value),
         )
 
-    def never_below(self, value: float) -> CheckResult:
+    def never_below(self, value: int | Fraction) -> CheckResult:
         """``Signal(s).greater_than_or_equal(value).always()`` — G(s >= v)."""
         prop = Signal(self._name).greater_than_or_equal(value).always()
         return CheckResult(
@@ -244,7 +244,7 @@ class CheckSignal:
             _desc_parts=_op_desc(">= ", value),
         )
 
-    def stays_between(self, lo: float, hi: float) -> CheckResult:
+    def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> CheckResult:
         """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)."""
         _require_lo_le_hi(lo, hi, "stays_between")
         prop = Signal(self._name).between(lo, hi).always()
@@ -254,7 +254,7 @@ class CheckSignal:
             _desc_parts=_between_desc(lo, hi),
         )
 
-    def never_equals(self, value: float) -> CheckResult:
+    def never_equals(self, value: int | Fraction) -> CheckResult:
         """``Signal(s).equals(value).never()`` — G(not(s == v))."""
         prop = Signal(self._name).equals(value).never()
         return CheckResult(
@@ -265,12 +265,12 @@ class CheckSignal:
 
     # -- two-step methods (need another call to finish) ----------------------
 
-    def equals(self, value: float) -> CheckSignalPredicate:
+    def equals(self, value: int | Fraction) -> CheckSignalPredicate:
         """Begin an ``equals(v).always()`` chain."""
         prop = Signal(self._name).equals(value).always()
         return CheckSignalPredicate(prop, self._name, _op_desc("= ", value))
 
-    def settles_between(self, lo: float, hi: float) -> SettlesBuilder:
+    def settles_between(self, lo: int | Fraction, hi: int | Fraction) -> SettlesBuilder:
         """Begin a ``settles_between(lo, hi).within(ms)`` chain."""
         _require_lo_le_hi(lo, hi, "settles_between")
         return SettlesBuilder(self._name, lo, hi)
@@ -317,17 +317,17 @@ class ThenSignal:
         self._trigger = trigger
         self._then_name = then_signal_name
 
-    def equals(self, value: float) -> ThenCondition:
+    def equals(self, value: int | Fraction) -> ThenCondition:
         """Then-signal equals *value*."""
         pred = Signal(self._then_name).equals(value)
         return ThenCondition(self._trigger, pred, self._then_name, _op_desc("= ", value))
 
-    def exceeds(self, value: float) -> ThenCondition:
+    def exceeds(self, value: int | Fraction) -> ThenCondition:
         """Then-signal exceeds *value*."""
         pred = Signal(self._then_name).greater_than(value)
         return ThenCondition(self._trigger, pred, self._then_name, _op_desc("> ", value))
 
-    def stays_between(self, lo: float, hi: float) -> ThenCondition:
+    def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> ThenCondition:
         """Then-signal stays between *lo* and *hi*."""
         _require_lo_le_hi(lo, hi, "stays_between")
         pred = Signal(self._then_name).between(lo, hi)
@@ -358,17 +358,17 @@ class WhenSignal:
         """Capture the trigger signal name the when-clause is being built on."""
         self._name = signal_name
 
-    def exceeds(self, value: float) -> WhenCondition:
+    def exceeds(self, value: int | Fraction) -> WhenCondition:
         """Trigger fires when signal exceeds *value*."""
         pred = Signal(self._name).greater_than(value)
         return WhenCondition(pred)
 
-    def equals(self, value: float) -> WhenCondition:
+    def equals(self, value: int | Fraction) -> WhenCondition:
         """Trigger fires when signal equals *value*."""
         pred = Signal(self._name).equals(value)
         return WhenCondition(pred)
 
-    def drops_below(self, value: float) -> WhenCondition:
+    def drops_below(self, value: int | Fraction) -> WhenCondition:
         """Trigger fires when signal drops below *value*."""
         pred = Signal(self._name).less_than(value)
         return WhenCondition(pred)

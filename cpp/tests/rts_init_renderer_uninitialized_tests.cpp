@@ -75,3 +75,20 @@ TEST_CASE("renderer is vocal (throws) when the GHC runtime is uninitialised",
     REQUIRE_THROWS_WITH(aletheia::detail::format_rational_ffi(22, 7),
                         Catch::Matchers::ContainsSubstring("runtime not initialized"));
 }
+
+TEST_CASE("Rational::from_decimal is vocal (throws) when the GHC runtime is uninitialised",
+          "[rational_renderer][rts_init][decimal]") {
+    const auto lib = find_lib(); // SKIPs if the .so cannot be located
+
+    // Register the .so so the parse path locates it (loads the parse/free symbols)
+    // and the throw below is the runtime-not-initialised error, not a missing-
+    // library error.
+    aletheia::detail::register_default_lib_path(lib);
+
+    // Decimal parsing is RTS-gated exactly like rational rendering: with no
+    // FfiBackend in this process the GHC RTS is down, so from_decimal must throw
+    // rather than self-initialising the runtime or calling the kernel with it
+    // down (the float principle's decimal SSOT shares the renderer's vocal gate).
+    REQUIRE_THROWS_WITH(aletheia::Rational::from_decimal("3.14"),
+                        Catch::Matchers::ContainsSubstring("runtime not initialized"));
+}

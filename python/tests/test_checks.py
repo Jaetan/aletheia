@@ -10,6 +10,8 @@ Tests cover:
 - Equivalence: every Check produces the same formula as the equivalent DSL chain
 """
 
+from fractions import Fraction
+
 import pytest
 
 from aletheia import FFIError, ValidationError
@@ -46,7 +48,7 @@ class TestCheckSignal:
 
     def test_never_below(self) -> None:
         """never_below() produces G(s >= v)."""
-        result = signal("Voltage").never_below(11.5)
+        result = signal("Voltage").never_below(Fraction("11.5"))
         assert result.to_dict() == {
             "operator": "always",
             "formula": {
@@ -61,7 +63,7 @@ class TestCheckSignal:
 
     def test_stays_between(self) -> None:
         """stays_between() produces G(lo <= s <= hi)."""
-        result = signal("Voltage").stays_between(11.5, 14.5)
+        result = signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5"))
         assert result.to_dict() == {
             "operator": "always",
             "formula": {
@@ -258,14 +260,14 @@ class TestCheckEquivalence:
 
     def test_never_below_eq_dsl(self) -> None:
         """never_below matches Signal.greater_than_or_equal.always."""
-        check = signal("Voltage").never_below(11.5).to_dict()
-        dsl = Signal("Voltage").greater_than_or_equal(11.5).always().to_dict()
+        check = signal("Voltage").never_below(Fraction("11.5")).to_dict()
+        dsl = Signal("Voltage").greater_than_or_equal(Fraction("11.5")).always().to_dict()
         assert check == dsl
 
     def test_stays_between_eq_dsl(self) -> None:
         """stays_between matches Signal.between.always."""
-        check = signal("Voltage").stays_between(11.5, 14.5).to_dict()
-        dsl = Signal("Voltage").between(11.5, 14.5).always().to_dict()
+        check = signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
+        dsl = Signal("Voltage").between(Fraction("11.5"), Fraction("14.5")).always().to_dict()
         assert check == dsl
 
     def test_never_equals_eq_dsl(self) -> None:
@@ -341,13 +343,13 @@ class TestCheckDiagnostics:
 
     def test_never_below(self) -> None:
         """Verify never below."""
-        r = signal("Voltage").never_below(11.5)
+        r = signal("Voltage").never_below(Fraction("11.5"))
         assert r.signal_name == "Voltage"
         assert r.condition_desc == ">= 11.5"
 
     def test_stays_between(self) -> None:
         """Verify stays between."""
-        r = signal("V").stays_between(11.5, 14.5)
+        r = signal("V").stays_between(Fraction("11.5"), Fraction("14.5"))
         assert r.signal_name == "V"
         assert r.condition_desc == "between 11.5 and 14.5"
 
@@ -407,9 +409,9 @@ class TestCheckDiagnostics:
         matching Go / C++ / Rust, all of which route check descriptions through
         the kernel), where the old construction-time f-string produced ``"120.0"``.
         """
-        assert signal("Speed").never_exceeds(120.0).condition_desc == "<= 120"
-        assert signal("V").stays_between(1.0, 2.0).condition_desc == "between 1 and 2"
-        assert when("B").exceeds(50.0).then("L").equals(1.0).within(100).condition_desc == (
+        assert signal("Speed").never_exceeds(120).condition_desc == "<= 120"
+        assert signal("V").stays_between(1, 2).condition_desc == "between 1 and 2"
+        assert when("B").exceeds(50).then("L").equals(1).within(100).condition_desc == (
             "= 1 within 100ms"
         )
 

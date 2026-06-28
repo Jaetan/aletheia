@@ -78,6 +78,8 @@ Add `--json` for machine-readable output (CI/CD integration).
 ## 4. Alternatively: Use Python
 
 ```python
+from fractions import Fraction
+
 from aletheia import AletheiaClient, checks
 from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log
@@ -85,7 +87,7 @@ from aletheia.can_log import iter_can_log
 dbc = dbc_to_json("vehicle.dbc")
 check_list = [
     checks.signal("VehicleSpeed").never_exceeds(220).severity("safety"),
-    checks.signal("BatteryVoltage").stays_between(11.5, 14.5),
+    checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5")),
 ]
 
 with AletheiaClient() as client:
