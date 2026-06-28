@@ -123,13 +123,33 @@ type yamlFile struct {
 	Checks []yamlCheck `yaml:"checks"`
 }
 
+// yamlScalar captures a numeric field's raw literal TEXT (not a float64) so the
+// kernel [FromDecimal] parses it EXACTLY — the float principle: a decimal is an
+// exact rational, never a float64. A `*float64` field would round "0.1" before
+// we ever saw it. A nil pointer means the key was absent (UnmarshalYAML is only
+// invoked for a present value), preserving the existing required-field checks.
+type yamlScalar struct {
+	text string
+}
+
+// UnmarshalYAML records the scalar's literal text. It rejects a non-scalar
+// (a mapping/sequence where a number is expected) up front; the literal itself
+// is validated later by [FromDecimal].
+func (s *yamlScalar) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.ScalarNode {
+		return validationError("expected a numeric scalar value")
+	}
+	s.text = node.Value
+	return nil
+}
+
 type yamlCheck struct {
 	Name      string      `yaml:"name"`
 	Signal    string      `yaml:"signal"`
 	Condition string      `yaml:"condition"`
-	Value     *float64    `yaml:"value"`
-	Min       *float64    `yaml:"min"`
-	Max       *float64    `yaml:"max"`
+	Value     *yamlScalar `yaml:"value"`
+	Min       *yamlScalar `yaml:"min"`
+	Max       *yamlScalar `yaml:"max"`
 	WithinMs  *int64      `yaml:"within_ms"`
 	Severity  string      `yaml:"severity"`
 	When      *yamlClause `yaml:"when"`
@@ -137,11 +157,21 @@ type yamlCheck struct {
 }
 
 type yamlClause struct {
-	Signal    string   `yaml:"signal"`
-	Condition string   `yaml:"condition"`
-	Value     *float64 `yaml:"value"`
-	Min       *float64 `yaml:"min"`
-	Max       *float64 `yaml:"max"`
+	Signal    string      `yaml:"signal"`
+	Condition string      `yaml:"condition"`
+	Value     *yamlScalar `yaml:"value"`
+	Min       *yamlScalar `yaml:"min"`
+	Max       *yamlScalar `yaml:"max"`
+}
+
+// nodeRational reads a captured YAML scalar as an exact [Rational] via the
+// kernel [FromDecimal] (the decimal SSOT). The literal text is parsed exactly;
+// no float64 ever materialises. RTS-gated like the rest of the SSOT, so loading
+// a YAML file with numeric fields needs a live FFIBackend. Returns the kernel's
+// validation error directly (matching the Rust binding), so an invalid decimal
+// or an overflowing rational surfaces the kernel's precise reason.
+func nodeRational(s *yamlScalar) (Rational, error) {
+	return FromDecimal(s.text)
 }
 
 // ---------------------------------------------------------------------------
@@ -225,14 +255,26 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'value'", name, condition))
 		}
-		return DispatchSimple(entry.Signal, condition, PhysicalValue(*entry.Value))
+		v, err := nodeRational(entry.Value)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return DispatchSimple(entry.Signal, condition, v)
 	}
 
 	if IsSimpleRangeCondition(condition) {
 		if entry.Min == nil || entry.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'min' and 'max'", name, condition))
 		}
-		return CheckSignal(entry.Signal).StaysBetween(PhysicalValue(*entry.Min), PhysicalValue(*entry.Max))
+		lo, err := nodeRational(entry.Min)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		hi, err := nodeRational(entry.Max)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(entry.Signal).StaysBetween(lo, hi)
 	}
 
 	if IsSimpleSettlesCondition(condition) {
@@ -242,17 +284,26 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 		if entry.WithinMs == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'within_ms'", name))
 		}
-		return CheckSignal(entry.Signal).SettlesBetween(
-			PhysicalValue(*entry.Min),
-			PhysicalValue(*entry.Max),
-		).Within(*entry.WithinMs)
+		lo, err := nodeRational(entry.Min)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		hi, err := nodeRational(entry.Max)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(entry.Signal).SettlesBetween(lo, hi).Within(*entry.WithinMs)
 	}
 
 	if IsSimpleEqualsCondition(condition) {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'equals' requires 'value'", name))
 		}
-		return CheckSignal(entry.Signal).Equals(PhysicalValue(*entry.Value)).Always()
+		v, err := nodeRational(entry.Value)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(entry.Signal).Equals(v).Always(), nil
 	}
 
 	return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
@@ -282,7 +333,11 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': when condition '%s' requires 'value'", name, when.Condition))
 	}
 
-	whenResult, err := DispatchWhen(CheckWhen(when.Signal), when.Condition, PhysicalValue(*when.Value))
+	whenValue, err := nodeRational(when.Value)
+	if err != nil {
+		return CheckResult{}, err
+	}
+	whenResult, err := DispatchWhen(CheckWhen(when.Signal), when.Condition, whenValue)
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -299,20 +354,33 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		if then.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'equals' requires 'value'", name))
 		}
-		return thenBuilder.Equals(PhysicalValue(*then.Value)).Within(*entry.WithinMs)
+		v, err := nodeRational(then.Value)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return thenBuilder.Equals(v).Within(*entry.WithinMs)
 	case "exceeds":
 		if then.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'exceeds' requires 'value'", name))
 		}
-		return thenBuilder.Exceeds(PhysicalValue(*then.Value)).Within(*entry.WithinMs)
+		v, err := nodeRational(then.Value)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return thenBuilder.Exceeds(v).Within(*entry.WithinMs)
 	case "stays_between":
 		if then.Min == nil || then.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'stays_between' requires 'min' and 'max'", name))
 		}
-		return thenBuilder.StaysBetween(
-			PhysicalValue(*then.Min),
-			PhysicalValue(*then.Max),
-		).Within(*entry.WithinMs)
+		lo, err := nodeRational(then.Min)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		hi, err := nodeRational(then.Max)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return thenBuilder.StaysBetween(lo, hi).Within(*entry.WithinMs)
 	default:
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}

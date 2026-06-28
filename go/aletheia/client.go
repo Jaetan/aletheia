@@ -10,7 +10,6 @@ import (
 	"io"
 	"iter"
 	"log/slog"
-	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -208,22 +207,6 @@ func validatePayload(dlc DLC, data FramePayload) error {
 	return nil
 }
 
-const rationalDenominator int64 = 1_000_000_000
-
-// floatToRational converts a float64 to (numerator, denominator) using 10^9 scaling.
-// Precision: 9 decimal digits (~1 ppb). The Haskell side normalizes to coprime form via GCD.
-// Returns an error for Inf, NaN, or values that overflow int64 when scaled.
-func floatToRational(value float64) (int64, int64, error) {
-	if math.IsInf(value, 0) || math.IsNaN(value) {
-		return 0, 0, validationError(fmt.Sprintf("cannot convert %v to rational", value))
-	}
-	const limit = math.MaxInt64/rationalDenominator - 1
-	if value > float64(limit) || value < -float64(limit) {
-		return 0, 0, validationError(fmt.Sprintf("value %g overflows int64 when scaled to rational", value))
-	}
-	return int64(math.Round(value * float64(rationalDenominator))), rationalDenominator, nil
-}
-
 // resolveSignalIndices looks up signal names in the cached index and converts values to rationals.
 // Returns parallel arrays of (indices, numerators, denominators).
 func (c *Client) resolveSignalIndices(signals []SignalValue, id CANID, cmdName string) ([]uint32, []int64, []int64, error) {
@@ -243,9 +226,9 @@ func (c *Client) resolveSignalIndices(signals []SignalValue, id CANID, cmdName s
 		if !found {
 			return nil, nil, nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
 		}
-		// SignalValue.Value is an exact Rational (build via RationalFromFloat).
-		// Validate the denominator the wire requires; a Rational has no
-		// NaN/Inf, so only the denominator needs checking.
+		// SignalValue.Value is an exact Rational (build via IntRational or the
+		// kernel FromDecimal). Validate the denominator the wire requires; a
+		// Rational has no NaN/Inf, so only the denominator needs checking.
 		if err := validateRational(fmt.Sprintf("%s: signal %q", cmdName, sv.Name), sv.Value); err != nil {
 			return nil, nil, nil, err
 		}

@@ -37,7 +37,7 @@ func seqStreamingClient(t *testing.T, frameResponses ...aletheia.MockResponse) (
 		t.Fatal(err)
 	}
 	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.RationalFromFloat(300)}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(300)}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
