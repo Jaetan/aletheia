@@ -8,9 +8,12 @@
 //! check file authored for one binding loads identically here. The document is a
 //! mapping with a single `checks:` list; each entry is either a single-signal
 //! check (`signal` + `condition` + operands) or a causal `when`/`then` check
-//! (with a top-level `within_ms`). Numeric values go through the shared
-//! [`Rational::from_f64`] convention, so a non-finite / overflowing value fails
-//! rather than silently clamping. Unknown keys are ignored (matching the peers).
+//! (with a top-level `within_ms`). Decimal values are parsed EXACTLY from their
+//! original text via the kernel [`Rational::from_decimal`] (the cross-binding
+//! single source of truth), so an out-of-grammar or overflowing value fails
+//! rather than silently clamping — and loading a check file with decimal operands
+//! requires a live backend (decimal parsing is RTS-gated). Unknown keys are
+//! ignored (matching the peers).
 //!
 //! Note: a decimal operand renders in a check's *description* as the exact reduced
 //! fraction (`11.5` → `"11.5"`'s value shows as `23/2`), matching the Rust check
@@ -46,8 +49,9 @@ fn present(y: &Yaml) -> bool {
 /// # Errors
 /// [`Error::Validation`] if the input exceeds the size bound, the document is
 /// malformed, a check is missing a required field, a condition keyword is
-/// unknown, or a numeric value is non-finite / overflowing (see
-/// [`Rational::from_f64`]).
+/// unknown, or a numeric value is out of the decimal grammar or overflows `i64`
+/// (see [`Rational::from_decimal`]); [`Error::RtsNotInitialized`] if no backend
+/// is up (decimal parsing is RTS-gated).
 pub fn load_checks_from_yaml(content: &str) -> Result<Vec<Check>, Error> {
     load_checks_within(content, MAX_INPUT_BYTES)
 }
@@ -229,19 +233,19 @@ fn parse_when_then(entry: &Yaml, ctx: &str) -> Result<Check, Error> {
 }
 
 /// Extract a numeric operand as a [`Rational`] — an integer scalar becomes `n/1`,
-/// a decimal goes through [`Rational::from_f64`]. A boolean or non-number is
-/// rejected, as is a missing key.
+/// a decimal scalar is parsed EXACTLY from its original text via the kernel
+/// [`Rational::from_decimal`] (no float ever materialises; `yaml_rust2` keeps the
+/// literal as [`Yaml::Real`]). A boolean or non-number is rejected, as is a
+/// missing key. Because decimal parsing is RTS-gated, loading a check file with
+/// decimal operands requires a live backend.
 fn number(node: &Yaml, key: &str, ctx: &str, cond: &str) -> Result<Rational, Error> {
-    let v = &node[key];
-    if let Some(i) = v.as_i64() {
-        return Ok(Rational::integer(i));
+    match &node[key] {
+        Yaml::Integer(i) => Ok(Rational::integer(*i)),
+        Yaml::Real(s) => Rational::from_decimal(s),
+        _ => Err(invalid(format!(
+            "check '{ctx}': condition '{cond}' requires '{key}'"
+        ))),
     }
-    if let Some(f) = v.as_f64() {
-        return Rational::from_f64(f);
-    }
-    Err(invalid(format!(
-        "check '{ctx}': condition '{cond}' requires '{key}'"
-    )))
 }
 
 /// Extract the `min` and `max` operands of a range condition (both required).
@@ -281,6 +285,16 @@ mod tests {
         let mut checks = load_checks_from_yaml(yaml).expect("load");
         assert_eq!(checks.len(), 1, "expected exactly one check");
         checks.pop().unwrap()
+    }
+
+    /// Bring the GHC RTS up: decimal operands are parsed via the kernel decimal
+    /// SSOT (`Rational::from_decimal`), which is RTS-gated, so any test that loads
+    /// a check with a decimal value needs a live backend first. `Client::new()` is
+    /// the sole RTS initialiser; the process-global one-shot latch keeps it up.
+    fn test_backend() -> crate::Client {
+        crate::Client::new().expect(
+            "init GHC RTS for decimal-loader test (is ALETHEIA_LIB set to a built libaletheia-ffi.so?)",
+        )
     }
 
     #[test]
@@ -342,15 +356,12 @@ mod tests {
 
     #[test]
     fn decimal_value_uses_the_shared_conversion() {
-        // 100.5 must scale-and-reduce to 201/2 — the same Rational every binding
-        // produces — so the loaded formula equals the DSL one built from from_f64.
+        // "100.5" parses EXACTLY to 201/2 via the kernel decimal SSOT — the same
+        // Rational every binding produces. Decimal parsing is RTS-gated.
+        let _rts = test_backend();
         let c = one("checks:\n  - signal: S\n    condition: never_exceeds\n    value: 100.5\n");
-        let expected = check::signal("S").never_exceeds(Rational::from_f64(100.5).unwrap());
+        let expected = check::signal("S").never_exceeds(Rational::new(201, 2).unwrap());
         assert_eq!(c.formula(), expected.formula());
-        assert_eq!(
-            Rational::from_f64(100.5).unwrap(),
-            Rational::new(201, 2).unwrap()
-        );
     }
 
     #[test]
@@ -405,8 +416,10 @@ mod tests {
 
     #[test]
     fn rejects_non_finite_and_overflowing_values() {
-        // The shared from_f64 convention fails (never clamps) — matching the
-        // Python and C++ loaders and the Go check builders.
+        // `.nan` / `.inf` are out of the kernel decimal grammar; the 20-digit
+        // integer part overflows the i64 wire range. The loader rejects all three
+        // (never clamps) — matching every binding's decimal SSOT. RTS-gated.
+        let _rts = test_backend();
         assert!(load_checks_from_yaml(
             "checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n"
         )
@@ -416,7 +429,7 @@ mod tests {
         )
         .is_err());
         assert!(load_checks_from_yaml(
-            "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 9999999999.5\n"
+            "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n"
         )
         .is_err());
     }

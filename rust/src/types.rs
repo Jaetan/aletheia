@@ -163,50 +163,24 @@ impl Rational {
         }
     }
 
-    /// Convert a `f64` to a [`Rational`] via the cross-binding `round(v × 10⁹), 10⁹`
-    /// convention, then reduce to lowest terms (so `0.1 → 1/10`, `100.5 → 201/2`).
-    ///
-    /// This is the **shared** float→rational convention of every binding — Python
-    /// `float_to_rational`, Go `FloatToRational`, C++ `Rational::from_double` — so a
-    /// decimal value written in a check file produces the same rational everywhere.
-    /// The conversion is necessarily binding-side: the FFI takes an integer pair and
-    /// `0.1` is not a rational in IEEE-754, so there is no proven-core form to defer
-    /// to (the core still normalises whatever pair it receives).
-    ///
-    /// Integer-valued floats take the exact `n/1` path.
+    /// Parse a decimal string into an exact [`Rational`] via the verified Agda
+    /// kernel — the cross-binding single source of truth for decimal→rational
+    /// (the float principle: a decimal is an exact rational, never a float).
+    /// `"0.1" → 1/10`, `"3.14" → 157/50`, `"42" → 42/1`. The accepted grammar is
+    /// the kernel's: `-?digits` or `-?digits.digits+` — no `+` sign, no
+    /// leading/trailing `.`, no exponent (so `"1e3"`, `".5"`, `"1."`, `"+2"` are
+    /// rejected). Requires a live backend: like rational *display*, decimal
+    /// parsing is RTS-gated (it runs the kernel's `toℚ` + the `i64` bound check),
+    /// and an `FfiBackend` (via a [`Client`](crate::Client)) is the sole RTS
+    /// initialiser.
     ///
     /// # Errors
-    /// [`Error::Validation`] if `v` is NaN, infinite, or overflows `i64` when scaled
-    /// — matching the Python and C++ loaders (and the Go check builders), which fail
-    /// on such input rather than silently clamping.
-    pub fn from_f64(v: f64) -> Result<Self, Error> {
-        if v.is_nan() || v.is_infinite() {
-            return Err(Error::Validation(format!("cannot convert {v} to rational")));
-        }
-        // Integer fast path (exact for whole-number thresholds like 220.0).
-        // Strict upper bound: `i64::MAX as f64` rounds UP to 2^63 (one past
-        // i64::MAX), so `<=` would let exactly 2^63 through to a *saturating*
-        // `as i64` (→ i64::MAX, silently wrong). `<` rejects 2^63 instead; the
-        // largest valid integer double, 2^63-2048, is still strictly below it.
-        if v.fract() == 0.0 && v >= i64::MIN as f64 && v < i64::MAX as f64 {
-            return Ok(Rational::integer(v as i64));
-        }
-        // Fixed-point 10⁹ scaling, with the same overflow guard as the peers.
-        const SCALE: i64 = 1_000_000_000;
-        let limit = (i64::MAX / SCALE - 1) as f64;
-        if v > limit || v < -limit {
-            return Err(Error::Validation(format!(
-                "value {v} overflows i64 when scaled to rational"
-            )));
-        }
-        let num = (v * SCALE as f64).round() as i64;
-        let g = gcd(num.unsigned_abs(), SCALE as u64);
-        // g ≥ 1 (SCALE ≠ 0), and both operands are within i64, so the divisions
-        // are exact and in range — no further validation needed.
-        Ok(Rational {
-            numerator: num / g as i64,
-            denominator: SCALE / g as i64,
-        })
+    /// [`Error::Validation`] if the string is not a valid decimal literal or its
+    /// rational overflows `i64`; [`Error::RtsNotInitialized`] if no backend has
+    /// been created; [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the
+    /// `.so` or the export is unavailable.
+    pub fn from_decimal(s: &str) -> Result<Self, Error> {
+        crate::backend::parse_decimal(s)
     }
 
     /// The numerator.
@@ -231,17 +205,6 @@ impl Rational {
             json!({ "numerator": self.numerator, "denominator": self.denominator })
         }
     }
-}
-
-/// Euclid's GCD, for reducing a `round(v × 10⁹), 10⁹` rational to lowest terms.
-/// With a nonzero second argument the result is ≥ 1.
-fn gcd(mut a: u64, mut b: u64) -> u64 {
-    while b != 0 {
-        let t = a % b;
-        a = b;
-        b = t;
-    }
-    a
 }
 
 /// An integer is always a valid rational (`n / 1`) — the ergonomic input for the
@@ -279,31 +242,6 @@ impl TimeBound {
 
 #[cfg(test)]
 mod tests {
-    use super::Rational;
-
-    #[test]
-    fn from_f64_rejects_2_pow_63_instead_of_saturating() {
-        // `i64::MAX as f64` rounds up to 2^63 (one past i64::MAX); the integer
-        // fast path must reject exactly +2^63, not saturate it to i64::MAX.
-        let two_pow_63 = 9_223_372_036_854_775_808.0_f64; // 2^63
-        assert!(Rational::from_f64(two_pow_63).is_err());
-        // -2^63 IS i64::MIN — exactly representable as f64 and a valid i64, so it
-        // is accepted (only the upper bound was off-by-one; the lower is exact).
-        let min = Rational::from_f64(-two_pow_63).expect("-2^63 == i64::MIN is in range");
-        assert_eq!(min.numerator(), i64::MIN);
-        assert_eq!(min.denominator(), 1);
-    }
-
-    #[test]
-    fn from_f64_accepts_largest_in_range_integer_double() {
-        // The largest integer-valued double strictly below 2^63 is 2^63 - 2048;
-        // it fits i64 exactly and must round-trip through the integer fast path.
-        let max_int_double = 9_223_372_036_854_773_760.0_f64; // 2^63 - 2048
-        let r = Rational::from_f64(max_int_double).expect("in-range integer double");
-        assert_eq!(r.numerator(), 9_223_372_036_854_773_760);
-        assert_eq!(r.denominator(), 1);
-    }
-
     #[test]
     fn dlc_from_bytes_round_trips_and_rejects_invalid() {
         use super::Dlc;

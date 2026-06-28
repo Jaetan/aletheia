@@ -24,9 +24,11 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::OnceLock;
 
 use libloading::{Library, Symbol};
+use serde_json::Value;
 
 use crate::error::Error;
 use crate::log::{events, LogField, LogLevel, LogRecord, LogValue, Logger};
+use crate::response::rational_from_value;
 use crate::types::{CanId, Dlc, Rational, Timestamp};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
@@ -334,6 +336,70 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
         ));
     }
     Ok(Response { ptr, free_str }.into_string())
+}
+
+/// Parse a decimal string into an exact [`Rational`] via the verified Agda
+/// kernel's `aletheia_parse_decimal` — the cross-binding single source of truth
+/// for decimal→rational (the float principle: a decimal is an exact rational,
+/// never a float). The accepted grammar is the kernel's: `-?digits` or
+/// `-?digits.digits+` — no `+` sign, no leading/trailing `.`, no exponent.
+///
+/// Like [`format_rational`], this is *vocal*: it never initialises the GHC RTS
+/// (an [`FfiBackend`] is the sole initialiser, owning the bus-count `-N`), so it
+/// returns [`Error::RtsNotInitialized`] *before* the FFI call if the RTS is down
+/// (invoking the MAlonzo export with the RTS down is undefined behaviour).
+///
+/// # Errors
+/// [`Error::RtsNotInitialized`] if no backend is up; [`Error::Validation`] if the
+/// string is not a valid decimal literal or its rational overflows `i64` (the
+/// kernel's `decimal_parse_failed` / `decimal_overflow` — user input, not a wire
+/// fault); [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` or the
+/// export is absent; [`Error::Protocol`] on a null return or malformed response
+/// (an ABI/kernel malfunction).
+pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
+    type ParseDecimalFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+    let lib = library()?;
+    // Vocal, exactly like format_rational: never self-init the RTS; return before
+    // the FFI call (the MAlonzo export with the RTS down is UB).
+    match RTS_INIT.get() {
+        None => return Err(Error::RtsNotInitialized),
+        Some(Err(e)) => return Err(e.clone()),
+        Some(Ok(())) => {}
+    }
+    let input = CString::new(s)
+        .map_err(|_| Error::Validation("decimal literal contains an interior NUL".to_string()))?;
+    let f = unsafe { symbol::<ParseDecimalFn>(lib, b"aletheia_parse_decimal\0") }?;
+    let free_str =
+        unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+    // SAFETY: `input` is a valid NUL-terminated C string held alive across the
+    // call; the returned pointer is a GHC-allocated CString freed by `Response`.
+    let ptr = unsafe { f(input.as_ptr()) };
+    if ptr.is_null() {
+        return Err(Error::Protocol(
+            "aletheia_parse_decimal returned a null pointer".to_string(),
+        ));
+    }
+    decode_decimal_response(&Response { ptr, free_str }.into_string())
+}
+
+/// Decode the `aletheia_parse_decimal` wire envelope: a bare
+/// `{"numerator","denominator"}` on success, or a `{"status":"error",...}`
+/// envelope on failure. Branch on `status` BEFORE handing the value to the wire
+/// decoder — otherwise the decoder reports an opaque "missing numerator" and
+/// masks the precise `decimal_parse_failed` / `decimal_overflow` reason. Maps the
+/// error to [`Error::Validation`] (user input), reusing the shared wire decoder
+/// [`rational_from_value`] on success (no reimplemented denominator check).
+fn decode_decimal_response(json: &str) -> Result<Rational, Error> {
+    let value: Value = serde_json::from_str(json)
+        .map_err(|e| Error::Protocol(format!("aletheia_parse_decimal: malformed response: {e}")))?;
+    if value.get("status").and_then(Value::as_str) == Some("error") {
+        let msg = value
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("invalid decimal literal");
+        return Err(Error::Validation(msg.to_string()));
+    }
+    rational_from_value(&value)
 }
 
 /// Human spec for the RTS core count (`default` or `-N<k>`).

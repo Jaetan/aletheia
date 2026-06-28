@@ -16,12 +16,14 @@
 //! - optional fields fall back to a default (`Extended` → standard, `Unit` → "",
 //!   the `Multiplexor`/`Multiplex Value` pair → always-present).
 //!
-//! Coercion is **strict**, matching the Python reference (`openpyxl`, typed
-//! cells) and the typed substrate calamine gives us: a numeric field requires a
-//! real number cell, so a number stored as *text* (`"8"`) is rejected rather
-//! than silently parsed. The one exception is `Message ID`, which legitimately
-//! takes a hex string (`0x100`). The compiled formulas and the typed [`Dbc`]
-//! delegate every value to the verified core via the main `aletheia` crate.
+//! Coercion is **strict** and follows the float principle: a number cell
+//! stores a lossy IEEE-754 double, so every numeric field must be **text-formatted**
+//! and is parsed EXACTLY by the kernel [`Rational::from_decimal`] (the cross-binding
+//! single source of truth) — a number-typed cell is rejected. `Message ID` also
+//! takes a hex string (`0x100`); `Signed` is a native boolean. Because decimal
+//! parsing is RTS-gated, loading a workbook with numeric fields requires a live
+//! backend. The compiled formulas and the typed [`Dbc`] delegate every value to
+//! the verified core via the main `aletheia` crate.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -90,6 +92,19 @@ const WHEN_THEN_HEADERS: [&str; 11] = [
 
 fn invalid(msg: impl Into<String>) -> Error {
     Error::Validation(msg.into())
+}
+
+/// The all-text-contract rejection for a numeric field supplied as a *number*
+/// cell. Names the row (`ctx`), the column (`key`) and the offending value
+/// (`got`) so a single stray number cell hiding in a column of text — which looks
+/// identical in the spreadsheet — is locatable from the error alone. Identical in
+/// shape across all four bindings (Python `get_excel_number`, Go `xlsxRational`,
+/// C++ `get_decimal`).
+fn number_cell_error(ctx: &str, key: &str, got: impl std::fmt::Display) -> Error {
+    invalid(format!(
+        "{ctx}: '{key}' is a number cell (got {got}); format it as TEXT so the exact \
+         value is preserved (a number cell stores a lossy float)"
+    ))
 }
 
 // ── Row model: header name → cell, present cells only ─────────────────────────
@@ -162,41 +177,56 @@ fn get_str(row: &Row, key: &str, ctx: &str) -> Result<String, Error> {
     }
 }
 
-/// A required numeric field as an exact [`Rational`] (an integer becomes `n/1`, a
-/// decimal goes through the shared [`Rational::from_f64`] convention).
+/// A required numeric field as an exact [`Rational`]. A spreadsheet number cell
+/// stores an IEEE-754 double — lossy for decimals — so a numeric value MUST be
+/// **text-formatted**: its original string is parsed exactly by the kernel
+/// [`Rational::from_decimal`] (the cross-binding single source of truth). A
+/// number-typed cell is rejected. Requires a live backend (decimal parsing is
+/// RTS-gated).
 fn get_rational(row: &Row, key: &str, ctx: &str) -> Result<Rational, Error> {
     match row.get(key) {
-        Some(Data::Int(n)) => Ok(Rational::integer(*n)),
-        Some(Data::Float(f)) => Rational::from_f64(*f),
+        Some(Data::String(s)) => Rational::from_decimal(s.trim()),
+        // The all-text contract rejects EVERY number cell, integer or decimal: a
+        // spreadsheet stores numbers as lossy IEEE-754 doubles (calamine surfaces
+        // even an integer cell as `Data::Float`). Rejecting both `Int` and `Float`
+        // makes the contract hold regardless of how the reader types the cell,
+        // rather than relying on calamine's "all xlsx numbers are Float" detail.
+        Some(Data::Int(n)) => Err(number_cell_error(ctx, key, n)),
+        Some(Data::Float(f)) => Err(number_cell_error(ctx, key, f)),
         Some(other) => Err(invalid(format!(
-            "{ctx}: '{key}' must be a number, got {}; format the cell as a number",
+            "{ctx}: '{key}' must be a text-formatted number, got {}",
             describe(other)
         ))),
         None => Err(invalid(format!(
-            "{ctx}: missing required '{key}' (expected a number)"
+            "{ctx}: missing required '{key}' (expected a text-formatted number)"
         ))),
     }
 }
 
-/// A required whole-number field. xlsx stores every number as a double, so an
-/// *integral* float (`8.0`) is accepted and a fractional one is rejected —
-/// matching Python's effective behaviour (openpyxl normalises whole floats to
-/// `int` before its `int`-only check).
+/// A required whole-number field, read EXACTLY from a **text-formatted** cell:
+/// the kernel [`Rational::from_decimal`] parses it and a unit-denominator check
+/// rejects a fractional value. A number cell stores a lossy double and is
+/// rejected (the all-text contract — see [`get_rational`]). Requires a live
+/// backend.
 fn get_int(row: &Row, key: &str, ctx: &str) -> Result<i64, Error> {
     match row.get(key) {
-        Some(Data::Int(n)) => Ok(*n),
-        Some(Data::Float(f))
-            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < i64::MAX as f64 =>
-        {
-            Ok(*f as i64)
+        Some(Data::String(s)) => {
+            let r = Rational::from_decimal(s.trim())?;
+            if r.denominator() != 1 {
+                return Err(invalid(format!("{ctx}: '{key}' must be a whole number")));
+            }
+            Ok(r.numerator())
         }
-        Some(Data::Float(_)) => Err(invalid(format!("{ctx}: '{key}' must be a whole number"))),
+        // Reject any number cell (int or decimal) — the all-text contract; see
+        // `get_rational` for why both `Int` and `Float` are refused.
+        Some(Data::Int(n)) => Err(number_cell_error(ctx, key, n)),
+        Some(Data::Float(f)) => Err(number_cell_error(ctx, key, f)),
         Some(other) => Err(invalid(format!(
-            "{ctx}: '{key}' must be a whole number, got {}; format the cell as a number",
+            "{ctx}: '{key}' must be a text-formatted whole number, got {}",
             describe(other)
         ))),
         None => Err(invalid(format!(
-            "{ctx}: missing required '{key}' (expected a whole number)"
+            "{ctx}: missing required '{key}' (expected a text-formatted whole number)"
         ))),
     }
 }
@@ -208,18 +238,17 @@ fn get_u64_ms(row: &Row, key: &str, ctx: &str) -> Result<u64, Error> {
 }
 
 /// A required boolean field. Accepts a native boolean, an integral `1`/`0`, or
-/// the strings `TRUE`/`FALSE` (case-insensitive) — the multi-form set Python's
-/// `get_bool` accepts.
+/// the strings `TRUE`/`FALSE` (case-insensitive). A `1`/`0` written as a number
+/// cell arrives as a lossy double and is rejected (the all-text contract); use a
+/// native boolean or a text `TRUE`/`FALSE`/`1`/`0`.
 fn get_bool(row: &Row, key: &str, ctx: &str) -> Result<bool, Error> {
     match row.get(key) {
         Some(Data::Bool(b)) => Ok(*b),
         Some(Data::Int(1)) => Ok(true),
         Some(Data::Int(0)) => Ok(false),
-        Some(Data::Float(f)) if *f == 1.0 => Ok(true),
-        Some(Data::Float(f)) if *f == 0.0 => Ok(false),
         Some(Data::String(s)) => match s.trim().to_ascii_uppercase().as_str() {
-            "TRUE" => Ok(true),
-            "FALSE" => Ok(false),
+            "TRUE" | "1" => Ok(true),
+            "FALSE" | "0" => Ok(false),
             _ => Err(invalid(format!(
                 "{ctx}: '{key}' must be TRUE or FALSE, got {s:?}"
             ))),
@@ -556,14 +585,9 @@ fn parse_message_id(row: &Row, ctx: &str) -> Result<u32, Error> {
     };
     let raw: i64 = match row.get("Message ID") {
         Some(Data::Int(n)) => *n,
-        // Range-check before the cast: `as i64` saturates an out-of-range float,
-        // which would otherwise surface as a misleading "out of range" on the
-        // saturated value rather than the real one (matches `get_int`).
-        Some(Data::Float(f))
-            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < i64::MAX as f64 =>
-        {
-            *f as i64
-        }
+        // A number cell stores a lossy double (the all-text contract); a Message
+        // ID must be a text-formatted decimal or `0x`-hex value, so a number cell
+        // falls through to `bad()` below.
         Some(Data::String(s)) => {
             let t = s.trim();
             let parsed = t
@@ -781,6 +805,18 @@ mod tests {
         p
     }
 
+    /// Bring the GHC RTS up for a loader test. The typed cell accessors
+    /// parse every numeric field through the kernel decimal SSOT
+    /// (`Rational::from_decimal`), which is RTS-gated — so any test that loads a
+    /// sheet with a numeric field needs a live backend first. `aletheia::Client`
+    /// is the sole RTS initialiser; the process-global one-shot latch keeps the
+    /// RTS up for the rest of the run, so any one call suffices for all tests.
+    fn test_backend() -> aletheia::Client {
+        aletheia::Client::new().expect(
+            "init GHC RTS for excel loader test (is ALETHEIA_LIB set to a built libaletheia-ffi.so?)",
+        )
+    }
+
     const CHECKS_HDR: &[&str] = &CHECKS_HEADERS;
     const WT_HDR: &[&str] = &WHEN_THEN_HEADERS;
     const DBC_HDR: &[&str] = &DBC_HEADERS;
@@ -803,6 +839,7 @@ mod tests {
 
     #[test]
     fn simple_checks_round_trip_to_the_builders() {
+        let _rts = test_backend();
         let path = temp("checks");
         let _g = TempXlsx(path.clone());
         write_book(
@@ -815,7 +852,7 @@ mod tests {
                         Cell::Str("Speed limit"),
                         Cell::Str("VehicleSpeed"),
                         Cell::Str("never_exceeds"),
-                        Cell::Num(220.0),
+                        Cell::Str("220"),
                         Cell::Empty,
                         Cell::Empty,
                         Cell::Empty,
@@ -826,8 +863,8 @@ mod tests {
                         Cell::Str("BatteryVoltage"),
                         Cell::Str("stays_between"),
                         Cell::Empty,
-                        Cell::Num(11.5),
-                        Cell::Num(14.5),
+                        Cell::Str("11.5"),
+                        Cell::Str("14.5"),
                         Cell::Empty,
                         Cell::Str("warning"),
                     ],
@@ -836,9 +873,9 @@ mod tests {
                         Cell::Str("CoolantTemp"),
                         Cell::Str("settles_between"),
                         Cell::Empty,
-                        Cell::Num(80.0),
-                        Cell::Num(100.0),
-                        Cell::Num(5000.0),
+                        Cell::Str("80"),
+                        Cell::Str("100"),
+                        Cell::Str("5000"),
                         Cell::Str("info"),
                     ],
                 ],
@@ -855,10 +892,7 @@ mod tests {
         assert_eq!(
             checks[1].formula(),
             check::signal("BatteryVoltage")
-                .stays_between(
-                    Rational::from_f64(11.5).unwrap(),
-                    Rational::from_f64(14.5).unwrap()
-                )
+                .stays_between(Rational::new(23, 2).unwrap(), Rational::new(29, 2).unwrap())
                 .unwrap()
                 .formula()
         );
@@ -874,6 +908,7 @@ mod tests {
 
     #[test]
     fn when_then_round_trips_to_the_builder() {
+        let _rts = test_backend();
         let path = temp("wt");
         let _g = TempXlsx(path.clone());
         write_book(
@@ -885,13 +920,13 @@ mod tests {
                     Cell::Str("Brake light"),
                     Cell::Str("BrakePedal"),
                     Cell::Str("exceeds"),
-                    Cell::Num(50.0),
+                    Cell::Str("50"),
                     Cell::Str("BrakeLight"),
                     Cell::Str("equals"),
-                    Cell::Num(1.0),
+                    Cell::Str("1"),
                     Cell::Empty,
                     Cell::Empty,
-                    Cell::Num(100.0),
+                    Cell::Str("100"),
                     Cell::Str("safety"),
                 ]],
             )],
@@ -913,6 +948,7 @@ mod tests {
 
     #[test]
     fn dbc_round_trips_with_typed_fields() {
+        let _rts = test_backend();
         let path = temp("dbc");
         let _g = TempXlsx(path.clone());
         write_book(
@@ -925,16 +961,16 @@ mod tests {
                         Cell::Str("0x100"),
                         Cell::Str("EngineData"),
                         Cell::Bool(false),
-                        Cell::Num(8.0),
+                        Cell::Str("8"),
                         Cell::Str("EngineSpeed"),
-                        Cell::Num(0.0),
-                        Cell::Num(16.0),
+                        Cell::Str("0"),
+                        Cell::Str("16"),
                         Cell::Str("little_endian"),
                         Cell::Bool(false),
-                        Cell::Num(0.25),
-                        Cell::Num(0.0),
-                        Cell::Num(0.0),
-                        Cell::Num(8000.0),
+                        Cell::Str("0.25"),
+                        Cell::Str("0"),
+                        Cell::Str("0"),
+                        Cell::Str("8000"),
                         Cell::Str("rpm"),
                         Cell::Empty,
                         Cell::Empty,
@@ -943,16 +979,16 @@ mod tests {
                         Cell::Str("0x100"),
                         Cell::Str("EngineData"),
                         Cell::Bool(false),
-                        Cell::Num(8.0),
+                        Cell::Str("8"),
                         Cell::Str("EngineTemp"),
-                        Cell::Num(16.0),
-                        Cell::Num(8.0),
+                        Cell::Str("16"),
+                        Cell::Str("8"),
                         Cell::Str("little_endian"),
                         Cell::Bool(true),
-                        Cell::Num(1.0),
-                        Cell::Num(-40.0),
-                        Cell::Num(-40.0),
-                        Cell::Num(215.0),
+                        Cell::Str("1"),
+                        Cell::Str("-40"),
+                        Cell::Str("-40"),
+                        Cell::Str("215"),
                         Cell::Str("C"),
                         Cell::Empty,
                         Cell::Empty,
@@ -971,7 +1007,7 @@ mod tests {
         assert_eq!((s.start_bit, s.length), (0, 16));
         assert_eq!(s.byte_order, ByteOrder::LittleEndian);
         assert!(!s.signed);
-        // 0.25 must scale-and-reduce to exactly 1/4 via the shared convention.
+        // "0.25" parses EXACTLY to 1/4 via the kernel decimal SSOT (from_decimal).
         assert_eq!(s.factor, Rational::new(1, 4).unwrap());
         assert_eq!(s.unit, "rpm");
         assert_eq!(s.presence, Presence::Always);
@@ -982,6 +1018,7 @@ mod tests {
     fn extended_column_is_optional() {
         // A 13-column sheet that omits Extended / mux columns (the demo shape)
         // loads — the absent Extended column behaves like an empty cell → standard.
+        let _rts = test_backend();
         let path = temp("noext");
         let _g = TempXlsx(path.clone());
         write_book(
@@ -990,18 +1027,18 @@ mod tests {
                 "DBC",
                 DBC_HDR_MINIMAL,
                 &[&[
-                    Cell::Num(512.0),
+                    Cell::Str("512"),
                     Cell::Str("BrakeStatus"),
-                    Cell::Num(8.0),
+                    Cell::Str("8"),
                     Cell::Str("BrakePressure"),
-                    Cell::Num(0.0),
-                    Cell::Num(16.0),
+                    Cell::Str("0"),
+                    Cell::Str("16"),
                     Cell::Str("little_endian"),
                     Cell::Bool(false),
-                    Cell::Num(0.1),
-                    Cell::Num(0.0),
-                    Cell::Num(0.0),
-                    Cell::Num(6553.5),
+                    Cell::Str("0.1"),
+                    Cell::Str("0"),
+                    Cell::Str("0"),
+                    Cell::Str("6553.5"),
                     Cell::Str("bar"),
                 ]],
             )],
@@ -1013,11 +1050,14 @@ mod tests {
     }
 
     #[test]
-    fn strict_rejects_a_number_stored_as_text() {
-        // THE LOCK for the strict-coercion decision: a numeric field stored as
-        // TEXT ("220" / "0.25") must be rejected, not silently parsed. The demo
-        // workbook can't exercise this (it stores numbers natively).
-        let cpath = temp("text_check");
+    fn strict_rejects_a_number_cell() {
+        // THE LOCK for the all-text decimal contract: a numeric field stored
+        // as a NUMBER cell holds a lossy IEEE-754 double, so it is rejected — the
+        // exact value survives only when the cell is TEXT-formatted (parsed by the
+        // kernel `from_decimal`). The generated template stores numbers as text for
+        // exactly this reason. Needs a live backend (decimal parsing is RTS-gated).
+        let _rts = test_backend();
+        let cpath = temp("num_check");
         let _gc = TempXlsx(cpath.clone());
         write_book(
             &cpath,
@@ -1028,7 +1068,7 @@ mod tests {
                     Cell::Str("bad"),
                     Cell::Str("S"),
                     Cell::Str("never_exceeds"),
-                    Cell::Str("220"), // number-as-TEXT
+                    Cell::Num(220.0), // number cell — must be TEXT
                     Cell::Empty,
                     Cell::Empty,
                     Cell::Empty,
@@ -1037,9 +1077,10 @@ mod tests {
             )],
         );
         let err = load_checks_from_excel(&cpath).unwrap_err();
-        assert!(format!("{err}").contains("must be a number"), "got: {err}");
+        assert!(format!("{err}").contains("format it as TEXT"), "got: {err}");
 
-        let dpath = temp("text_dbc");
+        // A DBC Factor stored as a number cell is likewise rejected.
+        let dpath = temp("num_dbc");
         let _gd = TempXlsx(dpath.clone());
         write_book(
             &dpath,
@@ -1047,24 +1088,24 @@ mod tests {
                 "DBC",
                 DBC_HDR_MINIMAL,
                 &[&[
-                    Cell::Num(256.0),
+                    Cell::Str("256"),
                     Cell::Str("M"),
-                    Cell::Num(8.0),
+                    Cell::Str("8"),
                     Cell::Str("Sig"),
-                    Cell::Num(0.0),
-                    Cell::Num(8.0),
+                    Cell::Str("0"),
+                    Cell::Str("8"),
                     Cell::Str("little_endian"),
                     Cell::Bool(false),
-                    Cell::Str("0.25"), // Factor as number-as-TEXT
-                    Cell::Num(0.0),
-                    Cell::Num(0.0),
-                    Cell::Num(1.0),
+                    Cell::Num(0.25), // Factor as a number cell — must be TEXT
+                    Cell::Str("0"),
+                    Cell::Str("0"),
+                    Cell::Str("1"),
                     Cell::Empty,
                 ]],
             )],
         );
         let err = load_dbc_from_excel(&dpath).unwrap_err();
-        assert!(format!("{err}").contains("must be a number"), "got: {err}");
+        assert!(format!("{err}").contains("format it as TEXT"), "got: {err}");
     }
 
     #[test]

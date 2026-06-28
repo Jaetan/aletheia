@@ -5,10 +5,12 @@
 //! fixture — the same file the Python, Go, and C++ binding tests load — and
 //! produces the same checks and DBC. This is the cross-binding lock for the
 //! "absent `Extended` column ≡ standard message" contract: the fixture is a
-//! 13-column DBC sheet that omits `Extended` / mux columns and stores numbers
-//! natively, exactly as a real Excel file does.
+//! 13-column DBC sheet that omits `Extended` / mux columns. Every
+//! numeric cell is **text-formatted** (the all-text contract — no lossy float is
+//! ever stored), parsed exactly by the kernel `from_decimal`, which is RTS-gated;
+//! the tests bring up a backend first.
 
-use aletheia::{check, ByteOrder, Presence, Rational};
+use aletheia::{check, ByteOrder, Client, Presence, Rational};
 use aletheia_excel::{load_checks_from_excel, load_dbc_from_excel};
 
 fn demo() -> std::path::PathBuf {
@@ -17,6 +19,7 @@ fn demo() -> std::path::PathBuf {
 
 #[test]
 fn demo_workbook_checks_match_the_builders() {
+    let _rts = Client::new().expect("init GHC RTS (is ALETHEIA_LIB set?)");
     let checks = load_checks_from_excel(demo()).expect("load checks from demo workbook");
     // 6 simple checks (Checks sheet) + 3 causal checks (When-Then sheet).
     assert_eq!(
@@ -48,6 +51,7 @@ fn demo_workbook_checks_match_the_builders() {
 
 #[test]
 fn demo_workbook_dbc_loads_as_standard_messages() {
+    let _rts = Client::new().expect("init GHC RTS (is ALETHEIA_LIB set?)");
     let dbc = load_dbc_from_excel(demo()).expect("load DBC from demo workbook");
     assert_eq!(dbc.messages.len(), 2, "EngineData + BrakeStatus");
 
@@ -64,7 +68,7 @@ fn demo_workbook_dbc_loads_as_standard_messages() {
     assert_eq!(engine.signals.len(), 2);
 
     let speed = engine.signal_by_name("EngineSpeed").expect("EngineSpeed");
-    // Factor 0.25 must scale-and-reduce to exactly 1/4 via the shared convention.
+    // "0.25" parses EXACTLY to 1/4 via the kernel decimal SSOT (from_decimal).
     assert_eq!(speed.factor, Rational::new(1, 4).unwrap());
     assert_eq!(speed.byte_order, ByteOrder::LittleEndian);
     assert_eq!(speed.presence, Presence::Always);
