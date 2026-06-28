@@ -76,7 +76,7 @@ class TestSignalComparison:
 
     def test_less_than_or_equal(self) -> None:
         """Signal.less_than_or_equal() creates correct predicate."""
-        pred = Signal("Voltage").less_than_or_equal(14.5)
+        pred = Signal("Voltage").less_than_or_equal(Fraction("14.5"))
         formula = cast("AtomicFormula", pred.to_formula())
         assert formula == {
             "operator": "atomic",
@@ -85,7 +85,7 @@ class TestSignalComparison:
 
     def test_greater_than_or_equal(self) -> None:
         """Signal.greater_than_or_equal() creates correct predicate."""
-        pred = Signal("Voltage").greater_than_or_equal(11.5)
+        pred = Signal("Voltage").greater_than_or_equal(Fraction("11.5"))
         formula = cast("AtomicFormula", pred.to_formula())
         assert formula == {
             "operator": "atomic",
@@ -94,7 +94,7 @@ class TestSignalComparison:
 
     def test_between(self) -> None:
         """Signal.between() creates correct predicate."""
-        pred = Signal("Temperature").between(-40.0, 125.0)
+        pred = Signal("Temperature").between(-40, 125)
         formula = cast("AtomicFormula", pred.to_formula())
         assert formula == {
             "operator": "atomic",
@@ -137,7 +137,7 @@ class TestSignalComparison:
         and C++ ``Rational::from_double``) so 12.6 becomes exactly Fraction(63, 5)
         rather than the IEEE 754 binary fraction.  See ``to_predicate_fraction``.
         """
-        pred = Signal("Voltage").equals(12.6)
+        pred = Signal("Voltage").equals(Fraction("12.6"))
         formula = cast("AtomicFormula", pred.to_formula())
         inner_pred = cast("EqualsPredicate", formula["predicate"])
         assert inner_pred["value"] == Fraction(63, 5)

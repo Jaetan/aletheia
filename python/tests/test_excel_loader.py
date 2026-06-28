@@ -15,6 +15,7 @@ Tests cover:
 
 from __future__ import annotations
 
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -48,6 +49,7 @@ from _excel_helpers import (
     active_sheet,
     make_checks_workbook,
     make_dbc_workbook,
+    make_number_cell_workbook,
     make_when_then_workbook,
 )
 
@@ -64,6 +66,11 @@ from aletheia.excel_loader import (
 
 if TYPE_CHECKING:
     from aletheia.types import DBCSignalAlways, DBCSignalMultiplexed
+
+# Loading a decimal cell goes through the kernel SSOT ``from_decimal`` (the float
+# principle), which is RTS-gated; bring the GHC RTS up module-wide.  Idempotent /
+# refcounted, so it composes with any client a test creates.
+pytestmark = pytest.mark.usefixtures("rts_up")
 
 
 # ============================================================================
@@ -91,24 +98,26 @@ class TestLoadSimpleChecks:
         p = make_checks_workbook(
             tmp_path,
             [
-                [None, "Voltage", "never_below", 11.5, None, None, None, None],
+                [None, "Voltage", "never_below", "11.5", None, None, None, None],
             ],
         )
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == signal("Voltage").never_below(11.5).to_dict()
+        assert checks[0].to_dict() == signal("Voltage").never_below(Fraction("11.5")).to_dict()
 
     def test_stays_between(self, tmp_path: Path) -> None:
         """Verify stays between."""
         p = make_checks_workbook(
             tmp_path,
             [
-                [None, "Voltage", "stays_between", None, 11.5, 14.5, None, None],
+                [None, "Voltage", "stays_between", None, "11.5", "14.5", None, None],
             ],
         )
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
-        assert checks[0].to_dict() == (signal("Voltage").stays_between(11.5, 14.5).to_dict())
+        assert checks[0].to_dict() == (
+            signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
+        )
 
     def test_never_equals(self, tmp_path: Path) -> None:
         """Verify never equals."""
@@ -154,13 +163,15 @@ class TestLoadSimpleChecks:
             tmp_path,
             [
                 [None, "Speed", "never_exceeds", 220, None, None, None, None],
-                [None, "Voltage", "stays_between", None, 11.5, 14.5, None, None],
+                [None, "Voltage", "stays_between", None, "11.5", "14.5", None, None],
             ],
         )
         checks = load_checks_from_excel(p)
         assert len(checks) == 2
         assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
-        assert checks[1].to_dict() == (signal("Voltage").stays_between(11.5, 14.5).to_dict())
+        assert checks[1].to_dict() == (
+            signal("Voltage").stays_between(Fraction("11.5"), Fraction("14.5")).to_dict()
+        )
 
 
 # ============================================================================
@@ -537,31 +548,121 @@ class TestLoadErrors:
         with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
             load_checks_from_excel(p)
 
-    def test_number_as_text_rejected(self, tmp_path: Path) -> None:
-        """Strict coercion: a Value stored as TEXT ("220") is rejected."""
+    def test_value_as_text_accepted(self, tmp_path: Path) -> None:
+        """All-text contract: a Value stored as TEXT ("220") parses exactly."""
         p = make_checks_workbook(
             tmp_path,
             [[None, "Speed", "never_exceeds", "220", None, None, None, None]],
         )
-        with pytest.raises(ValidationError, match="expected number"):
+        checks = load_checks_from_excel(p)
+        assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
+
+    def test_decimal_value_as_number_cell_rejected(self, tmp_path: Path) -> None:
+        """Float principle: a decimal Value in a NUMBER cell is rejected.
+
+        A spreadsheet number cell stores a lossy IEEE-754 double, so a
+        non-integer number cell is refused with a "format it as TEXT" message
+        (mirrors Rust ``get_rational`` / Go / C++).  The exact value must be
+        supplied as a TEXT cell so the kernel ``from_decimal`` parses it.
+        """
+        # Value is the only numeric cell, written as a real (lossy) number cell.
+        p = make_number_cell_workbook(
+            tmp_path,
+            "Checks",
+            CHECKS_HEADERS,
+            [None, "Speed", "never_exceeds", 220.5, None, None, None, None],
+        )
+        with pytest.raises(ValidationError, match="format it as TEXT"):
             load_checks_from_excel(p)
 
-    def test_dbc_factor_as_text_rejected(self, tmp_path: Path) -> None:
-        """Strict coercion: a DBC Factor stored as TEXT ("0.25") is rejected."""
-        # The Factor column (10th) holds the string "0.25" rather than a number.
+    def test_integer_value_as_number_cell_rejected(self, tmp_path: Path) -> None:
+        """Float principle: even an INTEGER Value in a number cell is rejected.
+
+        The all-text contract refuses *every* number cell, not just decimals — an
+        integer typed as a number (``220``, not the text ``"220"``) is a number
+        cell too.  This is the cross-binding lock: Rust (``get_rational``), Go
+        (``xlsxRational``) and C++ (``get_decimal``) reject it likewise, so without
+        this Python would silently accept an integer number cell the peers refuse.
+        """
+        p = make_number_cell_workbook(
+            tmp_path,
+            "Checks",
+            CHECKS_HEADERS,
+            [None, "Speed", "never_exceeds", 220, None, None, None, None],
+        )
+        with pytest.raises(ValidationError, match="format it as TEXT"):
+            load_checks_from_excel(p)
+
+    def test_dbc_factor_as_text_accepted(self, tmp_path: Path) -> None:
+        """All-text contract: a DBC Factor stored as TEXT ("0.25") parses exactly."""
+        # The Factor column (10th) holds the string "0.25" — parsed via from_decimal.
         p = make_dbc_workbook(
             tmp_path,
             [[256, "M", None, 8, "Sig", 0, 8, "little_endian", False, "0.25", 0, 0, 1, ""]],
         )
-        with pytest.raises(ValidationError, match="expected number"):
+        dbc = load_dbc_from_excel(p)
+        assert dbc["messages"][0]["signals"][0]["factor"] == Fraction("0.25")
+
+    def test_dbc_factor_as_number_cell_rejected(self, tmp_path: Path) -> None:
+        """Float principle: a decimal DBC Factor in a NUMBER cell is rejected."""
+        # Every numeric field is TEXT except Factor (col 10), a real number cell,
+        # so the rejection fires on Factor — not an earlier numeric column (DLC).
+        p = make_number_cell_workbook(
+            tmp_path,
+            "DBC",
+            DBC_HEADERS,
+            [
+                "256",
+                "M",
+                None,
+                "8",
+                "Sig",
+                "0",
+                "8",
+                "little_endian",
+                False,
+                0.25,
+                "0",
+                "0",
+                "1",
+                "",
+            ],
+        )
+        with pytest.raises(ValidationError, match="format it as TEXT"):
             load_dbc_from_excel(p)
+
+    def test_integer_field_as_float_cell_rejected(self, tmp_path: Path) -> None:
+        """Float principle (get_excel_int): a Time (ms) float NUMBER cell is rejected."""
+        # Min/Max are TEXT; only Time (ms) (col 7) is a real number cell, so
+        # get_excel_int rejects it ("format it as TEXT") before any other check.
+        p = make_number_cell_workbook(
+            tmp_path,
+            "Checks",
+            CHECKS_HEADERS,
+            [None, "Temp", "settles_between", None, "80", "100", 5000.5, None],
+        )
+        with pytest.raises(ValidationError, match="format it as TEXT"):
+            load_checks_from_excel(p)
+
+    def test_integer_field_as_non_integer_text_rejected(self, tmp_path: Path) -> None:
+        """get_int: a whole-number field given a fractional TEXT cell is rejected.
+
+        "5000.5" parses exactly via from_decimal but is not a whole number, so the
+        unit-denominator check refuses it (mirrors Rust ``get_int``).
+        """
+        p = make_checks_workbook(
+            tmp_path,
+            [[None, "Temp", "settles_between", None, 80, 100, "5000.5", None]],
+        )
+        with pytest.raises(ValidationError, match="must be a whole number"):
+            load_checks_from_excel(p)
 
     def test_stays_between_missing_min(self, tmp_path: Path) -> None:
         """Verify stays between missing min."""
         p = make_checks_workbook(
             tmp_path,
             [
-                [None, "Voltage", "stays_between", None, None, 14.5, None, None],
+                [None, "Voltage", "stays_between", None, None, "14.5", None, None],
             ],
         )
         with pytest.raises(ValidationError, match="requires 'Min' and 'Max'"):
@@ -642,14 +743,16 @@ class TestLoadFromFile:
         ws_checks = active_sheet(wb)
         ws_checks.title = "Checks"
         ws_checks.append(CHECKS_HEADERS)
+        # Numeric fields are TEXT-formatted (the all-text contract); building the
+        # sheet inline (two sheets in one workbook) means writing the strings here.
         ws_checks.append(
-            [None, "Speed", "never_exceeds", 220, None, None, None, None],
+            [None, "Speed", "never_exceeds", "220", None, None, None, None],
         )
 
         ws_wt = wb.create_sheet("When-Then")
         ws_wt.append(WHEN_THEN_HEADERS)
         ws_wt.append(
-            [None, "Brake", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, None],
+            [None, "Brake", "exceeds", "50", "BrakeLight", "equals", "1", None, None, "100", None],
         )
 
         p = tmp_path / "combined.xlsx"
@@ -688,13 +791,13 @@ def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
     ws.title = "Checks"
     ws.append(CHECKS_HEADERS)
     ws.append(
-        [None, "Speed", "never_exceeds", 220, None, None, None, None],
+        [None, "Speed", "never_exceeds", "220", None, None, None, None],
     )
     ws.append(  # empty row
         [None, None, None, None, None, None, None, None],
     )
     ws.append(
-        [None, "Voltage", "never_below", 11.5, None, None, None, None],
+        [None, "Voltage", "never_below", "11.5", None, None, None, None],
     )
     p = tmp_path / "gaps.xlsx"
     wb.save(str(p))

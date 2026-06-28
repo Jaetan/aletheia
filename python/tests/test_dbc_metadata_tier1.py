@@ -48,8 +48,8 @@ def _msg_two_signals() -> DBCMessage:
         0x100,
         "Engine",
         [
-            signal("Rpm", length=16, maximum=8000.0, unit="rpm"),
-            signal("Temp", start_bit=16, length=8, maximum=255.0, unit="C"),
+            signal("Rpm", length=16, maximum=8000, unit="rpm"),
+            signal("Temp", start_bit=16, length=8, maximum=255, unit="C"),
         ],
     )
 

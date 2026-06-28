@@ -42,17 +42,17 @@ class TestDBCToText:
                     1,
                     "Msg",
                     [
-                        signal("SigLE", length=8, maximum=255.0, unit="V"),
+                        signal("SigLE", length=8, maximum=255, unit="V"),
                         signal(
                             "SigBE",
                             start_bit=8,
                             length=8,
                             byte_order="big_endian",
                             signed=True,
-                            factor=0.5,
-                            offset=-10.0,
-                            minimum=-10.0,
-                            maximum=117.5,
+                            factor=Fraction("0.5"),
+                            offset=-10,
+                            minimum=-10,
+                            maximum=Fraction("117.5"),
                             unit="A",
                         ),
                     ],
@@ -107,9 +107,9 @@ class TestDBCToText:
                     [
                         signal(
                             "Sig",
-                            factor=0.25,
-                            offset=-1.5,
-                            maximum=100.0,
+                            factor=Fraction("0.25"),
+                            offset=Fraction("-1.5"),
+                            maximum=100,
                             unit="rpm",
                         ),
                     ],
@@ -151,7 +151,7 @@ class TestDBCToText:
                     1,
                     "Msg",
                     [
-                        signal("Selector", length=8, maximum=255.0),
+                        signal("Selector", length=8, maximum=255),
                         muxed,
                     ],
                 )

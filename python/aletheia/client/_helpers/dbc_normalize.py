@@ -6,8 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast, get_args
 
-from aletheia._loader_utils import is_pure_int
-from aletheia.client._helpers.rational import decode_wire_rational
+from aletheia.client._helpers.rational import decode_wire_rational, is_pure_int
 from aletheia.client._types import (
     DLCByteCount,
     ProtocolError,

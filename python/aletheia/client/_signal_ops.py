@@ -65,7 +65,7 @@ class SignalOpsMixin(ClientHostState):
     @abstractmethod
     def _resolve_signal_indices(
         self,
-        signals: Mapping[str, float | Fraction],
+        signals: Mapping[str, int | Fraction],
         can_id: int,
         cmd_name: str,
         *,
@@ -183,7 +183,7 @@ class SignalOpsMixin(ClientHostState):
         can_id: int,
         dlc: DLCCode,
         frame: bytes | bytearray,
-        signals: Mapping[str, float | Fraction],
+        signals: Mapping[str, int | Fraction],
         *,
         extended: bool = False,
     ) -> bytearray:
@@ -232,7 +232,7 @@ class SignalOpsMixin(ClientHostState):
         self,
         can_id: int,
         dlc: DLCCode,
-        signals: Mapping[str, float | Fraction],
+        signals: Mapping[str, int | Fraction],
         *,
         extended: bool = False,
     ) -> bytearray:

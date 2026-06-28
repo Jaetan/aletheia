@@ -25,6 +25,10 @@ from aletheia.yaml_loader import load_checks
 if TYPE_CHECKING:
     from pathlib import Path
 
+# get_number/get_int parse decimal text via the kernel SSOT ``from_decimal`` (the
+# float principle), which is RTS-gated; bring the GHC RTS up module-wide.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 
 def _err(yaml_body: str) -> str:
     """Load *yaml_body* expecting a ValidationError; return its message."""
@@ -106,7 +110,7 @@ class TestSimpleCheckErrors:
     def test_value_condition_value_not_a_number(self) -> None:
         """Reject never_exceeds with a non-numeric 'value'."""
         body = "checks:\n  - name: C\n    signal: S\n    condition: never_exceeds\n    value: abc"
-        assert _err(body) == "Check 'C': missing or invalid 'value' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'value':")
 
     def test_range_condition_requires_min_and_max(self) -> None:
         """Reject stays_between without 'min' (naming the condition)."""
@@ -121,7 +125,7 @@ class TestSimpleCheckErrors:
             "checks:\n  - name: C\n    signal: S\n    condition: stays_between\n"
             "    min: abc\n    max: 1"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'min' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'min':")
 
     def test_range_condition_max_not_a_number(self) -> None:
         """Reject stays_between with a non-numeric 'max'."""
@@ -129,7 +133,7 @@ class TestSimpleCheckErrors:
             "checks:\n  - name: C\n    signal: S\n    condition: stays_between\n"
             "    min: 1\n    max: abc"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'max' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'max':")
 
     def test_settles_requires_min_and_max(self) -> None:
         """Reject settles_between with 'min' but no 'max' (the and/or guard)."""
@@ -153,7 +157,7 @@ class TestSimpleCheckErrors:
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
             "    min: abc\n    max: 2\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'min' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'min':")
 
     def test_settles_max_not_a_number(self) -> None:
         """Reject settles_between with a non-numeric 'max'."""
@@ -161,7 +165,7 @@ class TestSimpleCheckErrors:
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
             "    min: 1\n    max: abc\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'max' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'max':")
 
     def test_settles_within_ms_not_an_int(self) -> None:
         """Reject settles_between with a non-integer 'within_ms'."""
@@ -169,7 +173,7 @@ class TestSimpleCheckErrors:
             "checks:\n  - name: C\n    signal: S\n    condition: settles_between\n"
             "    min: 1\n    max: 2\n    within_ms: abc"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'within_ms' (expected integer)"
+        assert _err(body).startswith("Check 'C': invalid 'within_ms':")
 
     def test_equals_requires_value(self) -> None:
         """Reject equals without 'value' (naming the condition)."""
@@ -180,10 +184,9 @@ class TestSimpleCheckErrors:
 
     def test_equals_value_not_a_number(self) -> None:
         """Reject equals with a non-numeric 'value'."""
-        assert (
-            _err("checks:\n  - name: C\n    signal: S\n    condition: equals\n    value: abc")
-            == "Check 'C': missing or invalid 'value' (expected number)"
-        )
+        assert _err(
+            "checks:\n  - name: C\n    signal: S\n    condition: equals\n    value: abc"
+        ).startswith("Check 'C': invalid 'value':")
 
 
 class TestWhenThenCheckErrors:
@@ -195,7 +198,7 @@ class TestWhenThenCheckErrors:
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
             "    then: {condition: equals, signal: B, value: 2}\n    within_ms: abc"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'within_ms' (expected integer)"
+        assert _err(body).startswith("Check 'C': invalid 'within_ms':")
 
     def test_when_not_a_mapping(self) -> None:
         """Reject a when/then check with a non-mapping 'when'."""
@@ -243,7 +246,7 @@ class TestWhenThenCheckErrors:
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: abc}\n"
             "    then: {condition: equals, signal: B, value: 2}\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'value' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'value':")
 
     def test_then_condition_missing(self) -> None:
         """Reject a then clause without 'condition'."""
@@ -275,7 +278,7 @@ class TestWhenThenCheckErrors:
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
             "    then: {condition: equals, signal: B, value: abc}\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'value' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'value':")
 
     def test_then_exceeds_value_not_a_number(self) -> None:
         """Reject a then 'exceeds' clause with a non-numeric 'value'."""
@@ -283,7 +286,7 @@ class TestWhenThenCheckErrors:
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
             "    then: {condition: exceeds, signal: B, value: abc}\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'value' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'value':")
 
     def test_then_stays_between_requires_min_and_max(self) -> None:
         """Reject a then 'stays_between' clause without 'min'/'max'."""
@@ -307,7 +310,7 @@ class TestWhenThenCheckErrors:
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
             "    then: {condition: stays_between, signal: B, min: abc, max: 1}\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'min' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'min':")
 
     def test_then_stays_between_max_not_a_number(self) -> None:
         """Reject a then 'stays_between' clause with a non-numeric 'max'."""
@@ -315,4 +318,4 @@ class TestWhenThenCheckErrors:
             "checks:\n  - name: C\n    when: {condition: exceeds, signal: A, value: 1}\n"
             "    then: {condition: stays_between, signal: B, min: 1, max: abc}\n    within_ms: 10"
         )
-        assert _err(body) == "Check 'C': missing or invalid 'max' (expected number)"
+        assert _err(body).startswith("Check 'C': invalid 'max':")

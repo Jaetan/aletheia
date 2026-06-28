@@ -8,6 +8,7 @@ names, factor zero, multiplexor issues, global name collisions,
 min > max).
 """
 
+from fractions import Fraction
 from typing import TYPE_CHECKING, Unpack, cast
 
 import pytest
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 # Validator tests default to 8-bit signals ranged 0..255, matching the
 # narrow signals most DBC structural-validation cases exercise.
-_VALIDATOR_DEFAULTS: SignalOverrides = {"length": 8, "maximum": 255.0}
+_VALIDATOR_DEFAULTS: SignalOverrides = {"length": 8, "maximum": 255}
 
 
 def _make_dbc(messages: list[DBCMessage]) -> DBCDefinition:
@@ -78,8 +79,8 @@ class TestValidDBCPassesClean:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
-                        _make_signal("RPM", start_bit=16, length=16, maximum=65535.0),
+                        _make_signal("Speed", start_bit=0, length=16, maximum=65535),
+                        _make_signal("RPM", start_bit=16, length=16, maximum=65535),
                     ],
                 ),
             ]
@@ -99,7 +100,7 @@ class TestValidDBCPassesClean:
                     0x100,
                     "Engine",
                     [
-                        _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
+                        _make_signal("Speed", start_bit=0, length=16, maximum=65535),
                     ],
                 ),
                 _make_message(
@@ -187,7 +188,7 @@ class TestFactorZero:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal("BadSignal", factor=0.0),
+                        _make_signal("BadSignal", factor=0),
                     ],
                 ),
             ]
@@ -207,7 +208,7 @@ class TestFactorZero:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal("GoodSignal", factor=0.01),
+                        _make_signal("GoodSignal", factor=Fraction("0.01")),
                     ],
                 ),
             ]
@@ -230,7 +231,7 @@ def test_min_exceeds_max_detected() -> None:
                 0x100,
                 "Msg1",
                 [
-                    _make_signal("BadRange", minimum=100.0, maximum=50.0),
+                    _make_signal("BadRange", minimum=100, maximum=50),
                 ],
             ),
         ]
@@ -338,7 +339,7 @@ class TestSignalExceedsDLC:
                             start_bit=7,
                             length=33,
                             byte_order="big_endian",
-                            maximum=255.0,
+                            maximum=255,
                         ),
                     ],
                     dlc=4,
@@ -364,7 +365,7 @@ class TestSignalExceedsDLC:
                     "Msg1",
                     [
                         _make_signal(
-                            "Fits", start_bit=7, length=8, byte_order="big_endian", maximum=255.0
+                            "Fits", start_bit=7, length=8, byte_order="big_endian", maximum=255
                         ),
                     ],
                     dlc=4,
@@ -614,9 +615,7 @@ class TestOffsetScaleRange:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal(
-                            "Good", length=8, factor=1.0, offset=0.0, minimum=0.0, maximum=255.0
-                        ),
+                        _make_signal("Good", length=8, factor=1, offset=0, minimum=0, maximum=255),
                     ],
                 ),
             ]
@@ -637,7 +636,7 @@ class TestOffsetScaleRange:
                     "Msg1",
                     [
                         _make_signal(
-                            "Narrow", length=8, factor=1.0, offset=0.0, minimum=0.0, maximum=200.0
+                            "Narrow", length=8, factor=1, offset=0, minimum=0, maximum=200
                         ),
                     ],
                 ),
@@ -663,10 +662,10 @@ class TestOffsetScaleRange:
                             "Temp",
                             length=8,
                             signed=True,
-                            factor=1.0,
-                            offset=0.0,
-                            minimum=-128.0,
-                            maximum=127.0,
+                            factor=1,
+                            offset=0,
+                            minimum=-128,
+                            maximum=127,
                         ),
                     ],
                 ),
@@ -693,10 +692,10 @@ class TestOffsetScaleRange:
                             "Cold",
                             length=8,
                             signed=True,
-                            factor=1.0,
-                            offset=0.0,
-                            minimum=-100.0,
-                            maximum=127.0,
+                            factor=1,
+                            offset=0,
+                            minimum=-100,
+                            maximum=127,
                         ),
                     ],
                 ),
@@ -710,7 +709,7 @@ class TestOffsetScaleRange:
         assert "minimum" in osr[0]["detail"]
 
     def test_negative_factor_unsigned(self) -> None:
-        # 8-bit unsigned, factor=-0.1, offset=25.5
+        # 8-bit unsigned, factor=Fraction("-0.1"), offset=Fraction("25.5")
         # phys_min = 255 * (-0.1) + 25.5 = 0.0, phys_max = 0 * (-0.1) + 25.5 = 25.5
         """Verify negative factor unsigned."""
         dbc = _make_dbc(
@@ -722,10 +721,10 @@ class TestOffsetScaleRange:
                         _make_signal(
                             "Inverted",
                             length=8,
-                            factor=-0.1,
-                            offset=25.5,
-                            minimum=0.0,
-                            maximum=25.5,
+                            factor=Fraction("-0.1"),
+                            offset=Fraction("25.5"),
+                            minimum=0,
+                            maximum=Fraction("25.5"),
                         ),
                     ],
                 ),
@@ -738,7 +737,7 @@ class TestOffsetScaleRange:
         assert osr == []
 
     def test_negative_factor_wrong_range_warns(self) -> None:
-        # 8-bit unsigned, factor=-0.1, offset=25.5
+        # 8-bit unsigned, factor=Fraction("-0.1"), offset=Fraction("25.5")
         # phys range: [0.0, 25.5] (factor negative flips raw→phys direction)
         # Declared min=5.0 is ABOVE physMin=0.0 → hardware can produce [0, 5) outside declared range
         """Verify negative factor wrong range warns."""
@@ -749,7 +748,12 @@ class TestOffsetScaleRange:
                     "Msg1",
                     [
                         _make_signal(
-                            "Bad", length=8, factor=-0.1, offset=25.5, minimum=5.0, maximum=25.5
+                            "Bad",
+                            length=8,
+                            factor=Fraction("-0.1"),
+                            offset=Fraction("25.5"),
+                            minimum=5,
+                            maximum=Fraction("25.5"),
                         ),
                     ],
                 ),
@@ -763,7 +767,7 @@ class TestOffsetScaleRange:
         assert "minimum" in osr[0]["detail"]
 
     def test_with_offset_and_factor(self) -> None:
-        # 16-bit unsigned, factor=0.01, offset=-100 → phys ∈ [-100, 555.35]
+        # 16-bit unsigned, factor=Fraction("0.01"), offset=-100 → phys ∈ [-100, 555.35]
         """Verify with offset and factor."""
         dbc = _make_dbc(
             [
@@ -775,10 +779,10 @@ class TestOffsetScaleRange:
                             "Scaled",
                             start_bit=0,
                             length=16,
-                            factor=0.01,
-                            offset=-100.0,
-                            minimum=-100.0,
-                            maximum=555.35,
+                            factor=Fraction("0.01"),
+                            offset=-100,
+                            minimum=-100,
+                            maximum=Fraction("555.35"),
                         ),
                     ],
                 ),
@@ -840,7 +844,7 @@ class TestStartBitOutOfRange:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal("OkStart", start_bit=63, length=1, maximum=1.0),
+                        _make_signal("OkStart", start_bit=63, length=1, maximum=1),
                     ],
                 ),
             ]
@@ -888,7 +892,7 @@ class TestBitLengthExcessive:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal("Counter", start_bit=0, length=32, maximum=4294967295.0),
+                        _make_signal("Counter", start_bit=0, length=32, maximum=4294967295),
                     ],
                 ),
             ]
@@ -907,7 +911,7 @@ class TestBitLengthExcessive:
                     0x100,
                     "Msg1",
                     [
-                        _make_signal("OneBit", start_bit=0, length=1, maximum=1.0),
+                        _make_signal("OneBit", start_bit=0, length=1, maximum=1),
                     ],
                 ),
             ]

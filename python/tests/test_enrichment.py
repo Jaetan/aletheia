@@ -133,7 +133,7 @@ class TestFormatPredicate:
 
     def test_between_predicate(self) -> None:
         """Verify between predicate."""
-        f = Signal("S").between(10, 14.5).always().to_dict()
+        f = Signal("S").between(10, Fraction("14.5")).always().to_dict()
         result = format_formula(f)
         assert "10 <= S <= 14.5" in result
 
@@ -151,7 +151,7 @@ class TestFormatPredicate:
 
     def test_stable_within_predicate(self) -> None:
         """Verify stable within predicate."""
-        f = Signal("S").stable_within(2.0).always().to_dict()
+        f = Signal("S").stable_within(2).always().to_dict()
         result = format_formula(f)
         assert "|\u0394S| <= 2" in result
 
@@ -204,7 +204,7 @@ class TestFormatRational:
         C++), so 0.1 becomes Fraction(1, 10); without it the renderer would emit
         the 56-char exact decimal of the IEEE 754 binary fraction.
         """
-        f = Signal("S").equals(0.1).always().to_dict()
+        f = Signal("S").equals(Fraction("0.1")).always().to_dict()
         assert "S = 0.1" in format_formula(f)
 
     def test_dsl_large_integer_no_scientific(self) -> None:
@@ -214,7 +214,7 @@ class TestFormatRational:
 
     def test_dsl_high_precision_decimal_exact(self) -> None:
         """DSL float ingress: up to 9 significant figures convert exactly (10^9 scaling)."""
-        f = Signal("S").equals(0.123456789).always().to_dict()
+        f = Signal("S").equals(Fraction("0.123456789")).always().to_dict()
         assert "S = 0.123456789" in format_formula(f)
 
 
@@ -414,7 +414,7 @@ class TestRendererVocalWhenRTSDown:
                 """No-op: nothing to free when the pointer is null."""
 
         monkeypatch.setattr(
-            "aletheia.client._enrichment._get_or_load_renderer_lib",
+            "aletheia.client._enrichment.get_renderer_lib",
             _NullLib,
         )
         f = Signal("Speed").less_than(220).always().to_dict()

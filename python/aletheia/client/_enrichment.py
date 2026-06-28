@@ -145,12 +145,12 @@ def _walk_formula(
 # paths use the loaded backend's library.  The renderer NEVER initialises
 # the GHC RTS itself: an ``FFIBackend`` is the sole initialiser (it owns the
 # bus-count ``-N``), and rendering is *vocal* — :func:`format_rational`
-# raises ``FFIError`` when the RTS is down.  :func:`_get_or_load_renderer_lib`
+# raises ``FFIError`` when the RTS is down.  :func:`get_renderer_lib`
 # lazily loads ``libaletheia-ffi.so`` for its symbols only (no ``hs_init``).
 # Consequence: ``format_formula`` / ``build_diagnostic`` (which render rational
 # thresholds) now require an initialised RTS, i.e. a live client/backend.
 # A one-element cell behind a module constant: the binding is never rebound,
-# so set_renderer_lib / _get_or_load_renderer_lib mutate the cell contents
+# so set_renderer_lib / get_renderer_lib mutate the cell contents
 # rather than declaring ``global`` (which would rebind a lowercase module var).
 _RENDERER_LIB: list[ctypes.CDLL | None] = [None]
 _RENDERER_LOCK = threading.Lock()
@@ -167,8 +167,12 @@ def set_renderer_lib(lib: ctypes.CDLL) -> None:
     _RENDERER_LIB[0] = lib
 
 
-def _get_or_load_renderer_lib() -> ctypes.CDLL:
+def get_renderer_lib() -> ctypes.CDLL:
     """Return the registered FFI library, lazily loading its symbols if needed.
+
+    Shared by :func:`format_rational` and
+    :func:`aletheia.client._helpers.rational.from_decimal` — both delegate to
+    kernel FFI exports configured by :func:`configure_ffi_signatures`.
 
     Production callers go through :class:`FFIBackend`, which registers
     eagerly via :func:`set_renderer_lib`.  This loads the ``.so`` for its
@@ -220,7 +224,7 @@ def format_rational(value: Fraction) -> str:
             "before rendering rationals — the renderer does not self-initialise the RTS"
         )
         raise FFIError(msg)
-    lib = _get_or_load_renderer_lib()
+    lib = get_renderer_lib()
     raw = lib.aletheia_format_rational(
         ctypes.c_int64(value.numerator),
         ctypes.c_int64(value.denominator),

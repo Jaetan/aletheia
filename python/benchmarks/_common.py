@@ -26,10 +26,14 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DBCDefinition, DLCCode, LTLFormula
+
+if TYPE_CHECKING:
+    from fractions import Fraction
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py
 # → ../../examples/.  Path is resolved once so re-importing this module
@@ -59,7 +63,7 @@ def load_canfd_dbc() -> DBCDefinition:
 CAN20_FRAME: bytes = bytes([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
 CAN20_CAN_ID: int = 0x100
 CAN20_DLC: DLCCode = DLCCode(8)
-CAN20_SIGNALS: dict[str, float] = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
+CAN20_SIGNALS: dict[str, int | Fraction] = {"EngineSpeed": 2000, "EngineTemp": 90}
 
 # ============================================================================
 # CAN-FD frame (DLC 15, 64 bytes) — sensor-fusion layout with realistic
@@ -83,11 +87,11 @@ CANFD_FRAME: bytes = bytes(
 )
 CANFD_CAN_ID: int = 0x200
 CANFD_DLC: DLCCode = DLCCode(15)
-CANFD_SIGNALS: dict[str, float] = {
-    "GPSSpeed": 20.0,
-    "YawRate": 0.0,
-    "WheelSpeedFL": 10.0,
-    "WheelSpeedFR": 10.0,
+CANFD_SIGNALS: dict[str, int | Fraction] = {
+    "GPSSpeed": 20,
+    "YawRate": 0,
+    "WheelSpeedFL": 10,
+    "WheelSpeedFR": 10,
 }
 
 
@@ -111,7 +115,7 @@ class FrameSpec:
     can_id: int
     dlc: DLCCode
     payload: bytes
-    signals: dict[str, float]
+    signals: dict[str, int | Fraction]
 
 
 CAN20_SPEC: FrameSpec = FrameSpec(

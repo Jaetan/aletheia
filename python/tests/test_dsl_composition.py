@@ -47,7 +47,7 @@ class TestPropertyLogicalOperators:
     def test_property_and(self) -> None:
         """Property.and_() combines two properties."""
         speed_ok = Signal("Speed").less_than(220).always()
-        voltage_ok = Signal("Voltage").between(11.5, 14.5).always()
+        voltage_ok = Signal("Voltage").between(Fraction("11.5"), Fraction("14.5")).always()
         combined = speed_ok.and_(voltage_ok)
 
         assert isinstance(combined, Property)
@@ -108,7 +108,7 @@ class TestComposition:
         """Complex property compositions work."""
         # (Speed < 220 AND Voltage in [11.5, 14.5]) always
         speed_ok = Signal("Speed").less_than(220)
-        voltage_ok = Signal("Voltage").between(11.5, 14.5)
+        voltage_ok = Signal("Voltage").between(Fraction("11.5"), Fraction("14.5"))
         combined = speed_ok.and_(voltage_ok).always()
 
         data = cast("AlwaysFormula", combined.to_dict())
@@ -212,7 +212,7 @@ class TestJSONSerialization:
 
     def test_serialization_preserves_values(self) -> None:
         """Serialization preserves all values correctly."""
-        prop = Signal("Voltage").between(11.5, 14.5).for_at_least(1000)
+        prop = Signal("Voltage").between(Fraction("11.5"), Fraction("14.5")).for_at_least(1000)
         data = cast("MetricAlwaysFormula", prop.to_dict())
 
         assert data["timebound"] == 1_000_000
@@ -263,7 +263,7 @@ class TestEdgeCases:
         and C++ ``Rational::from_double``) so 12.65 becomes exactly Fraction(253, 20)
         rather than the IEEE 754 binary fraction.  See ``to_predicate_fraction``.
         """
-        pred = Signal("Voltage").equals(12.65)
+        pred = Signal("Voltage").equals(Fraction("12.65"))
         formula = cast("AtomicFormula", pred.to_formula())
         inner_pred = cast("EqualsPredicate", formula["predicate"])
         assert inner_pred["value"] == Fraction(253, 20)
@@ -326,7 +326,7 @@ class TestRealWorldExamples:
 
     def test_voltage_range(self) -> None:
         """Battery voltage stays in safe range."""
-        prop = Signal("BatteryVoltage").between(11.5, 14.5).always()
+        prop = Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5")).always()
         data = cast("AlwaysFormula", prop.to_dict())
 
         formula = cast("AtomicFormula", data["formula"])

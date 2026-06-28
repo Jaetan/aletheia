@@ -4,12 +4,13 @@
 
 from __future__ import annotations
 
-import math
+import ctypes
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 
-from aletheia._loader_utils import is_pure_int
-from aletheia.client._types import ProtocolError, ValidationError
+from aletheia.client._enrichment import get_renderer_lib
+from aletheia.client._ffi import hs_initialized, parse_json_object
+from aletheia.client._types import FFIError, ProtocolError, ValidationError
 from aletheia.types import is_str_dict
 
 if TYPE_CHECKING:
@@ -17,49 +18,98 @@ if TYPE_CHECKING:
 
     from aletheia.types import JSONValue
 
-# Shared bounds and scaling factors for the binary FFI rational encoding.
 # int64 bounds match the Haskell ``Int64`` numerator/denominator that the
-# Agda core consumes; the decimal precision denominator mirrors the 10^9
-# scaling that Agda's ``formatRational`` emits on the JSON path so the two
-# wire formats stay bit-identical on round-trip.
+# Agda core consumes; the binary FFI wire packs each component as ``<q``
+# little-endian, so a value outside this range cannot cross the boundary.
 _INT64_MAX = (1 << 63) - 1
 _INT64_MIN = -(1 << 63)
-_DECIMAL_PRECISION_DEN = 1_000_000_000
 
 
-def float_to_rational(value: float) -> tuple[int, int]:
-    """Convert a float to (numerator, denominator) for binary FFI.
+def is_pure_int(v: object) -> TypeGuard[int]:
+    """Type guard: value is an ``int`` and not a ``bool`` subclass.
 
-    Uses 10^9 scaling to match JSON decimal precision.
-    The Haskell side normalizes to coprime form via GCD.
+    Python's ``bool`` is a subclass of ``int`` (``isinstance(True, int)``
+    returns ``True``), so plain ``isinstance(v, int)`` is insufficient
+    for "is this a numeric integer?" checks.  This guard rejects bools
+    while accepting all other ``int`` values.  Lives here (next to the wire
+    rational decoders that use it) rather than in ``_loader_utils`` so the
+    loader helpers can delegate decimal parsing to :func:`from_decimal`
+    without a circular import.
+    """
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def from_decimal(s: str) -> Fraction:
+    """Parse a decimal string into an exact :class:`~fractions.Fraction`.
+
+    The cross-binding single source of truth for decimal → rational: delegates
+    to the verified Agda kernel's ``aletheia_parse_decimal`` FFI export (the
+    float principle — a decimal is an exact rational, never a float).  The
+    accepted grammar is the kernel's: ``-?digits`` or ``-?digits.digits+`` —
+    no ``+`` sign, no leading/trailing ``.``, no exponent (so ``"1e3"``,
+    ``".5"``, ``"1."``, ``"+2"`` are rejected, and the whole string must be
+    consumed).  Mirrors Go ``ParseDecimal`` / C++ ``Rational::from_decimal`` /
+    Rust ``Rational::from_decimal`` exactly.
+
+    Like rational *display* (:func:`~aletheia.client._enrichment.format_rational`),
+    decimal parsing is RTS-gated and **vocal**: it never initialises the GHC
+    RTS (an :class:`FFIBackend` is the sole initialiser, owning the bus-count
+    ``-N``), so it raises before the FFI call when the RTS is down rather than
+    self-initialising.
 
     Raises:
-        ValidationError: If *value* is NaN, infinite, or too large for int64.
+        FFIError: the GHC runtime is not initialised (no client/backend
+            created), or the FFI returned a null pointer.
+        ValidationError: *s* is not a valid decimal literal, or its exact
+            rational overflows the Int64 wire range (the kernel's
+            ``decimal_parse_failed`` / ``decimal_overflow`` — user input, not
+            a wire fault).
+        ProtocolError: the FFI returned a malformed response envelope (an
+            ABI / kernel malfunction).
 
     """
-    if math.isnan(value) or math.isinf(value):
-        msg = f"Cannot convert {value!r} to rational"
-        raise ValidationError(msg)
-    numerator = round(value * _DECIMAL_PRECISION_DEN)
-    # Guard against values that would overflow int64 in the binary FFI.
-    # Use the full int64 range, not the 53-bit float mantissa bound — the
-    # denominator is a compile-time constant ≤ int64 so any numerator that
-    # fits int64 is safe to pack as ``<q`` little-endian.
-    if not _INT64_MIN <= numerator <= _INT64_MAX:
-        msg = f"signal value {value!r} too large for rational representation"
-        raise ValidationError(msg)
-    return (numerator, _DECIMAL_PRECISION_DEN)
+    if not hs_initialized():
+        msg = (
+            "GHC runtime not initialized: create an AletheiaClient (or FFIBackend) "
+            "before parsing decimals — from_decimal does not self-initialise the RTS"
+        )
+        raise FFIError(msg)
+    lib = get_renderer_lib()
+    raw = lib.aletheia_parse_decimal(s.encode())  # str.encode defaults to utf-8
+    if not raw:
+        msg = "aletheia_parse_decimal returned a null pointer"
+        raise FFIError(msg)
+    try:
+        decoded = ctypes.cast(raw, ctypes.c_char_p).value
+    finally:
+        lib.aletheia_free_str(raw)
+    if decoded is None:
+        msg = "aletheia_parse_decimal returned a null pointer"
+        raise FFIError(msg)
+    response = parse_json_object(decoded.decode())
+    # Branch on the error envelope BEFORE handing the value to the wire
+    # decoder: otherwise ``decode_wire_rational`` reports an opaque "missing
+    # numerator" and masks the precise decimal_parse_failed / decimal_overflow
+    # reason.  A failure is user-input (ValidationError), not a wire fault.
+    if response.get("status") == "error":
+        message = response.get("message", "invalid decimal literal")
+        raise ValidationError(str(message))
+    # Success envelope is the bare {"numerator", "denominator"} wire shape that
+    # the shared wire decoder consumes — no reimplemented denom > 0 check.
+    return decode_wire_rational(response)
 
 
-def fraction_to_rational(value: Fraction) -> tuple[int, int]:
-    """Convert a Fraction to (numerator, denominator) for binary FFI, lossless.
+def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:
+    """Convert a Fraction to (numerator, denominator) for the binary frame FFI.
 
-    Unlike float_to_rational this preserves exact precision — the Agda core
-    works in ℚ and the wire format carries int64 numerator/denominator pairs,
-    so Fractions flow through without the 10^9 quantization step.
+    Exact int64 numerator/denominator extraction required by the binary-frame
+    endpoints (``aletheia_build_frame_bin`` / ``aletheia_update_frame_bin``,
+    which take ``POINTER(c_int64)`` arrays): the Agda core works in ℚ and the
+    wire carries int64 numerator/denominator pairs, so a Fraction flows through
+    losslessly.
 
     Raises:
-        ValidationError: If either component overflows int64.
+        ValidationError: If either component overflows the Int64 wire range.
 
     """
     n, d = value.numerator, value.denominator
@@ -67,17 +117,6 @@ def fraction_to_rational(value: Fraction) -> tuple[int, int]:
         msg = f"Fraction {value!r} components exceed int64 range"
         raise ValidationError(msg)
     return (n, d)
-
-
-def coerce_to_rational(value: float | Fraction) -> tuple[int, int]:
-    """Convert a numeric signal input to (numerator, denominator).
-
-    Uses Fraction's exact representation when the caller already has one;
-    falls back to float_to_rational's 10^9 scaling for float inputs.
-    """
-    if isinstance(value, Fraction):
-        return fraction_to_rational(value)
-    return float_to_rational(value)
 
 
 def extract_rational_from_dict(

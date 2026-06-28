@@ -7,12 +7,16 @@ through the same Check API builders.  This module defines the keyword sets
 and dispatch helpers so that the two loaders stay in sync.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from aletheia import checks
 from aletheia.client._types import ValidationError
 
 if TYPE_CHECKING:
+    from fractions import Fraction
+
     from aletheia.checks import CheckResult, WhenCondition, WhenSignal
 
 # ============================================================================
@@ -62,7 +66,7 @@ ALL_THEN_CONDITIONS = _THEN_VALUE_CONDITIONS | _THEN_RANGE_CONDITIONS
 def dispatch_when(
     builder: WhenSignal,
     condition: str,
-    value: float,
+    value: int | Fraction,
 ) -> WhenCondition:
     """Apply a when-condition to a WhenSignal builder."""
     if condition == "exceeds":
@@ -78,7 +82,7 @@ def dispatch_when(
 def dispatch_simple(
     signal: str,
     condition: str,
-    value: float,
+    value: int | Fraction,
 ) -> CheckResult:
     """Apply a simple single-signal, single-value condition (never_exceeds/below/equals)."""
     if condition == "never_exceeds":

@@ -88,9 +88,51 @@ from aletheia.types import is_object_list, is_str_dict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from typing import TextIO
 
     from aletheia.checks import CheckResult
     from aletheia.types import JSONValue
+
+
+_YAML_FLOAT_TAG = "tag:yaml.org,2002:float"
+
+# A ``yaml.SafeLoader`` subclass with the implicit FLOAT resolver removed (the
+# float principle): PyYAML's default resolver turns a bare ``1.5`` into a
+# Python ``float``, losing exactness; with the float tag dropped, such a scalar
+# stays a STRING and is parsed exactly by the kernel SSOT
+# :func:`~aletheia.from_decimal` (via :func:`~aletheia._loader_utils.get_number`).
+# Integers still resolve to ``int``; everything else inherits ``SafeLoader``'s
+# safe construction (no arbitrary object instantiation).  Built with ``type()``
+# rather than a ``class`` statement so the subclass does not inherit
+# ``SafeLoader``'s deep ancestry into a flagged ``too-many-ancestors``; the
+# fresh resolver dict (and fresh inner lists) leaves the parent table untouched.
+_NoFloatSafeLoader: type[yaml.SafeLoader] = type(
+    "_NoFloatSafeLoader",
+    (yaml.SafeLoader,),
+    {
+        "yaml_implicit_resolvers": {
+            first_char: [(tag, regexp) for tag, regexp in resolvers if tag != _YAML_FLOAT_TAG]
+            for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+        }
+    },
+)
+
+
+def _safe_load_no_float(stream: str | TextIO) -> object:
+    """Parse *stream* with :class:`_NoFloatSafeLoader` (no float resolver).
+
+    Drives the loader instance directly — exactly PyYAML's own ``yaml.load``
+    implementation — rather than calling ``yaml.load(stream, Loader=...)``.
+    The custom :class:`yaml.SafeLoader` subclass is just as safe (it only drops
+    the float implicit resolver), but the ``yaml.load`` *call form* is what the
+    security linter pattern-matches; using the loader directly keeps the float
+    principle without a lint suppression.
+    """
+    loader = _NoFloatSafeLoader(stream)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 
 def _ctx(name: str) -> str:
@@ -181,13 +223,13 @@ def _load_yaml(source: str | Path) -> object:
         # utf-8), and "UTF-8" is a codec-name alias of "utf-8" → both the
         # case and the None mutant are runtime-equivalent here (pragma).
         with source.open(encoding="utf-8") as f:  # pragma: no mutate
-            return yaml.safe_load(f)
+            return _safe_load_no_float(f)
     # source: str — the public ``load_checks`` signature constrains this
     # branch by type; basedpyright/pyright catches non-(str|Path) callers
     # statically, so a runtime defensive ``isinstance(source, str)`` would
     # be dead code and is not added.
     check_dbc_text_size_bound(len(source.encode()))  # str.encode defaults to utf-8
-    return yaml.safe_load(source)
+    return _safe_load_no_float(source)
 
 
 def _parse_check(entry: Mapping[str, JSONValue]) -> CheckResult:

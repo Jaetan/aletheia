@@ -16,6 +16,7 @@ import platform
 import sys
 import time
 from dataclasses import dataclass
+from fractions import Fraction
 from multiprocessing import cpu_count
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
@@ -67,7 +68,7 @@ def _measure_streaming(client: AletheiaClient, spec: FrameSpec) -> float:
     properties = [
         Signal("EngineSpeed").between(0, 8000).always(),
         Signal("EngineTemp").between(-40, 215).always(),
-        Signal("BrakePressure").less_than(6553.5).always(),
+        Signal("BrakePressure").less_than(Fraction("6553.5")).always(),
     ]
     client.set_properties([p.to_dict() for p in properties])
     client.start_stream()

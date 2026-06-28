@@ -59,7 +59,7 @@ def _msg_one_signal() -> DBCMessage:
     return message(
         _MSG_ID,
         _MSG_NAME,
-        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm")],
+        [signal(_SIG_NAME, length=16, maximum=8000, unit="rpm")],
     )
 
 
@@ -498,7 +498,7 @@ def _msg_with_signal_receivers(receivers: list[str]) -> DBCMessage:
     return message(
         _MSG_ID,
         _MSG_NAME,
-        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm", receivers=receivers)],
+        [signal(_SIG_NAME, length=16, maximum=8000, unit="rpm", receivers=receivers)],
     )
 
 
@@ -570,7 +570,7 @@ def _msg_with_additional_senders(
     return message(
         _MSG_ID,
         _MSG_NAME,
-        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm")],
+        [signal(_SIG_NAME, length=16, maximum=8000, unit="rpm")],
         sender=primary,
         senders=additional,
     )
@@ -652,7 +652,7 @@ class TestDBCMessageSenders:
 
 
 def _msg_with_signal_value_descriptions(entries: list[DBCValueEntry]) -> DBCMessage:
-    sig = signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm")
+    sig = signal(_SIG_NAME, length=16, maximum=8000, unit="rpm")
     sig["valueDescriptions"] = entries
     return message(_MSG_ID, _MSG_NAME, [sig])
 
