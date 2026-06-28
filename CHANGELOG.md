@@ -363,6 +363,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **CI: the cross-language throughput benchmark lane (`benchmark.yml`) now caches
+  everything cacheable — internal, no behavior change.** The lane was ~92 %
+  cold build/setup (the benchmark itself is ~8 %): a cold `~342s` FFI build, a
+  `~142s` Release C++ build, and a `~118s` GHC/cabal setup ran on every PR. It
+  now reuses the same caches `pr-full-ci.yml` already had — an incremental
+  build-tree cache (`build/` + `dist-newstyle/`, **restore-only**, sharing
+  pr-full-ci's key so it warms from `main`'s seed on a brand-new PR's first
+  push), `ccache`, and the CMake FetchContent deps — plus a pip wheel-download
+  cache on `setup-python`. The `ccache` and `_deps` caches use benchmark-specific
+  keys (`ccache-bench-*` / `cpp-deps-bench-*`) so a Release-only save cannot
+  clobber pr-full-ci's combined Debug+UBSan / three-build-dir caches under a
+  shared immutable key. A `paths-ignore` filter (`**.md`, `docs/**`) skips the
+  lane on doc-only PRs (safe: Benchmark is not a required check). **Both**
+  workflows additionally gain a `~/.ghcup` toolchain cache (so `ghcup install`
+  is a fast no-op after the first run) and move the redundant `cabal update` to
+  run only on a cabal-store cache miss (the restored store already carries the
+  package index). No production code, public API, or proof is touched.
 - **B6e Phase 1 — every binding now parses decimals through the kernel SSOT; the
   float→rational heuristics are gone (BREAKING, all four bindings).** Each binding
   exposes `from_decimal` (Python `aletheia.from_decimal` → `Fraction`; C++

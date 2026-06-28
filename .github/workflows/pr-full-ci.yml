@@ -40,6 +40,20 @@ jobs:
       - name: Ensure a local `main` ref for `git diff main...HEAD`
         run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
+      # Cache the ghcup-installed GHC + cabal so `ghcup install` becomes a fast
+      # no-op after the first run (the cold download/unpack of GHC dominates the
+      # "Set up GHC + cabal" step).  Additive + self-healing: a bad/empty cache
+      # just re-downloads, never breaks the build.  Split restore/save (same
+      # rationale as the cabal store below) so the toolchain persists even when a
+      # later gate fails — a red iteration would otherwise re-download GHC on
+      # every push.  Shared key with benchmark.yml (same content).
+      - name: Restore ghcup toolchain (GHC + cabal)
+        id: ghcup-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.ghcup
+          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
+
       - name: Set up GHC + cabal
         run: |
           set -euo pipefail
@@ -59,9 +73,15 @@ jobs:
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
-          cabal update
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Save ghcup toolchain (persists even if a later gate fails)
+        if: steps.ghcup-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.ghcup
+          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
 
       # Caches the prebuilt Agda library + executable so only the FIRST run
       # builds Agda (~15-20 min on the 4-core runner); later runs restore it
@@ -82,6 +102,15 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/bin
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a
+      # fresh `cabal update` is redundant on a cache hit (it previously ran
+      # unconditionally in "Set up GHC + cabal", BEFORE this restore overwrote
+      # its index with the cached one).  Run it only on a miss, where the
+      # `cabal install Agda` below actually needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
