@@ -35,6 +35,7 @@ namespace {
 
 using FormatRationalFn = char* (*)(std::int64_t, std::int64_t);
 using FreeStrFn = void (*)(char*);
+using ParseDecimalFn = char* (*)(const char*);
 
 struct RendererState {
     std::once_flag init;
@@ -42,6 +43,7 @@ struct RendererState {
     std::string load_error;
     FormatRationalFn format_fn = nullptr;
     FreeStrFn free_fn = nullptr;
+    ParseDecimalFn parse_decimal_fn = nullptr;
 };
 } // namespace
 
@@ -146,13 +148,18 @@ static void init_renderer() {
     void* free_sym = load_sym("aletheia_free_str");
     if (free_sym == nullptr)
         return;
+    void* parse_decimal_sym = load_sym("aletheia_parse_decimal");
+    if (parse_decimal_sym == nullptr)
+        return;
 
     // The renderer does NOT initialise the GHC RTS (point 2): an FfiBackend is
-    // the sole initialiser, so it only resolves the format/free symbols here.
+    // the sole initialiser, so it only resolves the format/free/parse symbols here.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     s.format_fn = reinterpret_cast<FormatRationalFn>(fmt_sym);
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     s.free_fn = reinterpret_cast<FreeStrFn>(free_sym);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    s.parse_decimal_fn = reinterpret_cast<ParseDecimalFn>(parse_decimal_sym);
     s.loaded = true;
 }
 
@@ -182,6 +189,40 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
         // malfunction, and a silent "0" would hide the bug. Matches Rust/Go.
         throw AletheiaException(
             AletheiaError{ErrorKind::Ffi, "aletheia_format_rational returned a null pointer"});
+    auto deleter = [&s](char* p) { s.free_fn(p); };
+    const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
+    return std::string{raw};
+}
+
+auto parse_decimal_ffi(std::string_view input) -> std::string {
+    ensure_loaded();
+    // Same vocal contract as format_rational_ffi: parsing a decimal calls into the
+    // kernel, which requires a live GHC RTS that only an FfiBackend brings up. Be
+    // vocal (throw) when it is down rather than self-initialising (which would
+    // squander the FfiBackend's bus-count -N) or calling the kernel with the RTS
+    // uninitialised (undefined behaviour). The caller must create a backend first.
+    if (!rts_initialized())
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Ffi,
+                          "GHC runtime not initialized: create a backend before parsing decimals"});
+    // Reject an interior NUL before marshaling: the kernel takes a NUL-terminated
+    // C string, so a NUL inside the input would silently truncate the literal
+    // (e.g. "1\0xyz" -> "1") and accept a value the caller did not intend. A NUL
+    // is not in the decimal grammar, so this is a user-input fault (Validation),
+    // mirroring Rust's CString::new rejection — cross-binding parity.
+    if (input.contains('\0'))
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Validation, "decimal literal contains an interior NUL byte"});
+    auto& s = state();
+    // The kernel takes a NUL-terminated C string; materialise one from the view.
+    const std::string buf{input};
+    char* raw = s.parse_decimal_fn(buf.c_str());
+    if (raw == nullptr)
+        // Unreachable for a well-formed call (the kernel returns the error
+        // envelope as a string, never null); a null means a kernel/ABI
+        // malfunction, so throw rather than fabricating a value. Matches Rust/Go.
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Ffi, "aletheia_parse_decimal returned a null pointer"});
     auto deleter = [&s](char* p) { s.free_fn(p); };
     const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
     return std::string{raw};

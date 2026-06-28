@@ -60,4 +60,17 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC>;
 // (the .dbc text image), or `"error"` with a typed code (Track E.10).
 auto parse_dbc_text_response(std::string_view input) -> Result<std::string>;
 
+// Decode the `aletheia_parse_decimal` wire envelope (raw JSON from
+// `detail::parse_decimal_ffi`) into an exact Rational. The kernel is the
+// cross-binding single source of truth for decimal→rational (the float
+// principle: a decimal is an exact rational, never a float). Branch on
+// `status == "error"` BEFORE decoding so the precise `decimal_parse_failed` /
+// `decimal_overflow` reason surfaces; on success reuse the existing wire decoder
+// (`parse_rational_dict`). Throws `AletheiaException(Validation)` on a parse
+// failure / overflow (user input, not a wire fault) — a `std::runtime_error`
+// subclass, so the YAML / Excel loaders' `catch (const std::runtime_error&)`
+// blocks convert it to a `Result<>` error, while direct callers can branch on
+// `.kind()`. Throws `AletheiaException(Protocol)` on a malformed envelope.
+auto decode_decimal_response(std::string_view raw) -> Rational;
+
 } // namespace aletheia::detail

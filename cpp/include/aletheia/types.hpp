@@ -127,9 +127,15 @@ public:
         return Rational{num, den};
     }
 
-    // Convert a double to an exact Rational. Integer-valued doubles use
-    // denominator 1; others use 10^9 fixed-point scaling then GCD-reduced.
-    static auto from_double(double d) -> Rational;
+    // Parse a decimal literal into an exact Rational via the Agda kernel's
+    // decimal SSOT (`aletheia_parse_decimal`) — the float principle: a decimal
+    // is an exact rational (denominator 2^a*5^b), never a float64. The grammar
+    // is the kernel's: `-?digits` or `-?digits.digits+` (no `+` sign, no
+    // leading/trailing `.`, no exponent). RTS-gated and vocal: an FfiBackend
+    // must be live first (it is the sole GHC RTS initialiser), else this throws
+    // `AletheiaException(Ffi)` rather than self-initialising. Throws
+    // `AletheiaException(Validation)` on a malformed literal or int64 overflow.
+    static auto from_decimal(std::string_view s) -> Rational;
 
 private:
     std::int64_t num_ = 0;

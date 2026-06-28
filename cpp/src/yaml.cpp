@@ -32,21 +32,25 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
     return child.as<std::string>();
 }
 
-static auto get_number(const YAML::Node& node, const std::string& key, const std::string& ctx)
-    -> double {
+// Read a numeric scalar as an EXACT Rational via the kernel decimal SSOT
+// (`Rational::from_decimal`) — the float principle: no float ever materialises.
+// YAML preserves the original scalar text, so the literal "11.5" is handed to
+// the kernel verbatim (→ 23/2) instead of round-tripping through a double.
+// RTS-gated: an FfiBackend must be live first (see Rational::from_decimal); the
+// loader's outer `catch (const std::runtime_error&)` converts both the
+// runtime-down and the malformed-literal throws into a Validation Result.
+static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx)
+    -> Rational {
     auto child = node[key];
     if (!child || !child.IsScalar())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
-    // Reject booleans: yaml-cpp parses "true"/"false" as scalars too
+    // Reject booleans: yaml-cpp parses "true"/"false" as scalars too, and the
+    // kernel grammar would otherwise reject them with a less specific message.
     auto raw = child.as<std::string>();
     if (raw == "true" || raw == "false" || raw == "TRUE" || raw == "FALSE" || raw == "True" ||
         raw == "False")
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
-    try {
-        return child.as<double>();
-    } catch (const YAML::BadConversion&) {
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
-    }
+    return Rational::from_decimal(raw);
 }
 
 static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
@@ -99,7 +103,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         if (!entry["value"])
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'value'");
-        auto value = PhysicalValue{Rational::from_double(get_number(entry, "value", ctx(name)))};
+        auto value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
         return detail::dispatch_simple(signal, condition, value);
     }
 
@@ -107,8 +111,8 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         if (!entry["min"] || !entry["max"])
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'min' and 'max'");
-        auto lo = PhysicalValue{Rational::from_double(get_number(entry, "min", ctx(name)))};
-        auto hi = PhysicalValue{Rational::from_double(get_number(entry, "max", ctx(name)))};
+        auto lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
+        auto hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
         return check::signal(signal).stays_between(lo, hi);
     }
 
@@ -119,8 +123,8 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         if (!entry["within_ms"])
             throw std::runtime_error(ctx(name) +
                                      ": condition 'settles_between' requires 'within_ms'");
-        auto lo = PhysicalValue{Rational::from_double(get_number(entry, "min", ctx(name)))};
-        auto hi = PhysicalValue{Rational::from_double(get_number(entry, "max", ctx(name)))};
+        auto lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
+        auto hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
         auto ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
         return check::signal(signal).settles_between(lo, hi).within(ms);
     }
@@ -128,7 +132,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
     // equals
     if (!entry["value"])
         throw std::runtime_error(ctx(name) + ": condition 'equals' requires 'value'");
-    auto value = PhysicalValue{Rational::from_double(get_number(entry, "value", ctx(name)))};
+    auto value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
     return check::signal(signal).equals(value).always();
 }
 
@@ -152,7 +156,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
         throw std::runtime_error(ctx(name) + ": unknown when condition '" + when_cond + "'");
 
     auto when_signal = get_str(when, "signal", ctx(name));
-    auto when_value = PhysicalValue{Rational::from_double(get_number(when, "value", ctx(name)))};
+    auto when_value = PhysicalValue{get_decimal(when, "value", ctx(name))};
     auto when_builder = check::when(when_signal);
     auto when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
@@ -165,19 +169,19 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
     auto then_builder = when_result.then(then_signal);
 
     if (then_cond == "equals") {
-        auto val = PhysicalValue{Rational::from_double(get_number(then, "value", ctx(name)))};
+        auto val = PhysicalValue{get_decimal(then, "value", ctx(name))};
         return then_builder.equals(val).within(within_ms);
     }
     if (then_cond == "exceeds") {
-        auto val = PhysicalValue{Rational::from_double(get_number(then, "value", ctx(name)))};
+        auto val = PhysicalValue{get_decimal(then, "value", ctx(name))};
         return then_builder.exceeds(val).within(within_ms);
     }
     // stays_between
     if (!then["min"] || !then["max"])
         throw std::runtime_error(ctx(name) +
                                  ": then condition 'stays_between' requires 'min' and 'max'");
-    auto lo = PhysicalValue{Rational::from_double(get_number(then, "min", ctx(name)))};
-    auto hi = PhysicalValue{Rational::from_double(get_number(then, "max", ctx(name)))};
+    auto lo = PhysicalValue{get_decimal(then, "min", ctx(name))};
+    auto hi = PhysicalValue{get_decimal(then, "max", ctx(name))};
     return then_builder.stays_between(lo, hi).within(within_ms);
 }
 

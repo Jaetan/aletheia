@@ -240,6 +240,34 @@ static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::i
     return {num, den};
 }
 
+// Decode the `aletheia_parse_decimal` wire envelope into an exact Rational
+// (declared in detail/json.hpp). Defined in this TU so it reuses the static
+// `parse_rational_dict` above directly — no cross-TU lift. The kernel emits a
+// bare `{"numerator","denominator"}` on success or a `{"status":"error",...}`
+// envelope on failure; branch on the status BEFORE decoding so the precise
+// `decimal_parse_failed` / `decimal_overflow` message survives (otherwise the
+// wire decoder reports an opaque "missing numerator" and masks the reason).
+// Throws AletheiaException — NOT a bare AletheiaError — because AletheiaError is
+// not a std::exception, and the YAML / Excel loaders catch `std::runtime_error`
+// (which AletheiaException subclasses); a bare throw would escape them entirely.
+auto decode_decimal_response(std::string_view raw) -> Rational {
+    Json j;
+    try {
+        j = parse_bounded(raw);
+    } catch (const std::exception& e) {
+        // Unreachable for the kernel's own output; an unparsable envelope is an
+        // ABI/kernel malfunction, so report it as Protocol (mirrors Rust).
+        throw AletheiaException(
+            make_error(ErrorKind::Protocol,
+                       std::string{"aletheia_parse_decimal: malformed response: "} + e.what()));
+    }
+    if (j.contains("status") && j.at("status") == "error")
+        throw AletheiaException(make_error(
+            ErrorKind::Validation, j.value("message", std::string{"invalid decimal literal"})));
+    auto [num, den] = parse_rational_dict(j);
+    return Rational{num, den};
+}
+
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.
 // Returns Rational for exact precision (no double truncation).  A bare float is
 // rejected (falls through to the throw below): the wire carries exact rationals
