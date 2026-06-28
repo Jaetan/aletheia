@@ -6,14 +6,13 @@ from __future__ import annotations
 
 import logging
 import threading
-from fractions import Fraction
 from typing import TYPE_CHECKING, Self, cast, override
 
 from aletheia.client._backend import Backend, FFIBackend
 from aletheia.client._enrichment import build_diagnostic
 from aletheia.client._ffi import parse_json_object
 from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
-from aletheia.client._helpers.rational import fraction_to_wire_pair
+from aletheia.client._helpers.rational import fraction_to_wire_pair, to_exact_fraction
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
     parse_parsed_dbc_response,
@@ -53,6 +52,7 @@ from aletheia.types import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+    from fractions import Fraction
     from types import TracebackType
 
     from aletheia.checks import CheckResult
@@ -282,8 +282,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Resolve signal names to (indices, numerators, denominators).
 
         Accepts exact int or Fraction inputs (the float principle — no float
-        ever crosses the API); both flow through losslessly via
-        :func:`fraction_to_wire_pair`, matching the Agda core's ℚ arithmetic.
+        ever crosses the API); each is validated by :func:`to_exact_fraction`
+        (rejecting a runtime ``float`` or ``bool``) then flows through losslessly
+        via :func:`fraction_to_wire_pair`, matching the Agda core's ℚ arithmetic.
         """
         lookup = self._signal_lookup.get((can_id, extended))
         if lookup is None:
@@ -300,7 +301,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if idx is None:
                 msg = f"{cmd_name}: unknown signal '{name}'"
                 raise ValidationError(msg)
-            n, d = fraction_to_wire_pair(Fraction(value))
+            n, d = fraction_to_wire_pair(to_exact_fraction(value))
             indices.append(idx)
             nums.append(n)
             dens.append(d)

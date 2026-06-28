@@ -167,6 +167,8 @@ Each `checks.signal(...)` / `checks.when(...)` call returns a `CheckResult` obje
 ### Simple Signal Checks
 
 ```python
+from fractions import Fraction
+
 # Value bounds (decimals are exact Fractions — the float principle: no float)
 checks.signal("VehicleSpeed").never_exceeds(220)      # G(speed <= 220)
 checks.signal("BatteryVoltage").never_below(11)       # G(voltage >= 11)

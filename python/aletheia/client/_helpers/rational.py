@@ -99,6 +99,46 @@ def from_decimal(s: str) -> Fraction:
     return decode_wire_rational(response)
 
 
+def to_exact_fraction(value: int | Fraction) -> Fraction:
+    """Coerce an exact numeric API input to a :class:`~fractions.Fraction`.
+
+    The float principle at the runtime API boundary: a predicate threshold or a
+    signal value must be an exact ``int`` or ``Fraction``.
+
+    - A ``float`` is **rejected** — ``Fraction(0.1)`` captures the IEEE-754
+      rounding error (``3602879701896397/36028797018963968``), not ``1/10``;
+      pass a ``Fraction`` or :func:`from_decimal` for an exact decimal.
+    - A ``bool`` is **rejected** — ``bool`` is an ``int`` subclass, so
+      ``Fraction(True)`` would silently become ``1`` and turn a mistaken
+      boolean into a numeric threshold.
+
+    This enforces at runtime the rejection the Go / C++ / Rust signatures get
+    for free at the type level, so neither a ``float`` nor a ``bool`` can enter
+    via an untyped caller; both accepted arms are exact, so the value and its
+    kernel-rendered description agree byte-for-byte across bindings. The single
+    source of truth shared by the DSL predicate path
+    (:func:`~aletheia.dsl.to_predicate_fraction`) and the client's signal-value
+    path (``Client._resolve_signal_indices``).
+
+    Raises:
+        TypeError: *value* is a ``bool`` or a ``float``.
+
+    """
+    if isinstance(value, bool):
+        msg = (
+            "a boolean is not an exact numeric value; pass an int, a Fraction, or "
+            "from_decimal('...') for an exact decimal (the float principle)"
+        )
+        raise TypeError(msg)
+    if isinstance(value, float):
+        msg = (
+            "a float is not exact; pass an int, a Fraction, or from_decimal('...') "
+            "for an exact decimal (the float principle)"
+        )
+        raise TypeError(msg)
+    return Fraction(value)
+
+
 def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:
     """Convert a Fraction to (numerator, denominator) for the binary frame FFI.
 

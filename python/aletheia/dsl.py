@@ -25,6 +25,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
+from aletheia.client._helpers.rational import to_exact_fraction
 from aletheia.client._types import ValidationError
 from aletheia.types import (
     AlwaysFormula,
@@ -57,22 +58,15 @@ type _RationalInput = int | Fraction
 def to_predicate_fraction(value: _RationalInput) -> Fraction:
     """Convert an exact numeric predicate input to a :class:`~fractions.Fraction`.
 
-    Integers become ``Fraction(n)``; a ``Fraction`` flows through unchanged.  A
-    ``float`` is **rejected** (the float principle): ``Fraction(0.1)`` would capture
-    the binary-rounding error (``3602879701896397/36028797018963968``), not
-    ``1/10`` — pass an ``int``, a ``Fraction``, or :func:`aletheia.from_decimal`
-    for an exact decimal.  This enforces at runtime the rejection the Go / C++ /
-    Rust signatures get for free at the type level, so a ``float`` cannot silently
-    enter via an untyped caller; both accepted arms are exact, so the predicate
-    value and its kernel-rendered description agree byte-for-byte across bindings.
+    The DSL-facing entry to the float-principle validator
+    :func:`~aletheia.client._helpers.rational.to_exact_fraction` — the single
+    source of truth shared with the client's signal-value path. An ``int`` or a
+    ``Fraction`` flows through exactly, while a ``float`` (lossy: ``Fraction(0.1)``
+    is not ``1/10``) or a ``bool`` (``Fraction(True)`` would silently become
+    ``1``) is rejected; pass a ``Fraction`` or :func:`aletheia.from_decimal` for
+    an exact decimal.
     """
-    if isinstance(value, float):
-        msg = (
-            "a float predicate value is not exact; pass an int, a Fraction, or "
-            "from_decimal('...') for an exact decimal (the float principle)"
-        )
-        raise TypeError(msg)
-    return Fraction(value)
+    return to_exact_fraction(value)
 
 
 def _atomic(predicate: SignalPredicate) -> AtomicFormula:

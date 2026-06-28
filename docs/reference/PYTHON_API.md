@@ -394,6 +394,8 @@ with AletheiaClient() as client:
 ### Example 2: Multiple Properties
 
 ```python
+from fractions import Fraction
+
 properties = [
     # P1: Speed always in valid range
     Signal("Speed").between(0, 300).always(),
@@ -751,7 +753,7 @@ if result.has_errors():
 print(f"Absent: {result.absent}")
 ```
 
-#### `update_frame(can_id: int, dlc: int, frame: bytearray, signals: dict[str, float], *, extended: bool = False) -> bytearray`
+#### `update_frame(can_id: int, dlc: int, frame: bytearray, signals: dict[str, int | Fraction], *, extended: bool = False) -> bytearray`
 
 Update specific signals in an existing frame. Returns a new frame (immutable).
 
@@ -761,17 +763,17 @@ modified = client.update_frame(
     can_id=0x100,
     dlc=8,
     frame=original,
-    signals={"VehicleSpeed": 130.0}
+    signals={"VehicleSpeed": 130}
 )
 # original unchanged, modified has new speed value
 ```
 
-#### `build_frame(can_id: int, dlc: int, signals: dict[str, float], *, extended: bool = False) -> bytearray`
+#### `build_frame(can_id: int, dlc: int, signals: dict[str, int | Fraction], *, extended: bool = False) -> bytearray`
 
 Build a CAN frame from signal values (starts with zero-filled frame).
 
 ```python
-frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
+frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 # Returns frame with VehicleSpeed encoded
 ```
 

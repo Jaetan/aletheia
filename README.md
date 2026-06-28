@@ -115,14 +115,14 @@ with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
 
     # Build a frame from signal values
-    frame = client.build_frame(can_id=0x100, dlc=8, signals={"Speed": 72.0})
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"Speed": 72})
 
     # Extract signals from a frame
     result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
     speed = result.get("Speed")  # Fraction(72) — extraction values are exact Fractions
 
     # Update specific signals in a frame
-    modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130.0})
+    modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130})
 ```
 
 ### Async client and lazy iter

@@ -155,6 +155,24 @@ class TestSignalIndexCache:
             with pytest.raises(ValidationError, match="unknown signal"):
                 client.build_frame(can_id=256, dlc=DLCCode(8), signals={"NoSuchSig": 1})
 
+    def test_build_frame_rejects_bool_signal_value(self) -> None:
+        """A ``bool`` signal value is rejected at the wire boundary.
+
+        ``bool`` is an ``int`` subclass, so the static type ``int | Fraction``
+        accepts ``True`` with no cast — only the runtime validator
+        (``to_exact_fraction`` via ``_resolve_signal_indices``) catches it, so a
+        mistaken boolean cannot be silently encoded as ``1`` on the wire.
+        """
+        with AletheiaClient() as client:
+            dbc_def = dbc(
+                [
+                    message(256, "Msg", [signal("Sig", length=8, maximum=255)]),
+                ]
+            )
+            client.parse_dbc(dbc_def)
+            with pytest.raises(TypeError, match="boolean"):
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": True})
+
     def test_dlc_payload_mismatch_extract(self) -> None:
         """extract_signals rejects payload/DLC size mismatch."""
         with AletheiaClient() as client:

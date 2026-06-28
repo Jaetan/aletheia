@@ -385,6 +385,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   (`math/big`, replacing a cross-multiply that overflowed `int64`). YAML keeps
   accepting integer literals (exact); a YAML decimal scalar is read as its original
   text and parsed exactly (Python's loader disables the implicit-float resolver).
+  Python further rejects a `bool` at the exact-numeric boundary (a `bool` is an
+  `int` subclass, so `Fraction(True)` would silently become `1`): the DSL predicate
+  path and the client's signal-value path share a single `to_exact_fraction`
+  validator that rejects both `float` and `bool`, matching the statically-typed
+  bindings that reject `bool` for free.
 - **Excel loaders adopt an all-text contract across all four bindings (BREAKING).**
   A spreadsheet number cell stores a lossy IEEE-754 double, so every *numeric* field
   must now be a **text-formatted** cell, parsed exactly via `from_decimal`; a

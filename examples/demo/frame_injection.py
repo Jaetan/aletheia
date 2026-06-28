@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from drive_log import CANFrame
 
 _TARGET_SPEED_FRAME = 15  # inject into the 15th VehicleDynamics frame
-_INJECTED_SPEED_KPH = 130.0  # exceeds the 120 kph limit
+_INJECTED_SPEED_KPH = 130  # exceeds the 120 kph limit (exact int — the float principle)
 _MAX_SHOWN = 3  # violations printed before eliding the rest
 
 

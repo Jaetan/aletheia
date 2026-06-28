@@ -78,6 +78,8 @@ Add `--json` for machine-readable output (CI/CD integration).
 ## 4. Alternatively: Use Python
 
 ```python
+from fractions import Fraction
+
 from aletheia import AletheiaClient, checks
 from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log

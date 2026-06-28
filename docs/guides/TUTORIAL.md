@@ -195,6 +195,8 @@ Use the fluent Check API for programmatic verification.
 ### Step 1: Import and Define Checks
 
 ```python
+from fractions import Fraction
+
 from aletheia import AletheiaClient, checks
 from aletheia.dbc import dbc_to_json
 from aletheia.can_log import iter_can_log
@@ -280,6 +282,8 @@ Full LTL control with Signal, Predicate, and Property types.
 ### Step 1: Signal Predicates
 
 ```python
+from fractions import Fraction
+
 from aletheia import Signal
 
 # Equality
@@ -374,11 +378,11 @@ with AletheiaClient() as client:
     speed = result.get("VehicleSpeed", default=0.0)
 
     # Build a frame from signal values
-    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 
     # Update specific signals in an existing frame
     modified = client.update_frame(
-        can_id=0x100, dlc=8, frame=frame, signals={"VehicleSpeed": 130.0}
+        can_id=0x100, dlc=8, frame=frame, signals={"VehicleSpeed": 130}
     )
 ```
 
