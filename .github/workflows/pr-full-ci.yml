@@ -48,15 +48,16 @@ jobs:
       # cache just re-downloads, never breaks the build.  Split restore/save
       # (same rationale as the cabal store below) so the toolchain persists even
       # when a later gate fails — a red iteration would otherwise re-download GHC
-      # on every push.  Shared key with benchmark.yml (same content).  Key is
-      # -v2: -v1 cached an empty ~/.ghcup (before the prefix override) and GHA
-      # cache keys are immutable.
+      # on every push.  Per-workflow key (ghcup-fullci-*, distinct from
+      # benchmark's ghcup-bench-*): a shared key let the two concurrent workflows
+      # race to save it, and the concurrent first-seed produced a 213 B (empty)
+      # entry.  Separate keys mean each workflow saves its own toolchain.
       - name: Restore ghcup toolchain (GHC + cabal)
         id: ghcup-cache
         uses: actions/cache/restore@v5
         with:
           path: ~/.ghcup
-          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v2
+          key: ghcup-fullci-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
 
       - name: Set up GHC + cabal
         run: |
@@ -85,12 +86,24 @@ jobs:
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
+      # TEMPORARY diagnostic: confirm what the ghcup save below actually captures
+      # (the prior shared-key cache seeded at 213 B despite GHC installing to
+      # ~/.ghcup).
+      - name: DEBUG ghcup layout before save (temporary)
+        run: |
+          echo "HOME=$HOME  GHCUP_INSTALL_BASE_PREFIX=${GHCUP_INSTALL_BASE_PREFIX:-<unset>}"
+          echo "== du -sh ~/.ghcup =="; du -sh ~/.ghcup 2>/dev/null || echo "(absent)"
+          echo "== ls -la ~/.ghcup =="; ls -la ~/.ghcup 2>/dev/null || true
+          echo "== du -sh ~/.ghcup/* =="; du -sh ~/.ghcup/* 2>/dev/null || true
+          echo "== ghc on PATH =="; command -v ghc && readlink -f "$(command -v ghc)" || true
+          echo "== ghc-9.6.7 dirs =="; find "$HOME" /usr/local /opt -maxdepth 4 -type d -name '9.6.7' 2>/dev/null | head
+
       - name: Save ghcup toolchain (persists even if a later gate fails)
         if: steps.ghcup-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: ~/.ghcup
-          key: ghcup-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v2
+          key: ghcup-fullci-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-cabal-3.12.1.0-v1
 
       # Caches the prebuilt Agda library + executable so only the FIRST run
       # builds Agda (~15-20 min on the 4-core runner); later runs restore it
@@ -287,13 +300,21 @@ jobs:
       # tree lets the staleness-safe incremental build rebuild ONLY what the
       # commit changed (`build` ~384s -> ~23s, measured).
       #
+      # haskell-shim/dist-newstyle (the foreign lib's ~194 MB .o/.hi tree) is
+      # included: build/libaletheia-ffi.so is a symlink into it, so omitting it
+      # left a dangling symlink that forced cabal to recompile all 276 MAlonzo
+      # objects (~47s) on EVERY run.  With it cached, Shake content-verifies the
+      # .so and no-ops.
+      #
       # Safe because the build keys on CONTENT, not mtime.  actions/cache resets
       # every file's mtime on restore, but Shake (ChangeModtimeAndDigest) and GHC
       # (mi_src_hash) use mtime only as a pre-filter and fall back to a content
-      # digest — verified locally: churn every mtime in build/+dist-newstyle/+src/
-      # and `cabal run shake -- build` still no-ops in 0.06s.  The build's own
-      # staleness gate (tools/check_build_incremental.py) is the backstop — a
-      # stale .so fails the run, so a partial/odd cache self-heals, never ships.
+      # digest — verified locally: churn every mtime in
+      # build/+dist-newstyle/+haskell-shim/dist-newstyle/+src/ and `cabal run
+      # shake -- build` still no-ops in 0.05s with an unchanged .so md5.  The
+      # build's own staleness gate (tools/check_build_incremental.py) is the
+      # backstop — a stale .so fails the run, so a partial/odd cache self-heals,
+      # never ships.
       #
       # Scope: a re-push to the SAME branch restores its own prior cache
       # immediately (this is what makes a 2nd push fast).  A brand-new PR can
@@ -308,6 +329,7 @@ jobs:
           path: |
             build
             dist-newstyle
+            haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
@@ -345,6 +367,7 @@ jobs:
           path: |
             build
             dist-newstyle
+            haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
 
       # Save ccache (same split-save rationale as the build tree).

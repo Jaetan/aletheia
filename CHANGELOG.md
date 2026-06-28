@@ -363,23 +363,31 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
-- **CI: the cross-language throughput benchmark lane (`benchmark.yml`) now caches
-  everything cacheable — internal, no behavior change.** The lane was ~92 %
-  cold build/setup (the benchmark itself is ~8 %): a cold `~342s` FFI build, a
-  `~142s` Release C++ build, and a `~118s` GHC/cabal setup ran on every PR. It
-  now reuses the same caches `pr-full-ci.yml` already had — an incremental
-  build-tree cache (`build/` + `dist-newstyle/`, **restore-only**, sharing
-  pr-full-ci's key so it warms from `main`'s seed on a brand-new PR's first
-  push), `ccache`, and the CMake FetchContent deps — plus a pip wheel-download
-  cache on `setup-python`. The `ccache` and `_deps` caches use benchmark-specific
-  keys (`ccache-bench-*` / `cpp-deps-bench-*`) so a Release-only save cannot
-  clobber pr-full-ci's combined Debug+UBSan / three-build-dir caches under a
-  shared immutable key. A `paths-ignore` filter (`**.md`, `docs/**`) skips the
-  lane on doc-only PRs (safe: Benchmark is not a required check). **Both**
-  workflows additionally gain a `~/.ghcup` toolchain cache (so `ghcup install`
-  is a fast no-op after the first run) and move the redundant `cabal update` to
-  run only on a cabal-store cache miss (the restored store already carries the
-  package index). No production code, public API, or proof is touched.
+- **CI: cache everything cacheable in the throughput benchmark lane + close two
+  cache-effectiveness bugs across all workflows — internal, no behavior change.**
+  The `benchmark.yml` lane was ~92 % cold build/setup (the benchmark itself is
+  ~8 %): a cold `~342s` FFI build, a `~142s` Release C++ build, and a `~118s`
+  GHC/cabal setup ran on every PR. It now reuses the same caches `pr-full-ci.yml`
+  had — an incremental build-tree cache (**restore-only**, sharing pr-full-ci's
+  key so it warms from `main`'s seed on a brand-new PR's first push), `ccache`,
+  and the CMake FetchContent deps — plus a pip wheel-download cache on
+  `setup-python`. The `ccache` and `_deps` caches use benchmark-specific keys
+  (`ccache-bench-*` / `cpp-deps-bench-*`) so a Release-only save cannot clobber
+  pr-full-ci's combined Debug+UBSan / three-build-dir caches under a shared
+  immutable key. A `paths-ignore` filter (`**/*.md`, `docs/**`) skips the lane on
+  doc-only PRs (safe: Benchmark is not a required check).
+  Two pre-existing cache bugs (a cache that *hit* but did no work) are fixed
+  across the workflows that use them: (1) the `~/.ghcup` toolchain cache was a
+  no-op because the runner bakes `GHCUP_INSTALL_BASE_PREFIX=/usr/local` (GHC
+  installed outside the cached `~/.ghcup`); overriding it to `$HOME` makes the
+  cache real (`benchmark.yml` + `pr-full-ci.yml`). (2) the build-tree cache
+  omitted `haskell-shim/dist-newstyle` — but `build/libaletheia-ffi.so` symlinks
+  into it, so the dangling symlink forced cabal to recompile all 276 MAlonzo
+  objects (~47s) on every run; caching it lets Shake content-verify the `.so` and
+  no-op (verified locally: churn all mtimes, build still no-ops, `.so` md5
+  unchanged) — `benchmark.yml` + `pr-full-ci.yml` + `pr-heavy-lanes.yml`. The
+  redundant pre-restore `cabal update` is also moved to run only on a cabal-store
+  cache miss. No production code, public API, or proof is touched.
 - **B6e Phase 1 — every binding now parses decimals through the kernel SSOT; the
   float→rational heuristics are gone (BREAKING, all four bindings).** Each binding
   exposes `from_decimal` (Python `aletheia.from_decimal` → `Fraction`; C++
