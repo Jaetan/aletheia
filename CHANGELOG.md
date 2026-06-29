@@ -389,12 +389,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   save cannot clobber pr-full-ci's combined Debug+UBSan / three-build-dir caches
   under a shared immutable key. A `paths-ignore` filter (`**/*.md`, `docs/**`)
   skips the lane on doc-only PRs (safe: Benchmark is not a required check).
-  The build-tree cache also gains `haskell-shim/dist-newstyle` across all three
-  workflows: `build/libaletheia-ffi.so` symlinks into it, so omitting it left a
-  dangling symlink that forced cabal to recompile all 276 MAlonzo objects (~47s)
-  on every run; caching it lets Shake content-verify the `.so` and no-op (verified
-  locally: churn all mtimes → `build` still no-ops, `.so` md5 unchanged) —
-  `benchmark.yml` + `pr-full-ci.yml` + `pr-heavy-lanes.yml`. The redundant
+  The build-tree cache also gains `haskell-shim/dist-newstyle` (the cabal
+  foreign-lib build — the 276 MAlonzo `.o`/`.hi`) across all three workflows:
+  omitting it made cabal recompile those objects (~47s) on every run; caching it
+  lets cabal's content-hash-aware incremental build skip the recompile (verified
+  locally: churn all mtimes → `build` still no-ops, `.so` md5 unchanged). The
+  `.so` rule `cp`-copies the built library to `build/libaletheia-ffi.so` (it is a
+  copy, not a symlink). Applies to `benchmark.yml` + `pr-full-ci.yml` +
+  `pr-heavy-lanes.yml`. The redundant
   pre-restore `cabal update` is moved to run only on a cabal-store cache miss
   (`benchmark.yml` + `pr-full-ci.yml`). Caching the GHC toolchain itself was
   evaluated and rejected: the runner's `~/.ghcup` is a symlink to a 6.2 GB
