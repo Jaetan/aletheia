@@ -59,7 +59,6 @@ jobs:
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
-          cabal update
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -82,6 +81,15 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/bin
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a
+      # fresh `cabal update` is redundant on a cache hit (it previously ran
+      # unconditionally in "Set up GHC + cabal", BEFORE this restore overwrote
+      # its index with the cached one).  Run it only on a miss, where the
+      # `cabal install Agda` below actually needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
@@ -249,13 +257,21 @@ jobs:
       # tree lets the staleness-safe incremental build rebuild ONLY what the
       # commit changed (`build` ~384s -> ~23s, measured).
       #
+      # haskell-shim/dist-newstyle (the foreign lib's ~194 MB .o/.hi tree) is
+      # included: build/libaletheia-ffi.so is a symlink into it, so omitting it
+      # left a dangling symlink that forced cabal to recompile all 276 MAlonzo
+      # objects (~47s) on EVERY run.  With it cached, Shake content-verifies the
+      # .so and no-ops.
+      #
       # Safe because the build keys on CONTENT, not mtime.  actions/cache resets
       # every file's mtime on restore, but Shake (ChangeModtimeAndDigest) and GHC
       # (mi_src_hash) use mtime only as a pre-filter and fall back to a content
-      # digest — verified locally: churn every mtime in build/+dist-newstyle/+src/
-      # and `cabal run shake -- build` still no-ops in 0.06s.  The build's own
-      # staleness gate (tools/check_build_incremental.py) is the backstop — a
-      # stale .so fails the run, so a partial/odd cache self-heals, never ships.
+      # digest — verified locally: churn every mtime in
+      # build/+dist-newstyle/+haskell-shim/dist-newstyle/+src/ and `cabal run
+      # shake -- build` still no-ops in 0.05s with an unchanged .so md5.  The
+      # build's own staleness gate (tools/check_build_incremental.py) is the
+      # backstop — a stale .so fails the run, so a partial/odd cache self-heals,
+      # never ships.
       #
       # Scope: a re-push to the SAME branch restores its own prior cache
       # immediately (this is what makes a 2nd push fast).  A brand-new PR can
@@ -270,6 +286,7 @@ jobs:
           path: |
             build
             dist-newstyle
+            haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
@@ -307,6 +324,7 @@ jobs:
           path: |
             build
             dist-newstyle
+            haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
 
       # Save ccache (same split-save rationale as the build tree).
