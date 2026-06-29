@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **CI: a `check-proof-coverage` gate makes the Agda proof checker provably
+  exhaustive — internal, no behavior change.** `check-properties` walks a
+  hand-maintained `proofModules` list (Shakefile.hs); a proof module missing
+  from it was type-checked only as a side effect of the whole-tree `iwyu --all`
+  pass, so `cabal run shake -- check-properties` (the documented proof gate)
+  silently skipped it. Two such modules existed — `DBC.TextFormatter.Properties`
+  and `Protocol.Adequacy.StreamingWarm` (the lemma that discharges
+  `warm-cache-agreement`'s `AllCached` premise) — and are now added to
+  `proofModules`. The new gate (`tools/check_proof_coverage.py`, folded into
+  `run_ci`'s Agda-gate step and a `cabal run shake -- check-proof-coverage`
+  target) asserts that `closure(proofModules) ∪ closure(build)` covers every
+  `src/**.agda`, failing CI the instant a future proof module is not wired into
+  a dedicated gate. It reads `proofModules` from Shakefile.hs (single source of
+  truth — no second copy to drift).
 - **`aletheia_parse_decimal` FFI export — the kernel single source of truth for
   decimal→rational.** A new Agda module `Aletheia.DBC.TextParser.DecimalEntry`
   (`parseDecimal : String → Maybe ℚ`) parses a decimal string into the exact

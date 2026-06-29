@@ -43,6 +43,7 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "check-properties",
     "check-invariants",
     "check-no-properties-in-runtime",
+    "check-proof-coverage",
     "check-erasure",
     "check-fidelity",
     "check-ffi-exports",
