@@ -16,6 +16,15 @@ on:
   # any lane is >30% slower than the committed GHA baseline — generous because
   # the shared runner is noisy; see benchmarks/gha_baseline.json).
   pull_request:
+    # Doc-only PRs cannot change runtime throughput, so skip the ~12-min lane
+    # for them.  Safe because Benchmark is NOT a required check (the main
+    # ruleset requires only run_ci + mutation), so a path-skipped run never
+    # leaves a required check pending.  No paired `paths:` allowlist — adding
+    # one would flip the default to "deny unless matched".  workflow_dispatch
+    # ignores path filters, so manual exploratory runs are unaffected.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   # Manual: ad-hoc numbers with custom parameters (the gate is PR-only, so
   # exploratory dispatch runs are never gated).
   workflow_dispatch:
@@ -71,7 +80,6 @@ jobs:
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
-          cabal update
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -86,6 +94,15 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/bin
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a
+      # fresh `cabal update` is redundant on a cache hit (it previously ran
+      # unconditionally in "Set up GHC + cabal", BEFORE this restore overwrote
+      # its index with the cached one).  Run it only on a miss, where the
+      # `cabal install Agda` below actually needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
@@ -121,6 +138,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.14'
+          # Cache pip's wheel-download cache, keyed on the dependency manifest,
+          # so `pip install -e python/.[dev]` reuses downloaded wheels across
+          # runs (the venv itself is re-created each run; this saves the fetch).
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -154,6 +176,32 @@ jobs:
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
+      # Restore the incremental build tree (Agda .agdai + MAlonzo .hs + the cabal
+      # foreign-lib build under haskell-shim/dist-newstyle) so `cabal run shake
+      # -- build` rebuilds ONLY what this commit changed instead of the whole
+      # tree (cold ~342s -> ~23s).  haskell-shim/dist-newstyle (the ~194 MB
+      # .o/.hi tree) is essential: build/libaletheia-ffi.so symlinks into it, so
+      # omitting it left a dangling symlink that forced cabal to recompile all
+      # 276 MAlonzo objects (~47s) on EVERY run.  Restore-ONLY: pr-full-ci.yml
+      # (and its push:main runs) seed and own this cache, and the shared
+      # restore-keys prefix means a brand-new PR warms from main's tree on its
+      # very first push.  Not saving here avoids a large double-upload and a
+      # concurrent-save race with pr-full-ci (cancel-in-progress is on).  Safe to
+      # share the key: Shake (ChangeModtimeAndDigest) and GHC (mi_src_hash) key
+      # on CONTENT, not mtime, which actions/cache resets — so `shake -- build`
+      # reproduces the exact current .so and the benchmark measures the PR's
+      # actual code.
+      - name: Restore incremental build tree (build/ + dist-newstyle/)
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+
       - name: Build the FFI library (libaletheia-ffi.so)
         run: cabal run shake -- build
 
@@ -163,6 +211,50 @@ jobs:
           python3.14 -m venv python/.venv
           python/.venv/bin/pip install --upgrade pip
           python/.venv/bin/pip install -e 'python/.[dev]'
+
+      # ── C++ build caching (ccache + CMake FetchContent deps) ────────────────
+      # Both must be in place BEFORE the cmake CONFIGURE below: cpp/CMakeLists.txt
+      # bakes the ccache launcher (CMAKE_CXX_COMPILER_LAUNCHER) at find_program =
+      # configure time, and FetchContent downloads its deps during configure.
+      - name: Set up ccache
+        run: |
+          set -euo pipefail
+          command -v ccache >/dev/null || sudo apt-get install -y ccache
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_MAXSIZE=2G"
+          } >> "${GITHUB_ENV}"
+
+      # Distinct key from pr-full-ci.yml's ccache: this lane compiles only the
+      # Release `benchmark` target, whereas pr-full-ci accumulates Debug + UBSan
+      # objects.  A shared key would let a Release-only save win the
+      # immutable-key race and cold-start pr-full-ci's ctest/ubsan lanes.
+      # Separate pools (split restore/save, like the build tree).
+      - name: Restore ccache (benchmark lane)
+        id: ccache-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.ccache
+          key: ccache-bench-${{ runner.os }}-clang22-${{ github.sha }}
+          restore-keys: |
+            ccache-bench-${{ runner.os }}-clang22-
+
+      # Caches the Release build's FetchContent deps (json / yaml-cpp / OpenXLSX
+      # / Catch2) so configure does not re-download each tarball every run.
+      # Distinct key from pr-full-ci.yml's `cpp-deps-*` (which caches THREE build
+      # dirs); a shared key would clobber that 3-dir cache with this lane's
+      # single cpp/build/_deps.  Split restore/save (like ccache + the cabal
+      # store): the combined action saves only on overall job SUCCESS, so a
+      # failed benchmark/regression-gate iteration would drop the deps and force
+      # a re-download next run (and re-expose the transient OpenXLSX 504 the
+      # FetchContent fetch has hit before).  The save below persists them even
+      # on a red later step.
+      - name: Restore C++ FetchContent deps (benchmark lane)
+        id: cpp-deps-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: cpp/build/_deps
+          key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
 
       - name: Build the C++ benchmark (Release, clang-22)
         run: |
@@ -212,3 +304,24 @@ jobs:
       - name: Regression gate (vs GHA baseline)
         if: github.event_name == 'pull_request'
         run: python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30
+
+      # Save ccache (split-save like pr-full-ci: `!cancelled()` so it persists
+      # even if the regression gate above failed; skip on an exact-sha re-run
+      # hit, since GHA cache keys are immutable).
+      - name: Save ccache (benchmark lane)
+        if: ${{ !cancelled() && steps.ccache-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.ccache
+          key: ccache-bench-${{ runner.os }}-clang22-${{ github.sha }}
+
+      # Save the FetchContent deps (populated during the cmake configure above)
+      # even if a later step failed — `!cancelled()` matches the ccache save.
+      # Skip on an exact-key hit (immutable keys); the key is content-addressed
+      # on CMakeLists.txt, so on a re-run with unchanged deps this no-ops.
+      - name: Save C++ FetchContent deps (benchmark lane)
+        if: ${{ !cancelled() && steps.cpp-deps-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: cpp/build/_deps
+          key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}

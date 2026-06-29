@@ -446,14 +446,18 @@ jobs:
       # the shake-exe root dist-newstyle) so `cabal run shake -- build` below is a
       # Shake NO-OP when the PR touches no Agda source — the common case (a
       # Python/Go/C++/docs PR doesn't change the .so), turning the cold ~338s
-      # build into seconds.  An Agda-changing PR still recompiles via cabal
-      # (haskell-shim/dist-newstyle, the 194 MB .o tree, is intentionally NOT
-      # cached — same as pr-full-ci.yml; keeps the cache small per the 10 GB LRU
-      # budget).  Shares pr-full-ci.yml's key (SAME tree, seeded on push:main, so
-      # a fresh PR branch reads it via the restore-keys prefix); safe to share —
-      # Shake keys on content and `build` errors on a stale tree, so it never
-      # ships stale.  NOT ccache: the Mull `-fpass-plugin` C++ compile is left
-      # cold (ccache cannot content-hash the plugin binary -> stale-object risk).
+      # build into seconds.  Includes haskell-shim/dist-newstyle (the foreign
+      # lib's ~194 MB .o/.hi tree): build/libaletheia-ffi.so is a symlink into
+      # it, so leaving it uncached left a dangling symlink that forced cabal to
+      # recompile all 276 MAlonzo objects (~47s) on EVERY run, not just
+      # Agda-changing ones.  Caching it lets Shake content-verify the .so and
+      # no-op (~0s) — verified locally: churn every mtime (the actions/cache
+      # restore) and `build` still no-ops with an unchanged .so md5.  Shares
+      # pr-full-ci.yml's key (SAME tree, seeded on push:main, so a fresh PR
+      # branch reads it via the restore-keys prefix); safe to share — Shake keys
+      # on content and `build` errors on a stale tree, so it never ships stale.
+      # NOT ccache: the Mull `-fpass-plugin` C++ compile is left cold (ccache
+      # cannot content-hash the plugin binary -> stale-object risk).
       - name: Restore incremental build tree (build/ + dist-newstyle/)
         id: build-tree-cache
         uses: actions/cache/restore@v5
@@ -461,6 +465,7 @@ jobs:
           path: |
             build
             dist-newstyle
+            haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
@@ -485,4 +490,5 @@ jobs:
           path: |
             build
             dist-newstyle
+            haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
