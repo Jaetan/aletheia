@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # AGDA_SHAKE_TARGETS quietly stops running on every PR.  Guard it by invariants
 # rather than a mirror copy of the tuple (DRY) — the count tripwire turns any
 # add/drop into a conscious edit, and the named checks pin the load-bearing gates.
-_EXPECTED_GATE_COUNT = 13
+_EXPECTED_GATE_COUNT = 14
 
 
 def test_combined_agda_gates_have_no_silent_drop() -> None:
@@ -52,7 +52,12 @@ def test_combined_agda_gates_include_load_bearing_checks() -> None:
     """The heavy proof checks and the changelog enforcer must be in the fan-in."""
     # check-properties/-fidelity are the heavy proof gates; check-changelog has
     # tripped real PRs — dropping any of them must fail this test, not a PR.
-    assert {"check-properties", "check-fidelity", "check-changelog"} <= set(AGDA_SHAKE_TARGETS)
+    assert {
+        "check-properties",
+        "check-fidelity",
+        "check-changelog",
+        "check-proof-coverage",
+    } <= set(AGDA_SHAKE_TARGETS)
 
 
 def test_combined_agda_step_is_oom_gated() -> None:

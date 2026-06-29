@@ -376,6 +376,10 @@ proofModules =
     , "Aletheia/Protocol/FrameProcessor/Properties.agda"
     , "Aletheia/Protocol/Handlers/Properties.agda"
     , "Aletheia/Protocol/Adequacy/WarmCache.agda"
+    -- Discharges WarmCache's `AllCached` premise (streaming-warms-cache);
+    -- unreachable from Main's runtime closure and unimported by other proofs,
+    -- so an explicit root keeps the dedicated proof gate covering it.
+    , "Aletheia/Protocol/Adequacy/StreamingWarm.agda"
     -- CAN
     , "Aletheia/CAN/Encoding/Properties.agda"
     , "Aletheia/CAN/Batch/Properties.agda"
@@ -399,6 +403,10 @@ proofModules =
     -- forces the full submodule tree to type-check (unreachable from Main).
     , "Aletheia/DBC/TextParser.agda"
     , "Aletheia/DBC/TextFormatter.agda"
+    -- The TextFormatter theorem facade (mirrors TextParser/Properties, which is
+    -- a root above); the module itself imports it from neither runtime nor proof
+    -- closure, so it needs its own root.
+    , "Aletheia/DBC/TextFormatter/Properties.agda"
     , "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
     , "Aletheia/DBC/DecRat/RationalSoundness.agda"
     -- WellFormedText / ValueDescResolves / Format DSL: walk roots currently
@@ -572,6 +580,19 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             putError $ "Runtime module imports a Properties module:\n" ++ violations
             error "check-no-properties-in-runtime failed"
         putInfo "No Properties imports in runtime modules."
+
+    phony "check-proof-coverage" $ do
+        -- Exhaustiveness gate for the proof checker.  Every module under src/
+        -- must be type-checked by `build` (Main's runtime closure) OR
+        -- `check-properties` (the `proofModules` walk roots + their imports).
+        -- A module covered only by the whole-tree `iwyu --all` pass is silently
+        -- skipped by `cabal run shake -- check-properties` (the documented proof
+        -- gate), so a broken proof there would slip past a local proof run.
+        -- This gate forbids that — `proofModules` cannot drift incomplete again
+        -- (it had, twice: TextFormatter/Properties + Adequacy/StreamingWarm).
+        -- The tool reads `proofModules` from this file, so there is no second
+        -- copy to keep in sync.
+        cmd_ pythonBin "-m" "tools.check_proof_coverage"
 
     phony "count-modules" $ do
         agdaFiles <- getDirectoryFiles "src" ["//*.agda"]
