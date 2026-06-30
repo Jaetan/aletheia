@@ -22,6 +22,7 @@ exists precisely to detect this, but naive value-range tests cannot catch it.
 # pylint: disable=duplicate-code
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -30,8 +31,10 @@ if TYPE_CHECKING:
 # CAN message ID for the Engine ECU
 ENGINE_STATUS_ID = 0x300  # 768
 
-# DBC definition for the Engine ECU (raw wire form — float factors etc. — so it
-# is cast to DBCDefinition for the consumers that pass it to ``parse_dbc``).
+# DBC definition for the Engine ECU.  Scaling parameters are exact rationals
+# (the float principle — never a float; 0.25 is Fraction(1, 4), 16383.75 is
+# Fraction(65535, 4)).  Cast to DBCDefinition because it is hand-built in code
+# rather than decoded from the kernel.
 ENGINE_DBC = cast(
     "DBCDefinition",
     {
@@ -49,10 +52,10 @@ ENGINE_DBC = cast(
                         "length": 16,
                         "byteOrder": "little_endian",
                         "signed": False,
-                        "factor": 0.25,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 16383.75,
+                        "factor": Fraction(1, 4),
+                        "offset": Fraction(0),
+                        "minimum": Fraction(0),
+                        "maximum": Fraction(65535, 4),
                         "unit": "rpm",
                         "presence": "always",
                     },
@@ -62,10 +65,10 @@ ENGINE_DBC = cast(
                         "length": 8,
                         "byteOrder": "little_endian",
                         "signed": False,
-                        "factor": 1.0,
-                        "offset": -40.0,
-                        "minimum": -40.0,
-                        "maximum": 215.0,
+                        "factor": Fraction(1),
+                        "offset": Fraction(-40),
+                        "minimum": Fraction(-40),
+                        "maximum": Fraction(215),
                         "unit": "degC",
                         "presence": "always",
                     },
@@ -75,10 +78,10 @@ ENGINE_DBC = cast(
                         "length": 4,
                         "byteOrder": "little_endian",
                         "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 15.0,
+                        "factor": Fraction(1),
+                        "offset": Fraction(0),
+                        "minimum": Fraction(0),
+                        "maximum": Fraction(15),
                         "unit": "",
                         "presence": "always",
                     },

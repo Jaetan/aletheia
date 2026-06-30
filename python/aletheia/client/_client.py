@@ -12,7 +12,11 @@ from aletheia.client._backend import Backend, FFIBackend
 from aletheia.client._enrichment import build_diagnostic
 from aletheia.client._ffi import parse_json_object
 from aletheia.client._helpers.dbc_normalize import normalize_dbc, normalize_dbc_for_wire
-from aletheia.client._helpers.rational import fraction_to_wire_pair, to_exact_fraction
+from aletheia.client._helpers.rational import (
+    fraction_to_wire_pair,
+    reject_inexact,
+    to_exact_fraction,
+)
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
     parse_parsed_dbc_response,
@@ -72,6 +76,39 @@ def send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
     """
     msg = "Client not initialized — use 'with' statement"
     raise StateError(msg)
+
+
+# Predicate fields the kernel parses as ℚ — the only *rational* numeric fields in
+# a formula tree.  The metric temporal operators also carry an integer
+# ``timebound``, deliberately NOT listed here: like the DBC's integer fields, an
+# integer bound falls through to the kernel's typed ℕ validation (the field-aware
+# design — ``reject_formula_inexact`` recurses into every operand but rejects
+# only at these rational field names, so a ``timebound`` scalar is a no-op).
+_PREDICATE_RATIONAL_FIELDS = ("value", "min", "max", "delta", "tolerance")
+
+
+def reject_formula_inexact(node: object, ctx: str) -> None:
+    """Reject a float or bool at any predicate ℚ field within a raw ``LTLFormula`` tree.
+
+    The ``set_properties`` raw-dict path bypasses the DSL's
+    ``to_predicate_fraction`` guard.  Rational thresholds live only in atomic
+    predicates (``value``/``min``/``max``/``delta``/``tolerance``); this checks
+    those field names wherever they occur and recurses into *every* operand to
+    reach nested predicates.  Field-aware via :func:`reject_inexact`: a
+    non-rational scalar (a string operator/signal, an integer ``timebound``) is
+    recursed into as a harmless no-op, so only an inexact rational is rejected
+    (the float principle).
+    """
+    if isinstance(node, dict):
+        node_dict = cast("dict[str, object]", node)  # pragma: no mutate
+        for field in _PREDICATE_RATIONAL_FIELDS:
+            if field in node_dict:
+                reject_inexact(node_dict[field], f"{ctx}.{field}")
+        for key, sub in node_dict.items():
+            reject_formula_inexact(sub, f"{ctx}.{key}")
+    elif isinstance(node, list):
+        for index, item in enumerate(cast("list[object]", node)):  # pragma: no mutate
+            reject_formula_inexact(item, f"{ctx}[{index}]")
 
 
 class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-many-instance-attributes
@@ -542,6 +579,13 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 Same state-cleanup contract as ``FFIError``.
 
         """
+        # A raw LTLFormula dict bypasses the DSL's to_predicate_fraction guard,
+        # so a float predicate threshold (e.g. a hand-built {"value": 0.1 + 0.2})
+        # would otherwise reach the kernel and be absorbed as an exact-but-wrong
+        # rational.  Reject a float/bool at each predicate's ℚ field before sending
+        # (the float principle; same reject_inexact SSOT the DBC outbound uses).
+        for index, formula in enumerate(properties):
+            reject_formula_inexact(formula, f"properties[{index}]")
         cmd: SetPropertiesCommand = {
             "type": "command",
             "command": "setProperties",

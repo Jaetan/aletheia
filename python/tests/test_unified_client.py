@@ -371,8 +371,8 @@ class TestAletheiaClientLifecycle:
                     "signals": [{
                         "name": "TestSignal", "startBit": 0, "length": 16,
                         "byteOrder": "little_endian", "signed": False,
-                        "factor": 1.0, "offset": 0.0,
-                        "minimum": 0.0, "maximum": 65535.0,
+                        "factor": 1, "offset": 0,
+                        "minimum": 0, "maximum": 65535,
                         "unit": "", "presence": "always"
                     }]
                 }]
