@@ -967,6 +967,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **C++ `extract --json` emits exact rationals, not a lossy `double` (parity
+  with Python/Go; BREAKING for that output).** The CLI's `extract --json`
+  rendered each signal value via `Rational::to_double()`, so a non-integer
+  physical value (e.g. a factor-`0.25` signal → `2500.25`) reached a JSON
+  consumer as a lossy IEEE-754 double. It now emits the exact
+  `{"numerator","denominator"}`-or-bare-int wire shape — the same
+  parser-equivalent shape as Python's `FractionJSONEncoder`, Go's `extract
+  --json`, and the binding's own DBC canonical JSON (the parsed value matches;
+  byte order does not, since nlohmann emits object keys sorted). The float
+  principle bars a lossy float even on machine-readable output. A consumer that
+  parsed an `extract --json` value as a plain JSON number must now read the
+  rational object for non-integer values (integers stay bare ints).
+  (`cpp/src/cli/cli.cpp`.)
+
 - **FFI validation-error envelopes now key the human reason as `message`, not
   `error`** (`haskell-shim/src/AletheiaFFI/Marshal.hs` `mkErrorJson`). The
   cross-binding error-envelope convention — the Agda `responseToJSON` emitter and

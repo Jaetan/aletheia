@@ -276,6 +276,23 @@ static auto cmd_validate(const Args& a) -> int {
     return res->has_errors ? k_exit_violations : k_exit_ok;
 }
 
+// Exact rational -> JSON for `extract --json`: a bare integer when the
+// denominator is 1, else the `{"numerator","denominator"}` object — the same
+// wire SHAPE as Python's FractionJSONEncoder and the binding's own DBC canonical
+// JSON (`json_serialize.cpp::rational_to_json`).  The parsed value is identical
+// across bindings; the byte order is not (nlohmann's default object is a sorted
+// map, so keys emit alphabetically — `denominator` before `numerator` — whereas
+// Python emits insertion order).  The float principle bars a lossy `to_double()`
+// here (this is machine-readable output a consumer parses).  Extraction values
+// are kernel-canonical (reduced, positive denominator), so no gcd / INT64_MIN
+// normalisation is needed (unlike `rational_to_json`, which guards arbitrary
+// caller-built rationals on the DBC-serialize path).
+static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
+    if (r.denominator() == 1)
+        return r.numerator();
+    return Json{{"numerator", r.numerator()}, {"denominator", r.denominator()}};
+}
+
 static auto cmd_extract(const Args& a) -> int {
     if (a.positionals.size() != 2)
         return die("extract requires <can_id> <data> positional arguments");
@@ -307,7 +324,7 @@ static auto cmd_extract(const Args& a) -> int {
     if (a.flags.contains("json")) {
         Json values = Json::object();
         for (const auto& v : res->values)
-            values[v.name.get()] = v.value.get().to_double();
+            values[v.name.get()] = extract_value_to_json(v.value.get());
         Json errors = Json::object();
         for (const auto& e : res->errors)
             errors[e.name.get()] = e.reason;

@@ -11,11 +11,15 @@
 #include <aletheia/cli.hpp>
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -37,6 +41,16 @@ auto lib_available() -> bool {
 
 auto run(std::vector<std::string> args) -> int {
     return aletheia::run_cli(args);
+}
+
+// Run a subcommand capturing stdout, so a test can assert the emitted JSON
+// shape (not just the exit code).
+auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
+    std::ostringstream oss;
+    auto* old = std::cout.rdbuf(oss.rdbuf());
+    const int code = aletheia::run_cli(std::move(args));
+    std::cout.rdbuf(old);
+    return {code, oss.str()};
 }
 
 } // namespace
@@ -63,6 +77,28 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
+}
+
+TEST_CASE("extract --json renders signal values as exact rationals, never a lossy float", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    const auto dbc = (repo_root() / "examples" / "example.dbc").string();
+    // EngineSpeed is 16-bit @ factor 0.25; raw 10001 (0x2711, little-endian) =
+    // 10001/4 = 2500.25, a non-integer rational -> the exact
+    // {"numerator","denominator"} object, never a lossy double like 2500.25.
+    // EngineTemp (factor 1, raw 0, offset -40) = -40 -> a bare integer.  Parse
+    // the JSON and assert the exact structure (a substring check could
+    // false-positive on another field's text).
+    auto [code, out] =
+        run_capture({"extract", "--dbc", dbc, "0x100", "112700000A000000", "--json"});
+    CHECK(code == 0);
+    const auto parsed = nlohmann::json::parse(out);
+    const auto& values = parsed.at("values");
+    CHECK(values.at("EngineSpeed") == nlohmann::json({{"numerator", 10001}, {"denominator", 4}}));
+    CHECK(values.at("EngineSpeed").is_object()); // exact rational, never a float
+    CHECK(values.at("EngineTemp") == nlohmann::json(-40));
+    CHECK(values.at("EngineTemp").is_number_integer()); // integer stays a bare int
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {
