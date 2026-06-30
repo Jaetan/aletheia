@@ -643,7 +643,7 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 // decoding path.
 func parseRational(v any) (Rational, error) {
 	switch n := v.(type) {
-	case json.Number, float64:
+	case json.Number:
 		// A scalar number is the integer rational n/1.
 		i, cls := decodeJSONInt(v)
 		switch cls {
@@ -712,13 +712,14 @@ const (
 	intParseOverflow                   // integer-valued, but outside int64
 )
 
-// decodeJSONInt converts a JSON-decoded number to an exact int64. Under the
-// parseResponse UseNumber decoder a number arrives as a json.Number, which
-// strconv.ParseInt reads exactly for every int64 — no float64 53-bit-mantissa
-// loss. A float64 (a hand-built map, a direct caller, or a legacy json.Unmarshal
-// value) is still accepted but keeps the historical 2^53 limit. The json.Number
-// float64 fallback only fires for non-canonical integer forms (e.g. "1e3") the
-// core does not emit; the canonical-integer hot path stays exact.
+// decodeJSONInt converts a JSON-decoded number to an exact int64. The
+// production decode entry (parseResponse) uses a UseNumber decoder, so on the
+// production path every wire number arrives as a json.Number, which
+// strconv.ParseInt reads exactly for the full int64 range — no float64
+// 53-bit-mantissa loss. There is deliberately no float64 arm: any non-json.Number
+// value — including a float64 a test or fuzzer may pass after a plain
+// json.Unmarshal (which decodes numbers as float64) — is not a wire integer and
+// falls to intParseNotNumber, rejected rather than silently truncated.
 func decodeJSONInt(v any) (int64, intParse) {
 	switch n := v.(type) {
 	case json.Number:
@@ -735,14 +736,6 @@ func decodeJSONInt(v any) (int64, intParse) {
 			return 0, intParseOverflow
 		}
 		return 0, intParseFractional
-	case float64:
-		if n != math.Trunc(n) {
-			return 0, intParseFractional
-		}
-		if n > math.MaxInt64 || n < math.MinInt64 {
-			return 0, intParseOverflow
-		}
-		return int64(n), intParseOK
 	default:
 		return 0, intParseNotNumber
 	}
@@ -752,7 +745,7 @@ func decodeJSONInt(v any) (int64, intParse) {
 // an integer) as an exact int64 — see decodeJSONInt for the exactness contract.
 func parseNumberAsInt64(v any) (int64, error) {
 	switch n := v.(type) {
-	case json.Number, float64:
+	case json.Number:
 		i, cls := decodeJSONInt(v)
 		switch cls {
 		case intParseFractional:
@@ -905,36 +898,20 @@ func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundEx
 	return newInputBoundExceededError(kind, observed, limit, code)
 }
 
-// jsonNumberToUint64 narrows a JSON-decoded numeric value to uint64.
-// Rejects negatives, non-integers, and overflowing magnitudes.
+// jsonNumberToUint64 narrows a JSON-decoded number to uint64. The production
+// decode entry (parseResponse) uses a UseNumber decoder, so a wire number is
+// always a json.Number; ParseUint reads the full uint64 range exactly and rejects
+// negatives, non-integers ("1.5"), non-canonical forms ("1e3" the core never
+// emits), and overflowing magnitudes. Any non-json.Number value (e.g. a float64
+// from a plain json.Unmarshal in a test) is not a uint64.
 func jsonNumberToUint64(v any) (uint64, bool) {
 	switch n := v.(type) {
 	case json.Number:
-		// observed/limit are canonical integers from the core; ParseUint reads the
-		// full uint64 range exactly. A non-canonical form (e.g. "1e3") the core
-		// never emits is simply not a uint64 here.
 		i, err := strconv.ParseUint(n.String(), 10, 64)
 		if err != nil {
 			return 0, false
 		}
 		return i, true
-	case float64:
-		if n < 0 || n > float64(^uint64(0)) || n != float64(uint64(n)) {
-			return 0, false
-		}
-		return uint64(n), true
-	case int:
-		if n < 0 {
-			return 0, false
-		}
-		return uint64(n), true
-	case int64:
-		if n < 0 {
-			return 0, false
-		}
-		return uint64(n), true
-	case uint64:
-		return n, true
 	default:
 		return 0, false
 	}
@@ -1695,8 +1672,8 @@ func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
 }
 
 // parseValueTables decodes the optional "valueTables" array. Each entry's
-// integer value is parsed through [parseNumberAsInt64] to tolerate JSON's
-// float decoder on whole-number values.
+// integer value is parsed through [parseNumberAsInt64] (the shared json.Number
+// decoder — exact for the full int64 range).
 func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
 	return parseObjects(j, "valueTables", func(vtRaw map[string]any) (DBCValueTable, error) {
 		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {

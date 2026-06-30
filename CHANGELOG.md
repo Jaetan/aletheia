@@ -908,6 +908,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **Dead native-type arms in the Go JSON decoders (internal, no behavior
+  change).** The Go binding's sole *production* decode entry (`parseResponse`)
+  uses a `UseNumber` decoder, so on the production path every wire number arrives
+  as a `json.Number`; the four rational/int decoders (`decodeJSONInt`,
+  `parseRational`, `parseNumberAsInt64`, `jsonNumberToUint64`) therefore only ever
+  see a `json.Number` in production, yet each still carried a `case float64:`
+  (plus `int`/`int64`/`uint64` in `jsonNumberToUint64`) whose stated rationale
+  ("mirrors the old `json.Unmarshal` FFI path") went stale when production
+  switched to `UseNumber` in #116. Those arms were unreachable on the production
+  path — only a test or fuzzer decoding via a plain `json.Unmarshal` could supply
+  a `float64` — and are removed; any non-`json.Number` value now uniformly falls
+  to the existing reject path (still total: rejected, never a panic). This
+  aligns the Go decoder's contract with the float principle and with the
+  Python/C++/Rust decoders, which already reject a float on inbound rational
+  decode. The round-trip property test is retargeted to the production
+  `json.Number` path and redundant native-`float64` reject tests are dropped (the
+  wire-path cases in `json_precision_test.go` cover them). (`go/aletheia/json.go`,
+  `go/aletheia/json_precision_test.go`, `go/aletheia/property_test.go`.)
 - **The per-binding float→rational heuristics (B6e Phase 1, BREAKING).** Deleted
   in favour of the kernel SSOT `from_decimal`: Python `float_to_rational` /
   `coerce_to_rational` / `to_signal_fraction` (`rational.py`, `types.py`); C++
