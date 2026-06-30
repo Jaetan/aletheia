@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstdint>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 
@@ -116,4 +117,25 @@ TEST_CASE("Rational::from_decimal rejects an interior NUL byte (cross-binding pa
     // case using an explicit embedded NUL.
     using namespace std::string_view_literals;
     expect_validation_throw("1\0xyz"sv);
+}
+
+TEST_CASE("Rational ctor/make reject out-of-int64-range integral inputs", "[types]") {
+    // The non-bool-integral ctor/make accept any integral type, so a wide or
+    // unsigned value outside the int64 range (here 2^63, one past INT64_MAX)
+    // must be rejected before the narrowing cast rather than wrapping silently.
+    constexpr std::uint64_t too_big = std::uint64_t{1} << 63U;
+
+    SECTION("the constructor throws") {
+        REQUIRE_THROWS_AS(Rational(too_big, 1), std::invalid_argument);
+        REQUIRE_THROWS_AS(Rational(1, too_big), std::invalid_argument);
+    }
+    SECTION("make returns an error instead of a wrapped value") {
+        REQUIRE_FALSE(Rational::make(too_big, 1).has_value());
+        REQUIRE_FALSE(Rational::make(1, too_big).has_value());
+    }
+    SECTION("an in-range integral still constructs") {
+        constexpr std::int64_t big_ok = std::int64_t{1} << 62; // < INT64_MAX
+        REQUIRE(Rational(big_ok, 1).numerator() == big_ok);
+        REQUIRE(Rational::make(big_ok, 2).has_value());
+    }
 }

@@ -377,6 +377,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **B6e residual — C++ `Rational` ctor and `Rational::make` reject `double` and
+  `bool` at the exact-numeric boundary (BREAKING, C++).** The two-argument
+  `Rational(std::int64_t, std::int64_t)` constructor and the `Rational::make`
+  factory previously accepted a `double` (silently truncating, e.g.
+  `Rational(7.9, 2)` → `7/2`, with only a non-fatal `-Wliteral-conversion`
+  warning under paren-init) and a `bool` (silently, `true` → `1`). They are now
+  constrained to non-`bool` `std::integral` parameters, so a decimal must go
+  through `Rational::from_decimal` (the kernel decimal SSOT) — closing the last
+  float-input path in the C++ binding and bringing it to the same compile-time
+  bar Go and Rust already had (their rationals are `int64`/`int64`-typed, so a
+  float never compiles). `Strong::of` (and thus `PhysicalValue::of` /
+  `RationalFactor::of` / …) is closed transitively by the constrained
+  constructor via its `std::constructible_from` guard. Ten header
+  `static_assert`s prove the boundary (integer construction still works; a
+  `double`/`bool` is rejected at the ctor, `make`, and `of`) and fail the build
+  on any regression. No in-repo call site passed a `double` or `bool`, so the
+  break only affects downstream/future misuse. Because the constrained
+  parameters accept any non-`bool` integral type, the ctor and `make` also
+  reject a value outside the `int64` range (e.g. a `uint64_t` > `INT64_MAX`) via
+  `std::in_range` *before* the narrowing cast — rather than wrapping silently
+  and suppressing the `-Wconversion` diagnostic the old `int64_t`-typed
+  signature gave for free. Touches `cpp/include/aletheia/types.hpp` plus a
+  `unit_tests_decimal` range-rejection test; no proof or other binding touched.
 - **B6e residual — Python rejects a `float` at the rational outbound wire fields
   (BREAKING, behavioral).** A `float` in a hand-built `DBCDefinition` rational
   field (signal `factor`/`offset`/`minimum`/`maximum`, env-var
