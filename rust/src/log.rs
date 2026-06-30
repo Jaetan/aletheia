@@ -52,6 +52,11 @@ impl fmt::Display for LogLevel {
 
 /// A typed structured-field value (the Rust analogue of the C++ `LogValue`
 /// variant). Borrows for the duration of the [`Logger::log`] call.
+///
+/// No floating-point variant: the float principle bars a float on every surface,
+/// including the user-facing log boundary. Numeric log fields are exact integers
+/// (counts, indices, CAN IDs, µs timestamps); an exact rational that needs logging
+/// is rendered to a string via the verified kernel `format_rational` at the sink.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LogValue<'a> {
     /// A string value.
@@ -60,8 +65,6 @@ pub enum LogValue<'a> {
     I64(i64),
     /// An unsigned integer value.
     U64(u64),
-    /// A floating-point value.
-    F64(f64),
     /// A boolean value.
     Bool(bool),
 }

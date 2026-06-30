@@ -34,7 +34,11 @@ namespace aletheia {
 
 enum class LogLevel : std::uint8_t { Debug, Info, Warn, Error };
 
-using LogValue = std::variant<std::string_view, std::int64_t, std::uint64_t, double, bool>;
+// No floating-point member: the float principle bars a float on every surface,
+// including the user-facing log boundary. Numeric log fields are exact integers
+// (counts, indices, CAN IDs, µs timestamps); an exact rational that needs logging
+// is rendered to a string via the verified kernel `format_rational` at the sink.
+using LogValue = std::variant<std::string_view, std::int64_t, std::uint64_t, bool>;
 using LogField = std::pair<std::string_view, LogValue>;
 
 // LogRecord is valid only for the duration of the Logger::log() call.
