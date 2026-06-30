@@ -17,6 +17,7 @@ Requirements:
 
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import TYPE_CHECKING, cast
 
 from aletheia import AletheiaClient, AletheiaError
@@ -24,8 +25,9 @@ from aletheia import AletheiaClient, AletheiaError
 if TYPE_CHECKING:
     from aletheia.types import DBCDefinition
 
-# The demo DBCs are written in raw wire form (float factors, partial metadata,
-# some intentionally invalid) to exercise the parser's validation, so they are
+# The demo DBCs use exact Fraction scaling params (the float principle — never a
+# float; 0.1 is Fraction(1, 10), 655.35 is Fraction(65535, 100)) and are partial /
+# some intentionally invalid to exercise the parser's validation, so they are
 # cast to DBCDefinition rather than constructed as the strict TypedDict.
 
 
@@ -48,7 +50,7 @@ def create_valid_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": -40,
                             "minimum": -40,
                             "maximum": 215,
@@ -61,10 +63,10 @@ def create_valid_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": False,
-                            "factor": 0.01,
+                            "factor": Fraction(1, 100),
                             "offset": 0,
                             "minimum": 0,
-                            "maximum": 655.35,
+                            "maximum": Fraction(65535, 100),  # 655.35
                             "unit": "bar",
                             "presence": "always",
                         },
@@ -107,7 +109,7 @@ def create_overlapping_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": -40,
                             "minimum": -40,
                             "maximum": 215,
@@ -120,10 +122,10 @@ def create_overlapping_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": False,
-                            "factor": 0.01,
+                            "factor": Fraction(1, 100),
                             "offset": 0,
                             "minimum": 0,
-                            "maximum": 655.35,
+                            "maximum": Fraction(65535, 100),  # 655.35
                             "unit": "bar",
                             "presence": "always",
                         },
@@ -153,7 +155,7 @@ def create_inconsistent_range_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": -40,
                             "minimum": 100,
                             "maximum": 50,
@@ -199,10 +201,10 @@ def create_multiplexed_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": False,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": 0,
                             "minimum": 0,
-                            "maximum": 6553.5,
+                            "maximum": Fraction(65535, 10),  # 6553.5
                             "unit": "rpm",
                             "multiplexor": "MuxSelector",
                             "multiplex_value": 0,
@@ -213,10 +215,10 @@ def create_multiplexed_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.01,
+                            "factor": Fraction(1, 100),
                             "offset": 0,
-                            "minimum": -327.68,
-                            "maximum": 327.67,
+                            "minimum": Fraction(-32768, 100),  # -327.68
+                            "maximum": Fraction(32767, 100),  # 327.67
                             "unit": "m/s",
                             "multiplexor": "MuxSelector",
                             "multiplex_value": 1,

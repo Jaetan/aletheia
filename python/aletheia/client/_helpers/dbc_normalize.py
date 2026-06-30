@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast, get_args
 
-from aletheia.client._helpers.rational import decode_wire_rational, is_pure_int
+from aletheia.client._helpers.rational import decode_wire_rational, is_pure_int, reject_inexact
 from aletheia.client._types import (
     DLCByteCount,
     ProtocolError,
@@ -75,7 +75,18 @@ _DBC_TIER2_LIST_KEYS = (
 
 
 def _normalize_signal_for_wire(sig: dict[str, object]) -> dict[str, object]:
-    """Ensure NotRequired signal list fields are present in outgoing JSON."""
+    """Ensure NotRequired signal list fields are present + reject a float rational field.
+
+    The outbound twin of ``normalize_signal``'s inbound ``decode_wire_rational``:
+    each ℚ-valued metadata field (factor/offset/minimum/maximum) must be an exact
+    ``int`` or ``Fraction``, never a ``float`` the kernel would silently absorb as
+    a wrong rational.  Integer fields (startBit/length/multiplex_values) are left
+    to the kernel's own typed validation.
+    """
+    name = sig.get("name", "?")
+    for field in _NUMERIC_SIGNAL_FIELDS:
+        if field in sig:
+            reject_inexact(sig[field], f"signal {name!r} {field}")
     return {
         **sig,
         "receivers": sig.get("receivers", []),
@@ -93,6 +104,53 @@ def _normalize_message_for_wire(msg: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _reject_env_var_floats(env_vars: object) -> None:
+    """Reject a float at an env-var rational field (initial/minimum/maximum).
+
+    The outbound twin of ``_normalize_environment_var``'s inbound
+    ``decode_wire_rational``; ``varType`` is a 0/1/2 integer the kernel validates.
+    """
+    if not isinstance(env_vars, list):
+        return
+    for ev in cast("list[object]", env_vars):
+        if not isinstance(ev, dict):
+            continue
+        ev_dict = cast("dict[str, object]", ev)
+        name = ev_dict.get("name", "?")
+        for field in _NUMERIC_ENV_VAR_FIELDS:
+            if field in ev_dict:
+                reject_inexact(ev_dict[field], f"environment variable {name!r} {field}")
+
+
+def _reject_attribute_floats(attributes: object) -> None:
+    """Reject a float at a float-kind attribute's rational field (min/max/value).
+
+    Only ``FLOAT`` attribute *definitions* (``attrType.kind == "float"``) and float
+    attribute *values* (``value.kind == "float"``) carry ℚ — the outbound twin of
+    ``_normalize_attr_type`` / ``_normalize_attr_value``.  INT/HEX bounds and
+    INT/ENUM/HEX values are integers the kernel validates.
+    """
+    if not isinstance(attributes, list):
+        return
+    for attr in cast("list[object]", attributes):
+        if not isinstance(attr, dict):
+            continue
+        attr_dict = cast("dict[str, object]", attr)
+        name = attr_dict.get("name", "?")
+        attr_type = attr_dict.get("attrType")
+        if isinstance(attr_type, dict):
+            type_dict = cast("dict[str, object]", attr_type)
+            if type_dict.get("kind") == "float":
+                for field in ("min", "max"):
+                    if field in type_dict:
+                        reject_inexact(type_dict[field], f"attribute {name!r} type {field}")
+        value = attr_dict.get("value")
+        if isinstance(value, dict):
+            value_dict = cast("dict[str, object]", value)
+            if value_dict.get("kind") == "float" and "value" in value_dict:
+                reject_inexact(value_dict["value"], f"attribute {name!r} value")
+
+
 def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
     """Pad an outgoing ``DBCDefinition`` with empty defaults for absent list fields.
 
@@ -103,7 +161,19 @@ def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
     callers omit them.  This helper aligns Python's outgoing wire shape
     with C++/Go so the JSON envelope reaching the FFI dispatcher is
     identical regardless of which binding constructed the request.
+
+    The float principle (the outbound twin of the inbound ``decode_wire_rational``):
+    every ℚ-valued metadata field a caller may set in code — signal
+    ``factor``/``offset``/``minimum``/``maximum`` (checked in
+    ``_normalize_signal_for_wire``), env-var ``initial``/``minimum``/``maximum``,
+    and float-kind attribute ``min``/``max``/``value`` — must be an exact ``int``
+    or ``Fraction``, never a ``float`` the kernel would silently absorb as a wrong
+    rational.  Integer wire fields (``multiplex_values``, ``startBit``, ``id``…)
+    are left to the kernel's own typed validation, which rejects a non-integer
+    there loudly rather than silently.
     """
+    _reject_env_var_floats(dbc.get("environmentVars"))
+    _reject_attribute_floats(dbc.get("attributes"))
     messages = cast("list[dict[str, object]]", dbc.get("messages", []))
     result: dict[str, object] = {
         **dbc,
