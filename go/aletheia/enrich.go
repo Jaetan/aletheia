@@ -22,6 +22,17 @@ func formatRational(r Rational) (string, error) {
 	return formatRationalFFI(r.Numerator, r.Denominator)
 }
 
+// FormatRational renders a Rational as the exact cross-binding display string —
+// a terminating decimal ("0.25") or an exact fraction ("1/3"), never a lossy
+// float — by delegating to the verified kernel renderer (the same
+// aletheia_format_rational FFI used internally and by the C++/Python bindings).
+// It is the public entry point for external consumers such as the cmd/aletheia
+// CLI; like the internal renderer it requires a live FFIBackend and returns an
+// error if the GHC RTS is not up.
+func FormatRational(r Rational) (string, error) {
+	return formatRational(r)
+}
+
 // PropertyDiagnostic holds metadata auto-derived from a formula for violation enrichment.
 type PropertyDiagnostic struct {
 	Signals     []SignalName // all signals referenced in the formula

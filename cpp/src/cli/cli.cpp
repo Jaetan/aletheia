@@ -21,6 +21,7 @@
 #include <aletheia/cli.hpp>
 #include <aletheia/client.hpp>
 #include <aletheia/dbc.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/types.hpp>
 #include <aletheia/validation.hpp>
 
@@ -293,6 +294,16 @@ static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
     return Json{{"numerator", r.numerator()}, {"denominator", r.denominator()}};
 }
 
+// Exact rational -> human-readable string for CLI text output, via the verified
+// kernel renderer (Agda `formatℚ`): a terminating decimal (`1/4` -> "0.25") or an
+// exact fraction (`1/3` -> "1/3"), never a lossy `to_double()`.  Byte-identical
+// with Go's FormatRational and Python's format_rational (same kernel FFI).  The
+// CLI always has a live client here, so the RTS is up (format_rational_ffi throws
+// only when it is not).
+static auto render_rational(const aletheia::Rational& r) -> std::string {
+    return aletheia::detail::format_rational_ffi(r.numerator(), r.denominator());
+}
+
 static auto cmd_extract(const Args& a) -> int {
     if (a.positionals.size() != 2)
         return die("extract requires <can_id> <data> positional arguments");
@@ -342,7 +353,7 @@ static auto cmd_extract(const Args& a) -> int {
     if (res->values.empty())
         std::cout << "  (no signals)\n";
     for (const auto& v : res->values)
-        std::cout << "  " << v.name.get() << " = " << v.value.get().to_double() << '\n';
+        std::cout << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
     for (const auto& e : res->errors)
         std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
     return k_exit_ok;
@@ -354,8 +365,8 @@ static void print_signal_line(const aletheia::DbcSignal& sig) {
     const std::string_view sign = sig.is_signed ? "signed" : "unsigned";
     std::cout << "  " << sig.name.get() << " bits[" << sig.start_bit.get() << ":"
               << static_cast<unsigned>(sig.bit_length.get()) << "] " << order << " " << sign << " x"
-              << sig.factor.get().to_double() << " " << sig.offset.get().to_double() << " "
-              << sig.unit.get() << '\n';
+              << render_rational(sig.factor.get()) << " " << render_rational(sig.offset.get())
+              << " " << sig.unit.get() << '\n';
 }
 
 static auto cmd_signals(const Args& a) -> int {

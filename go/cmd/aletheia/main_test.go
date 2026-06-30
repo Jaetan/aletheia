@@ -4,8 +4,10 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -43,6 +45,50 @@ func silenceStdout(t *testing.T) {
 		os.Stdout = old
 		_ = devnull.Close()
 	})
+}
+
+// captureStdout runs fn with os.Stdout redirected to a pipe and returns what it
+// wrote, so a test can assert the CLI's text output (not just its exit code).
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	return string(out)
+}
+
+// TestCLISignalsRendersFactorExactly: a fine-resolution factor (1/8192 =
+// 0.0001220703125) renders exactly via the kernel format_rational, never the
+// lossy 6-significant-figure %g form ("0.00012207"). example.dbc has no such
+// fine factor, so write a dedicated temp DBC.
+func TestCLISignalsRendersFactorExactly(t *testing.T) {
+	ensureLib(t)
+	dir := t.TempDir()
+	dbcPath := filepath.Join(dir, "fine.dbc")
+	const dbc = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n" +
+		"BO_ 1024 FineMsg: 8 ECU4\n" +
+		" SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"
+	if err := os.WriteFile(dbcPath, []byte(dbc), 0o600); err != nil {
+		t.Fatalf("write dbc: %v", err)
+	}
+	out := captureStdout(t, func() {
+		if code := run([]string{"signals", "--dbc", dbcPath}); code != exitOK {
+			t.Fatalf("signals exit = %d, want %d", code, exitOK)
+		}
+	})
+	if !strings.Contains(out, "x0.0001220703125") {
+		t.Errorf("signals output missing the exact factor 0.0001220703125; got:\n%s", out)
+	}
 }
 
 func TestCLISmoke(t *testing.T) {
