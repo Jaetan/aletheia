@@ -11,7 +11,7 @@
 #include <aletheia/cli.hpp>
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cstdlib>
 #include <filesystem>
@@ -85,16 +85,20 @@ TEST_CASE("extract --json renders signal values as exact rationals, never a loss
     }
     const auto dbc = (repo_root() / "examples" / "example.dbc").string();
     // EngineSpeed is 16-bit @ factor 0.25; raw 10001 (0x2711, little-endian) =
-    // 10001/4 = 2500.25, a non-integer rational. The float principle requires
-    // the exact {"numerator","denominator"} wire shape (byte-identical with
-    // Python's FractionJSONEncoder), never a lossy double like 2500.25.
+    // 10001/4 = 2500.25, a non-integer rational -> the exact
+    // {"numerator","denominator"} object, never a lossy double like 2500.25.
+    // EngineTemp (factor 1, raw 0, offset -40) = -40 -> a bare integer.  Parse
+    // the JSON and assert the exact structure (a substring check could
+    // false-positive on another field's text).
     auto [code, out] =
         run_capture({"extract", "--dbc", dbc, "0x100", "112700000A000000", "--json"});
     CHECK(code == 0);
-    CHECK_THAT(out, Catch::Matchers::ContainsSubstring("\"numerator\""));
-    CHECK_THAT(out, Catch::Matchers::ContainsSubstring("10001"));
-    CHECK_THAT(out, Catch::Matchers::ContainsSubstring("\"denominator\""));
-    CHECK_THAT(out, !Catch::Matchers::ContainsSubstring("2500.25"));
+    const auto parsed = nlohmann::json::parse(out);
+    const auto& values = parsed.at("values");
+    CHECK(values.at("EngineSpeed") == nlohmann::json({{"numerator", 10001}, {"denominator", 4}}));
+    CHECK(values.at("EngineSpeed").is_object()); // exact rational, never a float
+    CHECK(values.at("EngineTemp") == nlohmann::json(-40));
+    CHECK(values.at("EngineTemp").is_number_integer()); // integer stays a bare int
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {
