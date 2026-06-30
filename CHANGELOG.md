@@ -400,6 +400,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   and suppressing the `-Wconversion` diagnostic the old `int64_t`-typed
   signature gave for free. Touches `cpp/include/aletheia/types.hpp` plus a
   `unit_tests_decimal` range-rejection test; no proof or other binding touched.
+- **B6e residual — Python rejects a `float` at the rational outbound wire fields
+  (BREAKING, behavioral).** A `float` in a hand-built `DBCDefinition` rational
+  field (signal `factor`/`offset`/`minimum`/`maximum`, env-var
+  `initial`/`minimum`/`maximum`, float-kind attribute `min`/`max`/`value`) or in a
+  raw `set_properties` `LTLFormula` threshold (`value`/`min`/`max`/`delta`/
+  `tolerance`, e.g. one computed as `0.1 + 0.2`) previously serialised to the wire
+  as `0.30000000000000004` and was silently absorbed by the Agda kernel as an
+  exact-but-*wrong* rational: the DSL value path was guarded by
+  `to_exact_fraction`, but these two untyped-dict paths were not. A new validator
+  `reject_inexact` (the float-principle SSOT, alongside `to_exact_fraction`) — the
+  outbound twin of the inbound `decode_wire_rational` — rejects a `float` or
+  `bool` with a `ValidationError` naming the field, applied at exactly the
+  kernel's ℚ-valued fields: in `normalize_dbc_for_wire` (covering `parse_dbc` /
+  `validate_dbc` / `format_dbc_text`) and over each formula's predicate
+  thresholds before `set_properties` sends. It is **field-aware**: integer wire
+  fields (`multiplex_values`, `startBit`, `dlc`, `id`, value-table values, int/hex
+  attribute bounds) are left to the kernel's own typed validation, which rejects a
+  non-integer there loudly (e.g. `parse_non_integer_multiplex_value`) rather than
+  silently — so the guard does not mask the kernel's precise integer errors.
+  Closes the last float-input path in the Python binding; pass an `int`, a
+  `Fraction`, or `from_decimal('...')` for an exact decimal. (Go and Rust reject
+  these at compile time; C++ via the constrained `Rational` constructor.) The
+  `examples/demo/engine_ecu_sim.py` shared DBC, which used raw float scaling
+  params, now uses exact `Fraction`s.
 - **CI: cache everything cacheable in the throughput benchmark lane + fix the
   build-tree cache's biggest gap — internal, no behavior change.** The
   `benchmark.yml` lane was ~92 % cold build/setup (the benchmark itself is ~8 %):
