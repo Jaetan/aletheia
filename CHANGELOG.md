@@ -393,8 +393,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `static_assert`s prove the boundary (integer construction still works; a
   `double`/`bool` is rejected at the ctor, `make`, and `of`) and fail the build
   on any regression. No in-repo call site passed a `double` or `bool`, so the
-  break only affects downstream/future misuse. Header-only change to
-  `cpp/include/aletheia/types.hpp`; no proof or other binding touched.
+  break only affects downstream/future misuse. Because the constrained
+  parameters accept any non-`bool` integral type, the ctor and `make` also
+  reject a value outside the `int64` range (e.g. a `uint64_t` > `INT64_MAX`) via
+  `std::in_range` *before* the narrowing cast — rather than wrapping silently
+  and suppressing the `-Wconversion` diagnostic the old `int64_t`-typed
+  signature gave for free. Touches `cpp/include/aletheia/types.hpp` plus a
+  `unit_tests_decimal` range-rejection test; no proof or other binding touched.
 - **CI: cache everything cacheable in the throughput benchmark lane + fix the
   build-tree cache's biggest gap — internal, no behavior change.** The
   `benchmark.yml` lane was ~92 % cold build/setup (the benchmark itself is ~8 %):
