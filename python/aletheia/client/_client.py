@@ -82,36 +82,33 @@ def send_frame_unbound(*_args: object, **_kwargs: object) -> bytes:
 # a formula tree.  The metric temporal operators also carry an integer
 # ``timebound``, deliberately NOT listed here: like the DBC's integer fields, an
 # integer bound falls through to the kernel's typed ℕ validation (the field-aware
-# design — ``_reject_formula_floats`` recurses into operator operands but only
-# checks these rational fields, so a ``timebound`` scalar is a no-op).
+# design — ``reject_formula_inexact`` recurses into every operand but rejects
+# only at these rational field names, so a ``timebound`` scalar is a no-op).
 _PREDICATE_RATIONAL_FIELDS = ("value", "min", "max", "delta", "tolerance")
 
 
-def _reject_formula_floats(node: object, ctx: str) -> None:
-    """Reject a float/bool at any predicate ℚ field within a raw ``LTLFormula`` tree.
+def reject_formula_inexact(node: object, ctx: str) -> None:
+    """Reject a float or bool at any predicate ℚ field within a raw ``LTLFormula`` tree.
 
     The ``set_properties`` raw-dict path bypasses the DSL's
-    ``to_predicate_fraction`` guard.  This descends operator formulas (which nest
-    sub-formulas under arbitrary keys) and, at each atomic predicate, checks the
-    rational threshold fields via :func:`reject_inexact` — field-aware, so a
-    non-rational field is never mis-flagged (the float principle).
+    ``to_predicate_fraction`` guard.  Rational thresholds live only in atomic
+    predicates (``value``/``min``/``max``/``delta``/``tolerance``); this checks
+    those field names wherever they occur and recurses into *every* operand to
+    reach nested predicates.  Field-aware via :func:`reject_inexact`: a
+    non-rational scalar (a string operator/signal, an integer ``timebound``) is
+    recursed into as a harmless no-op, so only an inexact rational is rejected
+    (the float principle).
     """
     if isinstance(node, dict):
-        node_dict = cast("dict[str, object]", node)
-        if node_dict.get("operator") == "atomic":
-            predicate = node_dict.get("predicate")
-            if isinstance(predicate, dict):
-                pred_dict = cast("dict[str, object]", predicate)
-                for field in _PREDICATE_RATIONAL_FIELDS:
-                    if field in pred_dict:
-                        reject_inexact(pred_dict[field], f"{ctx}.predicate.{field}")
-            return
+        node_dict = cast("dict[str, object]", node)  # pragma: no mutate
+        for field in _PREDICATE_RATIONAL_FIELDS:
+            if field in node_dict:
+                reject_inexact(node_dict[field], f"{ctx}.{field}")
         for key, sub in node_dict.items():
-            if key != "operator":
-                _reject_formula_floats(sub, f"{ctx}.{key}")
+            reject_formula_inexact(sub, f"{ctx}.{key}")
     elif isinstance(node, list):
-        for index, item in enumerate(cast("list[object]", node)):
-            _reject_formula_floats(item, f"{ctx}[{index}]")
+        for index, item in enumerate(cast("list[object]", node)):  # pragma: no mutate
+            reject_formula_inexact(item, f"{ctx}[{index}]")
 
 
 class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-many-instance-attributes
@@ -588,7 +585,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         # rational.  Reject a float/bool at each predicate's ℚ field before sending
         # (the float principle; same reject_inexact SSOT the DBC outbound uses).
         for index, formula in enumerate(properties):
-            _reject_formula_floats(formula, f"properties[{index}]")
+            reject_formula_inexact(formula, f"properties[{index}]")
         cmd: SetPropertiesCommand = {
             "type": "command",
             "command": "setProperties",

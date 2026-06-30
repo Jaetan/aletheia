@@ -222,6 +222,15 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._helpers.rational",
             "reject_inexact",
         ),
+        # The formula-tree walker behind set_properties' float guard. Tested
+        # directly so each branch (every predicate rational field, operator
+        # descent, list operand, the timebound integer fall-through) is pinned for
+        # mutation coverage the public-API set_properties tests cannot reach.
+        (
+            "test_reject_floats.py",
+            "aletheia.client._client",
+            "reject_formula_inexact",
+        ),
     )
 )
 

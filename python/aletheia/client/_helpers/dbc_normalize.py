@@ -75,13 +75,14 @@ _DBC_TIER2_LIST_KEYS = (
 
 
 def _normalize_signal_for_wire(sig: dict[str, object]) -> dict[str, object]:
-    """Ensure NotRequired signal list fields are present + reject a float rational field.
+    """Ensure NotRequired signal list fields are present + reject an inexact rational field.
 
     The outbound twin of ``normalize_signal``'s inbound ``decode_wire_rational``:
     each ℚ-valued metadata field (factor/offset/minimum/maximum) must be an exact
-    ``int`` or ``Fraction``, never a ``float`` the kernel would silently absorb as
-    a wrong rational.  Integer fields (startBit/length/multiplex_values) are left
-    to the kernel's own typed validation.
+    ``int`` or ``Fraction`` — never a ``float`` (which the kernel would silently
+    absorb as a wrong rational) nor a ``bool`` (``reject_inexact`` rejects both).
+    Integer fields (startBit/length/multiplex_values) are left to the kernel's own
+    typed validation.
     """
     name = sig.get("name", "?")
     for field in _NUMERIC_SIGNAL_FIELDS:
@@ -104,11 +105,12 @@ def _normalize_message_for_wire(msg: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _reject_env_var_floats(env_vars: object) -> None:
-    """Reject a float at an env-var rational field (initial/minimum/maximum).
+def _reject_env_var_inexact(env_vars: object) -> None:
+    """Reject a float or bool at an env-var rational field (initial/minimum/maximum).
 
     The outbound twin of ``_normalize_environment_var``'s inbound
-    ``decode_wire_rational``; ``varType`` is a 0/1/2 integer the kernel validates.
+    ``decode_wire_rational`` (via ``reject_inexact``, which rejects both a
+    ``float`` and a ``bool``); ``varType`` is a 0/1/2 integer the kernel validates.
     """
     if not isinstance(env_vars, list):
         return
@@ -122,13 +124,14 @@ def _reject_env_var_floats(env_vars: object) -> None:
                 reject_inexact(ev_dict[field], f"environment variable {name!r} {field}")
 
 
-def _reject_attribute_floats(attributes: object) -> None:
-    """Reject a float at a float-kind attribute's rational field (min/max/value).
+def _reject_attribute_inexact(attributes: object) -> None:
+    """Reject a float or bool at a float-kind attribute's rational field (min/max/value).
 
     Only ``FLOAT`` attribute *definitions* (``attrType.kind == "float"``) and float
     attribute *values* (``value.kind == "float"``) carry ℚ — the outbound twin of
-    ``_normalize_attr_type`` / ``_normalize_attr_value``.  INT/HEX bounds and
-    INT/ENUM/HEX values are integers the kernel validates.
+    ``_normalize_attr_type`` / ``_normalize_attr_value`` (via ``reject_inexact``,
+    which rejects both a ``float`` and a ``bool``).  INT/HEX bounds and INT/ENUM/HEX
+    values are integers the kernel validates.
     """
     if not isinstance(attributes, list):
         return
@@ -167,13 +170,14 @@ def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
     ``factor``/``offset``/``minimum``/``maximum`` (checked in
     ``_normalize_signal_for_wire``), env-var ``initial``/``minimum``/``maximum``,
     and float-kind attribute ``min``/``max``/``value`` — must be an exact ``int``
-    or ``Fraction``, never a ``float`` the kernel would silently absorb as a wrong
-    rational.  Integer wire fields (``multiplex_values``, ``startBit``, ``id``…)
-    are left to the kernel's own typed validation, which rejects a non-integer
-    there loudly rather than silently.
+    or ``Fraction``, never a ``float`` (which the kernel would silently absorb as a
+    wrong rational) nor a ``bool`` (``reject_inexact`` rejects both).  Integer wire
+    fields (``multiplex_values``, ``startBit``, ``id``…) are left to the kernel's
+    own typed validation, which rejects a non-integer there loudly rather than
+    silently.
     """
-    _reject_env_var_floats(dbc.get("environmentVars"))
-    _reject_attribute_floats(dbc.get("attributes"))
+    _reject_env_var_inexact(dbc.get("environmentVars"))
+    _reject_attribute_inexact(dbc.get("attributes"))
     messages = cast("list[dict[str, object]]", dbc.get("messages", []))
     result: dict[str, object] = {
         **dbc,

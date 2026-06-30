@@ -27,9 +27,11 @@ from _dbc_helpers import dbc, message, mux_signal, signal
 
 from aletheia import AletheiaClient, ProtocolError, ValidationError
 
-# Private outbound wire-guard — sanctioned reach-through (see
+# Private outbound wire-guards — sanctioned reach-throughs (see
 # test_private_import_whitelist.py): the public-API boundary tests below cannot
-# assert the validator's reject-float-and-bool contract precisely.
+# assert the validators' branch behaviour (every rational field, operator
+# descent, list operand, timebound fall-through) precisely.
+from aletheia.client._client import reject_formula_inexact
 from aletheia.client._helpers.rational import reject_inexact
 
 if TYPE_CHECKING:
@@ -150,7 +152,9 @@ class TestSetPropertiesBoundary:
         )
         with (
             AletheiaClient() as client,
-            pytest.raises(ValidationError, match=r"predicate\.value"),
+            # The path prefix (properties[index]) is asserted so a dropped/wrong
+            # ctx in set_properties' loop is caught, not just "a float".
+            pytest.raises(ValidationError, match=r"properties\[0\]\.predicate\.value"),
         ):
             client.set_properties([bad_formula])
 
@@ -171,3 +175,94 @@ class TestSetPropertiesBoundary:
             pytest.raises(ValidationError, match=r"a float \(2\.5\)"),
         ):
             client.set_properties([nested])
+
+
+class TestRejectFormulaInexact:
+    """Direct branch coverage of the formula-tree walker (pure — no RTS needed)."""
+
+    @pytest.mark.parametrize(
+        "predicate",
+        [
+            {"predicate": "equals", "signal": "X", "value": 0.5},
+            {"predicate": "between", "signal": "X", "min": 0.5, "max": 1},
+            {"predicate": "between", "signal": "X", "min": 0, "max": 0.5},
+            {"predicate": "changedBy", "signal": "X", "delta": 0.5},
+            {"predicate": "stableWithin", "signal": "X", "tolerance": 0.5},
+        ],
+    )
+    def test_rejects_a_float_at_each_predicate_field(self, predicate: dict[str, object]) -> None:
+        """Every ℚ threshold field (value/min/max/delta/tolerance) is checked."""
+        formula = {"operator": "atomic", "predicate": predicate}
+        with pytest.raises(ValidationError, match=r"a float"):
+            reject_formula_inexact(formula, "p")
+
+    def test_rejects_a_bool_threshold(self) -> None:
+        """A bool threshold is rejected (reject_inexact rejects both float and bool)."""
+        formula = {
+            "operator": "atomic",
+            "predicate": {"predicate": "equals", "signal": "X", "value": True},
+        }
+        with pytest.raises(ValidationError, match=r"a bool"):
+            reject_formula_inexact(formula, "p")
+
+    @pytest.mark.parametrize("key", ["formula", "left", "right"])
+    def test_descends_operator_operands(self, key: str) -> None:
+        """The walker recurses into every operator operand to reach a nested predicate."""
+        atom = {
+            "operator": "atomic",
+            "predicate": {"predicate": "equals", "signal": "X", "value": 0.5},
+        }
+        formula = {"operator": "op", key: atom}
+        with pytest.raises(ValidationError, match=r"a float"):
+            reject_formula_inexact(formula, "p")
+
+    def test_descends_a_list_valued_operand(self) -> None:
+        """A list-valued operand is walked element-by-element (the list branch).
+
+        The full path (``operands[0]``…) is asserted so the list branch's index
+        context is exercised, not just that a float is rejected somewhere.
+        """
+        atom = {
+            "operator": "atomic",
+            "predicate": {"predicate": "equals", "signal": "X", "value": 0.5},
+        }
+        formula = {"operator": "and", "operands": [atom]}
+        with pytest.raises(ValidationError, match=r"p\.operands\[0\]\.predicate\.value"):
+            reject_formula_inexact(formula, "p")
+
+    def test_error_names_the_full_json_path(self) -> None:
+        """The error pinpoints the offending field's JSON-path through the whole tree."""
+        formula = {
+            "operator": "always",
+            "formula": {
+                "operator": "atomic",
+                "predicate": {"predicate": "equals", "signal": "X", "value": 0.5},
+            },
+        }
+        with pytest.raises(ValidationError, match=r"p\.formula\.predicate\.value"):
+            reject_formula_inexact(formula, "p")
+
+    def test_integer_timebound_falls_through(self) -> None:
+        """A metric operator's ``timebound`` is not a ℚ field — even a float falls through.
+
+        Like the DBC's integer fields, a non-integer ``timebound`` is the kernel's
+        own ℕ validation, so the guard does not raise on it; only the nested
+        predicate's rational fields are checked (the field-aware contract).
+        """
+        formula = {
+            "operator": "metricAlways",
+            "timebound": 1.5,  # a float here is NOT this guard's concern
+            "formula": {
+                "operator": "atomic",
+                "predicate": {"predicate": "equals", "signal": "X", "value": 1},
+            },
+        }
+        reject_formula_inexact(formula, "p")  # does not raise
+
+    def test_valid_formula_passes(self) -> None:
+        """An all-exact formula passes the guard untouched."""
+        formula = {
+            "operator": "atomic",
+            "predicate": {"predicate": "between", "signal": "X", "min": 0, "max": Fraction(3, 2)},
+        }
+        reject_formula_inexact(formula, "p")  # does not raise
