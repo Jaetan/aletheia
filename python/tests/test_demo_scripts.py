@@ -20,6 +20,7 @@ each subprocess.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,4 +56,17 @@ def test_demo_script_runs(script: str) -> None:
         f"demo {script!r} exited {result.returncode}\n"
         f"--- stdout (tail) ---\n{result.stdout[-2000:]}\n"
         f"--- stderr (tail) ---\n{result.stderr[-2000:]}"
+    )
+    # Guard the vacuous-gate class: a demo that swallows a failure and still exits
+    # 0.  returncode alone let a demo print "0/4 tests passed" (after catching the
+    # exception) and pass.  Two convention-stable markers across the demos:
+    #   * a swallowed-exception line ("<name>: ERROR — <exc>"), and
+    #   * a self-test summary "N/M tests passed" whose N != M.
+    assert "ERROR —" not in result.stdout, (
+        f"demo {script!r} swallowed an error (exited 0 but printed 'ERROR —'):\n"
+        f"{result.stdout[-2000:]}"
+    )
+    self_test = re.search(r"(\d+)/(\d+) tests passed", result.stdout)
+    assert self_test is None or self_test[1] == self_test[2], (
+        f"demo {script!r} self-test failed ({self_test[0]}):\n{result.stdout[-2000:]}"
     )
