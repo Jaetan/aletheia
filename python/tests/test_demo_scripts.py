@@ -59,14 +59,18 @@ def test_demo_script_runs(script: str) -> None:
     )
     # Guard the vacuous-gate class: a demo that swallows a failure and still exits
     # 0.  returncode alone let a demo print "0/4 tests passed" (after catching the
-    # exception) and pass.  Two convention-stable markers across the demos:
+    # exception) and pass.  Scan stdout AND stderr (a demo may print to either),
+    # and require EVERY self-test summary to be passing (a demo may print more than
+    # one).  Two convention-stable markers across the demos:
     #   * a swallowed-exception line ("<name>: ERROR — <exc>"), and
-    #   * a self-test summary "N/M tests passed" whose N != M.
-    assert "ERROR —" not in result.stdout, (
-        f"demo {script!r} swallowed an error (exited 0 but printed 'ERROR —'):\n"
-        f"{result.stdout[-2000:]}"
+    #   * every "N/M tests passed" summary must have N == M.
+    combined = f"{result.stdout}\n{result.stderr}"
+    assert "ERROR —" not in combined, (
+        f"demo {script!r} swallowed an error (exited 0 but printed 'ERROR —'):\n{combined[-2000:]}"
     )
-    self_test = re.search(r"(\d+)/(\d+) tests passed", result.stdout)
-    assert self_test is None or self_test[1] == self_test[2], (
-        f"demo {script!r} self-test failed ({self_test[0]}):\n{result.stdout[-2000:]}"
+    summaries = re.findall(r"(\d+)/(\d+) tests passed", combined)
+    failed = [m for m in summaries if m[0] != m[1]]
+    assert not failed, (
+        f"demo {script!r} self-test reported failures {failed} "
+        f"(all summaries: {summaries}):\n{combined[-2000:]}"
     )
