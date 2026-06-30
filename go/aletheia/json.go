@@ -712,12 +712,14 @@ const (
 	intParseOverflow                   // integer-valued, but outside int64
 )
 
-// decodeJSONInt converts a JSON-decoded number to an exact int64. The sole
-// decode entry (parseResponse) uses a UseNumber decoder, so every wire number
-// arrives as a json.Number, which strconv.ParseInt reads exactly for the full
-// int64 range — no float64 53-bit-mantissa loss. A native Go float64 never
-// reaches here (no caller constructs one), so there is no float arm: a
-// non-json.Number value falls to intParseNotNumber.
+// decodeJSONInt converts a JSON-decoded number to an exact int64. The
+// production decode entry (parseResponse) uses a UseNumber decoder, so on the
+// production path every wire number arrives as a json.Number, which
+// strconv.ParseInt reads exactly for the full int64 range — no float64
+// 53-bit-mantissa loss. There is deliberately no float64 arm: any non-json.Number
+// value — including a float64 a test or fuzzer may pass after a plain
+// json.Unmarshal (which decodes numbers as float64) — is not a wire integer and
+// falls to intParseNotNumber, rejected rather than silently truncated.
 func decodeJSONInt(v any) (int64, intParse) {
 	switch n := v.(type) {
 	case json.Number:
@@ -896,11 +898,12 @@ func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundEx
 	return newInputBoundExceededError(kind, observed, limit, code)
 }
 
-// jsonNumberToUint64 narrows a JSON-decoded number to uint64. The sole decode
-// entry (parseResponse) uses a UseNumber decoder, so a wire number is always a
-// json.Number; ParseUint reads the full uint64 range exactly and rejects
+// jsonNumberToUint64 narrows a JSON-decoded number to uint64. The production
+// decode entry (parseResponse) uses a UseNumber decoder, so a wire number is
+// always a json.Number; ParseUint reads the full uint64 range exactly and rejects
 // negatives, non-integers ("1.5"), non-canonical forms ("1e3" the core never
-// emits), and overflowing magnitudes. A non-json.Number value is not a uint64.
+// emits), and overflowing magnitudes. Any non-json.Number value (e.g. a float64
+// from a plain json.Unmarshal in a test) is not a uint64.
 func jsonNumberToUint64(v any) (uint64, bool) {
 	switch n := v.(type) {
 	case json.Number:
