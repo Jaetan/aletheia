@@ -908,6 +908,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **The floating-point member of the typed log-value (C++ + Rust; BREAKING).**
+  The user-facing Logger value type carried a float case — C++ `LogValue`'s
+  `double` arm (`cpp/include/aletheia/log.hpp`) and Rust `LogValue::F64`
+  (`rust/src/log.rs`) — that **no binding ever constructs**: every numeric log
+  field is an exact integer (counts, indices, CAN IDs, µs timestamps) and the
+  only exact rationals (enrichment observed values) reach logs as
+  kernel-`format_rational`-rendered strings, never as a numeric log value. The
+  float principle bars a float on every surface including the user-facing log
+  boundary, so the float case is removed; both typed log-values are now the
+  symmetric set `{string, i64, u64, bool}`. Also deletes the dead `static
+  format_value(double)` overload in `cpp/src/enrich.cpp` (zero callers — every
+  call site renders a `Rational` through the live `format_value(const Rational&)`
+  → kernel `format_rational`). Go (`slog.Attr`) and Python (`object`) log values
+  never carried a float, so they are unchanged. An exact rational that ever needs
+  logging should be carried exactly and rendered to a string at the sink via the
+  verified `format_rational`. **BREAKING**: a `LogValue` `double`/`F64` no longer
+  exists.
 - **Dead native-type arms in the Go JSON decoders (internal, no behavior
   change).** The Go binding's sole *production* decode entry (`parseResponse`)
   uses a `UseNumber` decoder, so on the production path every wire number arrives

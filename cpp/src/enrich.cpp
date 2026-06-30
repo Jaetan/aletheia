@@ -17,10 +17,6 @@
 
 namespace aletheia {
 
-static auto format_value(double v) -> std::string {
-    return std::format("{:g}", v);
-}
-
 // Cross-binding-identical Rational pretty-printer.  Every render flows
 // through the Agda kernel via `aletheia_format_rational` (R20 cluster
 // Y stage 2): the C++ binding calls the same function as Python and
