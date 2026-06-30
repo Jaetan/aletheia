@@ -276,6 +276,20 @@ static auto cmd_validate(const Args& a) -> int {
     return res->has_errors ? k_exit_violations : k_exit_ok;
 }
 
+// Exact rational -> JSON for `extract --json`, matching Python's
+// FractionJSONEncoder and the DBC canonical wire shape byte-for-byte: a bare
+// integer when the denominator is 1, else `{"numerator","denominator"}`.  The
+// float principle bars a lossy `to_double()` here (this is machine-readable
+// output a consumer parses).  Extraction values are kernel-canonical (reduced,
+// positive denominator), so no gcd / INT64_MIN normalisation is needed (unlike
+// json_serialize.cpp's `rational_to_json`, which guards arbitrary caller-built
+// rationals on the DBC-serialize path).
+static auto extract_value_to_json(const aletheia::Rational& r) -> nlohmann::json {
+    if (r.denominator() == 1)
+        return r.numerator();
+    return nlohmann::json{{"numerator", r.numerator()}, {"denominator", r.denominator()}};
+}
+
 static auto cmd_extract(const Args& a) -> int {
     if (a.positionals.size() != 2)
         return die("extract requires <can_id> <data> positional arguments");
@@ -307,7 +321,7 @@ static auto cmd_extract(const Args& a) -> int {
     if (a.flags.contains("json")) {
         Json values = Json::object();
         for (const auto& v : res->values)
-            values[v.name.get()] = v.value.get().to_double();
+            values[v.name.get()] = extract_value_to_json(v.value.get());
         Json errors = Json::object();
         for (const auto& e : res->errors)
             errors[e.name.get()] = e.reason;

@@ -11,11 +11,15 @@
 #include <aletheia/cli.hpp>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -37,6 +41,16 @@ auto lib_available() -> bool {
 
 auto run(std::vector<std::string> args) -> int {
     return aletheia::run_cli(args);
+}
+
+// Run a subcommand capturing stdout, so a test can assert the emitted JSON
+// shape (not just the exit code).
+auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
+    std::ostringstream oss;
+    auto* old = std::cout.rdbuf(oss.rdbuf());
+    const int code = aletheia::run_cli(std::move(args));
+    std::cout.rdbuf(old);
+    return {code, oss.str()};
 }
 
 } // namespace
@@ -63,6 +77,24 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
+}
+
+TEST_CASE("extract --json renders signal values as exact rationals, never a lossy float", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    const auto dbc = (repo_root() / "examples" / "example.dbc").string();
+    // EngineSpeed is 16-bit @ factor 0.25; raw 10001 (0x2711, little-endian) =
+    // 10001/4 = 2500.25, a non-integer rational. The float principle requires
+    // the exact {"numerator","denominator"} wire shape (byte-identical with
+    // Python's FractionJSONEncoder), never a lossy double like 2500.25.
+    auto [code, out] =
+        run_capture({"extract", "--dbc", dbc, "0x100", "112700000A000000", "--json"});
+    CHECK(code == 0);
+    CHECK_THAT(out, Catch::Matchers::ContainsSubstring("\"numerator\""));
+    CHECK_THAT(out, Catch::Matchers::ContainsSubstring("10001"));
+    CHECK_THAT(out, Catch::Matchers::ContainsSubstring("\"denominator\""));
+    CHECK_THAT(out, !Catch::Matchers::ContainsSubstring("2500.25"));
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {
