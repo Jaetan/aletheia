@@ -647,13 +647,14 @@ func parseRational(v any) (Rational, error) {
 	case json.Number:
 		// A scalar number is the integer rational n/1.
 		i, cls := decodeJSONInt(v)
+		// v is a json.Number here, so decodeJSONInt returns only OK, fractional,
+		// or overflow — never notNumber (that arm fires only for the dict
+		// components rawNum/rawDen below, which may be non-numeric).
 		switch cls {
 		case intParseFractional:
 			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional: %v", v))
 		case intParseOverflow:
 			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", v))
-		case intParseNotNumber:
-			return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 		}
 		return Rational{Numerator: i, Denominator: 1}, nil
 	case map[string]any:
@@ -763,13 +764,14 @@ func parseNumberAsInt64(v any) (int64, error) {
 	switch n := v.(type) {
 	case json.Number:
 		i, cls := decodeJSONInt(v)
+		// v is a json.Number here, so decodeJSONInt returns only OK, fractional,
+		// or overflow — never notNumber (that arm fires only for the dict
+		// components rawNum/rawDen below).
 		switch cls {
 		case intParseFractional:
 			return 0, protocolError(fmt.Sprintf("expected integer, got fractional: %v", v))
 		case intParseOverflow:
 			return 0, protocolError(fmt.Sprintf("integer out of int64 range: %v", v))
-		case intParseNotNumber:
-			return 0, protocolError(fmt.Sprintf("expected integer, got %T: %v", v, v))
 		}
 		return i, nil
 	case map[string]any:

@@ -908,6 +908,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **Two unreachable defensive branches in the Go JSON decoder — internal, no
+  behavior change.** `parseRational` and `parseNumberAsInt64`
+  (`go/aletheia/json.go`) each had a `case intParseNotNumber:` arm inside their
+  `json.Number` switch, but `decodeJSONInt` applied to a `json.Number` can only
+  return OK/fractional/overflow — never `notNumber` (that classification fires
+  only for the dict components `rawNum`/`rawDen`, which the map arm already
+  handles). The dead arms are removed and replaced with a comment noting why the
+  switch is non-exhaustive on the classification. Found by a coverage audit while
+  closing the decoder reject-branch test gap; no `exhaustive` linter depended on
+  them.
 - **The floating-point member of the typed log-value (C++ + Rust; BREAKING).**
   The user-facing Logger value type carried a float case — C++ `LogValue`'s
   `double` arm (`cpp/include/aletheia/log.hpp`) and Rust `LogValue::F64`
