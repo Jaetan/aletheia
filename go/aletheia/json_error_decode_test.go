@@ -67,7 +67,14 @@ func TestInputBoundExceeded_MalformedTripleDegrades(t *testing.T) {
 			}
 			var aErr *Error
 			if !errors.As(err, &aErr) || aErr.Kind != ErrProtocol {
-				t.Errorf("expected the degraded error to be an ErrProtocol *Error, got %v", err)
+				t.Fatalf("expected the degraded error to be an ErrProtocol *Error, got %v", err)
+			}
+			// Pin the intended path: checkErrorStatus degrades a malformed triple to a
+			// coded error carrying the input_bound_exceeded code — NOT the generic
+			// "unexpected status" fallthrough (whose Code is empty). This distinguishes
+			// the degrade-for-this-code path from any other ErrProtocol.
+			if aErr.Code != CodeInputBoundExceeded {
+				t.Errorf("degraded error Code = %q, want %q", aErr.Code, CodeInputBoundExceeded)
 			}
 		})
 	}
