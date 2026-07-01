@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Reject-branch coverage for ``decode_wire_rational``'s dict path.
 
-``decode_wire_rational`` accepts a bare int or a ``{"numerator", "denominator"}``
-object off the internal wire. Its dict branch (``extract_rational_from_dict``)
-rejects a dict missing either field or carrying a non-int component — reject
-branches that had no killing test (only the ``denominator <= 0`` case was
-exercised, so ``rational.py`` lines 225-226 / 228-229 were uncovered). These
-tests feed the production decoder the shapes a malformed core response would
-carry. Parity with Go #86's ``parseRational`` dict-missing-field tests.
+``decode_wire_rational`` accepts a bare int or a
+``{"numerator": n, "denominator": d}`` object off the internal wire. Its dict
+branch (``extract_rational_from_dict``) rejects a dict missing either field or
+carrying a non-int component — reject branches that previously had no killing
+test (only the non-positive-denominator case was exercised). These tests feed
+the production decoder the shapes a malformed core response would carry. Parity
+with Go #86's ``parseRational`` dict-missing-field tests.
 """
 
 from __future__ import annotations
