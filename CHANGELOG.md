@@ -967,6 +967,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Validation / range error messages render rationals exactly, not a lossy float
+  (Go / Rust).** Go's `between: min (…) exceeds max (…)` and `negative tolerance:
+  …` errors (`json.go`) rendered the threshold via `%g` — rounding a value beyond
+  six significant figures and printing `1/3` as `0.333333`. They now render via a
+  new `formatRationalExact` helper: the kernel `format_rational` when the GHC RTS
+  is up, else an exact `num/den` fallback (predicate validation can run before any
+  backend exists), never lossy. Rust's inverted-range errors (`check.rs`
+  `rat_str`) were already exact but printed a bare fraction (`1/2`); they now
+  route through `format_rational` too (decimal `0.5` when the RTS is up, the
+  fraction as the RTS-down fallback), matching `enrich.rs` and the other bindings.
+  This completes the "render rationals exactly in user-facing output" sweep (r25
+  direction-call #2; PR #134 `extract --json`, PR #135 CLI text).
+  (`go/aletheia/json.go`, `rust/src/check.rs`.)
+
 - **CLI human-readable text renders rationals exactly, not a lossy `%g` /
   `to_double` (Go / C++ / Python).** The `extract` and `signals` commands printed
   each signal value, factor, and offset through a lossy float (`%g` in Go/Python,

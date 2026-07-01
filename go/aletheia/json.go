@@ -466,8 +466,8 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 			return nil, err
 		}
 		if rationalLess(p.Max, p.Min) {
-			return nil, validationError(fmt.Sprintf("between: min (%g) exceeds max (%g)",
-				p.Min.Float64(), p.Max.Float64()))
+			return nil, validationError(fmt.Sprintf("between: min (%s) exceeds max (%s)",
+				formatRationalExact(p.Min), formatRationalExact(p.Max)))
 		}
 		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": serializeRational(p.Min), "max": serializeRational(p.Max)}, nil
 	case ChangedBy:
@@ -480,7 +480,8 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 			return nil, err
 		}
 		if p.Tolerance.Numerator < 0 {
-			return nil, validationError(fmt.Sprintf("negative tolerance: %g", p.Tolerance.Float64()))
+			return nil, validationError(fmt.Sprintf("negative tolerance: %s",
+				formatRationalExact(p.Tolerance)))
 		}
 		return map[string]any{"predicate": "stableWithin", "signal": string(p.Signal), "tolerance": serializeRational(p.Tolerance)}, nil
 	default:
@@ -698,6 +699,21 @@ func serializeRational(r Rational) any {
 		return r.Numerator
 	}
 	return map[string]any{"numerator": r.Numerator, "denominator": r.Denominator}
+}
+
+// formatRationalExact renders r exactly for a validation-error message: via the
+// kernel format_rational when the GHC RTS is up (a terminating decimal or
+// fraction, matching enriched_reason and the C++/Python/Rust bindings), else a
+// bare "num/den" fraction fallback — predicate validation can run before any
+// backend exists, so this must never error and never emit a lossy float.
+func formatRationalExact(r Rational) string {
+	if s, err := formatRational(r); err == nil {
+		return s
+	}
+	if r.Denominator == 1 {
+		return strconv.FormatInt(r.Numerator, 10)
+	}
+	return strconv.FormatInt(r.Numerator, 10) + "/" + strconv.FormatInt(r.Denominator, 10)
 }
 
 // --- Deserialization (JSON from Agda core → Go) ---
