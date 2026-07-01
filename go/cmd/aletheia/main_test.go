@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -57,14 +58,20 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	old := os.Stdout
 	os.Stdout = w
+	defer func() { os.Stdout = old }() // restore even if fn panics
+
+	// Drain the pipe in a goroutine so a large write can't fill the buffer and
+	// deadlock before fn returns.
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+
 	fn()
 	_ = w.Close()
-	os.Stdout = old
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("read captured stdout: %v", err)
-	}
-	return string(out)
+	return <-done
 }
 
 // TestCLISignalsRendersFactorExactly: a fine-resolution factor (1/8192 =
