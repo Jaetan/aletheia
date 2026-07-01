@@ -967,6 +967,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **CLI human-readable text renders rationals exactly, not a lossy `%g` /
+  `to_double` (Go / C++ / Python).** The `extract` and `signals` commands printed
+  each signal value, factor, and offset through a lossy float (`%g` in Go/Python,
+  `to_double()` in C++), so a value with more significant figures than the
+  default six was rounded in the operator-facing output. All three now render via
+  the verified kernel `format_rational` (the same renderer behind
+  `enriched_reason`): a terminating decimal (`0.25`) or an exact fraction
+  (`1/3`), never a rounded float. Go gains a public
+  `aletheia.FormatRational(Rational) (string, error)` for this (the CLI is a
+  separate package); the now-unused `ratFloat` / `rationalFloat` float helpers are
+  removed. Output for typical DBCs (values `%g` already printed in fixed,
+  non-scientific notation within six significant figures) is unchanged. PR 2 of
+  the "render rationals exactly in user-facing output" sweep.
+  (`go/cmd/aletheia/main.go`, `go/aletheia/enrich.go`, `cpp/src/cli/cli.cpp`,
+  `python/aletheia/cli.py`.)
+
 - **C++ `extract --json` emits exact rationals, not a lossy `double` (parity
   with Python/Go; BREAKING for that output).** The CLI's `extract --json`
   rendered each signal value via `Rational::to_double()`, so a non-integer

@@ -15,6 +15,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -99,6 +100,27 @@ TEST_CASE("extract --json renders signal values as exact rationals, never a loss
     CHECK(values.at("EngineSpeed").is_object()); // exact rational, never a float
     CHECK(values.at("EngineTemp") == nlohmann::json(-40));
     CHECK(values.at("EngineTemp").is_number_integer()); // integer stays a bare int
+}
+
+TEST_CASE("signals text renders a fine-resolution factor exactly via format_rational", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    // factor 1/8192 = 0.0001220703125 exactly — more significant figures than the
+    // old to_double() ostream render kept (it printed "0.00012207").  example.dbc
+    // has no such fine factor, so write a dedicated temp DBC.
+    const auto dbc = std::filesystem::temp_directory_path() / "aletheia_fine_factor.dbc";
+    {
+        std::ofstream out{dbc};
+        out << "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
+            << "BO_ 1024 FineMsg: 8 ECU4\n"
+            << " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n";
+    }
+    auto [code, out] = run_capture({"signals", "--dbc", dbc.string()});
+    std::error_code ec;
+    std::filesystem::remove(dbc, ec);
+    CHECK(code == 0);
+    CHECK(out.find("x0.0001220703125") != std::string::npos);
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {
