@@ -61,6 +61,58 @@ class TestBuildErrorResponse:
                 cast("Response", {"status": "error", "code": "some_code", "message": 123})
             )
 
+    def test_wellformed_bound_triple_is_attached(self) -> None:
+        """A complete, well-typed input_bound_exceeded triple is lifted onto the response."""
+        out = build_error_response(
+            cast(
+                "Response",
+                {
+                    "status": "error",
+                    "code": "input_bound_exceeded",
+                    "message": "too deep",
+                    "bound_kind": "nesting_depth",
+                    "observed": 65,
+                    "limit": 64,
+                },
+            )
+        )
+        assert out.get("bound_kind") == "nesting_depth"
+        assert out.get("observed") == 65
+        assert out.get("limit") == 64
+
+    @pytest.mark.parametrize(
+        "triple",
+        [
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": "65", "limit": 64}, id="observed-string"
+            ),
+            pytest.param({"bound_kind": "nesting_depth", "limit": 64}, id="observed-absent"),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": True, "limit": 64}, id="observed-bool"
+            ),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": 65, "limit": 6.5}, id="limit-float"
+            ),
+            pytest.param({"bound_kind": 7, "observed": 65, "limit": 64}, id="bound_kind-nonstring"),
+        ],
+    )
+    def test_malformed_bound_triple_is_dropped(self, triple: dict[str, object]) -> None:
+        """A partial or ill-typed triple degrades to no triple — never a partial one.
+
+        Matches the C++ ``make_json_error`` degrade-to-nullopt rule: all three of
+        ``bound_kind`` / ``observed`` / ``limit`` must be present and well-typed, or
+        none is attached. Pins each ``isinstance`` guard against a mutation that
+        drops one and lets a malformed triple through (the attach path stays
+        line-green either way, so this is the mutation-killing companion).
+        """
+        out = build_error_response(
+            cast(
+                "Response",
+                {"status": "error", "code": "input_bound_exceeded", "message": "m", **triple},
+            )
+        )
+        assert out == {"status": "error", "code": "input_bound_exceeded", "message": "m"}
+
 
 class TestParseCompleteWarnings:
     """Strict-contract tests for ``parse_complete_warnings``.

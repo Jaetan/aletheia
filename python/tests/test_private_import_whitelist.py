@@ -99,6 +99,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._helpers.rational",
             "decode_wire_rational",
         ),
+        # Wire-decoder reject coverage — exercises decode_wire_rational's dict
+        # branch directly to pin the missing-field / non-int-component rejects
+        # (Go #86 parity). Not public API; the test needs the reach-through.
+        (
+            "test_wire_rational_decode_reject.py",
+            "aletheia.client._helpers.rational",
+            "decode_wire_rational",
+        ),
         (
             "test_property_hypothesis.py",
             "aletheia.client._helpers.json_codec",
