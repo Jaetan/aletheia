@@ -627,52 +627,70 @@ mod tests {
     fn rational_from_value_rejects_non_number_non_object() {
         // A value that is neither a scalar integer nor a {numerator, denominator}
         // object is rejected, not silently coerced to zero.
-        assert!(decode_extraction(r#"{"values":[{"name":"S","value":"x"}]}"#).is_err());
+        let err = decode_extraction(r#"{"values":[{"name":"S","value":"x"}]}"#).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("expected number or rational object"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn issue_severity_rejects_unknown() {
         // The severity vocabulary is closed — an unknown severity is a protocol
         // error (unlike IssueCode, which falls back to Unknown).
-        assert!(decode_validation(
+        let err = decode_validation(
             r#"{"status":"validation","has_errors":false,"issues":[{"severity":"fatal","code":"factor_zero","detail":"d"}]}"#,
         )
-        .is_err());
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("unknown validation severity"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn parse_verdict_rejects_unknown_status() {
         // A property result whose verdict status is unrecognised is rejected.
-        assert!(decode_frame(
+        let err = decode_frame(
             r#"{"type":"property_batch","results":[{"status":"bogus","property_index":0,"reason":"r"}]}"#,
         )
-        .is_err());
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown verdict"), "got: {err}");
     }
 
     #[test]
     fn decode_frame_rejects_empty_property_batch() {
         // A zero-event frame is encoded as ack; an empty property_batch is drift.
-        assert!(decode_frame(r#"{"type":"property_batch","results":[]}"#).is_err());
+        let err = decode_frame(r#"{"type":"property_batch","results":[]}"#).unwrap_err();
+        assert!(err.to_string().contains("must be non-empty"), "got: {err}");
     }
 
     #[test]
     fn decode_frame_rejects_unexpected_shape() {
         // Neither an ack nor a property_batch — unrecognised frame response.
-        assert!(decode_frame(r#"{"status":"weird"}"#).is_err());
+        let err = decode_frame(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("unexpected frame response"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn decode_ack_or_success_rejects_unexpected_status() {
-        assert!(decode_ack_or_success(r#"{"status":"weird"}"#).is_err());
+        let err = decode_ack_or_success(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(err.to_string().contains("expected status"), "got: {err}");
     }
 
     #[test]
     fn decode_validation_rejects_unexpected_status() {
-        assert!(decode_validation(r#"{"status":"weird"}"#).is_err());
+        let err = decode_validation(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(err.to_string().contains("expected status"), "got: {err}");
     }
 
     #[test]
     fn decode_format_text_rejects_unexpected_status() {
-        assert!(decode_format_text(r#"{"status":"weird"}"#).is_err());
+        let err = decode_format_text(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(err.to_string().contains("expected status"), "got: {err}");
     }
 }

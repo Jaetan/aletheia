@@ -383,9 +383,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   work) found untested: unknown validation severity, a non-number/non-object
   rational, an unknown verdict, an empty/unexpected frame batch, and an
   unexpected status in the ack / validation / format-text decoders. Tool-measured
-  with `cargo-llvm-cov` (`response.rs` line coverage 74.6% → 81.7%); no production
-  Rust changed (inline `#[cfg(test)]` tests live under `rust/src/`, which the
-  changelog gate is path-based about).
+  with `cargo-llvm-cov` (`response.rs` line coverage 74.6% → 81.7%). No production
+  Rust changed; the entry is required only because the changelog gate matches by
+  path and Rust's inline `#[cfg(test)]` tests live under `rust/src/`.
 - **B6e residual — Python rejects a `float` at the rational outbound wire fields
   (BREAKING, behavioral).** A `float` in a hand-built `DBCDefinition` rational
   field (signal `factor`/`offset`/`minimum`/`maximum`, env-var
