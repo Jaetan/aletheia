@@ -900,6 +900,13 @@ func TestBetween_MinExceedsMax_RendersExactRational(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for Between with Min > Max")
 	}
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Kind != aletheia.ErrValidation {
+		t.Errorf("expected ErrValidation, got %s", aErr.Kind)
+	}
 	if got := err.Error(); !strings.Contains(got, "min (1/3) exceeds max (0)") {
 		t.Errorf("error should render the exact rational, not a lossy float; got %q", got)
 	}
