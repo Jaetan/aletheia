@@ -77,3 +77,18 @@ fn rejects_overflowing_decimals_as_validation_errors() {
         );
     }
 }
+
+#[test]
+fn rejects_non_ascii_decimal_as_validation_error() {
+    // Regression guard for the shim's JSON encoding of the echoed error-envelope
+    // `input` field: a non-ASCII byte must round-trip as valid JSON. Before the
+    // Marshal.hs jsonString fix, `show` emitted an invalid-JSON `\NNN` escape, so
+    // the envelope failed to parse and surfaced Error::Protocol instead of
+    // Error::Validation.
+    let _rts = rts();
+    let err = Rational::from_decimal("1.5€").expect_err("non-ASCII must be rejected");
+    assert!(
+        matches!(err, Error::Validation(_)),
+        "expected Error::Validation, got {err:?}"
+    );
+}

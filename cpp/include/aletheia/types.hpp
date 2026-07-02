@@ -82,15 +82,37 @@ using Unit = Strong<struct UnitTag, std::string>;
 class Rational {
 public:
     constexpr Rational() = default;
-    constexpr Rational(std::int64_t n, std::int64_t d) : num_(n), den_(d) {
+
+    // Exact-numeric boundary — the float principle: a `double` must not narrow
+    // silently into the numerator/denominator, and a `bool` must not pass as a
+    // numeric value.  A non-template `Rational(int64_t, int64_t)` admits both
+    // through paren-init (`Rational(7.9, 2)` truncates to 7/2 with only a
+    // warning; `Rational(true, 1)` is silent), so the parameters are constrained
+    // to non-bool integral types — a decimal must instead go through
+    // `Rational::from_decimal` (the kernel decimal SSOT).  Go/Rust get this for
+    // free from their `int64`-typed rationals; this brings C++ to the same bar.
+    template<std::integral N, std::integral D>
+        requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
+    constexpr Rational(N n, D d) {
+        // Validate representability BEFORE narrowing: a wide/unsigned integral
+        // outside the int64 range (e.g. a uint64_t > INT64_MAX) would otherwise
+        // wrap silently, and a bare static_cast also suppresses the
+        // -Wconversion / -Wsign-conversion diagnostic the int64_t-typed signature
+        // gave for free.  std::in_range does the signed/unsigned comparison
+        // correctly; a plain `int` literal (the common case) is always in range.
+        if (!std::in_range<std::int64_t>(n) || !std::in_range<std::int64_t>(d)) {
+            throw std::invalid_argument("Rational: numerator/denominator out of int64 range");
+        }
+        num_ = static_cast<std::int64_t>(n);
+        den_ = static_cast<std::int64_t>(d);
         // The bare `assert` would disappear under -DNDEBUG (the default Release
         // CMake mode); throwing keeps the invariant enforced at every callsite
         // so a Release-build hot-path call cannot silently accept den == 0 or
         // den < 0.  Use Rational::make for fallible (returns std::expected)
-        // construction in untrusted-input contexts.  R19 cluster 12 — CPP-B-7.1.
-        if (d <= 0) {
+        // construction in untrusted-input contexts.
+        if (den_ <= 0) {
             throw std::invalid_argument("Rational: denominator must be positive (was " +
-                                        std::to_string(d) + ")");
+                                        std::to_string(den_) + ")");
         }
     }
 
@@ -102,12 +124,13 @@ public:
     }
 
     // Cross-multiply comparison (avoids floating-point).
-    // __int128 is a GCC/Clang extension (not standard C++); the project targets
-    // g++ >= 14 and clang >= 21 on Linux only, where it is always available.
+    // __int128 is a Clang/GCC extension (not standard C++); the project
+    // builds Clang-only on Linux (latest stable Clang — see
+    // cpp/CMakeLists.txt), where it is always available.
     // A double-precision fallback would silently lose precision on large
     // numerator/denominator pairs, so we refuse to build rather than ship it.
     static_assert(sizeof(__int128) >= 16, "Aletheia requires __int128 support "
-                                          "(g++ >= 14 / clang >= 21 on Linux).");
+                                          "(Clang on Linux — see cpp/CMakeLists.txt).");
     constexpr auto operator<=>(const Rational& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
         auto lhs_prod = static_cast<__int128>(num_) * rhs.den_;
@@ -120,11 +143,18 @@ public:
 
     // Validated factory: returns an error if denominator is not positive.
     // Use for untrusted input; direct construction throws in every mode.
-    static constexpr auto make(std::int64_t num, std::int64_t den)
-        -> std::expected<Rational, std::string> {
-        if (den <= 0)
+    template<std::integral N, std::integral D>
+        requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
+    static constexpr auto make(N num, D den) -> std::expected<Rational, std::string> {
+        // Validate representability before narrowing (see the ctor): a uint64_t
+        // > INT64_MAX would otherwise wrap to a negative/wrong value before the
+        // den > 0 check, yielding a misleading error or an incorrect Rational.
+        if (!std::in_range<std::int64_t>(num) || !std::in_range<std::int64_t>(den))
+            return std::unexpected("Rational: numerator/denominator out of int64 range");
+        const auto den64 = static_cast<std::int64_t>(den);
+        if (den64 <= 0)
             return std::unexpected("Rational denominator must be positive");
-        return Rational{num, den};
+        return Rational{static_cast<std::int64_t>(num), den64};
     }
 
     // Parse a decimal literal into an exact Rational via the Agda kernel's
@@ -162,6 +192,41 @@ using Tolerance = Strong<struct ToleranceTag, Rational>;
 using RationalFactor = Strong<struct RationalFactorTag, Rational>;
 using RationalOffset = Strong<struct RationalOffsetTag, Rational>;
 using RationalBound = Strong<struct RationalBoundTag, Rational>;
+
+// ---------------------------------------------------------------------------
+// Compile-time proof of the float principle at the exact-numeric boundary
+// ---------------------------------------------------------------------------
+// These fire in every translation unit that includes this header, so a
+// regression that re-admits a float or bool at a Rational boundary fails the
+// build — it cannot be silently skipped the way a unit test can.  `Strong::of`
+// is closed transitively by the constrained ctor (its `std::constructible_from`
+// guard goes false for a double/bool argument), so it needs no separate edit.
+//
+// The ctor checks go through the `std::constructible_from` trait (SFINAE-safe at
+// namespace scope); `make`/`of` are function calls, so they go through small
+// *templated* concepts — a requires-expression is only SFINAE-friendly inside a
+// template, whereas a bare non-dependent `requires { ... }` hard-errors on an
+// unviable call instead of yielding false.
+namespace detail {
+template<typename... Args>
+concept RationalMakeable = requires { Rational::make(std::declval<Args>()...); };
+template<typename StrongT, typename... Args>
+concept StrongOfable = requires { StrongT::of(std::declval<Args>()...); };
+} // namespace detail
+
+static_assert(std::constructible_from<Rational, int, int>, "integer construction must still work");
+static_assert(!std::constructible_from<Rational, double, int>,
+              "a double must not narrow into a Rational");
+static_assert(!std::constructible_from<Rational, bool, int>,
+              "a bool must not pass as a numeric value");
+static_assert(detail::RationalMakeable<int, int>, "integer make must still work");
+static_assert(!detail::RationalMakeable<double, int>, "a double must not narrow via make");
+static_assert(!detail::RationalMakeable<bool, int>, "a bool must not pass through make");
+static_assert(detail::StrongOfable<PhysicalValue, int, int>, "integer of(...) must still work");
+static_assert(!detail::StrongOfable<PhysicalValue, double, int>, "of(...) must reject a double");
+static_assert(!detail::StrongOfable<PhysicalValue, bool, int>, "of(...) must reject a bool");
+static_assert(!detail::StrongOfable<RationalFactor, double, int>,
+              "DBC factor of(...) must reject a double");
 
 // ---------------------------------------------------------------------------
 // Integer domain types (distinct bit-level types)

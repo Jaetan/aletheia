@@ -48,7 +48,7 @@ def from_decimal(s: str) -> Fraction:
     accepted grammar is the kernel's: ``-?digits`` or ``-?digits.digits+`` —
     no ``+`` sign, no leading/trailing ``.``, no exponent (so ``"1e3"``,
     ``".5"``, ``"1."``, ``"+2"`` are rejected, and the whole string must be
-    consumed).  Mirrors Go ``ParseDecimal`` / C++ ``Rational::from_decimal`` /
+    consumed).  Mirrors Go ``FromDecimal`` / C++ ``Rational::from_decimal`` /
     Rust ``Rational::from_decimal`` exactly.
 
     Like rational *display* (:func:`~aletheia.client._enrichment.format_rational`),
@@ -137,6 +137,50 @@ def to_exact_fraction(value: int | Fraction) -> Fraction:
         )
         raise TypeError(msg)
     return Fraction(value)
+
+
+def reject_inexact(value: object, ctx: str) -> None:
+    """Reject a non-exact value (a ``float`` or ``bool``) at an outbound *rational* wire field.
+
+    The outbound twin of :func:`decode_wire_rational`, applied at exactly the
+    fields the Agda kernel parses as ℚ — signal ``factor``/``offset``/``minimum``/
+    ``maximum``, env-var ``initial``/``minimum``/``maximum``, *float-kind*
+    attribute ``min``/``max``/``value``, and predicate
+    ``value``/``min``/``max``/``delta``/``tolerance``.  A ``float`` there is
+    silently absorbed by the kernel's decimal parser as an exact-but-*wrong*
+    rational (``0.1 + 0.2`` → ``0.30000000000000004``, which ``json.dumps`` emits
+    verbatim and the kernel reads as ``30000000000000004 / 10**17``); a ``bool``
+    is not a numeric value.
+
+    Applied *only* at rational fields — integer wire fields (``multiplex_values``,
+    ``startBit``, ``dlc``, ``id``, value-table values, int/hex attribute bounds…)
+    are left to the kernel's own typed validation, which rejects a non-integer
+    there loudly (e.g. ``parse_non_integer_multiplex_value``) rather than
+    silently.  This mirrors the inbound decoder, which likewise routes only the
+    rational fields through :func:`decode_wire_rational` and lets the kernel
+    validate the integer fields.
+
+    Args:
+        value: The single field value to check.
+        ctx: A short label for *value*'s location, used in the error message.
+
+    Raises:
+        ValidationError: *value* is a ``float`` or a ``bool``.
+
+    """
+    if isinstance(value, bool):
+        msg = (
+            f"{ctx}: a bool is not an exact numeric value; pass an int, a Fraction, "
+            "or from_decimal('...') for an exact decimal (the float principle)"
+        )
+        raise ValidationError(msg)
+    if isinstance(value, float):
+        msg = (
+            f"{ctx}: a float ({value!r}) is not exact and must not reach the wire; "
+            "pass an int, a Fraction, or from_decimal('...') for an exact decimal "
+            "(the float principle)"
+        )
+        raise ValidationError(msg)
 
 
 def fraction_to_wire_pair(value: Fraction) -> tuple[int, int]:

@@ -23,7 +23,8 @@ type ErrorKind int
 const (
 	// ErrProtocol indicates a JSON parsing or protocol mismatch with the Agda core.
 	ErrProtocol ErrorKind = iota // protocol
-	// ErrValidation indicates a structural issue in the DBC definition.
+	// ErrValidation indicates user-supplied input that failed local validation
+	// (DBC definition, formula/predicate values, check-loader input, frame payload, …).
 	ErrValidation // validation
 	// ErrState indicates an operation was attempted in the wrong client state.
 	ErrState // state
@@ -58,11 +59,11 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Machine-readable error codes matching Agda Error ADT (51 codes).
+// Machine-readable error codes matching the Agda Error ADT.
 // Each maps 1:1 to an Agda error constructor via errorCode.
 //
-// Constants below are organized into eight groups (Parse / DBC text /
-// Frame / Route / Handler / Dispatch / Extraction); the wire string
+// Constants below are organized into groups (Parse / DBC text / Frame /
+// input bound / Route / Handler / Dispatch / Extraction); the wire string
 // (snake_case suffix on each constant) is the canonical identifier used
 // by the structured-log + Error.Code surface.  See [Error.Code] and
 // [docs/architecture/PROTOCOL.md] for the full Agda ADT mapping.
@@ -248,10 +249,12 @@ func WrapValidationError(msg string, cause error) *Error {
 }
 
 // InputBoundExceededError reports an adversarial-input bound violation.
-// Mirrors the Agda InputBoundExceeded constructor on
-// ParseError / DBCTextParseError / FrameError, and the equivalent type
-// in the Python (aletheia.InputBoundExceededError) and C++
-// (aletheia::InputBoundExceededError) bindings — keep the three surfaces
+// Mirrors the Agda top-level Error.InputBoundExceeded constructor
+// (consolidated from the former per-ADT constructors on ParseError /
+// DBCTextParseError / FrameError), and the equivalent types in the
+// Python (aletheia.InputBoundExceededError), C++
+// (aletheia::InputBoundExceededError), and Rust
+// (aletheia::Error::InputBoundExceeded) bindings — keep these surfaces
 // in sync per `feedback_cross_language_parity.md`.
 //
 // Use [errors.As] to inspect:

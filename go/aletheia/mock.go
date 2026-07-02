@@ -90,8 +90,8 @@ func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockRespons
 }
 
 // mockSentinel provides a non-nil address for Init's return value. The Backend
-// contract requires Init to return non-nil on success, and Client.process checks
-// c.closed rather than c.state for the use-after-close guard.
+// contract requires Init to return non-nil on success, and Client.processLocked
+// checks c.closed rather than c.state for the use-after-close guard.
 var mockSentinel byte
 
 // Init returns a dummy non-nil pointer. The MockBackend does not use state.

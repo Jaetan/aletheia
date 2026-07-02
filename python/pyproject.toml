@@ -82,7 +82,7 @@ dev = [
     #                             (repo-root ``conftest.py`` injects globals / loader
     #                             fakes so every ``python`` fence across README /
     #                             docs/** runs end-to-end against the real FFI).
-    "pytest>=9,<10",
+    "pytest>=9.1.1,<10",
     "pytest-cov>=7.1.0,<8",
     "pytest-markdown-docs>=0.9.2,<1",
     # AGENTS.md Python cat 14(f) (NEW R18) requires test-isolation runs via

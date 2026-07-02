@@ -113,17 +113,24 @@ func TestParseResponse_RejectsTrailingData(t *testing.T) {
 	}
 }
 
-// TestParseRational_RejectsBadComponents confirms the json.Number path keeps the
-// fractional / zero-denominator / negative-denominator rejections (the float64
-// path is covered in property_test.go).
+// TestParseRational_RejectsBadComponents confirms the json.Number decode path
+// rejects every adversarial wire form: a fractional or out-of-range scalar, a
+// fractional/out-of-range numerator or denominator in the dict form, a dict
+// missing the numerator or denominator field, and a zero/negative denominator.
+// This is the production path (parseResponse → json.Number); a native Go float64
+// is not a reachable decoder input.
 func TestParseRational_RejectsBadComponents(t *testing.T) {
 	cases := map[string]string{
-		"fractional scalar":      `{"v":1.5}`,
-		"fractional numerator":   `{"v":{"numerator":1.5,"denominator":2}}`,
-		"fractional denom":       `{"v":{"numerator":1,"denominator":0.5}}`,
-		"zero denominator":       `{"v":{"numerator":1,"denominator":0}}`,
-		"negative denominator":   `{"v":{"numerator":1,"denominator":-2}}`,
-		"out-of-range numerator": `{"v":{"numerator":99999999999999999999,"denominator":1}}`,
+		"fractional scalar":        `{"v":1.5}`,
+		"out-of-range scalar":      `{"v":99999999999999999999}`,
+		"fractional numerator":     `{"v":{"numerator":1.5,"denominator":2}}`,
+		"fractional denom":         `{"v":{"numerator":1,"denominator":0.5}}`,
+		"zero denominator":         `{"v":{"numerator":1,"denominator":0}}`,
+		"negative denominator":     `{"v":{"numerator":1,"denominator":-2}}`,
+		"out-of-range numerator":   `{"v":{"numerator":99999999999999999999,"denominator":1}}`,
+		"out-of-range denominator": `{"v":{"numerator":1,"denominator":99999999999999999999}}`,
+		"missing numerator":        `{"v":{"denominator":2}}`,
+		"missing denominator":      `{"v":{"numerator":1}}`,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -139,15 +146,20 @@ func TestParseRational_RejectsBadComponents(t *testing.T) {
 }
 
 // TestParseNumberAsInt64_Rejects pins parseNumberAsInt64's reject branches on the
-// json.Number path (fractional, non-exact rational, zero denominator, overflow,
-// non-number) so a boundary/condition mutation has a killing test.
+// json.Number path: the scalar forms (fractional, out-of-range, non-number) and
+// the dict forms (missing field, fractional component, out-of-range component,
+// non-exact rational, zero denominator), so a boundary/condition mutation on any
+// arm has a killing test.
 func TestParseNumberAsInt64_Rejects(t *testing.T) {
 	cases := map[string]string{
-		"fractional scalar":   `{"v":2.5}`,
-		"non-exact rational":  `{"v":{"numerator":3,"denominator":2}}`,
-		"zero denominator":    `{"v":{"numerator":4,"denominator":0}}`,
-		"out-of-range scalar": `{"v":99999999999999999999}`,
-		"non-number":          `{"v":"nope"}`,
+		"fractional scalar":             `{"v":2.5}`,
+		"non-exact rational":            `{"v":{"numerator":3,"denominator":2}}`,
+		"zero denominator":              `{"v":{"numerator":4,"denominator":0}}`,
+		"out-of-range scalar":           `{"v":99999999999999999999}`,
+		"non-number":                    `{"v":"nope"}`,
+		"missing field (dict)":          `{"v":{"denominator":2}}`,
+		"fractional numerator (dict)":   `{"v":{"numerator":1.5,"denominator":2}}`,
+		"out-of-range numerator (dict)": `{"v":{"numerator":99999999999999999999,"denominator":1}}`,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {

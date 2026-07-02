@@ -310,16 +310,20 @@ pub(crate) fn ensure_rts_for_test() {
 /// denominator and the input's denominator is positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
     type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
-    let lib = library()?;
-    // Vocal: the renderer never initialises the RTS — an FfiBackend is the sole
-    // initialiser, so RTS_INIT is Some exactly when a real backend has run
-    // ensure_rts. Return before the FFI call: invoking the MAlonzo export with the
-    // RTS down is undefined behaviour, not a catchable error.
+    // Check the RTS BEFORE loading the library. The renderer never initialises the
+    // RTS — an FfiBackend is the sole initialiser, so RTS_INIT is Some exactly when
+    // a real backend has run ensure_rts (which also loaded the .so). Returning
+    // first means a caller that renders before any backend exists (e.g. a
+    // check-builder validation error) fails fast without attempting a dlopen —
+    // and, when the .so is absent, without re-attempting it on every call (the
+    // library() OnceLock caches only successes). Invoking the MAlonzo export with
+    // the RTS down is undefined behaviour, not a catchable error.
     match RTS_INIT.get() {
         None => return Err(Error::RtsNotInitialized),
         Some(Err(e)) => return Err(e.clone()),
         Some(Ok(())) => {}
     }
+    let lib = library()?;
     let f = unsafe { symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0") }?;
     let free_str =
         unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;

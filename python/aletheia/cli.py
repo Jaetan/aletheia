@@ -31,6 +31,7 @@ from aletheia import __version__
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.checks_runner import CheckRunResult, Violation, run_checks
 from aletheia.client._client import AletheiaClient
+from aletheia.client._enrichment import format_rational
 from aletheia.client._types import (
     AletheiaError,
     SignalExtractionResult,
@@ -275,13 +276,19 @@ def _format_signal_line(sig: DBCSignal) -> str:
     minimum = sig["minimum"]
     maximum = sig["maximum"]
 
-    offset_str = f"+{offset:g}" if offset >= 0 else f"{offset:g}"
-    range_str = f"[{minimum:g}, {maximum:g}]" if minimum != 0 or maximum != 0 else ""
+    # Exact rational render (kernel format_rational), never a lossy float; the
+    # offset keeps the readable "+offset" form for non-negatives.
+    offset_str = f"+{format_rational(offset)}" if offset >= 0 else format_rational(offset)
+    range_str = (
+        f"[{format_rational(minimum)}, {format_rational(maximum)}]"
+        if minimum != 0 or maximum != 0
+        else ""
+    )
 
     return (
         f"  {name:<20s} bits[{start}:{length}]"
         + f"   {order}  {sign:<10s}"
-        + f"  x{factor:g} {offset_str}"
+        + f"  x{format_rational(factor)} {offset_str}"
         + f"  {unit:>6s}  {range_str}"
     )
 
@@ -392,7 +399,7 @@ def _print_extract_text(
         for name, value in result.values.items():
             unit = units.get(name, "")
             unit_part = f" {unit}" if unit else ""
-            _emit(f"  {name:<20s} = {value:g}{unit_part}")
+            _emit(f"  {name:<20s} = {format_rational(value)}{unit_part}")
     else:
         _emit("  (no signals)")
 
