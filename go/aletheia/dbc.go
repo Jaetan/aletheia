@@ -192,7 +192,10 @@ func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
 }
 
 // SignalByName returns a copy of the signal with the given name, or
-// nil if not found.  The copy is shallow: slice fields (`Receivers`,
+// nil if not found.  Duplicate signal names are a validation issue
+// (IssueDuplicateSignalName); if a hand-built definition contains
+// duplicates anyway, which one is returned is unspecified.
+// The copy is shallow: slice fields (`Receivers`,
 // `ValueDescriptions`, and a `Multiplexed` presence's `MultiplexValues`)
 // on the returned signal still alias the originals; mutating the
 // returned signal's slices mutates the parent message's signals.
@@ -642,7 +645,10 @@ func canIDKey(id CANID) uint64 {
 }
 
 // MessageByID returns the message with the given CAN ID, or nil if not found.
-// The returned pointer is a deep copy; mutating it does not affect the DBCDefinition.
+// Duplicate CAN IDs are a validation issue (IssueDuplicateMessageID); if a
+// hand-built definition contains duplicates anyway, which one is returned is
+// unspecified.  The returned pointer is a deep copy; mutating it does not
+// affect the DBCDefinition.
 func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
 	if d.idIndex != nil {
 		// A cached index is trusted only if the message there still has the
@@ -668,7 +674,10 @@ func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
 }
 
 // MessageByName returns the message with the given name, or nil if not found.
-// The returned pointer is a deep copy; mutating it does not affect the DBCDefinition.
+// Duplicate message names are a validation issue (IssueDuplicateMessageName);
+// if a hand-built definition contains duplicates anyway, which one is
+// returned is unspecified.  The returned pointer is a deep copy; mutating it
+// does not affect the DBCDefinition.
 func (d *DBCDefinition) MessageByName(name MessageName) *DBCMessage {
 	if d.nameIndex != nil {
 		// A cached index is trusted only if the message there still has the

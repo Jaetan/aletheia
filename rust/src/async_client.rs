@@ -9,7 +9,7 @@
 //! async method sends a job — a closure capturing its (owned) arguments and a
 //! `oneshot` reply sender — and `.await`s the reply. The handle owns the
 //! channel sender (itself `Send + Sync` — std's `mpsc::Sender` is `Sync` for
-//! a `Send` payload since Rust 1.72) behind a `Mutex<Option<…>>` whose slot
+//! a `Send` payload) behind a `Mutex<Option<…>>` whose slot
 //! [`Drop`] takes to close the channel, so `AsyncClient` is `Send + Sync`;
 //! its borrowing futures are therefore `Send`, so it can be `tokio::spawn`ed
 //! on a multi-thread runtime (the lock is held only for the brief enqueue,
@@ -47,7 +47,7 @@ type Job = Box<dyn FnOnce(&Client) + Send>;
 /// A runtime-agnostic async mirror of [`Client`]; see the module docs.
 pub struct AsyncClient {
     /// The job channel. The std `mpsc::Sender` is itself `Send + Sync`
-    /// (`Sync` for a `Send` payload since Rust 1.72), so the `Mutex` is not
+    /// (`Sync` for a `Send` payload), so the `Mutex` is not
     /// what makes `AsyncClient` `Sync` — it wraps the `Option` slot that
     /// [`Drop`] takes to close the channel. The lock is held only for the
     /// brief enqueue, never across an `.await`; `None` only transiently
@@ -438,8 +438,8 @@ mod tests {
         // &AsyncClient is Send and the futures from its async methods (which
         // borrow &self across .await) are Send — i.e. spawnable on a multi-thread
         // executor like tokio::spawn. Every field is Send + Sync (std's
-        // mpsc::Sender included, since Rust 1.72); this compile-time check
-        // guards the invariant.
+        // mpsc::Sender included — Sync for a Send payload); this
+        // compile-time check guards the invariant.
         fn is_send<T: Send>() {}
         fn is_sync<T: Sync>() {}
         is_send::<super::AsyncClient>();

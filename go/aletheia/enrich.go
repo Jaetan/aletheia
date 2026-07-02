@@ -275,8 +275,8 @@ func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bo
 		// Formula is sealed (the unexported formula() marker method), so
 		// the concrete formula types above are exhaustive; this arm is
 		// reached only by degenerate values (nil, a *T pointer to a
-		// concrete formula type, or an embedding type), which contribute
-		// no signals.
+		// concrete formula type, or an embedding type), which are treated
+		// as contributing no signals.
 	}
 }
 
