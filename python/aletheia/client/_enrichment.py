@@ -207,8 +207,8 @@ def format_rational(value: Fraction) -> str:
     Delegates to :func:`Aletheia.DBC.RationalRenderer.formatRational` in
     the Agda kernel (the ``aletheia_format_rational`` FFI export in
     ``haskell-shim/src/AletheiaFFI.hs``).  Cross-binding parity is an
-    architectural invariant: the same Agda function backs the Python, Go,
-    and C++ enrichment paths, so a given rational renders byte-identically
+    architectural invariant: the same Agda function backs every binding's
+    enrichment path, so a given rational renders byte-identically
     everywhere.  Predicate values are exact :class:`Fraction` per the
     DecRat universal principle, so the renderer only ever sees ℚ.
 

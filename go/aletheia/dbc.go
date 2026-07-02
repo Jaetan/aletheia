@@ -191,10 +191,11 @@ func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
 	return false
 }
 
-// SignalByName returns a copy of the first signal with the given name, or
+// SignalByName returns a copy of the signal with the given name, or
 // nil if not found.  The copy is shallow: slice fields (`Receivers`,
-// `ValueDescs`) on the returned signal still alias the originals; mutating
-// the returned signal's slices mutates the parent message's signals.
+// `ValueDescriptions`, and a `Multiplexed` presence's `MultiplexValues`)
+// on the returned signal still alias the originals; mutating the
+// returned signal's slices mutates the parent message's signals.
 func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
 	if m.signalIndex != nil {
 		// A cached index is trusted only if the signal there still has the
@@ -640,7 +641,7 @@ func canIDKey(id CANID) uint64 {
 	return k
 }
 
-// MessageByID returns the first message with the given CAN ID, or nil if not found.
+// MessageByID returns the message with the given CAN ID, or nil if not found.
 // The returned pointer is a deep copy; mutating it does not affect the DBCDefinition.
 func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
 	if d.idIndex != nil {
@@ -666,7 +667,7 @@ func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
 	return nil
 }
 
-// MessageByName returns the first message with the given name, or nil if not found.
+// MessageByName returns the message with the given name, or nil if not found.
 // The returned pointer is a deep copy; mutating it does not affect the DBCDefinition.
 func (d *DBCDefinition) MessageByName(name MessageName) *DBCMessage {
 	if d.nameIndex != nil {

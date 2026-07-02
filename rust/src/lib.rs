@@ -403,9 +403,10 @@ impl Client {
         diag: &PropertyDiagnostic,
         values: Vec<(String, Rational)>,
     ) {
-        // Best-effort on the eval path: a render failure is unreachable here (the
-        // values came from an extraction that already loaded the library, so the
-        // renderer's library is loaded too). Degrade to the no-values reason rather
+        // Best-effort on the eval path: a render failure here is in practice only
+        // an ABI malfunction (diagnostics exist only after property setup already
+        // rendered the thresholds, latching the renderer's process-global RTS +
+        // library state this render reuses). Degrade to the no-values reason rather
         // than fail an already-processed frame — no local fallback (we omit the
         // values, never render them locally). See `enrich::reason_without_values`.
         let enriched_reason = enrich::format_enriched_reason(diag, &values, &pr.reason)

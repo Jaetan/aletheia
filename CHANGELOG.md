@@ -1001,6 +1001,55 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Comment-truth sweep across all four bindings + the CI workflow cache
+  comments (r25 B7) — internal, no behavior change.** Every flagged comment was
+  re-verified against the current code before rewording (a finder-per-binding +
+  adversarial-verifier pass; several review findings turned out already fixed
+  and were left alone). Highlights: the three workflow build-tree-cache
+  comments (`benchmark.yml` / `pr-full-ci.yml` / `pr-heavy-lanes.yml`) claimed
+  `build/libaletheia-ffi.so` "symlinks into" `haskell-shim/dist-newstyle` — it
+  is `cp`-copied out of it by the Shake rule; the cache matters because that
+  tree is the cabal foreign-lib incremental state (the real symlink is
+  `haskell-shim/MAlonzo → ../build/MAlonzo`). Go: `Client.mu` → the channel-token
+  `lockCh`; the stale "(51 codes)" count and the "eight groups lists 7"
+  mismatch in `error.go`; a bogus int64-overflow clause on `validateTimeBound`;
+  `Client.process` → `processLocked`; `ValueDescs` → `ValueDescriptions` (+ the
+  full shallow-copy aliasing set); the sealed-interface default-arm comments
+  (no `sealedFormula`/`sealedPredicate` markers exist — sealing is the
+  unexported `formula()`/`predicate()` methods, and the arms are reachable by
+  degenerate values, not "unreachable"); `InputBoundExceededError` doc now
+  names the consolidated top-level Agda constructor and all three peer
+  bindings (including Rust's new `Error::InputBoundExceeded`). Python: the
+  `dbc_to_json ∘ dbc_to_text` composition is via a file (not literally
+  invocable, and dict-equal, not "byte-identical"); `can_log` docstrings now
+  name the 7-field `CANFrameTuple` (brs/esi were missing); the Excel-loader
+  docstring's DBC column table was missing the `Extended` column;
+  `PropertyResultEntry` is the element type of BOTH mid-stream batches and
+  end-of-stream results; `FractionJSONEncoder` cited a non-existent Agda
+  function (→ `Protocol.JSON.Lookup.getRational`) and predates Rust; Go peer
+  of `from_decimal` is `FromDecimal`, not `ParseDecimal`. C++: `ErrorCode`
+  count/family list corrected count-free; `signal_index_`/`signal_names_` are
+  rebuilt by `populate_signal_lookup()` on BOTH `parse_dbc()` and
+  `parse_dbc_text()`; `last_frames_` is also cleared by `end_stream()`;
+  `end_stream` enriches `Unresolved` too, not just `Fails`; the pre-R23
+  "returned Violation" wording → the `PropertyBatch` Fails entry; the cache
+  fallback logs a `cache.full` warning (not "silent"); `format_formula` /
+  `build_diagnostic` are NOT "always succeeds" — they render thresholds via the
+  kernel renderer and throw `AletheiaException(Ffi)` when the library/RTS is
+  unavailable (the C++ instance of the cross-binding stale claim); the
+  `__int128` comment and `static_assert` diagnostic string (the one
+  behaviorally-inert non-comment hunk) no longer name the dropped
+  "g++ >= 14 / clang >= 21" toolchain — Clang-only per `cpp/CMakeLists.txt`.
+  Rust: the `async_client` module/field/test comments claimed std
+  `mpsc::Sender` is `!Sync` (it is `Sync` for a `Send` payload since Rust
+  1.72 — the `Mutex` exists for the `Drop`-takeable `Option` slot, not for
+  `Sync`ness); the module also uses `futures-util` stream combinators, not
+  "only the reply oneshot"; `build_diagnostic`'s `# Errors` now lists
+  `RtsNotInitialized` (checked before any dlopen) alongside library-load
+  failure; the "render failure is unreachable because extraction loaded the
+  library" justification (wrong since the DI seam — an injected backend
+  extracts without the `.so`) → the truthful setup-time-render latch argument,
+  fixed at both `enrich.rs` and its `lib.rs` twin.
 - **`aletheia_parse_decimal` error envelope is now valid JSON for non-ASCII input
   (all bindings).** The Haskell shim built the error envelope's echoed `input`
   (and `message`) field with `show`, which emits a `\NNN` *decimal* escape for a
