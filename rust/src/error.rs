@@ -38,6 +38,25 @@ pub enum Error {
     /// The core returned a structured error response. `code` is the machine-
     /// readable wire code from the Agda kernel (e.g. `handler_no_dbc`).
     Core { code: String, message: String },
+    /// The core rejected an input for exceeding a structural bound (nesting
+    /// depth, atom count, identifier length, …). This is the typed lift of a
+    /// `code == "input_bound_exceeded"` error response that carries the
+    /// structured `bound_kind` / `observed` / `limit` triple — the Rust analogue
+    /// of Go's `*InputBoundExceededError`, C++'s `InputBoundExceededError`, and
+    /// Python's `InputBoundExceededError`. A malformed or partial triple degrades
+    /// to [`Error::Core`] rather than surfacing here (matching the peer bindings).
+    InputBoundExceeded {
+        /// Machine-readable wire code (always `input_bound_exceeded`).
+        code: String,
+        /// Human-readable message from the core.
+        message: String,
+        /// Which bound was crossed (a `BoundKind` name, e.g. `nesting_depth`).
+        bound_kind: String,
+        /// The observed value that exceeded the limit.
+        observed: u64,
+        /// The canonical limit that was exceeded.
+        limit: u64,
+    },
     /// A per-frame error from a batch send (`send_frames` / `send_frames_iter` /
     /// `send_frames_stream`), tagged with the **0-based index** of the offending
     /// frame so the caller can locate which frame in the batch failed. `source`
@@ -72,6 +91,15 @@ impl fmt::Display for Error {
             Error::Validation(msg) => write!(f, "validation error: {msg}"),
             Error::Protocol(msg) => write!(f, "protocol error: {msg}"),
             Error::Core { code, message } => write!(f, "core error [{code}]: {message}"),
+            Error::InputBoundExceeded {
+                bound_kind,
+                observed,
+                limit,
+                ..
+            } => write!(
+                f,
+                "input bound exceeded: {bound_kind} {observed} exceeds limit {limit}"
+            ),
             Error::Frame { index, source } => write!(f, "frame {index}: {source}"),
         }
     }

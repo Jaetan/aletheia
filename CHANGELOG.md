@@ -377,6 +377,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Rust lifts the typed `input_bound_exceeded` triple (parity; BREAKING —
+  Rust).** The Rust binding previously decoded every `status: "error"` envelope
+  to a generic `Error::Core { code, message }`, discarding the structured
+  `bound_kind` / `observed` / `limit` triple that Go (`*InputBoundExceededError`),
+  C++ (`InputBoundExceededError`), and Python (`InputBoundExceededError`) all lift
+  into a typed error. `parse_object` now lifts a well-typed `input_bound_exceeded`
+  triple into a new `Error::InputBoundExceeded { code, message, bound_kind,
+  observed, limit }` variant (a malformed or partial triple degrades to
+  `Error::Core`, matching the peers). BREAKING because `Error` is not
+  `#[non_exhaustive]`, so a new variant requires an added match arm downstream.
+  Closes the one feature divergence the cross-binding decoder audit surfaced, and
+  adds an `input_bound_exceeded_error` FEATURE_MATRIX row (all four bindings) so the
+  parity gate tracks this capability — the absence of that row is why the
+  divergence escaped the matrix and needed an ad-hoc audit to find.
 - **Rust wire-decoder reject-branch test coverage — internal, no behavior
   change.** Added inline unit tests in `rust/src/response.rs` covering the
   decoder reject branches a cross-binding coverage audit (parity with the Go #86

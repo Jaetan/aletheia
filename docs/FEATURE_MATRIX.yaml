@@ -472,6 +472,18 @@ features:
         entry: IssueCode
         notes: "ValidationIssue { severity: IssueSeverity, code: IssueCode, detail } — typed enums mirroring the Agda IssueCode ADT and the Python/Go/C++ vocabularies. IssueCode is lenient (unknown wire codes → IssueCode::Unknown, forward-compatible); IssueSeverity is strict (the closed error/warning set is rejected-on-unknown at decode)."
 
+  - id: input_bound_exceeded_error
+    name: Typed input-bound-exceeded error
+    description: An adversarial-input bound rejection (nesting depth, atom count, identifier length, …) is lifted from the wire input_bound_exceeded envelope into a typed error carrying the structured bound_kind / observed / limit triple; a malformed/partial triple degrades to the generic coded error.
+    bindings:
+      python: { status: implemented, entry: aletheia.InputBoundExceededError }
+      cpp:    { status: implemented, entry: "aletheia/limits.hpp#InputBoundExceededError" }
+      go:     { status: implemented, entry: InputBoundExceededError }
+      rust:
+        status: implemented
+        entry: "Error::InputBoundExceeded"
+        notes: "Error::InputBoundExceeded { code, message, bound_kind, observed, limit } — lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python). Added in the cross-binding decoder-audit follow-up (#93); before it, Rust collapsed every error envelope to the generic Error::Core."
+
   - id: violation_enrichment
     name: Violation enrichment
     description: Attach signal values and core reason string to LTL violations.
