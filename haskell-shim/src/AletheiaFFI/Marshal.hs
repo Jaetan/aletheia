@@ -12,8 +12,10 @@
 module AletheiaFFI.Marshal where
 
 import Data.Bits (toIntegralSized)
+import Data.Char (ord)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
+import Numeric (showHex)
 import Unsafe.Coerce (unsafeCoerce)
 
 import qualified MAlonzo.Code.Aletheia.CAN.Constants as AgdaCANConst
@@ -23,23 +25,55 @@ import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 
+-- | Encode a String as a JSON string literal (RFC 8259).  Haskell `show` is
+-- NOT a JSON encoder: for a non-ASCII or control character it emits a `\NNN`
+-- *decimal* escape (e.g. `show "€" == "\"\\8364\""`), which JSON rejects — JSON
+-- only allows `\uXXXX` (hex).  A `show`-built envelope carrying user text (the
+-- echoed decimal `input`, an error `message`) is therefore invalid JSON the
+-- bindings' decoders cannot parse.  This escapes the JSON-mandatory characters
+-- and `\u`-escapes everything outside printable ASCII (with surrogate pairs for
+-- astral code points), so the result is always valid, ASCII-safe JSON.
+jsonString :: String -> String
+jsonString s = '"' : concatMap esc s ++ ['"']
+  where
+    esc '"'  = "\\\""
+    esc '\\' = "\\\\"
+    esc '\n' = "\\n"
+    esc '\r' = "\\r"
+    esc '\t' = "\\t"
+    esc '\b' = "\\b"
+    esc '\f' = "\\f"
+    esc c
+        | c >= ' ' && c < '\DEL' = [c]                    -- printable ASCII
+        | n <= 0xFFFF            = uEsc n                 -- BMP code point
+        | otherwise             = uEsc hi ++ uEsc lo     -- astral: surrogate pair
+      where
+        n = ord c
+        v = n - 0x10000
+        hi = 0xD800 + (v `div` 0x400)
+        lo = 0xDC00 + (v `mod` 0x400)
+    uEsc x = let h = showHex x "" in "\\u" ++ replicate (4 - length h) '0' ++ h
+
 -- | Format a validation error as a JSON error response string.  The text is
 -- carried in `message` — the cross-binding error-envelope convention (Agda
 -- `responseToJSON` and all four bindings read `message`; the per-signal
 -- extraction object `{name,error}` is a different, narrower shape).
 mkErrorJson :: String -> String
-mkErrorJson msg = "{\"status\":\"error\",\"code\":\"ffi_validation_error\",\"message\":" ++ show msg ++ "}"
+mkErrorJson msg =
+    "{\"status\":\"error\",\"code\":\"ffi_validation_error\",\"message\":" ++ jsonString msg ++ "}"
 
 -- | Error envelope for `aletheia_parse_decimal`.  A precise `code` for
 -- programmatic dispatch (`decimal_parse_failed` / `decimal_overflow`), the
 -- human reason in `message` (the convention `mkErrorJson` uses), and the
 -- offending `input` echoed back (structured-extra, like the bound-exceeded
--- `observed`/`limit` triple).
+-- `observed`/`limit` triple).  Every string field goes through `jsonString`:
+-- `input` is user-controlled and may be non-ASCII, which `show` would render as
+-- invalid JSON (see `jsonString`).
 mkDecimalErrorJson :: String -> String -> String -> String
 mkDecimalErrorJson code msg input =
-    "{\"status\":\"error\",\"code\":" ++ show code
-    ++ ",\"message\":" ++ show msg
-    ++ ",\"input\":" ++ show input
+    "{\"status\":\"error\",\"code\":" ++ jsonString code
+    ++ ",\"message\":" ++ jsonString msg
+    ++ ",\"input\":" ++ jsonString input
     ++ "}"
 
 -- | Render the result of `parseDecimal` as the FFI wire string.  Success is

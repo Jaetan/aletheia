@@ -403,9 +403,10 @@ impl Client {
         diag: &PropertyDiagnostic,
         values: Vec<(String, Rational)>,
     ) {
-        // Best-effort on the eval path: a render failure is unreachable here (the
-        // values came from an extraction that already loaded the library, so the
-        // renderer's library is loaded too). Degrade to the no-values reason rather
+        // Best-effort on the eval path: a render failure here is in practice only
+        // an ABI malfunction (diagnostics exist only after property setup already
+        // rendered the thresholds, latching the renderer's process-global RTS +
+        // library state this render reuses). Degrade to the no-values reason rather
         // than fail an already-processed frame — no local fallback (we omit the
         // values, never render them locally). See `enrich::reason_without_values`.
         let enriched_reason = enrich::format_enriched_reason(diag, &values, &pr.reason)
@@ -542,8 +543,9 @@ impl Client {
     /// warnings the core reported.
     ///
     /// # Errors
-    /// [`Error::Core`] if the text fails to parse, or [`Error::Protocol`] on an
-    /// unexpected response.
+    /// [`Error::Core`] if the text fails to parse (or [`Error::InputBoundExceeded`]
+    /// if it trips an adversarial-input bound such as identifier length or message
+    /// count), or [`Error::Protocol`] on an unexpected response.
     pub fn parse_dbc_text(&self, text: &str) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
         let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
         let raw = self.process(&cmd.to_string())?;
@@ -629,7 +631,9 @@ impl Client {
     ///
     /// # Errors
     /// [`Error::Validation`] if any formula is invalid (bad predicate / depth),
-    /// [`Error::Core`] if the core rejects the set (e.g. no DBC loaded), or a
+    /// [`Error::Core`] if the core rejects the set (e.g. no DBC loaded) — or
+    /// [`Error::InputBoundExceeded`] if a formula trips a bound (nesting depth /
+    /// atom count) — or a
     /// library-load error ([`Error::LibraryLoad`] / [`Error::SymbolMissing`]) if the
     /// kernel rational renderer cannot be loaded while building the per-property
     /// enrichment diagnostics (it renders the predicate thresholds via the FFI).

@@ -73,7 +73,8 @@ def load_can_log(
         on_error: "skip" to silently skip corrupt frames, "raise" to propagate
 
     Returns:
-        List of (timestamp_us, arbitration_id, dlc, data, extended) tuples
+        List of ``CANFrameTuple`` (timestamp_us, arbitration_id, dlc, data,
+        extended, brs, esi) tuples
 
     """
     return list(
@@ -102,7 +103,8 @@ def iter_can_log(
         on_error: "skip" to silently skip corrupt frames, "raise" to propagate
 
     Yields:
-        (timestamp_us, arbitration_id, dlc, data, extended) tuples
+        ``CANFrameTuple`` (timestamp_us, arbitration_id, dlc, data, extended,
+        brs, esi) tuples
 
     """
     resolved = Path(path)

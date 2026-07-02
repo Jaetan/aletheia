@@ -99,6 +99,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._helpers.rational",
             "decode_wire_rational",
         ),
+        # Wire-decoder reject coverage — exercises decode_wire_rational's dict
+        # branch directly to pin the missing-field / non-int-component rejects
+        # (Go #86 parity). Not public API; the test needs the reach-through.
+        (
+            "test_wire_rational_decode_reject.py",
+            "aletheia.client._helpers.rational",
+            "decode_wire_rational",
+        ),
         (
             "test_property_hypothesis.py",
             "aletheia.client._helpers.json_codec",
@@ -212,6 +220,25 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # code goes through ``send_frame(brs=…, esi=…)`` which calls this
         # transitively.
         ("test_canfd_brs_esi.py", "aletheia.client._types", "encode_maybe_bool"),
+        # Outbound float-principle wire-guard (the reject_inexact SSOT). A direct
+        # contract test pins behaviour the public-API boundary tests cannot assert
+        # precisely: a float and a bool are both rejected at a rational field.
+        # Internal — user code uses Fraction / from_decimal at the value API,
+        # never this guard directly.
+        (
+            "test_reject_floats.py",
+            "aletheia.client._helpers.rational",
+            "reject_inexact",
+        ),
+        # The formula-tree walker behind set_properties' float guard. Tested
+        # directly so each branch (every predicate rational field, operator
+        # descent, list operand, the timebound integer fall-through) is pinned for
+        # mutation coverage the public-API set_properties tests cannot reach.
+        (
+            "test_reject_floats.py",
+            "aletheia.client._client",
+            "reject_formula_inexact",
+        ),
     )
 )
 

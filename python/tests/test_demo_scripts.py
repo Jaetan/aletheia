@@ -20,6 +20,7 @@ each subprocess.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,4 +56,21 @@ def test_demo_script_runs(script: str) -> None:
         f"demo {script!r} exited {result.returncode}\n"
         f"--- stdout (tail) ---\n{result.stdout[-2000:]}\n"
         f"--- stderr (tail) ---\n{result.stderr[-2000:]}"
+    )
+    # Guard the vacuous-gate class: a demo that swallows a failure and still exits
+    # 0.  returncode alone let a demo print "0/4 tests passed" (after catching the
+    # exception) and pass.  Scan stdout AND stderr (a demo may print to either),
+    # and require EVERY self-test summary to be passing (a demo may print more than
+    # one).  Two convention-stable markers across the demos:
+    #   * a swallowed-exception line ("<name>: ERROR — <exc>"), and
+    #   * every "N/M tests passed" summary must have N == M.
+    combined = f"{result.stdout}\n{result.stderr}"
+    assert "ERROR —" not in combined, (
+        f"demo {script!r} swallowed an error (exited 0 but printed 'ERROR —'):\n{combined[-2000:]}"
+    )
+    summaries = re.findall(r"(\d+)/(\d+) tests passed", combined)
+    failed = [m for m in summaries if m[0] != m[1]]
+    assert not failed, (
+        f"demo {script!r} self-test reported failures {failed} "
+        f"(all summaries: {summaries}):\n{combined[-2000:]}"
     )

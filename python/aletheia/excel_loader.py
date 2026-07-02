@@ -29,10 +29,11 @@ The workbook has three sheets:
 
 **DBC** — one row per signal::
 
-    Message ID | Message Name | DLC | Signal | Start Bit | Length |
-    Byte Order | Signed | Factor | Offset | Min | Max | Unit |
+    Message ID | Message Name | Extended | DLC | Signal | Start Bit |
+    Length | Byte Order | Signed | Factor | Offset | Min | Max | Unit |
     Multiplexor | Multiplex Value
 
+Extended is optional (defaults to False — standard 11-bit ID — when empty).
 Multiplexor and Multiplex Value are optional. If both are filled in, the
 signal is multiplexed; if both are empty, the signal is always-present.
 

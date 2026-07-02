@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """DBC Validation Demo.
 
-Aletheia validates DBC files automatically during parse_dbc():
-  - Signal overlap detection (unless multiplexed to different values)
-  - Range consistency (minimum <= maximum)
+Aletheia validates DBC files during parse_dbc(), distinguishing hard errors from
+warnings:
+  - Signal overlap (unless multiplexed to different mux values) is an ERROR — the
+    DBC is rejected (response status "error").
+  - minimum > maximum is a WARNING — the DBC still parses (status "success") with
+    a ``min_exceeds_max`` issue flagged for the caller.
 
 Requirements:
     - Aletheia built: `cabal run shake -- build`
@@ -17,6 +20,8 @@ Requirements:
 
 from __future__ import annotations
 
+import sys
+from fractions import Fraction
 from typing import TYPE_CHECKING, cast
 
 from aletheia import AletheiaClient, AletheiaError
@@ -24,8 +29,9 @@ from aletheia import AletheiaClient, AletheiaError
 if TYPE_CHECKING:
     from aletheia.types import DBCDefinition
 
-# The demo DBCs are written in raw wire form (float factors, partial metadata,
-# some intentionally invalid) to exercise the parser's validation, so they are
+# The demo DBCs use exact Fraction scaling params (the float principle — never a
+# float; 0.1 is Fraction(1, 10), 655.35 is Fraction(65535, 100)) and are partial /
+# some intentionally invalid to exercise the parser's validation, so they are
 # cast to DBCDefinition rather than constructed as the strict TypedDict.
 
 
@@ -48,7 +54,7 @@ def create_valid_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": -40,
                             "minimum": -40,
                             "maximum": 215,
@@ -61,10 +67,10 @@ def create_valid_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": False,
-                            "factor": 0.01,
+                            "factor": Fraction(1, 100),
                             "offset": 0,
                             "minimum": 0,
-                            "maximum": 655.35,
+                            "maximum": Fraction(65535, 100),  # 655.35
                             "unit": "bar",
                             "presence": "always",
                         },
@@ -107,7 +113,7 @@ def create_overlapping_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": -40,
                             "minimum": -40,
                             "maximum": 215,
@@ -120,10 +126,10 @@ def create_overlapping_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": False,
-                            "factor": 0.01,
+                            "factor": Fraction(1, 100),
                             "offset": 0,
                             "minimum": 0,
-                            "maximum": 655.35,
+                            "maximum": Fraction(65535, 100),  # 655.35
                             "unit": "bar",
                             "presence": "always",
                         },
@@ -153,7 +159,7 @@ def create_inconsistent_range_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": -40,
                             "minimum": 100,
                             "maximum": 50,
@@ -199,13 +205,14 @@ def create_multiplexed_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": False,
-                            "factor": 0.1,
+                            "factor": Fraction(1, 10),
                             "offset": 0,
                             "minimum": 0,
-                            "maximum": 6553.5,
+                            "maximum": Fraction(65535, 10),  # 6553.5
                             "unit": "rpm",
+                            "presence": "multiplexed",
                             "multiplexor": "MuxSelector",
-                            "multiplex_value": 0,
+                            "multiplex_values": [0],
                         },
                         {
                             "name": "SensorB",
@@ -213,13 +220,14 @@ def create_multiplexed_dbc() -> DBCDefinition:
                             "length": 16,
                             "byteOrder": "little_endian",
                             "signed": True,
-                            "factor": 0.01,
+                            "factor": Fraction(1, 100),
                             "offset": 0,
-                            "minimum": -327.68,
-                            "maximum": 327.67,
+                            "minimum": Fraction(-32768, 100),  # -327.68
+                            "maximum": Fraction(32767, 100),  # 327.67
                             "unit": "m/s",
+                            "presence": "multiplexed",
                             "multiplexor": "MuxSelector",
-                            "multiplex_value": 1,
+                            "multiplex_values": [1],
                         },
                     ],
                 }
@@ -228,21 +236,43 @@ def create_multiplexed_dbc() -> DBCDefinition:
     )
 
 
-def test_dbc(name: str, dbc: DBCDefinition, *, expect_valid: bool) -> bool:
-    """Parse a DBC and check whether validation passes or fails as expected."""
+def check_dbc(
+    name: str,
+    dbc: DBCDefinition,
+    *,
+    expect_valid: bool,
+    expect_warning: str | None = None,
+) -> bool:
+    """Parse a DBC and check its status, and optionally an expected warning code.
+
+    ``expect_valid`` is the hard accept/reject outcome (status "success" vs
+    "error"); ``expect_warning`` additionally asserts a non-fatal warning code is
+    present (e.g. ``min_exceeds_max`` — a warning that flags but does not reject).
+
+    A successful ``parse_dbc`` returns ``{status, dbc, warnings}`` — the
+    non-fatal codes live under ``warnings`` (the ``issues`` key is the
+    *validate* path, which merges errors and warnings into one list).
+    """
     try:
         with AletheiaClient() as client:
             response = client.parse_dbc(dbc)
 
             valid = response.get("status") == "success"
-            passed = valid == expect_valid
+            warnings = response.get("warnings", [])
+            warned = expect_warning is None or any(
+                isinstance(warning, dict) and warning.get("code") == expect_warning
+                for warning in warnings
+            )
+            passed = valid == expect_valid and warned
             status = "VALID" if valid else "INVALID"
             verdict = "PASS" if passed else "FAIL"
-            msg = response.get("message", "")
 
             print(f"  {name}: {status} — {verdict}")
+            msg = response.get("message", "")
             if msg:
                 print(f"    {msg}")
+            if expect_warning is not None:
+                print(f"    warning {expect_warning!r}: {'present' if warned else 'MISSING'}")
             return passed
 
     except AletheiaError as e:
@@ -257,14 +287,15 @@ def main() -> None:
     print("=" * 60)
 
     results = [
-        test_dbc("Valid DBC (no overlap)", create_valid_dbc(), expect_valid=True),
-        test_dbc("Overlapping signals", create_overlapping_dbc(), expect_valid=False),
-        test_dbc(
-            "Inconsistent range (min > max)",
+        check_dbc("Valid DBC (no overlap)", create_valid_dbc(), expect_valid=True),
+        check_dbc("Overlapping signals", create_overlapping_dbc(), expect_valid=False),
+        check_dbc(
+            "Inconsistent range (min > max) — warns, not rejected",
             create_inconsistent_range_dbc(),
-            expect_valid=False,
+            expect_valid=True,
+            expect_warning="min_exceeds_max",
         ),
-        test_dbc("Multiplexed (overlap OK)", create_multiplexed_dbc(), expect_valid=True),
+        check_dbc("Multiplexed (overlap OK)", create_multiplexed_dbc(), expect_valid=True),
     ]
 
     passed = sum(results)
@@ -275,6 +306,11 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("DONE")
     print("=" * 60)
+
+    # Exit non-zero on any failed scenario so the demo gate (test_demo_scripts)
+    # sees a truthful return code instead of passing vacuously on "N/4".
+    if passed != total:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

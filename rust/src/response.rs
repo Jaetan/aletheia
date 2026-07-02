@@ -320,6 +320,25 @@ pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        // Lift the structured input_bound_exceeded triple into the typed
+        // Error::InputBoundExceeded when it is present and well-typed (parity with
+        // Go's *InputBoundExceededError, C++'s make_json_error, and Python's
+        // build_error_response). A malformed or partial triple degrades to the
+        // generic Error::Core rather than being reported as a bound error.
+        if code == "input_bound_exceeded" {
+            if let (Some(bound_kind), Some(observed), Some(limit)) = (
+                value.get("bound_kind").and_then(Value::as_str),
+                value.get("observed").and_then(Value::as_u64),
+                value.get("limit").and_then(Value::as_u64),
+            ) {
+                return Err(Error::InputBoundExceeded {
+                    code,
+                    bound_kind: bound_kind.to_string(),
+                    observed,
+                    limit,
+                });
+            }
+        }
         return Err(Error::Core { code, message });
     }
     Ok(value)
@@ -616,5 +635,125 @@ mod tests {
             r#"{"status":"validation","has_errors":false,"issues":[{"severity":"warning","detail":"d"}]}"#,
         )
         .is_err());
+    }
+
+    // --- Reject-branch coverage (cross-binding parity with Go #86). Each drives a
+    // decoder directly with a malformed/unexpected wire response the verified core
+    // never emits, so only a direct test reaches these rejects. cargo-llvm-cov
+    // confirmed these response.rs branches were previously uncovered. ---
+
+    #[test]
+    fn rational_from_value_rejects_non_number_non_object() {
+        // A value that is neither a scalar integer nor a {numerator, denominator}
+        // object is rejected, not silently coerced to zero.
+        let err = decode_extraction(r#"{"values":[{"name":"S","value":"x"}]}"#).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("expected number or rational object"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn issue_severity_rejects_unknown() {
+        // The severity vocabulary is closed — an unknown severity is a protocol
+        // error (unlike IssueCode, which falls back to Unknown).
+        let err = decode_validation(
+            r#"{"status":"validation","has_errors":false,"issues":[{"severity":"fatal","code":"factor_zero","detail":"d"}]}"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("unknown validation severity"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_verdict_rejects_unknown_status() {
+        // A property result whose verdict status is unrecognised is rejected.
+        let err = decode_frame(
+            r#"{"type":"property_batch","results":[{"status":"bogus","property_index":0,"reason":"r"}]}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown verdict"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_frame_rejects_empty_property_batch() {
+        // A zero-event frame is encoded as ack; an empty property_batch is drift.
+        let err = decode_frame(r#"{"type":"property_batch","results":[]}"#).unwrap_err();
+        assert!(err.to_string().contains("must be non-empty"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_frame_rejects_unexpected_shape() {
+        // Neither an ack nor a property_batch — unrecognised frame response.
+        let err = decode_frame(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("unexpected frame response"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_ack_or_success_rejects_unexpected_status() {
+        let err = decode_ack_or_success(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(err.to_string().contains("expected status"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_validation_rejects_unexpected_status() {
+        let err = decode_validation(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(err.to_string().contains("expected status"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_format_text_rejects_unexpected_status() {
+        let err = decode_format_text(r#"{"status":"weird"}"#).unwrap_err();
+        assert!(err.to_string().contains("expected status"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_object_lifts_input_bound_exceeded_triple() {
+        // A well-typed input_bound_exceeded triple lifts into the typed
+        // Error::InputBoundExceeded (parity with Go/C++/Python), not a generic Core.
+        let err = parse_object(
+            r#"{"status":"error","code":"input_bound_exceeded","message":"too deep","bound_kind":"nesting_depth","observed":65,"limit":64}"#,
+        )
+        .unwrap_err();
+        // Display renders the bound triple (covers the Display arm).
+        assert!(
+            err.to_string()
+                .contains("nesting_depth 65 exceeds limit 64"),
+            "Display: {err}"
+        );
+        match err {
+            Error::InputBoundExceeded {
+                code,
+                bound_kind,
+                observed,
+                limit,
+            } => {
+                assert_eq!(code, "input_bound_exceeded");
+                assert_eq!(bound_kind, "nesting_depth");
+                assert_eq!(observed, 65);
+                assert_eq!(limit, 64);
+            }
+            other => panic!("expected Error::InputBoundExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_object_degrades_malformed_bound_triple_to_core() {
+        // A malformed triple (observed is a string, not a number) degrades to the
+        // generic Error::Core — never a partial InputBoundExceeded (matches the peers).
+        let err = parse_object(
+            r#"{"status":"error","code":"input_bound_exceeded","message":"m","bound_kind":"nesting_depth","observed":"65","limit":64}"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, Error::Core { .. }),
+            "expected Error::Core, got {err:?}"
+        );
     }
 }

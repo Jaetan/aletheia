@@ -466,8 +466,8 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 			return nil, err
 		}
 		if rationalLess(p.Max, p.Min) {
-			return nil, validationError(fmt.Sprintf("between: min (%g) exceeds max (%g)",
-				p.Min.Float64(), p.Max.Float64()))
+			return nil, validationError(fmt.Sprintf("between: min (%s) exceeds max (%s)",
+				formatRationalExact(p.Min), formatRationalExact(p.Max)))
 		}
 		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": serializeRational(p.Min), "max": serializeRational(p.Max)}, nil
 	case ChangedBy:
@@ -480,7 +480,8 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 			return nil, err
 		}
 		if p.Tolerance.Numerator < 0 {
-			return nil, validationError(fmt.Sprintf("negative tolerance: %g", p.Tolerance.Float64()))
+			return nil, validationError(fmt.Sprintf("negative tolerance: %s",
+				formatRationalExact(p.Tolerance)))
 		}
 		return map[string]any{"predicate": "stableWithin", "signal": string(p.Signal), "tolerance": serializeRational(p.Tolerance)}, nil
 	default:
@@ -489,7 +490,7 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 }
 
 // validateTimeBound rejects TimeBounds the Agda core cannot represent
-// (negative microseconds or overflow past int64 in the wire payload).
+// (negative microseconds).
 func validateTimeBound(t TimeBound) error {
 	if t.Microseconds < 0 {
 		return validationError(fmt.Sprintf("negative time bound: %d microseconds", t.Microseconds))
@@ -643,16 +644,17 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 // decoding path.
 func parseRational(v any) (Rational, error) {
 	switch n := v.(type) {
-	case json.Number, float64:
+	case json.Number:
 		// A scalar number is the integer rational n/1.
 		i, cls := decodeJSONInt(v)
+		// v is a json.Number here, so decodeJSONInt returns only OK, fractional,
+		// or overflow — never notNumber (that arm fires only for the dict
+		// components rawNum/rawDen below, which may be non-numeric).
 		switch cls {
 		case intParseFractional:
 			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional: %v", v))
 		case intParseOverflow:
 			return Rational{}, protocolError(fmt.Sprintf("rational out of int64 range: %v", v))
-		case intParseNotNumber:
-			return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 		}
 		return Rational{Numerator: i, Denominator: 1}, nil
 	case map[string]any:
@@ -700,6 +702,21 @@ func serializeRational(r Rational) any {
 	return map[string]any{"numerator": r.Numerator, "denominator": r.Denominator}
 }
 
+// formatRationalExact renders r exactly for a validation-error message: via the
+// kernel format_rational when the GHC RTS is up (a terminating decimal or
+// fraction, matching enriched_reason and the C++/Python/Rust bindings), else a
+// bare "num/den" fraction fallback — predicate validation can run before any
+// backend exists, so this must never error and never emit a lossy float.
+func formatRationalExact(r Rational) string {
+	if s, err := formatRational(r); err == nil {
+		return s
+	}
+	if r.Denominator == 1 {
+		return strconv.FormatInt(r.Numerator, 10)
+	}
+	return strconv.FormatInt(r.Numerator, 10) + "/" + strconv.FormatInt(r.Denominator, 10)
+}
+
 // --- Deserialization (JSON from Agda core → Go) ---
 
 // intParse classifies the outcome of decoding a JSON number as an int64.
@@ -712,13 +729,14 @@ const (
 	intParseOverflow                   // integer-valued, but outside int64
 )
 
-// decodeJSONInt converts a JSON-decoded number to an exact int64. Under the
-// parseResponse UseNumber decoder a number arrives as a json.Number, which
-// strconv.ParseInt reads exactly for every int64 — no float64 53-bit-mantissa
-// loss. A float64 (a hand-built map, a direct caller, or a legacy json.Unmarshal
-// value) is still accepted but keeps the historical 2^53 limit. The json.Number
-// float64 fallback only fires for non-canonical integer forms (e.g. "1e3") the
-// core does not emit; the canonical-integer hot path stays exact.
+// decodeJSONInt converts a JSON-decoded number to an exact int64. The
+// production decode entry (parseResponse) uses a UseNumber decoder, so on the
+// production path every wire number arrives as a json.Number, which
+// strconv.ParseInt reads exactly for the full int64 range — no float64
+// 53-bit-mantissa loss. There is deliberately no float64 arm: any non-json.Number
+// value — including a float64 a test or fuzzer may pass after a plain
+// json.Unmarshal (which decodes numbers as float64) — is not a wire integer and
+// falls to intParseNotNumber, rejected rather than silently truncated.
 func decodeJSONInt(v any) (int64, intParse) {
 	switch n := v.(type) {
 	case json.Number:
@@ -735,14 +753,6 @@ func decodeJSONInt(v any) (int64, intParse) {
 			return 0, intParseOverflow
 		}
 		return 0, intParseFractional
-	case float64:
-		if n != math.Trunc(n) {
-			return 0, intParseFractional
-		}
-		if n > math.MaxInt64 || n < math.MinInt64 {
-			return 0, intParseOverflow
-		}
-		return int64(n), intParseOK
 	default:
 		return 0, intParseNotNumber
 	}
@@ -752,15 +762,16 @@ func decodeJSONInt(v any) (int64, intParse) {
 // an integer) as an exact int64 — see decodeJSONInt for the exactness contract.
 func parseNumberAsInt64(v any) (int64, error) {
 	switch n := v.(type) {
-	case json.Number, float64:
+	case json.Number:
 		i, cls := decodeJSONInt(v)
+		// v is a json.Number here, so decodeJSONInt returns only OK, fractional,
+		// or overflow — never notNumber (that arm fires only for the dict
+		// components rawNum/rawDen below).
 		switch cls {
 		case intParseFractional:
 			return 0, protocolError(fmt.Sprintf("expected integer, got fractional: %v", v))
 		case intParseOverflow:
 			return 0, protocolError(fmt.Sprintf("integer out of int64 range: %v", v))
-		case intParseNotNumber:
-			return 0, protocolError(fmt.Sprintf("expected integer, got %T: %v", v, v))
 		}
 		return i, nil
 	case map[string]any:
@@ -905,36 +916,20 @@ func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundEx
 	return newInputBoundExceededError(kind, observed, limit, code)
 }
 
-// jsonNumberToUint64 narrows a JSON-decoded numeric value to uint64.
-// Rejects negatives, non-integers, and overflowing magnitudes.
+// jsonNumberToUint64 narrows a JSON-decoded number to uint64. The production
+// decode entry (parseResponse) uses a UseNumber decoder, so a wire number is
+// always a json.Number; ParseUint reads the full uint64 range exactly and rejects
+// negatives, non-integers ("1.5"), non-canonical forms ("1e3" the core never
+// emits), and overflowing magnitudes. Any non-json.Number value (e.g. a float64
+// from a plain json.Unmarshal in a test) is not a uint64.
 func jsonNumberToUint64(v any) (uint64, bool) {
 	switch n := v.(type) {
 	case json.Number:
-		// observed/limit are canonical integers from the core; ParseUint reads the
-		// full uint64 range exactly. A non-canonical form (e.g. "1e3") the core
-		// never emits is simply not a uint64 here.
 		i, err := strconv.ParseUint(n.String(), 10, 64)
 		if err != nil {
 			return 0, false
 		}
 		return i, true
-	case float64:
-		if n < 0 || n > float64(^uint64(0)) || n != float64(uint64(n)) {
-			return 0, false
-		}
-		return uint64(n), true
-	case int:
-		if n < 0 {
-			return 0, false
-		}
-		return uint64(n), true
-	case int64:
-		if n < 0 {
-			return 0, false
-		}
-		return uint64(n), true
-	case uint64:
-		return n, true
 	default:
 		return 0, false
 	}
@@ -1695,8 +1690,8 @@ func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
 }
 
 // parseValueTables decodes the optional "valueTables" array. Each entry's
-// integer value is parsed through [parseNumberAsInt64] to tolerate JSON's
-// float decoder on whole-number values.
+// integer value is parsed through [parseNumberAsInt64] (the shared json.Number
+// decoder — exact for the full int64 range).
 func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
 	return parseObjects(j, "valueTables", func(vtRaw map[string]any) (DBCValueTable, error) {
 		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {

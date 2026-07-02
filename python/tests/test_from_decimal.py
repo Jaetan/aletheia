@@ -22,45 +22,14 @@ from __future__ import annotations
 from fractions import Fraction
 
 import pytest
+from _decimal_cases import OVERFLOW_CASES, PARSE_FAIL_CASES, SUCCESS_CASES
 
 from aletheia import FFIError, ValidationError, from_decimal
 
 pytestmark = pytest.mark.usefixtures("rts_up")
 
-# (input, expected numerator, expected denominator) — exact rationals only.
-_SUCCESS_CASES = [
-    ("3.14", 157, 50),
-    ("42", 42, 1),
-    ("0.1", 1, 10),
-    ("-3.14", -157, 50),
-    ("0", 0, 1),
-    ("-0", 0, 1),  # negative zero collapses to +0
-    ("0.000", 0, 1),  # trailing-zero fraction canonicalises
-    ("0.10", 1, 10),  # trailing zero trimmed
-    ("00.1", 1, 10),  # leading zeros accepted
-    ("9223372036854775807", 9223372036854775807, 1),  # Int64 max fits
-]
 
-# Malformed per the grammar -?digits[.digits+]: no '+', no leading '.', no
-# exponent, no fraction syntax, and full consumption (trailing input rejected).
-_PARSE_FAIL_CASES = [
-    "3.14xyz",
-    "1e3",
-    ".5",
-    "+1",
-    "1/2",
-    "1.",  # dot with no fractional digit
-    "1 ",  # trailing space — full-consume rejects
-    " 1",  # leading space
-    "",
-    "-",
-]
-
-# A numerator or denominator beyond the Int64 wire range.
-_OVERFLOW_CASES = ["99999999999999999999.5", "0.0000000000000000001"]
-
-
-@pytest.mark.parametrize(("text", "numerator", "denominator"), _SUCCESS_CASES)
+@pytest.mark.parametrize(("text", "numerator", "denominator"), SUCCESS_CASES)
 def test_from_decimal_success(text: str, numerator: int, denominator: int) -> None:
     """A valid decimal yields the exact, canonical :class:`Fraction`."""
     result = from_decimal(text)
@@ -74,18 +43,30 @@ def test_from_decimal_success(text: str, numerator: int, denominator: int) -> No
     )
 
 
-@pytest.mark.parametrize("text", _PARSE_FAIL_CASES)
+@pytest.mark.parametrize("text", PARSE_FAIL_CASES)
 def test_from_decimal_rejects_malformed(text: str) -> None:
     """Malformed input raises ValidationError (user input, not a wire fault)."""
     with pytest.raises(ValidationError):
         from_decimal(text)
 
 
-@pytest.mark.parametrize("text", _OVERFLOW_CASES)
+@pytest.mark.parametrize("text", OVERFLOW_CASES)
 def test_from_decimal_rejects_overflow(text: str) -> None:
     """An Int64-overflowing numerator/denominator raises ValidationError."""
     with pytest.raises(ValidationError):
         from_decimal(text)
+
+
+def test_from_decimal_rejects_non_ascii() -> None:
+    r"""A non-ASCII literal raises ValidationError, not a Protocol/wire fault.
+
+    Regression guard for the shim's JSON encoding of the echoed ``input`` field:
+    before ``Marshal.hs`` used ``jsonString``, ``show`` emitted an invalid-JSON
+    ``\NNN`` escape for the non-ASCII byte, so the error envelope failed to parse
+    and surfaced a confusing Protocol error instead of this ValidationError.
+    """
+    with pytest.raises(ValidationError):
+        from_decimal("1.5€")  # 1.5€
 
 
 def test_from_decimal_vocal_when_rts_down(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -26,6 +26,7 @@ from fractions import Fraction
 from typing import cast
 
 import pytest
+from _decimal_cases import OVERFLOW_CASES, PARSE_FAIL_CASES, SUCCESS_CASES
 
 from aletheia.client._ffi import find_ffi_library
 
@@ -57,37 +58,7 @@ def _parse_decimal(text: str) -> dict[str, object]:
         _LIB.aletheia_free_str(ptr)
 
 
-# (input, expected numerator, expected denominator) — exact rationals only.
-_SUCCESS_CASES = [
-    ("3.14", 157, 50),
-    ("42", 42, 1),
-    ("0.1", 1, 10),
-    ("-3.14", -157, 50),
-    ("0", 0, 1),
-    ("-0", 0, 1),  # negative zero collapses to +0
-    ("0.000", 0, 1),  # trailing-zero fraction canonicalises
-    ("0.10", 1, 10),  # trailing zero trimmed
-    ("00.1", 1, 10),  # leading zeros accepted
-    ("9223372036854775807", 9223372036854775807, 1),  # Int64 max fits
-]
-
-# Malformed per the grammar -?digits[.digits+]: no '+', no leading '.', no
-# exponent, no fraction syntax, and full consumption (trailing input rejected).
-_PARSE_FAIL_CASES = [
-    "3.14xyz",
-    "1e3",
-    ".5",
-    "+1",
-    "1/2",
-    "1.",  # dot with no fractional digit
-    "1 ",  # trailing space — full-consume rejects
-    " 1",  # leading space
-    "",
-    "-",
-]
-
-
-@pytest.mark.parametrize(("text", "numerator", "denominator"), _SUCCESS_CASES)
+@pytest.mark.parametrize(("text", "numerator", "denominator"), SUCCESS_CASES)
 def test_parse_decimal_success(text: str, numerator: int, denominator: int) -> None:
     """A valid decimal yields the exact, canonical wire rational."""
     result = _parse_decimal(text)
@@ -97,7 +68,7 @@ def test_parse_decimal_success(text: str, numerator: int, denominator: int) -> N
     assert Fraction(text) == Fraction(numerator, denominator)
 
 
-@pytest.mark.parametrize("text", _PARSE_FAIL_CASES)
+@pytest.mark.parametrize("text", PARSE_FAIL_CASES)
 def test_parse_decimal_rejects_malformed(text: str) -> None:
     """Malformed input yields a parse-failure envelope echoing the input."""
     result = _parse_decimal(text)
@@ -108,7 +79,7 @@ def test_parse_decimal_rejects_malformed(text: str) -> None:
     assert result["message"]  # non-empty reason
 
 
-@pytest.mark.parametrize("text", ["99999999999999999999.5", "0.0000000000000000001"])
+@pytest.mark.parametrize("text", OVERFLOW_CASES)
 def test_parse_decimal_rejects_overflow(text: str) -> None:
     """A numerator or denominator beyond the Int64 wire range is rejected."""
     result = _parse_decimal(text)
