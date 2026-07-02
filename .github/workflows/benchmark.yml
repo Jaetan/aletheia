@@ -180,9 +180,10 @@ jobs:
       # foreign-lib build under haskell-shim/dist-newstyle) so `cabal run shake
       # -- build` rebuilds ONLY what this commit changed instead of the whole
       # tree (cold ~342s -> ~23s).  haskell-shim/dist-newstyle (the ~194 MB
-      # .o/.hi tree) is essential: build/libaletheia-ffi.so symlinks into it, so
-      # omitting it left a dangling symlink that forced cabal to recompile all
-      # 276 MAlonzo objects (~47s) on EVERY run.  Restore-ONLY: pr-full-ci.yml
+      # .o/.hi tree) is essential: it is the cabal foreign-lib build state that
+      # build/libaletheia-ffi.so is copied out of (Shakefile.hs `cp`), so
+      # omitting it forced cabal to recompile all 276 MAlonzo objects (~47s) on
+      # EVERY run.  Restore-ONLY: pr-full-ci.yml
       # (and its push:main runs) seed and own this cache, and the shared
       # restore-keys prefix means a brand-new PR warms from main's tree on its
       # very first push.  Not saving here avoids a large double-upload and a

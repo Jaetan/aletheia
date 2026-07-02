@@ -447,11 +447,12 @@ jobs:
       # Shake NO-OP when the PR touches no Agda source — the common case (a
       # Python/Go/C++/docs PR doesn't change the .so), turning the cold ~338s
       # build into seconds.  Includes haskell-shim/dist-newstyle (the foreign
-      # lib's ~194 MB .o/.hi tree): build/libaletheia-ffi.so is a symlink into
-      # it, so leaving it uncached left a dangling symlink that forced cabal to
-      # recompile all 276 MAlonzo objects (~47s) on EVERY run, not just
-      # Agda-changing ones.  Caching it lets Shake content-verify the .so and
-      # no-op (~0s) — verified locally: churn every mtime (the actions/cache
+      # lib's ~194 MB .o/.hi tree): it is the cabal foreign-lib build state that
+      # build/libaletheia-ffi.so is copied out of (Shakefile.hs `cp`), so
+      # leaving it uncached forced cabal to recompile all 276 MAlonzo objects
+      # (~47s) on EVERY run, not just Agda-changing ones.  Caching it lets cabal
+      # skip the recompile (~0s work when nothing changed) — verified locally:
+      # churn every mtime (the actions/cache
       # restore) and `build` still no-ops with an unchanged .so md5.  Shares
       # pr-full-ci.yml's key (SAME tree, seeded on push:main, so a fresh PR
       # branch reads it via the restore-keys prefix); safe to share — Shake keys

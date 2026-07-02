@@ -11,8 +11,8 @@
 All three are thin wrappers over ``AletheiaClient`` operations; the FFI
 shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 ``dbc_to_text`` and ``dbc_to_json`` together form a verified roundtrip:
-``dbc_to_json`` ∘ ``dbc_to_text`` is the identity on any well-formed DBC
-(Track B.3.d / E.9a universal).
+writing ``dbc_to_text(d)`` to a file and running ``dbc_to_json`` on that
+file returns ``d`` for any well-formed DBC (Track B.3.d / E.9a universal).
 """
 
 from pathlib import Path
@@ -61,8 +61,9 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
 def dbc_to_text(dbc: DBCDefinition) -> str:
     """Render a DBC JSON dict to .dbc text format via the verified Agda formatter.
 
-    Inverse of :func:`dbc_to_json` at the wire level: ``dbc_to_json(dbc_to_text(d))``
-    returns ``d`` byte-identical for any well-formed DBC (Track B.3.d / E.9a).
+    Inverse of :func:`dbc_to_json` at the wire level: writing this text to a
+    file and running :func:`dbc_to_json` on it returns an equal ``d`` for
+    any well-formed DBC (Track B.3.d / E.9a).
 
     Args:
         dbc: DBC definition dict (as returned by :func:`dbc_to_json` or

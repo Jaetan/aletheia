@@ -234,13 +234,6 @@ func emitJSON(v any) int {
 	return exitOK
 }
 
-func ratFloat(r aletheia.Rational) float64 {
-	if r.Denominator == 0 {
-		return 0
-	}
-	return float64(r.Numerator) / float64(r.Denominator)
-}
-
 // --- validate -------------------------------------------------------------
 
 func cmdValidate(argv []string) int {
@@ -385,7 +378,12 @@ func cmdExtract(argv []string) int {
 		if unit != "" {
 			unit = " " + unit
 		}
-		fmt.Printf("  %-20s = %g%s\n", string(v.Name), rationalFloat(v.Value), unit)
+		// Exact rational render (kernel format_rational), never a lossy float.
+		valStr, err := aletheia.FormatRational(v.Value)
+		if err != nil {
+			return die(err.Error())
+		}
+		fmt.Printf("  %-20s = %s%s\n", string(v.Name), valStr, unit)
 	}
 	if len(res.Errors) > 0 {
 		fmt.Println("\nErrors:")
@@ -413,14 +411,6 @@ func rationalJSON(r aletheia.Rational) any {
 		return r.Numerator
 	}
 	return map[string]int64{"numerator": r.Numerator, "denominator": r.Denominator}
-}
-
-// rationalFloat converts an extracted Rational to a float64 for the human-readable
-// text column (%g), mirroring Python's CLI `{value:g}`.  The library keeps the
-// exact Rational; only this display is floated.  Extraction guarantees a positive
-// denominator (both decode paths reject den <= 0).
-func rationalFloat(r aletheia.Rational) float64 {
-	return float64(r.Numerator) / float64(r.Denominator)
 }
 
 // --- signals --------------------------------------------------------------
@@ -456,9 +446,22 @@ func cmdSignals(argv []string) int {
 			if sig.IsSigned {
 				sign = "signed"
 			}
-			fmt.Printf("  %-20s bits[%d:%d] %s %-8s x%g %+g %s\n",
+			// Exact rational render (kernel format_rational), never a lossy float.
+			// Offset keeps the readable "+offset" form for non-negatives.
+			factorStr, ferr := aletheia.FormatRational(sig.Factor)
+			if ferr != nil {
+				return die(ferr.Error())
+			}
+			offsetStr, oerr := aletheia.FormatRational(sig.Offset)
+			if oerr != nil {
+				return die(oerr.Error())
+			}
+			if sig.Offset.Numerator >= 0 {
+				offsetStr = "+" + offsetStr
+			}
+			fmt.Printf("  %-20s bits[%d:%d] %s %-8s x%s %s %s\n",
 				string(sig.Name), uint16(sig.StartBit), uint8(sig.BitLength),
-				order, sign, ratFloat(sig.Factor), ratFloat(sig.Offset), string(sig.Unit))
+				order, sign, factorStr, offsetStr, string(sig.Unit))
 		}
 	}
 	fmt.Printf("\n%d messages, %d signals\n", len(def.Messages), total)

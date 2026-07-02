@@ -27,28 +27,27 @@ import (
 // non-zero-denominator Rational.  Catches: overflow on extreme numerators,
 // silent normalization differences, lost precision for negative numbers.
 //
-// The round-trip goes through a JSON marshal+unmarshal because that mirrors the
-// FFI boundary's int64→JSON→any conversion. This variant decodes via the default
-// json.Unmarshal (numbers as float64), exercising parseRational's retained
-// float64 path; the exact json.Number path that parseResponse now uses — and its
-// behaviour above 2^53 — is covered by TestParseResponse_ExactLargeRational.
+// The round-trip goes through the production decode path — serializeRational →
+// JSON → parseResponse (a UseNumber decoder, so numbers arrive as json.Number,
+// exact for the full int64 range) → parseRational. The >2^53 boundary is pinned
+// separately by TestParseResponse_ExactLargeRational.
 func TestProperty_RationalRoundTrip(t *testing.T) {
 	property := func(num int32, denomNonZero uint16) bool {
 		denom := int64(denomNonZero) + 1
 		original := Rational{Numerator: int64(num), Denominator: denom}
-		serialized := serializeRational(original)
-		// Mimic the real round-trip: marshal then unmarshal-as-any.
-		bytes, mErr := json.Marshal(serialized)
+		// Wrap in a one-field object and decode via the real wire decoder.
+		bytes, mErr := json.Marshal(map[string]any{"value": serializeRational(original)})
 		if mErr != nil {
 			return true // marshal failure is acceptable; parseRational not reached
 		}
-		var roundTripped any
-		if uErr := json.Unmarshal(bytes, &roundTripped); uErr != nil {
-			return true
+		m, pErr := parseResponse(string(bytes))
+		if pErr != nil {
+			t.Logf("parseResponse(%s) failed: %v", bytes, pErr)
+			return false
 		}
-		parsed, err := parseRational(roundTripped)
+		parsed, err := parseRational(m["value"])
 		if err != nil {
-			t.Logf("parseRational(%v) failed: %v", roundTripped, err)
+			t.Logf("parseRational(%v) failed: %v", m["value"], err)
 			return false
 		}
 		// Equality after normalisation: cross-multiply to avoid canonical-
@@ -144,52 +143,12 @@ func jsonNumber(v int64) []byte {
 	return b
 }
 
-// R20 cluster H — GO-B-12.1 reject cases.  parseRational must reject
-// adversarial wire forms BEFORE the int64 cast silently truncates them:
-// (1) non-integer scalar, (2) non-integer numerator/denominator in the
-// dict form, (3) numerator/denominator outside the int64 range.  Mirror
-// the defenses already in parseNumberAsInt64 (json.go:797).
-func TestParseRational_RejectFractionalScalar(t *testing.T) {
-	if _, err := parseRational(1.5); err == nil {
-		t.Fatalf("expected fractional scalar 1.5 to be rejected")
-	}
-}
-
-func TestParseRational_RejectFractionalNumerator(t *testing.T) {
-	if _, err := parseRational(map[string]any{"numerator": 1.5, "denominator": 2.0}); err == nil {
-		t.Fatalf("expected fractional numerator 1.5 to be rejected")
-	}
-}
-
-func TestParseRational_RejectFractionalDenominator(t *testing.T) {
-	// Pre-fix `int64(0.5)` silently truncated to 0, which then tripped
-	// the zero-denominator branch with a misleading "zero denominator"
-	// message.  The truncation-check now fires first.
-	if _, err := parseRational(map[string]any{"numerator": 1.0, "denominator": 0.5}); err == nil {
-		t.Fatalf("expected fractional denominator 0.5 to be rejected")
-	}
-}
-
-func TestParseRational_RejectOverflowingScalar(t *testing.T) {
-	if _, err := parseRational(math.MaxFloat64); err == nil {
-		t.Fatalf("expected MaxFloat64 numerator to be rejected as out-of-range")
-	}
-}
-
-func TestParseRational_RejectOverflowingDict(t *testing.T) {
-	if _, err := parseRational(map[string]any{
-		"numerator":   math.MaxFloat64,
-		"denominator": 1.0,
-	}); err == nil {
-		t.Fatalf("expected MaxFloat64 numerator in dict form to be rejected")
-	}
-	if _, err := parseRational(map[string]any{
-		"numerator":   1.0,
-		"denominator": math.MaxFloat64,
-	}); err == nil {
-		t.Fatalf("expected MaxFloat64 denominator in dict form to be rejected")
-	}
-}
+// parseRational's adversarial-wire rejections (fractional scalar / fractional
+// or out-of-range numerator+denominator / zero / negative denominator) are
+// pinned on the production decode path by TestParseRational_RejectsBadComponents
+// in json_precision_test.go — fed as JSON strings through parseResponse, which
+// is how the wire actually delivers them. (Native-Go-float64 inputs are not a
+// reachable surface: the sole decoder, parseResponse, emits only json.Number.)
 
 // Property: MockBackend and FFIBackend agree on the parsed JSON shape for
 // every Process(input) where the input is a parseable JSON command.  Mock

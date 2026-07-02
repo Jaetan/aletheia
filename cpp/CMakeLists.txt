@@ -496,7 +496,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # shared aletheia-cli-core; needs the repo root (fixtures) and the .so
     # (run_cli's resolver reads $ALETHEIA_LIB) from the test environment.
     add_executable(cli_tests tests/cli_tests.cpp)
-    target_link_libraries(cli_tests PRIVATE aletheia-cli-core Catch2::Catch2WithMain)
+    target_link_libraries(cli_tests PRIVATE aletheia-cli-core nlohmann_json::nlohmann_json
+                                            Catch2::Catch2WithMain)
     target_compile_features(cli_tests PRIVATE cxx_std_23)
     add_test(NAME cli_tests COMMAND cli_tests)
     set_tests_properties(cli_tests PROPERTIES

@@ -70,6 +70,14 @@ fn render_desc(parts: &[DescPart]) -> Result<String, Error> {
 /// / [`render_desc`]); `rat_str` is retained only for these error strings, which
 /// must report a bad range without depending on a fallible FFI library load.
 fn rat_str(r: Rational) -> String {
+    // Exact via the kernel format_rational when the RTS is up (a terminating
+    // decimal or fraction, matching enrich.rs and the C++/Go/Python bindings);
+    // else a bare "num/den" fraction fallback — a range-validation error can be
+    // constructed before any backend exists, so this must not depend on the RTS
+    // and must never emit a lossy float.
+    if let Ok(s) = format_rational(r) {
+        return s;
+    }
     if r.denominator() == 1 {
         r.numerator().to_string()
     } else {
@@ -639,5 +647,19 @@ mod tests {
             .stays_between(10, 5)
             .within(100)
             .is_err());
+    }
+
+    #[test]
+    fn inverted_range_error_renders_rational_via_kernel() {
+        ensure_rts_for_test(); // RTS up -> rat_str routes through format_rational
+        let err = signal("Speed")
+            .stays_between(Rational::new(1, 2).unwrap(), 0)
+            .unwrap_err();
+        // 1/2 renders as the exact decimal "0.5" (kernel format_rational, matching
+        // enrich.rs and the C++/Go/Python bindings), not rat_str's bare "1/2".
+        assert!(
+            format!("{err}").contains("0.5"),
+            "error should render 1/2 as the kernel decimal 0.5; got: {err}"
+        );
     }
 }

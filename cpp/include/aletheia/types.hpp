@@ -124,12 +124,13 @@ public:
     }
 
     // Cross-multiply comparison (avoids floating-point).
-    // __int128 is a GCC/Clang extension (not standard C++); the project targets
-    // g++ >= 14 and clang >= 21 on Linux only, where it is always available.
+    // __int128 is a Clang/GCC extension (not standard C++); the project
+    // builds Clang-only on Linux (latest stable Clang — see
+    // cpp/CMakeLists.txt), where it is always available.
     // A double-precision fallback would silently lose precision on large
     // numerator/denominator pairs, so we refuse to build rather than ship it.
     static_assert(sizeof(__int128) >= 16, "Aletheia requires __int128 support "
-                                          "(g++ >= 14 / clang >= 21 on Linux).");
+                                          "(Clang on Linux — see cpp/CMakeLists.txt).");
     constexpr auto operator<=>(const Rational& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
         auto lhs_prod = static_cast<__int128>(num_) * rhs.den_;

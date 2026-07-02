@@ -77,3 +77,18 @@ func TestFromDecimalRejectsOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestFromDecimalRejectsNonASCII(t *testing.T) {
+	// Regression guard for the shim's JSON encoding of the echoed error-envelope
+	// `input` field: a non-ASCII byte must round-trip as valid JSON. Before the
+	// Marshal.hs jsonString fix, `show` emitted an invalid-JSON `\NNN` escape, so
+	// the envelope failed to parse and surfaced ErrProtocol instead of ErrValidation.
+	_, err := FromDecimal("1.5€")
+	if err == nil {
+		t.Fatal("FromDecimal(non-ASCII): expected validation error, got nil")
+	}
+	var aErr *Error
+	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation {
+		t.Errorf("FromDecimal(non-ASCII): expected ErrValidation, got %v", err)
+	}
+}

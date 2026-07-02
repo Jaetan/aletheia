@@ -400,6 +400,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   and suppressing the `-Wconversion` diagnostic the old `int64_t`-typed
   signature gave for free. Touches `cpp/include/aletheia/types.hpp` plus a
   `unit_tests_decimal` range-rejection test; no proof or other binding touched.
+- **Rust lifts the typed `input_bound_exceeded` triple (parity; BREAKING —
+  Rust).** The Rust binding previously decoded every `status: "error"` envelope
+  to a generic `Error::Core { code, message }`, discarding the structured
+  `bound_kind` / `observed` / `limit` triple that Go (`*InputBoundExceededError`),
+  C++ (`InputBoundExceededError`), and Python (`InputBoundExceededError`) all lift
+  into a typed error. `parse_object` now lifts a well-typed `input_bound_exceeded`
+  triple into a new `Error::InputBoundExceeded { code, bound_kind, observed, limit }`
+  variant (a malformed or partial triple degrades to `Error::Core`, matching the
+  peers; the human-readable message is reconstructed from the triple by `Display`,
+  not stored — as in Go / C++ / Python). BREAKING because `Error` is not
+  `#[non_exhaustive]`, so a new variant requires an added match arm downstream.
+  Closes the one feature divergence the cross-binding decoder audit surfaced, and
+  adds an `input_bound_exceeded_error` FEATURE_MATRIX row (all four bindings) so the
+  parity gate tracks this capability — the absence of that row is why the
+  divergence escaped the matrix and needed an ad-hoc audit to find.
+- **Rust wire-decoder reject-branch test coverage — internal, no behavior
+  change.** Added inline unit tests in `rust/src/response.rs` covering the
+  decoder reject branches a cross-binding coverage audit (parity with the Go
+  wire-decoder reject-coverage work) found untested: unknown validation severity, a non-number/non-object
+  rational, an unknown verdict, an empty/unexpected frame batch, and an
+  unexpected status in the ack / validation / format-text decoders. Tool-measured
+  with `cargo-llvm-cov` (`response.rs` line coverage 74.6% → 81.7%). No production
+  Rust changed; the entry is required only because the changelog gate matches by
+  path and Rust's inline `#[cfg(test)]` tests live under `rust/src/`.
 - **B6e residual — Python rejects a `float` at the rational outbound wire fields
   (BREAKING, behavioral).** A `float` in a hand-built `DBCDefinition` rational
   field (signal `factor`/`offset`/`minimum`/`maximum`, env-var
@@ -931,6 +955,51 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **Two unreachable defensive branches in the Go JSON decoder — internal, no
+  behavior change.** `parseRational` and `parseNumberAsInt64`
+  (`go/aletheia/json.go`) each had a `case intParseNotNumber:` arm inside their
+  `json.Number` switch, but `decodeJSONInt` applied to a `json.Number` can only
+  return OK/fractional/overflow — never `notNumber` (that classification fires
+  only for the dict components `rawNum`/`rawDen`, which the map arm already
+  handles). The dead arms are removed and replaced with a comment noting why the
+  switch is non-exhaustive on the classification. Found by a coverage audit while
+  closing the decoder reject-branch test gap; no `exhaustive` linter depended on
+  them.
+- **The floating-point member of the typed log-value (C++ + Rust; BREAKING).**
+  The user-facing Logger value type carried a float case — C++ `LogValue`'s
+  `double` arm (`cpp/include/aletheia/log.hpp`) and Rust `LogValue::F64`
+  (`rust/src/log.rs`) — that **no binding ever constructs**: every numeric log
+  field is an exact integer (counts, indices, CAN IDs, µs timestamps) and the
+  only exact rationals (enrichment observed values) reach logs as
+  kernel-`format_rational`-rendered strings, never as a numeric log value. The
+  float principle bars a float on every surface including the user-facing log
+  boundary, so the float case is removed; both typed log-values are now the
+  symmetric set `{string, i64, u64, bool}`. Also deletes the dead `static
+  format_value(double)` overload in `cpp/src/enrich.cpp` (zero callers — every
+  call site renders a `Rational` through the live `format_value(const Rational&)`
+  → kernel `format_rational`). Go (`slog.Attr`) and Python (`object`) log values
+  never carried a float, so they are unchanged. An exact rational that ever needs
+  logging should be carried exactly and rendered to a string at the sink via the
+  verified `format_rational`. **BREAKING**: a `LogValue` `double`/`F64` no longer
+  exists.
+- **Dead native-type arms in the Go JSON decoders (internal, no behavior
+  change).** The Go binding's sole *production* decode entry (`parseResponse`)
+  uses a `UseNumber` decoder, so on the production path every wire number arrives
+  as a `json.Number`; the four rational/int decoders (`decodeJSONInt`,
+  `parseRational`, `parseNumberAsInt64`, `jsonNumberToUint64`) therefore only ever
+  see a `json.Number` in production, yet each still carried a `case float64:`
+  (plus `int`/`int64`/`uint64` in `jsonNumberToUint64`) whose stated rationale
+  ("mirrors the old `json.Unmarshal` FFI path") went stale when production
+  switched to `UseNumber` in #116. Those arms were unreachable on the production
+  path — only a test or fuzzer decoding via a plain `json.Unmarshal` could supply
+  a `float64` — and are removed; any non-`json.Number` value now uniformly falls
+  to the existing reject path (still total: rejected, never a panic). This
+  aligns the Go decoder's contract with the float principle and with the
+  Python/C++/Rust decoders, which already reject a float on inbound rational
+  decode. The round-trip property test is retargeted to the production
+  `json.Number` path and redundant native-`float64` reject tests are dropped (the
+  wire-path cases in `json_precision_test.go` cover them). (`go/aletheia/json.go`,
+  `go/aletheia/json_precision_test.go`, `go/aletheia/property_test.go`.)
 - **The per-binding float→rational heuristics (B6e Phase 1, BREAKING).** Deleted
   in favour of the kernel SSOT `from_decimal`: Python `float_to_rational` /
   `coerce_to_rational` / `to_signal_fraction` (`rational.py`, `types.py`); C++
@@ -954,6 +1023,110 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   markers) were removed too.
 
 ### Fixed
+
+- **Comment-truth sweep across all four bindings + the CI workflow cache
+  comments (r25 B7) — internal, no behavior change.** Every flagged comment was
+  re-verified against the current code before rewording (a finder-per-binding +
+  adversarial-verifier pass; several review findings turned out already fixed
+  and were left alone). Highlights: the three workflow build-tree-cache
+  comments (`benchmark.yml` / `pr-full-ci.yml` / `pr-heavy-lanes.yml`) claimed
+  `build/libaletheia-ffi.so` "symlinks into" `haskell-shim/dist-newstyle` — it
+  is `cp`-copied out of it by the Shake rule; the cache matters because that
+  tree is the cabal foreign-lib incremental state (the real symlink is
+  `haskell-shim/MAlonzo → ../build/MAlonzo`). Go: `Client.mu` → the channel-token
+  `lockCh`; the stale "(51 codes)" count and the "eight groups lists 7"
+  mismatch in `error.go`; a bogus int64-overflow clause on `validateTimeBound`;
+  `Client.process` → `processLocked`; `ValueDescs` → `ValueDescriptions` (+ the
+  full shallow-copy aliasing set); the sealed-interface default-arm comments
+  (no `sealedFormula`/`sealedPredicate` markers exist — sealing is the
+  unexported `formula()`/`predicate()` methods, and the arms are reachable by
+  degenerate values, not "unreachable"); `InputBoundExceededError` doc now
+  names the consolidated top-level Agda constructor and all three peer
+  bindings (including Rust's new `Error::InputBoundExceeded`). Python: the
+  `dbc_to_json ∘ dbc_to_text` composition is via a file (not literally
+  invocable, and dict-equal, not "byte-identical"); `can_log` docstrings now
+  name the 7-field `CANFrameTuple` (brs/esi were missing); the Excel-loader
+  docstring's DBC column table was missing the `Extended` column;
+  `PropertyResultEntry` is the element type of BOTH mid-stream batches and
+  end-of-stream results; `FractionJSONEncoder` cited a non-existent Agda
+  function (→ `Protocol.JSON.Lookup.getRational`) and predates Rust; Go peer
+  of `from_decimal` is `FromDecimal`, not `ParseDecimal`. C++: `ErrorCode`
+  count/family list corrected count-free; `signal_index_`/`signal_names_` are
+  rebuilt by `populate_signal_lookup()` on BOTH `parse_dbc()` and
+  `parse_dbc_text()`; `last_frames_` is also cleared by `end_stream()`;
+  `end_stream` enriches `Unresolved` too, not just `Fails`; the pre-R23
+  "returned Violation" wording → the `PropertyBatch` Fails entry; the cache
+  fallback logs a `cache.full` warning (not "silent"); `format_formula` /
+  `build_diagnostic` are NOT "always succeeds" — they render thresholds via the
+  kernel renderer and throw `AletheiaException(Ffi)` when the library/RTS is
+  unavailable (the C++ instance of the cross-binding stale claim); the
+  `__int128` comment and `static_assert` diagnostic string (the one
+  behaviorally-inert non-comment hunk) no longer name the dropped
+  "g++ >= 14 / clang >= 21" toolchain — Clang-only per `cpp/CMakeLists.txt`.
+  Rust: the `async_client` module/field/test comments claimed std
+  `mpsc::Sender` is `!Sync` (it is `Sync` for a `Send` payload since Rust
+  1.72 — the `Mutex` exists for the `Drop`-takeable `Option` slot, not for
+  `Sync`ness); the module also uses `futures-util` stream combinators, not
+  "only the reply oneshot"; `build_diagnostic`'s `# Errors` now lists
+  `RtsNotInitialized` (checked before any dlopen) alongside library-load
+  failure; the "render failure is unreachable because extraction loaded the
+  library" justification (wrong since the DI seam — an injected backend
+  extracts without the `.so`) → the truthful setup-time-render latch argument,
+  fixed at both `enrich.rs` and its `lib.rs` twin.
+- **`aletheia_parse_decimal` error envelope is now valid JSON for non-ASCII input
+  (all bindings).** The Haskell shim built the error envelope's echoed `input`
+  (and `message`) field with `show`, which emits a `\NNN` *decimal* escape for a
+  non-ASCII or control character — invalid JSON (JSON requires `\uXXXX`). So
+  `from_decimal` on a non-ASCII literal (e.g. `"1.5€"`) produced an envelope the
+  bindings' decoders could not parse, surfacing a confusing `Protocol`
+  "malformed response" error instead of the correct `Validation` "invalid decimal
+  literal". `Marshal.hs` now encodes string fields with a proper JSON encoder
+  (`jsonString`: escapes the mandatory characters and `\u`-escapes everything
+  outside printable ASCII, with surrogate pairs for astral code points). Fixes
+  every binding at the shared FFI source of truth; regression-tested per binding.
+- **Validation / range error messages render rationals exactly, not a lossy float
+  (Go / Rust).** Go's `between: min (…) exceeds max (…)` and `negative tolerance:
+  …` errors (`json.go`) rendered the threshold via `%g` — rounding a value beyond
+  six significant figures and printing `1/3` as `0.333333`. They now render via a
+  new `formatRationalExact` helper: the kernel `format_rational` when the GHC RTS
+  is up, else an exact `num/den` fallback (predicate validation can run before any
+  backend exists), never lossy. Rust's inverted-range errors (`check.rs`
+  `rat_str`) were already exact but printed a bare fraction (`1/2`); they now
+  route through `format_rational` too (decimal `0.5` when the RTS is up, the
+  fraction as the RTS-down fallback), matching `enrich.rs` and the other bindings.
+  This completes the "render rationals exactly in user-facing output" sweep (r25
+  direction-call #2; PR #134 `extract --json`, PR #135 CLI text).
+  (`go/aletheia/json.go`, `rust/src/check.rs`.)
+
+- **CLI human-readable text renders rationals exactly, not a lossy `%g` /
+  `to_double` (Go / C++ / Python).** The `extract` and `signals` commands printed
+  each signal value, factor, and offset through a lossy float (`%g` in Go/Python,
+  `to_double()` in C++), so a value with more significant figures than the
+  default six was rounded in the operator-facing output. All three now render via
+  the verified kernel `format_rational` (the same renderer behind
+  `enriched_reason`): a terminating decimal (`0.25`) or an exact fraction
+  (`1/3`), never a rounded float. Go gains a public
+  `aletheia.FormatRational(Rational) (string, error)` for this (the CLI is a
+  separate package); the now-unused `ratFloat` / `rationalFloat` float helpers are
+  removed. Output for typical DBCs (values `%g` already printed in fixed,
+  non-scientific notation within six significant figures) is unchanged. PR 2 of
+  the "render rationals exactly in user-facing output" sweep.
+  (`go/cmd/aletheia/main.go`, `go/aletheia/enrich.go`, `cpp/src/cli/cli.cpp`,
+  `python/aletheia/cli.py`.)
+
+- **C++ `extract --json` emits exact rationals, not a lossy `double` (parity
+  with Python/Go; BREAKING for that output).** The CLI's `extract --json`
+  rendered each signal value via `Rational::to_double()`, so a non-integer
+  physical value (e.g. a factor-`0.25` signal → `2500.25`) reached a JSON
+  consumer as a lossy IEEE-754 double. It now emits the exact
+  `{"numerator","denominator"}`-or-bare-int wire shape — the same
+  parser-equivalent shape as Python's `FractionJSONEncoder`, Go's `extract
+  --json`, and the binding's own DBC canonical JSON (the parsed value matches;
+  byte order does not, since nlohmann emits object keys sorted). The float
+  principle bars a lossy float even on machine-readable output. A consumer that
+  parsed an `extract --json` value as a plain JSON number must now read the
+  rational object for non-integer values (integers stay bare ints).
+  (`cpp/src/cli/cli.cpp`.)
 
 - **FFI validation-error envelopes now key the human reason as `message`, not
   `error`** (`haskell-shim/src/AletheiaFFI/Marshal.hs` `mkErrorJson`). The

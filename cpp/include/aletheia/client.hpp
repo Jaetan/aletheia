@@ -131,9 +131,10 @@ public:
     [[nodiscard]] auto add_checks(std::stop_token stop, std::vector<CheckResult> checks)
         -> Result<void>;
     [[nodiscard]] auto start_stream(std::stop_token stop) -> Result<void>;
-    // On violation, the returned Violation includes an optional ViolationEnrichment
-    // with extracted signal values and a formatted reason string (requires
-    // set_properties() to have been called to install diagnostics).
+    // On violation, the Fails entry in the returned PropertyBatch carries an
+    // optional ViolationEnrichment with extracted signal values and a formatted
+    // reason string (requires set_properties() to have been called to install
+    // diagnostics).
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
     // CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are passed
     // as std::optional<bool> — std::nullopt for CAN 2.0B frames where the
@@ -205,8 +206,9 @@ public:
             ++index;
         }
     }
-    // Properties with Verdict::Fails include an optional ViolationEnrichment
-    // populated from the last-known frame values for each relevant CAN ID.
+    // Properties with Verdict::Fails or Verdict::Unresolved include an
+    // optional ViolationEnrichment populated from the last-known frame values
+    // for each relevant CAN ID.
     [[nodiscard]] auto end_stream(std::stop_token stop) -> Result<StreamResult>;
 
 private:
@@ -255,14 +257,16 @@ private:
 
     // Extraction cache: keyed by (id_value, is_extended, dlc, payload).
     // Capped at max_cache_size entries; when full, new extractions are
-    // performed but not cached (silent fallback to per-frame extraction).
+    // performed but not cached (falls back to per-frame extraction, logging
+    // a `cache.full` warning).
     // Cache key types live in detail/cache_keys.hpp — see there for the
     // transparent comparator that enables heterogeneous lookup by FrameKeyView.
     static constexpr std::size_t max_cache_size = 256;
     std::map<detail::FrameKey, ExtractionResult, detail::FrameKeyLess> cache_;
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.
-    // Populated by send_frame() (guarded by !diags_.empty()); cleared by start_stream().
+    // Populated by send_frame() (guarded by !diags_.empty()); cleared by
+    // start_stream() and by end_stream() once enrichment has consumed it.
     // Storage: one entry per unique (CAN ID, extended) pair.
     struct LastFrame {
         CanId id;
@@ -272,11 +276,12 @@ private:
     std::map<detail::MessageKey, LastFrame> last_frames_;
 
     // Signal name → 0-based index within the DBC message's signal list.
-    // Populated by parse_dbc(); cleared by parse_dbc().
+    // Rebuilt (cleared + repopulated) by populate_signal_lookup() on every
+    // successful parse_dbc() / parse_dbc_text().
     std::unordered_map<detail::SignalKey, std::uint32_t, detail::SignalKeyHash> signal_index_;
 
     // Index → signal name reverse lookup, keyed by (can_id_value, is_extended).
-    // Populated alongside signal_index_ in parse_dbc().
+    // Rebuilt alongside signal_index_ in populate_signal_lookup().
     std::unordered_map<detail::MessageKey, std::vector<std::string>, detail::MessageKeyHash>
         signal_names_;
 };

@@ -258,10 +258,11 @@ jobs:
       # commit changed (`build` ~384s -> ~23s, measured).
       #
       # haskell-shim/dist-newstyle (the foreign lib's ~194 MB .o/.hi tree) is
-      # included: build/libaletheia-ffi.so is a symlink into it, so omitting it
-      # left a dangling symlink that forced cabal to recompile all 276 MAlonzo
-      # objects (~47s) on EVERY run.  With it cached, Shake content-verifies the
-      # .so and no-ops.
+      # included: it is the cabal foreign-lib build state that
+      # build/libaletheia-ffi.so is copied out of (Shakefile.hs `cp`), so
+      # omitting it forced cabal to recompile all 276 MAlonzo objects (~47s) on
+      # EVERY run.  With it cached, cabal skips the recompile and Shake
+      # content-verifies the .so and no-ops.
       #
       # Safe because the build keys on CONTENT, not mtime.  actions/cache resets
       # every file's mtime on restore, but Shake (ChangeModtimeAndDigest) and GHC

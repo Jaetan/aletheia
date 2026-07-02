@@ -878,6 +878,40 @@ func TestBetween_MinExceedsMax(t *testing.T) {
 	}
 }
 
+func TestBetween_MinExceedsMax_RendersExactRational(t *testing.T) {
+	// The min>max validation error must render the threshold exactly — via the
+	// kernel format_rational, or the num/den fallback when no backend is up —
+	// never a lossy %g. 1/3 is non-terminating: old %g printed "0.333333"; the
+	// exact render is "1/3".
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.SetProperties(ctx, []aletheia.Formula{
+		aletheia.Atomic{Predicate: aletheia.Between{
+			Signal: "Temp",
+			Min:    aletheia.Rational{Numerator: 1, Denominator: 3},
+			Max:    aletheia.IntRational(0),
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error for Between with Min > Max")
+	}
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Kind != aletheia.ErrValidation {
+		t.Errorf("expected ErrValidation, got %s", aErr.Kind)
+	}
+	if got := err.Error(); !strings.Contains(got, "min (1/3) exceeds max (0)") {
+		t.Errorf("error should render the exact rational, not a lossy float; got %q", got)
+	}
+}
+
 // --- Group R6-J: startBit/length range validation tests ---
 
 func TestFormatDBC_StartBitOutOfRange(t *testing.T) {

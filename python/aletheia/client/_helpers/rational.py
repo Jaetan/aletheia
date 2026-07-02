@@ -48,7 +48,7 @@ def from_decimal(s: str) -> Fraction:
     accepted grammar is the kernel's: ``-?digits`` or ``-?digits.digits+`` —
     no ``+`` sign, no leading/trailing ``.``, no exponent (so ``"1e3"``,
     ``".5"``, ``"1."``, ``"+2"`` are rejected, and the whole string must be
-    consumed).  Mirrors Go ``ParseDecimal`` / C++ ``Rational::from_decimal`` /
+    consumed).  Mirrors Go ``FromDecimal`` / C++ ``Rational::from_decimal`` /
     Rust ``Rational::from_decimal`` exactly.
 
     Like rational *display* (:func:`~aletheia.client._enrichment.format_rational`),
