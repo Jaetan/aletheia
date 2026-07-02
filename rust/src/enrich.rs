@@ -36,9 +36,10 @@ pub(crate) struct PropertyDiagnostic {
 /// Build the diagnostic for a formula.
 ///
 /// # Errors
-/// Propagates an [`Error`] if the kernel rational renderer's library cannot be
-/// loaded (see [`format_rational`]); callers render thresholds at property-setup
-/// time, where a load failure is a legitimate setup error.
+/// Propagates an [`Error`] if the kernel rational renderer cannot run — the GHC
+/// RTS is not initialised, or its library cannot be loaded (see
+/// [`format_rational`]); callers render thresholds at property-setup time,
+/// where such a failure is a legitimate setup error.
 pub(crate) fn build_diagnostic(f: &Formula) -> Result<PropertyDiagnostic, Error> {
     Ok(PropertyDiagnostic {
         signals: collect_signals(f),
@@ -233,8 +234,9 @@ fn with_core(base: String, core_reason: &str) -> String {
 /// The enriched reason when no signal values are available — the formula
 /// description plus the raw core reason. Renders no rationals, so it is infallible
 /// and doubles as the graceful degrade target if observed-value rendering ever
-/// fails (unreachable: the values came from an extraction that already loaded the
-/// library, so the renderer's library is loaded too).
+/// fails (in practice only an ABI malfunction: diagnostics exist only after
+/// property setup already rendered the thresholds, latching the renderer's
+/// process-global RTS + library state that the eval-path render reuses).
 pub(crate) fn reason_without_values(diag: &PropertyDiagnostic, core_reason: &str) -> String {
     with_core(format!("violated: {}", diag.formula_desc), core_reason)
 }

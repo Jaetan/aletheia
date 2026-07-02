@@ -272,9 +272,11 @@ func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bo
 		collectSignalsInto(v.Left, signals, seen)
 		collectSignalsInto(v.Right, signals, seen)
 	default:
-		// Unreachable: the Formula interface is sealed (sealedFormula
-		// marker), so every concrete formula type is matched above. The
-		// branch exists only to satisfy Go's exhaustiveness expectation.
+		// Formula is sealed (the unexported formula() marker method), so
+		// the concrete formula types above are exhaustive; this arm is
+		// reached only by degenerate values (nil, a *T pointer to a
+		// concrete formula type, or an embedding type), which are treated
+		// as contributing no signals.
 	}
 }
 
@@ -298,8 +300,10 @@ func predicateSignal(p Predicate) SignalName {
 	case StableWithin:
 		return v.Signal
 	default:
-		// Unreachable: the Predicate interface is sealed (sealedPredicate
-		// marker), so every concrete predicate type is matched above.
+		// Predicate is sealed (the unexported predicate() marker method),
+		// so the concrete predicate types above are exhaustive; degenerate
+		// values (nil, a pointer, or an embedding type) fall through here.
+		// The return also satisfies Go's missing-return rule.
 		return ""
 	}
 }
@@ -364,14 +368,14 @@ type frameKey struct {
 
 // extractCache is a bounded, frame-keyed cache of extraction results.
 // It is not thread-safe; all access must be synchronized by the caller
-// (protected by Client.mu).
+// (the Client's channel-token lock, lockCh).
 type extractCache struct {
 	entries map[frameKey]*ExtractionResult
 }
 
 // newExtractCache returns an empty extract cache. Use it once per
 // Client; the cache is not safe for concurrent use and the Client holds
-// Client.mu whenever it reads or writes entries.
+// its channel-token lock (lockCh) whenever it reads or writes entries.
 func newExtractCache() *extractCache {
 	return &extractCache{entries: make(map[frameKey]*ExtractionResult)}
 }

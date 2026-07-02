@@ -490,7 +490,7 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 }
 
 // validateTimeBound rejects TimeBounds the Agda core cannot represent
-// (negative microseconds or overflow past int64 in the wire payload).
+// (negative microseconds).
 func validateTimeBound(t TimeBound) error {
 	if t.Microseconds < 0 {
 		return validationError(fmt.Sprintf("negative time bound: %d microseconds", t.Microseconds))

@@ -7,15 +7,17 @@
 //! The sync `Client` is `!Send` (a thread-pinned `StreamState`), so [`AsyncClient`]
 //! owns it on a dedicated **worker thread** and talks to it over a channel: each
 //! async method sends a job — a closure capturing its (owned) arguments and a
-//! `oneshot` reply sender — and `.await`s the reply. The handle is a
-//! `Mutex`-wrapped channel sender, so `AsyncClient` is `Send + Sync`; its
-//! borrowing futures are therefore `Send`, so it can be `tokio::spawn`ed on a
-//! multi-thread runtime (`mpsc::Sender` is `Send` but `!Sync`, hence the
-//! `Mutex` — held only for the brief enqueue, never across an `.await`).
+//! `oneshot` reply sender — and `.await`s the reply. The handle owns the
+//! channel sender (itself `Send + Sync` — std's `mpsc::Sender` is `Sync` for
+//! a `Send` payload) behind a `Mutex<Option<…>>` whose slot
+//! [`Drop`] takes to close the channel, so `AsyncClient` is `Send + Sync`;
+//! its borrowing futures are therefore `Send`, so it can be `tokio::spawn`ed
+//! on a multi-thread runtime (the lock is held only for the brief enqueue,
+//! never across an `.await`).
 //!
 //! It is **runtime-agnostic**: only the reply `oneshot` (from `futures-channel`)
-//! is used, never a runtime, so it works under tokio, async-std, or smol — the
-//! caller brings the executor.
+//! and the `futures-util` stream combinators are used, never a runtime, so it
+//! works under tokio, async-std, or smol — the caller brings the executor.
 //!
 //! ## Cancellation (the contract: `docs/architecture/CANCELLATION.md`)
 //! Dropping a method's future before it resolves cancels the call. Both cases
@@ -44,13 +46,15 @@ type Job = Box<dyn FnOnce(&Client) + Send>;
 
 /// A runtime-agnostic async mirror of [`Client`]; see the module docs.
 pub struct AsyncClient {
-    /// The job channel, wrapped in a `Mutex` so `AsyncClient` is `Sync` (the std
-    /// `mpsc::Sender` is `Send` but `!Sync`). The lock is held only for the brief
-    /// enqueue, never across an `.await`. `None` only transiently during
-    /// [`Drop`] — taking it closes the channel.
+    /// The job channel. The std `mpsc::Sender` is itself `Send + Sync`
+    /// (`Sync` for a `Send` payload), so the `Mutex` is not
+    /// what makes `AsyncClient` `Sync` — it wraps the `Option` slot that
+    /// [`Drop`] takes to close the channel. The lock is held only for the
+    /// brief enqueue, never across an `.await`; `None` only transiently
+    /// during [`Drop`].
     jobs: Mutex<Option<Sender<Job>>>,
-    /// Joined on [`Drop`]. `JoinHandle` is already `Send + Sync`, so — unlike the
-    /// sender — it needs no wrapper.
+    /// Joined on [`Drop`]. `Option`-slotted only so [`Drop`] can take and join
+    /// it; `JoinHandle` is already `Send + Sync`, so it needs no lock.
     worker: Option<JoinHandle<()>>,
 }
 
@@ -433,8 +437,9 @@ mod tests {
         // The worker-thread design promises AsyncClient is Send + Sync, so
         // &AsyncClient is Send and the futures from its async methods (which
         // borrow &self across .await) are Send — i.e. spawnable on a multi-thread
-        // executor like tokio::spawn. The std mpsc::Sender is !Sync, which is why
-        // `jobs` is Mutex-wrapped; this compile-time check guards the invariant.
+        // executor like tokio::spawn. Every field is Send + Sync (std's
+        // mpsc::Sender included — Sync for a Send payload); this
+        // compile-time check guards the invariant.
         fn is_send<T: Send>() {}
         fn is_sync<T: Sync>() {}
         is_send::<super::AsyncClient>();

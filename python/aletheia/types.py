@@ -81,9 +81,9 @@ class FractionJSONEncoder(json.JSONEncoder):
 
     Emits an integer when the denominator is 1, and a
     ``{"numerator": N, "denominator": D}`` dict otherwise.  This is the
-    wire shape Agda's :func:`Aletheia.DBC.Types.rationalToJSON` accepts
-    and the C++/Go bindings emit; pinning it client-side gives byte-
-    identical JSON across the three bindings.
+    wire shape Agda's ``Aletheia.Protocol.JSON.Lookup.getRational``
+    accepts and the C++/Go/Rust bindings emit; pinning it client-side
+    gives byte-identical JSON across the bindings.
     """
 
     def default(self, o: object) -> object:
@@ -580,7 +580,11 @@ class PropertyBatchResponse(TypedDict):
 
 
 class PropertyResultEntry(TypedDict):
-    """A single property finalization result at end-of-stream.
+    """A single property result entry.
+
+    Element type of both the per-frame ``PropertyBatchResponse`` (property
+    events emitted mid-stream) and the end-of-stream ``CompleteResponse``
+    finalization results.
 
     ``status="unresolved"`` means the Agda coalgebra's three-valued Kleene
     ``finalizeL`` returned ``Unsure`` — typically when an atomic predicate's

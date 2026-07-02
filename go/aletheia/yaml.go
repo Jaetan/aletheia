@@ -180,10 +180,12 @@ func nodeRational(s *yamlScalar) (Rational, error) {
 
 // parseYAMLChecks decodes a YAML document into a list of CheckResults.
 // The two-pass decode (untyped map → typed struct) is intentional: yaml.v3's
-// typed-only path conflates "key missing" / "key present but empty list" /
-// "key present with wrong type" into the same shape, which would surface as
-// an opaque "no checks" downstream.  Cost is negligible on the loader path
-// (microseconds per workbook); benefit is actionable diagnostics.
+// typed-only path decodes "key missing", "key present but null" (a bare
+// "checks:"), and "key present but empty list" to the same zero-length
+// slice — an opaque "no checks" downstream — and reports other wrong-typed
+// "checks" values (string/map/number) only as a raw yaml.v3 decode error.
+// Cost is negligible on the loader path (microseconds per document);
+// benefit is actionable diagnostics.
 func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	// First pass: structural check on the top-level "checks" key so we can
 	// distinguish absent / wrong-type from a typed unmarshal failure.
