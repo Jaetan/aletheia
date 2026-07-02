@@ -36,7 +36,12 @@ pub enum Error {
     /// The core's JSON response could not be parsed or had an unexpected shape.
     Protocol(String),
     /// The core returned a structured error response. `code` is the machine-
-    /// readable wire code from the Agda kernel (e.g. `handler_no_dbc`).
+    /// readable wire code from the Agda kernel (e.g. `handler_no_dbc`). A
+    /// `code == "input_bound_exceeded"` response carrying a well-typed
+    /// `bound_kind` / `observed` / `limit` triple is lifted to
+    /// [`Error::InputBoundExceeded`] instead of this generic variant, so any
+    /// method documented as returning `Error::Core` on a core error may also
+    /// return `Error::InputBoundExceeded` when the rejection is a bound violation.
     Core { code: String, message: String },
     /// The core rejected an input for exceeding a structural bound (nesting
     /// depth, atom count, identifier length, …). This is the typed lift of a
@@ -45,11 +50,13 @@ pub enum Error {
     /// of Go's `*InputBoundExceededError`, C++'s `InputBoundExceededError`, and
     /// Python's `InputBoundExceededError`. A malformed or partial triple degrades
     /// to [`Error::Core`] rather than surfacing here (matching the peer bindings).
+    /// The human-readable message is reconstructed from the triple by [`Display`],
+    /// not stored — like Go / C++ / Python, none of which carry the wire message.
+    ///
+    /// [`Display`]: std::fmt::Display
     InputBoundExceeded {
         /// Machine-readable wire code (always `input_bound_exceeded`).
         code: String,
-        /// Human-readable message from the core.
-        message: String,
         /// Which bound was crossed (a `BoundKind` name, e.g. `nesting_depth`).
         bound_kind: String,
         /// The observed value that exceeded the limit.

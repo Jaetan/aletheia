@@ -333,7 +333,6 @@ pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
             ) {
                 return Err(Error::InputBoundExceeded {
                     code,
-                    message,
                     bound_kind: bound_kind.to_string(),
                     observed,
                     limit,
@@ -734,7 +733,6 @@ mod tests {
                 bound_kind,
                 observed,
                 limit,
-                ..
             } => {
                 assert_eq!(code, "input_bound_exceeded");
                 assert_eq!(bound_kind, "nesting_depth");

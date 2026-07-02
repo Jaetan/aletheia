@@ -482,7 +482,7 @@ features:
       rust:
         status: implemented
         entry: "Error::InputBoundExceeded"
-        notes: "Error::InputBoundExceeded { code, message, bound_kind, observed, limit } — lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python). Added in the cross-binding decoder-audit follow-up (#93); before it, Rust collapsed every error envelope to the generic Error::Core."
+        notes: "Error::InputBoundExceeded { code, bound_kind, observed, limit } — lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python). Added in the cross-binding decoder-audit follow-up; before it, Rust collapsed every error envelope to the generic Error::Core. The human-readable message is reconstructed from the triple by Display, not stored — like the peers."
 
   - id: violation_enrichment
     name: Violation enrichment
