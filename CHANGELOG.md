@@ -986,6 +986,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`aletheia_parse_decimal` error envelope is now valid JSON for non-ASCII input
+  (all bindings).** The Haskell shim built the error envelope's echoed `input`
+  (and `message`) field with `show`, which emits a `\NNN` *decimal* escape for a
+  non-ASCII or control character — invalid JSON (JSON requires `\uXXXX`). So
+  `from_decimal` on a non-ASCII literal (e.g. `"1.5€"`) produced an envelope the
+  bindings' decoders could not parse, surfacing a confusing `Protocol`
+  "malformed response" error instead of the correct `Validation` "invalid decimal
+  literal". `Marshal.hs` now encodes string fields with a proper JSON encoder
+  (`jsonString`: escapes the mandatory characters and `\u`-escapes everything
+  outside printable ASCII, with surrogate pairs for astral code points). Fixes
+  every binding at the shared FFI source of truth; regression-tested per binding.
 - **Validation / range error messages render rationals exactly, not a lossy float
   (Go / Rust).** Go's `between: min (…) exceeds max (…)` and `negative tolerance:
   …` errors (`json.go`) rendered the threshold via `%g` — rounding a value beyond

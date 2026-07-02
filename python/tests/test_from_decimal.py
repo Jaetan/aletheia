@@ -57,6 +57,18 @@ def test_from_decimal_rejects_overflow(text: str) -> None:
         from_decimal(text)
 
 
+def test_from_decimal_rejects_non_ascii() -> None:
+    r"""A non-ASCII literal raises ValidationError, not a Protocol/wire fault.
+
+    Regression guard for the shim's JSON encoding of the echoed ``input`` field:
+    before ``Marshal.hs`` used ``jsonString``, ``show`` emitted an invalid-JSON
+    ``\NNN`` escape for the non-ASCII byte, so the error envelope failed to parse
+    and surfaced a confusing Protocol error instead of this ValidationError.
+    """
+    with pytest.raises(ValidationError):
+        from_decimal("1.5€")  # 1.5€
+
+
 def test_from_decimal_vocal_when_rts_down(monkeypatch: pytest.MonkeyPatch) -> None:
     """Vocal contract: with the RTS down, raise FFIError before the FFI call.
 

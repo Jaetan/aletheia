@@ -1771,3 +1771,153 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
     // well-formed multiplexed — accepted
     CHECK(detail::parse_dbc_response(make_mux("Mode", json::array({0, 1})).dump()).has_value());
 }
+
+// ===========================================================================
+// Wire-decoder reject-branch coverage (cross-binding parity with Go #86 / Rust
+// PR-B). Each drives a detail::parse_* / decode_* decoder with a malformed or
+// unexpected wire response the verified core never emits, so only a direct test
+// reaches these rejects. Tool-measured with llvm-cov (-DALETHEIA_COVERAGE=ON):
+// each case flips a previously-uncovered json_parse.cpp branch. Each asserts the
+// specific error kind + message fragment so the test targets its branch, not
+// merely that *some* decode step failed.
+// ===========================================================================
+
+TEST_CASE("make_json_error rejects a missing code field", "[json][parse][error]") {
+    auto r = detail::parse_success(R"({"status": "error", "message": "m"})");
+    CHECK_FALSE(r.has_value());
+    CHECK(r.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("missing or non-string 'code'"));
+}
+
+TEST_CASE("make_json_error rejects a non-string code field", "[json][parse][error]") {
+    auto r = detail::parse_success(R"({"status": "error", "code": 123, "message": "m"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("missing or non-string 'code'"));
+}
+
+TEST_CASE("make_json_error rejects a missing message field", "[json][parse][error]") {
+    auto r = detail::parse_success(R"({"status": "error", "code": "handler_no_dbc"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()},
+               ContainsSubstring("missing or non-string 'message'"));
+}
+
+TEST_CASE("make_json_error rejects a non-string message field", "[json][parse][error]") {
+    auto r =
+        detail::parse_success(R"({"status": "error", "code": "handler_no_dbc", "message": 123})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()},
+               ContainsSubstring("missing or non-string 'message'"));
+}
+
+TEST_CASE("parse_rational_as_int rejects a non-numeric property_index", "[json][parse][error]") {
+    auto r = detail::parse_frame_response(
+        R"({"type": "property_batch", "results": [{"status": "holds", "property_index": "x"}]})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()},
+               ContainsSubstring("Expected integer or {numerator, denominator}"));
+}
+
+TEST_CASE("require_int rejects a fractional rational component", "[json][parse][error]") {
+    auto r = detail::parse_extraction(
+        R"({"status": "success", "values": [{"name": "S", "value": {"numerator": 1.5, "denominator": 2}}]})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("must be an integer"));
+}
+
+TEST_CASE("parse_event_ack rejects a malformed JSON envelope", "[json][parse][error]") {
+    auto r = detail::parse_event_ack("{");
+    CHECK_FALSE(r.has_value());
+    CHECK(r.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_validation lifts a status=error envelope", "[json][parse][error]") {
+    auto r = detail::parse_validation(
+        R"({"status": "error", "code": "factor_zero", "message": "boom"})");
+    CHECK_FALSE(r.has_value());
+    CHECK(r.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+}
+
+TEST_CASE("parse_validation rejects a wrong response type", "[json][parse][error]") {
+    auto r = detail::parse_validation(R"({"status": "weird"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Expected validation response"));
+}
+
+TEST_CASE("parse_validation rejects a malformed JSON envelope", "[json][parse][error]") {
+    auto r = detail::parse_validation("{");
+    CHECK_FALSE(r.has_value());
+    CHECK(r.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_extraction lifts a status=error envelope", "[json][parse][error]") {
+    auto r = detail::parse_extraction(R"({"status": "error", "code": "x", "message": "boom"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+}
+
+TEST_CASE("parse_frame_data lifts a status=error envelope", "[json][parse][error]") {
+    auto r = detail::parse_frame_data(R"({"status": "error", "code": "x", "message": "boom"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+}
+
+TEST_CASE("parse_frame_data rejects an unexpected status", "[json][parse][error]") {
+    auto r = detail::parse_frame_data(R"({"status": "weird"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Unexpected frame data status"));
+}
+
+TEST_CASE("parse_frame_response rejects a negative timestamp", "[json][parse][error]") {
+    auto r = detail::parse_frame_response(
+        R"({"type": "property_batch", "results": [{"status": "holds", "property_index": 0, "timestamp": -5}]})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Negative timestamp"));
+}
+
+TEST_CASE("parse_frame_response lifts a status=error envelope", "[json][parse][error]") {
+    auto r = detail::parse_frame_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+}
+
+TEST_CASE("parse_frame_response rejects an empty property_batch", "[json][parse][error]") {
+    auto r = detail::parse_frame_response(R"({"type": "property_batch", "results": []})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("non-empty array"));
+}
+
+TEST_CASE("parse_stream_result lifts a status=error envelope", "[json][parse][error]") {
+    auto r = detail::parse_stream_result(R"({"status": "error", "code": "x", "message": "boom"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+}
+
+TEST_CASE("parse_stream_result rejects a wrong response type", "[json][parse][error]") {
+    auto r = detail::parse_stream_result(R"({"status": "weird"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Expected complete response"));
+}
+
+TEST_CASE("parse_stream_result rejects a warning missing property_index", "[json][parse][error]") {
+    auto r = detail::parse_stream_result(
+        R"({"status": "complete", "results": [], "warnings": [{"kind": "x"}]})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()},
+               ContainsSubstring("missing required 'property_index'"));
+}
+
+TEST_CASE("parse_stream_result rejects a negative warning property_index", "[json][parse][error]") {
+    auto r = detail::parse_stream_result(
+        R"({"status": "complete", "results": [], "warnings": [{"property_index": -1}]})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()},
+               ContainsSubstring("Negative warning property_index"));
+}
+
+TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][error]") {
+    auto r = detail::parse_dbc_response(R"({"status": "error", "code": "x", "message": "boom"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+}

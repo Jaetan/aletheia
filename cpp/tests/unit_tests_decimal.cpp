@@ -117,3 +117,15 @@ TEST_CASE("Rational::from_decimal rejects an interior NUL byte (cross-binding pa
     using namespace std::string_view_literals;
     expect_validation_throw("1\0xyz"sv);
 }
+
+TEST_CASE("Rational::from_decimal rejects a non-ASCII literal as a Validation error",
+          "[types][decimal]") {
+    // Regression guard for the shim's JSON encoding of the echoed `input` field:
+    // the kernel error envelope must stay valid JSON even when the input carries
+    // non-ASCII bytes. Before the Marshal.hs `jsonString` fix, `show` emitted a
+    // `\NNN` decimal escape (invalid JSON), so the decoder failed to parse the
+    // envelope and surfaced a confusing Protocol "malformed response" instead of
+    // the correct Validation "invalid decimal literal". A "1.5€" (UTF-8) input
+    // now round-trips through the envelope to a clean Validation error.
+    expect_validation_throw("1.5\xe2\x82\xac");
+}
