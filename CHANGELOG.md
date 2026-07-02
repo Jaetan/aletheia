@@ -377,6 +377,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **CI: `actions/cache` bumped v5 → v6 at every cache / restore / save site**
+  (`benchmark.yml` / `pr-full-ci.yml` / `pr-heavy-lanes.yml`; Dependabot).
+  No workflow logic changed — the same keys, paths, and restore-key prefixes;
+  the entry exists because the changelog gate rightly treats a cache-action
+  major bump as a CI change worth a line.
 - **B6e residual — C++ `Rational` ctor and `Rational::make` reject `double` and
   `bool` at the exact-numeric boundary (BREAKING, C++).** The two-argument
   `Rational(std::int64_t, std::int64_t)` constructor and the `Rational::make`
