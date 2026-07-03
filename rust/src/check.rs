@@ -85,14 +85,6 @@ fn rat_str(r: Rational) -> String {
     }
 }
 
-/// `a <= b` for rationals. Denominators are positive by construction, so
-/// cross-multiplication preserves the inequality; `i128` avoids `i64` overflow on
-/// the product (matching `ltl.rs`'s comparison).
-fn rational_le(a: Rational, b: Rational) -> bool {
-    i128::from(a.numerator()) * i128::from(b.denominator())
-        <= i128::from(b.numerator()) * i128::from(a.denominator())
-}
-
 /// Convert milliseconds to a microsecond [`TimeBound`], guarding overflow.
 fn ms_to_bound(ms: u64) -> Result<TimeBound, Error> {
     let micros = ms.checked_mul(US_PER_MS).ok_or_else(|| {
@@ -230,7 +222,7 @@ impl Signal {
         hi: impl Into<Rational>,
     ) -> Result<Check, Error> {
         let (lo, hi) = (lo.into(), hi.into());
-        if !rational_le(lo, hi) {
+        if !lo.le(hi) {
             return Err(Error::Validation(format!(
                 "stays_between: lo ({}) must be <= hi ({})",
                 rat_str(lo),
@@ -271,7 +263,7 @@ impl Signal {
     pub fn settles_between(self, lo: impl Into<Rational>, hi: impl Into<Rational>) -> Settles {
         let (lo, hi) = (lo.into(), hi.into());
         Settles {
-            range_ok: rational_le(lo, hi),
+            range_ok: lo.le(hi),
             name: self.name,
             lo,
             hi,
@@ -435,7 +427,7 @@ impl ThenSignal {
     #[must_use]
     pub fn stays_between(self, lo: impl Into<Rational>, hi: impl Into<Rational>) -> ThenCondition {
         let (lo, hi) = (lo.into(), hi.into());
-        let range_err = if rational_le(lo, hi) {
+        let range_err = if lo.le(hi) {
             None
         } else {
             Some(format!(

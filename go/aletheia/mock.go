@@ -136,21 +136,21 @@ func (m *MockBackend) processLocked(input string) (string, error) {
 // SendFrameBinary records a `<binary:sendFrame>` sentinel; returns the next
 // queued response (canned by the test) or errors if the queue is empty.
 func (m *MockBackend) SendFrameBinary(
-	_ unsafe.Pointer, _ Timestamp,
+	state unsafe.Pointer, _ Timestamp,
 	_ CANID, _ DLC, _ []byte,
 	_ *bool, _ *bool,
 ) (string, error) {
-	return m.Process(nil, "<binary:sendFrame>")
+	return m.Process(state, "<binary:sendFrame>")
 }
 
 // SendErrorBinary records a `<binary:sendError>` sentinel.
-func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
-	return m.Process(nil, "<binary:sendError>")
+func (m *MockBackend) SendErrorBinary(state unsafe.Pointer, _ Timestamp) (string, error) {
+	return m.Process(state, "<binary:sendError>")
 }
 
 // SendRemoteBinary records a `<binary:sendRemote>` sentinel.
-func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
-	return m.Process(nil, "<binary:sendRemote>")
+func (m *MockBackend) SendRemoteBinary(state unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
+	return m.Process(state, "<binary:sendRemote>")
 }
 
 // StartStreamBinary records a `<binary:startStream>` sentinel.

@@ -817,6 +817,14 @@ fn signal_to_value(s: &DbcSignal) -> Value {
     o
 }
 
+/// Encode-side mirror of [`extended_flag`]: attach `"extended": true` only
+/// when set (absent ⇒ standard ID, per the wire convention in the module doc).
+fn set_extended(o: &mut Value, extended: bool) {
+    if extended {
+        o["extended"] = json!(true);
+    }
+}
+
 fn message_to_value(m: &DbcMessage) -> Value {
     let mut o = json!({
         "id": m.id,
@@ -826,9 +834,7 @@ fn message_to_value(m: &DbcMessage) -> Value {
         "senders": m.senders,
         "signals": m.signals.iter().map(signal_to_value).collect::<Vec<_>>(),
     });
-    if m.extended {
-        o["extended"] = json!(true);
-    }
+    set_extended(&mut o, m.extended);
     o
 }
 
@@ -838,9 +844,7 @@ fn comment_target_to_value(t: &CommentTarget) -> Value {
         CommentTarget::Node { node } => json!({ "kind": "node", "node": node }),
         CommentTarget::Message { id, extended } => {
             let mut o = json!({ "kind": "message", "id": id });
-            if *extended {
-                o["extended"] = json!(true);
-            }
+            set_extended(&mut o, *extended);
             o
         }
         CommentTarget::Signal {
@@ -849,9 +853,7 @@ fn comment_target_to_value(t: &CommentTarget) -> Value {
             signal,
         } => {
             let mut o = json!({ "kind": "signal", "id": id, "signal": signal });
-            if *extended {
-                o["extended"] = json!(true);
-            }
+            set_extended(&mut o, *extended);
             o
         }
         CommentTarget::EnvVar { env_var } => json!({ "kind": "envVar", "envVar": env_var }),
@@ -916,9 +918,7 @@ fn attr_target_to_value(t: &AttrTarget) -> Value {
         AttrTarget::Node { node } => json!({ "kind": "node", "node": node }),
         AttrTarget::Message { id, extended } => {
             let mut o = json!({ "kind": "message", "id": id });
-            if *extended {
-                o["extended"] = json!(true);
-            }
+            set_extended(&mut o, *extended);
             o
         }
         AttrTarget::Signal {
@@ -927,17 +927,13 @@ fn attr_target_to_value(t: &AttrTarget) -> Value {
             signal,
         } => {
             let mut o = json!({ "kind": "signal", "id": id, "signal": signal });
-            if *extended {
-                o["extended"] = json!(true);
-            }
+            set_extended(&mut o, *extended);
             o
         }
         AttrTarget::EnvVar { env_var } => json!({ "kind": "envVar", "envVar": env_var }),
         AttrTarget::NodeMsg { node, id, extended } => {
             let mut o = json!({ "kind": "nodeMsg", "node": node, "id": id });
-            if *extended {
-                o["extended"] = json!(true);
-            }
+            set_extended(&mut o, *extended);
             o
         }
         AttrTarget::NodeSig {
@@ -947,9 +943,7 @@ fn attr_target_to_value(t: &AttrTarget) -> Value {
             signal,
         } => {
             let mut o = json!({ "kind": "nodeSig", "node": node, "id": id, "signal": signal });
-            if *extended {
-                o["extended"] = json!(true);
-            }
+            set_extended(&mut o, *extended);
             o
         }
     }
@@ -1325,7 +1319,7 @@ mod tests {
         assert_eq!((*id, *extended), (77, true));
 
         // And the serialize side preserves extended-true on the target (the
-        // `if *extended` branch in attr_target_to_value, which no snapshot hits).
+        // `set_extended` call in attr_target_to_value, which no snapshot hits).
         assert_eq!(
             Dbc::from_value(&d.to_value()).expect("serialize round-trip"),
             d
