@@ -110,6 +110,18 @@ pub struct Frame {
 /// FFI expects for a set of signal injections.
 type SignalArrays = (Vec<u32>, Vec<i64>, Vec<i64>);
 
+/// The subset of extracted `values` named by `diag.signals`.
+fn select_diag_values(
+    diag: &PropertyDiagnostic,
+    values: &[(String, Rational)],
+) -> Vec<(String, Rational)> {
+    values
+        .iter()
+        .filter(|(n, _)| diag.signals.iter().any(|s| s == n))
+        .cloned()
+        .collect()
+}
+
 /// Resolve `(name, value)` signal injections against a message's signal list to
 /// the parallel arrays the build/update FFI expects. The index is the signal's
 /// position in `message.signals`.
@@ -429,11 +441,7 @@ impl Client {
         prop_index: u32,
     ) -> Vec<(String, Rational)> {
         match extracted {
-            Some(all) => all
-                .iter()
-                .filter(|(n, _)| diag.signals.iter().any(|s| s == n))
-                .cloned()
-                .collect(),
+            Some(all) => select_diag_values(diag, all),
             None => {
                 self.emit(
                     LogLevel::Warn,
@@ -504,11 +512,7 @@ impl Client {
             }
         }
         for (slot, diag) in todo {
-            let values: Vec<(String, Rational)> = merged
-                .iter()
-                .filter(|(n, _)| diag.signals.iter().any(|s| s == n))
-                .cloned()
-                .collect();
+            let values = select_diag_values(&diag, &merged);
             // Wanted signals but got none, and an extraction failed → that
             // failure is why enrichment is missing the values.
             if values.is_empty() && !diag.signals.is_empty() && any_failed {

@@ -12,6 +12,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Go: `DispatchThen` — the third exported loader-dispatch helper**
+  (`go/aletheia/loader.go`), completing the family started by
+  `DispatchSimple` / `DispatchWhen`: maps a then-condition keyword
+  (`equals` / `exceeds` / `stays_between`) to the bounded-obligation builder
+  call. The YAML and Excel loaders' previously copy-pasted three-arm switches
+  now delegate to it (presence checks and value extraction stay
+  loader-specific; the Excel loader is a separate Go module, which is why the
+  helper is exported — the same reason the other two are). Direct unit tests
+  cover all three arms plus the unknown-condition reject
+  (`go/aletheia/loader_test.go`).
+
 - **CI: a `check-proof-coverage` gate makes the Agda proof checker provably
   exhaustive — internal, no behavior change.** `check-properties` walks a
   hand-maintained `proofModules` list (Shakefile.hs); a proof module missing
@@ -1073,6 +1084,59 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   markers) were removed too.
 
 ### Fixed
+
+- **r25 B8 DRY + hygiene sweep across Go/C++/Rust — internal, with one
+  realized silent drift fixed.** The drift: C++ `json_parse.cpp`'s
+  hand-maintained `error_code_table` size had decayed — 59 declared vs 57
+  real entries after an earlier entry removal — silently padding the array
+  with two value-initialized `{"", ErrorCode::Unknown}` elements; lookups
+  stayed correct only because `Unknown` is enumerator 0 (a `""` probe matched
+  a phantom entry and returned exactly the fall-through value). All three
+  string→enum lookup tables there now deduce their size via `std::to_array`,
+  so an entry count can never drift again. DRY extractions, each
+  behavior-preserving: C++ `parse_issue_entry` (the validate-response and
+  parsed-DBC-warnings decoders shared two byte-identical 18-line entry
+  blocks — which had even grown their `.code_raw` field in lockstep); the
+  same duplication found and fixed in Go (`parseIssueArray`, `json.go` —
+  Python and Rust already decode issues at a single shared site); Rust
+  `Rational::le` (crate-private inherent method replacing byte-identical free
+  `rational_le` fns in `check.rs` + `ltl.rs`; its doc records why
+  `PartialOrd`/`Ord` are deliberately absent — the unreduced representation
+  makes derived `Eq` structural, so a value-based `Ord` would break the
+  `Ord`/`Eq` contract), `set_extended` (encode-side mirror of the existing
+  decode helper `extended_flag`; replaces 7 copy-pasted emit sites in
+  `dbc.rs`), and `select_diag_values` (the diag-signal filter shared by the
+  streaming and end-of-stream enrichment paths in `lib.rs`). Go hygiene:
+  `MockBackend`'s three binary send shims now pass `state` through like the
+  other six shims (and like the C++ mock; the pointer is still discarded by
+  `Process`), and `ExtractSignalsBin` gains the `runtime.KeepAlive(data)` its
+  three sibling slice-passing cgo wrappers already had (convention
+  consistency — cgo pins the slice for a synchronous call either way, so
+  this was never a use-after-free).
+
+- **Logging docs now acknowledge the Rust binding (r25 B6-logging close-out) —
+  docs only, no behavior change.** `PROTOCOL.md § Structured Logging` (the
+  self-declared SSOT for the event taxonomy) and the `docs/LOG_EVENTS.yaml`
+  header still described a three-binding world: "all three bindings"
+  (Python/C++/Go), a pointer to `go/aletheia/ffi_backend.go` (no such file —
+  the slog emit sites are `go/aletheia/client.go` + `go/aletheia/ffi.go`), and
+  a pointer to `cpp/include/aletheia/log.hpp` "string constants" that have
+  never existed (C++ event names are inline literals at the
+  `cpp/src/client.cpp` emit sites; the string-constants module is Rust's
+  `rust/src/log.rs`). Both surfaces now name all four bindings, the corrected
+  per-binding definition sites, the fourth parity gate
+  (`rust/tests/log_events.rs`), and the one scoped exception: Rust defines the
+  full 16-event vocabulary but emits all of it except the three `cache.*`
+  events (they instrument an extraction memo cache that binding does not
+  implement — a perf layer, not part of the contract). The add-an-event recipe
+  grew the missing Rust step (`events::*` constant + `events::ALL`, which the
+  Rust gate pins to the YAML bijectively). `docs/FEATURE_MATRIX.yaml`: the
+  rust `structured_logging` note states the `cache.*` subset explicitly
+  (aligning it with the `violation_enrichment` note), and the
+  `build_frame`/`update_frame` rust rows now document the `&DbcMessage`
+  signature divergence as by-design (the typed `Dbc` is caller-owned in Rust,
+  so the caller supplies the resolved message — idiom-permitted under the
+  cross-language parity rule).
 
 - **Comment-truth sweep across all four bindings + the CI workflow cache
   comments (r25 B7) — internal, no behavior change.** Every flagged comment was
