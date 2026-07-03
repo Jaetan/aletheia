@@ -359,42 +359,62 @@ func formatObservedBase(diag PropertyDiagnostic, values map[SignalName]Rational)
 // the per-Client memory footprint under ~100 KB for the map overhead.
 const maxExtractCache = 256
 
-type frameKey struct {
+// frameMeta is the payload-free part of a frame's cache identity; the
+// payload bytes form the inner map key (see extractCache.entries).
+type frameMeta struct {
 	idValue    uint32
 	isExtended bool
 	dlc        uint8
-	data       string // string([]byte) for comparable map key
 }
 
 // extractCache is a bounded, frame-keyed cache of extraction results.
+// Keyed in two levels — frameMeta, then payload bytes — so the hit-path
+// lookup `entries[meta][string(data)]` compiles to Go's allocation-free
+// []byte→string map-index form. (A flat struct key with a string field
+// forces a heap copy of the payload on every lookup, including hits,
+// because the key value also flows into put on the miss branch.)
 // It is not thread-safe; all access must be synchronized by the caller
 // (the Client's channel-token lock, lockCh).
 type extractCache struct {
-	entries map[frameKey]*ExtractionResult
+	entries map[frameMeta]map[string]*ExtractionResult
+	// count is the total number of stored results across the inner maps,
+	// keeping the maxExtractCache bound exact without a per-put sum.
+	count int
 }
 
 // newExtractCache returns an empty extract cache. Use it once per
 // Client; the cache is not safe for concurrent use and the Client holds
 // its channel-token lock (lockCh) whenever it reads or writes entries.
 func newExtractCache() *extractCache {
-	return &extractCache{entries: make(map[frameKey]*ExtractionResult)}
+	return &extractCache{entries: make(map[frameMeta]map[string]*ExtractionResult)}
 }
 
-func (c *extractCache) get(key frameKey) (*ExtractionResult, bool) {
-	r, ok := c.entries[key]
+func (c *extractCache) get(meta frameMeta, data []byte) (*ExtractionResult, bool) {
+	r, ok := c.entries[meta][string(data)]
 	return r, ok
 }
 
 // put stores a result if the cache is not full. Returns false when the cache
-// is at capacity and the entry was not stored.
-func (c *extractCache) put(key frameKey, result *ExtractionResult) bool {
-	if len(c.entries) >= maxExtractCache {
+// is at capacity and the entry was not stored. The payload is materialized
+// as an owned string key only here, on the store path.
+func (c *extractCache) put(meta frameMeta, data []byte, result *ExtractionResult) bool {
+	if c.count >= maxExtractCache {
 		return false
 	}
-	c.entries[key] = result
+	inner, ok := c.entries[meta]
+	if !ok {
+		inner = make(map[string]*ExtractionResult)
+		c.entries[meta] = inner
+	}
+	key := string(data)
+	if _, exists := inner[key]; !exists {
+		c.count++
+	}
+	inner[key] = result
 	return true
 }
 
 func (c *extractCache) clear() {
-	c.entries = make(map[frameKey]*ExtractionResult)
+	c.entries = make(map[frameMeta]map[string]*ExtractionResult)
+	c.count = 0
 }
