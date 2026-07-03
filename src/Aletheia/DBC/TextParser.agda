@@ -46,24 +46,21 @@
 --                                      so callers can localise the
 --                                      error; empty-tape success is
 --                                      the ≡ id path.
---       * `AttributeRefinementFailed` — `refineAttributes` returned
---                                      `nothing` because some default/
---                                      assignment referenced an unknown
---                                      AttrDef or an out-of-range ENUM
---                                      index.  The parameter carries a
---                                      short human-readable note; the
---                                      refinement pass itself does not
---                                      currently surface which
---                                      attribute / attribute name was at
---                                      fault, so we tag the whole
---                                      refinement stage.
+--       * `AttributeRefinementFailed` — `refineAttributes` failed because
+--                                      some default/assignment referenced
+--                                      an unknown AttrDef or an
+--                                      out-of-range ENUM index.  Carries
+--                                      the offending attribute's name so
+--                                      the error pinpoints which
+--                                      `BA_DEF_` / `BA_DEF_DEF_` / `BA_` /
+--                                      `BA_REL_` entry is at fault.
 module Aletheia.DBC.TextParser where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
-open import Data.String using (String; toList)
+open import Data.String using (String; toList; fromList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 
 open import Aletheia.Parser.Combinators using
@@ -240,8 +237,8 @@ finalizeParse (just res) with remaining res
 ... | []      with value res
 ...   | (ver , nodes , stmts) with partitionTopStmts stmts
 ...     | collected with refineAttributes (CollectedTop.rawAttributes collected)
-...       | nothing     = inj₁ AttributeRefinementFailed
-...       | just attrs  = inj₂ (buildDBC ver nodes collected attrs)
+...       | inj₁ (cause , bad) = inj₁ (AttributeRefinementFailed cause (fromList bad))
+...       | inj₂ attrs         = inj₂ (buildDBC ver nodes collected attrs)
 
 -- Parse a DBC text image given as a `List Char`.  Layer-1 form
 -- (B.3.d Option 3a, 2026-04-24): the parser already operates on

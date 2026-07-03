@@ -28,7 +28,7 @@ open import Aletheia.DBC.BoundWalks using
   ; firstOverBoundLC; firstOverBoundInMessages; firstOverBoundInComments
   ; firstOverBoundInAttrs; firstOverBoundInValueTables; firstOverBoundInUnresolved
   )
-open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; errorIssues; warningIssues)
+open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.LTL.SignalPredicate using (emptyCache)
@@ -52,7 +52,9 @@ open import Aletheia.Limits using
 -- runtime validator so the success path returns a parsed-AND-validated DBC.
 -- Three result categories:
 --   • parseText fails        → Error wrapping a typed DBCTextParseError.
---   • parser succeeds, errors → Error wrapping ValidationFailed (errorIssues).
+--   • parser succeeds, errors → Error wrapping ValidationFailed with the
+--     FULL issue list (errors and warnings — ResponseFormat.errorExtras
+--     surfaces it structurally; the message flattens errors only).
 --   • parser+validator clean  → ParsedDBCResponse with body + warnings.
 --
 -- Implementation note: pattern-match through a helper (rather than `with
@@ -127,7 +129,7 @@ handleParseDBCTextResult (inj₂ dbc) state =
     helper dbc nothing nothing =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
-         then (state , Response.Error (WithContext "ParseDBCText" (HandlerErr (ValidationFailed (errorIssues issues)))))
+         then (state , Response.Error (WithContext "ParseDBCText" (HandlerErr (ValidationFailed issues))))
          else (ReadyToStream 0 dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
 
 -- Adversarial-input bound: rejects inputs longer than `max-dbc-text-bytes`

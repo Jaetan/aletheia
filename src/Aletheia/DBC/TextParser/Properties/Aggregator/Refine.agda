@@ -13,7 +13,7 @@
 --
 --   2. **Inverse under WF**:
 --      Under `All (WFAttribute (collectDefs attrs)) attrs`,
---      `refineAttributes (map (rawOf (collectDefs attrs)) attrs) ≡ just attrs`.
+--      `refineAttributes (map (rawOf (collectDefs attrs)) attrs) ≡ inj₂ attrs`.
 --
 -- The list-level inverse iterates `refineAttribute defs (rawOf defs a)
 -- ≡ just a` (per-element) along the list.  Per-element discharge case-
@@ -25,6 +25,7 @@ module Aletheia.DBC.TextParser.Properties.Aggregator.Refine where
 open import Data.List  using (List; []; _∷_; map)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just)
+open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; cong)
 
@@ -91,7 +92,7 @@ collectRawDefs-rawOf defs (DBCAttrAssign _ ∷ rest)  =
 
 refineAttribute-rawOf-Def :
     ∀ (defs : List AttrDef) (d : AttrDef)
-  → refineAttribute defs (rawOf defs (DBCAttrDef d)) ≡ just (DBCAttrDef d)
+  → refineAttribute defs (rawOf defs (DBCAttrDef d)) ≡ inj₂ (DBCAttrDef d)
 refineAttribute-rawOf-Def _ _ = refl
 
 refineAttribute-rawOf-Default :
@@ -99,7 +100,7 @@ refineAttribute-rawOf-Default :
   → lookupDef (AttrDefault.name d) defs ≡ just def
   → ValueMatchesType (AttrDef.attrType def) (AttrDefault.value d)
   → DefaultEnumOK    (AttrDef.attrType def) (AttrDefault.value d)
-  → refineAttribute defs (rawOf defs (DBCAttrDefault d)) ≡ just (DBCAttrDefault d)
+  → refineAttribute defs (rawOf defs (DBCAttrDefault d)) ≡ inj₂ (DBCAttrDefault d)
 refineAttribute-rawOf-Default defs
   (mkAttrDefault n .(AVInt z))
   (mkAttrDef _ _ .(ATInt _ _))
@@ -136,7 +137,7 @@ refineAttribute-rawOf-Assign :
     ∀ (defs : List AttrDef) (a : AttrAssign) (def : AttrDef)
   → lookupDef (AttrAssign.name a) defs ≡ just def
   → ValueMatchesType (AttrDef.attrType def) (AttrAssign.value a)
-  → refineAttribute defs (rawOf defs (DBCAttrAssign a)) ≡ just (DBCAttrAssign a)
+  → refineAttribute defs (rawOf defs (DBCAttrAssign a)) ≡ inj₂ (DBCAttrAssign a)
 refineAttribute-rawOf-Assign defs
   (mkAttrAssign n tgt .(AVInt z))
   (mkAttrDef _ _ .(ATInt _ _))
@@ -172,7 +173,7 @@ refineAttribute-rawOf-Assign defs
 refineAttribute-rawOf :
     ∀ (defs : List AttrDef) (a : DBCAttribute)
   → WFAttribute defs a
-  → refineAttribute defs (rawOf defs a) ≡ just a
+  → refineAttribute defs (rawOf defs a) ≡ inj₂ a
 refineAttribute-rawOf defs (DBCAttrDef d)     (wfDef _ _)                  =
   refineAttribute-rawOf-Def     defs d
 refineAttribute-rawOf defs (DBCAttrDefault d) (wfDefault _ def le vmt eok) =
@@ -181,20 +182,20 @@ refineAttribute-rawOf defs (DBCAttrAssign a)  (wfAssign  _ def le vmt)     =
   refineAttribute-rawOf-Assign  defs a def le vmt
 
 -- ============================================================================
--- 2b. LIST-LEVEL INVERSE — `refineAll defs (map (rawOf defs) attrs) ≡ just attrs`
+-- 2b. LIST-LEVEL INVERSE — `refineAll defs (map (rawOf defs) attrs) ≡ inj₂ attrs`
 -- ============================================================================
 
 refineAll-on-rawOf :
     ∀ (defs : List AttrDef) (attrs : List DBCAttribute)
   → All (WFAttribute defs) attrs
-  → refineAll defs (map (rawOf defs) attrs) ≡ just attrs
+  → refineAll defs (map (rawOf defs) attrs) ≡ inj₂ attrs
 refineAll-on-rawOf _    []           []          = refl
 refineAll-on-rawOf defs (a ∷ attrs)  (wfa ∷ wfs)
   rewrite refineAttribute-rawOf defs a wfa
         | refineAll-on-rawOf defs attrs wfs = refl
 
 -- ============================================================================
--- 2c. TOP-LEVEL — `refineAttributes (map (rawOf D) attrs) ≡ just attrs`
+-- 2c. TOP-LEVEL — `refineAttributes (map (rawOf D) attrs) ≡ inj₂ attrs`
 -- ============================================================================
 --
 -- `refineAttributes` is `refineAll (collectRawDefs raws) raws`.  When
@@ -206,7 +207,7 @@ refineAll-on-rawOf defs (a ∷ attrs)  (wfa ∷ wfs)
 refineAttributes-on-rawOf :
     ∀ (attrs : List DBCAttribute)
   → All (WFAttribute (collectDefs attrs)) attrs
-  → refineAttributes (map (rawOf (collectDefs attrs)) attrs) ≡ just attrs
+  → refineAttributes (map (rawOf (collectDefs attrs)) attrs) ≡ inj₂ attrs
 refineAttributes-on-rawOf attrs wfs
   rewrite collectRawDefs-rawOf (collectDefs attrs) attrs =
     refineAll-on-rawOf (collectDefs attrs) attrs wfs

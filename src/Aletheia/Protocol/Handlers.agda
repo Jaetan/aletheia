@@ -33,7 +33,7 @@ open import Aletheia.DBC.BoundWalks using
   ; firstOverBoundInAttrs; firstOverBoundInValueTables; firstOverBoundInUnresolved
   )
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
-open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; errorIssues; warningIssues)
+open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.Identifier using (TooLong; BadChars)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
@@ -223,7 +223,7 @@ handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
     case-helper dbc nothing nothing =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
-         then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))
+         then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed issues))))
          else (ReadyToStream 0 dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
 
 -- ParseDBCText handler isolated in its own submodule to keep parseText's

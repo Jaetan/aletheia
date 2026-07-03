@@ -148,6 +148,16 @@ errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos)) =
   ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
   []
 errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
+-- A validation rejection carries the FULL issue list (errors AND warnings)
+-- structurally — the same element shape as the `validation` response, so
+-- bindings reuse one issue decoder. `has_errors` is trivially true on this
+-- path but included so the payload is shape-compatible with that response.
+errorExtras (Err.HandlerErr (Err.ValidationFailed issues)) =
+  ("has_errors" , JBool (hasAnyError issues)) ∷
+  ("issues"     , JArray (map formatValidationIssue issues)) ∷
+  []
+errorExtras (Err.HandlerErr (Err.InContext _ inner)) =
+  errorExtras (Err.HandlerErr inner)
 errorExtras (Err.WithContext _ inner)      = errorExtras inner
 errorExtras _                              = []
 

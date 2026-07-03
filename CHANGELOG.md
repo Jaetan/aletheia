@@ -1046,6 +1046,35 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A rejected DBC parse now reports everything the kernel knows — the
+  kernel half of the `aletheia validate` first-touch fix.** `validate` is
+  the first command a user with a broken DBC runs, and it used to die with
+  a flattened one-line error. Three kernel changes (all additive on the
+  wire): (1) the `handler_validation_failed` error envelope now carries the
+  **full structured issue list** — errors *and* warnings, in the same
+  `{severity, code, detail}` element shape as the `validation` response,
+  plus `has_errors` — via a new `errorExtras` case (previously the reject
+  carried error-level issues only, silently dropping warnings, and
+  flattened even those into the message string; the message itself is
+  byte-identical to before). Both the JSON `parseDBC` and text
+  `parseDBCText` handlers flow through the same constructor and inherit
+  the fix. (2) `dbc_text_trailing_input`'s message is now user-facing —
+  "parse failed at line N, column M: first unparseable statement" — instead
+  of parser-internals phrasing ("trailing input after parse"); the
+  structured `line`/`column` fields were already there. (3)
+  `AttributeRefinementFailed` now pinpoints its failure: `refineAttribute`
+  returns a typed cause (`UnknownAttrDef` vs `IllTypedValue`) instead of a
+  bare `Maybe`, and the error names the offending attribute — the old
+  message was an unhelpful disjunction ("references an unknown AttrDef or
+  supplies a value outside the declared type" with no name). Proof impact:
+  the four per-item inverse lemmas and the two list-level lemmas in
+  `Properties/Aggregator/Refine.agda` restated from `≡ just` to `≡ inj₂`
+  (bodies unchanged); `Universal.agda` and the B.3.d universal round-trip
+  proof adapt with zero edits; `check-properties` (55 modules) and all six
+  Agda gates green. The binding/CLI half (typed validation errors in all
+  four bindings; all three CLIs rendering the numbered issue list; the CLI
+  scenario harness) follows in the next PR.
+
 - **Logging docs now acknowledge the Rust binding (r25 B6-logging close-out) —
   docs only, no behavior change.** `PROTOCOL.md § Structured Logging` (the
   self-declared SSOT for the event taxonomy) and the `docs/LOG_EVENTS.yaml`

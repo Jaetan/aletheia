@@ -1175,6 +1175,14 @@ The `message` field embeds the kind label, observed value, and limit; the struct
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ```
 
+`handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
+
+```
+<<< {"status": "error", "code": "handler_validation_failed", "message": "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'", "has_errors": true, "issues": [{"severity": "error", "code": "duplicate_signal_name", "detail": "Message 'M': duplicate signal name 'S'"}, {"severity": "warning", "code": "offset_scale_range", "detail": "..."}]}
+```
+
+`dbc_text_trailing_input` errors expose the structured `line` / `column` of the first unconsumed byte alongside the message, pinpointing the first unparseable statement.
+
 ### Two-layer enforcement
 
 Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces", bounds are enforced **twice**:
@@ -1301,7 +1309,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `handler_stream_active` | Operation forbidden while streaming | End the stream first (e.g., to reload DBC) |
 | `handler_property_parse_failed` | LTL property at the indicated index failed to parse | Check the failing property against the LTL Property Format section |
 | `handler_invalid_dlc_code` | DLC not in the CAN/CAN-FD table | See `parse_invalid_dlc_bytes` |
-| `handler_validation_failed` | DBC validation surfaced an error when loading | Run `validateDBC` to see the issue list |
+| `handler_validation_failed` | DBC validation surfaced an error when loading | The envelope's structured `issues` array carries the full list (errors and warnings) — see § Wire shape above |
 | `handler_non_monotonic_timestamp` | Current frame's timestamp is below the previous frame's | Sort frames by timestamp before streaming — metric LTL operators require monotonicity |
 
 #### Dispatch errors — top-level request routing
@@ -1318,8 +1326,8 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
 | `dbc_text_parse_failure` | The `.dbc` text could not be parsed | Check the file against the DBC grammar; run `validate` for structural issues |
-| `dbc_text_trailing_input` | Extra input remained after an otherwise-successful parse (reports line/column) | Remove content past the last valid statement |
-| `dbc_text_attribute_refinement_failed` | `BA_DEF_DEF_` / `BA_` / `BA_REL_` references an unknown `AttrDef` or an out-of-range `ENUM` index | Declare the attribute via `BA_DEF_` first; keep `ENUM` indices in range |
+| `dbc_text_trailing_input` | The top-level parse stopped at the first unparseable statement (structured `line`/`column` pinpoint it) | Fix the statement starting at the reported position |
+| `dbc_text_attribute_refinement_failed` | A `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed refinement — the message names the offending attribute and whether it is undeclared or its value does not fit the declared type | Declare the attribute via `BA_DEF_` first; keep values inside the declared type (e.g. `ENUM` indices in range) |
 
 ---
 
