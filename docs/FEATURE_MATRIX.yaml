@@ -259,7 +259,10 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.build_frame }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#build_frame" }
       go:     { status: implemented, entry: Client.BuildFrame }
-      rust: { status: implemented, entry: "Client::build_frame" }
+      rust:
+        status: implemented
+        entry: "Client::build_frame"
+        notes: "Takes &DbcMessage rather than a CAN ID: the typed Dbc document is caller-owned in Rust (obtain the message via Dbc::message_by_id), so the caller supplies the resolved message — idiom-permitted divergence from the Python/Go/C++ id-based lookup."
 
   - id: update_frame
     name: Frame update (signal splice)
@@ -268,7 +271,10 @@ features:
       python: { status: implemented, entry: aletheia.AletheiaClient.update_frame }
       cpp:    { status: implemented, entry: "aletheia/client.hpp#update_frame" }
       go:     { status: implemented, entry: Client.UpdateFrame }
-      rust: { status: implemented, entry: "Client::update_frame" }
+      rust:
+        status: implemented
+        entry: "Client::update_frame"
+        notes: "Same &DbcMessage-by-design signature as build_frame (caller-owned typed Dbc supplies the resolved message); idiom-permitted divergence from the id-based peers."
 
   - id: mux_extraction
     name: Multiplexed signal extraction
@@ -458,7 +464,7 @@ features:
       rust:
         status: implemented
         entry: "log::Logger"
-        notes: "Callback Logger trait (level + event + typed fields), injected via Client::builder().logger(...); a bare Fn(&LogRecord) works via a blanket impl. Emits the canonical event vocabulary (docs/LOG_EVENTS.yaml), validated by the rust/tests/log_events.rs parity gate."
+        notes: "Callback Logger trait (level + event + typed fields), injected via Client::builder().logger(...); a bare Fn(&LogRecord) works via a blanket impl. Defines the full event vocabulary (docs/LOG_EVENTS.yaml) and emits all of it except the three cache.* events, which instrument the extraction memo cache this binding does not implement (see violation_enrichment). The rust/tests/log_events.rs parity gate pins events::ALL to the YAML bijectively and every emitted event to its canonical level."
 
   - id: validation_errors
     name: Structured validation errors
