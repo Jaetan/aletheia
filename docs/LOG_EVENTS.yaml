@@ -3,20 +3,24 @@
 # Aletheia Cross-Binding Log Event Vocabulary
 #
 # Authoritative source for the structured log-event names emitted by the
-# Python, C++, and Go bindings.  Every record produced by the client carries
-# one of these `name` values; downstream collectors can treat all three
-# bindings interchangeably.
+# Python, C++, Go, and Rust bindings.  Every record produced by the client
+# carries one of these `name` values; downstream collectors can treat all
+# four bindings interchangeably.  (The Rust binding defines the full
+# vocabulary but does not emit the three `cache.*` events — it implements
+# no extraction cache; see rust/src/log.rs.)
 #
 # Schema:
 #   events[]: one entry per cross-binding log event
 #     name:        the literal event string (matches Python LogEvent.value,
-#                  Go logger.Info/Debug/Warn first arg, C++ Logger event arg)
-#     level:       severity (debug | info | warn) — same level in all 3 bindings.
+#                  the Go slog record message, the C++ Logger event arg, and
+#                  the Rust events::* constant)
+#     level:       severity (debug | info | warn) — same level in all 4 bindings.
 #                  Informational / cross-reference; per-binding level
 #                  enforcement is in python/tests/test_logging.py
-#                  (TestLoggingStreamingEvents.test_log_levels) and the
+#                  (TestLoggingStreamingEvents.test_log_levels), the
 #                  call-site signature in cpp/src/client.cpp +
-#                  go/aletheia/client.go.
+#                  go/aletheia/client.go, and the level assertions in
+#                  rust/tests/log_events.rs.
 #     description: one-sentence summary of when the event fires
 #
 # Cross-binding parity tests (per disposition Rule 2 — the "missing
@@ -24,11 +28,16 @@
 #   python/tests/test_log_events_parity.py  -- YAML ↔ LogEvent enum
 #   go/aletheia/log_events_test.go          -- captured slog events ⊆ YAML
 #   cpp/tests/test_log_events_parity.cpp    -- captured LogRecord events ⊆ YAML
+#   rust/tests/log_events.rs                -- events::ALL ↔ YAML bijection;
+#                                              emitted set + levels ⊆ YAML
 #
-# Adding a new event requires three coordinated edits:
+# Adding a new event requires four coordinated edits:
 #   1. add a row here
 #   2. add the matching LogEvent enum member in python/aletheia/client/_log.py
-#   3. emit it from the relevant binding(s); the parity tests must remain green
+#   3. add the matching events:: constant in rust/src/log.rs AND extend
+#      events::ALL (rust/tests/log_events.rs pins ALL == YAML exactly, so the
+#      YAML row alone fails CI)
+#   4. emit it from the relevant binding(s); the parity tests must remain green
 #
 # Removing an event requires removing all of the above and a CHANGELOG entry
 # under [Removed] per AGENTS.md "Public API stability and CHANGELOG discipline".
