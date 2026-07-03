@@ -377,6 +377,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **CI: the two advisory benchmark lanes retry once on failure, always upload
+  their variance/result JSONs, and tally every retry (flake hardening).** The
+  jitter watch closed with a verdict of intermittent runner noise: 2× the
+  stability drift gate failed for Python on runtime-neutral PRs (a doc-only and
+  a C++-only change — provably not regressions), and 1× the throughput gate
+  failed with a uniform ~2.7× slowdown across every binding and category (a
+  slow runner; a real regression is asymmetric). Now: the stability bench
+  re-runs once on a failed first attempt; the throughput gate re-MEASURES the
+  benchmark once and re-gates (re-judging stale numbers would be pointless).
+  Thresholds are unchanged — this is not a gate relaxation. Diagnosability:
+  the stability lane's per-binding variance JSONs upload on every run
+  (previously never uploaded, so the exact CV that breached a failing run was
+  unrecoverable), and a retried run preserves its first attempt as a separate
+  `…-attempt1` artifact. Tally: each retry emits a `FLAKE-RETRY` warning
+  annotation + a step-summary line, and the count of `attempt1` artifacts
+  across runs IS the running tally (query documented in the workflow
+  comments). CI-only; local benchmark runs keep the manual-rerun discipline.
 - **B6e residual — C++ `Rational` ctor and `Rational::make` reject `double` and
   `bool` at the exact-numeric boundary (BREAKING, C++).** The two-argument
   `Rational(std::int64_t, std::int64_t)` constructor and the `Rational::make`

@@ -279,6 +279,48 @@ jobs:
           bash benchmarks/run_all.sh \
             --frames "${FRAMES}" --runs "${RUNS}" --bench "${BENCH}"
 
+      # PR gate: fail the check on a noticeable regression vs the committed GHA
+      # baseline. PR-only (exploratory workflow_dispatch runs are not gated). On
+      # the first run there is no baseline yet — the gate reports + passes
+      # (bootstrap); seed benchmarks/gha_baseline.json from that known-good run.
+      #
+      # Retry-once WITH RE-MEASURE (jitter watch, 2026-07-02): #132 failed this
+      # gate with a uniform ~2.7× slowdown across EVERY binding and category on
+      # a doc-only commit — a slow runner, not a regression (a real regression
+      # is asymmetric: only the touched path slows).  Re-judging the same stale
+      # numbers would be pointless, so a failed gate re-RUNS the benchmark once
+      # and re-gates.  First-attempt results are preserved and uploaded as the
+      # `…-attempt1` artifact.  TALLY: each retry emits a `FLAKE-RETRY` warning
+      # annotation + step-summary line, and leaves the attempt1 artifact —
+      # count retries across runs with:
+      #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
+      #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
+      - name: Regression gate (vs GHA baseline; retry-once with re-measure)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30; then
+            exit 0
+          fi
+          echo "::warning title=FLAKE-RETRY::throughput gate failed on attempt 1 — re-measuring once (runner jitter suspected; see the jitter watch)"
+          {
+            echo "## ⚠ FLAKE-RETRY: cross-language throughput"
+            echo ""
+            echo "Attempt 1 failed the regression gate; the benchmark re-measured once."
+            echo "If attempt 2 passes, attempt 1 was runner jitter (a symmetric global"
+            echo "slowdown = slow runner; a real regression is asymmetric). First-attempt"
+            echo "results are in the benchmark-${BENCH}-results-attempt1 artifact."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          mkdir -p benchmarks/results-attempt1
+          cp benchmarks/results/*.json benchmarks/results-attempt1/ 2>/dev/null || true
+          rm -f benchmarks/results/*.json
+          source python/.venv/bin/activate
+          bash benchmarks/run_all.sh \
+            --frames "${FRAMES}" --runs "${RUNS}" --bench "${BENCH}"
+          python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30
+
+      # Print + upload AFTER the gate so a retried run's artifact holds the
+      # FINAL (attempt-2) results; the first attempt uploads separately below.
       - name: Print the result JSON
         if: always()
         run: |
@@ -298,13 +340,13 @@ jobs:
           path: benchmarks/results/*.json
           if-no-files-found: warn
 
-      # PR gate: fail the check on a noticeable regression vs the committed GHA
-      # baseline. PR-only (exploratory workflow_dispatch runs are not gated). On
-      # the first run there is no baseline yet — the gate reports + passes
-      # (bootstrap); seed benchmarks/gha_baseline.json from that known-good run.
-      - name: Regression gate (vs GHA baseline)
-        if: github.event_name == 'pull_request'
-        run: python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30
+      - name: Upload first-attempt results (only exists on a retry)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-${{ env.BENCH }}-results-attempt1
+          path: benchmarks/results-attempt1/*.json
+          if-no-files-found: ignore
 
       # Save ccache (split-save like pr-full-ci: `!cancelled()` so it persists
       # even if the regression gate above failed; skip on an exact-sha re-run
