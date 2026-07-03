@@ -85,6 +85,24 @@ func DispatchWhen(builder WhenSignalBuilder, condition string, value Rational) (
 	}
 }
 
+// DispatchThen maps a then-condition keyword to the bounded-obligation
+// builder call. Exported alongside [DispatchSimple] and [DispatchWhen] for
+// the same reason — the Excel subpackage and external loaders share the
+// vocabulary. value is used by equals/exceeds; lo/hi by stays_between; slots
+// the chosen condition does not use are ignored (zero values are fine).
+func DispatchThen(builder ThenSignalBuilder, condition string, value, lo, hi Rational, withinMs int64) (CheckResult, error) {
+	switch condition {
+	case "equals":
+		return builder.Equals(value).Within(withinMs)
+	case "exceeds":
+		return builder.Exceeds(value).Within(withinMs)
+	case "stays_between":
+		return builder.StaysBetween(lo, hi).Within(withinMs)
+	default:
+		return CheckResult{}, validationError(fmt.Sprintf("unknown then condition: %q", condition))
+	}
+}
+
 // applyMetadata sets optional name and severity on a CheckResult.
 func applyMetadata(r CheckResult, name, severity string) CheckResult {
 	if name != "" {
