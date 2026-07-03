@@ -1005,30 +1005,18 @@ func parseEventAck(raw string) error {
 	return protocolError(fmt.Sprintf("unexpected status: %q", status))
 }
 
-// parseValidationResponse decodes a validateDBC response into typed
-// ValidationIssues, preserving severity and the Agda error code.
-func parseValidationResponse(raw string) (*ValidationResult, error) {
-	m, err := parseResponse(raw)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "validation" {
-		return nil, protocolError(fmt.Sprintf("expected validation response, got status: %q", status))
-	}
-
-	// Initialize empty (not nil) so JSON marshaling produces "[]" instead
-	// of "null"; matches Python's empty-list default per
-	// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
-	// caught the nil-vs-empty drift).
+// parseIssueArray decodes the array of validation-issue objects under key,
+// shared by the validate-response and parsed-DBC-warnings decoders. The
+// result is initialized empty (not nil) so JSON marshaling produces "[]"
+// instead of "null"; matches Python's empty-list default per
+// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
+// caught the nil-vs-empty drift).
+func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 	issues := []ValidationIssue{}
-	for _, item := range getArray(m, "issues") {
+	for _, item := range getArray(m, key) {
 		issue, ok := item.(map[string]any)
 		if !ok {
-			return nil, protocolError("expected object in issues array")
+			return nil, protocolError(fmt.Sprintf("expected object in %s array", key))
 		}
 		var sev IssueSeverity
 		switch s := getString(issue, "severity"); s {
@@ -1048,6 +1036,28 @@ func parseValidationResponse(raw string) (*ValidationResult, error) {
 			Code:     code,
 			Detail:   getString(issue, "detail"),
 		})
+	}
+	return issues, nil
+}
+
+// parseValidationResponse decodes a validateDBC response into typed
+// ValidationIssues, preserving severity and the Agda error code.
+func parseValidationResponse(raw string) (*ValidationResult, error) {
+	m, err := parseResponse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return nil, err
+	}
+	status := getString(m, "status")
+	if status != "validation" {
+		return nil, protocolError(fmt.Sprintf("expected validation response, got status: %q", status))
+	}
+
+	issues, err := parseIssueArray(m, "issues")
+	if err != nil {
+		return nil, err
 	}
 	return &ValidationResult{
 		HasErrors: getBool(m, "has_errors"),
@@ -1469,34 +1479,9 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 		return nil, err
 	}
 
-	// Initialize empty (not nil) so JSON marshaling produces "[]" instead
-	// of "null"; matches Python's empty-list default per
-	// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
-	// caught the nil-vs-empty drift).
-	warnings := []ValidationIssue{}
-	for _, item := range getArray(m, "warnings") {
-		issue, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in warnings array")
-		}
-		var sev IssueSeverity
-		switch s := getString(issue, "severity"); s {
-		case "error":
-			sev = SeverityError
-		case "warning":
-			sev = SeverityWarning
-		default:
-			return nil, protocolError(fmt.Sprintf("unknown validation severity: %q", s))
-		}
-		code := IssueCode(getString(issue, "code"))
-		if code == "" {
-			code = IssueUnknown
-		}
-		warnings = append(warnings, ValidationIssue{
-			Severity: sev,
-			Code:     code,
-			Detail:   getString(issue, "detail"),
-		})
+	warnings, err := parseIssueArray(m, "warnings")
+	if err != nil {
+		return nil, err
 	}
 	return &ParsedDBC{DBC: *dbc, Warnings: warnings}, nil
 }
