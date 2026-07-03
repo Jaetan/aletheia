@@ -769,7 +769,7 @@ Adding a new `kind` requires a coordinated change:
 
 1. Extend the Agda kernel's `WarningKind` ADT and the JSON serializer in `Aletheia.Protocol.ResponseFormat`.
 2. Add a new `endstream.<kind>` row to [`docs/LOG_EVENTS.yaml`](../LOG_EVENTS.yaml).
-3. Add a matching log event emit site in all three bindings' `end_stream` / `EndStream` implementations (level: `warn`).
+3. Add a matching log event emit site in all four bindings' `end_stream` / `EndStream` implementations (level: `warn`).
 4. Add a per-binding parity test that exercises the new kind.
 5. Add a `#### `endstream.<kind>`` heading to [`docs/operations/RUNBOOK.md`](../operations/RUNBOOK.md).
 6. Update this section's table of defined kinds.
@@ -1356,7 +1356,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 
 *This section is the single source of truth for the structured-log event taxonomy. Other docs that mention the event count or list events should link back here rather than restate.*
 
-Every binding emits the same 16-event vocabulary so a single downstream log pipeline can consume all three (Python `logging`, C++ `Logger` callback, Go `slog`).
+All four bindings share the same 16-event vocabulary, so a single downstream log pipeline can consume any of them (Python `logging`, C++ `Logger` callback, Go `slog`, Rust `Logger` trait). Python, C++, and Go emit all 16 events; the Rust binding defines the full vocabulary but does not emit the three `cache.*` events — they instrument an extraction-result memoization cache that binding does not implement (a perf layer, not part of the contract; see `rust/src/log.rs`).
 
 | Category | Level | Events |
 |---|---|---|
@@ -1367,7 +1367,7 @@ Every binding emits the same 16-event vocabulary so a single downstream log pipe
 | Extraction errors | WARNING | `extraction.process_failed`, `extraction.parse_failed` |
 | End-of-stream diagnostics | WARNING | `endstream.uncached_atom` |
 
-Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). Per-binding definitions are `python/aletheia/client/_log.py` (`LogEvent` enum), `cpp/include/aletheia/log.hpp` (string constants), and `go/aletheia/client.go` + `go/aletheia/ffi_backend.go` (slog emission sites). Adding a new event requires adding it to all three bindings and updating this table.
+Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). Per-binding definitions are `python/aletheia/client/_log.py` (`LogEvent` enum), `cpp/src/client.cpp` (inline event literals at the emit sites), `go/aletheia/client.go` + `go/aletheia/ffi.go` (slog emission sites), and `rust/src/log.rs` (`events::*` constants + `events::ALL`). Adding a new event requires adding it to all four bindings and updating this table; note that the Rust parity test (`rust/tests/log_events.rs`) pins `events::ALL` to [`docs/LOG_EVENTS.yaml`](../LOG_EVENTS.yaml) bijectively, so a new YAML row without the matching Rust constant fails CI even if Rust never emits the event.
 
 See [INTERFACES.md § Structured Logging](../reference/INTERFACES.md#structured-logging) for per-binding wiring examples.
 
