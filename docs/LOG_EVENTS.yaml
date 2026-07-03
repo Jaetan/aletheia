@@ -18,8 +18,9 @@
 #                  Informational / cross-reference; per-binding level
 #                  enforcement is in python/tests/test_logging.py
 #                  (TestLoggingStreamingEvents.test_log_levels), the
-#                  call-site signature in cpp/src/client.cpp +
-#                  go/aletheia/client.go, and the level assertions in
+#                  call-site signatures in cpp/src/client.cpp and
+#                  go/aletheia/client.go + go/aletheia/ffi.go
+#                  (rts.cores_mismatch), and the level assertions in
 #                  rust/tests/log_events.rs.
 #     description: one-sentence summary of when the event fires
 #

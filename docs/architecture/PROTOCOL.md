@@ -1356,7 +1356,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 
 *This section is the single source of truth for the structured-log event taxonomy. Other docs that mention the event count or list events should link back here rather than restate.*
 
-Every binding emits the same 16-event vocabulary so a single downstream log pipeline can consume all four (Python `logging`, C++ `Logger` callback, Go `slog`, Rust `Logger` trait). One scoped exception: the Rust binding defines the full vocabulary but does not emit the three `cache.*` events — they instrument an extraction-result memoization cache that binding does not implement (a perf layer, not part of the contract; see `rust/src/log.rs`).
+All four bindings share the same 16-event vocabulary, so a single downstream log pipeline can consume any of them (Python `logging`, C++ `Logger` callback, Go `slog`, Rust `Logger` trait). Python, C++, and Go emit all 16 events; the Rust binding defines the full vocabulary but does not emit the three `cache.*` events — they instrument an extraction-result memoization cache that binding does not implement (a perf layer, not part of the contract; see `rust/src/log.rs`).
 
 | Category | Level | Events |
 |---|---|---|
