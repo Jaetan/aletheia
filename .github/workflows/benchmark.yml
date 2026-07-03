@@ -312,7 +312,10 @@ jobs:
             echo "results are in the benchmark-${BENCH}-results-attempt1 artifact."
           } >> "${GITHUB_STEP_SUMMARY}"
           mkdir -p benchmarks/results-attempt1
-          cp benchmarks/results/*.json benchmarks/results-attempt1/ 2>/dev/null || true
+          # Non-fatal (nothing to copy if the measure step itself died early)
+          # but VOCAL — a real copy failure must not silently lose attempt-1.
+          cp benchmarks/results/*.json benchmarks/results-attempt1/ \
+            || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 benchmark results (none written before the failure?)"
           rm -f benchmarks/results/*.json
           source python/.venv/bin/activate
           bash benchmarks/run_all.sh \

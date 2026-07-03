@@ -273,8 +273,7 @@ jobs:
       # attempt1 artifact — count retries across runs with:
       #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
       #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
-      # CI-only behavior: local runs keep the manual-rerun discipline
-      # (memory: feedback_wsl2_variance_stance).
+      # CI-only behavior: local runs keep the manual-rerun discipline.
       - name: Stability bench (advisory; retry-once on failure)
         env:
           ALETHEIA_STABILITY_CHECK: '1'
@@ -292,7 +291,11 @@ jobs:
             echo "per-binding JSONs are in the stability-variance-attempt1 artifact."
           } >> "${GITHUB_STEP_SUMMARY}"
           mkdir -p stability-attempt1
-          cp -r benchmarks/stability/. stability-attempt1/ 2>/dev/null || true
+          # Non-fatal (a failure before any JSON was written has nothing to
+          # copy, and the retry must still run) but VOCAL — a real copy failure
+          # must not silently lose the attempt-1 evidence.
+          cp -r benchmarks/stability/. stability-attempt1/ \
+            || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 stability JSONs (none written before the failure?)"
           python/.venv/bin/python3 -m tools.stability_run
 
       # Always upload the per-binding variance JSONs — before this step the
