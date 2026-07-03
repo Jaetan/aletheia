@@ -87,7 +87,7 @@ jobs:
       # warm whenever that workflow has populated it.
       - name: Restore cabal store (Agda library + executable + deps)
         id: cabal-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cabal/store
@@ -109,7 +109,7 @@ jobs:
 
       - name: Save cabal store (only on a cache miss)
         if: steps.cabal-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cabal/store
@@ -118,7 +118,7 @@ jobs:
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.agda/agda-stdlib
           key: agda-stdlib-${{ env.STDLIB_VERSION }}
@@ -155,7 +155,7 @@ jobs:
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
       # toolchain) from apt.llvm.org.  Reuses pr-full-ci.yml's deb-cache key.
       - name: Cache clang-22 .debs (Clang is a large download)
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/llvm-cache
           key: clang22-noble-v1
@@ -193,7 +193,7 @@ jobs:
       # reproduces the exact current .so and the benchmark measures the PR's
       # actual code.
       - name: Restore incremental build tree (build/ + dist-newstyle/)
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             build
@@ -233,7 +233,7 @@ jobs:
       # Separate pools (split restore/save, like the build tree).
       - name: Restore ccache (benchmark lane)
         id: ccache-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
           key: ccache-bench-${{ runner.os }}-clang22-${{ github.sha }}
@@ -252,7 +252,7 @@ jobs:
       # on a red later step.
       - name: Restore C++ FetchContent deps (benchmark lane)
         id: cpp-deps-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: cpp/build/_deps
           key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
@@ -353,7 +353,7 @@ jobs:
       # hit, since GHA cache keys are immutable).
       - name: Save ccache (benchmark lane)
         if: ${{ !cancelled() && steps.ccache-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: ~/.ccache
           key: ccache-bench-${{ runner.os }}-clang22-${{ github.sha }}
@@ -364,7 +364,7 @@ jobs:
       # on CMakeLists.txt, so on a re-run with unchanged deps this no-ops.
       - name: Save C++ FetchContent deps (benchmark lane)
         if: ${{ !cancelled() && steps.cpp-deps-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: cpp/build/_deps
           key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
