@@ -351,25 +351,19 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 
 	thenBuilder := whenResult.Then(then.Signal)
 
+	// Presence checks + value extraction stay loader-specific (field names and
+	// error text differ per loader); the builder dispatch itself is shared.
+	var thenValue, thenLo, thenHi Rational
 	switch then.Condition {
-	case "equals":
+	case "equals", "exceeds":
 		if then.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'equals' requires 'value'", name))
+			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition '%s' requires 'value'", name, then.Condition))
 		}
 		v, err := nodeRational(then.Value)
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return thenBuilder.Equals(v).Within(*entry.WithinMs)
-	case "exceeds":
-		if then.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'exceeds' requires 'value'", name))
-		}
-		v, err := nodeRational(then.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return thenBuilder.Exceeds(v).Within(*entry.WithinMs)
+		thenValue = v
 	case "stays_between":
 		if then.Min == nil || then.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'stays_between' requires 'min' and 'max'", name))
@@ -382,8 +376,7 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		if err != nil {
 			return CheckResult{}, err
 		}
-		return thenBuilder.StaysBetween(lo, hi).Within(*entry.WithinMs)
-	default:
-		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
+		thenLo, thenHi = lo, hi
 	}
+	return DispatchThen(thenBuilder, then.Condition, thenValue, thenLo, thenHi, *entry.WithinMs)
 }

@@ -48,15 +48,6 @@ pub enum Predicate {
     StableWithin { signal: String, tolerance: Rational },
 }
 
-/// Compare two rationals with positive denominators: `a <= b`.
-fn rational_le(a: Rational, b: Rational) -> bool {
-    // Denominators are guaranteed positive by `Rational::new`, so the direction
-    // of the inequality is preserved by cross-multiplication. i128 avoids i64
-    // overflow on the product.
-    i128::from(a.numerator()) * i128::from(b.denominator())
-        <= i128::from(b.numerator()) * i128::from(a.denominator())
-}
-
 impl Predicate {
     /// `signal == value` (Agda `ValuePredicate.Equals`).
     #[must_use]
@@ -128,7 +119,7 @@ impl Predicate {
                 json!({ "predicate": "greaterThanOrEqual", "signal": signal, "value": value.to_value() })
             }
             Predicate::Between { signal, min, max } => {
-                if !rational_le(*min, *max) {
+                if !min.le(*max) {
                     return Err(Error::Validation(format!(
                         "between: min ({}/{}) exceeds max ({}/{})",
                         min.numerator(),

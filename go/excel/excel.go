@@ -489,26 +489,16 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 
 	thenBuilder := whenResult.Then(thenSignal)
 
-	var result aletheia.CheckResult
+	// Presence checks + value extraction stay loader-specific (column names and
+	// error text differ per loader); the builder dispatch itself is shared.
+	var thenValue, thenLo, thenHi aletheia.Rational
 	switch thenCond {
-	case "equals":
+	case "equals", "exceeds":
 		v, err := xlsxRational(d, "Then Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.Equals(v).Within(withinMs)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-	case "exceeds":
-		v, err := xlsxRational(d, "Then Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = thenBuilder.Exceeds(v).Within(withinMs)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
+		thenValue = v
 	case "stays_between":
 		if _, ok := d["Then Min"]; !ok {
 			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
@@ -524,12 +514,11 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 		if err != nil {
 			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.StaysBetween(lo, hi).Within(withinMs)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-	default:
-		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
+		thenLo, thenHi = lo, hi
+	}
+	result, err := aletheia.DispatchThen(thenBuilder, thenCond, thenValue, thenLo, thenHi, withinMs)
+	if err != nil {
+		return aletheia.CheckResult{}, err
 	}
 
 	return applyMetadata(result, d), nil

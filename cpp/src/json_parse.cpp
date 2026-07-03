@@ -27,9 +27,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 59-entry table on a cold parse path.
+// for this table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 59> error_code_table{{
+constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -95,7 +95,7 @@ constexpr std::array<ErrorCodeEntry, 59> error_code_table{{
     {"extraction_mux_chain_cycle", ErrorCode::ExtractionMuxChainCycle},
     {"extraction_mux_extraction_failed", ErrorCode::ExtractionMuxExtractionFailed},
     {"extraction_bit_extraction_failed", ErrorCode::ExtractionBitExtractionFailed},
-}};
+});
 
 } // namespace
 
@@ -288,7 +288,7 @@ static auto parse_signal_value(const Json& j) -> Rational {
 // String → IssueCode lookup table.  Same shape as `error_code_table` at the
 // top of this file; linear scan is fine on the cold validation path.
 using IssueCodeEntry = std::pair<std::string_view, IssueCode>;
-constexpr std::array<IssueCodeEntry, 21> issue_code_table{{
+constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
     {"duplicate_message_id", IssueCode::DuplicateMessageId},
     {"duplicate_message_name", IssueCode::DuplicateMessageName},
     {"duplicate_signal_name", IssueCode::DuplicateSignalName},
@@ -310,13 +310,35 @@ constexpr std::array<IssueCodeEntry, 21> issue_code_table{{
     {"unknown_message_sender", IssueCode::UnknownMessageSender},
     {"unknown_signal_receiver", IssueCode::UnknownSignalReceiver},
     {"unknown_value_description_target", IssueCode::UnknownValueDescriptionTarget},
-}};
+});
 
 static auto parse_issue_code(std::string_view s) -> IssueCode {
     for (const auto& [name, code] : issue_code_table)
         if (name == s)
             return code;
     return IssueCode::Unknown;
+}
+
+// Parse one validation-issue entry ({severity, code, detail}); shared by the
+// validate-response and parsed-DBC-warnings decoders.
+static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
+    auto sev_str = issue.value("severity", "");
+    IssueSeverity severity{};
+    if (sev_str == "error") {
+        severity = IssueSeverity::Error;
+    } else if (sev_str == "warning") {
+        severity = IssueSeverity::Warning;
+    } else {
+        return std::unexpected(
+            make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
+    }
+    auto code_str = issue.value("code", "");
+    return ValidationIssue{
+        .severity = severity,
+        .code = parse_issue_code(code_str),
+        .code_raw = code_str,
+        .detail = issue.value("detail", ""),
+    };
 }
 
 // Parse a JSON value as an exact Rational (for DBC signal parameters).
@@ -589,7 +611,7 @@ static auto parse_comment(const Json& j) -> DbcComment {
 // String → DbcAttrScope lookup table.  Same shape as `error_code_table` /
 // `issue_code_table`; unknown scope is a hard error (unlike issue_code).
 using AttrScopeEntry = std::pair<std::string_view, DbcAttrScope>;
-constexpr std::array<AttrScopeEntry, 7> attr_scope_table{{
+constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
     {"network", DbcAttrScope::Network},
     {"node", DbcAttrScope::Node},
     {"message", DbcAttrScope::Message},
@@ -597,7 +619,7 @@ constexpr std::array<AttrScopeEntry, 7> attr_scope_table{{
     {"envVar", DbcAttrScope::EnvVar},
     {"nodeMsg", DbcAttrScope::NodeMsg},
     {"nodeSig", DbcAttrScope::NodeSig},
-}};
+});
 
 static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
     for (const auto& [name, scope] : attr_scope_table)
@@ -818,23 +840,10 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
 
         std::vector<ValidationIssue> issues;
         for (const auto& issue : j.at("issues")) {
-            auto sev_str = issue.value("severity", "");
-            IssueSeverity severity{};
-            if (sev_str == "error") {
-                severity = IssueSeverity::Error;
-            } else if (sev_str == "warning") {
-                severity = IssueSeverity::Warning;
-            } else {
-                return std::unexpected(
-                    make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
-            }
-            auto code_str = issue.value("code", "");
-            issues.push_back({
-                .severity = severity,
-                .code = parse_issue_code(code_str),
-                .code_raw = code_str,
-                .detail = issue.value("detail", ""),
-            });
+            auto entry = parse_issue_entry(issue);
+            if (!entry)
+                return std::unexpected(entry.error());
+            issues.push_back(std::move(*entry));
         }
         return ValidationResult{
             .has_errors = j.value("has_errors", false),
@@ -1063,23 +1072,10 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
         std::vector<ValidationIssue> warnings;
         if (j.contains("warnings")) {
             for (const auto& issue : j.at("warnings")) {
-                auto sev_str = issue.value("severity", "");
-                IssueSeverity severity{};
-                if (sev_str == "error") {
-                    severity = IssueSeverity::Error;
-                } else if (sev_str == "warning") {
-                    severity = IssueSeverity::Warning;
-                } else {
-                    return std::unexpected(
-                        make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
-                }
-                auto code_str = issue.value("code", "");
-                warnings.push_back({
-                    .severity = severity,
-                    .code = parse_issue_code(code_str),
-                    .code_raw = code_str,
-                    .detail = issue.value("detail", ""),
-                });
+                auto entry = parse_issue_entry(issue);
+                if (!entry)
+                    return std::unexpected(entry.error());
+                warnings.push_back(std::move(*entry));
             }
         }
         return ParsedDBC{.dbc = std::move(dbc), .warnings = std::move(warnings)};

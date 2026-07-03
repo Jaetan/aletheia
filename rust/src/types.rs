@@ -154,6 +154,20 @@ impl Rational {
         })
     }
 
+    /// Value comparison `self <= other`. Denominators are positive by
+    /// construction, so cross-multiplication preserves the inequality; `i128`
+    /// avoids `i64` overflow on the product.
+    ///
+    /// Deliberately NOT `PartialOrd`/`Ord`: `new` does not reduce to lowest
+    /// terms, so the derived `Eq` is structural (`1/2 != 2/4`) and a
+    /// value-based `Ord` would violate the `Ord`/`Eq` consistency contract
+    /// (silently corrupting `BTreeMap`/`sort` users). Crate-private on
+    /// purpose — a public comparison would be new Rust-only API surface.
+    pub(crate) fn le(self, other: Rational) -> bool {
+        i128::from(self.numerator) * i128::from(other.denominator)
+            <= i128::from(other.numerator) * i128::from(self.denominator)
+    }
+
     /// An exact integer rational (`n / 1`).
     #[must_use]
     pub fn integer(n: i64) -> Self {
