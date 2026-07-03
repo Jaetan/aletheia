@@ -264,10 +264,58 @@ jobs:
           cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null
           cmake --build cpp/build --target stability_bench
 
-      - name: Stability bench (advisory)
+      # Retry-once-on-failure (jitter watch, 2026-07-02): the drift gate flaked
+      # on runtime-neutral PRs (#118 doc-only, #125 C++-only — provably runner
+      # jitter, not regressions).  A failed first attempt re-runs ONCE; the
+      # first attempt's per-binding variance JSONs are preserved and uploaded
+      # as the `stability-variance-attempt1` artifact.  TALLY: each retry emits
+      # a `FLAKE-RETRY` warning annotation + step-summary line, and leaves the
+      # attempt1 artifact — count retries across runs with:
+      #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
+      #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
+      # CI-only behavior: local runs keep the manual-rerun discipline.
+      - name: Stability bench (advisory; retry-once on failure)
         env:
           ALETHEIA_STABILITY_CHECK: '1'
-        run: python/.venv/bin/python3 -m tools.stability_run
+        run: |
+          set -euo pipefail
+          if python/.venv/bin/python3 -m tools.stability_run; then
+            exit 0
+          fi
+          echo "::warning title=FLAKE-RETRY::stability bench failed on attempt 1 — retrying once (runner jitter suspected; see the jitter watch)"
+          {
+            echo "## ⚠ FLAKE-RETRY: stability bench"
+            echo ""
+            echo "Attempt 1 failed the variance drift gate; the harness re-ran once."
+            echo "If attempt 2 passes, attempt 1 was runner jitter. First-attempt"
+            echo "per-binding JSONs are in the stability-variance-attempt1 artifact."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          mkdir -p stability-attempt1
+          # Non-fatal (a failure before any JSON was written has nothing to
+          # copy, and the retry must still run) but VOCAL — a real copy failure
+          # must not silently lose the attempt-1 evidence.
+          cp -r benchmarks/stability/. stability-attempt1/ \
+            || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 stability JSONs (none written before the failure?)"
+          python/.venv/bin/python3 -m tools.stability_run
+
+      # Always upload the per-binding variance JSONs — before this step the
+      # exact CV that breached a failing run was unrecoverable (the jitter
+      # watch's diagnosis gap).
+      - name: Upload stability variance JSONs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stability-variance
+          path: benchmarks/stability/
+          if-no-files-found: warn
+
+      - name: Upload first-attempt variance JSONs (only exists on a retry)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stability-variance-attempt1
+          path: stability-attempt1/
+          if-no-files-found: ignore
 
   # ── Lane 3: mutation testing (REQUIRED; once per PR) ───────────────────────
   # The drift gate (tools/mutation_run.py) fails on a collection crash OR
