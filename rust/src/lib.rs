@@ -494,7 +494,8 @@ impl Client {
             match self.extract_all(*id, *dlc, data) {
                 Some(found) => {
                     for (name, value) in found {
-                        if seen.insert(name.clone()) {
+                        if !seen.contains(&name) {
+                            seen.insert(name.clone());
                             merged.push((name, value));
                         }
                     }
