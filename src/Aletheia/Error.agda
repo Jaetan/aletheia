@@ -394,7 +394,7 @@ formatDBCTextParseError (TrailingInput pos) =
     ++ₛ ": first unparseable statement"
 formatDBCTextParseError (AttributeRefinementFailed UnknownAttrDef name) =
   "attribute refinement failed: '" ++ₛ name
-    ++ₛ "' is not a declared attribute (no matching BA_DEF_)"
+    ++ₛ "' is not a declared attribute (no matching BA_DEF_ / BA_DEF_REL_)"
 formatDBCTextParseError (AttributeRefinementFailed IllTypedValue name) =
   "attribute refinement failed: the value given for '" ++ₛ name
     ++ₛ "' does not fit its declared type"
