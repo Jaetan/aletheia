@@ -371,8 +371,6 @@ static auto cmd_extract(const Args& a) -> int {
     const DbcMessage* msg = def->message_by_id(*id);
     if (msg == nullptr)
         return die("CAN ID not found in DBC");
-    if (auto parsed = client->parse_dbc(std::stop_token{}, *def); !parsed)
-        return die(std::string{parsed.error().message()});
     auto res = client->extract_signals(std::stop_token{}, *id, msg->dlc, *data);
     if (!res)
         return die(std::string{res.error().message()});
@@ -445,8 +443,6 @@ static auto cmd_format_dbc(const Args& a) -> int {
     auto def = load_dbc_text(*client, opt_or(a, "dbc"));
     if (!def)
         return die(def.error().message);
-    if (auto parsed = client->parse_dbc(std::stop_token{}, *def); !parsed)
-        return die(std::string{parsed.error().message()});
     auto canonical = client->format_dbc(std::stop_token{});
     if (!canonical)
         return die(std::string{canonical.error().message()});
