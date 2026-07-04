@@ -532,13 +532,14 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 // (msg_id, msg_name, dlc, is_extended) — the row-level identity of a message.
 using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>;
 
-// Group data rows by message key, preserving first-seen order. Each row
-// becomes one signal in its parent message.
+// Group data rows by message key, in first-seen order. Each row becomes one
+// signal in its parent message. The transient position map exists only so
+// grouping stays a single pass; the returned vector needs no key re-lookup.
 static auto group_rows_by_message(const std::vector<CellMap>& data_rows,
                                   const std::vector<int>& row_numbers)
-    -> std::pair<std::map<MessageKeyExt, std::vector<std::size_t>>, std::vector<MessageKeyExt>> {
-    std::map<MessageKeyExt, std::vector<std::size_t>> groups;
-    std::vector<MessageKeyExt> insertion_order;
+    -> std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> {
+    std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> groups;
+    std::map<MessageKeyExt, std::size_t> positions;
     for (std::size_t i = 0; i < data_rows.size(); ++i) {
         const auto& cells = data_rows[i];
         auto rn = row_numbers[i];
@@ -548,12 +549,13 @@ static auto group_rows_by_message(const std::vector<CellMap>& data_rows,
         auto dlc = get_int(cells, "DLC", row_ctx(rn));
         const bool extended =
             has_key(cells, "Extended") && get_bool(cells, "Extended", row_ctx(rn));
-        const MessageKeyExt key{msg_id, msg_name, dlc, extended};
-        if (!groups.contains(key))
-            insertion_order.push_back(key);
-        groups[key].push_back(i);
+        MessageKeyExt key{msg_id, msg_name, dlc, extended};
+        auto [it, inserted] = positions.try_emplace(key, groups.size());
+        if (inserted)
+            groups.emplace_back(std::move(key), std::vector<std::size_t>{});
+        groups[it->second].second.push_back(i);
     }
-    return {std::move(groups), std::move(insertion_order)};
+    return groups;
 }
 
 // Build one DbcMessage from its group of rows; surfaces validation errors as
@@ -620,18 +622,18 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             auto cells = row_to_map(ws, static_cast<int>(r), headers);
             if (cells.empty())
                 continue;
-            data_rows.push_back(cells);
+            data_rows.push_back(std::move(cells));
             row_numbers.push_back(static_cast<int>(r));
         }
         if (data_rows.empty())
             return std::unexpected(
                 AletheiaError{ErrorKind::Validation, "DBC sheet has no data rows"});
 
-        auto [groups, insertion_order] = group_rows_by_message(data_rows, row_numbers);
+        auto groups = group_rows_by_message(data_rows, row_numbers);
 
         std::vector<DbcMessage> messages;
-        for (const auto& key : insertion_order) {
-            auto msg = build_message_from_group(key, groups[key], data_rows, row_numbers);
+        for (const auto& [key, rows] : groups) {
+            auto msg = build_message_from_group(key, rows, data_rows, row_numbers);
             if (!msg.has_value())
                 return std::unexpected(msg.error());
             messages.push_back(std::move(msg.value()));

@@ -66,7 +66,7 @@ func RespondErr(err error) MockResponse {
 // Marshalling failures are surfaced as MockResponse.Err so the test fails
 // loudly rather than racing through a malformed canned reply.
 func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockResponse {
-	dbcMap, err := serializeDBC(dbc)
+	dbcJSON, err := serializeDBC(dbc)
 	if err != nil {
 		return MockResponse{Err: fmt.Errorf("RespondParseDBC: serialize DBC: %w", err)}
 	}
@@ -80,7 +80,7 @@ func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockRespons
 	}
 	raw, err := json.Marshal(map[string]any{
 		"status":   "success",
-		"dbc":      dbcMap,
+		"dbc":      dbcJSON,
 		"warnings": wireWarnings,
 	})
 	if err != nil {

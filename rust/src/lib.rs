@@ -29,7 +29,7 @@
 //! are tracked as `planned` in `docs/FEATURE_MATRIX.yaml`.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -493,13 +493,17 @@ impl Client {
             .map(|(id, (dlc, data))| (*id, *dlc, data.clone()))
             .collect();
         frames.sort_by_key(|(id, _, _)| (id.value(), id.is_extended()));
+        // `merged` stays a Vec to preserve the documented deterministic
+        // first-seen order; `seen` is the O(1) membership guard beside it.
         let mut merged: Vec<(String, Rational)> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut any_failed = false;
         for (id, dlc, data) in &frames {
             match self.extract_all(*id, *dlc, data) {
                 Some(found) => {
                     for (name, value) in found {
-                        if !merged.iter().any(|(n, _)| n == &name) {
+                        if !seen.contains(&name) {
+                            seen.insert(name.clone());
                             merged.push((name, value));
                         }
                     }
