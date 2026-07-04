@@ -20,7 +20,7 @@ open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.CAN.DLC using (maxDLC-FD)
 open import Aletheia.DBC.Types using (ValidationIssue)
-open import Aletheia.DBC.Validator.Formatting using (formatIssuesText)
+open import Aletheia.DBC.Validator.Formatting using (formatIssuesText; errorIssues)
 open import Aletheia.Parser.Combinators using (Position)
 open import Aletheia.Limits using (BoundKind; boundKindLabel)
 
@@ -282,11 +282,15 @@ data HandlerError : Set where
   StreamActive           : HandlerError
   PropertyParseFailed    : ℕ → HandlerError
   InvalidDLCCode         : HandlerError
-  -- Carries the structured list of validation issues produced by
-  -- DBC.Validator.validateDBCFull (errorIssues only).  formatHandlerError
-  -- flattens to a single human-readable string for the wire `message`
-  -- field; the structured info is preserved in the Agda-side error value
-  -- in case future wire revisions want to surface it directly.
+  -- Carries the FULL structured list of validation issues produced by
+  -- DBC.Validator.validateDBCFull — errors AND warnings, so a rejected
+  -- parse still reports the complete picture (a caller fixing the errors
+  -- must not then be surprised by warnings that were silently dropped).
+  -- formatHandlerError flattens the error-level issues to a single
+  -- human-readable string for the wire `message` field; ResponseFormat's
+  -- `errorExtras` exposes the whole list structurally as `issues` (the
+  -- same element shape as the `validation` response), which the bindings
+  -- decode into their typed validation errors.
   ValidationFailed       : List ValidationIssue → HandlerError
   -- Non-monotonic timestamp: current < previous (carries both for diagnostics).
   -- Metric LTL operators (MetricEventually, MetricAlways) compute elapsed time
@@ -306,8 +310,11 @@ formatHandlerError StreamActive          = "stream still active"
 formatHandlerError (PropertyParseFailed idx) =
   "property parse failure at index " ++ₛ showℕ idx
 formatHandlerError InvalidDLCCode        = "invalid DLC code"
+-- The message flattens only the error-level issues (byte-identical to the
+-- pre-full-list wire text); warnings travel in the structured `issues`
+-- field appended by ResponseFormat.errorExtras.
 formatHandlerError (ValidationFailed issues) =
-  "validation failed: " ++ₛ formatIssuesText issues
+  "validation failed: " ++ₛ formatIssuesText (errorIssues issues)
 formatHandlerError (NonMonotonicTimestamp curr prev) =
   "non-monotonic timestamp: " ++ₛ showℕ curr ++ₛ " μs < previous " ++ₛ showℕ prev ++ₛ
   " μs (metric LTL operators require monotonic timestamps)"
@@ -358,30 +365,44 @@ dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 -- Errors emitted by the DBC text parser (Track B.3.e entry point).  Kept
 -- separate from `ParseError` (the JSON-protocol parser) because the
 -- vocabularies do not overlap; each evolves independently.
+-- Why `refineAttributes` rejected an attribute entry — carried alongside
+-- the offending attribute's name so the error states the exact cause
+-- instead of an "unknown or ill-typed" disjunction.
+data AttrRefineCause : Set where
+  -- The entry references an attribute name no `BA_DEF_` / `BA_DEF_REL_` declares.
+  UnknownAttrDef : AttrRefineCause
+  -- The supplied value does not fit the declared attribute type
+  -- (e.g. an out-of-range ENUM index, or a string where INT is declared).
+  IllTypedValue  : AttrRefineCause
+
 data DBCTextParseError : Set where
   ParseFailure              : DBCTextParseError
   TrailingInput             : Position → DBCTextParseError
-  AttributeRefinementFailed : DBCTextParseError
+  -- Carries the cause and the name of the offending attribute, so the
+  -- error pinpoints WHICH `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed
+  -- and WHY (unknown attribute vs ill-typed value).
+  AttributeRefinementFailed : AttrRefineCause → String → DBCTextParseError
   -- NOTE: DBC-text-input bytes adversarial bound emits via the top-level
   -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2).
-  -- AttributeRefinementFailed carries no payload — `refineAttributes`
-  -- has a single failure cause (`BA_DEF_DEF_` / `BA_` / `BA_REL_` references
-  -- an unknown AttrDef or OOB ENUM index); the detail is baked into the
-  -- formatter rather than passed as data (AGDA-C-5.2 R23 closure).
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError ParseFailure =
   "DBC text parse failed"
 formatDBCTextParseError (TrailingInput pos) =
-  "trailing input after parse at line " ++ₛ showℕ (Position.line pos)
+  "parse failed at line " ++ₛ showℕ (Position.line pos)
     ++ₛ ", column " ++ₛ showℕ (Position.column pos)
-formatDBCTextParseError AttributeRefinementFailed =
-  "attribute refinement failed: BA_DEF_DEF_ / BA_ / BA_REL_ references unknown AttrDef or OOB ENUM index"
+    ++ₛ ": first unparseable statement"
+formatDBCTextParseError (AttributeRefinementFailed UnknownAttrDef name) =
+  "attribute refinement failed: '" ++ₛ name
+    ++ₛ "' is not a declared attribute (no matching BA_DEF_ / BA_DEF_REL_)"
+formatDBCTextParseError (AttributeRefinementFailed IllTypedValue name) =
+  "attribute refinement failed: the value given for '" ++ₛ name
+    ++ₛ "' does not fit its declared type"
 
 dbcTextParseErrorCode : DBCTextParseError → String
 dbcTextParseErrorCode ParseFailure                = "dbc_text_parse_failure"
 dbcTextParseErrorCode (TrailingInput _)           = "dbc_text_trailing_input"
-dbcTextParseErrorCode AttributeRefinementFailed   = "dbc_text_attribute_refinement_failed"
+dbcTextParseErrorCode (AttributeRefinementFailed _ _) = "dbc_text_attribute_refinement_failed"
 
 -- ============================================================================
 -- TOP-LEVEL ERROR SUM

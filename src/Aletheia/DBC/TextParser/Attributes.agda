@@ -60,7 +60,10 @@ open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)
 import Data.List.Properties as ListProps
-open import Data.Product using (_,_; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
+
+open import Aletheia.Error using (AttrRefineCause; UnknownAttrDef; IllTypedValue)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat)
@@ -581,18 +584,18 @@ lookupDef name (d ∷ rest) =
 -- Refine a single raw attribute given the ambient AttrDef list.  Defs
 -- pass through untouched; defaults/assignments require a matching def
 -- and a value that narrows to the declared type.
-refineAttribute : List AttrDef → RawDBCAttribute → Maybe DBCAttribute
-refineAttribute _    (RawDef d) = just (DBCAttrDef d)
+refineAttribute : List AttrDef → RawDBCAttribute → AttrRefineCause ⊎ DBCAttribute
+refineAttribute _    (RawDef d) = inj₂ (DBCAttrDef d)
 refineAttribute defs (RawDefault (mkRawAttrDefault n rv)) with lookupDef n defs
-... | nothing  = nothing
+... | nothing  = inj₁ UnknownAttrDef
 ... | just def with refineDefaultValue (AttrDef.attrType def) rv
-...   | just v  = just (DBCAttrDefault (mkAttrDefault n v))
-...   | nothing = nothing
+...   | just v  = inj₂ (DBCAttrDefault (mkAttrDefault n v))
+...   | nothing = inj₁ IllTypedValue
 refineAttribute defs (RawAssign (mkRawAttrAssign n tgt rv)) with lookupDef n defs
-... | nothing  = nothing
+... | nothing  = inj₁ UnknownAttrDef
 ... | just def with refineAssignValue (AttrDef.attrType def) rv
-...   | just v  = just (DBCAttrAssign (mkAttrAssign n tgt v))
-...   | nothing = nothing
+...   | just v  = inj₂ (DBCAttrAssign (mkAttrAssign n tgt v))
+...   | nothing = inj₁ IllTypedValue
 
 -- Inner refinement walk over a precomputed AttrDef table.  Lifted from
 -- `refineAttributes`'s where-block so Layer-4c proofs (under
@@ -600,18 +603,27 @@ refineAttribute defs (RawAssign (mkRawAttrAssign n tgt rv)) with lookupDef n def
 -- with `defs` ≢ `collectRawDefs xs` — the WF-bridged path uses
 -- `defs = collectDefs (typed-attrs)` while the input is the rawified
 -- typed list.
-refineAll : List AttrDef → List RawDBCAttribute → Maybe (List DBCAttribute)
-refineAll _    [] = just []
+-- The attribute name a raw entry declares — reported on refinement
+-- failure so the error pinpoints WHICH `BA_DEF_` / `BA_DEF_DEF_` / `BA_`
+-- line is at fault.
+rawAttrName : RawDBCAttribute → List Char
+rawAttrName (RawDef d)     = AttrDef.name d
+rawAttrName (RawDefault d) = RawAttrDefault.name d
+rawAttrName (RawAssign a)  = RawAttrAssign.name a
+
+refineAll : List AttrDef → List RawDBCAttribute
+          → (AttrRefineCause × List Char) ⊎ List DBCAttribute
+refineAll _    [] = inj₂ []
 refineAll defs (r ∷ rest) with refineAttribute defs r
-... | nothing = nothing
-... | just ref with refineAll defs rest
-...   | nothing = nothing
-...   | just rs = just (ref ∷ rs)
+... | inj₁ cause = inj₁ (cause , rawAttrName r)
+... | inj₂ ref with refineAll defs rest
+...   | inj₁ bad = inj₁ bad
+...   | inj₂ rs  = inj₂ (ref ∷ rs)
 
 -- Walk a raw attribute list and refine each entry.  Two-pass: first
 -- collect all defs, then refine against the complete def table.  Fails
--- with `nothing` if any default/assignment references an unknown
--- attribute name or supplies a value that can't be coerced to the
--- declared type.
-refineAttributes : List RawDBCAttribute → Maybe (List DBCAttribute)
+-- with `inj₁ (cause , name)` — WHY the entry was rejected (unknown
+-- attribute vs ill-typed value) and WHICH attribute it names.
+refineAttributes : List RawDBCAttribute
+                 → (AttrRefineCause × List Char) ⊎ List DBCAttribute
 refineAttributes raws = refineAll (collectRawDefs raws) raws
