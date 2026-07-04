@@ -527,6 +527,13 @@ class ErrorResponse(TypedDict):
     previously the three per-ADT codes ``parse_*`` / ``frame_*`` /
     ``dbc_text_*``) and absent on all other error codes; the Agda kernel
     emits the typed payload via ``Protocol/ResponseFormat.errorExtras``.
+
+    The ``has_errors`` / ``issues`` pair is present on validation-failure
+    errors (``code == "handler_validation_failed"`` from ``parseDBC`` /
+    ``parseDBCText``) via the same ``errorExtras`` mechanism; ``issues``
+    reuses the exact element shape of ``ValidationResponse``.  Either
+    field absent or ill-typed means the whole pair is dropped by the
+    decoder rather than attached partially.
     """
 
     status: Literal["error"]
@@ -535,6 +542,8 @@ class ErrorResponse(TypedDict):
     bound_kind: NotRequired[str]
     observed: NotRequired[int]
     limit: NotRequired[int]
+    has_errors: NotRequired[bool]
+    issues: NotRequired[list[ValidationIssue]]
 
 
 class AckResponse(TypedDict):

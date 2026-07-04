@@ -19,6 +19,7 @@ from aletheia.client._helpers.rational import (
 )
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
+    lift_validation_issues,
     parse_parsed_dbc_response,
     parse_success_or_error,
     validate_issue_severities,
@@ -26,6 +27,7 @@ from aletheia.client._response_parsers import (
 from aletheia.client._signal_ops import SignalOpsMixin
 from aletheia.client._streaming import StreamingMixin
 from aletheia.client._types import (
+    DBCValidationFailedError,
     FFIError,
     InputBoundExceededError,
     PropertyDiagnostic,
@@ -452,6 +454,15 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             message = response.get("message", "Unknown error")
             code = response.get("code")
             msg = f"validateDBC failed: {message}"
+            lifted = lift_validation_issues(response)
+            if lifted is not None:
+                issues, has_errors = lifted
+                raise DBCValidationFailedError(
+                    msg,
+                    issues,
+                    has_errors=has_errors,
+                    code=code if isinstance(code, str) else None,
+                )
             raise ProtocolError(
                 msg,
                 code=code if isinstance(code, str) else None,

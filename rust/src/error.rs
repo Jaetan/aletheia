@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use crate::response::ValidationIssue;
+
 /// Errors surfaced by the binding.
 ///
 /// `Clone` lets the process-global RTS-init latch (`RTS_INIT`) replay the first
@@ -42,6 +44,9 @@ pub enum Error {
     /// [`Error::InputBoundExceeded`] instead of this generic variant, so any
     /// method documented as returning `Error::Core` on a core error may also
     /// return `Error::InputBoundExceeded` when the rejection is a bound violation.
+    /// Likewise, a `code == "handler_validation_failed"` response carrying a
+    /// well-typed `has_errors` / `issues` payload is lifted to
+    /// [`Error::ValidationFailed`].
     Core { code: String, message: String },
     /// The core rejected an input for exceeding a structural bound (nesting
     /// depth, atom count, identifier length, …). This is the typed lift of a
@@ -63,6 +68,27 @@ pub enum Error {
         observed: u64,
         /// The canonical limit that was exceeded.
         limit: u64,
+    },
+    /// The core rejected a DBC because structural validation found errors. This
+    /// is the typed lift of a `code == "handler_validation_failed"` error
+    /// response that carries the structured `has_errors` / `issues` payload
+    /// (each issue has the exact element shape of a `validate_dbc` result).
+    /// A missing or malformed payload — including any single ill-typed issue
+    /// element — degrades to [`Error::Core`] rather than surfacing here
+    /// (the same degrade rule as [`Error::InputBoundExceeded`]). Unlike that
+    /// variant, the legacy wire `message` is carried unchanged: it is free text
+    /// the core composes, not reconstructible from the issues.
+    ValidationFailed {
+        /// Machine-readable wire code (always `handler_validation_failed`).
+        code: String,
+        /// The unchanged legacy human-readable message from the core.
+        message: String,
+        /// `true` if at least one issue is error-severity (decoded from the
+        /// wire, never assumed).
+        has_errors: bool,
+        /// Every issue the validator reported (errors and warnings), in
+        /// report order.
+        issues: Vec<ValidationIssue>,
     },
     /// A per-frame error from a batch send (`send_frames` / `send_frames_iter` /
     /// `send_frames_stream`), tagged with the **0-based index** of the offending
@@ -106,6 +132,16 @@ impl fmt::Display for Error {
             } => write!(
                 f,
                 "input bound exceeded: {bound_kind} {observed} exceeds limit {limit}"
+            ),
+            Error::ValidationFailed {
+                code,
+                message,
+                issues,
+                ..
+            } => write!(
+                f,
+                "core error [{code}]: {message} ({} validation issues)",
+                issues.len()
             ),
             Error::Frame { index, source } => write!(f, "frame {index}: {source}"),
         }

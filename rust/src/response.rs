@@ -339,6 +339,28 @@ pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
                 });
             }
         }
+        // Lift the structured handler_validation_failed envelope into the typed
+        // Error::ValidationFailed when the `has_errors` flag and `issues` array
+        // are present and well-typed (each element the exact shape of a
+        // "validation" response issue). A missing or malformed payload —
+        // including any single ill-typed issue element — degrades to the
+        // generic Error::Core rather than being reported as a typed validation
+        // failure; the legacy `message` text is carried unchanged either way.
+        if code == "handler_validation_failed" {
+            if let (Some(has_errors), Some(arr)) = (
+                value.get("has_errors").and_then(Value::as_bool),
+                value.get("issues").and_then(Value::as_array),
+            ) {
+                if let Ok(issues) = arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>() {
+                    return Err(Error::ValidationFailed {
+                        code,
+                        message,
+                        has_errors,
+                        issues,
+                    });
+                }
+            }
+        }
         return Err(Error::Core { code, message });
     }
     Ok(value)
@@ -755,5 +777,108 @@ mod tests {
             matches!(err, Error::Core { .. }),
             "expected Error::Core, got {err:?}"
         );
+    }
+
+    #[test]
+    fn parse_object_lifts_handler_validation_failed_issues() {
+        // A well-typed has_errors/issues payload lifts into the typed
+        // Error::ValidationFailed, carrying the legacy message unchanged and
+        // every issue (errors and warnings) in report order.
+        let err = parse_object(
+            r#"{"status":"error","code":"handler_validation_failed","message":"ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'","has_errors":true,"issues":[{"severity":"error","code":"duplicate_signal_name","detail":"Message 'M': duplicate signal name 'S'"},{"severity":"warning","code":"offset_scale_range","detail":"w"}]}"#,
+        )
+        .unwrap_err();
+        // Display renders the legacy message plus the issue count.
+        assert!(
+            err.to_string().contains(
+                "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S' (2 validation issues)"
+            ),
+            "Display: {err}"
+        );
+        match err {
+            Error::ValidationFailed {
+                code,
+                message,
+                has_errors,
+                issues,
+            } => {
+                assert_eq!(code, "handler_validation_failed");
+                assert_eq!(
+                    message,
+                    "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'"
+                );
+                assert!(has_errors);
+                assert_eq!(
+                    issues,
+                    vec![
+                        ValidationIssue {
+                            severity: IssueSeverity::Error,
+                            code: IssueCode::DuplicateSignalName,
+                            detail: "Message 'M': duplicate signal name 'S'".into(),
+                        },
+                        ValidationIssue {
+                            severity: IssueSeverity::Warning,
+                            code: IssueCode::OffsetScaleRange,
+                            detail: "w".into(),
+                        },
+                    ]
+                );
+            }
+            other => panic!("expected Error::ValidationFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_object_lifts_unknown_issue_code_in_validation_payload() {
+        // An unknown-but-present issue code is NOT malformed (IssueCode::Unknown
+        // fallback, matching decode_validation) — the lift still applies.
+        let err = parse_object(
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":[{"severity":"error","code":"some_future_code","detail":"d"}]}"#,
+        )
+        .unwrap_err();
+        match err {
+            Error::ValidationFailed { issues, .. } => {
+                assert_eq!(
+                    issues[0].code,
+                    IssueCode::Unknown("some_future_code".into())
+                );
+            }
+            other => panic!("expected Error::ValidationFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_object_degrades_malformed_validation_payload_to_core() {
+        // A missing or ill-typed has_errors/issues payload degrades to the
+        // generic Error::Core (message preserved) — never a partial
+        // ValidationFailed, and never harder than the pre-lift decode.
+        let malformed = [
+            // no issues, no has_errors (the legacy envelope)
+            r#"{"status":"error","code":"handler_validation_failed","message":"m"}"#,
+            // has_errors present but issues missing
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true}"#,
+            // issues present but has_errors missing
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","issues":[]}"#,
+            // has_errors ill-typed (string, not bool)
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":"true","issues":[]}"#,
+            // issues ill-typed (object, not array)
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":{}}"#,
+            // issue element outside the closed severity vocabulary
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":[{"severity":"fatal","code":"factor_zero","detail":"d"}]}"#,
+            // issue element missing its code
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":[{"severity":"error","detail":"d"}]}"#,
+            // issue element not an object
+            r#"{"status":"error","code":"handler_validation_failed","message":"m","has_errors":true,"issues":["oops"]}"#,
+        ];
+        for raw in malformed {
+            let err = parse_object(raw).unwrap_err();
+            match err {
+                Error::Core { code, message } => {
+                    assert_eq!(code, "handler_validation_failed", "for {raw}");
+                    assert_eq!(message, "m", "for {raw}");
+                }
+                other => panic!("expected Error::Core for {raw}, got {other:?}"),
+            }
+        }
     }
 }

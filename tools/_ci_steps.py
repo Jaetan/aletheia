@@ -195,9 +195,14 @@ def _run_binding_tests(runner: Runner) -> None:
     """Run the Python / Go / C++ / Rust binding test lanes."""
     # ─── Binding tests ────────────────────────────────────────
     # Deterministic pytest lane.
+    # The cross-CLI parity harness (tests/test_cli_parity.py) is excluded from
+    # every python-lane pytest invocation: it needs the C++ CLI binary that the
+    # cpp lane builds, so under --parallel it would race the cmake build and
+    # skip — a silent coverage hole. It runs once as its own step in the cpp
+    # lane, after ctest (see below), where lane serialism guarantees the binary.
     runner.step(
         "pytest",
-        [runner.python, "-m", "pytest", "tests/"],
+        [runner.python, "-m", "pytest", "tests/", "--ignore=tests/test_cli_parity.py"],
         cwd=runner.repo_root / "python",
     )
     # Doc-example fence harness.  Runs from the repo root (cwd=repo_root → would
@@ -225,7 +230,15 @@ def _run_binding_tests(runner: Runner) -> None:
     # Python -X dev mode (Cat 34a).
     runner.step(
         "pytest -X dev",
-        [runner.python, "-X", "dev", "-m", "pytest", "tests/"],
+        [
+            runner.python,
+            "-X",
+            "dev",
+            "-m",
+            "pytest",
+            "tests/",
+            "--ignore=tests/test_cli_parity.py",
+        ],
         cwd=runner.repo_root / "python",
     )
     # Random-order test isolation (Cat 14f).
@@ -238,6 +251,7 @@ def _run_binding_tests(runner: Runner) -> None:
             "--random-order",
             "--random-order-bucket=package",
             "tests/",
+            "--ignore=tests/test_cli_parity.py",
         ],
         cwd=runner.repo_root / "python",
     )
@@ -276,6 +290,17 @@ def _run_binding_tests(runner: Runner) -> None:
         "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 "
         + f"> /dev/null && cmake --build build && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
+    )
+    # Cross-CLI parity harness (docs/CLI_SCENARIOS.yaml): drives the three real
+    # CLI binaries as subprocesses, so it needs cpp/build/aletheia-cli — pinned
+    # to the cpp lane AFTER ctest (lane serialism guarantees the binary exists)
+    # rather than the python lane, which under --parallel could race the cmake
+    # build and skip. Excluded from every python-lane pytest invocation above.
+    runner.step(
+        "pytest (cli parity)",
+        [runner.python, "-m", "pytest", "tests/test_cli_parity.py"],
+        cwd=runner.repo_root / "python",
+        lane="cpp",
     )
     # Rust binding — loads libaletheia-ffi.so at runtime (like Go / C++). The
     # tracer-bullet slice proves the FFI lifecycle + GHC-allocated-memory

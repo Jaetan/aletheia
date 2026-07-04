@@ -1,0 +1,209 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Aletheia Cross-CLI Behavior Contract
+#
+# Single source of truth for the behavior every Aletheia CLI must exhibit.
+# The three CLIs —
+#   * Python:  python -m aletheia        (python/aletheia/cli.py)
+#   * Go:      go/cmd/aletheia           (built binary)
+#   * C++:     aletheia-cli              (cpp/src/cli/cli.cpp, cpp/build/aletheia-cli)
+# — are driven as REAL subprocesses by python/tests/test_cli_parity.py, which
+# parametrizes (cli x scenario) over this file. A scenario that passes on one
+# CLI and fails on another is a parity bug in the failing CLI, not in this file.
+#
+# Exit-code contract (holds in BOTH text and --json output modes):
+#   0 = ok
+#   1 = violations found / validation failed
+#   2 = operational error (bad arguments, missing file, parse failure,
+#       backend failure)
+#
+# Schema:
+#   meta:
+#     subcommands: all five subcommands every CLI must expose; the harness
+#       asserts each has >= 1 scenario below AND appears in each CLI's
+#       --help/usage output.
+#   scenarios[]:
+#     id:         unique kebab-case scenario name (test parametrization key)
+#     subcommand: one of meta.subcommands
+#     args:       argv list appended after the subcommand; every entry is a
+#                 string; the literal "{dbc}" placeholder is replaced with the
+#                 absolute path of `fixture`
+#     fixture:    path relative to python/tests/fixtures/
+#     fixture_exists: optional, default true. Set false ONLY for scenarios
+#                 that exercise missing-file handling; the harness asserts
+#                 existence (or intentional absence) either way, so a typo'd
+#                 fixture name cannot silently turn a scenario into a
+#                 missing-file test.
+#     expect:
+#       exit:            required exact exit code (see contract above)
+#       stdout_contains: optional substrings that must appear on stdout
+#       stderr_contains: optional substrings that must appear on stderr
+#       json:            optional path -> value pins; stdout is parsed as
+#                        JSON first (use only on --json scenarios). A dotted
+#                        path ("a.b") descends into objects. A path ending
+#                        in "[]" pins list membership: its value is a list
+#                        of partial objects, each of which must subset-match
+#                        (all given keys equal) at least one element of the
+#                        actual list.
+#     overrides:  optional per-CLI divergence, keyed "python" / "go" / "cpp";
+#                 each entry may replace `args` and/or `expect` wholesale for
+#                 that CLI. Allowed ONLY where a divergence has been ratified
+#                 as intentional — record the rationale in a comment next to
+#                 the override. None exist today: the pinned surface below is
+#                 empirically identical across all three CLIs.
+#
+# Flag-shape note (verified against all three CLIs 2026-07-04): `extract`
+# takes POSITIONAL <can_id> <data> plus --dbc in every CLI (there are no
+# --id/--data flags anywhere); `mux-query` takes a positional <message>
+# (CAN ID or name) plus --dbc. Flags may appear before or after positionals
+# in all three CLIs.
+#
+# `format-dbc` emits the CANONICAL JSON form of the DBC in all three CLIs
+# (never DBC text), so its pins are JSON-shaped substrings ("EngineStatus",
+# the message id 256) rather than a "BO_ 256" line.
+
+meta:
+  subcommands:
+    - validate
+    - extract
+    - signals
+    - format-dbc
+    - mux-query
+
+scenarios:
+  # -- validate --------------------------------------------------------------
+
+  # minimal.dbc is structurally sound but carries one benign warning
+  # (offset_scale_range on EngineSpeed); "Validation passed" is the common
+  # prefix across all three text renderers.
+  - id: validate-valid
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Validation passed"
+
+  # dupsig.dbc duplicates the EngineSpeed signal name inside EngineStatus:
+  # 1 error (duplicate_signal_name) + 1 warning (offset_scale_range). The
+  # warning MUST be listed alongside the error — a failing validation still
+  # reports the full issue list, not just what killed it.
+  - id: validate-duplicate-signal
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/dupsig.dbc
+    expect:
+      exit: 1
+      stdout_contains:
+        - "Validation FAILED"
+        - "duplicate_signal_name"
+        - "offset_scale_range"
+
+  # Same DBC through --json: machine-readable report, same exit code 1.
+  - id: validate-duplicate-signal-json
+    subcommand: validate
+    args: ["--dbc", "{dbc}", "--json"]
+    fixture: dbc_broken/dupsig.dbc
+    expect:
+      exit: 1
+      json:
+        status: fail
+        has_errors: true
+        total_issues: 2
+        "issues[]":
+          - code: duplicate_signal_name
+            severity: error
+          - code: offset_scale_range
+            severity: warning
+
+  # midfile_bad.dbc corrupts the BO_ 512 line ("4" -> "X") at line 40: a
+  # syntactic parse failure (no issue list), which is an operational error
+  # (exit 2) with the kernel's position-exact message on stderr.
+  - id: validate-syntax-error
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/midfile_bad.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "parse failed at line 40, column 1"
+
+  # A --dbc path that does not exist is an operational error. The message
+  # wording differs per CLI (Python: "DBC file not found", Go/C++:
+  # "reading <path>"), so only the shared "Error:" prefix is pinned.
+  - id: validate-missing-file
+    subcommand: validate
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/no_such_file.dbc
+    fixture_exists: false
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error:"
+
+  # -- signals ---------------------------------------------------------------
+
+  - id: signals-valid
+    subcommand: signals
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "EngineSpeed"
+
+  # Non-validate subcommands do NOT degrade to a validation report: a DBC
+  # that fails kernel validation kills them with an operational error.
+  - id: signals-invalid-dbc
+    subcommand: signals
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_broken/dupsig.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "validation failed"
+
+  # -- format-dbc ------------------------------------------------------------
+
+  # Canonical JSON re-export via the Agda core: message name + id 256 must
+  # appear (see the format-dbc note in the header — output is JSON, not
+  # DBC text).
+  - id: format-dbc-valid
+    subcommand: format-dbc
+    args: ["--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "EngineStatus"
+        - "256"
+
+  # -- extract ---------------------------------------------------------------
+
+  # Positional <can_id> <data> in every CLI (see the flag-shape note in the
+  # header). 8 data bytes match EngineStatus's DLC; EngineSpeed decodes to
+  # exactly 1088 rpm (raw 0x1100 * 1/4) in all three CLIs.
+  - id: extract-valid
+    subcommand: extract
+    args: ["256", "0011223344556677", "--dbc", "{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "EngineSpeed"
+        - "1088"
+
+  # -- mux-query -------------------------------------------------------------
+
+  # Summary mode (no --mux/--value): message resolved by CAN ID 100, the
+  # multiplexor summary lists the Mode multiplexor.
+  - id: mux-query-valid
+    subcommand: mux-query
+    args: ["100", "--dbc", "{dbc}"]
+    fixture: dbc_corpus/multiplexing.dbc
+    expect:
+      exit: 0
+      stdout_contains:
+        - "BasicMux"
+        - "Mode:"

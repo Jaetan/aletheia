@@ -26,6 +26,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -249,15 +250,31 @@ func cmdValidate(argv []string) int {
 	}
 	def, err := loadDBCText(client, *dbc)
 	if err != nil {
+		// A DBC that parses syntactically but fails structural validation
+		// carries the same has_errors/issues payload as a ValidateDBC
+		// result — render it identically (issue list, exit 1) instead of
+		// dying with the bare message. A syntactically-unparseable DBC has
+		// no issues payload and still dies below.
+		var vfe *aletheia.ValidationFailedError
+		if errors.As(err, &vfe) {
+			return renderValidation(vfe.HasErrors, vfe.Issues, *asJSON)
+		}
 		return die(err.Error())
 	}
 	res, err := client.ValidateDBC(context.Background(), def)
 	if err != nil {
 		return die(err.Error())
 	}
-	if *asJSON {
-		issues := make([]map[string]any, 0, len(res.Issues))
-		for _, i := range res.Issues {
+	return renderValidation(res.HasErrors, res.Issues, *asJSON)
+}
+
+// renderValidation emits the validate subcommand's result — JSON or text —
+// from the has_errors/issues pair shared by a ValidateDBC result and a
+// parse-time ValidationFailedError.
+func renderValidation(hasErrors bool, resIssues []aletheia.ValidationIssue, asJSON bool) int {
+	if asJSON {
+		issues := make([]map[string]any, 0, len(resIssues))
+		for _, i := range resIssues {
 			issues = append(issues, map[string]any{
 				"severity": i.Severity.String(),
 				"code":     string(i.Code),
@@ -265,29 +282,35 @@ func cmdValidate(argv []string) int {
 			})
 		}
 		status := "pass"
-		if res.HasErrors {
+		if hasErrors {
 			status = "fail"
 		}
-		return emitJSON(map[string]any{
+		code := emitJSON(map[string]any{
 			"status":       status,
-			"has_errors":   res.HasErrors,
-			"total_issues": len(res.Issues),
+			"has_errors":   hasErrors,
+			"total_issues": len(resIssues),
 			"issues":       issues,
 		})
+		// The exit code reflects the validation outcome in both output
+		// modes — a pipeline running --json still needs exit 1 on failure.
+		if hasErrors {
+			return exitViolations
+		}
+		return code
 	}
-	if len(res.Issues) == 0 {
+	if len(resIssues) == 0 {
 		fmt.Println("Validation passed: no issues found")
 		return exitOK
 	}
-	if res.HasErrors {
-		fmt.Printf("Validation FAILED (%d issues)\n\n", len(res.Issues))
+	if hasErrors {
+		fmt.Printf("Validation FAILED (%d issues)\n\n", len(resIssues))
 	} else {
-		fmt.Printf("Validation passed with %d warnings\n\n", len(res.Issues))
+		fmt.Printf("Validation passed with %d warnings\n\n", len(resIssues))
 	}
-	for n, i := range res.Issues {
+	for n, i := range resIssues {
 		fmt.Printf("  %d. [%s] %s: %s\n", n+1, strings.ToUpper(i.Severity.String()), string(i.Code), i.Detail)
 	}
-	if res.HasErrors {
+	if hasErrors {
 		return exitViolations
 	}
 	return exitOK

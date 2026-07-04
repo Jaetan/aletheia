@@ -295,3 +295,53 @@ func newInputBoundExceededError(kind string, observed, limit uint64, code string
 		Code:      code,
 	}
 }
+
+// ValidationFailedError reports a DBC that parsed syntactically but was
+// rejected by structural validation with at least one error-severity
+// issue.  Lifted from the `handler_validation_failed` error envelope
+// emitted by parseDBC / parseDBCText, whose `issues` array uses the
+// exact element shape of the validation response — the equivalent typed
+// errors exist in the peer bindings; keep these surfaces in sync per
+// `feedback_cross_language_parity.md`.
+//
+// Use [errors.As] to inspect:
+//
+//	var vfe *aletheia.ValidationFailedError
+//	if errors.As(err, &vfe) {
+//		for _, issue := range vfe.Issues {
+//			log.Printf("[%s] %s: %s", issue.Severity, issue.Code, issue.Detail)
+//		}
+//	}
+type ValidationFailedError struct {
+	// Issues are the structural validation findings in wire order,
+	// with the same element shape as [ValidationResult].Issues.
+	Issues []ValidationIssue
+	// HasErrors reports whether any issue has error severity.  Decoded
+	// from the wire, never assumed — the Agda core always sets it true
+	// on this envelope (errors short-circuit the parse).
+	HasErrors bool
+	// Code is the Agda wire error code, always
+	// [CodeHandlerValidationFailed] ("handler_validation_failed").
+	Code string
+	// Message is the envelope's legacy human-readable diagnostic,
+	// unchanged from the generic coded error this type lifts.
+	Message string
+}
+
+// Error implements the error interface.  The rendered string must stay
+// byte-identical to the generic coded *Error this type lifts from, so
+// callers that only print the message are unaffected by the lift.
+func (e *ValidationFailedError) Error() string {
+	return fmt.Sprintf("aletheia %s error: %s", ErrProtocol, e.Message)
+}
+
+// newValidationFailedError constructs a ValidationFailedError from a decoded
+// handler_validation_failed envelope (see validationFailedFromResponse).
+func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *ValidationFailedError {
+	return &ValidationFailedError{
+		Issues:    issues,
+		HasErrors: hasErrors,
+		Code:      code,
+		Message:   msg,
+	}
+}

@@ -34,6 +34,8 @@ from aletheia.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from aletheia.codes import ValidationIssue
+
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 
 
@@ -142,6 +144,37 @@ def check_dbc_text_size_bound(observed: int) -> None:
             observed,
             MAX_DBC_TEXT_BYTES,
         )
+
+
+class DBCValidationFailedError(AletheiaError):
+    """Raised when the Agda core rejects a DBC that parsed but failed validation.
+
+    Mirrors the ``handler_validation_failed`` error envelope emitted by
+    ``parseDBC`` / ``parseDBCText``: ``issues`` carries the full issue
+    list (the exact element shape of the ``validation`` response —
+    severity / code / detail) and ``has_errors`` echoes the decoded wire
+    flag rather than being recomputed.  Envelopes whose ``issues`` /
+    ``has_errors`` payload is absent or ill-typed degrade to the
+    pre-existing generic errors instead of this type.
+
+    The Go and C++ bindings expose the equivalent typed error; keep the
+    surfaces in sync.
+    """
+
+    issues: list[ValidationIssue]
+    has_errors: bool
+
+    def __init__(
+        self,
+        message: str,
+        issues: list[ValidationIssue],
+        *,
+        has_errors: bool,
+        code: str | None = None,
+    ) -> None:
+        super().__init__(message, code=code)
+        self.issues = issues
+        self.has_errors = has_errors
 
 
 class BatchError(AletheiaError):

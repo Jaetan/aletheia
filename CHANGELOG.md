@@ -1057,6 +1057,35 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`aletheia validate` on a broken DBC now lists the issues instead of
+  dying — the binding/CLI half of the first-touch fix, plus the CLI
+  scenario harness that locks it.** All four bindings lift the
+  `handler_validation_failed` envelope into a typed error carrying the
+  full issue list, mirroring the `input_bound_exceeded` precedent exactly
+  (well-formed payload → typed error; malformed/partial → degrade to the
+  generic coded error): Python `DBCValidationFailedError`, Go
+  `ValidationFailedError`, Rust `Error::ValidationFailed`, and C++ an
+  optional `issues()` payload on `AletheiaError` beside `bound_info()`
+  (`ValidationIssue` relocated to its own small header,
+  `aletheia/validation_issue.hpp`, so `error.hpp` can name it without
+  pulling the DBC vocabulary). All three CLIs' `validate` catch the typed
+  error from their DBC-load step and render the same report as a
+  `has_errors` validation result — "Validation FAILED" + the numbered
+  issue list, warnings included — with exit code 1; other subcommands
+  keep dying with the message (exit 2), as does a syntactically
+  unparseable file. **Behavior change**: `validate --json` with
+  `has_errors` now exits 1 in Go and C++ (previously 0 — the exit code
+  now reflects the outcome in both output modes, per the CLIs' own
+  documented 0/1/2 contract; Python already did this). New
+  `validation_rejection_issues` FEATURE_MATRIX row (44 rows). And the
+  session's structural lesson became a standing gate: a **cross-CLI
+  scenario harness** (`docs/CLI_SCENARIOS.yaml` +
+  `python/tests/test_cli_parity.py`) drives all three real CLI binaries
+  as subprocesses over a shared fixture corpus (including new
+  `python/tests/fixtures/dbc_broken/` files) and pins the exit-code
+  contract and per-scenario output markers — the first-touch failure
+  mode can no longer reappear silently in any CLI.
+
 - **A rejected DBC parse now reports everything the kernel knows — the
   kernel half of the `aletheia validate` first-touch fix.** `validate` is
   the first command a user with a broken DBC runs, and it used to die with

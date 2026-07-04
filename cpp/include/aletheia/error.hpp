@@ -3,6 +3,7 @@
 #pragma once
 
 #include <aletheia/limits.hpp>
+#include <aletheia/validation_issue.hpp> // IWYU pragma: export
 
 #include <expected>
 #include <optional>
@@ -10,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace aletheia {
 
@@ -130,20 +132,32 @@ class AletheiaError {
     // (R19 cluster 8 — CPP-D-21.5 cross-binding parity).  Errors of any
     // other kind have `std::nullopt`.
     std::optional<InputBoundExceededError> bound_info_;
+    // Populated only when `code_ == ErrorCode::HandlerValidationFailed` and
+    // the error envelope carried well-typed `has_errors` + `issues` fields
+    // (parseDBC / parseDBCText rejects); the elements use the same
+    // {severity, code, detail} shape as a validation response.  Any other
+    // error — including a validation-failed envelope without the structured
+    // fields — has `std::nullopt`.
+    std::optional<std::vector<ValidationIssue>> issues_;
 
 public:
     AletheiaError(ErrorKind kind, std::string message, ErrorCode code = ErrorCode::Unknown,
-                  std::optional<InputBoundExceededError> bound_info = std::nullopt)
+                  std::optional<InputBoundExceededError> bound_info = std::nullopt,
+                  std::optional<std::vector<ValidationIssue>> issues = std::nullopt)
         : kind_(kind)
         , code_(code)
         , message_(std::move(message))
-        , bound_info_(std::move(bound_info)) {}
+        , bound_info_(std::move(bound_info))
+        , issues_(std::move(issues)) {}
 
     [[nodiscard]] auto kind() const -> ErrorKind { return kind_; }
     [[nodiscard]] auto code() const -> ErrorCode { return code_; }
     [[nodiscard]] auto message() const -> std::string_view { return message_; }
     [[nodiscard]] auto bound_info() const -> const std::optional<InputBoundExceededError>& {
         return bound_info_;
+    }
+    [[nodiscard]] auto issues() const -> const std::optional<std::vector<ValidationIssue>>& {
+        return issues_;
     }
 };
 

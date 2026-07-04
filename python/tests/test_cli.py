@@ -14,6 +14,7 @@ Tests cover:
 """
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import can
@@ -30,9 +31,9 @@ from aletheia.cli import (
 from aletheia.testing import run_checks
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from aletheia.types import DBCDefinition
+
+CORPUS_DIR = Path(__file__).parent / "fixtures" / "dbc_corpus"
 
 # ============================================================================
 # Shared DBC content
@@ -262,6 +263,79 @@ class TestSignalsCommand:
         """Verify no dbc specified."""
         code = main(["signals"])
         assert code == 2
+
+
+# ============================================================================
+# Validate subcommand (requires FFI)
+# ============================================================================
+
+
+class TestValidateCommand:
+    """Test 'aletheia validate' -- kernel validation via FFI.
+
+    A DBC that fails kernel validation at the load step must render the
+    same FAILED report as a ``has_errors`` validation result and exit 1;
+    a syntactically unparseable DBC (no structured issue list) keeps the
+    generic exit-2 death, as do all other subcommands on an invalid DBC.
+    """
+
+    @pytest.fixture
+    def invalid_dbc(self, tmp_path: Path) -> Path:
+        """Corpus minimal.dbc with EngineTemp renamed to duplicate EngineSpeed."""
+        text = (CORPUS_DIR / "minimal.dbc").read_text(encoding="utf-8")
+        p = tmp_path / "dup_signal.dbc"
+        p.write_text(text.replace(" SG_ EngineTemp ", " SG_ EngineSpeed "), encoding="utf-8")
+        return p
+
+    def test_valid_dbc_passes(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A clean DBC validates with exit 0."""
+        code = main(["validate", "--dbc", str(CORPUS_DIR / "minimal.dbc")])
+        assert code == 0
+        assert "Validation passed" in capsys.readouterr().out
+
+    def test_invalid_dbc_lists_issues_and_exits_1(
+        self, invalid_dbc: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A load-step validation failure prints the FAILED report and exits 1."""
+        code = main(["validate", "--dbc", str(invalid_dbc)])
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "Validation FAILED: 1 errors, 1 warnings" in out
+        assert "1. [ERROR] duplicate_signal_name:" in out
+        assert "2. [WARNING] offset_scale_range:" in out
+
+    def test_invalid_dbc_json_output(
+        self, invalid_dbc: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--json emits the same fail shape as a has_errors validation result."""
+        code = main(["validate", "--dbc", str(invalid_dbc), "--json"])
+        assert code == 1
+        data = json.loads(capsys.readouterr().out)
+        assert data["status"] == "fail"
+        assert data["has_errors"] is True
+        assert data["total_issues"] == len(data["issues"])
+        assert "duplicate_signal_name" in {issue["code"] for issue in data["issues"]}
+
+    def test_unparseable_dbc_still_exits_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A syntactic parse failure (no issue list) keeps the generic death."""
+        p = tmp_path / "garbage.dbc"
+        p.write_text("this is not a DBC file\n", encoding="utf-8")
+        code = main(["validate", "--dbc", str(p)])
+        assert code == 2
+        err = capsys.readouterr().err
+        assert err.startswith(f"Error: Failed to parse DBC file '{p}': ")
+
+    def test_other_subcommand_still_exits_2(
+        self, invalid_dbc: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Non-validate subcommands still die with the message on an invalid DBC."""
+        code = main(["signals", "--dbc", str(invalid_dbc)])
+        assert code == 2
+        err = capsys.readouterr().err
+        assert err.startswith(f"Error: Failed to parse DBC file '{invalid_dbc}': ")
+        assert "validation failed" in err
 
 
 # ============================================================================

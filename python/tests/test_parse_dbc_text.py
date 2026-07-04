@@ -81,6 +81,22 @@ class TestParseDBCTextFailure:
             resp = client.parse_dbc_text("")
         assert resp["status"] == "error"
 
+    def test_validation_failure_carries_structured_issues(self) -> None:
+        """A ``handler_validation_failed`` envelope decodes issues + has_errors.
+
+        The issue list reuses the exact element shape of the ``validation``
+        response; ``has_errors`` is the decoded wire value, not assumed.
+        """
+        text = _read_corpus("minimal.dbc").replace(" SG_ EngineTemp ", " SG_ EngineSpeed ")
+        with AletheiaClient() as client:
+            resp = client.parse_dbc_text(text)
+        assert resp["status"] == "error"
+        assert resp["code"] == "handler_validation_failed"
+        assert resp.get("has_errors") is True
+        issues = resp.get("issues")
+        assert issues is not None
+        assert "duplicate_signal_name" in {issue["code"] for issue in issues}
+
     def test_zero_length_le_signal_rejected_at_parse(self) -> None:
         """LE bitLength=0 surfaces as a parse error.
 
