@@ -337,9 +337,6 @@ func cmdExtract(argv []string) int {
 	if len(data) != msg.DLC.ToBytes() {
 		return die(fmt.Sprintf("data length (%d bytes) does not match DBC message DLC (%d bytes)", len(data), msg.DLC.ToBytes()))
 	}
-	if _, err := client.ParseDBC(context.Background(), def); err != nil {
-		return die(err.Error())
-	}
 	res, err := client.ExtractSignals(context.Background(), id, msg.DLC, aletheia.FramePayload(data))
 	if err != nil {
 		return die(err.Error())
@@ -480,11 +477,7 @@ func cmdFormatDBC(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	def, err := loadDBCText(client, *dbc)
-	if err != nil {
-		return die(err.Error())
-	}
-	if _, err := client.ParseDBC(context.Background(), def); err != nil {
+	if _, err := loadDBCText(client, *dbc); err != nil {
 		return die(err.Error())
 	}
 	canonical, err := client.FormatDBC(context.Background())

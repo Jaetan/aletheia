@@ -272,12 +272,12 @@ func (c *Client) populateSignalLookup(dbc DBCDefinition) {
 // If ctx fires during an in-flight FFI call, the call runs to completion and
 // returns its real result; the next call fails fast.
 func (c *Client) ParseDBC(ctx context.Context, dbc DBCDefinition) (*ParsedDBC, error) {
-	dbcMap, err := serializeDBC(dbc)
+	dbcJSON, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err
 	}
 	cmd, err := serializeCommand("parseDBC", map[string]any{
-		"dbc": dbcMap,
+		"dbc": dbcJSON,
 	})
 	if err != nil {
 		return nil, err
@@ -357,12 +357,12 @@ func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, err
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*ValidationResult, error) {
-	dbcMap, err := serializeDBC(dbc)
+	dbcJSON, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err
 	}
 	cmd, err := serializeCommand("validateDBC", map[string]any{
-		"dbc": dbcMap,
+		"dbc": dbcJSON,
 	})
 	if err != nil {
 		return nil, err
@@ -421,12 +421,12 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (string, error) {
-	dbcMap, err := serializeDBC(dbc)
+	dbcJSON, err := serializeDBC(dbc)
 	if err != nil {
 		return "", err
 	}
 	cmd, err := serializeCommand("formatDBCText", map[string]any{
-		"dbc": dbcMap,
+		"dbc": dbcJSON,
 	})
 	if err != nil {
 		return "", err
@@ -1075,8 +1075,8 @@ func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnosti
 	if c.cache == nil {
 		return nil
 	}
-	key := frameKey{idValue: id.Value(), isExtended: id.IsExtended(), dlc: dlc.Value(), data: string(data)}
-	result, ok := c.cache.get(key)
+	meta := frameMeta{idValue: id.Value(), isExtended: id.IsExtended(), dlc: dlc.Value()}
+	result, ok := c.cache.get(meta, data)
 	if ok {
 		if c.logger != nil && c.logger.Enabled(ctx, slog.LevelDebug) {
 			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.hit",
@@ -1089,7 +1089,7 @@ func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnosti
 		}
 		result = c.extractSignalsLocked(ctx, id, dlc, data)
 		if result != nil {
-			if !c.cache.put(key, result) && c.logger != nil {
+			if !c.cache.put(meta, data, result) && c.logger != nil {
 				c.logger.LogAttrs(ctx, slog.LevelWarn, "cache.full",
 					slog.Int("size", maxExtractCache))
 			}

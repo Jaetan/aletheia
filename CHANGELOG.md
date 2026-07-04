@@ -388,6 +388,34 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **r25 B8 efficiency batch — off-hot-path allocation and round-trip cuts
+  across Go/C++/Rust; no wire or API change.** Go: `serializeDBC` now returns
+  the marshaled bytes (`json.RawMessage`), so every DBC-bearing operation
+  (`ParseDBC` / `ValidateDBC` / `FormatDBCText` / `DBCDefinition.MarshalJSON` /
+  the mock's `RespondParseDBC`) marshals the DBC once instead of twice — the
+  R19 defense-in-depth size probe is retained, the single marshal now *is*
+  the probe, and the wire bytes are unchanged (`encoding/json` embeds a
+  `RawMessage` verbatim). The extraction cache key split into `frameMeta` +
+  a payload-keyed inner map, so a cache HIT no longer heap-copies the frame
+  payload (`entries[meta][string(data)]` compiles to Go's allocation-free
+  map-index form; the 256-entry capacity semantics are preserved by an exact
+  total-entry counter). C++: the Excel loader stops deep-copying each row's
+  cell map into `data_rows` (`std::move`), and `group_rows_by_message`
+  returns groups in first-seen order directly, dropping the per-message
+  ordered-map re-lookup in the build loop. Rust: the end-of-stream
+  enrichment first-seen merge gains a `HashSet` seen-guard beside the
+  ordered Vec — O(N) expected instead of an O(N²) rescan; merge order (and
+  therefore `Enrichment.signals`) is byte-identical. CLI (Go and C++, in
+  lockstep): `extract` and `format-dbc` no longer re-`ParseDBC` the
+  definition their own `loadDBCText` already loaded — the kernel's text
+  parse reaches the identical `ReadyToStream` state and both clients
+  populate their signal lookup on that path, so the second full
+  serialize→FFI→re-validate round-trip was pure repetition. Observable
+  deltas: one fewer `dbc.parsed` log event per CLI invocation (the CLIs
+  attach no logger), and the kernel now holds the text-parsed DBC rather
+  than its JSON round-trip image — identical by the B.3.d round-trip proof.
+  (Python's CLI already loads once — it was the reference; Rust has no CLI.)
+
 - **CI: the two advisory benchmark lanes retry once on failure, always upload
   their variance/result JSONs, and tally every retry (flake hardening).** The
   jitter watch closed with a verdict of intermittent runner noise: 2× the
