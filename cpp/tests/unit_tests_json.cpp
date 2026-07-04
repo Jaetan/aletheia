@@ -10,6 +10,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -1849,6 +1850,71 @@ TEST_CASE("parse_validation rejects a malformed JSON envelope", "[json][parse][e
     auto r = detail::parse_validation("{");
     CHECK_FALSE(r.has_value());
     CHECK(r.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("handler_validation_failed envelope lifts issues into the typed error",
+          "[json][parse][error]") {
+    auto r = detail::parse_parsed_dbc(
+        R"({"status":"error","code":"handler_validation_failed",)"
+        R"("message":"ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'",)"
+        R"("has_errors":true,"issues":[)"
+        R"({"severity":"error","code":"duplicate_signal_name",)"
+        R"("detail":"Message 'M': duplicate signal name 'S'"},)"
+        R"({"severity":"warning","code":"offset_scale_range",)"
+        R"("detail":"Signal 'S': offset/scale out of range"}]})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
+    // The legacy message text is untouched by the lift.
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("duplicate signal name 'S'"));
+    REQUIRE(r.error().issues().has_value());
+    const auto& issues = *r.error().issues();
+    REQUIRE(issues.size() == 2);
+    CHECK(issues[0].severity == IssueSeverity::Error);
+    CHECK(issues[0].code == IssueCode::DuplicateSignalName);
+    CHECK(issues[0].detail == "Message 'M': duplicate signal name 'S'");
+    CHECK(issues[1].severity == IssueSeverity::Warning);
+    CHECK(issues[1].code == IssueCode::OffsetScaleRange);
+    CHECK(issues[1].detail == "Signal 'S': offset/scale out of range");
+}
+
+TEST_CASE("handler_validation_failed without structured fields degrades to nullopt",
+          "[json][parse][error]") {
+    // Cores predating the structured envelope emit only code/message; the
+    // decode must not fail harder than before.
+    auto r = detail::parse_parsed_dbc(R"({"status":"error","code":"handler_validation_failed",)"
+                                      R"("message":"ParseDBCText: validation failed: boom"})");
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
+    CHECK_FALSE(r.error().issues().has_value());
+}
+
+TEST_CASE("handler_validation_failed with a malformed issues payload degrades to nullopt",
+          "[json][parse][error]") {
+    const auto* const envelope = GENERATE(
+        // has_errors missing
+        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+        R"("issues":[]})",
+        // has_errors ill-typed
+        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+        R"("has_errors":"yes","issues":[]})",
+        // issues not an array
+        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+        R"("has_errors":true,"issues":{}})",
+        // a non-object element
+        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+        R"("has_errors":true,"issues":[42]})",
+        // an unknown severity
+        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+        R"("has_errors":true,"issues":[{"severity":"fatal","code":"x","detail":"d"}]})",
+        // an ill-typed detail field
+        R"({"status":"error","code":"handler_validation_failed","message":"m",)"
+        R"("has_errors":true,"issues":[{"severity":"error","code":"x","detail":42}]})");
+    auto r = detail::parse_parsed_dbc(envelope);
+    REQUIRE_FALSE(r.has_value());
+    CHECK(r.error().code() == ErrorCode::HandlerValidationFailed);
+    CHECK(r.error().message() == "m");
+    CHECK_FALSE(r.error().issues().has_value());
 }
 
 TEST_CASE("parse_extraction lifts a status=error envelope", "[json][parse][error]") {

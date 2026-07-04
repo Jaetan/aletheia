@@ -18,7 +18,11 @@ file returns ``d`` for any well-formed DBC (Track B.3.d / E.9a universal).
 from pathlib import Path
 
 from aletheia.client._client import AletheiaClient
-from aletheia.client._types import ValidationError, check_dbc_text_size_bound
+from aletheia.client._types import (
+    DBCValidationFailedError,
+    ValidationError,
+    check_dbc_text_size_bound,
+)
 from aletheia.types import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
 
 
@@ -33,7 +37,11 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
 
     Raises:
         OSError: If the file cannot be read.
-        ValidationError: If the file is not a valid DBC.
+        DBCValidationFailedError: If the DBC parsed but failed validation
+            with a structured issue list (``handler_validation_failed``).
+        ValidationError: If the file is not a valid DBC and the error
+            envelope carries no structured issue list (e.g. a syntactic
+            parse failure).
         InputBoundExceededError: If the file is larger than
             :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).
 
@@ -54,6 +62,18 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":
         msg = f"Failed to parse DBC file '{dbc_path}': {response['message']}"
+        # The decoder attaches issues/has_errors together or not at all
+        # (lift_validation_issues), so checking both here cannot see a
+        # partial pair.
+        issues = response.get("issues")
+        has_errors = response.get("has_errors")
+        if issues is not None and has_errors is not None:
+            raise DBCValidationFailedError(
+                msg,
+                list(issues),
+                has_errors=has_errors,
+                code=response["code"],
+            )
         raise ValidationError(msg)
     return response["dbc"]
 

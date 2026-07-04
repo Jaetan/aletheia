@@ -113,6 +113,78 @@ class TestBuildErrorResponse:
         )
         assert out == {"status": "error", "code": "input_bound_exceeded", "message": "m"}
 
+    def test_wellformed_validation_issues_are_attached(self) -> None:
+        """A complete ``handler_validation_failed`` payload is lifted onto the response.
+
+        Both issue severities ride along and ``has_errors`` echoes the wire
+        value (decoded, not assumed true).
+        """
+        issues = [
+            {"severity": "error", "code": "duplicate_signal_name", "detail": "dup 'S'"},
+            {"severity": "warning", "code": "offset_scale_range", "detail": "range"},
+        ]
+        out = build_error_response(
+            cast(
+                "Response",
+                {
+                    "status": "error",
+                    "code": "handler_validation_failed",
+                    "message": "ParseDBCText: validation failed: dup 'S'",
+                    "has_errors": True,
+                    "issues": issues,
+                },
+            )
+        )
+        assert out.get("has_errors") is True
+        assert out.get("issues") == issues
+
+    @pytest.mark.parametrize(
+        "extras",
+        [
+            pytest.param(
+                {"issues": [{"severity": "error", "code": "c", "detail": "d"}]},
+                id="has_errors-absent",
+            ),
+            pytest.param(
+                {
+                    "has_errors": 1,
+                    "issues": [{"severity": "error", "code": "c", "detail": "d"}],
+                },
+                id="has_errors-int",
+            ),
+            pytest.param({"has_errors": True}, id="issues-absent"),
+            pytest.param({"has_errors": True, "issues": "nope"}, id="issues-nonlist"),
+            pytest.param({"has_errors": True, "issues": [42]}, id="issue-nonobject"),
+            pytest.param(
+                {"has_errors": True, "issues": [{"severity": "fatal", "code": "c", "detail": "d"}]},
+                id="severity-unknown",
+            ),
+            pytest.param(
+                {"has_errors": True, "issues": [{"severity": "error", "detail": "d"}]},
+                id="code-absent",
+            ),
+            pytest.param(
+                {"has_errors": True, "issues": [{"severity": "error", "code": "c", "detail": 7}]},
+                id="detail-nonstring",
+            ),
+        ],
+    )
+    def test_malformed_validation_issues_are_dropped(self, extras: dict[str, object]) -> None:
+        """An absent or ill-typed issues payload degrades to no payload — never partial.
+
+        Same all-or-nothing rule as the bound triple: ``has_errors`` must be a
+        bool and every issue an object with canonical severity plus string
+        ``code`` / ``detail``, or neither field is attached — and the decode
+        never fails harder than the pre-payload generic error.
+        """
+        out = build_error_response(
+            cast(
+                "Response",
+                {"status": "error", "code": "handler_validation_failed", "message": "m", **extras},
+            )
+        )
+        assert out == {"status": "error", "code": "handler_validation_failed", "message": "m"}
+
 
 class TestParseCompleteWarnings:
     """Strict-contract tests for ``parse_complete_warnings``.

@@ -54,6 +54,30 @@ auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
     return {code, oss.str()};
 }
 
+// Derive an invalid DBC from the minimal.dbc fixture by renaming EngineTemp
+// to EngineSpeed — a duplicate signal name, which the verified parser rejects
+// with handler_validation_failed carrying the validation issues.
+auto write_duplicate_signal_dbc() -> std::filesystem::path {
+    const auto fixture =
+        repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc";
+    std::ifstream in{fixture};
+    if (!in) {
+        throw std::runtime_error("cannot read fixture " + fixture.string());
+    }
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    std::string text = buf.str();
+    const auto pos = text.find("EngineTemp");
+    if (pos == std::string::npos) {
+        throw std::runtime_error("minimal.dbc no longer contains EngineTemp");
+    }
+    text.replace(pos, std::string_view{"EngineTemp"}.size(), "EngineSpeed");
+    const auto path = std::filesystem::temp_directory_path() / "aletheia_duplicate_signal.dbc";
+    std::ofstream out{path};
+    out << text;
+    return path;
+}
+
 } // namespace
 
 TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
@@ -121,6 +145,65 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
     std::filesystem::remove(dbc, ec);
     CHECK(code == 0);
     CHECK(out.find("x0.0001220703125") != std::string::npos);
+}
+
+TEST_CASE("validate renders the issue list and exits 1 when the parser rejects the DBC", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    const auto dbc = write_duplicate_signal_dbc();
+    auto [code, out] = run_capture({"validate", "--dbc", dbc.string()});
+    std::error_code ec;
+    std::filesystem::remove(dbc, ec);
+    CHECK(code == 1);
+    CHECK(out.find("Validation FAILED") != std::string::npos);
+    CHECK(out.find("[ERROR] duplicate_signal_name") != std::string::npos);
+    CHECK(out.find("  1. ") != std::string::npos); // the numbered issue list
+}
+
+TEST_CASE("validate --json emits the has_errors fail shape when the parser rejects the DBC",
+          "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    const auto dbc = write_duplicate_signal_dbc();
+    auto [code, out] = run_capture({"validate", "--dbc", dbc.string(), "--json"});
+    std::error_code ec;
+    std::filesystem::remove(dbc, ec);
+    // The exit code reflects the validation outcome in both output modes:
+    // --json on a has_errors result exits 1 like text mode.
+    CHECK(code == 1);
+    const auto parsed = nlohmann::json::parse(out);
+    CHECK(parsed.at("status") == "fail");
+    CHECK(parsed.at("has_errors") == true);
+    REQUIRE(!parsed.at("issues").empty());
+    bool hit = false;
+    for (const auto& issue : parsed.at("issues"))
+        if (issue.at("code") == "duplicate_signal_name" && issue.at("severity") == "error")
+            hit = true;
+    CHECK(hit);
+}
+
+TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report path", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    // Non-validate subcommands keep dying with the stringified parse error.
+    const auto dup = write_duplicate_signal_dbc();
+    const int signals_code = run({"signals", "--dbc", dup.string()});
+    std::error_code ec;
+    std::filesystem::remove(dup, ec);
+    CHECK(signals_code == 2);
+    // A syntactically unparseable DBC has no issues payload; validate keeps
+    // the fatal-error path.
+    const auto garbage = std::filesystem::temp_directory_path() / "aletheia_garbage.dbc";
+    {
+        std::ofstream out{garbage};
+        out << "this is not a dbc file\n";
+    }
+    const int validate_code = run({"validate", "--dbc", garbage.string()});
+    std::filesystem::remove(garbage, ec);
+    CHECK(validate_code == 2);
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {

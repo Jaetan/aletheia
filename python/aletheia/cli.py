@@ -34,6 +34,7 @@ from aletheia.client._client import AletheiaClient
 from aletheia.client._enrichment import format_rational
 from aletheia.client._types import (
     AletheiaError,
+    DBCValidationFailedError,
     SignalExtractionResult,
     ValidationError,
     bytes_to_dlc,
@@ -190,7 +191,11 @@ def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
     workbooks are routed through :func:`load_dbc_from_excel`; ``.dbc``
     text files are parsed by :func:`dbc_to_json`.  Calls :func:`_die`
     (exit code 2) when neither flag is set or the named path does not
-    exist — no exception escapes back to the caller.
+    exist.  DBC-content failures propagate as exceptions from the
+    loaders (``DBCValidationFailedError`` when the kernel returned a
+    structured issue list, else ``ValidationError``); ``validate``
+    catches the former to render the issue list, every other subcommand
+    lets it reach ``main``'s ``AletheiaError`` handler (exit code 2).
     """
     dbc_path: str | None = getattr(args, "dbc", None)
     excel_path: str | None = getattr(args, "excel", None)
@@ -353,16 +358,13 @@ def _print_validation_text(issues: list[ValidationIssue], *, has_errors: bool) -
     _emit()
 
 
-def _cmd_validate(args: argparse.Namespace) -> int:
-    """Validate a DBC definition for structural issues."""
-    dbc = _load_dbc(args)
-
-    with AletheiaClient() as client:
-        result = client.validate_dbc(dbc)
-
-    issues = result["issues"]
-    has_errors = result["has_errors"]
-
+def _emit_validation_result(
+    args: argparse.Namespace,
+    issues: list[ValidationIssue],
+    *,
+    has_errors: bool,
+) -> int:
+    """Render a validation outcome (text or ``--json``) and map it to an exit code."""
     if getattr(args, "json", False):
         out = {
             "status": "fail" if has_errors else "pass",
@@ -375,6 +377,30 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         _print_validation_text(issues, has_errors=has_errors)
 
     return _EXIT_VIOLATIONS if has_errors else _EXIT_OK
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    """Validate a DBC definition for structural issues.
+
+    A DBC whose load step fails kernel validation with a structured issue
+    list renders the same report as a ``has_errors`` validation result
+    (exit code 1) instead of dying with exit code 2; a syntactically
+    unparseable DBC (no issue list) still dies via ``main``'s
+    ``AletheiaError`` handler.
+    """
+    try:
+        dbc = _load_dbc(args)
+    except DBCValidationFailedError as exc:
+        return _emit_validation_result(args, list(exc.issues), has_errors=exc.has_errors)
+
+    with AletheiaClient() as client:
+        result = client.validate_dbc(dbc)
+
+    return _emit_validation_result(
+        args,
+        list(result["issues"]),
+        has_errors=result["has_errors"],
+    )
 
 
 # ============================================================================

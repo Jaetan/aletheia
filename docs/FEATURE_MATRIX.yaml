@@ -490,6 +490,18 @@ features:
         entry: "Error::InputBoundExceeded"
         notes: "Error::InputBoundExceeded { code, bound_kind, observed, limit } — lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python). Added in the cross-binding decoder-audit follow-up; before it, Rust collapsed every error envelope to the generic Error::Core. The human-readable message is reconstructed from the triple by Display, not stored — like the peers."
 
+  - id: validation_rejection_issues
+    name: Structured issues on validation rejection
+    description: A DBC rejected at load (parseDBC / parseDBCText with error-level validation issues) surfaces the FULL structured issue list — errors and warnings — as a typed error lifted from the handler_validation_failed envelope; a malformed/partial payload degrades to the generic coded error. The validate CLIs render the list and exit 1 in both text and --json modes.
+    bindings:
+      python: { status: implemented, entry: aletheia.DBCValidationFailedError }
+      cpp:
+        status: implemented
+        entry: "aletheia/error.hpp#issues"
+        notes: "Carried on AletheiaError as an optional issues() payload beside bound_info() (no new exception type — C++ errors are a single value type); ValidationIssue relocated to aletheia/validation_issue.hpp so error.hpp can name it without pulling the DBC vocabulary."
+      go:     { status: implemented, entry: ValidationFailedError }
+      rust: { status: implemented, entry: "Error::ValidationFailed" }
+
   - id: violation_enrichment
     name: Violation enrichment
     description: Attach signal values and core reason string to LTL violations.

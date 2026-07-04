@@ -547,9 +547,11 @@ impl Client {
     /// warnings the core reported.
     ///
     /// # Errors
-    /// [`Error::Core`] if the text fails to parse (or [`Error::InputBoundExceeded`]
-    /// if it trips an adversarial-input bound such as identifier length or message
-    /// count), or [`Error::Protocol`] on an unexpected response.
+    /// [`Error::ValidationFailed`] if the text parses but structural validation
+    /// finds errors, [`Error::Core`] if the text fails to parse (or
+    /// [`Error::InputBoundExceeded`] if it trips an adversarial-input bound such
+    /// as identifier length or message count), or [`Error::Protocol`] on an
+    /// unexpected response.
     pub fn parse_dbc_text(&self, text: &str) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
         let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
         let raw = self.process(&cmd.to_string())?;
@@ -582,8 +584,9 @@ impl Client {
     /// re-parsed document plus any validation warnings.
     ///
     /// # Errors
-    /// [`Error::Core`] if the DBC fails validation, or [`Error::Protocol`] on an
-    /// unexpected response.
+    /// [`Error::ValidationFailed`] if the DBC fails validation, [`Error::Core`]
+    /// on any other core rejection, or [`Error::Protocol`] on an unexpected
+    /// response.
     pub fn parse_dbc(&self, dbc: &Dbc) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
         // Build the envelope then move the serialized DBC in: `json!({…: expr})`
         // deep-copies a `Value` operand (via `to_value(&expr)`), which would
