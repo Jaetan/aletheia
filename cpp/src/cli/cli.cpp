@@ -269,9 +269,13 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
                                     {"has_errors", has_errors},
                                     {"total_issues", issues.size()},
                                     {"issues", arr}});
+        // An emit failure is an operational error and must not be masked
+        // by the validation outcome.
+        if (code != k_exit_ok)
+            return code;
         // The exit code reflects the validation outcome in both output
         // modes — a pipeline running --json still needs exit 1 on failure.
-        return has_errors ? k_exit_violations : code;
+        return has_errors ? k_exit_violations : k_exit_ok;
     }
     if (issues.empty()) {
         std::cout << "Validation passed: no issues found\n";
