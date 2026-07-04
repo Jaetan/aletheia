@@ -157,8 +157,8 @@ class DBCValidationFailedError(AletheiaError):
     ``has_errors`` payload is absent or ill-typed degrade to the
     pre-existing generic errors instead of this type.
 
-    The Go and C++ bindings expose the equivalent typed error; keep the
-    surfaces in sync.
+    The Go, C++, and Rust bindings expose the equivalent typed error;
+    keep the surfaces in sync.
     """
 
     issues: list[ValidationIssue]

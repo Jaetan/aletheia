@@ -67,6 +67,11 @@ def lift_validation_issues(
     (the degrade rule of the ``bound_kind`` / ``observed`` / ``limit``
     triple in :func:`build_error_response`).
     """
+    # Gate on the wire code, like the Go / C++ / Rust decoders: another
+    # error envelope that happens to carry has_errors/issues-shaped keys
+    # must not be mis-lifted into validation issues.
+    if response.get("code") != "handler_validation_failed":
+        return None
     has_errors = response.get("has_errors")
     raw_issues = response.get("issues")
     if not isinstance(has_errors, bool) or not is_object_list(raw_issues):

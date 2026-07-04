@@ -18,6 +18,7 @@ file returns ``d`` for any well-formed DBC (Track B.3.d / E.9a universal).
 from pathlib import Path
 
 from aletheia.client._client import AletheiaClient
+from aletheia.client._response_parsers import lift_validation_issues
 from aletheia.client._types import (
     DBCValidationFailedError,
     ValidationError,
@@ -62,17 +63,17 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":
         msg = f"Failed to parse DBC file '{dbc_path}': {response['message']}"
-        # The decoder attaches issues/has_errors together or not at all
-        # (lift_validation_issues), so checking both here cannot see a
-        # partial pair.
-        issues = response.get("issues")
-        has_errors = response.get("has_errors")
-        if issues is not None and has_errors is not None:
+        # One rule decides liftability — the same helper the client's
+        # validate_dbc uses (gated on the wire code, pair attached
+        # atomically); no local re-implementation to drift.
+        lifted = lift_validation_issues(response)
+        if lifted is not None:
+            issues, has_errors = lifted
             raise DBCValidationFailedError(
                 msg,
-                list(issues),
+                issues,
                 has_errors=has_errors,
-                code=response["code"],
+                code="handler_validation_failed",
             )
         raise ValidationError(msg)
     return response["dbc"]

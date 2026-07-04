@@ -138,6 +138,29 @@ class TestBuildErrorResponse:
         assert out.get("has_errors") is True
         assert out.get("issues") == issues
 
+    def test_foreign_code_with_issue_shaped_payload_is_not_lifted(self) -> None:
+        """The lift is gated on ``code == "handler_validation_failed"``.
+
+        Another error envelope carrying has_errors/issues-shaped keys must
+        not be mis-lifted (matches the Go/C++/Rust decoders' code gate).
+        """
+        out = build_error_response(
+            cast(
+                "Response",
+                {
+                    "status": "error",
+                    "code": "some_future_error",
+                    "message": "boom",
+                    "has_errors": True,
+                    "issues": [
+                        {"severity": "error", "code": "duplicate_signal_name", "detail": "d"}
+                    ],
+                },
+            )
+        )
+        assert "has_errors" not in out
+        assert "issues" not in out
+
     @pytest.mark.parametrize(
         "extras",
         [

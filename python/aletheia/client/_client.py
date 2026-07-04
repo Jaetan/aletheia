@@ -457,11 +457,14 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             lifted = lift_validation_issues(response)
             if lifted is not None:
                 issues, has_errors = lifted
+                # The lift gates on this exact wire code, so echoing the
+                # literal is exact (and keeps the type narrow without an
+                # unreachable isinstance arm).
                 raise DBCValidationFailedError(
                     msg,
                     issues,
                     has_errors=has_errors,
-                    code=code if isinstance(code, str) else None,
+                    code="handler_validation_failed",
                 )
             raise ProtocolError(
                 msg,
