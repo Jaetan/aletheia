@@ -826,6 +826,7 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 		&outSize,
 		&outErr,
 	)
+	runtime.KeepAlive(data)
 	if status != 0 {
 		var msg string
 		if outErr != nil {

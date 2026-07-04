@@ -29,7 +29,7 @@
 //! are tracked as `planned` in `docs/FEATURE_MATRIX.yaml`.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -109,6 +109,18 @@ pub struct Frame {
 /// The parallel `(indices, numerators, denominators)` arrays the build/update
 /// FFI expects for a set of signal injections.
 type SignalArrays = (Vec<u32>, Vec<i64>, Vec<i64>);
+
+/// The subset of extracted `values` named by `diag.signals`.
+fn select_diag_values(
+    diag: &PropertyDiagnostic,
+    values: &[(String, Rational)],
+) -> Vec<(String, Rational)> {
+    values
+        .iter()
+        .filter(|(n, _)| diag.signals.iter().any(|s| s == n))
+        .cloned()
+        .collect()
+}
 
 /// Resolve `(name, value)` signal injections against a message's signal list to
 /// the parallel arrays the build/update FFI expects. The index is the signal's
@@ -429,11 +441,7 @@ impl Client {
         prop_index: u32,
     ) -> Vec<(String, Rational)> {
         match extracted {
-            Some(all) => all
-                .iter()
-                .filter(|(n, _)| diag.signals.iter().any(|s| s == n))
-                .cloned()
-                .collect(),
+            Some(all) => select_diag_values(diag, all),
             None => {
                 self.emit(
                     LogLevel::Warn,
@@ -485,13 +493,17 @@ impl Client {
             .map(|(id, (dlc, data))| (*id, *dlc, data.clone()))
             .collect();
         frames.sort_by_key(|(id, _, _)| (id.value(), id.is_extended()));
+        // `merged` stays a Vec to preserve the documented deterministic
+        // first-seen order; `seen` is the O(1) membership guard beside it.
         let mut merged: Vec<(String, Rational)> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut any_failed = false;
         for (id, dlc, data) in &frames {
             match self.extract_all(*id, *dlc, data) {
                 Some(found) => {
                     for (name, value) in found {
-                        if !merged.iter().any(|(n, _)| n == &name) {
+                        if !seen.contains(&name) {
+                            seen.insert(name.clone());
                             merged.push((name, value));
                         }
                     }
@@ -500,11 +512,7 @@ impl Client {
             }
         }
         for (slot, diag) in todo {
-            let values: Vec<(String, Rational)> = merged
-                .iter()
-                .filter(|(n, _)| diag.signals.iter().any(|s| s == n))
-                .cloned()
-                .collect();
+            let values = select_diag_values(&diag, &merged);
             // Wanted signals but got none, and an extraction failed → that
             // failure is why enrichment is missing the values.
             if values.is_empty() && !diag.signals.is_empty() && any_failed {

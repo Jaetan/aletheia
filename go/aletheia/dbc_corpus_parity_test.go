@@ -68,10 +68,11 @@ func findFFILibForParityTest() string {
 
 // canonicalDBCJSON canonical-encodes a DBCDefinition for the parity test. The
 // shape mirrors the Python FractionJSONEncoder + sort_keys=True + indent=2
-// output. json.MarshalIndent on map[string]any sorts keys alphabetically by
-// design (Go 1.12+); serializeDBC already mirrors the Agda wire form for
-// "extended" (omitted on standard frames) and "presence" (explicit
-// "always"), so no post-processing is needed.
+// output. serializeDBC marshals a map[string]any, which sorts keys
+// alphabetically by design (Go 1.12+), and json.MarshalIndent re-indents the
+// returned RawMessage without reordering; serializeDBC already mirrors the
+// Agda wire form for "extended" (omitted on standard frames) and "presence"
+// (explicit "always"), so no post-processing is needed.
 func canonicalDBCJSON(dbc DBCDefinition) ([]byte, error) {
 	m, err := serializeDBC(dbc)
 	if err != nil {

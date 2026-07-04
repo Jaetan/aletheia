@@ -33,12 +33,16 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 	return string(b), nil
 }
 
-// serializeDBC converts a DBCDefinition into the map shape Agda expects
-// under the "dbc" field of the parseDBC / validateDBC command envelopes.
+// serializeDBC converts a DBCDefinition into the marshaled JSON of the map
+// shape Agda expects under the "dbc" field of the parseDBC / validateDBC
+// command envelopes. Returning the bytes (json.RawMessage) lets callers
+// embed them verbatim, so each DBC-bearing operation marshals the DBC
+// exactly once.
 //
 // Defense-in-depth (R19 cluster E1, R19-CARRY-3 / GO-B-28.4 closure): a
-// `MaxDBCTextBytes` size cap is applied to the marshaled envelope before
-// it leaves Go.  In normal flow the upstream parser bound (per UR-2)
+// `MaxDBCTextBytes` size cap is applied to the marshaled DBC before it
+// leaves Go — the one marshal that produces the returned bytes doubles as
+// the bound probe.  In normal flow the upstream parser bound (per UR-2)
 // makes this redundant; the guard catches any internal blowup or future
 // bypass that lets an oversized in-memory `DBCDefinition` reach the
 // serializer.
@@ -52,14 +56,14 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 // definitions are loaded via ParseDBCText / ParseDBC, so no canonical
 // UnmarshalJSON is paired with it.
 func (d DBCDefinition) MarshalJSON() ([]byte, error) {
-	m, err := serializeDBC(d)
+	raw, err := serializeDBC(d)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(m)
+	return raw, nil
 }
 
-func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
+func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
 		sigs := make([]map[string]any, 0, len(msg.Signals))
@@ -219,19 +223,20 @@ func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 		"attributes":           attributes,
 		"unresolvedValueDescs": unresolvedValueDescs,
 	}
-	// Defense-in-depth bound check (see function-level comment).
-	probe, err := json.Marshal(out)
+	// Single marshal: produces the returned bytes AND serves as the
+	// defense-in-depth bound check (see function-level comment).
+	b, err := json.Marshal(out)
 	if err != nil {
 		return nil, wrapProtocolError("failed to size-check DBC", err)
 	}
-	if size := uint64(len(probe)); size > MaxDBCTextBytes {
+	if size := uint64(len(b)); size > MaxDBCTextBytes {
 		return nil, &InputBoundExceededError{
 			BoundKind: BoundKindInputLengthBytes,
 			Observed:  size,
 			Limit:     MaxDBCTextBytes,
 		}
 	}
-	return out, nil
+	return json.RawMessage(b), nil
 }
 
 // --- Tier 2 serializers (Go → JSON for Agda core) ---
@@ -1005,30 +1010,18 @@ func parseEventAck(raw string) error {
 	return protocolError(fmt.Sprintf("unexpected status: %q", status))
 }
 
-// parseValidationResponse decodes a validateDBC response into typed
-// ValidationIssues, preserving severity and the Agda error code.
-func parseValidationResponse(raw string) (*ValidationResult, error) {
-	m, err := parseResponse(raw)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "validation" {
-		return nil, protocolError(fmt.Sprintf("expected validation response, got status: %q", status))
-	}
-
-	// Initialize empty (not nil) so JSON marshaling produces "[]" instead
-	// of "null"; matches Python's empty-list default per
-	// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
-	// caught the nil-vs-empty drift).
+// parseIssueArray decodes the array of validation-issue objects under key,
+// shared by the validate-response and parsed-DBC-warnings decoders. The
+// result is initialized empty (not nil) so JSON marshaling produces "[]"
+// instead of "null"; matches Python's empty-list default per
+// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
+// caught the nil-vs-empty drift).
+func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 	issues := []ValidationIssue{}
-	for _, item := range getArray(m, "issues") {
+	for _, item := range getArray(m, key) {
 		issue, ok := item.(map[string]any)
 		if !ok {
-			return nil, protocolError("expected object in issues array")
+			return nil, protocolError(fmt.Sprintf("expected object in %s array", key))
 		}
 		var sev IssueSeverity
 		switch s := getString(issue, "severity"); s {
@@ -1048,6 +1041,28 @@ func parseValidationResponse(raw string) (*ValidationResult, error) {
 			Code:     code,
 			Detail:   getString(issue, "detail"),
 		})
+	}
+	return issues, nil
+}
+
+// parseValidationResponse decodes a validateDBC response into typed
+// ValidationIssues, preserving severity and the Agda error code.
+func parseValidationResponse(raw string) (*ValidationResult, error) {
+	m, err := parseResponse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return nil, err
+	}
+	status := getString(m, "status")
+	if status != "validation" {
+		return nil, protocolError(fmt.Sprintf("expected validation response, got status: %q", status))
+	}
+
+	issues, err := parseIssueArray(m, "issues")
+	if err != nil {
+		return nil, err
 	}
 	return &ValidationResult{
 		HasErrors: getBool(m, "has_errors"),
@@ -1469,34 +1484,9 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 		return nil, err
 	}
 
-	// Initialize empty (not nil) so JSON marshaling produces "[]" instead
-	// of "null"; matches Python's empty-list default per
-	// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
-	// caught the nil-vs-empty drift).
-	warnings := []ValidationIssue{}
-	for _, item := range getArray(m, "warnings") {
-		issue, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in warnings array")
-		}
-		var sev IssueSeverity
-		switch s := getString(issue, "severity"); s {
-		case "error":
-			sev = SeverityError
-		case "warning":
-			sev = SeverityWarning
-		default:
-			return nil, protocolError(fmt.Sprintf("unknown validation severity: %q", s))
-		}
-		code := IssueCode(getString(issue, "code"))
-		if code == "" {
-			code = IssueUnknown
-		}
-		warnings = append(warnings, ValidationIssue{
-			Severity: sev,
-			Code:     code,
-			Detail:   getString(issue, "detail"),
-		})
+	warnings, err := parseIssueArray(m, "warnings")
+	if err != nil {
+		return nil, err
 	}
 	return &ParsedDBC{DBC: *dbc, Warnings: warnings}, nil
 }
