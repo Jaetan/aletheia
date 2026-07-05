@@ -267,10 +267,10 @@ parseAttrLine-on-emit-RawAssign-AVFloat :
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name target (AVFloat d)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs
                  (DBCAttrAssign (mkAttrAssign name target (AVFloat d))))
@@ -280,7 +280,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat :
               outer)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name ATgtNetwork d outer _ ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat d)))
                      (TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer)
@@ -290,7 +290,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name ATgtNetwork d outer _ ss-N
        pos name d outer ss-NL)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNode n) d outer n-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat d)))
                      (TraceNode.pos9 pos name n (showDecRat-dec-chars d) outer)
@@ -300,7 +300,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNode n) d outer n-sto
        pos name n d outer n-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtMessage cid) d outer _ ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat d)))
                      (TraceMessage.pos9 pos name cid (showDecRat-dec-chars d) outer)
@@ -310,7 +310,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtMessage cid) d outer 
        pos name cid d outer ss-NL)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtSignal cid sig) d outer sig-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat d)))
                      (TraceSignal.pos9 pos name cid sig (showDecRat-dec-chars d) outer)
@@ -320,7 +320,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtSignal cid sig) d out
        pos name cid sig d outer sig-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtEnvVar ev) d outer ev-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d)))
                      (TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer)
@@ -330,7 +330,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtEnvVar ev) d outer ev
        pos name ev d outer ev-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeMsg n cid) d outer n-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat d)))
                      (TraceNodeMsg.pos9 pos name n cid (showDecRat-dec-chars d) outer)
@@ -340,7 +340,7 @@ parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeMsg n cid) d oute
        pos name n cid d outer n-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVFloat defs pos name (ATgtNodeSig n cid sig) d outer stops ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavDecRat d)))
                      (TraceNodeSig.pos9 pos name n cid sig (showDecRat-dec-chars d) outer)

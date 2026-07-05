@@ -33,7 +33,7 @@ open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
@@ -131,12 +131,12 @@ parseValueTable-roundtrip :
     ∀ (pos : Position) (vt : ValueTable) (suffix : List Char)
   → ValueTableNameStop vt
   → SuffixStops isNewlineStart suffix
-  → parseValueTable pos (emitValueTable-chars vt ++ₗ suffix)
+  → proj₂ (parseValueTable pos (emitValueTable-chars vt ++ₗ suffix))
     ≡ just (mkResult vt
              (advancePositions pos (emitValueTable-chars vt))
              suffix)
 parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
-  trans (cong (λ inp → parseValueTable pos (inp ++ₗ suffix))
+  trans (cong (λ inp → proj₂ (parseValueTable pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
       (trans step-many-newline
@@ -156,8 +156,8 @@ parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
 
     -- Step 1: parse ValueTable-format succeeds via the universal roundtrip.
     step-format :
-      parseValueTable pos (emit ValueTable-format vt ++ₗ suffix)
-      ≡ cont-line vt pos-line suffix
+      proj₂ (parseValueTable pos (emit ValueTable-format vt ++ₗ suffix))
+      ≡ proj₂ (cont-line vt pos-line suffix)
     step-format =
       bind-just-step (parse ValueTable-format)
                      cont-line
@@ -168,8 +168,8 @@ parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     step-many-newline :
-      cont-line vt pos-line suffix
-      ≡ cont-blanks [] pos-line suffix
+      proj₂ (cont-line vt pos-line suffix)
+      ≡ proj₂ (cont-blanks [] pos-line suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -184,7 +184,7 @@ parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
     -- pos-line back to `advancePositions pos (emitValueTable-chars vt)`
     -- via the bridge.
     step-pure :
-      cont-blanks [] pos-line suffix
+      proj₂ (cont-blanks [] pos-line suffix)
       ≡ just (mkResult vt
                (advancePositions pos (emitValueTable-chars vt))
                suffix)
@@ -214,9 +214,9 @@ parseValueTables-roundtrip :
     ∀ (pos : Position) (vts : List ValueTable) (outer-suffix : List Char)
   → All ValueTableNameStop vts
   → SuffixStops isNewlineStart outer-suffix
-  → (∀ (pos' : Position) → parseValueTable pos' outer-suffix ≡ nothing)
-  → many parseValueTable pos
-      (foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) [] vts ++ₗ outer-suffix)
+  → (∀ (pos' : Position) → proj₂ (parseValueTable pos' outer-suffix) ≡ nothing)
+  → proj₂ (many parseValueTable pos
+      (foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) [] vts ++ₗ outer-suffix))
     ≡ just (mkResult vts
              (advancePositions pos
                (foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) [] vts))

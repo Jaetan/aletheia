@@ -16,6 +16,7 @@ open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
@@ -98,26 +99,83 @@ private
           (cong (quoteStringLit-chars name ++ₗ_)
                 (trail-bridge vstr outer))))
 
+  -- Per-shape bridges restate `default-input-bridge` with the literal
+  -- `emitAttribute-chars … ++ₗ outer` term as the LHS.  Under the pair
+  -- encoding the subst target must be SYNTACTICALLY the declared goal —
+  -- otherwise conversion checking whnf-unfolds `parseAttrLine` on the
+  -- symbolic input (heap blowup past the 16G gate cap).  The restatement
+  -- itself only costs a list-level `emit` unfold.
+
+  emit-bridge-AVString :
+      ∀ (defs : List AttrDef) (name s outer : List Char)
+    → emitAttribute-chars defs
+        (DBCAttrDefault (mkAttrDefault name (AVString s)))
+      ++ₗ outer
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer
+  emit-bridge-AVString defs name s outer =
+    default-input-bridge name (quoteStringLit-chars s) outer
+
+  emit-bridge-AVFloat :
+      ∀ (defs : List AttrDef) (name : List Char) (d : DecRat)
+        (outer : List Char)
+    → emitAttribute-chars defs
+        (DBCAttrDefault (mkAttrDefault name (AVFloat d)))
+      ++ₗ outer
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer
+  emit-bridge-AVFloat defs name d outer =
+    default-input-bridge name (showDecRat-dec-chars d) outer
+
+  emit-bridge-AVInt :
+      ∀ (defs : List AttrDef) (name : List Char) (z' : IntDecRat)
+        (outer : List Char)
+    → emitAttribute-chars defs
+        (DBCAttrDefault (mkAttrDefault name (AVInt z')))
+      ++ₗ outer
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+         ' ' ∷ showInt-chars (intDecRatToℤ z') ++ₗ toList ";\n" ++ₗ outer
+  emit-bridge-AVInt defs name z' outer =
+    default-input-bridge name (showInt-chars (intDecRatToℤ z')) outer
+
+  -- The AVHex bridge is stated in the BareInt lemma's `showInt-chars (+ m)`
+  -- spelling (not the emit-side `showℕ-dec-chars m`): both reduce to
+  -- `showNat-chars m`, and absorbing that alias here keeps every
+  -- `parseAttrLine`-input subst a whole-input abstraction — a motive that
+  -- abstracts INSIDE the ++-chain lets conversion unfold the parser over
+  -- the concrete prefix (heap blowup).  The alias costs only a list-level
+  -- reduction in this bridge's own type-check.
+  emit-bridge-AVHex :
+      ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
+        (outer : List Char)
+    → emitAttribute-chars defs
+        (DBCAttrDefault (mkAttrDefault name (AVHex n)))
+      ++ₗ outer
+      ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+         ' ' ∷ showInt-chars (+ natDecRatToℕ n) ++ₗ toList ";\n" ++ₗ outer
+  emit-bridge-AVHex defs name n outer =
+    default-input-bridge name (showInt-chars (+ natDecRatToℕ n)) outer
+
   on-AVString :
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (s : List Char) (outer : List Char)
     → SuffixStops isNewlineStart outer
-    → parseAttrLine pos
+    → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVString s)))
-         ++ₗ outer)
+         ++ₗ outer))
       ≡ just (mkResult
                 (RawDefault (mkRawAttrDefault name (RavString s)))
                 (Trace.pos8 pos name (quoteStringLit-chars s) outer)
                 outer)
   on-AVString defs pos name s outer ss-NL =
     subst
-      (λ inp → parseAttrLine pos inp ≡
+      (λ inp → proj₂ (parseAttrLine pos inp) ≡
                 just (mkResult
                         (RawDefault (mkRawAttrDefault name (RavString s)))
                         (Trace.pos8 pos name (quoteStringLit-chars s) outer)
                         outer))
-      (sym (default-input-bridge name (quoteStringLit-chars s) outer))
+      (sym (emit-bridge-AVString defs name s outer))
       (parseAttrLine-roundtrip-RawDefault-RavString
          pos name s outer ss-NL)
 
@@ -125,22 +183,22 @@ private
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (d : DecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
-    → parseAttrLine pos
+    → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVFloat d)))
-         ++ₗ outer)
+         ++ₗ outer))
       ≡ just (mkResult
                 (RawDefault (mkRawAttrDefault name (RavDecRat d)))
                 (Trace.pos8 pos name (showDecRat-dec-chars d) outer)
                 outer)
   on-AVFloat defs pos name d outer ss-NL =
     subst
-      (λ inp → parseAttrLine pos inp ≡
+      (λ inp → proj₂ (parseAttrLine pos inp) ≡
                 just (mkResult
                         (RawDefault (mkRawAttrDefault name (RavDecRat d)))
                         (Trace.pos8 pos name (showDecRat-dec-chars d) outer)
                         outer))
-      (sym (default-input-bridge name (showDecRat-dec-chars d) outer))
+      (sym (emit-bridge-AVFloat defs name d outer))
       (parseAttrLine-roundtrip-RawDefault-RavDecRatFrac
          pos name d outer ss-NL)
 
@@ -148,10 +206,10 @@ private
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (z' : IntDecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
-    → parseAttrLine pos
+    → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVInt z')))
-         ++ₗ outer)
+         ++ₗ outer))
       ≡ just (mkResult
                 (RawDefault (mkRawAttrDefault name
                                (RavDecRat (IntDecRat.value z'))))
@@ -159,10 +217,10 @@ private
                 outer)
   on-AVInt defs pos name z' outer ss-NL =
     subst
-      (λ q → parseAttrLine pos
+      (λ q → proj₂ (parseAttrLine pos
                 (emitAttribute-chars defs
                    (DBCAttrDefault (mkAttrDefault name (AVInt z')))
-                 ++ₗ outer)
+                 ++ₗ outer))
                ≡ just (mkResult
                          (RawDefault (mkRawAttrDefault name (RavDecRat q)))
                          (Trace.pos8 pos name
@@ -170,14 +228,14 @@ private
                          outer))
       (fromℤ-intDecRatToℤ z')
       (subst
-         (λ inp → parseAttrLine pos inp ≡
+         (λ inp → proj₂ (parseAttrLine pos inp) ≡
                    just (mkResult
                            (RawDefault (mkRawAttrDefault name
                                           (RavDecRat (fromℤ (intDecRatToℤ z')))))
                            (Trace.pos8 pos name
                               (showInt-chars (intDecRatToℤ z')) outer)
                            outer))
-         (sym (default-input-bridge name (showInt-chars (intDecRatToℤ z')) outer))
+         (sym (emit-bridge-AVInt defs name z' outer))
          (parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
             pos name (intDecRatToℤ z') outer ss-NL))
 
@@ -185,36 +243,40 @@ private
       ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
         (n : NatDecRat) (outer : List Char)
     → SuffixStops isNewlineStart outer
-    → parseAttrLine pos
+    → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVHex n)))
-         ++ₗ outer)
+         ++ₗ outer))
       ≡ just (mkResult
                 (RawDefault (mkRawAttrDefault name
                                (RavDecRat (NatDecRat.value n))))
                 (Trace.pos8 pos name (showℕ-dec-chars (natDecRatToℕ n)) outer)
                 outer)
+  -- Both motives keep the position in the lemma's `showInt-chars (+ m)`
+  -- spelling; the declared `showℕ-dec-chars` form differs only there, and
+  -- that final alignment is a Position-level reduction (advancePositions
+  -- walk), never a parser unfold.
   on-AVHex defs pos name n outer ss-NL =
     subst
-      (λ q → parseAttrLine pos
+      (λ q → proj₂ (parseAttrLine pos
                 (emitAttribute-chars defs
                    (DBCAttrDefault (mkAttrDefault name (AVHex n)))
-                 ++ₗ outer)
+                 ++ₗ outer))
                ≡ just (mkResult
                          (RawDefault (mkRawAttrDefault name (RavDecRat q)))
                          (Trace.pos8 pos name
-                            (showℕ-dec-chars (natDecRatToℕ n)) outer)
+                            (showInt-chars (+ natDecRatToℕ n)) outer)
                          outer))
       (fromℕ-natDecRatToℕ n)
       (subst
-         (λ inp → parseAttrLine pos inp ≡
+         (λ inp → proj₂ (parseAttrLine pos inp) ≡
                    just (mkResult
                            (RawDefault (mkRawAttrDefault name
                                           (RavDecRat (fromℤ (+ natDecRatToℕ n)))))
                            (Trace.pos8 pos name
-                              (showℕ-dec-chars (natDecRatToℕ n)) outer)
+                              (showInt-chars (+ natDecRatToℕ n)) outer)
                            outer))
-         (sym (default-input-bridge name (showℕ-dec-chars (natDecRatToℕ n)) outer))
+         (sym (emit-bridge-AVHex defs name n outer))
          (parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
             pos name (+ natDecRatToℕ n) outer ss-NL))
 
@@ -293,10 +355,10 @@ private
         (outer : List Char)
     → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → SuffixStops isNewlineStart outer
-    → parseAttrLine pos
+    → proj₂ (parseAttrLine pos
         (emitAttribute-chars defs
            (DBCAttrDefault (mkAttrDefault name (AVEnum n)))
-         ++ₗ outer)
+         ++ₗ outer))
       ≡ just (mkResult
                 (rawOf defs (DBCAttrDefault (mkAttrDefault name (AVEnum n))))
                 (advancePositions pos
@@ -317,11 +379,11 @@ private
         cs-v     = quoteStringLit-chars v
         slim     = parseAttrLine-roundtrip-RawDefault-RavString
                      pos name v outer ss-NL
-        -- slim : parseAttrLine pos (slim-emit-right-assoc ++ outer) ≡
+        -- slim : proj₂ (parseAttrLine pos (slim-emit-right-assoc ++ outer)) ≡
         --          just (mkResult (RawDefault (mkRawAttrDefault name (RavString v)))
         --                          (Trace.pos8 pos name cs-v outer) outer)
         bridged  = subst
-                     (λ inp → parseAttrLine pos inp ≡
+                     (λ inp → proj₂ (parseAttrLine pos inp) ≡
                               just (mkResult
                                       (RawDefault (mkRawAttrDefault name
                                                      (RavString v)))
@@ -329,9 +391,9 @@ private
                                       outer))
                      (sym (default-input-bridge name cs-v outer))
                      slim
-        -- bridged : parseAttrLine pos (slim-emit ++ outer) ≡ just-slim-RHS
+        -- bridged : proj₂ (parseAttrLine pos (slim-emit ++ outer)) ≡ just-slim-RHS
         on-emit  = subst
-                     (λ e → parseAttrLine pos (e ++ₗ outer) ≡
+                     (λ e → proj₂ (parseAttrLine pos (e ++ₗ outer)) ≡
                             just (mkResult
                                     (RawDefault (mkRawAttrDefault name
                                                    (RavString v)))
@@ -339,7 +401,7 @@ private
                                     outer))
                      (sym emit-eq)
                      bridged
-        -- on-emit : parseAttrLine pos (universal-emit ++ outer) ≡ just-slim-RHS
+        -- on-emit : proj₂ (parseAttrLine pos (universal-emit ++ outer)) ≡ just-slim-RHS
         with-pos = trans on-emit
                      (cong
                        (λ pos9 →
@@ -347,7 +409,7 @@ private
                                   (RawDefault (mkRawAttrDefault name (RavString v)))
                                   pos9 outer))
                        (cong (advancePositions pos) (sym emit-eq)))
-        -- with-pos : parseAttrLine pos (universal-emit ++ outer) ≡
+        -- with-pos : proj₂ (parseAttrLine pos (universal-emit ++ outer)) ≡
         --              just (mkResult (RawDefault ...) (advancePositions pos universal-emit) outer)
     in trans with-pos
          (cong (λ r → just (mkResult r
@@ -372,8 +434,8 @@ parseAttrLine-on-emit-RawDefault :
       (d : AttrDefault) (outer : List Char)
   → WFAttribute defs (DBCAttrDefault d)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
-      (emitAttribute-chars defs (DBCAttrDefault d) ++ₗ outer)
+  → proj₂ (parseAttrLine pos
+      (emitAttribute-chars defs (DBCAttrDefault d) ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs (DBCAttrDefault d))
               (advancePositions pos

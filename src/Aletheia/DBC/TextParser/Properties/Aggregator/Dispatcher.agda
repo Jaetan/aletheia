@@ -134,7 +134,7 @@ parseTopStmt-on-emitTopStmt-chars :
       (t : TopStmtTyped) (outer : List Char)
   → TopStmtTypedWF defs t
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitTopStmt-chars defs t ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitTopStmt-chars defs t ++ₗ outer))
     ≡ just (mkResult (liftTopStmt defs t)
                      (advancePositions pos (emitTopStmt-chars defs t))
                      outer)

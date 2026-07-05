@@ -27,7 +27,7 @@ open import Data.List.Properties using ()
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (map⁺; ++⁺)
 open import Data.Maybe using (just; nothing)
-open import Data.Product using (_,_)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Sum using (inj₂)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
@@ -197,7 +197,7 @@ toTopStmtsTyped-wf d wf =
 -- ============================================================================
 
 parseTopStmt-on-empty :
-    ∀ (pos : Position) → parseTopStmt pos [] ≡ nothing
+    ∀ (pos : Position) → proj₂ (parseTopStmt pos []) ≡ nothing
 parseTopStmt-on-empty _ = refl
 
 -- ============================================================================
@@ -210,13 +210,13 @@ parseTopStmt-on-empty _ = refl
 
 parseTopStmts-on-formatChars-body :
     ∀ (d : DBC) (pos : Position) → WellFormedTextDBCAgg d
-  → many parseTopStmt pos (formatChars-body d)
+  → proj₂ (many parseTopStmt pos (formatChars-body d))
     ≡ just (mkResult
               (map (liftTopStmt (collectDefs (DBC.attributes d))) (toTopStmtsTyped d))
               (advancePositions pos (formatChars-body d))
               [])
 parseTopStmts-on-formatChars-body d pos wf =
-  trans (cong (λ inp → many parseTopStmt pos inp) input-shape)
+  trans (cong (λ inp → proj₂ (many parseTopStmt pos inp)) input-shape)
         (trans body-eq tail-shape)
   where
     defs = collectDefs (DBC.attributes d)
@@ -232,8 +232,8 @@ parseTopStmts-on-formatChars-body d pos wf =
               (sym (formatChars-body-bridge d)))
 
     body-eq :
-        many parseTopStmt pos
-          (foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (toTopStmtsTyped d) ++ₗ [])
+        proj₂ (many parseTopStmt pos
+          (foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] (toTopStmtsTyped d) ++ₗ []))
       ≡ just (mkResult
                 (map (liftTopStmt defs) (toTopStmtsTyped d))
                 (advancePositions pos
@@ -298,7 +298,7 @@ formatChars-body-stops-isNewlineStart d =
 parseDBCText-on-formatChars :
     ∀ (d : DBC)
   → WellFormedTextDBCAgg d
-  → parseDBCText initialPosition (formatChars d)
+  → proj₂ (parseDBCText initialPosition (formatChars d))
     ≡ just (mkResult
              ( DBC.version d
              , DBC.nodes   d
@@ -353,22 +353,22 @@ parseDBCText-on-formatChars d wf =
 
     -- Step witnesses.
     pVer-eq :
-        parseVersion initialPosition (formatChars d)
+        proj₂ (parseVersion initialPosition (formatChars d))
       ≡ just (mkResult ver posV sufVer)
     pVer-eq = parseVersion-roundtrip initialPosition ver sufVer sufVer-stop
 
     pNS-eq :
-        parseNamespace posV sufVer
+        proj₂ (parseNamespace posV sufVer)
       ≡ just (mkResult tt posN sufNS)
     pNS-eq = parseNamespace-roundtrip posV sufNS sufNS-stop
 
     pBS-eq :
-        parseBitTiming posN sufNS
+        proj₂ (parseBitTiming posN sufNS)
       ≡ just (mkResult tt posBS sufBS)
     pBS-eq = parseBitTiming-roundtrip posN sufBS sufBS-stop
 
     pBU-eq :
-        parseBU posBS sufBS
+        proj₂ (parseBU posBS sufBS)
       ≡ just (mkResult nodes posBU sufBU)
     pBU-eq =
       parseBU-roundtrip posBS nodes sufBU
@@ -376,19 +376,20 @@ parseDBCText-on-formatChars d wf =
         sufBU-stop
 
     pMany-eq :
-        many parseTopStmt posBU body
+        proj₂ (many parseTopStmt posBU body)
       ≡ just (mkResult stmts posBody [])
     pMany-eq = parseTopStmts-on-formatChars-body d posBU wf
 
     -- Bind chain — each step uses `bind-just-step`.
     bindVersion :
-        parseDBCText initialPosition (formatChars d)
-      ≡ ( parseNamespace >>= λ _ →
-          parseBitTiming >>= λ _ →
-          parseBU        >>= λ ns  →
-          many parseTopStmt >>= λ ss →
-          pure (ver , ns , ss) )
-        posV sufVer
+        proj₂ (parseDBCText initialPosition (formatChars d))
+      ≡ proj₂
+        (( parseNamespace >>= λ _ →
+           parseBitTiming >>= λ _ →
+           parseBU        >>= λ ns  →
+           many parseTopStmt >>= λ ss →
+           pure (ver , ns , ss) )
+         posV sufVer)
     bindVersion =
       bind-just-step parseVersion
         (λ v → parseNamespace >>= λ _ →
@@ -399,17 +400,19 @@ parseDBCText-on-formatChars d wf =
         initialPosition (formatChars d) ver posV sufVer pVer-eq
 
     bindNamespace :
-        ( parseNamespace >>= λ _ →
-          parseBitTiming >>= λ _ →
-          parseBU        >>= λ ns  →
-          many parseTopStmt >>= λ ss →
-          pure (ver , ns , ss) )
-        posV sufVer
-      ≡ ( parseBitTiming >>= λ _ →
-          parseBU        >>= λ ns  →
-          many parseTopStmt >>= λ ss →
-          pure (ver , ns , ss) )
-        posN sufNS
+        proj₂
+        (( parseNamespace >>= λ _ →
+           parseBitTiming >>= λ _ →
+           parseBU        >>= λ ns  →
+           many parseTopStmt >>= λ ss →
+           pure (ver , ns , ss) )
+         posV sufVer)
+      ≡ proj₂
+        (( parseBitTiming >>= λ _ →
+           parseBU        >>= λ ns  →
+           many parseTopStmt >>= λ ss →
+           pure (ver , ns , ss) )
+         posN sufNS)
     bindNamespace =
       bind-just-step parseNamespace
         (λ _ → parseBitTiming >>= λ _ →
@@ -419,15 +422,17 @@ parseDBCText-on-formatChars d wf =
         posV sufVer tt posN sufNS pNS-eq
 
     bindBitTiming :
-        ( parseBitTiming >>= λ _ →
-          parseBU        >>= λ ns  →
-          many parseTopStmt >>= λ ss →
-          pure (ver , ns , ss) )
-        posN sufNS
-      ≡ ( parseBU        >>= λ ns  →
-          many parseTopStmt >>= λ ss →
-          pure (ver , ns , ss) )
-        posBS sufBS
+        proj₂
+        (( parseBitTiming >>= λ _ →
+           parseBU        >>= λ ns  →
+           many parseTopStmt >>= λ ss →
+           pure (ver , ns , ss) )
+         posN sufNS)
+      ≡ proj₂
+        (( parseBU        >>= λ ns  →
+           many parseTopStmt >>= λ ss →
+           pure (ver , ns , ss) )
+         posBS sufBS)
     bindBitTiming =
       bind-just-step parseBitTiming
         (λ _ → parseBU        >>= λ ns  →
@@ -436,13 +441,15 @@ parseDBCText-on-formatChars d wf =
         posN sufNS tt posBS sufBS pBS-eq
 
     bindBU :
-        ( parseBU        >>= λ ns  →
-          many parseTopStmt >>= λ ss →
-          pure (ver , ns , ss) )
-        posBS sufBS
-      ≡ ( many parseTopStmt >>= λ ss →
-          pure (ver , nodes , ss) )
-        posBU sufBU
+        proj₂
+        (( parseBU        >>= λ ns  →
+           many parseTopStmt >>= λ ss →
+           pure (ver , ns , ss) )
+         posBS sufBS)
+      ≡ proj₂
+        (( many parseTopStmt >>= λ ss →
+           pure (ver , nodes , ss) )
+         posBU sufBU)
     bindBU =
       bind-just-step parseBU
         (λ ns  → many parseTopStmt >>= λ ss →
@@ -450,10 +457,11 @@ parseDBCText-on-formatChars d wf =
         posBS sufBS nodes posBU sufBU pBU-eq
 
     bindMany :
-        ( many parseTopStmt >>= λ ss →
-          pure (ver , nodes , ss) )
-        posBU sufBU
-      ≡ pure (ver , nodes , stmts) posBody []
+        proj₂
+        (( many parseTopStmt >>= λ ss →
+           pure (ver , nodes , ss) )
+         posBU sufBU)
+      ≡ proj₂ (pure (ver , nodes , stmts) posBody [])
     bindMany =
       bind-just-step (many parseTopStmt)
         (λ ss → pure (ver , nodes , ss))
@@ -483,7 +491,7 @@ parseDBCText-on-formatChars d wf =
           (advancePositions-++)
 
     pure-eq :
-        pure (ver , nodes , stmts) posBody []
+        proj₂ (pure (ver , nodes , stmts) posBody [])
       ≡ just (mkResult (ver , nodes , stmts)
                        (advancePositions initialPosition (formatChars d))
                        [])
@@ -511,22 +519,34 @@ parseDBCText-on-formatChars d wf =
 -- The final `inj₂ (buildDBC ver nodes collected attrs)` reconstructs
 -- `d` by record-η.
 --
--- Split into two stages to bound rewrite scope: stage 1 lifts the
--- parser result through `cong finalizeParse`; stage 2 closes
--- `finalizeParse` on a concrete `mkResult` — only this stage's
--- rewrites need to walk the inner `with` chain.
+-- Split into two stages to bound rewrite scope: stage 1 rewrites the
+-- parser's watermark-pair argument by the outcome-level equation via
+-- `outcome-subst` (pair-generic, so the giant `parseDBCText`
+-- application is never normalised — a direct `with` on it exhausts
+-- the heap); stage 2 closes `finalizeParse` on a concrete `mkResult`
+-- — only this stage's rewrites need to walk the inner `with` chain.
+-- The watermark `w` is arbitrary: the success path of `finalizeParse`
+-- never consults it.
+
+-- Rewrite a pair-consumer's argument by an equation on its second
+-- component only, keeping the first component symbolic (`proj₁ pr`).
+outcome-subst :
+    ∀ {W A B : Set} (f : W × A → B) (pr : W × A) {m : A}
+  → proj₂ pr ≡ m
+  → f pr ≡ f (proj₁ pr , m)
+outcome-subst f (w , _) refl = refl
 
 finalizeParse-on-mkResult-clean :
-    ∀ (d : DBC) (pos-end : Position) → WellFormedTextDBCAgg d
+    ∀ (d : DBC) (w pos-end : Position) → WellFormedTextDBCAgg d
   → finalizeParse
-      (just (mkResult
+      (w , just (mkResult
               ( DBC.version d
               , DBC.nodes   d
               , map (liftTopStmt (collectDefs (DBC.attributes d)))
                     (toTopStmtsTyped d) )
               pos-end []))
     ≡ inj₂ d
-finalizeParse-on-mkResult-clean d pos-end wf
+finalizeParse-on-mkResult-clean d w pos-end wf
   rewrite partitionTopStmts-bridge (collectDefs (DBC.attributes d)) d
         | refineAttributes-on-rawOf (DBC.attributes d) (WellFormedTextDBCAgg.attr-wfs wf)
   = cong₂
@@ -543,6 +563,9 @@ parseTextChars-on-formatChars :
     ∀ (d : DBC) → WellFormedTextDBCAgg d
   → parseTextChars (formatChars d) ≡ inj₂ d
 parseTextChars-on-formatChars d wf =
-  trans (cong finalizeParse (parseDBCText-on-formatChars d wf))
+  trans (outcome-subst finalizeParse
+           (parseDBCText initialPosition (formatChars d))
+           (parseDBCText-on-formatChars d wf))
         (finalizeParse-on-mkResult-clean d
-          (advancePositions initialPosition (formatChars d)) wf)
+           (proj₁ (parseDBCText initialPosition (formatChars d)))
+           (advancePositions initialPosition (formatChars d)) wf)

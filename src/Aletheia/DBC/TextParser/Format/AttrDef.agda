@@ -733,8 +733,8 @@ build-EmitsOK-attrDefRelFmt s n rt outer-suffix =
 parseAttrDef-format-roundtrip :
   ∀ (pos : Position) (s : RawStdScope) (n : List Char) (rt : RawAttrType)
     (outer-suffix : List Char)
-  → parse attrDefFmt pos
-      (emit attrDefFmt (s , n , rt , tt) ++ₗ outer-suffix)
+  → proj₂ (parse attrDefFmt pos
+      (emit attrDefFmt (s , n , rt , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (s , n , rt , tt)
               (advancePositions pos
                 (emit attrDefFmt (s , n , rt , tt)))
@@ -747,8 +747,8 @@ parseAttrDef-format-roundtrip pos s n rt outer-suffix =
 parseAttrDefRel-format-roundtrip :
   ∀ (pos : Position) (s : RawRelScope) (n : List Char) (rt : RawAttrType)
     (outer-suffix : List Char)
-  → parse attrDefRelFmt pos
-      (emit attrDefRelFmt (s , n , rt , tt) ++ₗ outer-suffix)
+  → proj₂ (parse attrDefRelFmt pos
+      (emit attrDefRelFmt (s , n , rt , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (s , n , rt , tt)
               (advancePositions pos
                 (emit attrDefRelFmt (s , n , rt , tt)))

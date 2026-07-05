@@ -323,30 +323,30 @@ private
   -- definitionally because `parseCharsSeq <keyword> pos ('"' ∷ ...)`
   -- fails on the leading-char comparison.
   buNodeFmt-fails-on-quoted : ∀ (text rest : List Char) (pos : Position)
-    → parse buNodeFmt pos (quoteStringLit-chars text ++ₗ rest) ≡ nothing
+    → proj₂ (parse buNodeFmt pos (quoteStringLit-chars text ++ₗ rest)) ≡ nothing
   buNodeFmt-fails-on-quoted text rest pos =
-    subst (λ xs → parse buNodeFmt pos (xs ++ₗ rest) ≡ nothing)
+    subst (λ xs → proj₂ (parse buNodeFmt pos (xs ++ₗ rest)) ≡ nothing)
           (sym (quoteStringLit-chars-shape text))
           refl
 
   boMsgFmt-fails-on-quoted : ∀ (text rest : List Char) (pos : Position)
-    → parse boMsgFmt pos (quoteStringLit-chars text ++ₗ rest) ≡ nothing
+    → proj₂ (parse boMsgFmt pos (quoteStringLit-chars text ++ₗ rest)) ≡ nothing
   boMsgFmt-fails-on-quoted text rest pos =
-    subst (λ xs → parse boMsgFmt pos (xs ++ₗ rest) ≡ nothing)
+    subst (λ xs → proj₂ (parse boMsgFmt pos (xs ++ₗ rest)) ≡ nothing)
           (sym (quoteStringLit-chars-shape text))
           refl
 
   sgSigFmt-fails-on-quoted : ∀ (text rest : List Char) (pos : Position)
-    → parse sgSigFmt pos (quoteStringLit-chars text ++ₗ rest) ≡ nothing
+    → proj₂ (parse sgSigFmt pos (quoteStringLit-chars text ++ₗ rest)) ≡ nothing
   sgSigFmt-fails-on-quoted text rest pos =
-    subst (λ xs → parse sgSigFmt pos (xs ++ₗ rest) ≡ nothing)
+    subst (λ xs → proj₂ (parse sgSigFmt pos (xs ++ₗ rest)) ≡ nothing)
           (sym (quoteStringLit-chars-shape text))
           refl
 
   evVarFmt-fails-on-quoted : ∀ (text rest : List Char) (pos : Position)
-    → parse evVarFmt pos (quoteStringLit-chars text ++ₗ rest) ≡ nothing
+    → proj₂ (parse evVarFmt pos (quoteStringLit-chars text ++ₗ rest)) ≡ nothing
   evVarFmt-fails-on-quoted text rest pos =
-    subst (λ xs → parse evVarFmt pos (xs ++ₗ rest) ≡ nothing)
+    subst (λ xs → proj₂ (parse evVarFmt pos (xs ++ₗ rest)) ≡ nothing)
           (sym (quoteStringLit-chars-shape text))
           refl
 
@@ -356,9 +356,9 @@ private
   -- returns `nothing`; recursing through 3 nested altSums lands the
   -- final-branch failure.
   keywordTree-fails-on-quoted : ∀ (text rest : List Char) (pos : Position)
-    → parse keywordTree pos (quoteStringLit-chars text ++ₗ rest) ≡ nothing
+    → proj₂ (parse keywordTree pos (quoteStringLit-chars text ++ₗ rest)) ≡ nothing
   keywordTree-fails-on-quoted text rest pos =
-    subst (λ xs → parse keywordTree pos (xs ++ₗ rest) ≡ nothing)
+    subst (λ xs → proj₂ (parse keywordTree pos (xs ++ₗ rest)) ≡ nothing)
           (sym (quoteStringLit-chars-shape text))
           refl
 
@@ -551,10 +551,10 @@ build-emits-ok (mkComment (CTEnvVar ev) text) outer-suffix evStop =
 parseComment-format-roundtrip :
     ∀ (pos : Position) (c : DBCComment) (outer-suffix : List Char)
   → CommentTargetStop c
-  → parse commentFmt pos
+  → proj₂ (parse commentFmt pos
       (emit commentFmt
             (rawTargetOf (DBCComment.target c) , DBCComment.text c , tt)
-       ++ₗ outer-suffix)
+       ++ₗ outer-suffix))
     ≡ just (mkResult
              (rawTargetOf (DBCComment.target c) , DBCComment.text c , tt)
              (advancePositions pos

@@ -35,6 +35,7 @@ open import Data.List using (List; []; foldr; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (_<_; s≤s; z≤n)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
@@ -105,12 +106,12 @@ parseEnvVar-roundtrip :
     ∀ (pos : Position) (ev : EnvironmentVar) (suffix : List Char)
   → EnvVarNameStop ev
   → SuffixStops isNewlineStart suffix
-  → parseEnvVar pos (emitEnvVar-chars ev ++ₗ suffix)
+  → proj₂ (parseEnvVar pos (emitEnvVar-chars ev ++ₗ suffix))
     ≡ just (mkResult ev
              (advancePositions pos (emitEnvVar-chars ev))
              suffix)
 parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
-  trans (cong (λ inp → parseEnvVar pos (inp ++ₗ suffix))
+  trans (cong (λ inp → proj₂ (parseEnvVar pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
       (trans step-many-newline
@@ -130,8 +131,8 @@ parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
 
     -- Step 1: parse envVarFmt succeeds via the universal roundtrip.
     step-format :
-      parseEnvVar pos (emit envVarFmt ev ++ₗ suffix)
-      ≡ cont-line ev pos-line suffix
+      proj₂ (parseEnvVar pos (emit envVarFmt ev ++ₗ suffix))
+      ≡ proj₂ (cont-line ev pos-line suffix)
     step-format =
       bind-just-step (parse envVarFmt)
                      cont-line
@@ -141,8 +142,8 @@ parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     step-many-newline :
-      cont-line ev pos-line suffix
-      ≡ cont-blanks [] pos-line suffix
+      proj₂ (cont-line ev pos-line suffix)
+      ≡ proj₂ (cont-blanks [] pos-line suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -155,7 +156,7 @@ parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
     -- pos-line back to `advancePositions pos (emitEnvVar-chars ev)` via
     -- the bridge.
     step-pure :
-      cont-blanks [] pos-line suffix
+      proj₂ (cont-blanks [] pos-line suffix)
       ≡ just (mkResult ev
                (advancePositions pos (emitEnvVar-chars ev))
                suffix)
@@ -185,9 +186,9 @@ parseEnvVars-roundtrip :
     ∀ (pos : Position) (evs : List EnvironmentVar) (outer-suffix : List Char)
   → All EnvVarNameStop evs
   → SuffixStops isNewlineStart outer-suffix
-  → (∀ (pos' : Position) → parseEnvVar pos' outer-suffix ≡ nothing)
-  → many parseEnvVar pos
-      (foldr (λ ev acc → emitEnvVar-chars ev ++ₗ acc) [] evs ++ₗ outer-suffix)
+  → (∀ (pos' : Position) → proj₂ (parseEnvVar pos' outer-suffix) ≡ nothing)
+  → proj₂ (many parseEnvVar pos
+      (foldr (λ ev acc → emitEnvVar-chars ev ++ₗ acc) [] evs ++ₗ outer-suffix))
     ≡ just (mkResult evs
              (advancePositions pos
                (foldr (λ ev acc → emitEnvVar-chars ev ++ₗ acc) [] evs))

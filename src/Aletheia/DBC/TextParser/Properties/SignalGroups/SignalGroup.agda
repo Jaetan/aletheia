@@ -34,6 +34,7 @@ open import Data.List using (List; []; _∷_; foldr; length)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (just; nothing)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
@@ -151,12 +152,12 @@ parseSignalGroup-roundtrip :
   → SignalGroupNameStop sg
   → All SigNameStop (SignalGroup.signals sg)
   → SuffixStops isNewlineStart suffix
-  → parseSignalGroup pos (emitSignalGroup-chars sg ++ₗ suffix)
+  → proj₂ (parseSignalGroup pos (emitSignalGroup-chars sg ++ₗ suffix))
     ≡ just (mkResult sg
              (advancePositions pos (emitSignalGroup-chars sg))
              suffix)
 parseSignalGroup-roundtrip pos sg suffix nameStop sigs-stops nl-stop =
-  trans (cong (λ inp → parseSignalGroup pos (inp ++ₗ suffix))
+  trans (cong (λ inp → proj₂ (parseSignalGroup pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
       (trans step-many-newline
@@ -176,8 +177,8 @@ parseSignalGroup-roundtrip pos sg suffix nameStop sigs-stops nl-stop =
 
     -- Step 1: parse signalGroupFmt succeeds via the universal roundtrip.
     step-format :
-      parseSignalGroup pos (emit signalGroupFmt sg ++ₗ suffix)
-      ≡ cont-line sg pos-line suffix
+      proj₂ (parseSignalGroup pos (emit signalGroupFmt sg ++ₗ suffix))
+      ≡ proj₂ (cont-line sg pos-line suffix)
     step-format =
       bind-just-step (parse signalGroupFmt)
                      cont-line
@@ -188,8 +189,8 @@ parseSignalGroup-roundtrip pos sg suffix nameStop sigs-stops nl-stop =
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     step-many-newline :
-      cont-line sg pos-line suffix
-      ≡ cont-blanks [] pos-line suffix
+      proj₂ (cont-line sg pos-line suffix)
+      ≡ proj₂ (cont-blanks [] pos-line suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -202,7 +203,7 @@ parseSignalGroup-roundtrip pos sg suffix nameStop sigs-stops nl-stop =
     -- pos-line back to `advancePositions pos (emitSignalGroup-chars sg)`
     -- via the bridge.
     step-pure :
-      cont-blanks [] pos-line suffix
+      proj₂ (cont-blanks [] pos-line suffix)
       ≡ just (mkResult sg
                (advancePositions pos (emitSignalGroup-chars sg))
                suffix)
@@ -243,9 +244,9 @@ parseSignalGroups-roundtrip :
     ∀ (pos : Position) (sgs : List SignalGroup) (outer-suffix : List Char)
   → All SignalGroupWF sgs
   → SuffixStops isNewlineStart outer-suffix
-  → (∀ (pos' : Position) → parseSignalGroup pos' outer-suffix ≡ nothing)
-  → many parseSignalGroup pos
-      (foldr (λ sg acc → emitSignalGroup-chars sg ++ₗ acc) [] sgs ++ₗ outer-suffix)
+  → (∀ (pos' : Position) → proj₂ (parseSignalGroup pos' outer-suffix) ≡ nothing)
+  → proj₂ (many parseSignalGroup pos
+      (foldr (λ sg acc → emitSignalGroup-chars sg ++ₗ acc) [] sgs ++ₗ outer-suffix))
     ≡ just (mkResult sgs
              (advancePositions pos
                (foldr (λ sg acc → emitSignalGroup-chars sg ++ₗ acc) [] sgs))
@@ -266,7 +267,7 @@ parseSignalGroups-roundtrip pos sgs outer-suffix sgs-wfs os pf =
     rt : ∀ (pos₁ : Position) (sg : SignalGroup) (suffix : List Char)
        → SignalGroupWF sg
        → SuffixStops isNewlineStart suffix
-       → parseSignalGroup pos₁ (emitSignalGroup-chars sg ++ₗ suffix)
+       → proj₂ (parseSignalGroup pos₁ (emitSignalGroup-chars sg ++ₗ suffix))
          ≡ just (mkResult sg (advancePositions pos₁ (emitSignalGroup-chars sg)) suffix)
     rt pos₁ sg suffix wf nl-stop =
       parseSignalGroup-roundtrip pos₁ sg suffix

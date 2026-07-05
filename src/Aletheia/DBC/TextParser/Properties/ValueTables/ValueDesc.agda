@@ -131,12 +131,13 @@ parseValueDescription-roundtrip :
     ∀ (pos : Position) (rvd : RawValueDesc) (suffix : List Char)
   → RawValueDescStop rvd
   → SuffixStops isNewlineStart suffix
-  → parseValueDescription pos (emitValueDescription-chars rvd ++ₗ suffix)
+  → proj₂ (parseValueDescription pos
+             (emitValueDescription-chars rvd ++ₗ suffix))
     ≡ just (mkResult rvd
              (advancePositions pos (emitValueDescription-chars rvd))
              suffix)
 parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
-  trans (cong (λ inp → parseValueDescription pos (inp ++ₗ suffix))
+  trans (cong (λ inp → proj₂ (parseValueDescription pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
       (trans step-many-newline
@@ -169,9 +170,9 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
     -- Step 1: parse ValueDescription-format succeeds via the universal
     -- roundtrip.
     step-format :
-        parseValueDescription pos
-          (emit ValueDescription-format triple ++ₗ suffix)
-      ≡ cont-line triple pos-line suffix
+        proj₂ (parseValueDescription pos
+          (emit ValueDescription-format triple ++ₗ suffix))
+      ≡ proj₂ (cont-line triple pos-line suffix)
     step-format =
       bind-just-step (parse ValueDescription-format)
                      cont-line
@@ -196,8 +197,8 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
           (buildCANId)
 
     step-many-newline :
-        cont-line triple pos-line suffix
-      ≡ cont-blanks [] pos-line suffix
+        proj₂ (cont-line triple pos-line suffix)
+      ≡ proj₂ (cont-blanks [] pos-line suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -208,16 +209,16 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
 
     -- Step 3: buildResultP resolves via buildCANId-rawCanIdℕ + record-η.
     step-buildResult :
-        cont-blanks [] pos-line suffix
+        proj₂ (cont-blanks [] pos-line suffix)
       ≡ just (mkResult rvd
                (advancePositions pos (emitValueDescription-chars rvd))
                suffix)
     step-buildResult =
       trans
-        (cong (λ m → buildResultP m
-                       (RawValueDesc.signalName rvd)
-                       (RawValueDesc.entries rvd)
-                       pos-line suffix)
+        (cong (λ m → proj₂ (buildResultP m
+                              (RawValueDesc.signalName rvd)
+                              (RawValueDesc.entries rvd)
+                              pos-line suffix))
               (buildCANId-rawCanIdℕ (RawValueDesc.canId rvd)))
         (cong (λ p → just (mkResult rvd p suffix))
               (cong (advancePositions pos) bridge))

@@ -35,6 +35,7 @@ open import Data.Char using (Char)
 open import Data.Integer using (ℤ)
 open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
+open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
@@ -115,7 +116,7 @@ import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel     as RelProofs
 -- P1-P5 lifted from private to public (R22 AGDA-D-15.1) so the
 -- extracted alt-K dispatchers in `Line/AltN.agda` siblings can
 -- reference them in their `where`-clause type annotations
--- (`alt5-eq : P5 pos input ≡ just …`).
+-- (`alt5-eq : proj₂ (P5 pos input) ≡ just …`).
 P1 : Parser RawDBCAttribute
 P1 = parseAttrDefRel >>= λ d → pure (RawDef d)
 
@@ -138,8 +139,8 @@ parseAttrLine-≡-alt-chain = refl
 -- alt1 succeeds — 4 alt-left-just lifts (no leading fails).
 parseAttrLine-lift-alt1 :
     ∀ (pos : Position) (input : List Char) (r : ParseResult RawDBCAttribute)
-  → P1 pos input ≡ just r
-  → parseAttrLine pos input ≡ just r
+  → proj₂ (P1 pos input) ≡ just r
+  → proj₂ (parseAttrLine pos input) ≡ just r
 parseAttrLine-lift-alt1 pos input r alt1-eq =
   alt-left-just (((P1 <|> P2) <|> P3) <|> P4) P5 pos input r
     (alt-left-just ((P1 <|> P2) <|> P3) P4 pos input r
@@ -149,9 +150,9 @@ parseAttrLine-lift-alt1 pos input r alt1-eq =
 -- alt2 succeeds, 1 leading fail (P1).
 parseAttrLine-lift-alt2 :
     ∀ (pos : Position) (input : List Char) (r : ParseResult RawDBCAttribute)
-  → P1 pos input ≡ nothing
-  → P2 pos input ≡ just r
-  → parseAttrLine pos input ≡ just r
+  → proj₂ (P1 pos input) ≡ nothing
+  → proj₂ (P2 pos input) ≡ just r
+  → proj₂ (parseAttrLine pos input) ≡ just r
 parseAttrLine-lift-alt2 pos input r p1-fail alt2-eq =
   alt-left-just (((P1 <|> P2) <|> P3) <|> P4) P5 pos input r
     (alt-left-just ((P1 <|> P2) <|> P3) P4 pos input r
@@ -161,10 +162,10 @@ parseAttrLine-lift-alt2 pos input r p1-fail alt2-eq =
 -- alt3 succeeds, 2 leading fails (P1, P2).
 parseAttrLine-lift-alt3 :
     ∀ (pos : Position) (input : List Char) (r : ParseResult RawDBCAttribute)
-  → P1 pos input ≡ nothing
-  → P2 pos input ≡ nothing
-  → P3 pos input ≡ just r
-  → parseAttrLine pos input ≡ just r
+  → proj₂ (P1 pos input) ≡ nothing
+  → proj₂ (P2 pos input) ≡ nothing
+  → proj₂ (P3 pos input) ≡ just r
+  → proj₂ (parseAttrLine pos input) ≡ just r
 parseAttrLine-lift-alt3 pos input r p1-fail p2-fail alt3-eq =
   alt-left-just (((P1 <|> P2) <|> P3) <|> P4) P5 pos input r
     (alt-left-just ((P1 <|> P2) <|> P3) P4 pos input r
@@ -175,11 +176,11 @@ parseAttrLine-lift-alt3 pos input r p1-fail p2-fail alt3-eq =
 -- alt4 succeeds, 3 leading fails (P1, P2, P3).
 parseAttrLine-lift-alt4 :
     ∀ (pos : Position) (input : List Char) (r : ParseResult RawDBCAttribute)
-  → P1 pos input ≡ nothing
-  → P2 pos input ≡ nothing
-  → P3 pos input ≡ nothing
-  → P4 pos input ≡ just r
-  → parseAttrLine pos input ≡ just r
+  → proj₂ (P1 pos input) ≡ nothing
+  → proj₂ (P2 pos input) ≡ nothing
+  → proj₂ (P3 pos input) ≡ nothing
+  → proj₂ (P4 pos input) ≡ just r
+  → proj₂ (parseAttrLine pos input) ≡ just r
 parseAttrLine-lift-alt4 pos input r p1-fail p2-fail p3-fail alt4-eq =
   alt-left-just (((P1 <|> P2) <|> P3) <|> P4) P5 pos input r
     (trans (alt-right-nothing ((P1 <|> P2) <|> P3) P4 pos input
@@ -192,12 +193,12 @@ parseAttrLine-lift-alt4 pos input r p1-fail p2-fail p3-fail alt4-eq =
 -- alt5 succeeds, 4 leading fails (P1, P2, P3, P4).
 parseAttrLine-lift-alt5 :
     ∀ (pos : Position) (input : List Char) (r : ParseResult RawDBCAttribute)
-  → P1 pos input ≡ nothing
-  → P2 pos input ≡ nothing
-  → P3 pos input ≡ nothing
-  → P4 pos input ≡ nothing
-  → P5 pos input ≡ just r
-  → parseAttrLine pos input ≡ just r
+  → proj₂ (P1 pos input) ≡ nothing
+  → proj₂ (P2 pos input) ≡ nothing
+  → proj₂ (P3 pos input) ≡ nothing
+  → proj₂ (P4 pos input) ≡ nothing
+  → proj₂ (P5 pos input) ≡ just r
+  → proj₂ (parseAttrLine pos input) ≡ just r
 parseAttrLine-lift-alt5 pos input r p1-fail p2-fail p3-fail p4-fail alt5-eq =
   trans (alt-right-nothing (((P1 <|> P2) <|> P3) <|> P4) P5 pos input
           (trans (alt-right-nothing ((P1 <|> P2) <|> P3) P4 pos input
@@ -232,11 +233,11 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString :
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavString s)))
               (RelProofs.TraceNodeMsg.pos9 pos name n cid (quoteStringLit-chars s) outer-suffix)
@@ -259,11 +260,11 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac :
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat d)))
               (RelProofs.TraceNodeMsg.pos9 pos name n cid (showDecRat-dec-chars d) outer-suffix)
@@ -286,11 +287,11 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt :
       (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat (fromℤ z))))
               (RelProofs.TraceNodeMsg.pos9 pos name n cid (showInt-chars z) outer-suffix)
@@ -314,12 +315,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString :
       (s : List Char) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavString s)))
               (RelProofs.TraceNodeSig.pos9 pos name n cid sig (quoteStringLit-chars s) outer-suffix)
@@ -344,12 +345,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac :
       (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavDecRat d)))
               (RelProofs.TraceNodeSig.pos9 pos name n cid sig (showDecRat-dec-chars d) outer-suffix)
@@ -374,12 +375,12 @@ parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt :
       (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavDecRat (fromℤ z))))
               (RelProofs.TraceNodeSig.pos9 pos name n cid sig (showInt-chars z) outer-suffix)
@@ -411,8 +412,8 @@ parseAttrLine-roundtrip-RawDef-NotRel-Network :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASNetwork ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASNetwork ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASNetwork ty))
               (advancePositions pos
@@ -432,8 +433,8 @@ parseAttrLine-roundtrip-RawDef-NotRel-Node :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASNode ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASNode ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASNode ty))
               (advancePositions pos
@@ -453,8 +454,8 @@ parseAttrLine-roundtrip-RawDef-NotRel-Message :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASMessage ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASMessage ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASMessage ty))
               (advancePositions pos
@@ -474,8 +475,8 @@ parseAttrLine-roundtrip-RawDef-NotRel-Signal :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASSignal ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASSignal ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASSignal ty))
               (advancePositions pos
@@ -495,8 +496,8 @@ parseAttrLine-roundtrip-RawDef-NotRel-EnvVar :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASEnvVar ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASEnvVar ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASEnvVar ty))
               (advancePositions pos
@@ -522,9 +523,9 @@ parseAttrLine-roundtrip-RawDef-NotRel-EnvVar pos name ty outer-suffix wf-ty ss-N
 parseAttrLine-roundtrip-RawDefault-RavString :
     ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDefault (mkRawAttrDefault name (RavString s)))
               (DefaultProofs.Trace.pos8 pos name (quoteStringLit-chars s) outer-suffix)
@@ -543,9 +544,9 @@ parseAttrLine-roundtrip-RawDefault-RavString pos name s outer-suffix ss-NL =
 parseAttrLine-roundtrip-RawDefault-RavDecRatFrac :
     ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDefault (mkRawAttrDefault name (RavDecRat d)))
               (DefaultProofs.Trace.pos8 pos name (showDecRat-dec-chars d) outer-suffix)
@@ -564,9 +565,9 @@ parseAttrLine-roundtrip-RawDefault-RavDecRatFrac pos name d outer-suffix ss-NL =
 parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt :
     ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDefault (mkRawAttrDefault name (RavDecRat (fromℤ z))))
               (DefaultProofs.Trace.pos8 pos name (showInt-chars z) outer-suffix)
@@ -594,8 +595,8 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeMsg :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASNodeMsg ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASNodeMsg ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASNodeMsg ty))
               (advancePositions pos
@@ -615,8 +616,8 @@ parseAttrLine-roundtrip-RawDef-Rel-NodeSig :
     ∀ pos (name : List Char) (ty : _) (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
-      (emitAttrDef-chars (mkAttrDef name ASNodeSig ty) ++ₗ outer-suffix)
+  → proj₂ (parseAttrLine pos
+      (emitAttrDef-chars (mkAttrDef name ASNodeSig ty) ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawDef (mkAttrDef name ASNodeSig ty))
               (advancePositions pos

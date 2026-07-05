@@ -214,8 +214,8 @@ parseValueDescription-format-roundtrip :
     ∀ (pos : Position) (rawId : ℕ) (sigId : Identifier)
       (entries : List (ℕ × List Char)) (outer-suffix : List Char)
   → RawValueDescNameStop sigId
-  → parse ValueDescription-format pos
-      (emit ValueDescription-format (rawId , sigId , entries) ++ₗ outer-suffix)
+  → proj₂ (parse ValueDescription-format pos
+      (emit ValueDescription-format (rawId , sigId , entries) ++ₗ outer-suffix))
     ≡ just (mkResult (rawId , sigId , entries)
              (advancePositions pos
                (emit ValueDescription-format (rawId , sigId , entries)))

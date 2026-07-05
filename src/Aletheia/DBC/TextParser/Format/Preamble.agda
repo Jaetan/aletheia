@@ -169,7 +169,7 @@ emit-versionFmt-eq-emitVersion-chars-prefix v =
 -- roundtrip` in `Properties/Preamble/Version.agda`.
 parseVersion-format-roundtrip :
     ∀ (pos : Position) (v : List Char) (outer-suffix : List Char)
-  → parse versionFmt pos (emit versionFmt v ++ₗ outer-suffix)
+  → proj₂ (parse versionFmt pos (emit versionFmt v ++ₗ outer-suffix))
     ≡ just (mkResult v
              (advancePositions pos (emit versionFmt v))
              outer-suffix)
@@ -220,7 +220,7 @@ emit-bitTimingFmt-eq-emitBitTiming-chars-prefix = refl
 
 parseBitTiming-format-roundtrip :
     ∀ (pos : Position) (outer-suffix : List Char)
-  → parse bitTimingFmt pos (emit bitTimingFmt tt ++ₗ outer-suffix)
+  → proj₂ (parse bitTimingFmt pos (emit bitTimingFmt tt ++ₗ outer-suffix))
     ≡ just (mkResult tt
              (advancePositions pos (emit bitTimingFmt tt))
              outer-suffix)
@@ -304,7 +304,7 @@ private
 private
   parse-blankLine-fail-on-stop : ∀ (pos : Position) (suffix : List Char)
     → SuffixStops isNewlineStart suffix
-    → parse blankLineFmt pos suffix ≡ nothing
+    → proj₂ (parse blankLineFmt pos suffix) ≡ nothing
   parse-blankLine-fail-on-stop pos []         _         = refl
   parse-blankLine-fail-on-stop pos (c ∷ cs)   (∷-stop h) =
     bind-nothing
@@ -320,14 +320,14 @@ private
       ≈CR with ∨-false-split {c ≈ᵇ '\n'} {c ≈ᵇ '\r'} h
       ... | _ , cr = cr
 
-      char-LF-fail : char '\n' pos (c ∷ cs) ≡ nothing
+      char-LF-fail : proj₂ (char '\n' pos (c ∷ cs)) ≡ nothing
       char-LF-fail rewrite ≈LF = refl
 
-      char-CR-fail : char '\r' pos (c ∷ cs) ≡ nothing
+      char-CR-fail : proj₂ (char '\r' pos (c ∷ cs)) ≡ nothing
       char-CR-fail rewrite ≈CR = refl
 
       parse-CRLF-fail :
-        parse (literal ('\r' ∷ '\n' ∷ [])) pos (c ∷ cs) ≡ nothing
+        proj₂ (parse (literal ('\r' ∷ '\n' ∷ [])) pos (c ∷ cs)) ≡ nothing
       parse-CRLF-fail =
         bind-nothing (parseCharsSeq ('\r' ∷ '\n' ∷ []))
            (λ _ → pure tt)
@@ -339,7 +339,7 @@ private
               char-CR-fail)
 
       parse-LF-fail :
-        parse (literal ('\n' ∷ [])) pos (c ∷ cs) ≡ nothing
+        proj₂ (parse (literal ('\n' ∷ [])) pos (c ∷ cs)) ≡ nothing
       parse-LF-fail =
         bind-nothing (parseCharsSeq ('\n' ∷ []))
            (λ _ → pure tt)
@@ -351,25 +351,25 @@ private
               char-LF-fail)
 
       left-fail :
-        (inj₁ <$> parse (literal ('\r' ∷ '\n' ∷ [])))
-          pos (c ∷ cs)
+        proj₂ ((inj₁ <$> parse (literal ('\r' ∷ '\n' ∷ [])))
+                 pos (c ∷ cs))
         ≡ nothing
       left-fail =
         map-nothing inj₁ (parse (literal ('\r' ∷ '\n' ∷ [])))
           pos (c ∷ cs) parse-CRLF-fail
 
       right-fail :
-        (inj₂ <$> parse (literal ('\n' ∷ [])))
-          pos (c ∷ cs)
+        proj₂ ((inj₂ <$> parse (literal ('\n' ∷ [])))
+                 pos (c ∷ cs))
         ≡ nothing
       right-fail =
         map-nothing inj₂ (parse (literal ('\n' ∷ [])))
           pos (c ∷ cs) parse-LF-fail
 
       alt-fail :
-        ((inj₁ <$> parse (literal ('\r' ∷ '\n' ∷ []))) <|>
-         (inj₂ <$> parse (literal ('\n' ∷ []))))
-          pos (c ∷ cs)
+        proj₂ (((inj₁ <$> parse (literal ('\r' ∷ '\n' ∷ []))) <|>
+                (inj₂ <$> parse (literal ('\n' ∷ []))))
+                 pos (c ∷ cs))
         ≡ nothing
       alt-fail = trans (alt-right-nothing
                           (inj₁ <$> parse (literal ('\r' ∷ '\n' ∷ [])))
@@ -385,7 +385,7 @@ private
 private
   parse-keywordLine-fail-on-stop : ∀ (pos : Position) (suffix : List Char)
     → SuffixStops isHSpace suffix
-    → parse keywordLineFmt pos suffix ≡ nothing
+    → proj₂ (parse keywordLineFmt pos suffix) ≡ nothing
   parse-keywordLine-fail-on-stop pos [] _ = refl
   parse-keywordLine-fail-on-stop pos (c ∷ cs) (∷-stop h) =
     -- parse keywordLineFmt = parse (iso ...) = parse <inner> >>= ...
@@ -395,21 +395,21 @@ private
       _ pos (c ∷ cs)
       inner-fail
     where
-      -- parseWS pos (c ∷ cs) ≡ nothing because satisfy isHSpace rejects c.
-      ws-fail : parseWS pos (c ∷ cs) ≡ nothing
+      -- parseWS fails on (c ∷ cs) because satisfy isHSpace rejects c.
+      ws-fail : proj₂ (parseWS pos (c ∷ cs)) ≡ nothing
       ws-fail rewrite h = refl
 
-      -- parse wsCanonTab pos (c ∷ cs) ≡ nothing — the >>= propagates
+      -- parse wsCanonTab fails on (c ∷ cs) — the >>= propagates
       -- parseWS's failure.
-      wsCanonTab-fail : parse wsCanonTab pos (c ∷ cs) ≡ nothing
+      wsCanonTab-fail : proj₂ (parse wsCanonTab pos (c ∷ cs)) ≡ nothing
       wsCanonTab-fail =
         bind-nothing parseWS (λ _ → pure tt) pos (c ∷ cs) ws-fail
 
-      -- parse (pair wsCanonTab Q) pos (c ∷ cs) ≡ nothing — propagates
+      -- parse (pair wsCanonTab Q) fails on (c ∷ cs) — propagates
       -- via the bind chain.
       pair-fail :
-        parse (pair wsCanonTab (pair ident (withWSOpt newlineFmt)))
-              pos (c ∷ cs)
+        proj₂ (parse (pair wsCanonTab (pair ident (withWSOpt newlineFmt)))
+                     pos (c ∷ cs))
         ≡ nothing
       pair-fail =
         bind-nothing (parse wsCanonTab) _ pos (c ∷ cs) wsCanonTab-fail
@@ -417,8 +417,8 @@ private
       -- parse (withWSCanonTab Q) is the iso-wrapped pair.  The iso's
       -- `>>= λ a → pure (φ a)` propagates nothing.
       inner-fail :
-        parse (withWSCanonTab (pair ident (withWSOpt newlineFmt)))
-              pos (c ∷ cs)
+        proj₂ (parse (withWSCanonTab (pair ident (withWSOpt newlineFmt)))
+                     pos (c ∷ cs))
         ≡ nothing
       inner-fail =
         bind-nothing
@@ -431,7 +431,7 @@ private
 -- `bind-nothing`.
 parse-nsLineFmt-fail-on-stop : ∀ (pos : Position) (suffix : List Char)
   → SuffixStops isNSLineStart suffix
-  → parse nsLineFmt pos suffix ≡ nothing
+  → proj₂ (parse nsLineFmt pos suffix) ≡ nothing
 parse-nsLineFmt-fail-on-stop pos [] _ = refl
 parse-nsLineFmt-fail-on-stop pos (c ∷ cs) (∷-stop h)
   with ∨-false-split {isHSpace c} {isNewlineStart c} h
@@ -442,21 +442,21 @@ parse-nsLineFmt-fail-on-stop pos (c ∷ cs) (∷-stop h)
     alt-both-fail
   where
     left-fail :
-      (inj₁ <$> parse blankLineFmt) pos (c ∷ cs) ≡ nothing
+      proj₂ ((inj₁ <$> parse blankLineFmt) pos (c ∷ cs)) ≡ nothing
     left-fail =
       map-nothing inj₁ (parse blankLineFmt) pos (c ∷ cs)
         (parse-blankLine-fail-on-stop pos (c ∷ cs) (∷-stop nl-false))
 
     right-fail :
-      (inj₂ <$> parse keywordLineFmt) pos (c ∷ cs) ≡ nothing
+      proj₂ ((inj₂ <$> parse keywordLineFmt) pos (c ∷ cs)) ≡ nothing
     right-fail =
       map-nothing inj₂ (parse keywordLineFmt) pos (c ∷ cs)
         (parse-keywordLine-fail-on-stop pos (c ∷ cs) (∷-stop hs-false))
 
     alt-both-fail :
-      ((inj₁ <$> parse blankLineFmt) <|>
-       (inj₂ <$> parse keywordLineFmt))
-        pos (c ∷ cs)
+      proj₂ (((inj₁ <$> parse blankLineFmt) <|>
+              (inj₂ <$> parse keywordLineFmt))
+               pos (c ∷ cs))
       ≡ nothing
     alt-both-fail =
       trans (alt-right-nothing
@@ -662,7 +662,7 @@ build-emits-ok-nsFmt outer-suffix outer-stop =
 parseNamespace-format-roundtrip :
     ∀ (pos : Position) (outer-suffix : List Char)
   → SuffixStops isNSLineStart outer-suffix
-  → parse nsFmt pos (emit nsFmt tt ++ₗ outer-suffix)
+  → proj₂ (parse nsFmt pos (emit nsFmt tt ++ₗ outer-suffix))
     ≡ just (mkResult tt
              (advancePositions pos (emit nsFmt tt))
              outer-suffix)

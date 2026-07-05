@@ -9,12 +9,12 @@
 --
 --   * `isNewlineStart`              — Bool predicate `c ≈ᵇ '\n' ∨ c ≈ᵇ
 --     '\r'`.  Characterises where `many parseNewline` must terminate.
---   * `parseNewline-match-LF`       — `parseNewline pos ('\n' ∷ cs) ≡
---     just …` on a single-LF prefix.
---   * `parseNewline-fail-on-stop`   — `parseNewline pos suffix ≡
---     nothing` under `SuffixStops isNewlineStart suffix`.
---   * `manyHelper-parseNewline-exhaust` — `manyHelper parseNewline pos
---     suffix n ≡ just (mkResult [] pos suffix)` under the same
+--   * `parseNewline-match-LF`       — `proj₂ (parseNewline pos ('\n' ∷
+--     cs)) ≡ just …` on a single-LF prefix.
+--   * `parseNewline-fail-on-stop`   — `proj₂ (parseNewline pos suffix)
+--     ≡ nothing` under `SuffixStops isNewlineStart suffix`.
+--   * `manyHelper-parseNewline-exhaust` — `proj₂ (manyHelper parseNewline
+--     pos suffix n) ≡ just (mkResult [] pos suffix)` under the same
 --     SuffixStops precondition.  Parallels `manyHelper-satisfy-
 --     exhaust-many` but for the `<|>`-composed `parseNewline`.
 --   * `manyHelper-one-iter`         — generic "one iteration then
@@ -32,7 +32,7 @@ open import Data.Char.Base using (_≈ᵇ_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
@@ -68,7 +68,7 @@ isNewlineStart c = (c ≈ᵇ '\n') ∨ (c ≈ᵇ '\r')
 -- inner `>>=`) to expose the failing `char '\r'`.
 private
   string-CRLF-*>-fail-on-LF : ∀ (pos : Position) (cs : List Char)
-    → (string "\r\n" *> pure '\n') pos ('\n' ∷ cs) ≡ nothing
+    → proj₂ ((string "\r\n" *> pure '\n') pos ('\n' ∷ cs)) ≡ nothing
   string-CRLF-*>-fail-on-LF pos cs =
     bind-nothing (string "\r\n") (λ _ → pure '\n') pos ('\n' ∷ cs)
       (bind-nothing (parseCharsSeq (toList "\r\n"))
@@ -77,7 +77,7 @@ private
          parseCharsSeq-CR-fail)
     where
       parseCharsSeq-CR-fail :
-        parseCharsSeq (toList "\r\n") pos ('\n' ∷ cs) ≡ nothing
+        proj₂ (parseCharsSeq (toList "\r\n") pos ('\n' ∷ cs)) ≡ nothing
       parseCharsSeq-CR-fail =
         bind-nothing (char '\r')
           (λ x → parseCharsSeq (toList "\n") >>= λ xs → pure (x ∷ xs))
@@ -89,7 +89,7 @@ private
 -- falls through via `alt-right-nothing` → `char '\n'` matches via
 -- `char-matches`.
 parseNewline-match-LF : ∀ (pos : Position) (cs : List Char)
-  → parseNewline pos ('\n' ∷ cs)
+  → proj₂ (parseNewline pos ('\n' ∷ cs))
     ≡ just (mkResult '\n' (advancePosition pos '\n') cs)
 parseNewline-match-LF pos cs =
   trans (alt-right-nothing (string "\r\n" *> pure '\n') (char '\n')
@@ -120,7 +120,7 @@ private
 private
   parseNewline-fail-on-char : ∀ (pos : Position) (c : Char) (cs : List Char)
     → isNewlineStart c ≡ false
-    → parseNewline pos (c ∷ cs) ≡ nothing
+    → proj₂ (parseNewline pos (c ∷ cs)) ≡ nothing
   parseNewline-fail-on-char pos c cs h =
     trans (alt-right-nothing (string "\r\n" *> pure '\n') (char '\n')
              pos (c ∷ cs) left-fail)
@@ -134,13 +134,13 @@ private
       ≈CR with ∨-false-split {c ≈ᵇ '\n'} {c ≈ᵇ '\r'} h
       ... | _ , cr = cr
 
-      char-CR-fail : char '\r' pos (c ∷ cs) ≡ nothing
+      char-CR-fail : proj₂ (char '\r' pos (c ∷ cs)) ≡ nothing
       char-CR-fail rewrite ≈CR = refl
 
-      char-LF-fail : char '\n' pos (c ∷ cs) ≡ nothing
+      char-LF-fail : proj₂ (char '\n' pos (c ∷ cs)) ≡ nothing
       char-LF-fail rewrite ≈LF = refl
 
-      left-fail : (string "\r\n" *> pure '\n') pos (c ∷ cs) ≡ nothing
+      left-fail : proj₂ ((string "\r\n" *> pure '\n') pos (c ∷ cs)) ≡ nothing
       left-fail =
         bind-nothing (string "\r\n") (λ _ → pure '\n') pos (c ∷ cs)
           (bind-nothing (parseCharsSeq (toList "\r\n"))
@@ -154,7 +154,7 @@ private
 
 parseNewline-fail-on-stop : ∀ (pos : Position) (suffix : List Char)
   → SuffixStops isNewlineStart suffix
-  → parseNewline pos suffix ≡ nothing
+  → proj₂ (parseNewline pos suffix) ≡ nothing
 parseNewline-fail-on-stop pos [] _ = refl
 parseNewline-fail-on-stop pos (c ∷ cs) (∷-stop h) =
   parseNewline-fail-on-char pos c cs h
@@ -172,11 +172,12 @@ parseNewline-fail-on-stop pos (c ∷ cs) (∷-stop h) =
 manyHelper-parseNewline-exhaust : ∀ (pos : Position) (suffix : List Char)
                                     (n : ℕ)
   → SuffixStops isNewlineStart suffix
-  → manyHelper parseNewline pos suffix n
+  → proj₂ (manyHelper parseNewline pos suffix n)
     ≡ just (mkResult [] pos suffix)
 manyHelper-parseNewline-exhaust pos suffix zero     _  = refl
 manyHelper-parseNewline-exhaust pos suffix (suc n') ss
-  rewrite parseNewline-fail-on-stop pos suffix ss = refl
+  with parseNewline pos suffix | parseNewline-fail-on-stop pos suffix ss
+... | w , nothing | refl = refl
 
 -- Generic `manyHelper` one-iteration lemma: if the first parse succeeds
 -- with progress (via sameLengthᵇ-false) and the remaining iterations
@@ -186,16 +187,17 @@ manyHelper-parseNewline-exhaust pos suffix (suc n') ss
 manyHelper-one-iter : ∀ {A : Set} (p : Parser A) (pos : Position)
                        (input : List Char) (n : ℕ)
                        (v : A) (pos' : Position) (rest : List Char)
-  → p pos input ≡ just (mkResult v pos' rest)
+  → proj₂ (p pos input) ≡ just (mkResult v pos' rest)
   → sameLengthᵇ input rest ≡ false
-  → manyHelper p pos' rest n ≡ just (mkResult [] pos' rest)
-  → manyHelper p pos input (suc n)
+  → proj₂ (manyHelper p pos' rest n) ≡ just (mkResult [] pos' rest)
+  → proj₂ (manyHelper p pos input (suc n))
     ≡ just (mkResult (v ∷ []) pos' rest)
 manyHelper-one-iter p pos input n v pos' rest peq sleq hpeq
-  rewrite peq
-        | sleq
-        | hpeq
-  = refl
+  with p pos input | peq
+... | w , just .(mkResult v pos' rest) | refl
+  rewrite sleq
+  with manyHelper p pos' rest n | hpeq
+...   | w' , just .(mkResult [] pos' rest) | refl = refl
 
 -- Generic `manyHelper` "progressing iteration + tail" lemma: generalises
 -- `manyHelper-one-iter` to a non-empty tail result `vs`.  Used by the
@@ -205,16 +207,17 @@ manyHelper-prog-cons : ∀ {A : Set} (p : Parser A) (pos : Position)
                         (input : List Char) (n : ℕ)
                         (v : A) (pos' : Position) (rest : List Char)
                         (vs : List A) (pos-out : Position) (rest-out : List Char)
-  → p pos input ≡ just (mkResult v pos' rest)
+  → proj₂ (p pos input) ≡ just (mkResult v pos' rest)
   → sameLengthᵇ input rest ≡ false
-  → manyHelper p pos' rest n ≡ just (mkResult vs pos-out rest-out)
-  → manyHelper p pos input (suc n)
+  → proj₂ (manyHelper p pos' rest n) ≡ just (mkResult vs pos-out rest-out)
+  → proj₂ (manyHelper p pos input (suc n))
     ≡ just (mkResult (v ∷ vs) pos-out rest-out)
 manyHelper-prog-cons p pos input n v pos' rest vs pos-out rest-out peq sleq hpeq
-  rewrite peq
-        | sleq
-        | hpeq
-  = refl
+  with p pos input | peq
+... | w , just .(mkResult v pos' rest) | refl
+  rewrite sleq
+  with manyHelper p pos' rest n | hpeq
+...   | w' , just .(mkResult vs pos-out rest-out) | refl = refl
 
 -- `many parseNewline` consumes exactly one leading `'\n'` and then
 -- terminates on a non-newline outer suffix.  Composes parseNewline-
@@ -227,7 +230,7 @@ manyHelper-prog-cons p pos input n v pos' rest vs pos-out rest-out peq sleq hpeq
 many-parseNewline-one-LF-stop :
   ∀ (pos : Position) (suffix : List Char) (n : ℕ)
   → SuffixStops isNewlineStart suffix
-  → manyHelper parseNewline pos ('\n' ∷ suffix) (suc n)
+  → proj₂ (manyHelper parseNewline pos ('\n' ∷ suffix) (suc n))
     ≡ just (mkResult ('\n' ∷ [])
                      (advancePosition pos '\n') suffix)
 many-parseNewline-one-LF-stop pos suffix n ss =

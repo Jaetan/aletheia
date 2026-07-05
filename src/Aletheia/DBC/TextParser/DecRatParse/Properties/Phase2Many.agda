@@ -42,6 +42,7 @@ open import Data.List.Properties using () renaming (length-++ to length-++ₗ)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using () renaming (++⁺ to All-++⁺)
 open import Data.Maybe using (just)
+open import Data.Product using (_,_; proj₂)
 open import Data.Nat using (ℕ; zero; suc; _/_; _%_;
          _≤_; s≤s)
 open import Data.Nat.Properties using (m≤m+n)
@@ -157,16 +158,19 @@ All-isDigit-showℕ-padded-chars (suc w) n =
 --     `P c ≡ false` component of `∷-stop`) makes satisfy return
 --     `nothing`; manyHelper's `nothing` branch.
 --   * fuel = suc n', xs = x ∷ xs':                inductive step.
---     Three-step rewrite: (1) `px : P x ≡ true` makes satisfy
---     return `just`; (2) `sameLengthᵇ-cons` discharges the zero-
---     progress guard to `false`; (3) IH resolves the recursive
---     manyHelper call.
+--     Rewrites (1) `px : P x ≡ true` (satisfy returns `just`) and
+--     (2) `sameLengthᵇ-cons` (zero-progress guard → `false`); then a
+--     simultaneous `with` on the recursive manyHelper call and the IH
+--     — the IH is outcome-level (`proj₂`), so it cannot fire as a
+--     rewrite on the pair-typed scrutinee; abstracting the pair and
+--     matching the IH's `refl` forces the outcome component, and the
+--     stuck watermark (`proj₁`) is discarded definitionally.
 manyHelper-satisfy-exhaust : (P : Char → Bool) (pos : Position)
   → (xs suffix : List Char)
   → All (λ c → P c ≡ true) xs
   → SuffixStops P suffix
   → (n : ℕ) → length xs ≤ n
-  → manyHelper (satisfy P) pos (xs ++ₗ suffix) n
+  → proj₂ (manyHelper (satisfy P) pos (xs ++ₗ suffix) n)
     ≡ just (mkResult xs (advancePositions pos xs) suffix)
 manyHelper-satisfy-exhaust P pos []        []       _          _          zero     _            = refl
 manyHelper-satisfy-exhaust P pos []        (c ∷ cs) _          _          zero     _            = refl
@@ -177,8 +181,9 @@ manyHelper-satisfy-exhaust P pos []        (c ∷ cs) _          (∷-stop h) (s
 manyHelper-satisfy-exhaust P pos (x ∷ xs') suffix   (px ∷ pxs) ss         (suc n') (s≤s len≤)
   rewrite px
         | sameLengthᵇ-cons x (xs' ++ₗ suffix)
-        | manyHelper-satisfy-exhaust P (advancePosition pos x) xs' suffix pxs ss n' len≤
-  = refl
+  with manyHelper (satisfy P) (advancePosition pos x) (xs' ++ₗ suffix) n'
+     | manyHelper-satisfy-exhaust P (advancePosition pos x) xs' suffix pxs ss n' len≤
+... | w' , just restResult | refl = refl
 
 -- ----------------------------------------------------------------------------
 -- Phase 2.6: many-fuel specialisation
@@ -193,7 +198,7 @@ manyHelper-satisfy-exhaust-many : (P : Char → Bool) (pos : Position)
   → (xs suffix : List Char)
   → All (λ c → P c ≡ true) xs
   → SuffixStops P suffix
-  → manyHelper (satisfy P) pos (xs ++ₗ suffix) (length (xs ++ₗ suffix))
+  → proj₂ (manyHelper (satisfy P) pos (xs ++ₗ suffix) (length (xs ++ₗ suffix)))
     ≡ just (mkResult xs (advancePositions pos xs) suffix)
 manyHelper-satisfy-exhaust-many P pos xs suffix pxs ss =
   manyHelper-satisfy-exhaust P pos xs suffix pxs ss
@@ -210,11 +215,12 @@ manyHelper-satisfy-exhaust-many P pos xs suffix pxs ss =
 
 -- `some p = p ∷ many p` (in list form).  Applied to `(x ∷ xs') ++
 -- suffix` with head `P`-true, tail `P`-true, and `suffix` at a stop
--- boundary, `some (satisfy P)` returns the whole prefix.  Two-step
--- rewrite: (1) `rewrite px` resolves the leading `satisfy` call
--- inside `<$>`/`<*>`; (2) `rewrite manyHelper-satisfy-exhaust-many`
--- resolves the recursive `many` call, letting the remaining `<$>`
--- reduce to the final `mkResult`.
+-- boundary, `some (satisfy P)` returns the whole prefix.  `rewrite px`
+-- resolves the leading `satisfy` call inside `<$>`/`<*>`; then the
+-- simultaneous `with` on the recursive `many` call + the outcome-level
+-- exhaustion lemma resolves the tail, letting the remaining `<$>`
+-- reduce to the final `mkResult` (same idiom as the inductive step of
+-- `manyHelper-satisfy-exhaust` above).
 --
 -- Shared by `parseNatural-showNat-chars` (integer part) and the
 -- fractional `some digit` call in `parseDecRat` — both use `P =
@@ -224,9 +230,10 @@ some-satisfy-prefix : (P : Char → Bool) (pos : Position)
   → P x ≡ true
   → All (λ c → P c ≡ true) xs'
   → SuffixStops P suffix
-  → some (satisfy P) pos ((x ∷ xs') ++ₗ suffix)
+  → proj₂ (some (satisfy P) pos ((x ∷ xs') ++ₗ suffix))
     ≡ just (mkResult (x ∷ xs') (advancePositions pos (x ∷ xs')) suffix)
 some-satisfy-prefix P pos x xs' suffix px pxs ss
   rewrite px
-        | manyHelper-satisfy-exhaust-many P (advancePosition pos x) xs' suffix pxs ss
-  = refl
+  with manyHelper (satisfy P) (advancePosition pos x) (xs' ++ₗ suffix) (length (xs' ++ₗ suffix))
+     | manyHelper-satisfy-exhaust-many P (advancePosition pos x) xs' suffix pxs ss
+... | w' , just restResult | refl = refl

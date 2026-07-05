@@ -343,10 +343,10 @@ parseAttrLine-on-emit-RawAssign-AVString :
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name target (AVString s)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs
                  (DBCAttrAssign (mkAttrAssign name target (AVString s))))
@@ -356,7 +356,7 @@ parseAttrLine-on-emit-RawAssign-AVString :
               outer)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name ATgtNetwork s outer _ ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name ATgtNetwork (RavString s)))
                      (TraceNetwork.pos9 pos name (quoteStringLit-chars s) outer)
@@ -366,7 +366,7 @@ parseAttrLine-on-emit-RawAssign-AVString defs pos name ATgtNetwork s outer _ ss-
        pos name s outer ss-NL)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtNode n) s outer n-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavString s)))
                      (TraceNode.pos9 pos name n (quoteStringLit-chars s) outer)
@@ -376,7 +376,7 @@ parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtNode n) s outer n-st
        pos name n s outer n-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtMessage cid) s outer _ ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavString s)))
                      (TraceMessage.pos9 pos name cid (quoteStringLit-chars s) outer)
@@ -386,7 +386,7 @@ parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtMessage cid) s outer
        pos name cid s outer ss-NL)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtSignal cid sig) s outer sig-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavString s)))
                      (TraceSignal.pos9 pos name cid sig (quoteStringLit-chars s) outer)
@@ -396,7 +396,7 @@ parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtSignal cid sig) s ou
        pos name cid sig s outer sig-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtEnvVar ev) s outer ev-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavString s)))
                      (TraceEnvVar.pos9 pos name ev (quoteStringLit-chars s) outer)
@@ -406,7 +406,7 @@ parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtEnvVar ev) s outer e
        pos name ev s outer ev-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtNodeMsg n cid) s outer n-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavString s)))
                      (TraceNodeMsg.pos9 pos name n cid (quoteStringLit-chars s) outer)
@@ -416,7 +416,7 @@ parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtNodeMsg n cid) s out
        pos name n cid s outer n-stop ss-NL)
 parseAttrLine-on-emit-RawAssign-AVString defs pos name (ATgtNodeSig n cid sig) s outer stops ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp ≡
+    (λ inp → proj₂ (parseAttrLine pos inp) ≡
              just (mkResult
                      (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavString s)))
                      (TraceNodeSig.pos9 pos name n cid sig (quoteStringLit-chars s) outer)

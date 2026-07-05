@@ -5,6 +5,14 @@
 -- Correctness properties for parser combinators.
 --
 -- Purpose: Prove parser laws (determinism, monad laws, position tracking).
+--
+-- All statements about parser RESULTS are at the outcome level
+-- (`proj₂ (p pos input)`), discarding the failure watermark (`proj₁`).
+-- The watermark is diagnostic metadata: parsers built from the
+-- combinators keep it monotone, but `Parser` is a bare function type,
+-- so an arbitrary function can rewind it — pair-level laws (e.g. monad
+-- left identity) would be false for such functions.  The outcome level
+-- is exactly what every roundtrip/correctness statement needs.
 module Aletheia.Parser.Properties where
 
 open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remaining; position; Position; line; column; pure; fail; _>>=_; _<$>_; satisfy; advancePosition; advancePositions; mkResult)
@@ -15,7 +23,7 @@ open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
 open import Data.Maybe using (just; nothing)
 open import Data.Maybe.Properties using (just-injective)
-open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.Product using (_×_; _,_; ∃-syntax; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Nat using (ℕ; _≤_; _<_; s≤s; _≥_; _∸_)
 open import Data.Nat.Properties using (≤-refl; ≤-trans; <-trans; <⇒≤; n∸n≡0; m+n∸n≡m)
@@ -26,9 +34,10 @@ open import Relation.Nullary using (¬_)
 -- PARSER EQUIVALENCE
 -- ============================================================================
 
--- Two parsers are equivalent if they produce the same results on all inputs
+-- Two parsers are equivalent if they produce the same outcome on all
+-- inputs.  Watermarks are intentionally NOT compared (see module header).
 _≈_ : ∀ {A : Set} → Parser A → Parser A → Set
-p₁ ≈ p₂ = ∀ (pos : Position) (input : List Char) → p₁ pos input ≡ p₂ pos input
+p₁ ≈ p₂ = ∀ (pos : Position) (input : List Char) → proj₂ (p₁ pos input) ≡ proj₂ (p₂ pos input)
 
 infix 4 _≈_
 
@@ -48,28 +57,33 @@ infix 4 _≈_
 -- ============================================================================
 
 -- Left identity: pure a >>= f ≡ f a
--- Proves that wrapping a value in pure and binding has no effect
+-- Proves that wrapping a value in pure and binding has no effect.
+-- (Outcome level: the bind merges `pure`'s watermark into the result
+-- pair, so the full pairs differ by a `maxₚ pos _` term.)
 monad-left-identity : ∀ {A B : Set} (a : A) (f : A → Parser B)
                     → (pure a >>= f) ≈ f a
-monad-left-identity a f pos input = refl
+monad-left-identity a f pos input with f a pos input
+... | w , out = refl
 
 -- Right identity: m >>= pure ≡ m
 -- Proves that binding with pure has no effect
 monad-right-identity : ∀ {A : Set} (m : Parser A)
                      → (m >>= pure) ≈ m
 monad-right-identity m pos input with m pos input
-... | nothing = refl
-... | just result = refl
+... | w , nothing = refl
+... | w , just result = refl
 
 -- Associativity: (m >>= f) >>= g ≡ m >>= (λ x → f x >>= g)
 -- Proves that the order of binding operations doesn't matter
+-- (outcome level: the watermark trees associate differently).
 monad-associativity : ∀ {A B C : Set} (m : Parser A) (f : A → Parser B) (g : B → Parser C)
                     → ((m >>= f) >>= g) ≈ (m >>= (λ x → f x >>= g))
 monad-associativity m f g pos input with m pos input
-... | nothing = refl
-... | just result₁ with f (value result₁) (position result₁) (remaining result₁)
-...   | nothing = refl
-...   | just result₂ = refl
+... | w , nothing = refl
+... | w , just result₁ with f (value result₁) (position result₁) (remaining result₁)
+...   | w' , nothing = refl
+...   | w' , just result₂ with g (value result₂) (position result₂) (remaining result₂)
+...     | w'' , out = refl
 
 -- ============================================================================
 -- POSITION TRACKING PROPERTIES
@@ -107,13 +121,13 @@ advancePositions-monotonic pos (c ∷ cs) | pos' | inj₂ (refl , col<) with adv
 -- For general parsers, this requires induction on parser structure
 
 pure-position-unchanged : ∀ {A : Set} (a : A) (pos : Position) (input : List Char)
-                        → ∃[ result ] (pure a pos input ≡ just result × position result ≡ pos)
+                        → ∃[ result ] (proj₂ (pure a pos input) ≡ just result × position result ≡ pos)
 pure-position-unchanged a pos input = mkResult a pos input , refl , refl
 
 -- For satisfy, position advances by exactly the consumed character
 satisfy-position-advances : ∀ (pred : Char → Bool) (pos : Position) (c : Char) (cs : List Char)
                           → pred c ≡ true
-                          → satisfy pred pos (c ∷ cs) ≡ just (mkResult c (advancePosition pos c) cs)
+                          → proj₂ (satisfy pred pos (c ∷ cs)) ≡ just (mkResult c (advancePosition pos c) cs)
 satisfy-position-advances pred pos c cs pred-true with pred c
 ... | true = refl
 ... | false = ⊥-elim (true≢false (sym pred-true))
@@ -141,7 +155,7 @@ position-monotonic-satisfy pred pos c cs pred-true with position-advances-by-cha
 position-monotonic-map : ∀ {A B : Set} (g : A → B) (p : Parser A)
                           (pos : Position) (input : List Char)
                           (result : ParseResult A)
-                       → p pos input ≡ just result
+                       → proj₂ (p pos input) ≡ just result
                        → line (position result) ≥ line pos
                        → line (position result) ≥ line pos  -- Map doesn't change position
 position-monotonic-map g p pos input result eq line≥ = line≥
@@ -150,9 +164,9 @@ position-monotonic-map g p pos input result eq line≥ = line≥
 position-monotonic-bind : ∀ {A B : Set} (m : Parser A) (f : A → Parser B)
                            (pos : Position) (input : List Char)
                            (resultₘ : ParseResult A) (resultf : ParseResult B)
-                       → m pos input ≡ just resultₘ
+                       → proj₂ (m pos input) ≡ just resultₘ
                        → line (position resultₘ) ≥ line pos
-                       → f (value resultₘ) (position resultₘ) (remaining resultₘ) ≡ just resultf
+                       → proj₂ (f (value resultₘ) (position resultₘ) (remaining resultₘ)) ≡ just resultf
                        → line (position resultf) ≥ line (position resultₘ)
                        → line (position resultf) ≥ line pos
 position-monotonic-bind m f pos input resultₘ resultf eqₘ mono₁ eqf mono₂ =
@@ -164,13 +178,13 @@ position-monotonic-bind m f pos input resultₘ resultf eqₘ mono₁ eqf mono�
 
 -- For pure: input is unchanged
 pure-preserves-input : ∀ {A : Set} (a : A) (pos : Position) (input : List Char)
-                     → ∃[ result ] (pure a pos input ≡ just result × remaining result ≡ input)
+                     → ∃[ result ] (proj₂ (pure a pos input) ≡ just result × remaining result ≡ input)
 pure-preserves-input a pos input = mkResult a pos input , refl , refl
 
 -- For satisfy: input is split into [c] ++ₗ cs
 satisfy-consumes-one : ∀ (pred : Char → Bool) (pos : Position) (c : Char) (cs : List Char)
                      → pred c ≡ true
-                     → satisfy pred pos (c ∷ cs) ≡ just (mkResult c (advancePosition pos c) cs)
+                     → proj₂ (satisfy pred pos (c ∷ cs)) ≡ just (mkResult c (advancePosition pos c) cs)
                        × (c ∷ cs) ≡ (c ∷ []) ++ₗ cs
 satisfy-consumes-one pred pos c cs pred-true =
   satisfy-position-advances pred pos c cs pred-true , refl
@@ -193,7 +207,7 @@ input-preserved-satisfy pred pos c cs pred-true = refl
 input-preserved-map : ∀ {A B : Set} (g : A → B) (p : Parser A)
                        (pos : Position) (input : List Char)
                        (result : ParseResult A) (prefix : List Char)
-                   → p pos input ≡ just result
+                   → proj₂ (p pos input) ≡ just result
                    → input ≡ prefix ++ₗ remaining result
                    → input ≡ prefix ++ₗ remaining result  -- Map doesn't change remaining
 input-preserved-map g p pos input result prefix eq pres = pres
@@ -203,9 +217,9 @@ input-preserved-bind : ∀ {A B : Set} (m : Parser A) (f : A → Parser B)
                         (pos : Position) (input : List Char)
                         (resultₘ : ParseResult A) (resultf : ParseResult B)
                         (prefix₁ prefix₂ : List Char)
-                    → m pos input ≡ just resultₘ
+                    → proj₂ (m pos input) ≡ just resultₘ
                     → input ≡ prefix₁ ++ₗ remaining resultₘ
-                    → f (value resultₘ) (position resultₘ) (remaining resultₘ) ≡ just resultf
+                    → proj₂ (f (value resultₘ) (position resultₘ) (remaining resultₘ)) ≡ just resultf
                     → remaining resultₘ ≡ prefix₂ ++ₗ remaining resultf
                     → input ≡ (prefix₁ ++ₗ prefix₂) ++ₗ remaining resultf
 input-preserved-bind m f pos input resultₘ resultf prefix₁ prefix₂ eqₘ pres₁ eqf pres₂
@@ -214,7 +228,7 @@ input-preserved-bind m f pos input resultₘ resultf prefix₁ prefix₂ eqₘ p
 -- Helper: Calculate consumed characters (length of prefix)
 consumed-length : ∀ {A : Set} (p : Parser A) (pos : Position) (input : List Char)
                     (result : ParseResult A)
-                → p pos input ≡ just result
+                → proj₂ (p pos input) ≡ just result
                 → ℕ
 consumed-length p pos input result eq = length input ∸ length (remaining result)
 
@@ -238,40 +252,44 @@ satisfy-consumes-one-char pred pos c cs pred-true = m+n∸n≡m 1 (length cs)
 
 -- pure never fails
 pure-succeeds : ∀ {A : Set} (a : A) (pos : Position) (input : List Char)
-              → ∃[ result ] (pure a pos input ≡ just result)
+              → ∃[ result ] (proj₂ (pure a pos input) ≡ just result)
 pure-succeeds a pos input = mkResult a pos input , refl
 
 -- pure consumes no input
 pure-consumes-nothing : ∀ {A : Set} (a : A) (pos : Position) (input : List Char)
                       → ∃[ result ]
-                          (pure a pos input ≡ just result
+                          (proj₂ (pure a pos input) ≡ just result
                           × remaining result ≡ input
                           × position result ≡ pos)
 pure-consumes-nothing a pos input = mkResult a pos input , refl , refl , refl
 
--- fail always fails
+-- fail always fails, and its watermark is the position it was launched
+-- at (stated at pair level: `fail` is a leaf, so the full result is
+-- closed — no watermark term to get stuck on).
 fail-always-fails : ∀ {A : Set} (pos : Position) (input : List Char)
-                  → fail {A} pos input ≡ nothing
+                  → fail {A} pos input ≡ (pos , nothing)
 fail-always-fails pos input = refl
 
 -- Bind preserves failure
 bind-preserves-failure : ∀ {A B : Set} (m : Parser A) (f : A → Parser B)
                            (pos : Position) (input : List Char)
-                       → m pos input ≡ nothing
-                       → (m >>= f) pos input ≡ nothing
-bind-preserves-failure m f pos input eq rewrite eq = refl
+                       → proj₂ (m pos input) ≡ nothing
+                       → proj₂ ((m >>= f) pos input) ≡ nothing
+bind-preserves-failure m f pos input eq with m pos input | eq
+... | w , nothing | refl = refl
 
 -- Map preserves structure
 map-preserves-structure : ∀ {A B : Set} (g : A → B) (p : Parser A)
                             (pos : Position) (input : List Char)
                             (result : ParseResult A)
-                        → p pos input ≡ just result
+                        → proj₂ (p pos input) ≡ just result
                         → ∃[ result' ]
-                            ((g <$> p) pos input ≡ just result'
+                            (proj₂ ((g <$> p) pos input) ≡ just result'
                             × value result' ≡ g (value result)
                             × position result' ≡ position result
                             × remaining result' ≡ remaining result)
-map-preserves-structure g p pos input result eq rewrite eq =
+map-preserves-structure g p pos input result eq with p pos input | eq
+... | w , .(just result) | refl =
   mkResult (g (value result)) (position result) (remaining result)
   , refl , refl , refl , refl
 
@@ -283,8 +301,8 @@ map-preserves-structure g p pos input result eq rewrite eq =
 -- This is guaranteed by Agda's pure functions, but we state it explicitly
 parser-deterministic : ∀ {A : Set} (p : Parser A) (pos : Position) (input : List Char)
                          (result₁ result₂ : ParseResult A)
-                     → p pos input ≡ just result₁
-                     → p pos input ≡ just result₂
+                     → proj₂ (p pos input) ≡ just result₁
+                     → proj₂ (p pos input) ≡ just result₂
                      → result₁ ≡ result₂
 parser-deterministic p pos input result₁ result₂ eq₁ eq₂ =
   just-injective (trans (sym eq₁) eq₂)
@@ -297,21 +315,24 @@ parser-deterministic p pos input result₁ result₂ eq₁ eq₂ =
 bind-result-composition : ∀ {A B : Set} (m : Parser A) (f : A → Parser B)
                             (pos : Position) (input : List Char)
                             (resultₘ : ParseResult A) (resultf : ParseResult B)
-                        → m pos input ≡ just resultₘ
-                        → f (value resultₘ) (position resultₘ) (remaining resultₘ) ≡ just resultf
-                        → (m >>= f) pos input ≡ just resultf
-bind-result-composition m f pos input resultₘ resultf eqₘ eqf rewrite eqₘ = eqf
+                        → proj₂ (m pos input) ≡ just resultₘ
+                        → proj₂ (f (value resultₘ) (position resultₘ) (remaining resultₘ)) ≡ just resultf
+                        → proj₂ ((m >>= f) pos input) ≡ just resultf
+bind-result-composition m f pos input resultₘ resultf eqₘ eqf
+  with m pos input | eqₘ
+... | w , .(just resultₘ) | refl
+  with f (value resultₘ) (position resultₘ) (remaining resultₘ) | eqf
+...   | w' , .(just resultf) | refl = refl
 
 -- Sequential composition preserves position monotonicity
 -- This is proven by composing the monotonicity of both parsers
 seq-preserves-monotonicity : ∀ {A B : Set} (p₁ : Parser A) (p₂ : Parser B)
                                (pos : Position) (input : List Char)
                                (result₁ : ParseResult A) (result : ParseResult B)
-                           → p₁ pos input ≡ just result₁
+                           → proj₂ (p₁ pos input) ≡ just result₁
                            → line (position result₁) ≥ line pos
-                           → p₂ (position result₁) (remaining result₁) ≡ just result
+                           → proj₂ (p₂ (position result₁) (remaining result₁)) ≡ just result
                            → line (position result) ≥ line (position result₁)
                            → line (position result) ≥ line pos
 seq-preserves-monotonicity p₁ p₂ pos input result₁ result eq₁ mono₁ eq₂ mono₂ =
   ≤-trans mono₁ mono₂
-

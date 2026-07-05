@@ -282,8 +282,8 @@ emit nonNewlineRun    tt       = []
 -- `Bool` variable that no longer matches the `Σ` carrier's type.
 liftRefined : ∀ {A} (P : A → Bool) → A → Parser (Σ A (λ a → T (P a)))
 liftRefined P a pos input with T? (P a)
-... | yes wit = just (mkResult (a , wit) pos input)
-... | no  _   = nothing
+... | yes wit = pos , just (mkResult (a , wit) pos input)
+... | no  _   = pos , nothing
 
 parse : ∀ {A} → Format A → Parser A
 parse (literal cs)    = parseCharsSeq cs >>= λ _ → pure tt
@@ -317,8 +317,11 @@ parse nonNewlineRun   = many-parser (satisfy isNonNewline) >>= λ _ → pure tt
 -- a single `firstChar` predicate — the prototypical depth-2 failure
 -- `parseValueEntry pos (' ' ∷ ';' ∷ rest)` wins on `' '` at the head
 -- but loses two binds in when `parseNatural` rejects `';'`).
+-- Outcome level (`proj₂`): under the E2 watermark encoding the pair
+-- also carries the failure's depth, which is diagnostic metadata the
+-- certificate must not constrain.
 ParseFailsAt : ∀ {A} → Format A → List Char → Set
-ParseFailsAt f suffix = ∀ pos → parse f pos suffix ≡ nothing
+ParseFailsAt f suffix = ∀ pos → proj₂ (parse f pos suffix) ≡ nothing
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATE
@@ -358,7 +361,7 @@ EmitsOK (refined _ f)  (a , _)  suffix = EmitsOK f a suffix
 EmitsOK (altSum f g)   (inj₁ a) suffix = EmitsOK f a suffix
 EmitsOK (altSum f g)   (inj₂ b) suffix =
   EmitsOK g b suffix
-  × (∀ pos → parse f pos (emit g b ++ₗ suffix) ≡ nothing)
+  × (∀ pos → proj₂ (parse f pos (emit g b ++ₗ suffix)) ≡ nothing)
 EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
 EmitsOK decRatFrac     _        suffix = SuffixStops isDigit suffix
 EmitsOK intDecRat      _        suffix =
@@ -394,10 +397,11 @@ private
   -- Drives the `[] / suc m'` branch of `manyHelper-roundtrip-list`.
   manyHelper-fails-stop : ∀ {A} (p : Parser A) (pos : Position)
                             (input : List Char) (n : ℕ)
-    → p pos input ≡ nothing
-    → manyHelper p pos input n ≡ just (mkResult [] pos input)
+    → proj₂ (p pos input) ≡ nothing
+    → proj₂ (manyHelper p pos input n) ≡ just (mkResult [] pos input)
   manyHelper-fails-stop p pos input zero    _  = refl
-  manyHelper-fails-stop p pos input (suc n) eq rewrite eq = refl
+  manyHelper-fails-stop p pos input (suc n) eq with p pos input | eq
+  ... | w , nothing | refl = refl
 
   -- `sameLengthᵇ` on lists of differing length returns `false`.  Mirrors
   -- the local copies in `Properties/Topology/Receivers.agda` and
@@ -440,7 +444,7 @@ private
   -- contradicts the refutation.
   liftRefined-on-witness : ∀ {A} (P : A → Bool) (a : A) (wit : T (P a))
                              (pos : Position) (input : List Char)
-    → liftRefined P a pos input ≡ just (mkResult (a , wit) pos input)
+    → proj₂ (liftRefined P a pos input) ≡ just (mkResult (a , wit) pos input)
   liftRefined-on-witness P a wit pos input with T? (P a)
   ... | yes wit' = cong (λ w' → just (mkResult (a , w') pos input))
                         (T-irrelevant wit' wit)
@@ -451,17 +455,17 @@ private
   -- Used in the universal `roundtrip` clause for `altSum`.
   map-just : ∀ {A B : Set} (g : A → B) (p : Parser A)
                (pos : Position) (input : List Char) v p' i'
-    → p pos input ≡ just (mkResult v p' i')
-    → (g <$> p) pos input ≡ just (mkResult (g v) p' i')
+    → proj₂ (p pos input) ≡ just (mkResult v p' i')
+    → proj₂ ((g <$> p) pos input) ≡ just (mkResult (g v) p' i')
   map-just g p pos input v p' i' eq with p pos input | eq
-  ... | just .(mkResult v p' i') | refl = refl
+  ... | w , just .(mkResult v p' i') | refl = refl
 
   map-nothing : ∀ {A B : Set} (g : A → B) (p : Parser A)
                   (pos : Position) (input : List Char)
-    → p pos input ≡ nothing
-    → (g <$> p) pos input ≡ nothing
+    → proj₂ (p pos input) ≡ nothing
+    → proj₂ ((g <$> p) pos input) ≡ nothing
   map-nothing g p pos input eq with p pos input | eq
-  ... | nothing | refl = refl
+  ... | w , nothing | refl = refl
 
 -- ============================================================================
 -- UNIVERSAL ROUNDTRIP THEOREM (+ `many`'s manyHelper helper, mutual)
@@ -481,7 +485,7 @@ mutual
   -- and many delegates to `manyHelper-roundtrip-list` below.
   roundtrip : ∀ {A} (f : Format A) pos (a : A) (suffix : List Char)
     → EmitsOK f a suffix
-    → parse f pos (emit f a ++ₗ suffix)
+    → proj₂ (parse f pos (emit f a ++ₗ suffix))
       ≡ just (mkResult a (advancePositions pos (emit f a)) suffix)
 
   -- `manyHelper`-level roundtrip lemma, parametric over a Format.  Body
@@ -494,7 +498,7 @@ mutual
     (pos : Position) (xs : List A) (suffix : List Char) (m : ℕ)
     → length xs ≤ m
     → EmitsOK (many f) xs suffix
-    → manyHelper (parse f) pos (emit (many f) xs ++ₗ suffix) m
+    → proj₂ (manyHelper (parse f) pos (emit (many f) xs ++ₗ suffix) m)
       ≡ just (mkResult xs (advancePositions pos (emit (many f) xs)) suffix)
 
   roundtrip (literal cs) pos tt suffix _ =
@@ -550,7 +554,7 @@ mutual
                     b (advancePositions pos (emit g b)) suffix
                     (roundtrip g pos b suffix wf-g))
   roundtrip (pair f g)   pos (a , b) suffix (wf-f , wf-g) =
-    trans (cong (parse (pair f g) pos)
+    trans (cong (λ inp → proj₂ (parse (pair f g) pos inp))
                 (++ₗ-assoc (emit f a) (emit g b) suffix))
       (trans step-f
         (trans step-g
@@ -561,8 +565,8 @@ mutual
       pos-g = advancePositions pos-f (emit g b)
 
       step-f :
-        parse (pair f g) pos (emit f a ++ₗ (emit g b ++ₗ suffix))
-        ≡ (parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix)
+        proj₂ (parse (pair f g) pos (emit f a ++ₗ (emit g b ++ₗ suffix)))
+        ≡ proj₂ ((parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix))
       step-f =
         bind-just-step (parse f)
                        (λ a' → parse g >>= λ b' → pure (a' , b'))
@@ -571,7 +575,7 @@ mutual
                        (roundtrip f pos a (emit g b ++ₗ suffix) wf-f)
 
       step-g :
-        (parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix)
+        proj₂ ((parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix))
         ≡ just (mkResult (a , b) pos-g suffix)
       step-g =
         bind-just-step (parse g)
@@ -665,7 +669,7 @@ mutual
     manyHelper-fails-stop (parse f) pos suffix m (fails pos)
   manyHelper-roundtrip-list f pos (x ∷ xs) suffix (suc m') (s≤s len-le)
                             (∷-cons wf-x ne-x wf-xs) =
-    trans (cong (λ inp → manyHelper (parse f) pos inp (suc m')) input-eq)
+    trans (cong (λ inp → proj₂ (manyHelper (parse f) pos inp (suc m'))) input-eq)
       (trans (manyHelper-prog-cons (parse f) pos
                 (emit f x ++ₗ iter-rest) m'
                 x pos-x iter-rest
@@ -679,7 +683,7 @@ mutual
       iter-rest : List Char
       iter-rest = emit (many f) xs ++ₗ suffix
 
-      iter-eq : parse f pos (emit f x ++ₗ iter-rest)
+      iter-eq : proj₂ (parse f pos (emit f x ++ₗ iter-rest))
               ≡ just (mkResult x pos-x iter-rest)
       iter-eq = roundtrip f pos x iter-rest wf-x
 
@@ -693,7 +697,7 @@ mutual
                       (sym (length-++ (emit f x) {iter-rest}))
                       (++ₗ-strictly-longer (emit f x) iter-rest ne-x))
 
-      rec-eq : manyHelper (parse f) pos-x iter-rest m'
+      rec-eq : proj₂ (manyHelper (parse f) pos-x iter-rest m')
              ≡ just (mkResult xs
                        (advancePositions pos-x (emit (many f) xs)) suffix)
       rec-eq = manyHelper-roundtrip-list f pos-x xs suffix m' len-le wf-xs

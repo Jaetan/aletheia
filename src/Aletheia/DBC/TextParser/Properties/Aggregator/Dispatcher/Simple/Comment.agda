@@ -16,6 +16,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -47,7 +48,7 @@ parseTopStmt-on-emit-TCM-eq :
     ∀ (pos : Position) (c : DBCComment) (outer : List Char)
   → CommentTargetStop c
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitComment-chars c ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitComment-chars c ++ₗ outer))
     ≡ just (mkResult (TSComment c)
                      (advancePositions pos (emitComment-chars c))
                      outer)

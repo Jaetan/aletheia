@@ -149,8 +149,8 @@ private
     → SuffixStops isHSpace
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
     → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-    → parseRawAttrAssign pos
-        (emit attrAssignFmt (name , RatwSig (rawCanIdℕ cid) sig , wireVal , tt) ++ₗ outer-suffix)
+    → proj₂ (parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwSig (rawCanIdℕ cid) sig , wireVal , tt) ++ₗ outer-suffix))
       ≡ just (mkResult (mkRawAttrAssign name (ATgtSignal cid sig) (liftRavw wireVal))
                 (advancePositions pos
                   (emit attrAssignFmt (name , RatwSig (rawCanIdℕ cid) sig , wireVal , tt)))
@@ -197,9 +197,9 @@ private
             sig-stop val-stop
 
       step-format :
-        parseRawAttrAssign pos
-          (emit attrAssignFmt (name , RatwSig raw sig , wireVal , tt) ++ₗ outer-suffix)
-        ≡ cont-line (name , RatwSig raw sig , wireVal , tt) pos-line outer-suffix
+        proj₂ (parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwSig raw sig , wireVal , tt) ++ₗ outer-suffix))
+        ≡ proj₂ (cont-line (name , RatwSig raw sig , wireVal , tt) pos-line outer-suffix)
       step-format =
         bind-just-step (parse attrAssignFmt) cont-line
           pos
@@ -209,8 +209,8 @@ private
             outer-suffix l4 l5 l6)
 
       step-many-newline :
-        cont-line (name , RatwSig raw sig , wireVal , tt) pos-line outer-suffix
-        ≡ cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-line (name , RatwSig raw sig , wireVal , tt) pos-line outer-suffix)
+        ≡ proj₂ (cont-blanks [] pos-line outer-suffix)
       step-many-newline =
         bind-just-step (many parseNewline) cont-blanks
           pos-line outer-suffix
@@ -219,7 +219,7 @@ private
             (length outer-suffix) ss-NL)
 
       step-buildP :
-        cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-blanks [] pos-line outer-suffix)
         ≡ just (mkResult (mkRawAttrAssign name (ATgtSignal cid sig) (liftRavw wireVal))
                   pos-line outer-suffix)
       step-buildP with buildCANId raw | buildCANId-rawCanIdℕ cid
@@ -265,11 +265,11 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavString :
     (s : List Char) (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtSignal cid sig) (RavString s))
               (TraceSignal.pos9 pos name cid sig (quoteStringLit-chars s) outer-suffix)
@@ -277,7 +277,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavString :
 parseRawAttrAssign-roundtrip-ATgtSignal-RavString pos name cid sig s outer-suffix
                                                   ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ cs → proj₂ (parseRawAttrAssign pos cs))
           (sym (bridge-Signal-emit name (rawCanIdℕ cid) sig (RavwString s) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Signal-raw pos name cid sig
@@ -308,11 +308,11 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac :
     (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat d))
               (TraceSignal.pos9 pos name cid sig (showDecRat-dec-chars d) outer-suffix)
@@ -320,7 +320,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac :
 parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac pos name cid sig d outer-suffix
                                                       ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ cs → proj₂ (parseRawAttrAssign pos cs))
           (sym (bridge-Signal-emit name (rawCanIdℕ cid) sig (RavwFrac d) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Signal-raw pos name cid sig
@@ -351,11 +351,11 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt :
     (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z)))
               (TraceSignal.pos9 pos name cid sig (showInt-chars z) outer-suffix)
@@ -363,7 +363,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt :
 parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt pos name cid sig z outer-suffix
                                                          ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos) reshape-input)
+    (cong (λ cs → proj₂ (parseRawAttrAssign pos cs)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-Signal-raw pos name cid sig
         (RavwBareInt z') outer-suffix ident-stop ss-NL

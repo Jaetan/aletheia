@@ -167,8 +167,8 @@ private
     → SuffixStops isHSpace
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
     → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-    → parseRawAttrAssign pos
-        (emit attrAssignFmt (name , RatwNode idn , wireVal , tt) ++ₗ outer-suffix)
+    → proj₂ (parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwNode idn , wireVal , tt) ++ₗ outer-suffix))
       ≡ just (mkResult (mkRawAttrAssign name (ATgtNode idn) (liftRavw wireVal))
                 (advancePositions pos
                   (emit attrAssignFmt (name , RatwNode idn , wireVal , tt)))
@@ -192,9 +192,9 @@ private
       cont-blanks _ = buildAttrAssignP name (RatwNode idn) wireVal
 
       step-format :
-        parseRawAttrAssign pos
-          (emit attrAssignFmt (name , RatwNode idn , wireVal , tt) ++ₗ outer-suffix)
-        ≡ cont-line (name , RatwNode idn , wireVal , tt) pos-line outer-suffix
+        proj₂ (parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwNode idn , wireVal , tt) ++ₗ outer-suffix))
+        ≡ proj₂ (cont-line (name , RatwNode idn , wireVal , tt) pos-line outer-suffix)
       step-format =
         bind-just-step (parse attrAssignFmt) cont-line
           pos
@@ -207,8 +207,8 @@ private
             l6)
 
       step-many-newline :
-        cont-line (name , RatwNode idn , wireVal , tt) pos-line outer-suffix
-        ≡ cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-line (name , RatwNode idn , wireVal , tt) pos-line outer-suffix)
+        ≡ proj₂ (cont-blanks [] pos-line outer-suffix)
       step-many-newline =
         bind-just-step (many parseNewline) cont-blanks
           pos-line outer-suffix
@@ -217,7 +217,7 @@ private
             (length outer-suffix) ss-NL)
 
       step-buildP :
-        cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-blanks [] pos-line outer-suffix)
         ≡ just (mkResult (mkRawAttrAssign name (ATgtNode idn) (liftRavw wireVal))
                   pos-line outer-suffix)
       step-buildP = refl
@@ -230,17 +230,17 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavString :
   ∀ pos (name : List Char) (idn : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop idn
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtNode idn) (RavString s))
               (TraceNode.pos9 pos name idn (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtNode-RavString pos name idn s outer-suffix ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ chars → proj₂ (parseRawAttrAssign pos chars))
           (sym (bridge-Node-emit name idn (RavwString s) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Node-raw pos name idn
@@ -308,17 +308,17 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac :
   ∀ pos (name : List Char) (idn : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop idn
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtNode idn) (RavDecRat d))
               (TraceNode.pos9 pos name idn (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac pos name idn d outer-suffix ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ chars → proj₂ (parseRawAttrAssign pos chars))
           (sym (bridge-Node-emit name idn (RavwFrac d) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Node-raw pos name idn
@@ -359,17 +359,17 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt :
   ∀ pos (name : List Char) (idn : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop idn
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name idn ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtNode idn) (RavDecRat (fromℤ z)))
               (TraceNode.pos9 pos name idn (showInt-chars z) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt pos name idn z outer-suffix ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos) reshape-input)
+    (cong (λ chars → proj₂ (parseRawAttrAssign pos chars)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-Node-raw pos name idn
         (RavwBareInt z') outer-suffix ident-stop ss-NL

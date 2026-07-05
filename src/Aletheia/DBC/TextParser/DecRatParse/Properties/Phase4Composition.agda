@@ -23,6 +23,7 @@ import Data.Empty.Irrelevant as EmptyI
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
+open import Data.Product using (_,_; proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong₂)
 
@@ -89,15 +90,20 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase3Naturals public
 -- abstraction exposure in the equation's type).
 --
 -- Generic `_>>=_` reduction lemma: if a parser propositionally returns
--- `just (mkResult v p' i')` at a given pos/input, the bind reduces to
--- the continuation at `v`, `p'`, `i'`.
+-- `just (mkResult v p' i')` at a given pos/input, the bind's OUTCOME
+-- reduces to the continuation's outcome at `v`, `p'`, `i'`.  Outcome
+-- level (`proj₂`) only: at pair level the bind merges the two
+-- watermarks (`maxₚ`), so the full results differ.  The second `with`
+-- cases the continuation's pair so both sides expose the same
+-- outcome variable.
 bind-just-step : ∀ {A B : Set} (p : Parser A) (f : A → Parser B)
   (pos : Position) (input : List Char) v p' i' →
-  p pos input ≡ just (mkResult v p' i') →
-  (p >>= f) pos input ≡ f v p' i'
+  proj₂ (p pos input) ≡ just (mkResult v p' i') →
+  proj₂ ((p >>= f) pos input) ≡ proj₂ (f v p' i')
 bind-just-step p f pos input v p' i' eq
   with p pos input | eq
-... | just .(mkResult v p' i') | refl = refl
+... | w , just .(mkResult v p' i') | refl with f v p' i'
+...   | w' , out = refl
 
 -- `char '.'` on `'.' ∷ xs` reduces definitionally; expose that via a
 -- generic-`rest` lemma so specific instances compose via `trans` without
@@ -105,20 +111,23 @@ bind-just-step p f pos input v p' i' eq
 -- so both `-neg` and `-+suc` branches share it.
 past-dot-char-dot-eq :
   ∀ (neg : Maybe Char) (nₚ : ℕ) (pos : Position) (fracChars : List Char) →
-  (char '.' >>= λ _ → some digit >>= λ fd →
-     pure (buildDecRat neg nₚ fd))
-    pos ('.' ∷ fracChars)
-  ≡ (some digit >>= λ fd →
-       pure (buildDecRat neg nₚ fd))
-    (advancePosition pos '.') fracChars
-past-dot-char-dot-eq _ _ _ _ = refl
+  proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
+            pure (buildDecRat neg nₚ fd))
+           pos ('.' ∷ fracChars))
+  ≡ proj₂ ((some digit >>= λ fd →
+              pure (buildDecRat neg nₚ fd))
+             (advancePosition pos '.') fracChars)
+past-dot-char-dot-eq neg nₚ pos fracChars
+  with (some digit >>= λ fd → pure (buildDecRat neg nₚ fd))
+         (advancePosition pos '.') fracChars
+... | w , out = refl
 
 -- ----------------------------------------------------------------------------
 -- Phase 4.1: `+ suc n` case
 -- ----------------------------------------------------------------------------
 parseDecRatFrac-roundtrip-+suc : ∀ n a b pos
   .(cx : IsCanonical (suc n) a b) →
-  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx))
+  proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
     ≡ just (mkResult (mkDecRat (ℤ+ suc n) a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
@@ -149,10 +158,10 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
     posAfterFrac = advancePositions posAfterDot (mag-fracChars (suc n) a b)
 
     step-dash-fail :
-      parseDecRatFrac pos (emitMagnitude-chars (suc n) a b)
-      ≡ (parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-           pure (buildDecRat nothing nₚ fd))
-        pos (emitMagnitude-chars (suc n) a b)
+      proj₂ (parseDecRatFrac pos (emitMagnitude-chars (suc n) a b))
+      ≡ proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (buildDecRat nothing nₚ fd))
+                 pos (emitMagnitude-chars (suc n) a b))
     step-dash-fail =
       bind-just-step (optional (char '-'))
                      (λ neg → parseNatural >>= λ nₚ → char '.' >>= λ _ →
@@ -165,12 +174,12 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
                         ('.' ∷ mag-fracChars (suc n) a b))
 
     step-parseNat :
-      (parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
-         pure (buildDecRat nothing nₚ fd))
-        pos (emitMagnitude-chars (suc n) a b)
-      ≡ (char '.' >>= λ _ → some digit >>= λ fd →
-           pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
-        posAfterNat ('.' ∷ mag-fracChars (suc n) a b)
+      proj₂ ((parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                pure (buildDecRat nothing nₚ fd))
+               pos (emitMagnitude-chars (suc n) a b))
+      ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+                 posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
     step-parseNat =
       bind-just-step parseNatural
                      (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
@@ -184,9 +193,9 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
                         (∷-stop isDigit-dot-false))
 
     step-some-digit :
-      (char '.' >>= λ _ → some digit >>= λ fd →
-         pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
-        posAfterNat ('.' ∷ mag-fracChars (suc n) a b)
+      proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
+                pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+               posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
       ≡ just (mkResult
                 (buildDecRat nothing (mag-quot (suc n) a b)
                               (mag-fracChars (suc n) a b))
@@ -228,7 +237,7 @@ parseDecRatFrac-roundtrip-+suc n a b pos cx =
 --     rewrite on the magnitude argument.
 parseDecRatFrac-roundtrip-neg : ∀ n a b pos
   .(cx : IsCanonical (suc n) a b) →
-  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx))
+  proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
     ≡ just (mkResult (mkDecRat ℤ-[1+ n ] a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
@@ -257,10 +266,10 @@ parseDecRatFrac-roundtrip-neg n a b pos cx =
     -- Step 2: `parseNatural posAfterDash emag` → `just (mkResult (mag-quot …) posAfterNat
     -- ('.' ∷ mag-fracChars …))`, lifted through the remainder of the bind chain.
     step-parseNat :
-      parseDecRatFrac pos ('-' ∷ emitMagnitude-chars (suc n) a b)
-      ≡ (char '.' >>= λ _ → some digit >>= λ fd →
-           pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
-        posAfterNat ('.' ∷ mag-fracChars (suc n) a b)
+      proj₂ (parseDecRatFrac pos ('-' ∷ emitMagnitude-chars (suc n) a b))
+      ≡ proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
+                  pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+                 posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
     step-parseNat =
       bind-just-step parseNatural
                      (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
@@ -276,9 +285,9 @@ parseDecRatFrac-roundtrip-neg n a b pos cx =
     -- Step 4: `char '.'` consumes `.` (definitional), then `some digit` consumes
     -- `mag-fracChars …` via `some-digit-showℕ-padded-chars-end`.
     step-some-digit :
-      (char '.' >>= λ _ → some digit >>= λ fd →
-         pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
-        posAfterNat ('.' ∷ mag-fracChars (suc n) a b)
+      proj₂ ((char '.' >>= λ _ → some digit >>= λ fd →
+                pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+               posAfterNat ('.' ∷ mag-fracChars (suc n) a b))
       ≡ just (mkResult
                 (buildDecRat (just '-') (mag-quot (suc n) a b)
                               (mag-fracChars (suc n) a b))
@@ -317,7 +326,7 @@ parseDecRatFrac-roundtrip-neg n a b pos cx =
 -- `EmptyI.⊥-elim cx`.
 parseDecRatFrac-roundtrip-+zero : ∀ a b pos
   .(cx : IsCanonical 0 a b) →
-  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx))
+  proj₂ (parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)))
     ≡ just (mkResult (mkDecRat (ℤ+ zero) a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)))
@@ -335,7 +344,7 @@ parseDecRatFrac-roundtrip-+zero (suc _) _       _   cx = EmptyI.⊥-elim cx
 -- Each branch's theorem carries the same statement shape, so the
 -- dispatcher is three one-liners.
 parseDecRatFrac-roundtrip : ∀ d pos →
-  parseDecRatFrac pos (showDecRat-dec-chars d)
+  proj₂ (parseDecRatFrac pos (showDecRat-dec-chars d))
     ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) [])
 parseDecRatFrac-roundtrip (mkDecRat (ℤ+ zero)  a b cx) pos =
   parseDecRatFrac-roundtrip-+zero a b pos cx

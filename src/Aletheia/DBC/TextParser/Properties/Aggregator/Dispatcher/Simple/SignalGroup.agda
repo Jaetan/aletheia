@@ -18,6 +18,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
@@ -52,7 +53,7 @@ parseTopStmt-on-emit-TSG-eq :
     ∀ (pos : Position) (sg : SignalGroup) (outer : List Char)
   → SignalGroupWF sg
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitSignalGroup-chars sg ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitSignalGroup-chars sg ++ₗ outer))
     ≡ just (mkResult (TSSignalGroup sg)
                      (advancePositions pos (emitSignalGroup-chars sg))
                      outer)
@@ -69,16 +70,16 @@ parseTopStmt-on-emit-TSG-eq pos sg outer wf nl-stop =
     pos-sg : Position
     pos-sg = advancePositions pos (emitSignalGroup-chars sg)
 
-    sigvaltype-fail : (parseSigValType *> pure TSSigValType) pos input ≡ nothing
+    sigvaltype-fail : proj₂ ((parseSigValType *> pure TSSigValType) pos input) ≡ nothing
     sigvaltype-fail = refl
 
-    p-sg-eq : parseSignalGroup pos input ≡ just (mkResult sg pos-sg outer)
+    p-sg-eq : proj₂ (parseSignalGroup pos input) ≡ just (mkResult sg pos-sg outer)
     p-sg-eq = parseSignalGroup-roundtrip pos sg outer
                 (SignalGroupWF.name-stop wf)
                 (SignalGroupWF.sigs-stops wf)
                 nl-stop
 
-    alt-sg-eq : (parseSignalGroup >>= λ g → pure (TSSignalGroup g)) pos input
+    alt-sg-eq : proj₂ ((parseSignalGroup >>= λ g → pure (TSSignalGroup g)) pos input)
                 ≡ just (mkResult (TSSignalGroup sg) pos-sg outer)
     alt-sg-eq = bind-just-step parseSignalGroup (λ g → pure (TSSignalGroup g))
                   pos input sg pos-sg outer p-sg-eq

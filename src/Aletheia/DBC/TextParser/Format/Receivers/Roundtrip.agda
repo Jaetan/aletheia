@@ -27,7 +27,7 @@ open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (s≤s; z≤n)
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₂)
 open import Data.Unit using (tt)
 open import Function using (case_of_)
 open import Relation.Binary.PropositionalEquality
@@ -105,7 +105,7 @@ private
   -- letting `satisfy`'s with-pattern reduce to `nothing`.
   parse-withPrefix-comma-fails : ∀ pos suffix
     → SuffixStops isReceiverCont suffix
-    → parse (withPrefix (',' ∷ []) ident) pos suffix ≡ nothing
+    → proj₂ (parse (withPrefix (',' ∷ []) ident) pos suffix) ≡ nothing
   parse-withPrefix-comma-fails pos []      _          = refl
   parse-withPrefix-comma-fails pos (c ∷ _) (∷-stop ss)
     rewrite ∨-elim-comma c ss = refl
@@ -178,8 +178,8 @@ build-emits-ok (mkCanonical (r ∷ s ∷ rest) _) suffix ss =
 canonicalReceivers-roundtrip : ∀ pos (cr : CanonicalReceivers)
                                   (suffix : List Char)
   → SuffixStops isReceiverCont suffix
-  → parse canonicalReceiversFmt pos
-      (emit canonicalReceiversFmt cr ++ₗ suffix)
+  → proj₂ (parse canonicalReceiversFmt pos
+      (emit canonicalReceiversFmt cr ++ₗ suffix))
     ≡ just (mkResult cr
              (advancePositions pos (emit canonicalReceiversFmt cr))
              suffix)

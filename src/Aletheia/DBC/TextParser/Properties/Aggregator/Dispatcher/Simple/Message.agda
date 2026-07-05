@@ -18,6 +18,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
@@ -54,7 +55,7 @@ parseTopStmt-on-emit-TM-eq :
     ∀ (pos : Position) (msg : DBCMessage) (outer : List Char)
   → MessageWF msg
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitMessage-chars msg ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitMessage-chars msg ++ₗ outer))
     ≡ just (mkResult (TSMessage (clearBothMsg msg))
                      (advancePositions pos (emitMessage-chars msg))
                      outer)
@@ -71,13 +72,13 @@ parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
     pos-msg : Position
     pos-msg = advancePositions pos (emitMessage-chars msg)
 
-    botxbu-fail : (parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) pos input ≡ nothing
+    botxbu-fail : proj₂ ((parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) pos input) ≡ nothing
     botxbu-fail = refl
 
-    p-msg-eq : parseMessage pos input ≡ just (mkResult (clearBothMsg msg) pos-msg outer)
+    p-msg-eq : proj₂ (parseMessage pos input) ≡ just (mkResult (clearBothMsg msg) pos-msg outer)
     p-msg-eq = parseMessage-roundtrip-bundled pos msg outer wf nl-stop
 
-    alt-msg-eq : (parseMessage >>= λ m → pure (TSMessage m)) pos input
+    alt-msg-eq : proj₂ ((parseMessage >>= λ m → pure (TSMessage m)) pos input)
                  ≡ just (mkResult (TSMessage (clearBothMsg msg)) pos-msg outer)
     alt-msg-eq = bind-just-step parseMessage (λ m → pure (TSMessage m))
                    pos input (clearBothMsg msg) pos-msg outer p-msg-eq

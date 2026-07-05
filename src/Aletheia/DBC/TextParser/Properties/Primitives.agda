@@ -35,7 +35,7 @@ open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
-open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.Product using (_×_; _,_; ∃-syntax; proj₂)
 open import Data.String using (String; toList)
 open import Data.Unit using ()
 open import Function using (_∘_)
@@ -154,7 +154,7 @@ decompose-valid-matches-name i
 
 satisfy-success-T : ∀ (P : Char → Bool) (pos : Position) (h : Char) (cs : List Char)
   → T (P h)
-  → satisfy P pos (h ∷ cs) ≡ just (mkResult h (advancePosition pos h) cs)
+  → proj₂ (satisfy P pos (h ∷ cs)) ≡ just (mkResult h (advancePosition pos h) cs)
 satisfy-success-T P pos h cs ph rewrite T→true ph = refl
 
 -- ============================================================================
@@ -201,8 +201,8 @@ private
 parseIdentifier-roundtrip : ∀ (pos : Position) (i : Identifier)
                               (suffix : List Char)
                             → SuffixStops isIdentCont suffix
-                            → parseIdentifier pos
-                                (Identifier.name i ++ₗ suffix)
+                            → proj₂ (parseIdentifier pos
+                                       (Identifier.name i ++ₗ suffix))
                               ≡ just (mkResult i
                                        (advancePositions pos
                                           (Identifier.name i))
@@ -210,7 +210,7 @@ parseIdentifier-roundtrip : ∀ (pos : Position) (i : Identifier)
 parseIdentifier-roundtrip pos i suffix ss
   with decompose-valid (Identifier.name i) (Identifier.valid i)
 ... | h , t , cs-eq , start , conts =
-      subst (λ cs → parseIdentifier pos (cs ++ₗ suffix)
+      subst (λ cs → proj₂ (parseIdentifier pos (cs ++ₗ suffix))
                       ≡ just (mkResult i (advancePositions pos cs) suffix))
             (sym cs-eq)
             concrete-proof
@@ -223,9 +223,9 @@ parseIdentifier-roundtrip pos i suffix ss
 
     -- satisfy isIdentStart consumes h, advancing to pos' with tail t++suffix.
     step-satisfy :
-      parseIdentifier pos ((h ∷ t) ++ₗ suffix)
-      ≡ (many (satisfy isIdentCont) >>= λ t' → buildIdent h t')
-          pos' (t ++ₗ suffix)
+      proj₂ (parseIdentifier pos ((h ∷ t) ++ₗ suffix))
+      ≡ proj₂ ((many (satisfy isIdentCont) >>= λ t' → buildIdent h t')
+                 pos' (t ++ₗ suffix))
     step-satisfy =
       bind-just-step (satisfy isIdentStart)
                      (λ h' → many (satisfy isIdentCont) >>=
@@ -236,9 +236,9 @@ parseIdentifier-roundtrip pos i suffix ss
 
     -- many (satisfy isIdentCont) consumes t, advancing to pos'' with suffix.
     step-many :
-      (many (satisfy isIdentCont) >>= λ t' → buildIdent h t')
-        pos' (t ++ₗ suffix)
-      ≡ buildIdent h t pos'' suffix
+      proj₂ ((many (satisfy isIdentCont) >>= λ t' → buildIdent h t')
+               pos' (t ++ₗ suffix))
+      ≡ proj₂ (buildIdent h t pos'' suffix)
     step-many =
       bind-just-step (many (satisfy isIdentCont))
                      (λ t' → buildIdent h t')
@@ -255,12 +255,12 @@ parseIdentifier-roundtrip pos i suffix ss
                    (mkIdentFromChars-on-valid i)
 
     step-build :
-      buildIdent h t pos'' suffix
+      proj₂ (buildIdent h t pos'' suffix)
       ≡ just (mkResult i pos'' suffix)
-    step-build = cong (λ p → p pos'' suffix) (buildIdent-eq h t i mki-eq)
+    step-build = cong (λ p → proj₂ (p pos'' suffix)) (buildIdent-eq h t i mki-eq)
 
     concrete-proof :
-      parseIdentifier pos ((h ∷ t) ++ₗ suffix)
+      proj₂ (parseIdentifier pos ((h ∷ t) ++ₗ suffix))
       ≡ just (mkResult i (advancePositions pos (h ∷ t)) suffix)
     concrete-proof = trans step-satisfy (trans step-many step-build)
 
@@ -290,7 +290,7 @@ parseIdentifier-roundtrip pos i suffix ss
 -- `with c ≈ᵇ c` inside `satisfy`'s body, leaving `refl`.
 
 char-matches : ∀ (c : Char) (pos : Position) (cs : List Char)
-  → char c pos (c ∷ cs)
+  → proj₂ (char c pos (c ∷ cs))
     ≡ just (mkResult c (advancePosition pos c) cs)
 char-matches c pos cs rewrite ≈ᵇ-refl c = refl
 
@@ -312,7 +312,7 @@ char-matches c pos cs rewrite ≈ᵇ-refl c = refl
 -- then recurses on the tail.
 parseCharsSeq-success : ∀ (pos : Position) (cs : List Char)
                           (suffix : List Char)
-  → parseCharsSeq cs pos (cs ++ₗ suffix)
+  → proj₂ (parseCharsSeq cs pos (cs ++ₗ suffix))
     ≡ just (mkResult cs (advancePositions pos cs) suffix)
 parseCharsSeq-success pos []       suffix = refl
 parseCharsSeq-success pos (c ∷ cs) suffix =
@@ -331,7 +331,7 @@ parseCharsSeq-success pos (c ∷ cs) suffix =
 -- `string`-success lemma: `string s` on `toList s ++ₗ suffix` returns
 -- `just (mkResult s (advancePositions pos (toList s)) suffix)`.
 string-success : ∀ (pos : Position) (s : String) (suffix : List Char)
-  → string s pos (toList s ++ₗ suffix)
+  → proj₂ (string s pos (toList s ++ₗ suffix))
     ≡ just (mkResult s (advancePositions pos (toList s)) suffix)
 string-success pos s suffix =
   bind-just-step (parseCharsSeq (toList s))
@@ -345,7 +345,7 @@ string-success pos s suffix =
 -- single `bind-just-step`.
 string-*>-success : ∀ {V : Set} (pos : Position) (s : String) (v : V)
                       (suffix : List Char)
-  → (string s *> pure v) pos (toList s ++ₗ suffix)
+  → proj₂ ((string s *> pure v) pos (toList s ++ₗ suffix))
     ≡ just (mkResult v (advancePositions pos (toList s)) suffix)
 string-*>-success pos s v suffix =
   bind-just-step (string s)
@@ -358,39 +358,44 @@ string-*>-success pos s v suffix =
 -- <|> reduction lemmas
 -- ============================================================================
 
--- `p <|> q` reduces to `q` when `p` returns `nothing`.
+-- `p <|> q`'s OUTCOME reduces to `q`'s when `p` fails.  Outcome level
+-- (`proj₂`) only: under furthest-failure merging the full pair carries
+-- `maxₚ` of both arms' watermarks, so pair-level equality is false.
+-- The inner `with` on `q pos input` exposes the same outcome variable
+-- on both sides.
 alt-right-nothing : ∀ {A : Set} (p q : Parser A) (pos : Position)
                       (input : List Char)
-  → p pos input ≡ nothing
-  → (p <|> q) pos input ≡ q pos input
+  → proj₂ (p pos input) ≡ nothing
+  → proj₂ ((p <|> q) pos input) ≡ proj₂ (q pos input)
 alt-right-nothing p q pos input eq with p pos input | eq
-... | nothing | refl = refl
+... | w , nothing | refl with q pos input
+...   | w' , out = refl
 
 -- `p <|> q` reduces to `just r` when `p` returns `just r` (left wins).
 alt-left-just : ∀ {A : Set} (p q : Parser A) (pos : Position)
                   (input : List Char) r
-  → p pos input ≡ just r
-  → (p <|> q) pos input ≡ just r
+  → proj₂ (p pos input) ≡ just r
+  → proj₂ ((p <|> q) pos input) ≡ just r
 alt-left-just p q pos input r eq with p pos input | eq
-... | just .r | refl = refl
+... | w , just .r | refl = refl
 
--- Bind propagates `nothing` outward.
+-- Bind propagates failure outward.
 bind-nothing : ∀ {A B : Set} (p : Parser A) (f : A → Parser B)
                  (pos : Position) (input : List Char)
-  → p pos input ≡ nothing
-  → (p >>= f) pos input ≡ nothing
+  → proj₂ (p pos input) ≡ nothing
+  → proj₂ ((p >>= f) pos input) ≡ nothing
 bind-nothing p f pos input eq with p pos input | eq
-... | nothing | refl = refl
+... | w , nothing | refl = refl
 
--- Functor map propagates `nothing` outward.  Mirror of `bind-nothing`
+-- Functor map propagates failure outward.  Mirror of `bind-nothing`
 -- for `_<$>_`.  Both `>>=` and `<$>` are defined by `with p pos input`,
 -- so the proof shape is identical.
 map-nothing : ∀ {A B : Set} (g : A → B) (p : Parser A)
                 (pos : Position) (input : List Char)
-  → p pos input ≡ nothing
-  → (g <$> p) pos input ≡ nothing
+  → proj₂ (p pos input) ≡ nothing
+  → proj₂ ((g <$> p) pos input) ≡ nothing
 map-nothing g p pos input eq with p pos input | eq
-... | nothing | refl = refl
+... | w , nothing | refl = refl
 
 -- ============================================================================
 -- parseWS on "one horizontal space then non-space suffix"
@@ -403,13 +408,15 @@ map-nothing g p pos input eq with p pos input | eq
 -- `[' ']`.
 parseWS-one-space : ∀ (pos : Position) (suffix : List Char)
   → SuffixStops isHSpace suffix
-  → parseWS pos (' ' ∷ suffix)
+  → proj₂ (parseWS pos (' ' ∷ suffix))
     ≡ just (mkResult (' ' ∷ [])
                      (advancePosition pos ' ') suffix)
 parseWS-one-space pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition pos ' ') [] suffix [] ss
-  = refl
+  with manyHelper (satisfy isHSpace) (advancePosition pos ' ')
+         suffix (length suffix)
+     | manyHelper-satisfy-exhaust-many isHSpace
+         (advancePosition pos ' ') [] suffix [] ss
+... | w , just r | refl = refl
 
 -- `parseWS` succeeds with a singleton `'\t'` on a `'\t'`-led input whose
 -- continuation is hspace-stopped.  Mirror of `parseWS-one-space` for the
@@ -417,13 +424,15 @@ parseWS-one-space pos suffix ss
 -- `'\t'` for indent) and by the Format DSL's `wsCanonTab` constructor.
 parseWS-one-tab : ∀ (pos : Position) (suffix : List Char)
   → SuffixStops isHSpace suffix
-  → parseWS pos ('\t' ∷ suffix)
+  → proj₂ (parseWS pos ('\t' ∷ suffix))
     ≡ just (mkResult ('\t' ∷ [])
                      (advancePosition pos '\t') suffix)
 parseWS-one-tab pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition pos '\t') [] suffix [] ss
-  = refl
+  with manyHelper (satisfy isHSpace) (advancePosition pos '\t')
+         suffix (length suffix)
+     | manyHelper-satisfy-exhaust-many isHSpace
+         (advancePosition pos '\t') [] suffix [] ss
+... | w , just r | refl = refl
 
 -- ============================================================================
 -- Tier B — string literal roundtrip
@@ -498,7 +507,7 @@ quoteStringLit-chars-shape cs = cong ('"' ∷_) (shape cs)
 -- definitional expansion; the outer `<|>` returns via `alt-left-just`
 -- (definitionally).
 parseStringChar-escape : ∀ (pos : Position) (rest : List Char)
-  → parseStringChar pos ('"' ∷ '"' ∷ rest)
+  → proj₂ (parseStringChar pos ('"' ∷ '"' ∷ rest))
     ≡ just (mkResult '"'
              (advancePosition (advancePosition pos '"') '"') rest)
 parseStringChar-escape _ _ = refl
@@ -509,7 +518,7 @@ parseStringChar-escape _ _ = refl
 -- succeeds with the head char.
 parseStringChar-literal : ∀ (pos : Position) (c : Char) (rest : List Char)
   → ¬ (c ≡ '"')
-  → parseStringChar pos (c ∷ rest)
+  → proj₂ (parseStringChar pos (c ∷ rest))
     ≡ just (mkResult c (advancePosition pos c) rest)
 parseStringChar-literal pos c rest c≢quote
   rewrite ≈ᵇ-false-of-≢ {c} {'"'} c≢quote
@@ -524,7 +533,7 @@ parseStringChar-literal pos c rest c≢quote
 --     `satisfy false-predicate` → fails on any non-empty input.
 parseStringChar-fail-at-close : ∀ (pos : Position) (suffix : List Char)
   → SuffixStops (λ c → c ≈ᵇ '"') suffix
-  → parseStringChar pos ('"' ∷ suffix) ≡ nothing
+  → proj₂ (parseStringChar pos ('"' ∷ suffix)) ≡ nothing
 parseStringChar-fail-at-close pos [] _ = refl
 parseStringChar-fail-at-close pos (c ∷ suffix) (∷-stop ≈false)
   rewrite ≈false = refl
@@ -571,8 +580,8 @@ private
     ∀ (pos : Position) (cs' : List Char) (suffix : List Char) (n' : ℕ)
     → SuffixStops (λ c → c ≈ᵇ '"') suffix
     → length cs' ≤ n'
-    → manyHelper parseStringChar pos
-        ('"' ∷ '"' ∷ escape-body-chars cs' ++ₗ '"' ∷ suffix) (suc n')
+    → proj₂ (manyHelper parseStringChar pos
+               ('"' ∷ '"' ∷ escape-body-chars cs' ++ₗ '"' ∷ suffix) (suc n'))
       ≡ just (mkResult ('"' ∷ cs')
                (advancePositions pos
                   ('"' ∷ '"' ∷ escape-body-chars cs'))
@@ -582,14 +591,16 @@ manyHelper-parseStringChar-exhaust :
   ∀ (pos : Position) (cs : List Char) (suffix : List Char) (n : ℕ)
   → SuffixStops (λ c → c ≈ᵇ '"') suffix
   → length cs ≤ n
-  → manyHelper parseStringChar pos
-      (escape-body-chars cs ++ₗ '"' ∷ suffix) n
+  → proj₂ (manyHelper parseStringChar pos
+             (escape-body-chars cs ++ₗ '"' ∷ suffix) n)
     ≡ just (mkResult cs
              (advancePositions pos (escape-body-chars cs))
              ('"' ∷ suffix))
 manyHelper-parseStringChar-exhaust pos [] suffix zero     _  _         = refl
 manyHelper-parseStringChar-exhaust pos [] suffix (suc n') ss _
-  rewrite parseStringChar-fail-at-close pos suffix ss = refl
+  with parseStringChar pos ('"' ∷ suffix)
+     | parseStringChar-fail-at-close pos suffix ss
+... | w , nothing | refl = refl
 manyHelper-parseStringChar-exhaust pos ('"' ∷ cs') suffix (suc n') ss (s≤s len≤) =
   manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
 manyHelper-parseStringChar-exhaust pos (c ∷ cs') suffix (suc n') ss (s≤s len≤)
@@ -597,18 +608,25 @@ manyHelper-parseStringChar-exhaust pos (c ∷ cs') suffix (suc n') ss (s≤s len
 ... | yes refl =
       manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
 ... | no c≢quote
-  rewrite parseStringChar-literal pos c
-            (escape-body-chars cs' ++ₗ '"' ∷ suffix) c≢quote
-        | sameLengthᵇ-cons c (escape-body-chars cs' ++ₗ '"' ∷ suffix)
-        | manyHelper-parseStringChar-exhaust
-            (advancePosition pos c) cs' suffix n' ss len≤
-  = refl
+  with parseStringChar pos (c ∷ escape-body-chars cs' ++ₗ '"' ∷ suffix)
+     | parseStringChar-literal pos c
+         (escape-body-chars cs' ++ₗ '"' ∷ suffix) c≢quote
+...   | w , just r | refl
+  rewrite sameLengthᵇ-cons c (escape-body-chars cs' ++ₗ '"' ∷ suffix)
+  with manyHelper parseStringChar (advancePosition pos c)
+         (escape-body-chars cs' ++ₗ '"' ∷ suffix) n'
+     | manyHelper-parseStringChar-exhaust
+         (advancePosition pos c) cs' suffix n' ss len≤
+...     | w' , just r' | refl = refl
 
 manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
   rewrite sameLengthᵇ-cons-cons '"' '"' (escape-body-chars cs' ++ₗ '"' ∷ suffix)
-        | manyHelper-parseStringChar-exhaust
-            (advancePosition (advancePosition pos '"') '"') cs' suffix n' ss len≤
-  = refl
+  with manyHelper parseStringChar
+         (advancePosition (advancePosition pos '"') '"')
+         (escape-body-chars cs' ++ₗ '"' ∷ suffix) n'
+     | manyHelper-parseStringChar-exhaust
+         (advancePosition (advancePosition pos '"') '"') cs' suffix n' ss len≤
+... | w' , just r' | refl = refl
 
 -- ============================================================================
 -- parseStringLit roundtrip
@@ -645,11 +663,11 @@ private
 
 parseStringLit-roundtrip : ∀ (pos : Position) (cs : List Char) (suffix : List Char)
   → SuffixStops (λ c → c ≈ᵇ '"') suffix
-  → parseStringLit pos (quoteStringLit-chars cs ++ₗ suffix)
+  → proj₂ (parseStringLit pos (quoteStringLit-chars cs ++ₗ suffix))
     ≡ just (mkResult cs
              (advancePositions pos (quoteStringLit-chars cs)) suffix)
 parseStringLit-roundtrip pos cs suffix ss =
-  trans (cong (λ input → parseStringLit pos (input ++ₗ suffix))
+  trans (cong (λ input → proj₂ (parseStringLit pos (input ++ₗ suffix)))
               (quoteStringLit-chars-shape cs))
     (trans input-shape-adjust
       (trans step-open-quote
@@ -675,18 +693,18 @@ parseStringLit-roundtrip pos cs suffix ss =
     -- needs one `++ₗ-assoc` to fold the nested append into the form
     -- `'"' ∷ body-chars ++ₗ '"' ∷ suffix`.
     input-shape-adjust :
-      parseStringLit pos
-        (('"' ∷ body-chars ++ₗ '"' ∷ []) ++ₗ suffix)
-      ≡ parseStringLit pos ('"' ∷ body-chars ++ₗ '"' ∷ suffix)
+      proj₂ (parseStringLit pos
+               (('"' ∷ body-chars ++ₗ '"' ∷ []) ++ₗ suffix))
+      ≡ proj₂ (parseStringLit pos ('"' ∷ body-chars ++ₗ '"' ∷ suffix))
     input-shape-adjust =
-      cong (λ xs → parseStringLit pos ('"' ∷ xs))
+      cong (λ xs → proj₂ (parseStringLit pos ('"' ∷ xs)))
            (++ₗ-assoc body-chars ('"' ∷ []) suffix)
 
     step-open-quote :
-      parseStringLit pos ('"' ∷ body-chars ++ₗ '"' ∷ suffix)
-      ≡ (many parseStringChar >>= λ chars →
-           char '"' >>= λ _ → pure chars)
-          pos1 rest-after-open
+      proj₂ (parseStringLit pos ('"' ∷ body-chars ++ₗ '"' ∷ suffix))
+      ≡ proj₂ ((many parseStringChar >>= λ chars →
+                  char '"' >>= λ _ → pure chars)
+                 pos1 rest-after-open)
     step-open-quote =
       bind-just-step (char '"')
         (λ _ → many parseStringChar >>= λ chars →
@@ -696,7 +714,7 @@ parseStringLit-roundtrip pos cs suffix ss =
         (char-matches '"' pos rest-after-open)
 
     many-success :
-      many parseStringChar pos1 rest-after-open
+      proj₂ (many parseStringChar pos1 rest-after-open)
       ≡ just (mkResult cs pos2 ('"' ∷ suffix))
     many-success =
       manyHelper-parseStringChar-exhaust pos1 cs suffix
@@ -713,11 +731,11 @@ parseStringLit-roundtrip pos cs suffix ss =
                    (m≤m+n (length body-chars) (length ('"' ∷ suffix))))
 
     step-many :
-      (many parseStringChar >>= λ chars →
-         char '"' >>= λ _ → pure chars)
-        pos1 rest-after-open
-      ≡ (char '"' >>= λ _ → pure cs)
-          pos2 ('"' ∷ suffix)
+      proj₂ ((many parseStringChar >>= λ chars →
+                char '"' >>= λ _ → pure chars)
+               pos1 rest-after-open)
+      ≡ proj₂ ((char '"' >>= λ _ → pure cs)
+                 pos2 ('"' ∷ suffix))
     step-many =
       bind-just-step (many parseStringChar)
         (λ chars → char '"' >>= λ _ → pure chars)
@@ -726,9 +744,9 @@ parseStringLit-roundtrip pos cs suffix ss =
         many-success
 
     step-close-quote :
-      (char '"' >>= λ _ → pure cs)
-        pos2 ('"' ∷ suffix)
-      ≡ pure cs pos3 suffix
+      proj₂ ((char '"' >>= λ _ → pure cs)
+               pos2 ('"' ∷ suffix))
+      ≡ proj₂ (pure cs pos3 suffix)
     step-close-quote =
       bind-just-step (char '"')
         (λ _ → pure cs)
@@ -737,7 +755,7 @@ parseStringLit-roundtrip pos cs suffix ss =
         (char-matches '"' pos2 suffix)
 
     step-pure :
-      pure cs pos3 suffix
+      proj₂ (pure cs pos3 suffix)
       ≡ just (mkResult cs
                (advancePositions pos (quoteStringLit-chars cs))
                suffix)

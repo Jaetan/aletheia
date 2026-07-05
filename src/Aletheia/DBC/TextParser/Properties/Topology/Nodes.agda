@@ -28,6 +28,7 @@ open import Data.List using (List; []; _∷_; map; foldr; length) renaming (_++_
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
@@ -128,12 +129,12 @@ parseBU-roundtrip :
     ∀ (pos : Position) (ns : List Node) (suffix : List Char)
   → All NodeNameStop ns
   → SuffixStops isNewlineStart suffix
-  → parseBU pos (emitBU-chars ns ++ₗ suffix)
+  → proj₂ (parseBU pos (emitBU-chars ns ++ₗ suffix))
     ≡ just (mkResult ns
              (advancePositions pos (emitBU-chars ns))
              suffix)
 parseBU-roundtrip pos ns suffix node-stops nl-stop =
-  trans (cong (λ inp → parseBU pos (inp ++ₗ suffix))
+  trans (cong (λ inp → proj₂ (parseBU pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-shape
       (trans step-format
@@ -159,15 +160,15 @@ parseBU-roundtrip pos ns suffix node-stops nl-stop =
     -- bridge into the input prefix.  After this step the input is
     -- `emit nodeListFmt ns ++ '\n' ∷ suffix`.
     step-shape :
-      parseBU pos ((emit nodeListFmt ns ++ₗ '\n' ∷ []) ++ₗ suffix)
-      ≡ parseBU pos (emit nodeListFmt ns ++ₗ '\n' ∷ suffix)
-    step-shape = cong (parseBU pos)
+      proj₂ (parseBU pos ((emit nodeListFmt ns ++ₗ '\n' ∷ []) ++ₗ suffix))
+      ≡ proj₂ (parseBU pos (emit nodeListFmt ns ++ₗ '\n' ∷ suffix))
+    step-shape = cong (λ inp → proj₂ (parseBU pos inp))
                       (++ₗ-assoc (emit nodeListFmt ns) ('\n' ∷ []) suffix)
 
     -- Step 1: parse nodeListFmt succeeds via the universal roundtrip.
     step-format :
-      parseBU pos (emit nodeListFmt ns ++ₗ '\n' ∷ suffix)
-      ≡ cont-line ns pos-line ('\n' ∷ suffix)
+      proj₂ (parseBU pos (emit nodeListFmt ns ++ₗ '\n' ∷ suffix))
+      ≡ proj₂ (cont-line ns pos-line ('\n' ∷ suffix))
     step-format =
       bind-just-step (parse nodeListFmt)
                      cont-line
@@ -180,8 +181,8 @@ parseBU-roundtrip pos ns suffix node-stops nl-stop =
     -- residual `'\n' ∷ suffix` (suffix doesn't start with newline by
     -- precondition).
     step-many-newline :
-      cont-line ns pos-line ('\n' ∷ suffix)
-      ≡ cont-blanks ('\n' ∷ []) pos-after-nl suffix
+      proj₂ (cont-line ns pos-line ('\n' ∷ suffix))
+      ≡ proj₂ (cont-blanks ('\n' ∷ []) pos-after-nl suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -200,7 +201,7 @@ parseBU-roundtrip pos ns suffix node-stops nl-stop =
         (cong (advancePositions pos) bridge)
 
     step-pure :
-      cont-blanks ('\n' ∷ []) pos-after-nl suffix
+      proj₂ (cont-blanks ('\n' ∷ []) pos-after-nl suffix)
       ≡ just (mkResult ns
                (advancePositions pos (emitBU-chars ns))
                suffix)

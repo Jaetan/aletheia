@@ -57,7 +57,7 @@ parseTopStmt-on-emit-typed-TAT-Def :
       (d : AttrDef) (outer : List Char)
   → WFAttribute defs (DBCAttrDef d)
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitTopStmt-chars defs (TAT (DBCAttrDef d)) ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitTopStmt-chars defs (TAT (DBCAttrDef d)) ++ₗ outer))
     ≡ just (mkResult
               (liftTopStmt defs (TAT (DBCAttrDef d)))
               (advancePositions pos

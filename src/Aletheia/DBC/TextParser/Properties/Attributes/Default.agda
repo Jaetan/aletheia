@@ -41,7 +41,7 @@ open import Data.Integer using (ℤ)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just; nothing)
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₂)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
@@ -100,7 +100,7 @@ private
 
   parseStringLit-fail-on-non-quote : ∀ pos c rest
     → (c Data.Char.Base.≈ᵇ '"') ≡ false
-    → parseStringLit pos (c ∷ rest) ≡ nothing
+    → proj₂ (parseStringLit pos (c ∷ rest)) ≡ nothing
   parseStringLit-fail-on-non-quote pos c rest c-eq =
     bind-nothing (char '"')
       (λ _ → many-parser parseStringChar >>= λ chars →
@@ -108,7 +108,7 @@ private
       pos (c ∷ rest)
       char-fails
     where
-      char-fails : char '"' pos (c ∷ rest) ≡ nothing
+      char-fails : proj₂ (char '"' pos (c ∷ rest)) ≡ nothing
       char-fails rewrite c-eq = refl
 
 -- ============================================================================
@@ -122,7 +122,7 @@ private
 parseRawAttrValue-roundtrip-RavString :
   ∀ pos s suffix
   → SuffixStops (λ c → c Data.Char.Base.≈ᵇ '"') suffix
-  → parseRawAttrValue pos (quoteStringLit-chars s ++ₗ suffix)
+  → proj₂ (parseRawAttrValue pos (quoteStringLit-chars s ++ₗ suffix))
     ≡ just (mkResult (RavString s)
               (advancePositions pos (quoteStringLit-chars s))
               suffix)
@@ -144,7 +144,7 @@ parseRawAttrValue-roundtrip-RavDecRatFrac :
   → ∀ c tail
   → showDecRat-dec-chars d ≡ c ∷ tail
   → (c Data.Char.Base.≈ᵇ '"') ≡ false
-  → parseRawAttrValue pos (showDecRat-dec-chars d ++ₗ suffix)
+  → proj₂ (parseRawAttrValue pos (showDecRat-dec-chars d ++ₗ suffix))
     ≡ just (mkResult (RavDecRat d)
               (advancePositions pos (showDecRat-dec-chars d))
               suffix)
@@ -156,7 +156,7 @@ parseRawAttrValue-roundtrip-RavDecRatFrac pos d suffix ss-digit c tail head-eq c
        pos (showDecRat-dec-chars d ++ₗ suffix)
        (bind-nothing parseStringLit (λ s₁ → pure (RavString s₁))
           pos (showDecRat-dec-chars d ++ₗ suffix)
-          (subst (λ chars → parseStringLit pos (chars ++ₗ suffix) ≡ nothing)
+          (subst (λ chars → proj₂ (parseStringLit pos (chars ++ₗ suffix)) ≡ nothing)
                  (sym head-eq)
                  (parseStringLit-fail-on-non-quote pos c (tail ++ₗ suffix) c-not-quote))))
     (bind-just-step parseDecRat (λ d₁ → pure (RavDecRat d₁))
@@ -173,7 +173,7 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt :
   → ∀ c tail
   → showInt-chars z ≡ c ∷ tail
   → (c Data.Char.Base.≈ᵇ '"') ≡ false
-  → parseRawAttrValue pos (showInt-chars z ++ₗ suffix)
+  → proj₂ (parseRawAttrValue pos (showInt-chars z ++ₗ suffix))
     ≡ just (mkResult (RavDecRat (fromℤ z))
               (advancePositions pos (showInt-chars z))
               suffix)
@@ -185,7 +185,7 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tai
        pos (showInt-chars z ++ₗ suffix)
        (bind-nothing parseStringLit (λ s₁ → pure (RavString s₁))
           pos (showInt-chars z ++ₗ suffix)
-          (subst (λ chars → parseStringLit pos (chars ++ₗ suffix) ≡ nothing)
+          (subst (λ chars → proj₂ (parseStringLit pos (chars ++ₗ suffix)) ≡ nothing)
                  (sym head-eq)
                  (parseStringLit-fail-on-non-quote pos c (tail ++ₗ suffix) c-not-quote))))
     (bind-just-step parseDecRat (λ d₁ → pure (RavDecRat d₁))
@@ -341,8 +341,8 @@ private
       (outer-suffix : List Char)
     → SuffixStops isNewlineStart outer-suffix
     → EmitsOK attrValueWireFmt wire-val (value-suffix outer-suffix)
-    → parseRawAttrDefault pos
-        (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix)
+    → proj₂ (parseRawAttrDefault pos
+        (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix))
       ≡ just (mkResult (mkRawAttrDefault name (liftRavw wire-val))
                 (advancePositions pos
                   (emit attrDefaultFmt (name , wire-val , tt)))
@@ -363,9 +363,9 @@ private
       cont-blanks _ = pure (liftDefaultLine (name , wire-val , tt))
 
       step-format :
-        parseRawAttrDefault pos
-          (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix)
-        ≡ cont-line (name , wire-val , tt) pos-line outer-suffix
+        proj₂ (parseRawAttrDefault pos
+          (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix))
+        ≡ proj₂ (cont-line (name , wire-val , tt) pos-line outer-suffix)
       step-format =
         bind-just-step (parse attrDefaultFmt) cont-line
           pos
@@ -375,8 +375,8 @@ private
             value-emit)
 
       step-many-newline :
-        cont-line (name , wire-val , tt) pos-line outer-suffix
-        ≡ cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-line (name , wire-val , tt) pos-line outer-suffix)
+        ≡ proj₂ (cont-blanks [] pos-line outer-suffix)
       step-many-newline =
         bind-just-step (many parseNewline) cont-blanks
           pos-line outer-suffix
@@ -385,7 +385,7 @@ private
             (length outer-suffix) ss-NL)
 
       step-pure :
-        cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-blanks [] pos-line outer-suffix)
         ≡ just (mkResult (mkRawAttrDefault name (liftRavw wire-val))
                   pos-line outer-suffix)
       step-pure = refl
@@ -398,14 +398,14 @@ private
 parseRawAttrDefault-roundtrip-RavString :
   ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrDefault pos
+  → proj₂ (parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavString s))
               (Trace.pos8 pos name (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrDefault-roundtrip-RavString pos name s outer-suffix ss-NL =
-  trans (cong (parseRawAttrDefault pos)
+  trans (cong (λ input → proj₂ (parseRawAttrDefault pos input))
               (sym (bridge-RavwString name s outer-suffix)))
     (parseRawAttrDefault-format-roundtrip-raw pos name (RavwString s)
        outer-suffix ss-NL (ravwString-emit-OK s outer-suffix))
@@ -414,14 +414,14 @@ parseRawAttrDefault-roundtrip-RavString pos name s outer-suffix ss-NL =
 parseRawAttrDefault-roundtrip-RavDecRatFrac :
   ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrDefault pos
+  → proj₂ (parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat d))
               (Trace.pos8 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL =
-  trans (cong (parseRawAttrDefault pos)
+  trans (cong (λ input → proj₂ (parseRawAttrDefault pos input))
               (sym (bridge-RavwFrac name d outer-suffix)))
     (parseRawAttrDefault-format-roundtrip-raw pos name (RavwFrac d)
        outer-suffix ss-NL (ravwFrac-emit-OK d outer-suffix))
@@ -433,9 +433,9 @@ parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL =
 parseRawAttrDefault-roundtrip-RavDecRatBareInt :
   ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrDefault pos
+  → proj₂ (parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat (fromℤ z)))
               (Trace.pos8 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
@@ -444,7 +444,7 @@ parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL =
   -- bridge needs `showInt-chars z ≡ showInt-chars (intDecRatToℤ z')`
   -- where `z' = mkIntDecRatFromℤ z` — closes by
   -- `intDecRatToℤ-mkIntDecRatFromℤ z`.
-  trans (cong (parseRawAttrDefault pos) reshape-input)
+  trans (cong (λ input → proj₂ (parseRawAttrDefault pos input)) reshape-input)
     (trans (parseRawAttrDefault-format-roundtrip-raw pos name (RavwBareInt z')
               outer-suffix ss-NL (ravwBareInt-emit-OK z' outer-suffix))
       result-eq)

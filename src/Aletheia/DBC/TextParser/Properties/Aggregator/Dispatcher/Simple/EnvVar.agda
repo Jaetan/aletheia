@@ -14,6 +14,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -43,7 +44,7 @@ parseTopStmt-on-emit-TEV-eq :
     ∀ (pos : Position) (ev : EnvironmentVar) (outer : List Char)
   → EnvVarNameStop ev
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitEnvVar-chars ev ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitEnvVar-chars ev ++ₗ outer))
     ≡ just (mkResult (TSEnvVar ev)
                      (advancePositions pos (emitEnvVar-chars ev))
                      outer)
@@ -57,5 +58,5 @@ parseTopStmt-on-emit-TEV-eq pos ev outer name-stop nl-stop =
     pos-ev : Position
     pos-ev = advancePositions pos (emitEnvVar-chars ev)
 
-    p-ev-eq : parseEnvVar pos input ≡ just (mkResult ev pos-ev outer)
+    p-ev-eq : proj₂ (parseEnvVar pos input) ≡ just (mkResult ev pos-ev outer)
     p-ev-eq = parseEnvVar-roundtrip pos ev outer name-stop nl-stop

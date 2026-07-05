@@ -167,7 +167,7 @@ SigNameStop i =
 -- fires `parseWS` on the leading char, which rejects `;` (not hspace).
 -- `refl` since every step reduces definitionally on the closed leading char.
 parse-sigEntry-fails-on-semi : ∀ pos rest
-  → parse sigEntry-format pos (';' ∷ rest) ≡ nothing
+  → proj₂ (parse sigEntry-format pos (';' ∷ rest)) ≡ nothing
 parse-sigEntry-fails-on-semi pos rest = refl
 
 -- ============================================================================
@@ -306,8 +306,8 @@ build-emits-ok sg outer-suffix nameStop sigs-stops =
 parseSignalGroup-format-roundtrip : ∀ pos sg outer-suffix
   → SignalGroupNameStop sg
   → All SigNameStop (SignalGroup.signals sg)
-  → parse signalGroupFmt pos
-      (emit signalGroupFmt sg ++ₗ outer-suffix)
+  → proj₂ (parse signalGroupFmt pos
+      (emit signalGroupFmt sg ++ₗ outer-suffix))
     ≡ just (mkResult sg
              (advancePositions pos (emit signalGroupFmt sg))
              outer-suffix)

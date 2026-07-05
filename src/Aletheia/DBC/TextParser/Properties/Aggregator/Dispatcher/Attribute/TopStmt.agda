@@ -18,6 +18,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -57,7 +58,7 @@ parseTopStmt-on-emit-typed-TAT :
       (a : DBCAttribute) (outer : List Char)
   → WFAttribute defs a
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitTopStmt-chars defs (TAT a) ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitTopStmt-chars defs (TAT a) ++ₗ outer))
     ≡ just (mkResult
               (liftTopStmt defs (TAT a))
               (advancePositions pos (emitTopStmt-chars defs (TAT a)))

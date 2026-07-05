@@ -24,7 +24,7 @@ open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ; suc)
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₂)
 open import Data.String using (toList)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
@@ -57,7 +57,7 @@ open import Aletheia.DBC.TextParser.Format.AttrLine
 --
 -- The L5 obligation of `parseAttrAssign-format-roundtrip` for `wireTgt =
 -- RatwNet` reduces (via `iso` then `altSum (inj₂ tt)`) to:
---   ⊤ × (∀ pos → parse <left-keyword-chain> pos input ≡ nothing)
+--   ⊤ × (∀ pos → proj₂ (parse <left-keyword-chain> pos input) ≡ nothing)
 -- where `<left-keyword-chain>` is the private `(((nodeArm | msgArm) | sigArm)
 -- | evArm)` 4-way altSum.  Each arm starts with `withPrefix "BU_"/"BO_"/
 -- "SG_"/"EV_"`, parsing its first char.  For inputs whose first char is
@@ -150,8 +150,8 @@ parseAttrAssign-format-roundtrip-RatwNet :
   → (x ≈ᵇ 'B') ≡ false
   → (x ≈ᵇ 'S') ≡ false
   → (x ≈ᵇ 'E') ≡ false
-  → parse attrAssignFmt pos
-      (emit attrAssignFmt (n , RatwNet , wireVal , tt) ++ₗ outer-suffix)
+  → proj₂ (parse attrAssignFmt pos
+      (emit attrAssignFmt (n , RatwNet , wireVal , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (n , RatwNet , wireVal , tt)
               (advancePositions pos
                 (emit attrAssignFmt (n , RatwNet , wireVal , tt)))

@@ -141,7 +141,7 @@ ValueTableNameStop vt =
 -- definitionally to `nothing`.  Provides `ParseFailsAt ValueEntry-format
 -- (' ' ∷ ';' ∷ '\n' ∷ outer)` for the empty-tail step of `EmitsOKMany`.
 parseValueEntry-format-fails-on-semi : ∀ pos rest
-  → parse ValueEntry-format pos (' ' ∷ ';' ∷ rest) ≡ nothing
+  → proj₂ (parse ValueEntry-format pos (' ' ∷ ';' ∷ rest)) ≡ nothing
 parseValueEntry-format-fails-on-semi pos rest = refl
 
 -- ============================================================================
@@ -303,8 +303,8 @@ build-emits-ok record { name = name ; entries = (v , d) ∷ rest } outer-suffix
 -- universally.
 parseValueTable-format-roundtrip : ∀ pos vt outer-suffix
   → ValueTableNameStop vt
-  → parse ValueTable-format pos
-      (emit ValueTable-format vt ++ₗ outer-suffix)
+  → proj₂ (parse ValueTable-format pos
+      (emit ValueTable-format vt ++ₗ outer-suffix))
     ≡ just (mkResult vt
              (advancePositions pos (emit ValueTable-format vt))
              outer-suffix)
