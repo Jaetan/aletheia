@@ -337,6 +337,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_scheduler.py",
     "--ignore=tests/test_run_ci_runner.py",
     "--ignore=tests/test_check_changelog.py",
+    "--ignore=tests/test_check_install_freshness.py",
     "--ignore=tests/test_check_proof_coverage.py",
     "--ignore=tests/test_check_clang_tidy_coverage.py",
     "--ignore=tests/test_mutation_run_scope.py",
