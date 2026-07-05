@@ -265,7 +265,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **🧪 CROSS-BINDING DECODER-REJECT SWEEP ✅ #138-142 (2026-07-02)** — Py/C++/Rust reject-class audit; the Marshal.hs show-as-JSON envelope bug fixed at the SSOT; Rust typed `input_bound_exceeded` lift + its missing matrix row (43 rows). Lessons: [[feedback_matrix_row_or_invisible]]; read-audit=hypothesis, tool-measure=evidence. Detail: memory/project_xbinding_decoder_reject_audit.md + git #138-142.
 
-**🎯 FLOAT-PRINCIPLE SWEEP ✅ #130-136 (2026-07-01)** — exact rational everywhere, float only at print-out (timestamp input the lone Phase-6 exception); no lossy user-facing rational render remains. Detail: memory/project_r25_binding_review.md + memory/project_log_rational_values.md + git #130-136.
+**🎯 FLOAT-PRINCIPLE SWEEP ✅ #130-136 (2026-07-01)** — exact rational everywhere, float only at print-out (timestamp input the lone Phase 6 exception); no lossy user-facing rational render remains. Detail: memory/project_r25_binding_review.md + memory/project_log_rational_values.md + git #130-136.
 
 **⚡ CI-SPEED + PROOF-GATE EXHAUSTIVENESS ✅ #122/#123** (2026-06-29) — throughput lane ~12→~4.5min (build-tree cache now captures the cabal foreign-lib `haskell-shim/dist-newstyle`; ghcup cache dropped = 6.2GB symlink) + a drift-proof `check-proof-coverage` gate (`closure(proofModules)∪closure(build)` covers every `src/**.agda`). Detail: `memory/project_ci_speed_optimization.md` + CHANGELOG + git #122/#123.
 
