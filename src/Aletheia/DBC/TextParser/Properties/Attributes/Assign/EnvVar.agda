@@ -123,8 +123,8 @@ private
     → SuffixStops isHSpace
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
     → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-    → parseRawAttrAssign pos
-        (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix)
+    → proj₂ (parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix))
       ≡ just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev) (liftRavw wireVal))
                 (advancePositions pos
                   (emit attrAssignFmt (name , RatwEv ev , wireVal , tt)))
@@ -168,9 +168,9 @@ private
             name-stop val-stop
 
       step-format :
-        parseRawAttrAssign pos
-          (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix)
-        ≡ cont-line (name , RatwEv ev , wireVal , tt) pos-line outer-suffix
+        proj₂ (parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix))
+        ≡ proj₂ (cont-line (name , RatwEv ev , wireVal , tt) pos-line outer-suffix)
       step-format =
         bind-just-step (parse attrAssignFmt) cont-line
           pos
@@ -180,8 +180,8 @@ private
             outer-suffix l4 l5 l6)
 
       step-many-newline :
-        cont-line (name , RatwEv ev , wireVal , tt) pos-line outer-suffix
-        ≡ cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-line (name , RatwEv ev , wireVal , tt) pos-line outer-suffix)
+        ≡ proj₂ (cont-blanks [] pos-line outer-suffix)
       step-many-newline =
         bind-just-step (many parseNewline) cont-blanks
           pos-line outer-suffix
@@ -190,7 +190,7 @@ private
             (length outer-suffix) ss-NL)
 
       step-buildP :
-        cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-blanks [] pos-line outer-suffix)
         ≡ just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev) (liftRavw wireVal))
                   pos-line outer-suffix)
       step-buildP = refl
@@ -225,17 +225,17 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString :
   ∀ pos (name : List Char) (ev : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavString s))
               (TraceEnvVar.pos9 pos name ev (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString pos name ev s outer-suffix ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ input → proj₂ (parseRawAttrAssign pos input))
           (sym (bridge-EnvVar-emit name ev (RavwString s) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
@@ -265,17 +265,17 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac :
   ∀ pos (name : List Char) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d))
               (TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ input → proj₂ (parseRawAttrAssign pos input))
           (sym (bridge-EnvVar-emit name ev (RavwFrac d) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
@@ -305,17 +305,17 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt :
   ∀ pos (name : List Char) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z)))
               (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ident-stop ss-NL =
   trans
-    (cong (parseRawAttrAssign pos) reshape-input)
+    (cong (λ input → proj₂ (parseRawAttrAssign pos input)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
         (RavwBareInt z') outer-suffix ident-stop ss-NL

@@ -38,6 +38,7 @@ open import Data.Nat using
   (ℕ; zero; suc; _≤_; _<_; s≤s; z≤n)
 open import Data.Nat.Properties using
   (m≤n+m; m≤m+n; <⇒≢; ≤-trans; +-mono-≤)
+open import Data.Product using (_,_; proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
@@ -93,15 +94,17 @@ sameLengthᵇ-app-nz (x ∷ xs) ys _  =
 -- AUXILIARY: empty-case `manyHelper` exhaust
 -- ============================================================================
 
--- `manyHelper P pos input n ≡ just (mkResult [] pos input)` whenever
--- `P pos input ≡ nothing`.  Parametric in fuel — works at zero (vacuous
--- by definition) or `suc n'` (rewrite the parser's `nothing` result).
+-- `proj₂ (manyHelper P pos input n) ≡ just (mkResult [] pos input)`
+-- whenever `proj₂ (P pos input) ≡ nothing`.  Parametric in fuel — works
+-- at zero (vacuous by definition) or `suc n'` (with-match the parser's
+-- `nothing` outcome).
 manyHelper-P-fails : ∀ {A : Set} (P : Parser A)
                        (pos : Position) (input : List Char) (n : ℕ)
-  → P pos input ≡ nothing
-  → manyHelper P pos input n ≡ just (mkResult [] pos input)
-manyHelper-P-fails _ _ _ zero    _  = refl
-manyHelper-P-fails _ _ _ (suc _) eq rewrite eq = refl
+  → proj₂ (P pos input) ≡ nothing
+  → proj₂ (manyHelper P pos input n) ≡ just (mkResult [] pos input)
+manyHelper-P-fails _ _ _     zero    _  = refl
+manyHelper-P-fails P pos input (suc _) eq with P pos input | eq
+... | w , nothing | refl = refl
 
 
 -- ============================================================================
@@ -127,7 +130,7 @@ manyHelper-P-fails _ _ _ (suc _) eq rewrite eq = refl
 --   * `n`                    — fuel; must be ≥ `length xs`
 --   * `xs-stops : All Stop xs`
 --   * `outer-stop`           — `SuffixStops isNewlineStart outer-suffix`
---   * `P-fails-outer`        — `P pos' outer-suffix ≡ nothing` ∀ pos'
+--   * `P-fails-outer`        — `proj₂ (P pos' outer-suffix) ≡ nothing` ∀ pos'
 many-η-roundtrip-helper :
     ∀ {X : Set}
       (P : Parser X) (E : X → List Char) (Stop : X → Set)
@@ -135,7 +138,7 @@ many-η-roundtrip-helper :
           ∀ (pos : Position) (x : X) (suffix : List Char)
         → Stop x
         → SuffixStops isNewlineStart suffix
-        → P pos (E x ++ₗ suffix)
+        → proj₂ (P pos (E x ++ₗ suffix))
           ≡ just (mkResult x (advancePositions pos (E x)) suffix))
     → (E-nonzero : ∀ (x : X) → 0 < length (E x))
     → (E-head-not-newline :
@@ -145,10 +148,10 @@ many-η-roundtrip-helper :
     → length xs ≤ n
     → All Stop xs
     → SuffixStops isNewlineStart outer-suffix
-    → (∀ (pos' : Position) → P pos' outer-suffix ≡ nothing)
-    → manyHelper P pos
+    → (∀ (pos' : Position) → proj₂ (P pos' outer-suffix) ≡ nothing)
+    → proj₂ (manyHelper P pos
                  (foldr (λ x acc → E x ++ₗ acc) [] xs ++ₗ outer-suffix)
-                 n
+                 n)
       ≡ just (mkResult xs
                (advancePositions pos
                  (foldr (λ x acc → E x ++ₗ acc) [] xs))
@@ -162,7 +165,7 @@ many-η-roundtrip-helper P E Stop rt nz hns
   -- Spine bridge: associate `(E x ++ rest-input) ++ outer` to
   -- `E x ++ (rest-input ++ outer)` so `manyHelper-prog-cons` can fire.
   trans
-    (cong (λ inp → manyHelper P pos inp (suc n'))
+    (cong (λ inp → proj₂ (manyHelper P pos inp (suc n')))
           (++ₗ-assoc (E x) rest-input outer))
     (trans
       (manyHelper-prog-cons P pos (E x ++ₗ (rest-input ++ₗ outer)) n'
@@ -197,7 +200,7 @@ many-η-roundtrip-helper P E Stop rt nz hns
     inner-stop : SuffixStops isNewlineStart (rest-input ++ₗ outer)
     inner-stop = inner-stop-aux rest
 
-    peq : P pos (E x ++ₗ (rest-input ++ₗ outer))
+    peq : proj₂ (P pos (E x ++ₗ (rest-input ++ₗ outer)))
           ≡ just (mkResult x posx (rest-input ++ₗ outer))
     peq = rt pos x (rest-input ++ₗ outer) sx inner-stop
 
@@ -208,8 +211,8 @@ many-η-roundtrip-helper P E Stop rt nz hns
            ≡ false
     sleq = sameLengthᵇ-app-nz (E x) (rest-input ++ₗ outer) (nz x)
 
-    -- IH: `manyHelper P posx (rest-input ++ outer) n' ≡ ...`.
-    hpeq : manyHelper P posx (rest-input ++ₗ outer) n'
+    -- IH: `proj₂ (manyHelper P posx (rest-input ++ outer) n') ≡ ...`.
+    hpeq : proj₂ (manyHelper P posx (rest-input ++ₗ outer) n')
            ≡ just (mkResult rest pos-out outer)
     hpeq = many-η-roundtrip-helper P E Stop rt nz hns
              posx rest outer n' rest≤n' srest os pf
@@ -259,7 +262,7 @@ many-η-roundtrip :
           ∀ (pos : Position) (x : X) (suffix : List Char)
         → Stop x
         → SuffixStops isNewlineStart suffix
-        → P pos (E x ++ₗ suffix)
+        → proj₂ (P pos (E x ++ₗ suffix))
           ≡ just (mkResult x (advancePositions pos (E x)) suffix))
     → (E-nonzero : ∀ (x : X) → 0 < length (E x))
     → (E-head-not-newline :
@@ -268,9 +271,9 @@ many-η-roundtrip :
     → ∀ (pos : Position) (xs : List X) (outer-suffix : List Char)
     → All Stop xs
     → SuffixStops isNewlineStart outer-suffix
-    → (∀ (pos' : Position) → P pos' outer-suffix ≡ nothing)
-    → many P pos
-        (foldr (λ x acc → E x ++ₗ acc) [] xs ++ₗ outer-suffix)
+    → (∀ (pos' : Position) → proj₂ (P pos' outer-suffix) ≡ nothing)
+    → proj₂ (many P pos
+        (foldr (λ x acc → E x ++ₗ acc) [] xs ++ₗ outer-suffix))
       ≡ just (mkResult xs
                (advancePositions pos
                  (foldr (λ x acc → E x ++ₗ acc) [] xs))
@@ -305,7 +308,7 @@ many-η-roundtrip-with-lift-helper :
           ∀ (pos : Position) (i : I) (suffix : List Char)
         → Stop i
         → SuffixStops isNewlineStart suffix
-        → P pos (E i ++ₗ suffix)
+        → proj₂ (P pos (E i ++ₗ suffix))
           ≡ just (mkResult (L i) (advancePositions pos (E i)) suffix))
     → (E-nonzero : ∀ (i : I) → 0 < length (E i))
     → (E-head-not-newline :
@@ -315,10 +318,10 @@ many-η-roundtrip-with-lift-helper :
     → length xs ≤ n
     → All Stop xs
     → SuffixStops isNewlineStart outer-suffix
-    → (∀ (pos' : Position) → P pos' outer-suffix ≡ nothing)
-    → manyHelper P pos
+    → (∀ (pos' : Position) → proj₂ (P pos' outer-suffix) ≡ nothing)
+    → proj₂ (manyHelper P pos
                  (foldr (λ i acc → E i ++ₗ acc) [] xs ++ₗ outer-suffix)
-                 n
+                 n)
       ≡ just (mkResult (map L xs)
                (advancePositions pos
                  (foldr (λ i acc → E i ++ₗ acc) [] xs))
@@ -330,7 +333,7 @@ many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
                                   pos (i ∷ rest) outer (suc n') (s≤s rest≤n')
                                   (sx ∷ srest) os pf =
   trans
-    (cong (λ inp → manyHelper P pos inp (suc n'))
+    (cong (λ inp → proj₂ (manyHelper P pos inp (suc n')))
           (++ₗ-assoc (E i) rest-input outer))
     (trans
       (manyHelper-prog-cons P pos (E i ++ₗ (rest-input ++ₗ outer)) n'
@@ -360,7 +363,7 @@ many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
     inner-stop : SuffixStops isNewlineStart (rest-input ++ₗ outer)
     inner-stop = inner-stop-aux rest
 
-    peq : P pos (E i ++ₗ (rest-input ++ₗ outer))
+    peq : proj₂ (P pos (E i ++ₗ (rest-input ++ₗ outer)))
           ≡ just (mkResult (L i) posx (rest-input ++ₗ outer))
     peq = rt pos i (rest-input ++ₗ outer) sx inner-stop
 
@@ -369,7 +372,7 @@ many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
            ≡ false
     sleq = sameLengthᵇ-app-nz (E i) (rest-input ++ₗ outer) (nz i)
 
-    hpeq : manyHelper P posx (rest-input ++ₗ outer) n'
+    hpeq : proj₂ (manyHelper P posx (rest-input ++ₗ outer) n')
            ≡ just (mkResult (map L rest) pos-out outer)
     hpeq = many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
              posx rest outer n' rest≤n' srest os pf
@@ -387,7 +390,7 @@ many-η-roundtrip-with-lift :
           ∀ (pos : Position) (i : I) (suffix : List Char)
         → Stop i
         → SuffixStops isNewlineStart suffix
-        → P pos (E i ++ₗ suffix)
+        → proj₂ (P pos (E i ++ₗ suffix))
           ≡ just (mkResult (L i) (advancePositions pos (E i)) suffix))
     → (E-nonzero : ∀ (i : I) → 0 < length (E i))
     → (E-head-not-newline :
@@ -396,9 +399,9 @@ many-η-roundtrip-with-lift :
     → ∀ (pos : Position) (xs : List I) (outer-suffix : List Char)
     → All Stop xs
     → SuffixStops isNewlineStart outer-suffix
-    → (∀ (pos' : Position) → P pos' outer-suffix ≡ nothing)
-    → many P pos
-        (foldr (λ i acc → E i ++ₗ acc) [] xs ++ₗ outer-suffix)
+    → (∀ (pos' : Position) → proj₂ (P pos' outer-suffix) ≡ nothing)
+    → proj₂ (many P pos
+        (foldr (λ i acc → E i ++ₗ acc) [] xs ++ₗ outer-suffix))
       ≡ just (mkResult (map L xs)
                (advancePositions pos
                  (foldr (λ i acc → E i ++ₗ acc) [] xs))

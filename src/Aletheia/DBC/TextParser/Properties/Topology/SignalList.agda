@@ -43,7 +43,7 @@ open import Data.List.NonEmpty as List⁺ using (_∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
-open import Data.Product using ()
+open import Data.Product using (proj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; cong₂)
@@ -351,10 +351,10 @@ parseSignalLines-roundtrip :
   → All SignalLineWF sigs
   → ParseFailsAt signalLineFmt outer-suffix
   → SuffixStops isReceiverCont outer-suffix
-  → parse (manyF signalLineFmt) pos
+  → proj₂ (parse (manyF signalLineFmt) pos
        (foldr (λ s acc → emitSignalLine-chars master fb s ++ₗ acc) []
               sigs
-        ++ₗ outer-suffix)
+        ++ₗ outer-suffix))
     ≡ just (mkResult (map (expectedRawOfDBC master fb) sigs)
              (advancePositions pos
                (foldr (λ s acc → emitSignalLine-chars master fb s ++ₗ acc)
@@ -363,7 +363,7 @@ parseSignalLines-roundtrip :
 parseSignalLines-roundtrip pos master fb sigs outer-suffix
                            items tf outer-recv-stop =
   trans
-    (cong (λ inp → parse (manyF signalLineFmt) pos (inp ++ₗ outer-suffix))
+    (cong (λ inp → proj₂ (parse (manyF signalLineFmt) pos (inp ++ₗ outer-suffix)))
           (sym bridge))
     (trans
       (roundtrip (manyF signalLineFmt) pos

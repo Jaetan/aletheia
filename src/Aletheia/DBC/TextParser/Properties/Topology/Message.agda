@@ -241,7 +241,7 @@ buildMessage-roundtrip :
   → All (PhysicallyValid (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg)
   → All (λ s → WellFormedTextPresence (DBCSignal.presence s)) (DBCMessage.signals msg)
   → MasterCoherent (DBCMessage.signals msg)
-  → buildMessage
+  → proj₂ (buildMessage
       (rawCanIdℕ (DBCMessage.id msg))
       (DBCMessage.name msg)
       (dlcBytes (DBCMessage.dlc msg))
@@ -250,7 +250,7 @@ buildMessage-roundtrip :
               (findMuxMaster (DBCMessage.signals msg))
               (dlcBytes (DBCMessage.dlc msg)))
            (DBCMessage.signals msg))
-      pos rest
+      pos rest)
     ≡ just (mkResult (clearBothMsg msg) pos rest)
 -- A.2: `senders-empty` precondition dropped.  `buildMessage` hardcodes
 -- `senders = []`, and `clearBothMsg msg` (= `clearVdsMsg msg` with senders
@@ -364,8 +364,8 @@ messageHeader-roundtrip :
       (msgSender : Identifier) (suffix : List Char)
   → IdentHeadNonHSpace msgName
   → IdentHeadNonHSpace msgSender
-  → parse messageHeaderFmt pos
-       (emit messageHeaderFmt (rawId , msgName , rawDlc , msgSender) ++ₗ suffix)
+  → proj₂ (parse messageHeaderFmt pos
+       (emit messageHeaderFmt (rawId , msgName , rawDlc , msgSender) ++ₗ suffix))
     ≡ just (mkResult (rawId , msgName , rawDlc , msgSender)
              (advancePositions pos
                (emit messageHeaderFmt (rawId , msgName , rawDlc , msgSender)))
@@ -398,7 +398,7 @@ parseMessage-roundtrip :
   → All SignalLineWF (DBCMessage.signals msg)
   → ParseFailsAt signalLineFmt ('\n' ∷ outer-suffix)
   → SuffixStops isNewlineStart outer-suffix
-  → parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix)
+  → proj₂ (parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix))
     ≡ just (mkResult (clearBothMsg msg)
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
@@ -406,7 +406,7 @@ parseMessage-roundtrip pos msg outer-suffix
     fb≤64 wf-sigs pvs wfps mc
     name-pre send-pre item-pres tf nl-stop =
   trans
-    (cong (λ inp → parseMessage pos inp)
+    (cong (λ inp → proj₂ (parseMessage pos inp))
           shape-bridge)
     (trans step-header
       (trans step-signals
@@ -466,11 +466,11 @@ parseMessage-roundtrip pos msg outer-suffix
 
     -- Step 1: peel parse messageHeaderFmt via universal roundtrip.
     step-header :
-      parseMessage pos
+      proj₂ (parseMessage pos
         (emit messageHeaderFmt (rawId , msgName , rawDlc , msgSender)
-         ++ₗ body ++ₗ '\n' ∷ outer-suffix)
-      ≡ cont-after-hdr (rawId , msgName , rawDlc , msgSender)
-          pos-after-hdr (body ++ₗ '\n' ∷ outer-suffix)
+         ++ₗ body ++ₗ '\n' ∷ outer-suffix))
+      ≡ proj₂ (cont-after-hdr (rawId , msgName , rawDlc , msgSender)
+          pos-after-hdr (body ++ₗ '\n' ∷ outer-suffix))
     step-header =
       bind-just-step (parse messageHeaderFmt) cont-after-hdr
         pos
@@ -484,9 +484,9 @@ parseMessage-roundtrip pos msg outer-suffix
 
     -- Step 2: peel many parseSignalLine via 3d.6.
     step-signals :
-      cont-after-hdr (rawId , msgName , rawDlc , msgSender)
-        pos-after-hdr (body ++ₗ '\n' ∷ outer-suffix)
-      ≡ cont-after-sigs raws pos-after-sigs ('\n' ∷ outer-suffix)
+      proj₂ (cont-after-hdr (rawId , msgName , rawDlc , msgSender)
+        pos-after-hdr (body ++ₗ '\n' ∷ outer-suffix))
+      ≡ proj₂ (cont-after-sigs raws pos-after-sigs ('\n' ∷ outer-suffix))
     step-signals =
       bind-just-step (many parseSignalLine) cont-after-sigs
         pos-after-hdr
@@ -497,8 +497,8 @@ parseMessage-roundtrip pos msg outer-suffix
 
     -- Step 3: peel many parseNewline (consumes single '\n').
     step-newline :
-      cont-after-sigs raws pos-after-sigs ('\n' ∷ outer-suffix)
-      ≡ cont-after-nl ('\n' ∷ []) pos-after-nl outer-suffix
+      proj₂ (cont-after-sigs raws pos-after-sigs ('\n' ∷ outer-suffix))
+      ≡ proj₂ (cont-after-nl ('\n' ∷ []) pos-after-nl outer-suffix)
     step-newline =
       bind-just-step (many parseNewline) cont-after-nl
         pos-after-sigs ('\n' ∷ outer-suffix)
@@ -530,7 +530,7 @@ parseMessage-roundtrip pos msg outer-suffix
               (sym (emitMessage-chars-decompose msg)))
 
     step-build :
-      cont-after-nl ('\n' ∷ []) pos-after-nl outer-suffix
+      proj₂ (cont-after-nl ('\n' ∷ []) pos-after-nl outer-suffix)
       ≡ just (mkResult (clearBothMsg msg)
                 (advancePositions pos (emitMessage-chars msg))
                 outer-suffix)
@@ -586,7 +586,7 @@ record MessageWF (msg : DBCMessage) : Set where
 -- on the literal `'\n'` cons.
 signalLineFmt-fails-on-newline :
     ∀ (pos : Position) (s : List Char)
-  → parse signalLineFmt pos ('\n' ∷ s) ≡ nothing
+  → proj₂ (parse signalLineFmt pos ('\n' ∷ s)) ≡ nothing
 signalLineFmt-fails-on-newline _ _ = refl
 
 
@@ -618,7 +618,7 @@ parseMessage-roundtrip-bundled :
     ∀ (pos : Position) (msg : DBCMessage) (outer-suffix : List Char)
   → MessageWF msg
   → SuffixStops isNewlineStart outer-suffix
-  → parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix)
+  → proj₂ (parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix))
     ≡ just (mkResult (clearBothMsg msg)
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
@@ -646,9 +646,9 @@ parseMessages-roundtrip :
     ∀ (pos : Position) (msgs : List DBCMessage) (outer-suffix : List Char)
   → All MessageWF msgs
   → SuffixStops isNewlineStart outer-suffix
-  → (∀ (pos' : Position) → parseMessage pos' outer-suffix ≡ nothing)
-  → many parseMessage pos
-      (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs ++ₗ outer-suffix)
+  → (∀ (pos' : Position) → proj₂ (parseMessage pos' outer-suffix) ≡ nothing)
+  → proj₂ (many parseMessage pos
+      (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs ++ₗ outer-suffix))
     ≡ just (mkResult (map clearBothMsg msgs)
              (advancePositions pos
                (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs))

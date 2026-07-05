@@ -14,7 +14,7 @@ module Aletheia.Parser.Position where
 open import Data.Bool using (true; false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; suc)
+open import Data.Nat using (ℕ; suc; _<ᵇ_)
 
 -- Source position (line and column numbers)
 record Position : Set where
@@ -39,3 +39,16 @@ advancePosition pos c with c ≈ᵇ '\n'
 advancePositions : Position → List Char → Position
 advancePositions pos [] = pos
 advancePositions pos (c ∷ cs) = advancePositions (advancePosition pos c) cs
+
+-- Furthest-position merge: lexicographic max on (line, column). Used by
+-- the combinators' failure-watermark plumbing (`_<|>_` merges the depths
+-- of failed alternatives; `_>>=_` merges sequential watermarks) so a
+-- failed parse reports the deepest point ANY branch reached.
+maxₚ : Position → Position → Position
+maxₚ p q with line p <ᵇ line q
+... | true  = q
+... | false with line q <ᵇ line p
+...   | true  = p
+...   | false with column p <ᵇ column q
+...     | true  = q
+...     | false = p

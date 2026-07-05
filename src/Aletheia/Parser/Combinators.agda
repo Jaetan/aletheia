@@ -42,10 +42,14 @@ record ParseResult (A : Set) : Set where
 
 open ParseResult public
 
--- Parser type: takes position and input, returns result with new position
--- Tracks position for precise error reporting
+-- Parser type: takes position and input, returns the furthest position
+-- reached during the attempt (the WATERMARK — first component) paired
+-- with the outcome. The watermark is what makes failed parses report the
+-- deepest point any branch reached (byte-exact error positions); the
+-- outcome keeps the pre-watermark `Maybe (ParseResult A)` shape so
+-- success-side reasoning composes through `proj₂` unchanged.
 Parser : Set → Set
-Parser A = Position → List Char → Maybe (ParseResult A)
+Parser A = Position → List Char → Position × Maybe (ParseResult A)
 
 -- ============================================================================
 -- BASIC COMBINATORS
@@ -53,33 +57,35 @@ Parser A = Position → List Char → Maybe (ParseResult A)
 
 -- | Always succeeds with given value, consumes nothing
 pure : ∀ {A : Set} → A → Parser A
-pure x pos input = just (mkResult x pos input)
+pure x pos input = pos , just (mkResult x pos input)
 
 -- | Always fails
 fail : ∀ {A : Set} → Parser A
-fail _ _ = nothing
+fail pos _ = pos , nothing
 
 -- | Monadic bind for parsers
 _>>=_ : ∀ {A B : Set} → Parser A → (A → Parser B) → Parser B
 (p >>= f) pos input with p pos input
-... | nothing = nothing
-... | just result = f (value result) (position result) (remaining result)
+... | w , nothing = w , nothing
+... | w , just result with f (value result) (position result) (remaining result)
+...   | w' , out = maxₚ w w' , out
 
 infixl 1 _>>=_
 
 -- | Map over parser result (functor)
 _<$>_ : ∀ {A B : Set} → (A → B) → Parser A → Parser B
 (f <$> p) pos input with p pos input
-... | nothing = nothing
-... | just result = just (mkResult (f (value result)) (position result) (remaining result))
+... | w , nothing = w , nothing
+... | w , just result = w , just (mkResult (f (value result)) (position result) (remaining result))
 
 infixl 4 _<$>_
 
 -- | Applicative: apply a parser of functions to a parser of values
 _<*>_ : ∀ {A B : Set} → Parser (A → B) → Parser A → Parser B
 (pf <*> px) pos input with pf pos input
-... | nothing = nothing
-... | just result = (value result <$> px) (position result) (remaining result)
+... | w , nothing = w , nothing
+... | w , just result with (value result <$> px) (position result) (remaining result)
+...   | w' , out = maxₚ w w' , out
 
 infixl 4 _<*>_
 
@@ -98,8 +104,9 @@ infixl 4 _<*_
 -- | Alternative: try first parser, if it fails, try second
 _<|>_ : ∀ {A : Set} → Parser A → Parser A → Parser A
 (p1 <|> p2) pos input with p1 pos input
-... | just result = just result
-... | nothing = p2 pos input
+... | w , just result = w , just result
+... | w , nothing with p2 pos input
+...   | w' , out = maxₚ w w' , out
 
 infixl 3 _<|>_
 
@@ -115,10 +122,13 @@ private
 
 -- | Parse a single character satisfying predicate
 satisfy : (Char → Bool) → Parser Char
-satisfy pred pos [] = nothing
+satisfy pred pos [] = pos , nothing
 satisfy pred pos (c ∷ cs) with pred c
-... | true  = just (mkResult c (advancePosition pos c) cs)
-... | false = nothing
+-- The advanced position is both the success watermark (proj₁) and the
+-- result position; bind it once (per-char hot path).  `let` is
+-- definitional, so proofs matching this branch close by refl unchanged.
+... | true  = let pos' = advancePosition pos c in pos' , just (mkResult c pos' cs)
+... | false = pos , nothing
 
 -- | Parse specific character
 char : Char → Parser Char
@@ -175,17 +185,19 @@ sameLengthᵇ (_ ∷ xs) (_ ∷ ys) = sameLengthᵇ xs ys
 -- Exposed (not private) so roundtrip proofs in `Aletheia.DBC.TextParser.*.Properties`
 -- can pattern-match on its structure (see
 -- `Aletheia.DBC.TextParser.DecRatParse.Properties.manyHelper-satisfy-exhaust`).
-manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → ℕ → Maybe (ParseResult (List A))
+manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → ℕ → Position × Maybe (ParseResult (List A))
 -- Base case: ran out of attempts
-manyHelper p pos input zero = just (mkResult [] pos input)
--- Recursive case: try parser
+manyHelper p pos input zero = pos , just (mkResult [] pos input)
+-- Recursive case: try parser. A failed element parse is SWALLOWED (many
+-- succeeds with the shorter list) but its watermark is KEPT — that depth
+-- is exactly what the driver reports for the first unparseable statement.
 manyHelper p pos input (suc n) with p pos input
-... | nothing = just (mkResult [] pos input)  -- Parser failed, return empty list
-... | just result with sameLengthᵇ input (remaining result)
-...   | true = just (mkResult [] pos input)  -- No progress made, stop to ensure termination
+... | w , nothing = w , just (mkResult [] pos input)  -- Parser failed, return empty list
+... | w , just result with sameLengthᵇ input (remaining result)
+...   | true = w , just (mkResult [] pos input)  -- No progress made, stop to ensure termination
 ...   | false with manyHelper p (position result) (remaining result) n  -- Progress made, continue
-...     | nothing = just (mkResult ((value result) ∷ []) (position result) (remaining result))
-...     | just restResult = just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
+...     | w' , nothing = maxₚ w w' , just (mkResult ((value result) ∷ []) (position result) (remaining result))
+...     | w' , just restResult = maxₚ w w' , just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
 
 -- | Parse zero or more occurrences (structurally terminating)
 many : ∀ {A : Set} → Parser A → Parser (List A)
@@ -279,14 +291,16 @@ newline = char '\n'
 
 -- | Run a parser from the beginning of input
 -- Returns parsed value with final position (for error reporting)
-runParser : ∀ {A : Set} → Parser A → List Char → Maybe (A × Position)
+-- The watermark rides along so drivers can report byte-exact failure
+-- positions (and, on partial success, the deepest swallowed failure).
+runParser : ∀ {A : Set} → Parser A → List Char → Position × Maybe (A × Position)
 runParser p input with p initialPosition input
-... | nothing = nothing
-... | just result = just (value result , position result)
+... | w , nothing = w , nothing
+... | w , just result = w , just (value result , position result)
 
 -- | Run parser and return full result (value, position, and remaining input)
 -- Useful for incremental parsing or when you need unconsumed input
-runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (ParseResult A)
+runParserPartial : ∀ {A : Set} → Parser A → List Char → Position × Maybe (ParseResult A)
 runParserPartial p input = p initialPosition input
 
 -- | Optional: parse A or return nothing if it fails

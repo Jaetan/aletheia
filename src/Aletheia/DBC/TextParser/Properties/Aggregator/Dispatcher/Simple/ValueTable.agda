@@ -20,6 +20,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -52,7 +53,7 @@ parseTopStmt-on-emit-TVT-eq :
     ∀ (pos : Position) (vt : ValueTable) (outer : List Char)
   → ValueTableNameStop vt
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitValueTable-chars vt ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitValueTable-chars vt ++ₗ outer))
     ≡ just (mkResult (TSValueTable vt)
                      (advancePositions pos (emitValueTable-chars vt))
                      outer)
@@ -71,10 +72,10 @@ parseTopStmt-on-emit-TVT-eq pos vt outer name-stop nl-stop =
     result : ParseResult TopStmt
     result = mkResult (TSValueTable vt) pos-vt outer
 
-    p-vt-eq : parseValueTable pos input ≡ just (mkResult vt pos-vt outer)
+    p-vt-eq : proj₂ (parseValueTable pos input) ≡ just (mkResult vt pos-vt outer)
     p-vt-eq = parseValueTable-roundtrip pos vt outer name-stop nl-stop
 
-    alt-vt-eq : (parseValueTable >>= λ vt → pure (TSValueTable vt)) pos input
+    alt-vt-eq : proj₂ ((parseValueTable >>= λ vt → pure (TSValueTable vt)) pos input)
                 ≡ just result
     alt-vt-eq = bind-just-step parseValueTable (λ vt → pure (TSValueTable vt))
                   pos input vt pos-vt outer p-vt-eq

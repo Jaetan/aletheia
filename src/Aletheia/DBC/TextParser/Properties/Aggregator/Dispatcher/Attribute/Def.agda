@@ -24,6 +24,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -70,8 +71,8 @@ parseAttrLine-on-emit-RawDef :
       (d : AttrDef) (outer : List Char)
   → WFAttribute defs (DBCAttrDef d)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
-      (emitAttribute-chars defs (DBCAttrDef d) ++ₗ outer)
+  → proj₂ (parseAttrLine pos
+      (emitAttribute-chars defs (DBCAttrDef d) ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs (DBCAttrDef d))
               (advancePositions pos

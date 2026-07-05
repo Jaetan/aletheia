@@ -211,7 +211,7 @@ private
   parseTopStmt-CM = parseComment >>= λ c → pure (TSComment c)
 
 parseTopStmt : Parser TopStmt
-parseTopStmt pos []                   = nothing
+parseTopStmt pos []                   = pos , nothing
 parseTopStmt pos ('V' ∷ rest)         = parseTopStmt-V  pos ('V' ∷ rest)
 parseTopStmt pos ('B' ∷ 'A' ∷ rest)   = parseTopStmt-BA pos ('B' ∷ 'A' ∷ rest)
 parseTopStmt pos ('B' ∷ 'O' ∷ rest)   = parseTopStmt-BO pos ('B' ∷ 'O' ∷ rest)
@@ -219,7 +219,9 @@ parseTopStmt pos ('S' ∷ 'I' ∷ rest)   = parseTopStmt-SI pos ('S' ∷ 'I' ∷
 parseTopStmt pos ('S' ∷ 'G' ∷ rest)   = parseTopStmt-SG pos ('S' ∷ 'G' ∷ rest)
 parseTopStmt pos ('E' ∷ 'V' ∷ rest)   = parseTopStmt-EV pos ('E' ∷ 'V' ∷ rest)
 parseTopStmt pos ('C' ∷ 'M' ∷ rest)   = parseTopStmt-CM pos ('C' ∷ 'M' ∷ rest)
-parseTopStmt _   _                    = nothing
+-- Failure watermark = the dispatch position: the keyword table rejected
+-- the statement's very first characters, so no attempt got deeper.
+parseTopStmt pos _                    = pos , nothing
 
 -- ============================================================================
 -- PARTITION INTO PER-FIELD BUCKETS

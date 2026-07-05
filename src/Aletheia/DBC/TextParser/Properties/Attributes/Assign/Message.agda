@@ -130,8 +130,8 @@ private
     → SuffixStops isHSpace
         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
     → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-    → parseRawAttrAssign pos
-        (emit attrAssignFmt (name , RatwMsg (rawCanIdℕ cid) , wireVal , tt) ++ₗ outer-suffix)
+    → proj₂ (parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwMsg (rawCanIdℕ cid) , wireVal , tt) ++ₗ outer-suffix))
       ≡ just (mkResult (mkRawAttrAssign name (ATgtMessage cid) (liftRavw wireVal))
                 (advancePositions pos
                   (emit attrAssignFmt (name , RatwMsg (rawCanIdℕ cid) , wireVal , tt)))
@@ -168,9 +168,9 @@ private
             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix) val-stop
 
       step-format :
-        parseRawAttrAssign pos
-          (emit attrAssignFmt (name , RatwMsg raw , wireVal , tt) ++ₗ outer-suffix)
-        ≡ cont-line (name , RatwMsg raw , wireVal , tt) pos-line outer-suffix
+        proj₂ (parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwMsg raw , wireVal , tt) ++ₗ outer-suffix))
+        ≡ proj₂ (cont-line (name , RatwMsg raw , wireVal , tt) pos-line outer-suffix)
       step-format =
         bind-just-step (parse attrAssignFmt) cont-line
           pos
@@ -180,8 +180,8 @@ private
             outer-suffix l4 l5 l6)
 
       step-many-newline :
-        cont-line (name , RatwMsg raw , wireVal , tt) pos-line outer-suffix
-        ≡ cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-line (name , RatwMsg raw , wireVal , tt) pos-line outer-suffix)
+        ≡ proj₂ (cont-blanks [] pos-line outer-suffix)
       step-many-newline =
         bind-just-step (many parseNewline) cont-blanks
           pos-line outer-suffix
@@ -190,7 +190,7 @@ private
             (length outer-suffix) ss-NL)
 
       step-buildP :
-        cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-blanks [] pos-line outer-suffix)
         ≡ just (mkResult (mkRawAttrAssign name (ATgtMessage cid) (liftRavw wireVal))
                   pos-line outer-suffix)
       step-buildP with buildCANId raw | buildCANId-rawCanIdℕ cid
@@ -203,17 +203,17 @@ private
 parseRawAttrAssign-roundtrip-ATgtMessage-RavString :
   ∀ pos (name : List Char) (cid : CANId) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtMessage cid) (RavString s))
               (TraceMessage.pos9 pos name cid (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtMessage-RavString pos name cid s outer-suffix ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ chars → proj₂ (parseRawAttrAssign pos chars))
           (sym (bridge-Message-emit name (rawCanIdℕ cid) (RavwString s) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Message-raw pos name cid
@@ -246,17 +246,17 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavString pos name cid s outer-suffix s
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac :
   ∀ pos (name : List Char) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat d))
               (TraceMessage.pos9 pos name cid (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suffix ss-NL =
   trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ chars → proj₂ (parseRawAttrAssign pos chars))
           (sym (bridge-Message-emit name (rawCanIdℕ cid) (RavwFrac d) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Message-raw pos name cid
@@ -289,17 +289,17 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suff
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt :
   ∀ pos (name : List Char) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z)))
               (TraceMessage.pos9 pos name cid (showInt-chars z) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt pos name cid z outer-suffix ss-NL =
   trans
-    (cong (parseRawAttrAssign pos) reshape-input)
+    (cong (λ chars → proj₂ (parseRawAttrAssign pos chars)) reshape-input)
     (trans
       (parseRawAttrAssign-format-roundtrip-Message-raw pos name cid
         (RavwBareInt z') outer-suffix ss-NL

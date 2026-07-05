@@ -20,6 +20,7 @@ module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute where
 open import Data.Char  using (Char)
 open import Data.List  using (List; _∷_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -43,9 +44,9 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
 parseTopStmt-on-BA-head :
     ∀ (pos : Position) (a : RawDBCAttribute) (rest : List Char)
       (outer : List Char) (pos-end : Position)
-  → parseAttrLine pos ('B' ∷ 'A' ∷ rest)
+  → proj₂ (parseAttrLine pos ('B' ∷ 'A' ∷ rest))
     ≡ just (mkResult a pos-end outer)
-  → parseTopStmt pos ('B' ∷ 'A' ∷ rest)
+  → proj₂ (parseTopStmt pos ('B' ∷ 'A' ∷ rest))
     ≡ just (mkResult (TSAttribute a) pos-end outer)
 parseTopStmt-on-BA-head pos a rest outer pos-end wit =
   bind-just-step parseAttrLine (λ a → pure (TSAttribute a))

@@ -165,8 +165,8 @@ private
     → (x Data.Char.Base.≈ᵇ 'B') ≡ false
     → (x Data.Char.Base.≈ᵇ 'S') ≡ false
     → (x Data.Char.Base.≈ᵇ 'E') ≡ false
-    → parseRawAttrAssign pos
-        (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix)
+    → proj₂ (parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix))
       ≡ just (mkResult (mkRawAttrAssign name ATgtNetwork (liftRavw wireVal))
                 (advancePositions pos
                   (emit attrAssignFmt (name , RatwNet , wireVal , tt)))
@@ -191,9 +191,9 @@ private
       cont-blanks _ = buildAttrAssignP name RatwNet wireVal
 
       step-format :
-        parseRawAttrAssign pos
-          (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix)
-        ≡ cont-line (name , RatwNet , wireVal , tt) pos-line outer-suffix
+        proj₂ (parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix))
+        ≡ proj₂ (cont-line (name , RatwNet , wireVal , tt) pos-line outer-suffix)
       step-format =
         bind-just-step (parse attrAssignFmt) cont-line
           pos
@@ -203,8 +203,8 @@ private
             outer-suffix x tail l4 l6 val-eq x≢B x≢S x≢E)
 
       step-many-newline :
-        cont-line (name , RatwNet , wireVal , tt) pos-line outer-suffix
-        ≡ cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-line (name , RatwNet , wireVal , tt) pos-line outer-suffix)
+        ≡ proj₂ (cont-blanks [] pos-line outer-suffix)
       step-many-newline =
         bind-just-step (many parseNewline) cont-blanks
           pos-line outer-suffix
@@ -213,7 +213,7 @@ private
             (length outer-suffix) ss-NL)
 
       step-buildP :
-        cont-blanks [] pos-line outer-suffix
+        proj₂ (cont-blanks [] pos-line outer-suffix)
         ≡ just (mkResult (mkRawAttrAssign name ATgtNetwork (liftRavw wireVal))
                   pos-line outer-suffix)
       step-buildP = refl
@@ -225,16 +225,16 @@ private
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavString :
   ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name ATgtNetwork (RavString s))
               (TraceNetwork.pos9 pos name (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavString pos name s outer-suffix ss-NL =
   trans
-    (cong (parseRawAttrAssign pos) (sym (bridge-Network-emit name (RavwString s) outer-suffix)))
+    (cong (λ i → proj₂ (parseRawAttrAssign pos i)) (sym (bridge-Network-emit name (RavwString s) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Network-raw pos name
         (RavwString s) outer-suffix _ _ ss-NL l4 l6 refl refl refl refl)
@@ -339,9 +339,9 @@ private
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
   ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name ATgtNetwork (RavDecRat d))
               (TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer-suffix)
@@ -355,7 +355,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
       k<10 = proj₁ (proj₂ (proj₂ classify))
       eq = proj₂ (proj₂ (proj₂ classify))
   in trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ i → proj₂ (parseRawAttrAssign pos i))
           (sym (bridge-Network-emit name (RavwFrac d-this) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Network-raw pos name
@@ -377,7 +377,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
       k<10 = proj₁ (proj₂ (proj₂ classify))
       eq = proj₂ (proj₂ (proj₂ classify))
   in trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ i → proj₂ (parseRawAttrAssign pos i))
           (sym (bridge-Network-emit name (RavwFrac d-this) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Network-raw pos name
@@ -397,7 +397,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
       subtail = proj₁ dash-witness
       eq = proj₂ dash-witness
   in trans
-    (cong (parseRawAttrAssign pos)
+    (cong (λ i → proj₂ (parseRawAttrAssign pos i))
           (sym (bridge-Network-emit name (RavwFrac d-this) outer-suffix)))
     (trans
       (parseRawAttrAssign-format-roundtrip-Network-raw pos name
@@ -485,9 +485,9 @@ private
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
   ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseRawAttrAssign pos
+  → proj₂ (parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z)))
               (TraceNetwork.pos9 pos name (showInt-chars z) outer-suffix)
@@ -503,7 +503,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name (+ n) outer-s
       --   ≡ digitChar k ∷ subtail`.
       val-eq = trans (showInt-eq-BareInt (+ n)) nat-eq
   in trans
-    (cong (parseRawAttrAssign pos) (reshape-input-BareInt name (+ n) outer-suffix))
+    (cong (λ i → proj₂ (parseRawAttrAssign pos i)) (reshape-input-BareInt name (+ n) outer-suffix))
     (trans
       (parseRawAttrAssign-format-roundtrip-Network-raw pos name
         (RavwBareInt (mkIntDecRatFromℤ (+ n))) outer-suffix
@@ -521,7 +521,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name -[1+ n ] oute
   -- closed dash head.
   let val-eq = showInt-eq-BareInt -[1+ n ]
   in trans
-    (cong (parseRawAttrAssign pos) (reshape-input-BareInt name -[1+ n ] outer-suffix))
+    (cong (λ i → proj₂ (parseRawAttrAssign pos i)) (reshape-input-BareInt name -[1+ n ] outer-suffix))
     (trans
       (parseRawAttrAssign-format-roundtrip-Network-raw pos name
         (RavwBareInt (mkIntDecRatFromℤ -[1+ n ])) outer-suffix

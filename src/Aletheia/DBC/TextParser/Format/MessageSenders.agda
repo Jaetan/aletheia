@@ -116,7 +116,7 @@ private
 
   parse-withPrefix-comma-fails : ∀ pos suffix
     → SuffixStops isSenderCont suffix
-    → parse (withPrefix (',' ∷ []) ident) pos suffix ≡ nothing
+    → proj₂ (parse (withPrefix (',' ∷ []) ident) pos suffix) ≡ nothing
   parse-withPrefix-comma-fails pos []      _          = refl
   parse-withPrefix-comma-fails pos (c ∷ _) (∷-stop ss)
     rewrite ∨-elim-comma c ss = refl
@@ -227,8 +227,8 @@ parseMsgSenders-format-roundtrip :
     ∀ (pos : Position) (rawId : ℕ) (h : Identifier) (t : List Identifier)
       (outer : List Char)
   → RawMsgSendersNameStop h
-  → parse MsgSenders-format pos
-      (emit MsgSenders-format (rawId , h , t) ++ₗ outer)
+  → proj₂ (parse MsgSenders-format pos
+      (emit MsgSenders-format (rawId , h , t) ++ₗ outer))
     ≡ just (mkResult (rawId , h , t)
              (advancePositions pos (emit MsgSenders-format (rawId , h , t)))
              outer)

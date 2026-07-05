@@ -39,7 +39,7 @@ open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just)
 open import Data.Nat using (ℕ)
-open import Data.Product using (Σ-syntax; _×_; _,_)
+open import Data.Product using (Σ-syntax; _×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Data.Empty using (⊥-elim)
 open import Relation.Binary.PropositionalEquality
@@ -302,15 +302,15 @@ parseSignalLine-roundtrip-NotMux :
       (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
         ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
-  → parseSignalLine pos
-      (emitSignalLine-chars master fb sig ++ₗ suffix)
+  → proj₂ (parseSignalLine pos
+      (emitSignalLine-chars master fb sig ++ₗ suffix))
     ≡ just (mkResult (expectedRaw NotMux sig fb)
              (advancePositions pos (emitSignalLine-chars master fb sig))
              suffix)
 parseSignalLine-roundtrip-NotMux pos master fb sig suffix
                                     mux-eq name-stop hs-stop recv-cont-stop =
   trans
-    (cong (λ s → parseSignalLine pos (s ++ₗ suffix)) (sym bridge))
+    (cong (λ s → proj₂ (parseSignalLine pos (s ++ₗ suffix))) (sym bridge))
     (trans
       (signalLine-roundtrip pos rs suffix
          (sig-name-stop→name-stop NotMux fb sig name-stop)
@@ -335,15 +335,15 @@ parseSignalLine-roundtrip-IsMux :
       (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
         ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
-  → parseSignalLine pos
-      (emitSignalLine-chars master fb sig ++ₗ suffix)
+  → proj₂ (parseSignalLine pos
+      (emitSignalLine-chars master fb sig ++ₗ suffix))
     ≡ just (mkResult (expectedRaw IsMux sig fb)
              (advancePositions pos (emitSignalLine-chars master fb sig))
              suffix)
 parseSignalLine-roundtrip-IsMux pos master fb sig suffix
                                    mux-eq name-stop hs-stop recv-cont-stop =
   trans
-    (cong (λ s → parseSignalLine pos (s ++ₗ suffix)) (sym bridge))
+    (cong (λ s → proj₂ (parseSignalLine pos (s ++ₗ suffix))) (sym bridge))
     (trans
       (signalLine-roundtrip pos rs suffix
          (sig-name-stop→name-stop IsMux fb sig name-stop)
@@ -372,15 +372,15 @@ parseSignalLine-roundtrip-SelBy :
       (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
         ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
-  → parseSignalLine pos
-      (emitSignalLine-chars master fb sig ++ₗ suffix)
+  → proj₂ (parseSignalLine pos
+      (emitSignalLine-chars master fb sig ++ₗ suffix))
     ≡ just (mkResult (expectedRaw (SelBy v) sig fb)
              (advancePositions pos (emitSignalLine-chars master fb sig))
              suffix)
 parseSignalLine-roundtrip-SelBy pos master fb sig v suffix
                                    mux-eq name-stop hs-stop recv-cont-stop =
   trans
-    (cong (λ s → parseSignalLine pos (s ++ₗ suffix)) (sym bridge))
+    (cong (λ s → proj₂ (parseSignalLine pos (s ++ₗ suffix))) (sym bridge))
     (trans
       (signalLine-roundtrip pos rs suffix
          (sig-name-stop→name-stop (SelBy v) fb sig name-stop)

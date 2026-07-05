@@ -15,6 +15,7 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.List using (List) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.Parser.Combinators using
@@ -33,7 +34,7 @@ open import Aletheia.CAN.Endianness using
 -- char and leaves the tail untouched.
 parseByteOrderDigit-roundtrip : ∀ (pos : Position) (bo : ByteOrder)
                                   (suffix : List Char)
-  → parseByteOrderDigit pos (emitByteOrderDigit-chars bo ++ₗ suffix)
+  → proj₂ (parseByteOrderDigit pos (emitByteOrderDigit-chars bo ++ₗ suffix))
     ≡ just (mkResult bo (advancePositions pos
                            (emitByteOrderDigit-chars bo)) suffix)
 parseByteOrderDigit-roundtrip _ LittleEndian _ = refl
@@ -43,7 +44,7 @@ parseByteOrderDigit-roundtrip _ BigEndian    _ = refl
 -- signed (true).  Same single-char dispatch pattern as ByteOrder;
 -- definitional reduction on closed chars closes both cases.
 parseSignFlag-roundtrip : ∀ (pos : Position) (b : Bool) (suffix : List Char)
-  → parseSignFlag pos (emitSignFlag-chars b ++ₗ suffix)
+  → proj₂ (parseSignFlag pos (emitSignFlag-chars b ++ₗ suffix))
     ≡ just (mkResult b (advancePositions pos (emitSignFlag-chars b))
                      suffix)
 parseSignFlag-roundtrip _ true  _ = refl

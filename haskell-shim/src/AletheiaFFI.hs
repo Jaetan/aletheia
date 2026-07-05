@@ -109,7 +109,7 @@ aletheia_process statePtr inputCStr
   | inputCStr == nullPtr = errorJSON "null input string"
   | otherwise = do
       inputStr <- peekCString inputCStr
-      runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_70 s (T.pack inputStr))
+      runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_72 s (T.pack inputStr))
 
 -- ============================================================================
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)

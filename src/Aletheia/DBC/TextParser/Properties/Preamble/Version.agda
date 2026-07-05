@@ -27,6 +27,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong)
 
@@ -50,12 +51,12 @@ open import Aletheia.DBC.TextParser.Format.Preamble as FmtVer using
 parseVersion-roundtrip :
     ∀ (pos : Position) (v : List Char) (suffix : List Char)
   → SuffixStops isNewlineStart suffix
-  → parseVersion pos (emitVersion-chars v ++ₗ suffix)
+  → proj₂ (parseVersion pos (emitVersion-chars v ++ₗ suffix))
     ≡ just (mkResult v
              (advancePositions pos (emitVersion-chars v))
              suffix)
 parseVersion-roundtrip pos v suffix nl-stop =
-  trans (cong (λ inp → parseVersion pos (inp ++ₗ suffix)) (sym bridge))
+  trans (cong (λ inp → proj₂ (parseVersion pos (inp ++ₗ suffix))) (sym bridge))
     (trans step-shape
       (trans step-format
         (trans step-many-newline
@@ -80,15 +81,15 @@ parseVersion-roundtrip pos v suffix nl-stop =
     -- the bridge into the input prefix.  After this step the input is
     -- `emit versionFmt v ++ '\n' ∷ suffix`.
     step-shape :
-      parseVersion pos ((emit versionFmt v ++ₗ '\n' ∷ []) ++ₗ suffix)
-      ≡ parseVersion pos (emit versionFmt v ++ₗ '\n' ∷ suffix)
-    step-shape = cong (parseVersion pos)
+      proj₂ (parseVersion pos ((emit versionFmt v ++ₗ '\n' ∷ []) ++ₗ suffix))
+      ≡ proj₂ (parseVersion pos (emit versionFmt v ++ₗ '\n' ∷ suffix))
+    step-shape = cong (λ inp → proj₂ (parseVersion pos inp))
                       (++ₗ-assoc (emit versionFmt v) ('\n' ∷ []) suffix)
 
     -- Step 1: parse versionFmt succeeds via the universal roundtrip.
     step-format :
-      parseVersion pos (emit versionFmt v ++ₗ '\n' ∷ suffix)
-      ≡ cont-line v pos-line ('\n' ∷ suffix)
+      proj₂ (parseVersion pos (emit versionFmt v ++ₗ '\n' ∷ suffix))
+      ≡ proj₂ (cont-line v pos-line ('\n' ∷ suffix))
     step-format =
       bind-just-step (parse versionFmt) cont-line
                      pos (emit versionFmt v ++ₗ '\n' ∷ suffix)
@@ -100,8 +101,8 @@ parseVersion-roundtrip pos v suffix nl-stop =
     -- residual `'\n' ∷ suffix` and stops on the outer non-newline-led
     -- suffix.
     step-many-newline :
-      cont-line v pos-line ('\n' ∷ suffix)
-      ≡ cont-blanks ('\n' ∷ []) pos-after-nl suffix
+      proj₂ (cont-line v pos-line ('\n' ∷ suffix))
+      ≡ proj₂ (cont-blanks ('\n' ∷ []) pos-after-nl suffix)
     step-many-newline =
       bind-just-step (many parseNewline) cont-blanks
                      pos-line ('\n' ∷ suffix)
@@ -119,7 +120,7 @@ parseVersion-roundtrip pos v suffix nl-stop =
         (cong (advancePositions pos) bridge)
 
     step-pure :
-      cont-blanks ('\n' ∷ []) pos-after-nl suffix
+      proj₂ (cont-blanks ('\n' ∷ []) pos-after-nl suffix)
       ≡ just (mkResult v
                (advancePositions pos (emitVersion-chars v))
                suffix)

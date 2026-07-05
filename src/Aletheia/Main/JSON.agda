@@ -11,8 +11,8 @@
 module Aletheia.Main.JSON where
 
 open import Data.String using (String; toList; _≟_)
-open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
-open import Data.Product using (proj₁; _×_; _,_)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Product using (_×_; _,_)
 open import Data.List using (List; length)
 open import Data.Nat using (_≤ᵇ_; _<ᵇ_; suc)
 open import Data.Sum using (inj₁; inj₂)
@@ -20,6 +20,7 @@ open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using (runParser)
+open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; lookupString)
 open import Aletheia.Protocol.JSON.Types using (jsonDepth)
 open import Aletheia.Protocol.Routing using (parseCommand)
@@ -66,9 +67,12 @@ private
   -- `errorExtras`.  Pre-2a (R19 cluster 8 phase a) emitted the untyped
   -- `DispatchErr InvalidJSON` from inside `parseJSON`; moving the check
   -- here keeps `parseJSON` a pure inverse of `formatJSON`.
-  handleParsedJSON : StreamState → Maybe JSON → StreamState × String
-  handleParsedJSON state nothing = wrapJSON (state , Msg.Response.Error (DispatchErr InvalidJSON))
-  handleParsedJSON state (just j) =
+  -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
+  -- the positioned `InvalidJSON` on the nothing arm; the success arm
+  -- drops both the watermark and the end position.
+  handleParsedJSON : StreamState → Position × Maybe (JSON × Position) → StreamState × String
+  handleParsedJSON state (w , nothing) = wrapJSON (state , Msg.Response.Error (DispatchErr (InvalidJSON w)))
+  handleParsedJSON state (_ , just (j , _)) =
     let depth = jsonDepth j
     in if depth <ᵇ suc max-nesting-depth
        then handleJSONObject state j
@@ -95,6 +99,6 @@ processJSONLine state jsonLine =
   let chars    = toList jsonLine
       inputLen = length chars
   in if inputLen ≤ᵇ max-json-bytes
-     then handleParsedJSON state (mapₘ proj₁ (runParser parseJSON chars))
+     then handleParsedJSON state (runParser parseJSON chars)
      else wrapJSON (state , Msg.Response.Error
             (InputBoundExceeded InputLengthBytes inputLen max-json-bytes))

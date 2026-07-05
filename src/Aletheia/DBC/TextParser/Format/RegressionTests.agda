@@ -24,7 +24,7 @@ open import Data.Char.Base using (isDigit)
 open import Data.List using ([]; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₂)
 open import Data.Sum using (inj₁)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_)
@@ -44,14 +44,14 @@ open import Aletheia.DBC.TextParser.Format
 
 -- L1: literal-only.  Witness: `tt : ⊤`.
 roundtrip-literal : ∀ pos cs suffix
-  → parse (literal cs) pos (cs ++ₗ suffix)
+  → proj₂ (parse (literal cs) pos (cs ++ₗ suffix))
     ≡ just (mkResult tt (advancePositions pos cs) suffix)
 roundtrip-literal pos cs suffix = roundtrip (literal cs) pos tt suffix tt
 
 -- L2: pair of two literals.  Witness: `(tt , tt) : ⊤ × ⊤`.
 roundtrip-pair-literal-literal : ∀ pos cs ds suffix
-  → parse (pair (literal cs) (literal ds)) pos
-      ((cs ++ₗ ds) ++ₗ suffix)
+  → proj₂ (parse (pair (literal cs) (literal ds)) pos
+      ((cs ++ₗ ds) ++ₗ suffix))
     ≡ just (mkResult (tt , tt) (advancePositions pos (cs ++ₗ ds)) suffix)
 roundtrip-pair-literal-literal pos cs ds suffix =
   roundtrip (pair (literal cs) (literal ds)) pos (tt , tt) suffix (tt , tt)
@@ -59,8 +59,8 @@ roundtrip-pair-literal-literal pos cs ds suffix =
 -- L3: literal-then-ident.  Witness: `(tt , ss) : ⊤ × SuffixStops isIdentCont suffix`.
 roundtrip-pair-literal-ident : ∀ pos cs i suffix
   → SuffixStops isIdentCont suffix
-  → parse (pair (literal cs) ident) pos
-      ((cs ++ₗ Identifier.name i) ++ₗ suffix)
+  → proj₂ (parse (pair (literal cs) ident) pos
+      ((cs ++ₗ Identifier.name i) ++ₗ suffix))
     ≡ just (mkResult (tt , i)
              (advancePositions pos (cs ++ₗ Identifier.name i))
              suffix)
@@ -73,8 +73,8 @@ roundtrip-pair-literal-ident pos cs i suffix ss =
 -- generalisation to `EmitsOK`).
 roundtrip-pair-ident-literal : ∀ pos i ds suffix
   → SuffixStops isIdentCont (ds ++ₗ suffix)
-  → parse (pair ident (literal ds)) pos
-      ((Identifier.name i ++ₗ ds) ++ₗ suffix)
+  → proj₂ (parse (pair ident (literal ds)) pos
+      ((Identifier.name i ++ₗ ds) ++ₗ suffix))
     ≡ just (mkResult (i , tt)
              (advancePositions pos (Identifier.name i ++ₗ ds))
              suffix)
@@ -90,7 +90,7 @@ roundtrip-pair-ident-literal pos i ds suffix ss =
 -- signature or `liftRefined-on-witness`'s shape drifts, this fails.
 roundtrip-refined-nat : ∀ pos (P : ℕ → Bool) (n : ℕ) (wit : T (P n)) suffix
   → SuffixStops isDigit suffix
-  → parse (refined P nat) pos (showNat-chars n ++ₗ suffix)
+  → proj₂ (parse (refined P nat) pos (showNat-chars n ++ₗ suffix))
     ≡ just (mkResult (n , wit)
              (advancePositions pos (showNat-chars n))
              suffix)
@@ -102,8 +102,8 @@ roundtrip-refined-nat pos P n wit suffix ss =
 -- `(inj₁ <$> parse f) <|> (inj₂ <$> parse g)` returns `inj₁ tt` directly
 -- via `alt-left-just`.  No disjointness witness needed for the left case.
 roundtrip-altSum-inj₁ : ∀ pos suffix
-  → parse (altSum (literal ('X' ∷ [])) nat) pos
-      (('X' ∷ []) ++ₗ suffix)
+  → proj₂ (parse (altSum (literal ('X' ∷ [])) nat) pos
+      (('X' ∷ []) ++ₗ suffix))
     ≡ just (mkResult (inj₁ tt)
              (advancePositions pos ('X' ∷ []))
              suffix)
@@ -115,7 +115,7 @@ roundtrip-altSum-inj₁ pos suffix =
 -- of either `emit`/`parse`/`EmitsOK`/`roundtrip`.
 roundtrip-decRat : ∀ pos d suffix
   → SuffixStops isDigit suffix
-  → parse decRat pos (showDecRat-dec-chars d ++ₗ suffix)
+  → proj₂ (parse decRat pos (showDecRat-dec-chars d ++ₗ suffix))
     ≡ just (mkResult d
              (advancePositions pos (showDecRat-dec-chars d))
              suffix)
@@ -126,7 +126,7 @@ roundtrip-decRat pos d suffix ss = roundtrip decRat pos d suffix ss
 -- composition through `bind-just-step`.
 roundtrip-wsOpt : ∀ pos suffix
   → SuffixStops isHSpace suffix
-  → parse wsOpt pos suffix
+  → proj₂ (parse wsOpt pos suffix)
     ≡ just (mkResult tt pos suffix)
 roundtrip-wsOpt pos suffix ss = roundtrip wsOpt pos tt suffix ss
 
@@ -135,7 +135,7 @@ roundtrip-wsOpt pos suffix ss = roundtrip wsOpt pos tt suffix ss
 -- reduces to definitionally).  Catches `parseWS-one-space` composition.
 roundtrip-ws : ∀ pos suffix
   → SuffixStops isHSpace suffix
-  → parse ws pos ((' ' ∷ []) ++ₗ suffix)
+  → proj₂ (parse ws pos ((' ' ∷ []) ++ₗ suffix))
     ≡ just (mkResult tt
              (advancePositions pos (' ' ∷ []))
              suffix)

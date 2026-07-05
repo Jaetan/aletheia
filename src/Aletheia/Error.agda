@@ -343,19 +343,24 @@ handlerErrorCode (InContext _ inner)   = handlerErrorCode inner
 data DispatchError : Set where
   MissingTypeField   : DispatchError
   UnknownMessageType : String → DispatchError
-  InvalidJSON        : DispatchError
+  -- Carries the JSON parser's failure watermark (same furthest-failure
+  -- semantics as `DBCTextParseError.ParseFailure` — the combinators are
+  -- shared), byte-exact at the first character no parse could accept.
+  InvalidJSON        : Position → DispatchError
   RequestNotObject   : DispatchError
 
 formatDispatchError : DispatchError → String
 formatDispatchError MissingTypeField       = "missing 'type' field"
 formatDispatchError (UnknownMessageType s) = "unknown message type '" ++ₛ s ++ₛ "'"
-formatDispatchError InvalidJSON            = "invalid JSON"
+formatDispatchError (InvalidJSON pos)      =
+  "invalid JSON: parse failed at line " ++ₛ showℕ (Position.line pos)
+    ++ₛ ", column " ++ₛ showℕ (Position.column pos)
 formatDispatchError RequestNotObject       = "request must be a JSON object"
 
 dispatchErrorCode : DispatchError → String
 dispatchErrorCode MissingTypeField       = "dispatch_missing_type_field"
 dispatchErrorCode (UnknownMessageType _) = "dispatch_unknown_message_type"
-dispatchErrorCode InvalidJSON            = "dispatch_invalid_json"
+dispatchErrorCode (InvalidJSON _)        = "dispatch_invalid_json"
 dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 
 -- ============================================================================
@@ -376,8 +381,15 @@ data AttrRefineCause : Set where
   IllTypedValue  : AttrRefineCause
 
 data DBCTextParseError : Set where
-  ParseFailure              : DBCTextParseError
-  TrailingInput             : Position → DBCTextParseError
+  -- Carries the parser's failure watermark: the deepest position any
+  -- parse attempt reached (furthest-failure semantics — `<|>` merges
+  -- failed alternatives' depths, `many` keeps the swallowed element
+  -- failure's depth), byte-exact at the first unparseable character.
+  ParseFailure              : Position → DBCTextParseError
+  -- First argument: the failure watermark (deepest position reached
+  -- inside the first unparseable statement).  Second: where that
+  -- statement starts (= start of the unconsumed input).
+  TrailingInput             : Position → Position → DBCTextParseError
   -- Carries the cause and the name of the offending attribute, so the
   -- error pinpoints WHICH `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed
   -- and WHY (unknown attribute vs ill-typed value).
@@ -386,12 +398,15 @@ data DBCTextParseError : Set where
   -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2).
 
 formatDBCTextParseError : DBCTextParseError → String
-formatDBCTextParseError ParseFailure =
-  "DBC text parse failed"
-formatDBCTextParseError (TrailingInput pos) =
+formatDBCTextParseError (ParseFailure pos) =
+  "DBC text parse failed at line " ++ₛ showℕ (Position.line pos)
+    ++ₛ ", column " ++ₛ showℕ (Position.column pos)
+formatDBCTextParseError (TrailingInput pos stmt) =
   "parse failed at line " ++ₛ showℕ (Position.line pos)
     ++ₛ ", column " ++ₛ showℕ (Position.column pos)
-    ++ₛ ": first unparseable statement"
+    ++ₛ " (first unparseable statement starts at line "
+    ++ₛ showℕ (Position.line stmt)
+    ++ₛ ", column " ++ₛ showℕ (Position.column stmt) ++ₛ ")"
 formatDBCTextParseError (AttributeRefinementFailed UnknownAttrDef name) =
   "attribute refinement failed: '" ++ₛ name
     ++ₛ "' is not a declared attribute (no matching BA_DEF_ / BA_DEF_REL_)"
@@ -400,8 +415,8 @@ formatDBCTextParseError (AttributeRefinementFailed IllTypedValue name) =
     ++ₛ "' does not fit its declared type"
 
 dbcTextParseErrorCode : DBCTextParseError → String
-dbcTextParseErrorCode ParseFailure                = "dbc_text_parse_failure"
-dbcTextParseErrorCode (TrailingInput _)           = "dbc_text_trailing_input"
+dbcTextParseErrorCode (ParseFailure _)            = "dbc_text_parse_failure"
+dbcTextParseErrorCode (TrailingInput _ _)         = "dbc_text_trailing_input"
 dbcTextParseErrorCode (AttributeRefinementFailed _ _) = "dbc_text_attribute_refinement_failed"
 
 -- ============================================================================

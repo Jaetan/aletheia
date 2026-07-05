@@ -94,10 +94,10 @@ on-AVInt-Network :
     ∀ (defs : List AttrDef) (pos : Position) (name : List Char) (z' : IntDecRat)
       (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name ATgtNetwork (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork
                             (RavDecRat (IntDecRat.value z'))))
@@ -105,10 +105,10 @@ on-AVInt-Network :
               outer)
 on-AVInt-Network defs pos name z' outer ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name ATgtNetwork (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat q)))
                        (TraceNetwork.pos9 pos name
@@ -122,10 +122,10 @@ on-AVInt-Node :
       (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNode n)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNode n) (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode n)
                             (RavDecRat (IntDecRat.value z'))))
@@ -133,10 +133,10 @@ on-AVInt-Node :
               outer)
 on-AVInt-Node defs pos name n z' outer n-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtNode n) (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat q)))
                        (TraceNode.pos9 pos name n
@@ -149,10 +149,10 @@ on-AVInt-Message :
     ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
       (cid : _) (z' : IntDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtMessage cid) (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid)
                             (RavDecRat (IntDecRat.value z'))))
@@ -161,10 +161,10 @@ on-AVInt-Message :
               outer)
 on-AVInt-Message defs pos name cid z' outer ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtMessage cid) (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtMessage cid)
                                      (RavDecRat q)))
@@ -179,10 +179,10 @@ on-AVInt-Signal :
       (cid : _) (sig : Identifier) (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtSignal cid sig)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtSignal cid sig) (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig)
                             (RavDecRat (IntDecRat.value z'))))
@@ -191,10 +191,10 @@ on-AVInt-Signal :
               outer)
 on-AVInt-Signal defs pos name cid sig z' outer sig-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtSignal cid sig) (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig)
                                      (RavDecRat q)))
@@ -210,10 +210,10 @@ on-AVInt-EnvVar :
       (ev : Identifier) (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtEnvVar ev)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtEnvVar ev) (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev)
                             (RavDecRat (IntDecRat.value z'))))
@@ -222,10 +222,10 @@ on-AVInt-EnvVar :
               outer)
 on-AVInt-EnvVar defs pos name ev z' outer ev-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtEnvVar ev) (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev)
                                      (RavDecRat q)))
@@ -241,10 +241,10 @@ on-AVInt-NodeMsg :
       (n : Identifier) (cid : _) (z' : IntDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNodeMsg n cid)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNodeMsg n cid) (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid)
                             (RavDecRat (IntDecRat.value z'))))
@@ -253,10 +253,10 @@ on-AVInt-NodeMsg :
               outer)
 on-AVInt-NodeMsg defs pos name n cid z' outer n-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtNodeMsg n cid) (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid)
                                      (RavDecRat q)))
@@ -273,10 +273,10 @@ on-AVInt-NodeSig :
       (outer : List Char)
   → IdentNameStop-of (ATgtNodeSig n cid sig)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNodeSig n cid sig) (AVInt z')))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig)
                             (RavDecRat (IntDecRat.value z'))))
@@ -285,11 +285,11 @@ on-AVInt-NodeSig :
               outer)
 on-AVInt-NodeSig defs pos name n cid sig z' outer stops ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign
                     (mkAttrAssign name (ATgtNodeSig n cid sig) (AVInt z')))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig)
                                      (RavDecRat q)))
@@ -308,10 +308,10 @@ on-AVHex-Network :
     ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
       (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name ATgtNetwork (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork
                             (RavDecRat (NatDecRat.value n))))
@@ -319,10 +319,10 @@ on-AVHex-Network :
               outer)
 on-AVHex-Network defs pos name n outer ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name ATgtNetwork (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat q)))
                        (TraceNetwork.pos9 pos name
@@ -336,10 +336,10 @@ on-AVHex-Node :
       (nd : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNode nd)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNode nd) (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode nd)
                             (RavDecRat (NatDecRat.value n))))
@@ -348,10 +348,10 @@ on-AVHex-Node :
               outer)
 on-AVHex-Node defs pos name nd n outer n-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtNode nd) (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNode nd) (RavDecRat q)))
                        (TraceNode.pos9 pos name nd
@@ -365,10 +365,10 @@ on-AVHex-Message :
     ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
       (cid : _) (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtMessage cid) (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid)
                             (RavDecRat (NatDecRat.value n))))
@@ -377,10 +377,10 @@ on-AVHex-Message :
               outer)
 on-AVHex-Message defs pos name cid n outer ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtMessage cid) (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtMessage cid)
                                      (RavDecRat q)))
@@ -396,10 +396,10 @@ on-AVHex-Signal :
       (cid : _) (sig : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtSignal cid sig)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtSignal cid sig) (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig)
                             (RavDecRat (NatDecRat.value n))))
@@ -408,10 +408,10 @@ on-AVHex-Signal :
               outer)
 on-AVHex-Signal defs pos name cid sig n outer sig-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtSignal cid sig) (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig)
                                      (RavDecRat q)))
@@ -427,10 +427,10 @@ on-AVHex-EnvVar :
       (ev : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtEnvVar ev)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtEnvVar ev) (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev)
                             (RavDecRat (NatDecRat.value n))))
@@ -439,10 +439,10 @@ on-AVHex-EnvVar :
               outer)
 on-AVHex-EnvVar defs pos name ev n outer ev-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtEnvVar ev) (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev)
                                      (RavDecRat q)))
@@ -458,10 +458,10 @@ on-AVHex-NodeMsg :
       (nd : Identifier) (cid : _) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNodeMsg nd cid)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNodeMsg nd cid) (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg nd cid)
                             (RavDecRat (NatDecRat.value n))))
@@ -470,10 +470,10 @@ on-AVHex-NodeMsg :
               outer)
 on-AVHex-NodeMsg defs pos name nd cid n outer n-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtNodeMsg nd cid) (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNodeMsg nd cid)
                                      (RavDecRat q)))
@@ -490,10 +490,10 @@ on-AVHex-NodeSig :
       (outer : List Char)
   → IdentNameStop-of (ATgtNodeSig nd cid sig)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNodeSig nd cid sig) (AVHex n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig nd cid sig)
                             (RavDecRat (NatDecRat.value n))))
@@ -502,11 +502,11 @@ on-AVHex-NodeSig :
               outer)
 on-AVHex-NodeSig defs pos name nd cid sig n outer stops ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign
                     (mkAttrAssign name (ATgtNodeSig nd cid sig) (AVHex n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNodeSig nd cid sig)
                                      (RavDecRat q)))
@@ -526,10 +526,10 @@ on-AVEnum-Network :
     ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
       (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name ATgtNetwork (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork
                             (RavDecRat (NatDecRat.value n))))
@@ -537,10 +537,10 @@ on-AVEnum-Network :
               outer)
 on-AVEnum-Network defs pos name n outer ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name ATgtNetwork (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat q)))
                        (TraceNetwork.pos9 pos name
@@ -554,10 +554,10 @@ on-AVEnum-Node :
       (nd : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNode nd)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNode nd) (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode nd)
                             (RavDecRat (NatDecRat.value n))))
@@ -566,10 +566,10 @@ on-AVEnum-Node :
               outer)
 on-AVEnum-Node defs pos name nd n outer n-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtNode nd) (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNode nd) (RavDecRat q)))
                        (TraceNode.pos9 pos name nd
@@ -583,10 +583,10 @@ on-AVEnum-Message :
     ∀ (defs : List AttrDef) (pos : Position) (name : List Char)
       (cid : _) (n : NatDecRat) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtMessage cid) (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid)
                             (RavDecRat (NatDecRat.value n))))
@@ -595,10 +595,10 @@ on-AVEnum-Message :
               outer)
 on-AVEnum-Message defs pos name cid n outer ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtMessage cid) (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtMessage cid)
                                      (RavDecRat q)))
@@ -614,10 +614,10 @@ on-AVEnum-Signal :
       (cid : _) (sig : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtSignal cid sig)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtSignal cid sig) (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig)
                             (RavDecRat (NatDecRat.value n))))
@@ -626,10 +626,10 @@ on-AVEnum-Signal :
               outer)
 on-AVEnum-Signal defs pos name cid sig n outer sig-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtSignal cid sig) (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig)
                                      (RavDecRat q)))
@@ -645,10 +645,10 @@ on-AVEnum-EnvVar :
       (ev : Identifier) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtEnvVar ev)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtEnvVar ev) (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev)
                             (RavDecRat (NatDecRat.value n))))
@@ -657,10 +657,10 @@ on-AVEnum-EnvVar :
               outer)
 on-AVEnum-EnvVar defs pos name ev n outer ev-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtEnvVar ev) (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev)
                                      (RavDecRat q)))
@@ -676,10 +676,10 @@ on-AVEnum-NodeMsg :
       (nd : Identifier) (cid : _) (n : NatDecRat) (outer : List Char)
   → IdentNameStop-of (ATgtNodeMsg nd cid)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNodeMsg nd cid) (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg nd cid)
                             (RavDecRat (NatDecRat.value n))))
@@ -688,10 +688,10 @@ on-AVEnum-NodeMsg :
               outer)
 on-AVEnum-NodeMsg defs pos name nd cid n outer n-stop ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign (mkAttrAssign name (ATgtNodeMsg nd cid) (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNodeMsg nd cid)
                                      (RavDecRat q)))
@@ -708,10 +708,10 @@ on-AVEnum-NodeSig :
       (outer : List Char)
   → IdentNameStop-of (ATgtNodeSig nd cid sig)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name (ATgtNodeSig nd cid sig) (AVEnum n)))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig nd cid sig)
                             (RavDecRat (NatDecRat.value n))))
@@ -720,11 +720,11 @@ on-AVEnum-NodeSig :
               outer)
 on-AVEnum-NodeSig defs pos name nd cid sig n outer stops ss-NL =
   subst
-    (λ q → parseAttrLine pos
+    (λ q → proj₂ (parseAttrLine pos
               (emitAttribute-chars defs
                  (DBCAttrAssign
                     (mkAttrAssign name (ATgtNodeSig nd cid sig) (AVEnum n)))
-               ++ₗ outer)
+               ++ₗ outer))
              ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name (ATgtNodeSig nd cid sig)
                                      (RavDecRat q)))

@@ -8,13 +8,13 @@
 -- continuation of R21 cluster 9).  See Properties/Primitives.agda header
 -- for the Layer 2 narrative and the parseStringLit-roundtrip companion.
 --
--- Three tags:
---   * IsMux       : `parseMuxMarker pos (toList " M" ++ suffix)` →
+-- Three tags (all statements at the outcome level, `proj₂`):
+--   * IsMux       : `proj₂ (parseMuxMarker pos (toList " M" ++ suffix))` →
 --                   `just (mkResult IsMux …)`
---   * NotMux      : `parseMuxMarker-left-branch pos suffix ≡ nothing` →
+--   * NotMux      : `proj₂ (parseMuxMarker-left-branch pos suffix) ≡ nothing` →
 --                   `just (mkResult NotMux …)`
---   * SelBy v     : `parseMuxMarker pos (toList " m" ++ showℕ-dec-chars v
---                                          ++ suffix)` →
+--   * SelBy v     : `proj₂ (parseMuxMarker pos (toList " m" ++ showℕ-dec-chars v
+--                                                 ++ suffix))` →
 --                   `just (mkResult (SelBy v) …)`
 --
 -- Helpers (`alt-left-just`, `alt-right-nothing`, `bind-nothing`,
@@ -27,6 +27,7 @@ open import Data.Char.Base using (_≈ᵇ_; isDigit)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (nothing; just)
 open import Data.Nat using (ℕ)
+open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
@@ -52,7 +53,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives using
 -- the SG_ mux roundtrip (3d.3) where the post-mux suffix is `" : ..."`
 -- (starts with hspace), making the original precondition unprovable.
 parseMuxMarker-IsMux-roundtrip : ∀ (pos : Position) (suffix : List Char)
-  → parseMuxMarker pos (toList " M" ++ₗ suffix)
+  → proj₂ (parseMuxMarker pos (toList " M" ++ₗ suffix))
     ≡ just (mkResult IsMux (advancePositions pos (toList " M")) suffix)
 parseMuxMarker-IsMux-roundtrip pos suffix =
   alt-left-just left-branch (pure NotMux) pos
@@ -71,8 +72,8 @@ parseMuxMarker-IsMux-roundtrip pos suffix =
     left-branch = parseWS *> inner
 
     step-parseWS :
-      left-branch pos (' ' ∷ 'M' ∷ suffix)
-      ≡ inner pos1 ('M' ∷ suffix)
+      proj₂ (left-branch pos (' ' ∷ 'M' ∷ suffix))
+      ≡ proj₂ (inner pos1 ('M' ∷ suffix))
     step-parseWS =
       bind-just-step parseWS (λ _ → inner)
         pos (' ' ∷ 'M' ∷ suffix)
@@ -82,11 +83,11 @@ parseMuxMarker-IsMux-roundtrip pos suffix =
     -- inner reduces on closed 'M' definitionally: char 'M' succeeds,
     -- `pure IsMux` at the advanced position.
     step-inner :
-      inner pos1 ('M' ∷ suffix)
+      proj₂ (inner pos1 ('M' ∷ suffix))
       ≡ just (mkResult IsMux (advancePosition pos1 'M') suffix)
     step-inner = refl
 
-    step-left : left-branch pos (' ' ∷ 'M' ∷ suffix)
+    step-left : proj₂ (left-branch pos (' ' ∷ 'M' ∷ suffix))
       ≡ just (mkResult IsMux
                (advancePositions pos (toList " M")) suffix)
     step-left = trans step-parseWS step-inner
@@ -105,8 +106,8 @@ parseMuxMarker-left-branch =
        pure (SelBy n)))
 
 parseMuxMarker-NotMux-roundtrip : ∀ (pos : Position) (suffix : List Char)
-  → parseMuxMarker-left-branch pos suffix ≡ nothing
-  → parseMuxMarker pos suffix ≡ just (mkResult NotMux pos suffix)
+  → proj₂ (parseMuxMarker-left-branch pos suffix) ≡ nothing
+  → proj₂ (parseMuxMarker pos suffix) ≡ just (mkResult NotMux pos suffix)
 parseMuxMarker-NotMux-roundtrip pos suffix eq =
   alt-right-nothing parseMuxMarker-left-branch (pure NotMux) pos suffix eq
 
@@ -123,8 +124,8 @@ parseMuxMarker-NotMux-roundtrip pos suffix eq =
 parseMuxMarker-SelBy-roundtrip : ∀ (pos : Position) (v : ℕ) (suffix : List Char)
   → SuffixStops isDigit suffix
   → SuffixStops (λ c → c ≈ᵇ 'M') suffix
-  → parseMuxMarker pos
-      (toList " m" ++ₗ showℕ-dec-chars v ++ₗ suffix)
+  → proj₂ (parseMuxMarker pos
+      (toList " m" ++ₗ showℕ-dec-chars v ++ₗ suffix))
     ≡ just (mkResult (SelBy v)
              (advancePositions pos
                 (toList " m" ++ₗ showℕ-dec-chars v))
@@ -159,19 +160,19 @@ parseMuxMarker-SelBy-roundtrip pos v suffix digit-stop m-stop =
 
     -- char 'M' on suffix returns `nothing`.  Establish this once at the
     -- top by direct pattern-match on `m-stop`.
-    char-M-fail : char 'M' pos3 suffix ≡ nothing
+    char-M-fail : proj₂ (char 'M' pos3 suffix) ≡ nothing
     char-M-fail = char-M-fail-helper suffix m-stop
       where
         char-M-fail-helper : ∀ (xs : List Char)
           → SuffixStops (λ c → c ≈ᵇ 'M') xs
-          → char 'M' pos3 xs ≡ nothing
+          → proj₂ (char 'M' pos3 xs) ≡ nothing
         char-M-fail-helper [] []-stop = refl
         char-M-fail-helper (c ∷ _) (∷-stop m-false) rewrite m-false = refl
 
     step-parseWS :
-      left-branch pos
-        (' ' ∷ 'm' ∷ showℕ-dec-chars v ++ₗ suffix)
-      ≡ inner pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix)
+      proj₂ (left-branch pos
+        (' ' ∷ 'm' ∷ showℕ-dec-chars v ++ₗ suffix))
+      ≡ proj₂ (inner pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix))
     step-parseWS =
       bind-just-step parseWS (λ _ → inner)
         pos (' ' ∷ 'm' ∷ showℕ-dec-chars v ++ₗ suffix)
@@ -179,31 +180,51 @@ parseMuxMarker-SelBy-roundtrip pos v suffix digit-stop m-stop =
         (parseWS-one-space pos ('m' ∷ showℕ-dec-chars v ++ₗ suffix)
            (∷-stop refl))
 
+    -- char 'M' fails on the closed 'm', so `<|>` steps to the right
+    -- branch via `alt-right-nothing` (the pair encoding no longer
+    -- reduces `<|>` definitionally past a stuck right branch).
     step-char-m :
-      inner pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix)
-      ≡ (parseNatural >>= λ n →
+      proj₂ (inner pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix))
+      ≡ proj₂ ((char 'm' *> parseNatural >>= λ n →
+                 (char 'M' *> pure (BothMux n)) <|>
+                 pure (SelBy n))
+                pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix))
+    step-char-m =
+      alt-right-nothing (char 'M' *> pure IsMux)
+        (char 'm' *> parseNatural >>= λ n →
           (char 'M' *> pure (BothMux n)) <|>
           pure (SelBy n))
-          pos2 (showℕ-dec-chars v ++ₗ suffix)
-    step-char-m = refl
+        pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix) refl
+
+    -- `char 'm' *> parseNatural` consumes 'm' (closed, via
+    -- `bind-just-step` on the pair encoding) then the emitted digits.
+    step-charm-nat :
+      proj₂ ((char 'm' *> parseNatural)
+              pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix))
+      ≡ just (mkResult v pos3 suffix)
+    step-charm-nat =
+      trans (bind-just-step (char 'm') (λ _ → parseNatural)
+               pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix)
+               'm' pos2 (showℕ-dec-chars v ++ₗ suffix) refl)
+            (parseNatural-showNat-chars pos2 v suffix digit-stop)
 
     step-parseNat :
-      (parseNatural >>= λ n →
-        (char 'M' *> pure (BothMux n)) <|>
-        pure (SelBy n))
-        pos2 (showℕ-dec-chars v ++ₗ suffix)
-      ≡ ((char 'M' *> pure (BothMux v)) <|> pure (SelBy v))
-          pos3 suffix
+      proj₂ ((char 'm' *> parseNatural >>= λ n →
+               (char 'M' *> pure (BothMux n)) <|>
+               pure (SelBy n))
+              pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix))
+      ≡ proj₂ (((char 'M' *> pure (BothMux v)) <|> pure (SelBy v))
+                pos3 suffix)
     step-parseNat =
-      bind-just-step parseNatural
+      bind-just-step (char 'm' *> parseNatural)
         (λ n → (char 'M' *> pure (BothMux n)) <|> pure (SelBy n))
-        pos2 (showℕ-dec-chars v ++ₗ suffix)
+        pos1 ('m' ∷ showℕ-dec-chars v ++ₗ suffix)
         v pos3 suffix
-        (parseNatural-showNat-chars pos2 v suffix digit-stop)
+        step-charm-nat
 
     step-selby :
-      ((char 'M' *> pure (BothMux v)) <|> pure (SelBy v))
-        pos3 suffix
+      proj₂ (((char 'M' *> pure (BothMux v)) <|> pure (SelBy v))
+        pos3 suffix)
       ≡ just (mkResult (SelBy v)
                (advancePositions pos
                   (toList " m" ++ₗ showℕ-dec-chars v))
@@ -214,8 +235,8 @@ parseMuxMarker-SelBy-roundtrip pos v suffix digit-stop m-stop =
               (bind-nothing (char 'M') _ pos3 suffix char-M-fail))
             (cong (λ p → just (mkResult (SelBy v) p suffix)) pos-eq)
 
-    step-left : left-branch pos
-                  (' ' ∷ 'm' ∷ showℕ-dec-chars v ++ₗ suffix)
+    step-left : proj₂ (left-branch pos
+                  (' ' ∷ 'm' ∷ showℕ-dec-chars v ++ₗ suffix))
                 ≡ just (mkResult (SelBy v)
                          (advancePositions pos
                             (toList " m" ++ₗ showℕ-dec-chars v))

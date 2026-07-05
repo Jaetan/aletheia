@@ -28,6 +28,7 @@ module Aletheia.DBC.TextParser.Properties.Preamble.Namespace where
 open import Data.Char using (Char)
 open import Data.List using (List) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong)
@@ -58,11 +59,12 @@ open import Aletheia.DBC.TextParser.Format.Preamble public
 
 parseNamespace-roundtrip : ∀ (pos : Position) (suffix : List Char)
   → SuffixStops isNSLineStart suffix
-  → parseNamespace pos (emitNamespace-chars ++ₗ suffix)
+  → proj₂ (parseNamespace pos (emitNamespace-chars ++ₗ suffix))
     ≡ just (mkResult tt
              (advancePositions pos emitNamespace-chars) suffix)
 parseNamespace-roundtrip pos suffix outer-stop =
-  trans (cong (λ inp → parseNamespace pos (inp ++ₗ suffix)) (sym bridge))
+  trans (cong (λ inp → proj₂ (parseNamespace pos (inp ++ₗ suffix)))
+              (sym bridge))
     (trans step-format step-pure)
   where
     bridge : emit nsFmt tt ≡ emitNamespace-chars
@@ -78,8 +80,8 @@ parseNamespace-roundtrip pos suffix outer-stop =
     -- consuming the entire `"NS_ :\n" + 25 keyword lines + 1 trailing
     -- blank` block.
     step-format :
-      parseNamespace pos (emit nsFmt tt ++ₗ suffix)
-      ≡ cont-pure tt pos-line suffix
+      proj₂ (parseNamespace pos (emit nsFmt tt ++ₗ suffix))
+      ≡ proj₂ (cont-pure tt pos-line suffix)
     step-format =
       bind-just-step (parse nsFmt) cont-pure
                      pos (emit nsFmt tt ++ₗ suffix)
@@ -92,7 +94,7 @@ parseNamespace-roundtrip pos suffix outer-stop =
     pos-eq = cong (advancePositions pos) bridge
 
     step-pure :
-      cont-pure tt pos-line suffix
+      proj₂ (cont-pure tt pos-line suffix)
       ≡ just (mkResult tt
                (advancePositions pos emitNamespace-chars) suffix)
     step-pure = cong (λ p → just (mkResult tt p suffix)) pos-eq

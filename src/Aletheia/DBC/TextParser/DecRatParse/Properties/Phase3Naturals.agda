@@ -144,11 +144,13 @@ showℕ-padded-chars-nonempty (suc w) n _ =
 -- `(x , xs' , refl)` pattern on `-nonempty` forces `showNat-chars n ≡
 -- x ∷ xs'`, which flows through the other two via abstraction: `All-`
 -- unifies as `px ∷ pxs`, and `foldl-` keeps its equation as `fold-eq`.
--- The RHS `rewrite` chain then resolves `some` via the prefix lemma
--- and closes the fold via `fold-eq`.
+-- A second simultaneous `with` on the `some` call + the outcome-level
+-- prefix lemma resolves the digits read (the lemma is `proj₂`-level,
+-- so it cannot fire as a rewrite on the pair-typed scrutinee); the
+-- final `rewrite fold-eq` closes the fold.
 parseNatural-showNat-chars : ∀ pos n (suffix : List Char) →
   SuffixStops isDigit suffix →
-  parseNatural pos (showNat-chars n ++ₗ suffix)
+  proj₂ (parseNatural pos (showNat-chars n ++ₗ suffix))
     ≡ just (mkResult n (advancePositions pos (showNat-chars n)) suffix)
 parseNatural-showNat-chars pos n suffix ss
   with showNat-chars n
@@ -156,9 +158,9 @@ parseNatural-showNat-chars pos n suffix ss
      | All-isDigit-showNat-chars n
      | foldl-digitToNat-showNat-chars n
 ... | .(x ∷ xs') | x , xs' , refl | px ∷ pxs | fold-eq
-  rewrite some-satisfy-prefix isDigit pos x xs' suffix px pxs ss
-        | fold-eq
-  = refl
+  with some (satisfy isDigit) pos ((x ∷ xs') ++ₗ suffix)
+     | some-satisfy-prefix isDigit pos x xs' suffix px pxs ss
+...   | w , just r | refl rewrite fold-eq = refl
 
 -- ============================================================================
 -- Phase 3.3: canonicalizeDecRat-from-canonicalizeNat — sign-agnostic wrapper
@@ -349,7 +351,7 @@ digitChar-≢-dash (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
 -- exactly once (inside the nested `satisfy`/`<$>`/`<|>` unfolding),
 -- and after rewriting both sides reduce to the same constructor tree.
 optional-dash-fail : ∀ pos x xs' → (x ≈ᵇ '-') ≡ false →
-  optional (char '-') pos (x ∷ xs')
+  proj₂ (optional (char '-') pos (x ∷ xs'))
     ≡ just (mkResult nothing pos (x ∷ xs'))
 optional-dash-fail pos x xs' eq rewrite eq = refl
 
@@ -363,7 +365,7 @@ optional-dash-fail pos x xs' eq rewrite eq = refl
 -- rewrite the width into `suc _` form.
 some-digit-showℕ-padded-chars : ∀ w n pos (suffix : List Char) →
   0 < w → SuffixStops isDigit suffix →
-  some digit pos (showℕ-padded-chars w n ++ₗ suffix)
+  proj₂ (some digit pos (showℕ-padded-chars w n ++ₗ suffix))
     ≡ just (mkResult (showℕ-padded-chars w n)
                      (advancePositions pos (showℕ-padded-chars w n))
                      suffix)
@@ -465,7 +467,7 @@ manyHelper-satisfy-exhaust-all : (P : Char → Bool) (pos : Position)
   → (xs : List Char)
   → All (λ c → P c ≡ true) xs
   → (n : ℕ) → length xs ≤ n
-  → manyHelper (satisfy P) pos xs n
+  → proj₂ (manyHelper (satisfy P) pos xs n)
     ≡ just (mkResult xs (advancePositions pos xs) [])
 manyHelper-satisfy-exhaust-all P pos []        _          zero     _            = refl
 manyHelper-satisfy-exhaust-all P pos (x ∷ xs') _          zero     ()
@@ -473,8 +475,9 @@ manyHelper-satisfy-exhaust-all P pos []        _          (suc n') _            
 manyHelper-satisfy-exhaust-all P pos (x ∷ xs') (px ∷ pxs) (suc n') (s≤s len≤)
   rewrite px
         | sameLengthᵇ-cons x xs'
-        | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs' pxs n' len≤
-  = refl
+  with manyHelper (satisfy P) (advancePosition pos x) xs' n'
+     | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs' pxs n' len≤
+... | w' , just restResult | refl = refl
 
 -- Entry point at the public `many` (length-fuel) specialisation.
 -- Parallel to `some-satisfy-prefix` but at empty suffix: both use the
@@ -483,13 +486,14 @@ some-satisfy-prefix-all : (P : Char → Bool) (pos : Position)
   → ∀ x (xs' : List Char)
   → P x ≡ true
   → All (λ c → P c ≡ true) xs'
-  → some (satisfy P) pos (x ∷ xs')
+  → proj₂ (some (satisfy P) pos (x ∷ xs'))
     ≡ just (mkResult (x ∷ xs') (advancePositions pos (x ∷ xs')) [])
 some-satisfy-prefix-all P pos x xs' px pxs
   rewrite px
-        | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs'
-            pxs (length xs') ≤-refl
-  = refl
+  with manyHelper (satisfy P) (advancePosition pos x) xs' (length xs')
+     | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs'
+         pxs (length xs') ≤-refl
+... | w' , just restResult | refl = refl
 
 -- ----------------------------------------------------------------------------
 -- Phase 3.9.b: Padded-fraction reader at empty suffix
@@ -501,7 +505,7 @@ some-satisfy-prefix-all P pos x xs' px pxs
 -- derivation as Phase 3.6 but via `some-satisfy-prefix-all`.
 some-digit-showℕ-padded-chars-end : ∀ w n pos →
   0 < w →
-  some digit pos (showℕ-padded-chars w n)
+  proj₂ (some digit pos (showℕ-padded-chars w n))
     ≡ just (mkResult (showℕ-padded-chars w n)
                      (advancePositions pos (showℕ-padded-chars w n))
                      [])
@@ -568,7 +572,7 @@ rawAbs≡scaledNum scaledNum m =
 -- the rewrite LHS, and subsequent lemmas that mention
 -- `showNat-chars n` still unify.
 optional-dash-fail-on-showNat : ∀ pos n rest →
-  optional (char '-') pos (showNat-chars n ++ₗ rest)
+  proj₂ (optional (char '-') pos (showNat-chars n ++ₗ rest))
     ≡ just (mkResult nothing pos (showNat-chars n ++ₗ rest))
 optional-dash-fail-on-showNat pos n rest
   with showNat-chars n | showNat-chars-head-≢-dash n
@@ -581,7 +585,7 @@ optional-dash-fail-on-showNat pos n rest
 -- Agda.Builtin.Char primitives, and the `optional`/`<$>`/`<|>` chain
 -- threads the result through to `just (just '-')`.
 optional-dash-succ : ∀ pos (rest : List Char) →
-  optional (char '-') pos ('-' ∷ rest)
+  proj₂ (optional (char '-') pos ('-' ∷ rest))
     ≡ just (mkResult (just '-') (advancePosition pos '-') rest)
 optional-dash-succ _ _ = refl
 

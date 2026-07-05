@@ -16,6 +16,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
 open import Aletheia.Parser.Combinators using
@@ -60,7 +61,7 @@ parseAttrLine-on-emit-Attribute :
       (a : DBCAttribute) (outer : List Char)
   → WFAttribute defs a
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos (emitAttribute-chars defs a ++ₗ outer)
+  → proj₂ (parseAttrLine pos (emitAttribute-chars defs a ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs a)
               (advancePositions pos (emitAttribute-chars defs a))

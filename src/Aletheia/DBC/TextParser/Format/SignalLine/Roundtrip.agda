@@ -135,11 +135,11 @@ private
   open import Aletheia.DBC.TextParser.Format using
     (literal; pair; ws; withPrefix; nat; iso)
 
-  -- parse Format.ws pos (' ' ∷ X) ≡ just (mkResult tt (advancePos pos ' ') X)
+  -- proj₂ (parse Format.ws pos (' ' ∷ X)) ≡ just (mkResult tt (advancePos pos ' ') X)
   -- when X has SuffixStops isHSpace.
   parse-ws-on-space-stop : ∀ (pos : Position) (X : List Char)
     → SuffixStops isHSpace X
-    → parse ws pos (' ' ∷ X) ≡ just (mkResult tt (advancePosition pos ' ') X)
+    → proj₂ (parse ws pos (' ' ∷ X)) ≡ just (mkResult tt (advancePosition pos ' ') X)
   parse-ws-on-space-stop pos X ss =
     bind-just-step parseWS (λ _ → pure tt) pos (' ' ∷ X)
                    (' ' ∷ []) (advancePosition pos ' ') X
@@ -151,8 +151,8 @@ private
   -- and selBy's alt-fail proofs).
   pair-ws-f-fails : ∀ {A} (f : Format A) (pos : Position) (X : List Char)
     → SuffixStops isHSpace X
-    → parse f (advancePosition pos ' ') X ≡ nothing
-    → parse (pair ws f) pos (' ' ∷ X) ≡ nothing
+    → proj₂ (parse f (advancePosition pos ' ') X) ≡ nothing
+    → proj₂ (parse (pair ws f) pos (' ' ∷ X)) ≡ nothing
   pair-ws-f-fails {A = A} f pos X ss f-fails =
     trans (bind-just-step (parse ws)
                           (λ _ → parse f >>= λ b → pure (tt , b))
@@ -166,15 +166,15 @@ private
   -- → pure (φ x).  bind-nothing.
   iso-fails : ∀ {A B} {φ : A → B} {ψ : B → A} {pf : ∀ b → φ (ψ b) ≡ b}
                 (f : Format A) (pos : Position) (input : List Char)
-    → parse f pos input ≡ nothing
-    → parse (iso φ ψ pf f) pos input ≡ nothing
+    → proj₂ (parse f pos input) ≡ nothing
+    → proj₂ (parse (iso φ ψ pf f) pos input) ≡ nothing
   iso-fails {φ = φ} f pos input f-fails =
     bind-nothing (parse f) (λ x → pure (φ x)) pos input f-fails
 
   -- pair propagates left-failure.
   pair-left-fails : ∀ {A B} (f : Format A) (g : Format B) (pos : Position) (input : List Char)
-    → parse f pos input ≡ nothing
-    → parse (pair f g) pos input ≡ nothing
+    → proj₂ (parse f pos input) ≡ nothing
+    → proj₂ (parse (pair f g) pos input) ≡ nothing
   pair-left-fails f g pos input f-fails =
     bind-nothing (parse f)
                  (λ a → parse g >>= λ b → pure (a , b))
@@ -189,9 +189,9 @@ private
     ∀ {A B} (f : Format A) (g : Format B)
       (pos : Position) (input : List Char)
       (a : A) (pos-a : Position) (residual : List Char)
-    → parse f pos input ≡ just (mkResult a pos-a residual)
-    → parse g pos-a residual ≡ nothing
-    → parse (pair f g) pos input ≡ nothing
+    → proj₂ (parse f pos input) ≡ just (mkResult a pos-a residual)
+    → proj₂ (parse g pos-a residual) ≡ nothing
+    → proj₂ (parse (pair f g) pos input) ≡ nothing
   pair-left-succeeds-right-fails f g pos input a pos-a residual eq-f eq-g =
     trans (bind-just-step (parse f)
                           (λ a' → parse g >>= λ b' → pure (a' , b'))
@@ -503,7 +503,7 @@ signalLine-roundtrip : ∀ (pos : Position) (rs : RawSignal) (suffix : List Char
   → NameStop rs
   → RecvHeadStop (RawSignal.receivers rs)
   → SuffixStops isReceiverCont suffix
-  → parse signalLineFmt pos (emit signalLineFmt rs ++ₗ suffix)
+  → proj₂ (parse signalLineFmt pos (emit signalLineFmt rs ++ₗ suffix))
     ≡ just (mkResult rs (advancePositions pos (emit signalLineFmt rs)) suffix)
 signalLine-roundtrip pos rs suffix name-stop recv-head-stop recv-stop =
   roundtrip signalLineFmt pos rs suffix

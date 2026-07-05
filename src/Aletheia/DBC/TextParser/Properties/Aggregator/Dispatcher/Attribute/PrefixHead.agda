@@ -26,7 +26,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List; _∷_)
   renaming ()
 open import Data.Maybe using (just)
-open import Data.Product using (Σ-syntax; _,_)
+open import Data.Product using (Σ-syntax; _,_; proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; subst)
 
@@ -113,12 +113,12 @@ parseTopStmt-on-BA-head-via-prefix :
     ∀ (pos : Position) (input : List Char) (rest : List Char)
       (a : RawDBCAttribute) (outer : List Char) (pos-end : Position)
   → input ≡ 'B' ∷ 'A' ∷ rest
-  → parseAttrLine pos input ≡ just (mkResult a pos-end outer)
-  → parseTopStmt pos input ≡ just (mkResult (TSAttribute a) pos-end outer)
+  → proj₂ (parseAttrLine pos input) ≡ just (mkResult a pos-end outer)
+  → proj₂ (parseTopStmt pos input) ≡ just (mkResult (TSAttribute a) pos-end outer)
 parseTopStmt-on-BA-head-via-prefix pos input rest a outer pos-end input-eq witness =
-  subst (λ x → parseTopStmt pos x ≡ just (mkResult (TSAttribute a) pos-end outer))
+  subst (λ x → proj₂ (parseTopStmt pos x) ≡ just (mkResult (TSAttribute a) pos-end outer))
         (sym input-eq)
         (parseTopStmt-on-BA-head pos a rest outer pos-end
-          (subst (λ x → parseAttrLine pos x ≡ just (mkResult a pos-end outer))
+          (subst (λ x → proj₂ (parseAttrLine pos x) ≡ just (mkResult a pos-end outer))
                  input-eq
                  witness))

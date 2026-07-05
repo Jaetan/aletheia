@@ -23,6 +23,7 @@ open import Data.Char  using (Char)
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
@@ -66,7 +67,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives using
 -- literal that Agda reduces eagerly).  `refl` closes.
 parseValueTable-fails-on-VAL_-prefix :
     ∀ (pos : Position) (rvd : RawValueDesc) (outer : List Char)
-  → parseValueTable pos (emitValueDescription-chars rvd ++ₗ outer) ≡ nothing
+  → proj₂ (parseValueTable pos (emitValueDescription-chars rvd ++ₗ outer)) ≡ nothing
 parseValueTable-fails-on-VAL_-prefix _ _ _ = refl
 
 -- ============================================================================
@@ -77,7 +78,7 @@ parseTopStmt-on-emit-TVD-eq :
     ∀ (pos : Position) (rvd : RawValueDesc) (outer : List Char)
   → RawValueDescStop rvd
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitValueDescription-chars rvd ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitValueDescription-chars rvd ++ₗ outer))
     ≡ just (mkResult (TSValueDesc rvd)
                      (advancePositions pos (emitValueDescription-chars rvd))
                      outer)
@@ -90,15 +91,15 @@ parseTopStmt-on-emit-TVD-eq pos rvd outer rvd-stop nl-stop =
     pos-vd : Position
     pos-vd = advancePositions pos (emitValueDescription-chars rvd)
 
-    -- LEFT arm fails: parseValueTable returns nothing.
+    -- LEFT arm fails: parseValueTable's outcome is nothing.
     parseValueTable-nothing :
-        parseValueTable pos input ≡ nothing
+        proj₂ (parseValueTable pos input) ≡ nothing
     parseValueTable-nothing =
       parseValueTable-fails-on-VAL_-prefix pos rvd outer
 
     -- LEFT arm with bind: also nothing.
     bind-left-nothing :
-        (parseValueTable >>= λ vt → pure (TSValueTable vt)) pos input ≡ nothing
+        proj₂ ((parseValueTable >>= λ vt → pure (TSValueTable vt)) pos input) ≡ nothing
     bind-left-nothing =
       bind-nothing parseValueTable (λ vt → pure (TSValueTable vt))
         pos input parseValueTable-nothing
@@ -108,17 +109,17 @@ parseTopStmt-on-emit-TVD-eq pos rvd outer rvd-stop nl-stop =
     -- alt-right-nothing then collapses the LEFT arm and exposes the
     -- RIGHT arm.
     alt-right-eq :
-        parseTopStmt pos input
-      ≡ (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd)) pos input
+        proj₂ (parseTopStmt pos input)
+      ≡ proj₂ ((parseValueDescription >>= λ rvd → pure (TSValueDesc rvd)) pos input)
     alt-right-eq =
       alt-right-nothing
         (parseValueTable       >>= λ vt  → pure (TSValueTable vt))
         (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))
         pos input bind-left-nothing
 
-    -- RIGHT arm succeeds: parseValueDescription pos input → just (mkResult rvd …).
+    -- RIGHT arm succeeds: parseValueDescription's outcome is just (mkResult rvd …).
     parseValueDescription-success :
-        parseValueDescription pos input
+        proj₂ (parseValueDescription pos input)
       ≡ just (mkResult rvd pos-vd outer)
     parseValueDescription-success =
       parseValueDescription-roundtrip pos rvd outer rvd-stop nl-stop
@@ -126,7 +127,7 @@ parseTopStmt-on-emit-TVD-eq pos rvd outer rvd-stop nl-stop =
     -- bind-just-step chains the RIGHT arm's success through the
     -- `>>= λ rvd → pure (TSValueDesc rvd)` continuation.
     bind-success-eq :
-        (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd)) pos input
+        proj₂ ((parseValueDescription >>= λ rvd → pure (TSValueDesc rvd)) pos input)
       ≡ just (mkResult (TSValueDesc rvd) pos-vd outer)
     bind-success-eq =
       bind-just-step parseValueDescription

@@ -28,6 +28,7 @@ open import Data.List  using (List; []; foldr; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (just; nothing)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -67,17 +68,17 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher using
 -- `outer-suffix` carries the body terminator (e.g. the `[]` empty
 -- suffix for a fully-consumed body, or whatever finalizeParse expects
 -- after the last TopStmt).  The caller proves
--- `parseTopStmt pos' outer-suffix ≡ nothing` once and we lift it
--- through the whole body.
+-- `proj₂ (parseTopStmt pos' outer-suffix) ≡ nothing` once and we lift
+-- it through the whole body.
 
 parseTopStmts-roundtrip :
     ∀ (defs : List AttrDef) (pos : Position) (ts : List TopStmtTyped)
       (outer-suffix : List Char)
   → All (TopStmtTypedWF defs) ts
   → SuffixStops isNewlineStart outer-suffix
-  → (∀ (pos' : Position) → parseTopStmt pos' outer-suffix ≡ nothing)
-  → many parseTopStmt pos
-      (foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] ts ++ₗ outer-suffix)
+  → (∀ (pos' : Position) → proj₂ (parseTopStmt pos' outer-suffix) ≡ nothing)
+  → proj₂ (many parseTopStmt pos
+      (foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] ts ++ₗ outer-suffix))
     ≡ just (mkResult (map (liftTopStmt defs) ts)
              (advancePositions pos
                (foldr (λ t acc → emitTopStmt-chars defs t ++ₗ acc) [] ts))

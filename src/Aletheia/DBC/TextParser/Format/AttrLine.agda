@@ -245,8 +245,8 @@ build-EmitsOK-attrDefaultFmt n rv outer-suffix value-emit =
 parseAttrDefault-format-roundtrip :
   ∀ (pos : Position) (n : List Char) (rv : RawAttrValueWire) (outer-suffix : List Char)
   → EmitsOK attrValueWireFmt rv (value-suffix outer-suffix)
-  → parse attrDefaultFmt pos
-      (emit attrDefaultFmt (n , rv , tt) ++ₗ outer-suffix)
+  → proj₂ (parse attrDefaultFmt pos
+      (emit attrDefaultFmt (n , rv , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (n , rv , tt)
               (advancePositions pos
                 (emit attrDefaultFmt (n , rv , tt)))
@@ -326,25 +326,25 @@ private
   -- `nothing` definitionally.  No EmitsOK reduction in the goal type.
   parseNodeArm-fails-on-non-B-head :
     ∀ (x : Char) (x≢B : (x ≈ᵇ 'B') ≡ false)
-    → ∀ pos rest → parse nodeArm pos (x ∷ rest) ≡ nothing
+    → ∀ pos rest → proj₂ (parse nodeArm pos (x ∷ rest)) ≡ nothing
   parseNodeArm-fails-on-non-B-head x x≢B pos rest with x ≈ᵇ 'B' | x≢B
   ... | false | refl = refl
 
   parseMsgArm-fails-on-non-B-head :
     ∀ (x : Char) (x≢B : (x ≈ᵇ 'B') ≡ false)
-    → ∀ pos rest → parse msgArm pos (x ∷ rest) ≡ nothing
+    → ∀ pos rest → proj₂ (parse msgArm pos (x ∷ rest)) ≡ nothing
   parseMsgArm-fails-on-non-B-head x x≢B pos rest with x ≈ᵇ 'B' | x≢B
   ... | false | refl = refl
 
   parseSigArm-fails-on-non-S-head :
     ∀ (x : Char) (x≢S : (x ≈ᵇ 'S') ≡ false)
-    → ∀ pos rest → parse sigArm pos (x ∷ rest) ≡ nothing
+    → ∀ pos rest → proj₂ (parse sigArm pos (x ∷ rest)) ≡ nothing
   parseSigArm-fails-on-non-S-head x x≢S pos rest with x ≈ᵇ 'S' | x≢S
   ... | false | refl = refl
 
   parseEvArm-fails-on-non-E-head :
     ∀ (x : Char) (x≢E : (x ≈ᵇ 'E') ≡ false)
-    → ∀ pos rest → parse evArm pos (x ∷ rest) ≡ nothing
+    → ∀ pos rest → proj₂ (parse evArm pos (x ∷ rest)) ≡ nothing
   parseEvArm-fails-on-non-E-head x x≢E pos rest with x ≈ᵇ 'E' | x≢E
   ... | false | refl = refl
 
@@ -353,14 +353,16 @@ private
   -- in a private `where` block, not exported).  Each is a single-`with`
   -- proof — small in isolation.
   alt-right-nothing-local : ∀ {A : Set} (p q : Parser A) pos input
-    → p pos input ≡ nothing → (p <|> q) pos input ≡ q pos input
-  alt-right-nothing-local p _ pos input eq with p pos input | eq
-  ... | nothing | refl = refl
+    → proj₂ (p pos input) ≡ nothing
+    → proj₂ ((p <|> q) pos input) ≡ proj₂ (q pos input)
+  alt-right-nothing-local p q pos input eq with p pos input | eq
+  ... | w , nothing | refl with q pos input
+  ...   | w' , out = refl
 
   map-nothing-local : ∀ {A B : Set} (g : A → B) (p : Parser A) pos input
-    → p pos input ≡ nothing → (g <$> p) pos input ≡ nothing
+    → proj₂ (p pos input) ≡ nothing → proj₂ ((g <$> p) pos input) ≡ nothing
   map-nothing-local _ p pos input eq with p pos input | eq
-  ... | nothing | refl = refl
+  ... | w , nothing | refl = refl
 
 -- Compose 4 arm-fails into a single L1 fail via explicit `trans` chain.
 -- No `with` at the composition level — each step is a small lemma
@@ -379,27 +381,27 @@ parseStdTgtL1-fails-on-non-keyword-head :
     (x≢S : (x ≈ᵇ 'S') ≡ false)
     (x≢E : (x ≈ᵇ 'E') ≡ false)
   → ∀ pos rest
-  → parse (altSum (altSum (altSum nodeArm msgArm) sigArm) evArm) pos (x ∷ rest) ≡ nothing
+  → proj₂ (parse (altSum (altSum (altSum nodeArm msgArm) sigArm) evArm) pos (x ∷ rest)) ≡ nothing
 parseStdTgtL1-fails-on-non-keyword-head x x≢B x≢S x≢E pos rest =
   let
     -- parse nodeArm fails via x ≢ 'B'.
-    node-f : parse nodeArm pos (x ∷ rest) ≡ nothing
+    node-f : proj₂ (parse nodeArm pos (x ∷ rest)) ≡ nothing
     node-f = parseNodeArm-fails-on-non-B-head x x≢B pos rest
     -- parse msgArm fails via x ≢ 'B'.
-    msg-f : parse msgArm pos (x ∷ rest) ≡ nothing
+    msg-f : proj₂ (parse msgArm pos (x ∷ rest)) ≡ nothing
     msg-f = parseMsgArm-fails-on-non-B-head x x≢B pos rest
     -- parse sigArm fails via x ≢ 'S'.
-    sig-f : parse sigArm pos (x ∷ rest) ≡ nothing
+    sig-f : proj₂ (parse sigArm pos (x ∷ rest)) ≡ nothing
     sig-f = parseSigArm-fails-on-non-S-head x x≢S pos rest
     -- parse evArm fails via x ≢ 'E'.
-    ev-f : parse evArm pos (x ∷ rest) ≡ nothing
+    ev-f : proj₂ (parse evArm pos (x ∷ rest)) ≡ nothing
     ev-f = parseEvArm-fails-on-non-E-head x x≢E pos rest
 
     -- L3 = altSum nodeArm msgArm.  parse L3 pos input
     -- = (inj₁ <$> parse nodeArm) <|> (inj₂ <$> parse msgArm)
     -- → (nothing) <|> (inj₂ <$> parse msgArm) → (inj₂ <$> parse msgArm)
     -- → (inj₂ <$> nothing) → nothing.
-    L3-f : parse (altSum nodeArm msgArm) pos (x ∷ rest) ≡ nothing
+    L3-f : proj₂ (parse (altSum nodeArm msgArm) pos (x ∷ rest)) ≡ nothing
     L3-f = trans
              (alt-right-nothing-local (inj₁ <$> parse nodeArm)
                 (inj₂ <$> parse msgArm) pos (x ∷ rest)
@@ -407,7 +409,7 @@ parseStdTgtL1-fails-on-non-keyword-head x x≢B x≢S x≢E pos rest =
              (map-nothing-local inj₂ (parse msgArm) pos (x ∷ rest) msg-f)
 
     -- L2 = altSum L3 sigArm.  Same structure.
-    L2-f : parse (altSum (altSum nodeArm msgArm) sigArm) pos (x ∷ rest) ≡ nothing
+    L2-f : proj₂ (parse (altSum (altSum nodeArm msgArm) sigArm) pos (x ∷ rest)) ≡ nothing
     L2-f = trans
              (alt-right-nothing-local (inj₁ <$> parse (altSum nodeArm msgArm))
                 (inj₂ <$> parse sigArm) pos (x ∷ rest)
@@ -602,8 +604,8 @@ parseAttrAssign-format-roundtrip :
   → EmitsOK stdTargetWireFmt wireTgt
       (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-  → parse attrAssignFmt pos
-      (emit attrAssignFmt (n , wireTgt , wireVal , tt) ++ₗ outer-suffix)
+  → proj₂ (parse attrAssignFmt pos
+      (emit attrAssignFmt (n , wireTgt , wireVal , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (n , wireTgt , wireVal , tt)
               (advancePositions pos
                 (emit attrAssignFmt (n , wireTgt , wireVal , tt)))
@@ -653,8 +655,8 @@ parseAttrRel-format-roundtrip :
   → EmitsOK relTargetWireFmt wireTgt
       (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
-  → parse attrRelFmt pos
-      (emit attrRelFmt (n , wireTgt , wireVal , tt) ++ₗ outer-suffix)
+  → proj₂ (parse attrRelFmt pos
+      (emit attrRelFmt (n , wireTgt , wireVal , tt) ++ₗ outer-suffix))
     ≡ just (mkResult (n , wireTgt , wireVal , tt)
               (advancePositions pos
                 (emit attrRelFmt (n , wireTgt , wireVal , tt)))

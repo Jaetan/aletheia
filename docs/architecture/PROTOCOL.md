@@ -1181,7 +1181,11 @@ The `message` field embeds the kind label, observed value, and limit; the struct
 <<< {"status": "error", "code": "handler_validation_failed", "message": "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'", "has_errors": true, "issues": [{"severity": "error", "code": "duplicate_signal_name", "detail": "Message 'M': duplicate signal name 'S'"}, {"severity": "warning", "code": "offset_scale_range", "detail": "..."}]}
 ```
 
-`dbc_text_trailing_input` errors expose the structured `line` / `column` of the first unconsumed byte alongside the message, pinpointing the first unparseable statement.
+DBC text parse errors carry **byte-exact failure positions** on the envelope. The parser tracks a *furthest-failure watermark*: the deepest position any parse attempt reached (`<|>` alternatives merge their failed arms' depths; `many` keeps the depth of the element attempt it swallowed), so the reported byte is the first character no grammar rule could accept — not merely the start of the offending statement.
+
+- `dbc_text_parse_failure` exposes structured `line` / `column` (the watermark).
+- `dbc_text_trailing_input` exposes `line` / `column` (the watermark, inside the first unparseable statement) **plus** `statement_line` / `statement_column` (where that statement starts — the first unconsumed byte).
+- `dispatch_invalid_json` exposes `line` / `column` (the JSON parser shares the same combinators and watermark).
 
 ### Two-layer enforcement
 
@@ -1318,15 +1322,15 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 |---|---|---|
 | `dispatch_missing_type_field` | Request has no `type` field | Add `"type": "command"` |
 | `dispatch_unknown_message_type` | `type` value not recognised | Only `command` is supported |
-| `dispatch_invalid_json` | Request was not valid JSON | Validate the JSON before sending |
+| `dispatch_invalid_json` | Request was not valid JSON (structured `line`/`column` mark the first unparseable byte) | Validate the JSON before sending |
 | `dispatch_request_not_object` | Top-level value is not an object | Wrap in `{...}` |
 
 #### DBC text parse errors — `parseDBCText` / `formatDBCText`
 
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
-| `dbc_text_parse_failure` | The `.dbc` text could not be parsed | Check the file against the DBC grammar; run `validate` for structural issues |
-| `dbc_text_trailing_input` | The top-level parse stopped at the first unparseable statement (structured `line`/`column` pinpoint it) | Fix the statement starting at the reported position |
+| `dbc_text_parse_failure` | The `.dbc` text could not be parsed (structured `line`/`column` mark the deepest byte any parse attempt reached) | Check the file against the DBC grammar at the reported byte; run `validate` for structural issues |
+| `dbc_text_trailing_input` | The top-level parse stopped at the first unparseable statement — structured `line`/`column` mark the exact failing byte inside it, `statement_line`/`statement_column` where the statement starts | Fix the statement at the reported byte |
 | `dbc_text_attribute_refinement_failed` | A `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed refinement — the message names the offending attribute and whether it is undeclared or its value does not fit the declared type | Declare the attribute via `BA_DEF_` first; keep values inside the declared type (e.g. `ENUM` indices in range) |
 
 ---

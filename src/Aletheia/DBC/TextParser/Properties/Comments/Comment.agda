@@ -277,7 +277,7 @@ emit-commentFmt-eq-emitComment-chars (mkComment (CTEnvVar ev) text) =
 -- `| just .cid | refl` pattern unifies the with-result with the
 -- intended construction).
 buildCommentP-roundtrip : ∀ (c : DBCComment) (pos : Position) (input : List Char)
-  → buildCommentP (rawTargetOf (DBCComment.target c)) (DBCComment.text c) pos input
+  → proj₂ (buildCommentP (rawTargetOf (DBCComment.target c)) (DBCComment.text c) pos input)
     ≡ just (mkResult c pos input)
 buildCommentP-roundtrip (mkComment CTNetwork _)    pos input = refl
 buildCommentP-roundtrip (mkComment (CTNode _) _)   pos input = refl
@@ -311,12 +311,12 @@ parseComment-roundtrip :
     ∀ (pos : Position) (c : DBCComment) (suffix : List Char)
   → CommentTargetStop c
   → SuffixStops isNewlineStart suffix
-  → parseComment pos (emitComment-chars c ++ₗ suffix)
+  → proj₂ (parseComment pos (emitComment-chars c ++ₗ suffix))
     ≡ just (mkResult c
              (advancePositions pos (emitComment-chars c))
              suffix)
 parseComment-roundtrip pos c suffix tgtStop nl-stop =
-  trans (cong (λ inp → parseComment pos (inp ++ₗ suffix))
+  trans (cong (λ inp → proj₂ (parseComment pos (inp ++ₗ suffix)))
               (sym bridge))
     (trans step-format
       (trans step-many-newline
@@ -345,8 +345,8 @@ parseComment-roundtrip pos c suffix tgtStop nl-stop =
 
     -- Step 1: parse commentFmt succeeds via the universal roundtrip.
     step-format :
-      parseComment pos (emit commentFmt raw-text ++ₗ suffix)
-      ≡ cont-line raw-text pos-line suffix
+      proj₂ (parseComment pos (emit commentFmt raw-text ++ₗ suffix))
+      ≡ proj₂ (cont-line raw-text pos-line suffix)
     step-format =
       bind-just-step (parse commentFmt)
                      cont-line
@@ -356,8 +356,8 @@ parseComment-roundtrip pos c suffix tgtStop nl-stop =
 
     -- Step 2: many parseNewline consumes zero from `suffix`.
     step-many-newline :
-      cont-line raw-text pos-line suffix
-      ≡ cont-blanks [] pos-line suffix
+      proj₂ (cont-line raw-text pos-line suffix)
+      ≡ proj₂ (cont-blanks [] pos-line suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -369,7 +369,7 @@ parseComment-roundtrip pos c suffix tgtStop nl-stop =
     -- Step 3: buildCommentP recovers DBCComment, transport position via
     -- bridge.
     step-build :
-      cont-blanks [] pos-line suffix
+      proj₂ (cont-blanks [] pos-line suffix)
       ≡ just (mkResult c
                (advancePositions pos (emitComment-chars c))
                suffix)
@@ -410,9 +410,9 @@ parseComments-roundtrip :
     ∀ (pos : Position) (cs : List DBCComment) (outer-suffix : List Char)
   → All CommentTargetStop cs
   → SuffixStops isNewlineStart outer-suffix
-  → (∀ (pos' : Position) → parseComment pos' outer-suffix ≡ nothing)
-  → many parseComment pos
-      (foldr (λ c acc → emitComment-chars c ++ₗ acc) [] cs ++ₗ outer-suffix)
+  → (∀ (pos' : Position) → proj₂ (parseComment pos' outer-suffix) ≡ nothing)
+  → proj₂ (many parseComment pos
+      (foldr (λ c acc → emitComment-chars c ++ₗ acc) [] cs ++ₗ outer-suffix))
     ≡ just (mkResult cs
              (advancePositions pos
                (foldr (λ c acc → emitComment-chars c ++ₗ acc) [] cs))

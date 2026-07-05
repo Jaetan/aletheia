@@ -48,7 +48,7 @@ open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (zero; suc)
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; subst)
@@ -194,16 +194,16 @@ private
   -- need to import Properties.
   parseStringLit-fail-on-non-quote : ∀ pos c rest
     → (c ≈ᵇ '"') ≡ false
-    → parse stringLit pos (c ∷ rest) ≡ nothing
+    → proj₂ (parse stringLit pos (c ∷ rest)) ≡ nothing
   parseStringLit-fail-on-non-quote pos c rest c-eq = body
     where
       open import Aletheia.Parser.Combinators using (char; _>>=_; pure)
         renaming (many to many-parser)
       open import Aletheia.DBC.TextParser.Lexer using (parseStringChar)
       open import Aletheia.DBC.TextParser.Properties.Primitives using (bind-nothing)
-      char-fails : char '"' pos (c ∷ rest) ≡ nothing
+      char-fails : proj₂ (char '"' pos (c ∷ rest)) ≡ nothing
       char-fails rewrite c-eq = refl
-      body : parse stringLit pos (c ∷ rest) ≡ nothing
+      body : proj₂ (parse stringLit pos (c ∷ rest)) ≡ nothing
       body = bind-nothing (char '"')
         (λ _ → many-parser parseStringChar >>= λ chars →
                char '"' >>= λ _ → pure chars)
@@ -226,13 +226,13 @@ private
     (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
       (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
 
-  -- `parse stringLit pos (showDecRat-dec-chars d ++ suffix) ≡ nothing`.
+  -- `proj₂ (parse stringLit pos (showDecRat-dec-chars d ++ suffix)) ≡ nothing`.
   parse-stringLit-fail-on-decRat : ∀ pos d suffix
-    → parse stringLit pos (showDecRat-dec-chars d ++ₗ suffix) ≡ nothing
+    → proj₂ (parse stringLit pos (showDecRat-dec-chars d ++ₗ suffix)) ≡ nothing
   parse-stringLit-fail-on-decRat pos (mkDecRat (+ zero) a b cx) suffix
     with showDecRat-chars-head-digit zero a b cx
   ... | k , tail , k<10 , eq =
-        subst (λ chars → parse stringLit pos (chars ++ₗ suffix) ≡ nothing)
+        subst (λ chars → proj₂ (parse stringLit pos (chars ++ₗ suffix)) ≡ nothing)
               (sym eq)
               (parseStringLit-fail-on-non-quote pos
                  (digitChar k) (tail ++ₗ suffix)
@@ -240,7 +240,7 @@ private
   parse-stringLit-fail-on-decRat pos (mkDecRat (+ suc n) a b cx) suffix
     with showDecRat-chars-head-digit (suc n) a b cx
   ... | k , tail , k<10 , eq =
-        subst (λ chars → parse stringLit pos (chars ++ₗ suffix) ≡ nothing)
+        subst (λ chars → proj₂ (parse stringLit pos (chars ++ₗ suffix)) ≡ nothing)
               (sym eq)
               (parseStringLit-fail-on-non-quote pos
                  (digitChar k) (tail ++ₗ suffix)
@@ -248,16 +248,16 @@ private
   parse-stringLit-fail-on-decRat pos (mkDecRat -[1+ n ] a b cx) suffix
     with showDecRat-chars-head-dash n a b cx
   ... | tail , eq =
-        subst (λ chars → parse stringLit pos (chars ++ₗ suffix) ≡ nothing)
+        subst (λ chars → proj₂ (parse stringLit pos (chars ++ₗ suffix)) ≡ nothing)
               (sym eq)
               (parseStringLit-fail-on-non-quote pos '-' (tail ++ₗ suffix) refl)
 
-  -- `parse stringLit pos (showInt-chars z ++ suffix) ≡ nothing`.
+  -- `proj₂ (parse stringLit pos (showInt-chars z ++ suffix)) ≡ nothing`.
   parse-stringLit-fail-on-int : ∀ pos z suffix
-    → parse stringLit pos (showInt-chars z ++ₗ suffix) ≡ nothing
+    → proj₂ (parse stringLit pos (showInt-chars z ++ₗ suffix)) ≡ nothing
   parse-stringLit-fail-on-int pos (+ n) suffix with showNat-chars-head n
   ... | d , tail , d<10 , eq =
-        subst (λ chars → parse stringLit pos (chars ++ₗ suffix) ≡ nothing)
+        subst (λ chars → proj₂ (parse stringLit pos (chars ++ₗ suffix)) ≡ nothing)
               (sym eq)
               (parseStringLit-fail-on-non-quote pos
                  (digitChar d) (tail ++ₗ suffix)
@@ -288,7 +288,7 @@ private
     ∀ pos z suffix
     → SuffixStops isDigit suffix
     → '.' ≢ headOr suffix '_'
-    → parse decRatFrac pos (showInt-chars z ++ₗ suffix) ≡ nothing
+    → proj₂ (parse decRatFrac pos (showInt-chars z ++ₗ suffix)) ≡ nothing
   parse-decRatFrac-fail-on-bareInt pos z suffix ss-digit not-dot =
     Aletheia.DBC.TextParser.DecRatParse.Properties.parseDecRatFrac-fails-bareInt
       z pos suffix ss-digit not-dot
@@ -345,7 +345,7 @@ build-EmitsOK-RavwBareInt z suffix ss-digit not-dot =
 parseRawAttrValueWire-format-roundtrip :
   ∀ (pos : Position) (rv : RawAttrValueWire) (suffix : List Char)
   → EmitsOK attrValueWireFmt rv suffix
-  → parse attrValueWireFmt pos (emit attrValueWireFmt rv ++ₗ suffix)
+  → proj₂ (parse attrValueWireFmt pos (emit attrValueWireFmt rv ++ₗ suffix))
     ≡ just (mkResult rv (advancePositions pos (emit attrValueWireFmt rv)) suffix)
 parseRawAttrValueWire-format-roundtrip pos rv suffix wf =
   roundtrip attrValueWireFmt pos rv suffix wf

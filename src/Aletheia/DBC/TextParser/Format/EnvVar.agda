@@ -379,8 +379,8 @@ build-emits-ok ev outer-suffix nameStop =
 parseEnvVar-format-roundtrip :
     ∀ (pos : Position) (ev : EnvironmentVar) (outer-suffix : List Char)
   → EnvVarNameStop ev
-  → parse envVarFmt pos
-      (emit envVarFmt ev ++ₗ outer-suffix)
+  → proj₂ (parse envVarFmt pos
+      (emit envVarFmt ev ++ₗ outer-suffix))
     ≡ just (mkResult ev
              (advancePositions pos (emit envVarFmt ev))
              outer-suffix)

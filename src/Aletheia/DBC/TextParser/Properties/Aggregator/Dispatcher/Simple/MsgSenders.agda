@@ -100,12 +100,12 @@ parseBOTxBu-roundtrip-explicit :
       (suffix : List Char)
   → RawMsgSendersNameStop h
   → SuffixStops isNewlineStart suffix
-  → parseBOTxBu pos (emitMsgSenders-line-chars (mkRawMsgSenders cid (h ∷ t)) ++ₗ suffix)
+  → proj₂ (parseBOTxBu pos (emitMsgSenders-line-chars (mkRawMsgSenders cid (h ∷ t)) ++ₗ suffix))
     ≡ just (mkResult (mkRawMsgSenders cid (h ∷ t))
              (advancePositions pos (emitMsgSenders-line-chars (mkRawMsgSenders cid (h ∷ t))))
              suffix)
 parseBOTxBu-roundtrip-explicit pos cid h t suffix nameStop nl-stop =
-  trans (cong (λ inp → parseBOTxBu pos (inp ++ₗ suffix)) (sym bridge))
+  trans (cong (λ inp → proj₂ (parseBOTxBu pos (inp ++ₗ suffix))) (sym bridge))
     (trans step-format
       (trans step-many-newline
         step-buildResult))
@@ -127,8 +127,8 @@ parseBOTxBu-roundtrip-explicit pos cid h t suffix nameStop nl-stop =
                          (proj₁ (proj₂ tr) ∷ proj₂ (proj₂ tr))
 
     step-format :
-        parseBOTxBu pos (emit MsgSenders-format triple ++ₗ suffix)
-      ≡ cont-line triple pos-line suffix
+        proj₂ (parseBOTxBu pos (emit MsgSenders-format triple ++ₗ suffix))
+      ≡ proj₂ (cont-line triple pos-line suffix)
     step-format =
       bind-just-step (parse MsgSenders-format)
                      cont-line
@@ -143,8 +143,8 @@ parseBOTxBu-roundtrip-explicit pos cid h t suffix nameStop nl-stop =
                          (proj₁ (proj₂ triple) ∷ proj₂ (proj₂ triple))
 
     step-many-newline :
-        cont-line triple pos-line suffix
-      ≡ cont-blanks [] pos-line suffix
+        proj₂ (cont-line triple pos-line suffix)
+      ≡ proj₂ (cont-blanks [] pos-line suffix)
     step-many-newline =
       bind-just-step (many parseNewline)
                      cont-blanks
@@ -154,14 +154,14 @@ parseBOTxBu-roundtrip-explicit pos cid h t suffix nameStop nl-stop =
                        pos-line suffix (length suffix) nl-stop)
 
     step-buildResult :
-        cont-blanks [] pos-line suffix
+        proj₂ (cont-blanks [] pos-line suffix)
       ≡ just (mkResult (mkRawMsgSenders cid (h ∷ t))
                (advancePositions pos
                  (emitMsgSenders-line-chars (mkRawMsgSenders cid (h ∷ t))))
                suffix)
     step-buildResult =
       trans
-        (cong (λ m → buildSendersResult m (h ∷ t) pos-line suffix)
+        (cong (λ m → proj₂ (buildSendersResult m (h ∷ t) pos-line suffix))
               (buildCANId-rawCanIdℕ cid))
         (cong (λ p → just (mkResult (mkRawMsgSenders cid (h ∷ t)) p suffix))
               (cong (advancePositions pos) bridge))
@@ -174,12 +174,12 @@ parseBOTxBu-roundtrip :
     ∀ (pos : Position) (rms : RawMsgSenders) (suffix : List Char)
   → RawMsgSendersStop rms
   → SuffixStops isNewlineStart suffix
-  → parseBOTxBu pos (emitMsgSenders-line-chars rms ++ₗ suffix)
+  → proj₂ (parseBOTxBu pos (emitMsgSenders-line-chars rms ++ₗ suffix))
     ≡ just (mkResult rms
              (advancePositions pos (emitMsgSenders-line-chars rms))
              suffix)
 parseBOTxBu-roundtrip pos rms suffix (h , t , snds-eq , nameStop) nl-stop =
-  trans (cong (λ r → parseBOTxBu pos (emitMsgSenders-line-chars r ++ₗ suffix)) rms-eq)
+  trans (cong (λ r → proj₂ (parseBOTxBu pos (emitMsgSenders-line-chars r ++ₗ suffix))) rms-eq)
     (trans (parseBOTxBu-roundtrip-explicit pos (RawMsgSenders.canId rms) h t suffix nameStop nl-stop)
            (sym (cong (λ r → just (mkResult r
                        (advancePositions pos (emitMsgSenders-line-chars r)) suffix)) rms-eq)))
@@ -195,7 +195,7 @@ parseTopStmt-on-emit-TBO-eq :
     ∀ (pos : Position) (rms : RawMsgSenders) (outer : List Char)
   → RawMsgSendersStop rms
   → SuffixStops isNewlineStart outer
-  → parseTopStmt pos (emitMsgSenders-line-chars rms ++ₗ outer)
+  → proj₂ (parseTopStmt pos (emitMsgSenders-line-chars rms ++ₗ outer))
     ≡ just (mkResult (TSBOTxBu rms)
                      (advancePositions pos (emitMsgSenders-line-chars rms))
                      outer)
@@ -213,7 +213,7 @@ parseTopStmt-on-emit-TBO-eq pos rms outer stop nl-stop =
     pos-bo = advancePositions pos (emitMsgSenders-line-chars rms)
 
     left-success :
-        (parseBOTxBu >>= λ r → pure (TSBOTxBu r)) pos input
+        proj₂ ((parseBOTxBu >>= λ r → pure (TSBOTxBu r)) pos input)
       ≡ just (mkResult (TSBOTxBu rms) pos-bo outer)
     left-success =
       bind-just-step parseBOTxBu (λ r → pure (TSBOTxBu r))

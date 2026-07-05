@@ -33,6 +33,7 @@ open import Data.String using (String; toList)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; map)
+open import Data.Product using (proj₂)
 open import Data.Rational.Base using (ℚ)
 
 open import Aletheia.Parser.Combinators using (runParserPartial; ParseResult; mkResult)
@@ -45,9 +46,11 @@ fromResult nothing                       = nothing
 fromResult (just (mkResult d _ []))      = just d
 fromResult (just (mkResult _ _ (_ ∷ _))) = nothing
 
--- Parse a decimal-character stream into a canonical `DecRat`.
+-- Parse a decimal-character stream into a canonical `DecRat`.  The
+-- failure watermark (proj₁) is dropped: this is a yes/no boundary — the
+-- FFI envelope reports the whole literal as invalid, not a position.
 parseDecimal-chars : List Char → Maybe DecRat
-parseDecimal-chars cs = fromResult (runParserPartial parseDecRat cs)
+parseDecimal-chars cs = fromResult (proj₂ (runParserPartial parseDecRat cs))
 
 -- FFI entry: parse a decimal string into the exact rational it denotes.
 -- `nothing` means "not a valid decimal literal".  The shim turns the result

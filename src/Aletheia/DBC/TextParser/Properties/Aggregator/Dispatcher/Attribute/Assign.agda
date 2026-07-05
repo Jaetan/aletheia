@@ -6,7 +6,7 @@
 --
 -- Composes the 3 emit-shape dispatchers (String / Frac / BareInt) into
 -- the universal AttrAssign roundtrip:
---   `parseAttrLine pos (emitAttribute-chars defs (DBCAttrAssign a) ++ outer)
+--   `proj₂ (parseAttrLine pos (emitAttribute-chars defs (DBCAttrAssign a) ++ outer))
 --      ≡ just (mkResult (rawOf defs (DBCAttrAssign a))
 --                       (advancePositions pos (emitAttribute-chars defs ...))
 --                       outer)`
@@ -32,6 +32,7 @@ open import Data.Integer using ()
 open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 
 open import Aletheia.Parser.Combinators using
@@ -100,10 +101,10 @@ parseAttrLine-on-emit-RawAssign :
       (outer : List Char)
   → IdentNameStop-of target
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (emitAttribute-chars defs
          (DBCAttrAssign (mkAttrAssign name target value))
-       ++ₗ outer)
+       ++ₗ outer))
     ≡ just (mkResult
               (rawOf defs
                  (DBCAttrAssign (mkAttrAssign name target value)))

@@ -142,7 +142,7 @@ NodeNameStop n =
 -- definitionally on the closed leading char.  Provides `ParseFailsAt
 -- nodeEntry-format ('\n' ∷ outer)` for the empty-tail step of `EmitsOKMany`.
 parse-nodeEntry-fails-on-LF : ∀ pos rest
-  → parse nodeEntry-format pos ('\n' ∷ rest) ≡ nothing
+  → proj₂ (parse nodeEntry-format pos ('\n' ∷ rest)) ≡ nothing
 parse-nodeEntry-fails-on-LF pos rest = refl
 
 -- ============================================================================
@@ -235,8 +235,8 @@ build-emits-ok ns outer-suffix node-stops =
 parseNodeList-format-roundtrip :
     ∀ (pos : Position) (ns : List Node) (outer-suffix : List Char)
   → All NodeNameStop ns
-  → parse nodeListFmt pos
-      (emit nodeListFmt ns ++ₗ outer-suffix)
+  → proj₂ (parse nodeListFmt pos
+      (emit nodeListFmt ns ++ₗ outer-suffix))
     ≡ just (mkResult ns
              (advancePositions pos (emit nodeListFmt ns))
              outer-suffix)

@@ -25,6 +25,7 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong)
@@ -49,12 +50,13 @@ open import Aletheia.DBC.TextParser.Format.Preamble as FmtBs using
 parseBitTiming-roundtrip :
     ∀ (pos : Position) (suffix : List Char)
   → SuffixStops isNewlineStart suffix
-  → parseBitTiming pos (emitBitTiming-chars ++ₗ suffix)
+  → proj₂ (parseBitTiming pos (emitBitTiming-chars ++ₗ suffix))
     ≡ just (mkResult tt
              (advancePositions pos emitBitTiming-chars)
              suffix)
 parseBitTiming-roundtrip pos suffix nl-stop =
-  trans (cong (λ inp → parseBitTiming pos (inp ++ₗ suffix)) (sym bridge))
+  trans (cong (λ inp → proj₂ (parseBitTiming pos (inp ++ₗ suffix)))
+              (sym bridge))
     (trans step-shape
       (trans step-format
         (trans step-many-newline
@@ -76,14 +78,15 @@ parseBitTiming-roundtrip pos suffix nl-stop =
     cont-blanks _ = pure tt
 
     step-shape :
-      parseBitTiming pos ((emit bitTimingFmt tt ++ₗ '\n' ∷ []) ++ₗ suffix)
-      ≡ parseBitTiming pos (emit bitTimingFmt tt ++ₗ '\n' ∷ suffix)
-    step-shape = cong (parseBitTiming pos)
+      proj₂ (parseBitTiming pos
+              ((emit bitTimingFmt tt ++ₗ '\n' ∷ []) ++ₗ suffix))
+      ≡ proj₂ (parseBitTiming pos (emit bitTimingFmt tt ++ₗ '\n' ∷ suffix))
+    step-shape = cong (λ inp → proj₂ (parseBitTiming pos inp))
                       (++ₗ-assoc (emit bitTimingFmt tt) ('\n' ∷ []) suffix)
 
     step-format :
-      parseBitTiming pos (emit bitTimingFmt tt ++ₗ '\n' ∷ suffix)
-      ≡ cont-line tt pos-line ('\n' ∷ suffix)
+      proj₂ (parseBitTiming pos (emit bitTimingFmt tt ++ₗ '\n' ∷ suffix))
+      ≡ proj₂ (cont-line tt pos-line ('\n' ∷ suffix))
     step-format =
       bind-just-step (parse bitTimingFmt) cont-line
                      pos (emit bitTimingFmt tt ++ₗ '\n' ∷ suffix)
@@ -92,8 +95,8 @@ parseBitTiming-roundtrip pos suffix nl-stop =
                        pos ('\n' ∷ suffix))
 
     step-many-newline :
-      cont-line tt pos-line ('\n' ∷ suffix)
-      ≡ cont-blanks ('\n' ∷ []) pos-after-nl suffix
+      proj₂ (cont-line tt pos-line ('\n' ∷ suffix))
+      ≡ proj₂ (cont-blanks ('\n' ∷ []) pos-after-nl suffix)
     step-many-newline =
       bind-just-step (many parseNewline) cont-blanks
                      pos-line ('\n' ∷ suffix)
@@ -108,7 +111,7 @@ parseBitTiming-roundtrip pos suffix nl-stop =
         (cong (advancePositions pos) bridge)
 
     step-pure :
-      cont-blanks ('\n' ∷ []) pos-after-nl suffix
+      proj₂ (cont-blanks ('\n' ∷ []) pos-after-nl suffix)
       ≡ just (mkResult tt
                (advancePositions pos emitBitTiming-chars)
                suffix)

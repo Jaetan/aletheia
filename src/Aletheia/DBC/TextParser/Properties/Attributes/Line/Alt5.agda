@@ -19,6 +19,7 @@ open import Data.Char using (Char)
 open import Data.Integer using (ℤ)
 open import Data.List using (List; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl)
@@ -89,9 +90,9 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Line using
 parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString :
     ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavString s)))
               (NetworkProofs.TraceNetwork.pos9 pos name (quoteStringLit-chars s) outer-suffix)
@@ -108,7 +109,7 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString pos name s outer-suffix 
     input = toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
             ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix
 
-    alt5-eq : P5 pos input
+    alt5-eq : proj₂ (P5 pos input)
               ≡ just (mkResult
                        (RawAssign (mkRawAttrAssign name ATgtNetwork (RavString s)))
                        (NetworkProofs.TraceNetwork.pos9 pos name (quoteStringLit-chars s) outer-suffix)
@@ -124,9 +125,9 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString pos name s outer-suffix 
 parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac :
     ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat d)))
               (NetworkProofs.TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer-suffix)
@@ -145,9 +146,9 @@ parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac pos name d outer-suf
 parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt :
     ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z))))
               (NetworkProofs.TraceNetwork.pos9 pos name (showInt-chars z) outer-suffix)
@@ -168,10 +169,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavString :
     ∀ pos (name : List Char) (n : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name n ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavString s)))
               (NodeProofs.TraceNode.pos9 pos name n (quoteStringLit-chars s) outer-suffix)
@@ -192,10 +193,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac :
     ∀ pos (name : List Char) (n : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name n ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat d)))
               (NodeProofs.TraceNode.pos9 pos name n (showDecRat-dec-chars d) outer-suffix)
@@ -216,10 +217,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt :
     ∀ pos (name : List Char) (n : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BU_ " ++ₗ Identifier.name n ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat (fromℤ z))))
               (NodeProofs.TraceNode.pos9 pos name n (showInt-chars z) outer-suffix)
@@ -240,10 +241,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt pos name n z outer-s
 parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavString :
     ∀ pos (name : List Char) (cid : CANId) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavString s)))
               (MessageProofs.TraceMessage.pos9 pos name cid (quoteStringLit-chars s) outer-suffix)
@@ -263,10 +264,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavString pos name cid s outer-suf
 parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac :
     ∀ pos (name : List Char) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat d)))
               (MessageProofs.TraceMessage.pos9 pos name cid (showDecRat-dec-chars d) outer-suffix)
@@ -286,10 +287,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac pos name cid d outer
 parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt :
     ∀ pos (name : List Char) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z))))
               (MessageProofs.TraceMessage.pos9 pos name cid (showInt-chars z) outer-suffix)
@@ -312,11 +313,11 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavString :
       (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavString s)))
               (SignalProofs.TraceSignal.pos9 pos name cid sig (quoteStringLit-chars s) outer-suffix)
@@ -339,11 +340,11 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac :
       (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat d)))
               (SignalProofs.TraceSignal.pos9 pos name cid sig (showDecRat-dec-chars d) outer-suffix)
@@ -366,11 +367,11 @@ parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt :
       (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
         ' ' ∷ Identifier.name sig ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z))))
               (SignalProofs.TraceSignal.pos9 pos name cid sig (showInt-chars z) outer-suffix)
@@ -393,10 +394,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavString :
     ∀ pos (name : List Char) (ev : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavString s)))
               (EnvVarProofs.TraceEnvVar.pos9 pos name ev (quoteStringLit-chars s) outer-suffix)
@@ -417,10 +418,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac :
     ∀ pos (name : List Char) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d)))
               (EnvVarProofs.TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer-suffix)
@@ -441,10 +442,10 @@ parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt :
     ∀ pos (name : List Char) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer-suffix
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z))))
               (EnvVarProofs.TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix)

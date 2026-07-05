@@ -24,6 +24,7 @@ open import Data.List  using (List; _∷_)
 open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
+open import Data.Product using (proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; sym; trans; cong; subst)
@@ -263,16 +264,16 @@ private
 parseAttrLine-on-RavBareInt-Network :
     ∀ (pos : Position) (name : List Char) (z : ℤ) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z))))
               (TraceNetwork.pos9 pos name (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-Network pos name z outer ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z))))
                         (TraceNetwork.pos9 pos name (showInt-chars z) outer)
@@ -285,17 +286,17 @@ parseAttrLine-on-RavBareInt-Node :
     ∀ (pos : Position) (name : List Char) (n : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BU_ " ++ₗ Identifier.name n ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat (fromℤ z))))
               (TraceNode.pos9 pos name n (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-Node pos name n z outer n-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name (ATgtNode n) (RavDecRat (fromℤ z))))
                         (TraceNode.pos9 pos name n (showInt-chars z) outer)
@@ -307,17 +308,17 @@ parseAttrLine-on-RavBareInt-Node pos name n z outer n-stop ss-NL =
 parseAttrLine-on-RavBareInt-Message :
     ∀ (pos : Position) (name : List Char) (cid : CANId) (z : ℤ) (outer : List Char)
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z))))
               (TraceMessage.pos9 pos name cid (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-Message pos name cid z outer ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name (ATgtMessage cid) (RavDecRat (fromℤ z))))
                         (TraceMessage.pos9 pos name cid (showInt-chars z) outer)
@@ -331,18 +332,18 @@ parseAttrLine-on-RavBareInt-Signal :
       (z : ℤ) (outer : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z))))
               (TraceSignal.pos9 pos name cid sig (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-Signal pos name cid sig z outer sig-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z))))
                         (TraceSignal.pos9 pos name cid sig (showInt-chars z) outer)
@@ -355,17 +356,17 @@ parseAttrLine-on-RavBareInt-EnvVar :
     ∀ (pos : Position) (name : List Char) (ev : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop ev
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z))))
               (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-EnvVar pos name ev z outer ev-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z))))
                         (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer)
@@ -379,18 +380,18 @@ parseAttrLine-on-RavBareInt-NodeMsg :
       (z : ℤ) (outer : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BU_BO_REL_ " ++ₗ Identifier.name n ++ₗ
          ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat (fromℤ z))))
               (TraceNodeMsg.pos9 pos name n cid (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-NodeMsg pos name n cid z outer n-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name (ATgtNodeMsg n cid) (RavDecRat (fromℤ z))))
                         (TraceNodeMsg.pos9 pos name n cid (showInt-chars z) outer)
@@ -404,19 +405,19 @@ parseAttrLine-on-RavBareInt-NodeSig :
       (sig : Identifier) (z : ℤ) (outer : List Char)
   → IdentNameStop n → IdentNameStop sig
   → SuffixStops isNewlineStart outer
-  → parseAttrLine pos
+  → proj₂ (parseAttrLine pos
       ((toList "BA_REL_ " ++ₗ quoteStringLit-chars name ++ₗ
          toList " BU_SG_REL_ " ++ₗ Identifier.name n ++ₗ
          toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
          ' ' ∷ Identifier.name sig ++ₗ
-         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer)
+         ' ' ∷ showInt-chars z ++ₗ toList ";\n") ++ₗ outer))
     ≡ just (mkResult
               (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavDecRat (fromℤ z))))
               (TraceNodeSig.pos9 pos name n cid sig (showInt-chars z) outer)
               outer)
 parseAttrLine-on-RavBareInt-NodeSig pos name n cid sig z outer n-stop sig-stop ss-NL =
   subst
-    (λ inp → parseAttrLine pos inp
+    (λ inp → proj₂ (parseAttrLine pos inp)
               ≡ just (mkResult
                         (RawAssign (mkRawAttrAssign name (ATgtNodeSig n cid sig) (RavDecRat (fromℤ z))))
                         (TraceNodeSig.pos9 pos name n cid sig (showInt-chars z) outer)

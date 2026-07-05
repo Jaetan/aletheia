@@ -30,6 +30,7 @@ open import Data.Integer using (ℤ)
 open import Data.List using ([])
 open import Data.List.Properties using (++-identityʳ)
 open import Data.Maybe using (just; map)
+open import Data.Product using (proj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; cong; sym; trans)
 
@@ -45,7 +46,7 @@ open import Aletheia.DBC.TextParser.DecimalEntry using (fromResult; parseDecimal
 -- The parser recovers every DecRat from its canonical decimal text.
 parseDecimal-chars-roundtrip : ∀ d → parseDecimal-chars (showDecRat-dec-chars d) ≡ just d
 parseDecimal-chars-roundtrip d =
-  trans (cong (λ x → fromResult (runParserPartial parseDecRat x))
+  trans (cong (λ x → fromResult (proj₂ (runParserPartial parseDecRat x)))
               (sym (++-identityʳ (showDecRat-dec-chars d))))
         (cong fromResult
               (parseDecRat-roundtrip-suffix d initialPosition [] []-stop))
@@ -65,7 +66,7 @@ dot≢us ()
 parseDecimal-chars-bareInt-roundtrip :
   ∀ z → parseDecimal-chars (showInt-chars z) ≡ just (fromℤ z)
 parseDecimal-chars-bareInt-roundtrip z =
-  trans (cong (λ x → fromResult (runParserPartial parseDecRat x))
+  trans (cong (λ x → fromResult (proj₂ (runParserPartial parseDecRat x)))
               (sym (++-identityʳ (showInt-chars z))))
         (cong fromResult
               (parseDecRat-bareInt-roundtrip-suffix z initialPosition [] []-stop dot≢us))

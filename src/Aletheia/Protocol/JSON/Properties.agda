@@ -22,7 +22,7 @@ open import Data.Maybe using (just; nothing)
 open import Data.Rational using (ℚ)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
 open import Data.Empty as Empty using (⊥-elim)
-open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.Product using (_×_; _,_; ∃-syntax; proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; _≢_)
 open import Relation.Nullary using (yes; no)
 
@@ -186,7 +186,7 @@ lookupObject-here k fs rest
 
 -- All JSON parsers are deterministic (follows from parser combinators)
 parseJSON-deterministic : ∀ (pos : Position) (input : List Char) (r₁ r₂ : ParseResult JSON)
-                        → parseJSON pos input ≡ just r₁
-                        → parseJSON pos input ≡ just r₂
+                        → proj₂ (parseJSON pos input) ≡ just r₁
+                        → proj₂ (parseJSON pos input) ≡ just r₂
                         → r₁ ≡ r₂
 parseJSON-deterministic = parser-deterministic parseJSON
