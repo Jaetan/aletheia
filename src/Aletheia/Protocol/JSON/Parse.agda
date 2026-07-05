@@ -18,7 +18,7 @@ open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational as Rat using (ℚ; _/_; -_) renaming (_*_ to _*ᵣ_)
-open import Data.Product using (_×_; _,_; proj₁)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Parser.Combinators using (Parser; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
 open import Aletheia.Prelude using (ℕtoℚ)
@@ -200,7 +200,7 @@ parseString = do
 -- Parse JSON using input length as termination measure (like 'many' does)
 -- This makes the structural recursion explicit to Agda's termination checker
 parseJSONHelper : ℕ → Parser JSON
-parseJSONHelper zero pos input = nothing  -- No budget left, fail
+parseJSONHelper zero pos input = pos , nothing  -- No budget left, fail
 parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
   where
     mutual
@@ -276,6 +276,8 @@ parseJSON pos input = parseJSONHelper (length input) pos input
 -- HELPER: RUN JSON PARSER
 -- ============================================================================
 
--- Parse JSON from string
+-- Parse JSON from string.  Drops the failure watermark (proj₂ of the
+-- driver pair) — positioned JSON errors surface via `Main.JSON`'s
+-- driver, which consumes the full pair.
 fromString : String → Maybe JSON
-fromString input = mapₘ proj₁ (runParser parseJSON (toList input))
+fromString input = mapₘ proj₁ (proj₂ (runParser parseJSON (toList input)))

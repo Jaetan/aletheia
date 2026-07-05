@@ -66,6 +66,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.Parser.Combinators using
   (ParseResult; value; position; remaining;
    runParserPartial)
+open import Aletheia.Parser.Position using (Position)
 
 open import Aletheia.DBC.Types using
   (DBC; Node; DBCAttribute)
@@ -229,11 +230,11 @@ buildDBC ver nodes c attrs = record
 -- taxonomy.  Broken out from `parseText` so the three-case dispatch
 -- does not nest inside the `toList` call — easier to read, and the
 -- refinement step is isolated from the outer runner.
-finalizeParse : Maybe (ParseResult (List Char × List Node × List TopStmt))
+finalizeParse : Position × Maybe (ParseResult (List Char × List Node × List TopStmt))
               → DBCTextParseError ⊎ DBC
-finalizeParse nothing = inj₁ ParseFailure
-finalizeParse (just res) with remaining res
-... | (_ ∷ _) = inj₁ (TrailingInput (position res))
+finalizeParse (w , nothing) = inj₁ (ParseFailure w)
+finalizeParse (w , just res) with remaining res
+... | (_ ∷ _) = inj₁ (TrailingInput w (position res))
 ... | []      with value res
 ...   | (ver , nodes , stmts) with partitionTopStmts stmts
 ...     | collected with refineAttributes (CollectedTop.rawAttributes collected)

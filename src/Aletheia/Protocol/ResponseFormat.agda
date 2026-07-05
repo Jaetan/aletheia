@@ -146,7 +146,21 @@ private
     []
 
 errorExtras : Err.Error → List (String × JSON)
-errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos)) =
+-- `line`/`column` are the failure watermark (deepest position any parse
+-- attempt reached — byte-exact at the first unparseable character);
+-- trailing-input additionally reports where the unparseable statement
+-- starts, so tools can show both the statement and the exact byte.
+errorExtras (Err.DBCTextParseErr (Err.ParseFailure pos)) =
+  ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
+  ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
+  []
+errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos stmt)) =
+  ("line"             , JNumber (ℕtoℚ (Position.line pos))) ∷
+  ("column"           , JNumber (ℕtoℚ (Position.column pos))) ∷
+  ("statement_line"   , JNumber (ℕtoℚ (Position.line stmt))) ∷
+  ("statement_column" , JNumber (ℕtoℚ (Position.column stmt))) ∷
+  []
+errorExtras (Err.DispatchErr (Err.InvalidJSON pos)) =
   ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
   ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
   []
