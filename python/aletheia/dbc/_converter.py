@@ -18,7 +18,12 @@ file returns ``d`` for any well-formed DBC (Track B.3.d / E.9a universal).
 from pathlib import Path
 
 from aletheia.client._client import AletheiaClient
-from aletheia.client._types import ValidationError, check_dbc_text_size_bound
+from aletheia.client._response_parsers import lift_validation_issues
+from aletheia.client._types import (
+    DBCValidationFailedError,
+    ValidationError,
+    check_dbc_text_size_bound,
+)
 from aletheia.types import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
 
 
@@ -33,7 +38,11 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
 
     Raises:
         OSError: If the file cannot be read.
-        ValidationError: If the file is not a valid DBC.
+        DBCValidationFailedError: If the DBC parsed but failed validation
+            with a structured issue list (``handler_validation_failed``).
+        ValidationError: If the file is not a valid DBC and the error
+            envelope carries no structured issue list (e.g. a syntactic
+            parse failure).
         InputBoundExceededError: If the file is larger than
             :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).
 
@@ -54,6 +63,18 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":
         msg = f"Failed to parse DBC file '{dbc_path}': {response['message']}"
+        # One rule decides liftability — the same helper the client's
+        # validate_dbc uses (gated on the wire code, pair attached
+        # atomically); no local re-implementation to drift.
+        lifted = lift_validation_issues(response)
+        if lifted is not None:
+            issues, has_errors = lifted
+            raise DBCValidationFailedError(
+                msg,
+                issues,
+                has_errors=has_errors,
+                code="handler_validation_failed",
+            )
         raise ValidationError(msg)
     return response["dbc"]
 

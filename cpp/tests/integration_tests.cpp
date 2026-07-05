@@ -671,6 +671,41 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
     CHECK(hit);
 }
 
+TEST_CASE("rejected DBC text parse carries typed validation issues via real FFI",
+          "[integration][dbc][validation]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // minimal.dbc's EngineStatus message with EngineTemp renamed to
+    // EngineSpeed — a duplicate signal name, an error-severity issue, so the
+    // kernel rejects the parse with handler_validation_failed carrying the
+    // structured issues alongside the legacy message text.
+    constexpr std::string_view text = R"(VERSION "1.0"
+
+NS_ :
+
+BS_:
+
+BU_: Engine Gateway
+
+BO_ 256 EngineStatus: 8 Engine
+ SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|8000] "rpm" Gateway
+ SG_ EngineSpeed : 16|8@1+ (1,-40) [-40|215] "degC" Gateway
+)";
+
+    auto parsed = client.parse_dbc_text(std::stop_token{}, text);
+    REQUIRE_FALSE(parsed.has_value());
+    CHECK(parsed.error().code() == ErrorCode::HandlerValidationFailed);
+    CHECK(std::string{parsed.error().message()}.find("duplicate signal name") != std::string::npos);
+    REQUIRE(parsed.error().issues().has_value());
+    bool hit = std::ranges::any_of(*parsed.error().issues(), [](const ValidationIssue& issue) {
+        return issue.severity == IssueSeverity::Error &&
+               issue.code == IssueCode::DuplicateSignalName;
+    });
+    CHECK(hit);
+}
+
 // ---------------------------------------------------------------------------
 // Concurrent client isolation test
 // ---------------------------------------------------------------------------

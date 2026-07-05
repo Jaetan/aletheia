@@ -53,6 +53,43 @@ def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationI
     return issues
 
 
+def lift_validation_issues(
+    response: Response,
+) -> tuple[list[ValidationIssue], bool] | None:
+    """Extract the ``issues`` / ``has_errors`` pair from an error envelope.
+
+    Validation-failure errors (``code == "handler_validation_failed"`` from
+    ``parseDBC`` / ``parseDBCText``) append the ``validation``-response
+    issue list plus ``has_errors`` via ``Protocol/ResponseFormat.
+    errorExtras``.  Both fields must be present and well-typed — every
+    issue an object with string ``code`` / ``detail`` and a canonical
+    severity — else the payload is treated as missing rather than partial
+    (the degrade rule of the ``bound_kind`` / ``observed`` / ``limit``
+    triple in :func:`build_error_response`).
+    """
+    # Gate on the wire code, like the Go / C++ / Rust decoders: another
+    # error envelope that happens to carry has_errors/issues-shaped keys
+    # must not be mis-lifted into validation issues.
+    if response.get("code") != "handler_validation_failed":
+        return None
+    has_errors = response.get("has_errors")
+    raw_issues = response.get("issues")
+    if not isinstance(has_errors, bool) or not is_object_list(raw_issues):
+        return None
+    if not all(
+        is_str_dict(item)
+        and isinstance(item.get("code"), str)
+        and isinstance(item.get("detail"), str)
+        for item in raw_issues
+    ):
+        return None
+    issues = cast("list[ValidationIssue]", list(raw_issues))
+    try:
+        return validate_issue_severities(issues), has_errors
+    except ProtocolError:
+        return None
+
+
 def build_error_response(response: Response) -> ErrorResponse:
     """Build an ``ErrorResponse`` from a raw FFI response dict.
 
@@ -71,6 +108,10 @@ def build_error_response(response: Response) -> ErrorResponse:
     one is, else the payload is treated as missing rather than partial
     (matches the C++ binding's degrade-to-nullopt rule in
     ``make_json_error``).
+
+    Validation-failure errors carry the ``issues`` / ``has_errors`` pair
+    under the same all-or-nothing rule (see
+    :func:`lift_validation_issues`).
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -97,6 +138,9 @@ def build_error_response(response: Response) -> ErrorResponse:
         out["bound_kind"] = bound_kind
         out["observed"] = observed
         out["limit"] = limit
+    lifted = lift_validation_issues(response)
+    if lifted is not None:
+        out["issues"], out["has_errors"] = lifted
     return out
 
 

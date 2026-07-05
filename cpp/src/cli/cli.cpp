@@ -27,6 +27,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstddef>
@@ -47,6 +48,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -69,6 +71,17 @@ struct Args {
     std::map<std::string, std::string> opts; // value flags (--dbc, --mux, --value)
     std::set<std::string> flags;             // bool flags (--json, --extended)
     std::vector<std::string> positionals;
+};
+
+// load_dbc_text failure: the human-readable message every subcommand dies
+// with, plus the typed core error when the verified parser itself rejected
+// the text (absent for file-level failures: missing path, unsupported
+// extension, unreadable file). cmd_validate renders a rejected parse that
+// carries validation issues as a normal validation report; every other
+// subcommand prints `message` unchanged.
+struct DbcLoadError {
+    std::string message;
+    std::optional<aletheia::AletheiaError> core;
 };
 
 } // namespace
@@ -115,22 +128,24 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
 // Reads a `.dbc` text file and parses it through the verified Agda text parser.
 // Canonical-JSON and `.xlsx` inputs are not yet wired.
 static auto load_dbc_text(AletheiaClient& client, const std::string& path)
-    -> std::expected<DbcDefinition, std::string> {
+    -> std::expected<DbcDefinition, DbcLoadError> {
     if (path.empty())
-        return std::unexpected<std::string>("no DBC source (use --dbc <file>.dbc)");
+        return std::unexpected(DbcLoadError{.message = "no DBC source (use --dbc <file>.dbc)"});
     if (path.ends_with(".json") || path.ends_with(".xlsx"))
-        return std::unexpected<std::string>(
-            path + ": only .dbc text input is supported by the C++ CLI yet "
-                   "(JSON / .xlsx input not wired)");
+        return std::unexpected(
+            DbcLoadError{.message = path + ": only .dbc text input is supported by the C++ CLI yet "
+                                           "(JSON / .xlsx input not wired)"});
     const std::ifstream in{path};
     if (!in)
-        return std::unexpected<std::string>("reading " + path);
+        return std::unexpected(DbcLoadError{.message = "reading " + path});
     std::ostringstream buf;
     buf << in.rdbuf();
     auto parsed = client.parse_dbc_text(std::stop_token{}, buf.str());
     if (!parsed)
-        return std::unexpected<std::string>("parsing " + path + ": " +
-                                            std::string{parsed.error().message()});
+        return std::unexpected(DbcLoadError{
+            .message = "parsing " + path + ": " + std::string{parsed.error().message()},
+            .core = std::move(parsed.error()),
+        });
     return parsed->dbc;
 }
 
@@ -238,43 +253,77 @@ static auto opt_or(const Args& a, const std::string& key) -> std::string {
 
 // --- subcommands ----------------------------------------------------------
 
-static auto cmd_validate(const Args& a) -> int {
-    auto client = make_client();
-    if (!client)
-        return die(client.error());
-    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
-    if (!def)
-        return die(def.error());
-    auto res = client->validate_dbc(std::stop_token{}, *def);
-    if (!res)
-        return die(std::string{res.error().message()});
-
-    if (a.flags.contains("json")) {
-        Json issues = Json::array();
-        for (const auto& i : res->issues)
-            issues.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
-                              {"code", std::string{aletheia::issue_code_label(i)}},
-                              {"detail", i.detail}});
-        return emit_json({{"status", res->has_errors ? "fail" : "pass"},
-                          {"has_errors", res->has_errors},
-                          {"total_issues", res->issues.size()},
-                          {"issues", issues}});
+// Renders a validation outcome in both the --json and human-readable forms;
+// shared by the validate-a-parsed-DBC path and the rejected-parse path (a
+// handler_validation_failed error carrying issues), so both print the
+// identical report shape.
+static auto render_validation(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues,
+                              bool as_json) -> int {
+    if (as_json) {
+        Json arr = Json::array();
+        for (const auto& i : issues)
+            arr.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
+                           {"code", std::string{aletheia::issue_code_label(i)}},
+                           {"detail", i.detail}});
+        const int code = emit_json({{"status", has_errors ? "fail" : "pass"},
+                                    {"has_errors", has_errors},
+                                    {"total_issues", issues.size()},
+                                    {"issues", arr}});
+        // An emit failure is an operational error and must not be masked
+        // by the validation outcome.
+        if (code != k_exit_ok)
+            return code;
+        // The exit code reflects the validation outcome in both output
+        // modes — a pipeline running --json still needs exit 1 on failure.
+        return has_errors ? k_exit_violations : k_exit_ok;
     }
-    if (res->issues.empty()) {
+    if (issues.empty()) {
         std::cout << "Validation passed: no issues found\n";
         return k_exit_ok;
     }
-    std::cout << (res->has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
-              << res->issues.size() << " issues)\n\n";
+    std::cout << (has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
+              << issues.size() << " issues)\n\n";
     int n = 1;
-    for (const auto& i : res->issues) {
+    for (const auto& i : issues) {
         std::string sev{aletheia::to_string(i.severity)};
         for (char& c : sev)
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
                   << i.detail << '\n';
     }
-    return res->has_errors ? k_exit_violations : k_exit_ok;
+    return has_errors ? k_exit_violations : k_exit_ok;
+}
+
+// `has_errors` for a rejected parse is derived from the decoded issue
+// severities (the kernel only rejects when at least one error is present;
+// the wire flag was already required well-typed by the decoder's lift).
+static auto has_error_issue(const std::vector<aletheia::ValidationIssue>& issues) -> bool {
+    return std::ranges::any_of(issues, [](const aletheia::ValidationIssue& i) {
+        return i.severity == aletheia::IssueSeverity::Error;
+    });
+}
+
+static auto cmd_validate(const Args& a) -> int {
+    auto client = make_client();
+    if (!client)
+        return die(client.error());
+    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
+    if (!def) {
+        // A parse rejected with validation issues renders as a normal
+        // validation report; any other load failure stays fatal.
+        const auto& core = def.error().core;
+        if (core.has_value()) {
+            const auto& issues = core->issues();
+            if (issues.has_value())
+                return render_validation(has_error_issue(*issues), *issues,
+                                         a.flags.contains("json"));
+        }
+        return die(def.error().message);
+    }
+    auto res = client->validate_dbc(std::stop_token{}, *def);
+    if (!res)
+        return die(std::string{res.error().message()});
+    return render_validation(res->has_errors, res->issues, a.flags.contains("json"));
 }
 
 // Exact rational -> JSON for `extract --json`: a bare integer when the
@@ -319,7 +368,7 @@ static auto cmd_extract(const Args& a) -> int {
         return die(client.error());
     auto def = load_dbc_text(*client, opt_or(a, "dbc"));
     if (!def)
-        return die(def.error());
+        return die(def.error().message);
     auto id = make_can_id(*can_id, extended);
     if (!id)
         return die("invalid CAN ID for the selected width");
@@ -373,7 +422,7 @@ static auto cmd_signals(const Args& a) -> int {
         return die(client.error());
     auto def = load_dbc_text(*client, opt_or(a, "dbc"));
     if (!def)
-        return die(def.error());
+        return die(def.error().message);
     if (a.flags.contains("json")) {
         std::cout << aletheia::to_canonical_json(*def) << '\n';
         return k_exit_ok;
@@ -397,7 +446,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
         return die(client.error());
     auto def = load_dbc_text(*client, opt_or(a, "dbc"));
     if (!def)
-        return die(def.error());
+        return die(def.error().message);
     auto canonical = client->format_dbc(std::stop_token{});
     if (!canonical)
         return die(std::string{canonical.error().message()});
@@ -480,7 +529,7 @@ static auto cmd_mux_query(const Args& a) -> int {
         return die(client.error());
     auto def = load_dbc_text(*client, opt_or(a, "dbc"));
     if (!def)
-        return die(def.error());
+        return die(def.error().message);
     const DbcMessage* msg =
         resolve_mux_message(*def, a.positionals[0], a.flags.contains("extended"));
     if (msg == nullptr)

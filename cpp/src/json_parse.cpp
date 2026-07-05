@@ -185,6 +185,38 @@ static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
     return code == ErrorCode::InputBoundExceeded;
 }
 
+// Defined with the issue-code table further down; needed by the
+// handler_validation_failed lift below.
+static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue>;
+
+// Lift the structured issues array from a handler_validation_failed envelope
+// (parseDBC / parseDBCText rejects carry the same {severity, code, detail}
+// elements as a validation response).  `has_errors` and every `issues`
+// element must be present and well-typed for the lift to populate; a
+// malformed payload degrades to nullopt rather than a Protocol error, so the
+// AletheiaError still carries kind/code/message — the same rule as the
+// bound_info lift in make_json_error.
+static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<ValidationIssue>> {
+    if (!j.contains("has_errors") || !j.at("has_errors").is_boolean() || !j.contains("issues") ||
+        !j.at("issues").is_array())
+        return std::nullopt;
+    std::vector<ValidationIssue> issues;
+    issues.reserve(j.at("issues").size());
+    try {
+        for (const auto& issue : j.at("issues")) {
+            auto entry = parse_issue_entry(issue);
+            if (!entry)
+                return std::nullopt;
+            issues.push_back(std::move(*entry));
+        }
+    } catch (const std::exception&) {
+        // A non-object element or an ill-typed field throws from nlohmann's
+        // value(); degrade identically to a failed entry parse.
+        return std::nullopt;
+    }
+    return issues;
+}
+
 /// Extract error from a JSON response with status=="error", parsing the code field.
 ///
 /// Both ``code`` and ``message`` must be non-null strings — a missing or
@@ -219,8 +251,11 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
             .limit = j.at("limit").get<std::uint64_t>(),
         };
     }
+    std::optional<std::vector<ValidationIssue>> issues;
+    if (code == ErrorCode::HandlerValidationFailed)
+        issues = lift_validation_issues(j);
     return AletheiaError{effective_kind, j.at("message").get<std::string>(), code,
-                         std::move(bound_info)};
+                         std::move(bound_info), std::move(issues)};
 }
 
 // Decode a JSON {numerator, denominator} object into a (num, den) pair,

@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -124,6 +125,95 @@ func TestCLISmoke(t *testing.T) {
 	if code := run([]string{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}); code != exitError {
 		t.Errorf("mux-query --mux without --value = %d, want %d", code, exitError)
 	}
+}
+
+// TestCLIValidateInvalidDBC: a DBC that parses syntactically but fails
+// structural validation must render the numbered issue list (the same output
+// as a has-errors ValidateDBC result) and exit 1 — not die with the bare
+// message and exit 2. Derives the invalid DBC from the valid minimal.dbc
+// fixture by duplicating a signal name in the text.
+func TestCLIValidateInvalidDBC(t *testing.T) {
+	ensureLib(t)
+	src, err := os.ReadFile(repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc"))
+	if err != nil {
+		t.Fatalf("read minimal.dbc fixture: %v", err)
+	}
+	broken := strings.Replace(string(src), "EngineTemp", "EngineSpeed", 1)
+	if broken == string(src) {
+		t.Fatal("fixture no longer contains EngineTemp; cannot derive duplicate-signal DBC")
+	}
+	dbcPath := filepath.Join(t.TempDir(), "broken.dbc")
+	if err := os.WriteFile(dbcPath, []byte(broken), 0o600); err != nil {
+		t.Fatalf("write dbc: %v", err)
+	}
+
+	t.Run("text lists issues and exits 1", func(t *testing.T) {
+		out := captureStdout(t, func() {
+			if code := run([]string{"validate", "--dbc", dbcPath}); code != exitViolations {
+				t.Errorf("validate exit = %d, want %d", code, exitViolations)
+			}
+		})
+		if !strings.Contains(out, "Validation FAILED") {
+			t.Errorf("output missing the FAILED header; got:\n%s", out)
+		}
+		if !strings.Contains(out, "1. [ERROR] duplicate_signal_name") {
+			t.Errorf("output missing the numbered duplicate_signal_name issue; got:\n%s", out)
+		}
+	})
+
+	t.Run("json emits the has_errors fail shape", func(t *testing.T) {
+		var code int
+		out := captureStdout(t, func() {
+			code = run([]string{"validate", "--dbc", dbcPath, "--json"})
+		})
+		// The exit code reflects the validation outcome in both output
+		// modes: --json on a has_errors result exits 1 like text mode.
+		if code != exitViolations {
+			t.Errorf("validate --json exit = %d, want %d", code, exitViolations)
+		}
+		var payload struct {
+			Status    string           `json:"status"`
+			HasErrors bool             `json:"has_errors"`
+			Total     int              `json:"total_issues"`
+			Issues    []map[string]any `json:"issues"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+		}
+		if payload.Status != "fail" || !payload.HasErrors {
+			t.Errorf("status/has_errors = %q/%v, want fail/true", payload.Status, payload.HasErrors)
+		}
+		if payload.Total != len(payload.Issues) || len(payload.Issues) == 0 {
+			t.Fatalf("total_issues = %d with %d issues, want a consistent non-empty list",
+				payload.Total, len(payload.Issues))
+		}
+		found := false
+		for _, issue := range payload.Issues {
+			if issue["code"] == "duplicate_signal_name" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("issues missing duplicate_signal_name; got %v", payload.Issues)
+		}
+	})
+
+	t.Run("unparseable dbc still dies with exit 2", func(t *testing.T) {
+		garbagePath := filepath.Join(t.TempDir(), "garbage.dbc")
+		if err := os.WriteFile(garbagePath, []byte("this is not a dbc\n"), 0o600); err != nil {
+			t.Fatalf("write dbc: %v", err)
+		}
+		if code := run([]string{"validate", "--dbc", garbagePath}); code != exitError {
+			t.Errorf("validate on unparseable dbc = %d, want %d", code, exitError)
+		}
+	})
+
+	t.Run("other subcommands still die with exit 2", func(t *testing.T) {
+		silenceStdout(t)
+		if code := run([]string{"signals", "--dbc", dbcPath}); code != exitError {
+			t.Errorf("signals on invalid dbc = %d, want %d", code, exitError)
+		}
+	})
 }
 
 func TestCLICheckDeferred(t *testing.T) {

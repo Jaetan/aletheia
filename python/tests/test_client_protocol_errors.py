@@ -20,7 +20,14 @@ from typing import TYPE_CHECKING
 import pytest
 from _dbc_helpers import dbc, message, signal
 
-from aletheia import AletheiaClient, InputBoundExceededError, MockBackend, ProtocolError, StateError
+from aletheia import (
+    AletheiaClient,
+    DBCValidationFailedError,
+    InputBoundExceededError,
+    MockBackend,
+    ProtocolError,
+    StateError,
+)
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES
 
 if TYPE_CHECKING:
@@ -175,6 +182,67 @@ class TestValidateDbcErrorPaths:
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.validate_dbc(_sample_dbc())
         assert str(excinfo.value) == _UNEXPECTED_VALIDATION
+
+    def test_error_with_issues_raises_typed_validation_failure(self) -> None:
+        """Lift a handler_validation_failed envelope into the typed error.
+
+        Pins every carried field: the exact message text, the gated wire
+        code, the decoded (not assumed) ``has_errors``, and both issues in
+        wire order — the mutant-killing contract of the lifted arm.
+        """
+        issues: list[JSONValue] = [
+            {"severity": "error", "code": "duplicate_signal_name", "detail": "dup 'S'"},
+            {"severity": "warning", "code": "offset_scale_range", "detail": "range"},
+        ]
+        backend = MockBackend(
+            [
+                _resp(
+                    {
+                        "status": "error",
+                        "message": "boom",
+                        "code": "handler_validation_failed",
+                        "has_errors": True,
+                        "issues": issues,
+                    }
+                )
+            ]
+        )
+        with (
+            AletheiaClient(backend=backend) as client,
+            pytest.raises(DBCValidationFailedError) as excinfo,
+        ):
+            client.validate_dbc(_sample_dbc())
+        assert str(excinfo.value) == "validateDBC failed: boom"
+        assert excinfo.value.code == "handler_validation_failed"
+        assert excinfo.value.has_errors is True
+        assert excinfo.value.issues == issues
+
+    def test_error_with_issues_but_foreign_code_stays_protocol_error(self) -> None:
+        """The lift is gated on the wire code (matches the Go/C++/Rust decoders).
+
+        A foreign error envelope that happens to carry issues-shaped keys
+        must NOT be mis-lifted into a validation failure.
+        """
+        issues: list[JSONValue] = [
+            {"severity": "error", "code": "duplicate_signal_name", "detail": "d"}
+        ]
+        backend = MockBackend(
+            [
+                _resp(
+                    {
+                        "status": "error",
+                        "message": "boom",
+                        "code": "some_other_code",
+                        "has_errors": True,
+                        "issues": issues,
+                    }
+                )
+            ]
+        )
+        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
+            client.validate_dbc(_sample_dbc())
+        assert str(excinfo.value) == "validateDBC failed: boom"
+        assert excinfo.value.code == "some_other_code"
 
 
 class TestSendCommandGuards:

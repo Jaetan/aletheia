@@ -319,6 +319,11 @@ pytest_add_cli_args = [
     # Ignoring it removes no hot-path kill signal; it is end-to-end demo
     # coverage, exercised every run by the normal pytest gate.
     "--ignore=tests/test_demo_scripts.py",
+    # The cross-CLI parity harness drives the three REAL CLI binaries as
+    # subprocesses (installed package + built Go/C++ binaries) — like the
+    # demo gate it can kill zero mutants by construction, and per-mutant
+    # subprocess fan-out would dominate the lane's runtime.
+    "--ignore=tests/test_cli_parity.py",
     "--ignore=tests/test_format_dbc.py",
     "--ignore=tests/test_agda_open_grammar.py",
     "--ignore=tests/test_agda_open_grammar_generated.py",

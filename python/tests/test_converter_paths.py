@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 from _dbc_helpers import dbc, message, signal
 
-from aletheia import ValidationError
+from aletheia import DBCValidationFailedError, ValidationError
 from aletheia.dbc import convert_dbc_file, dbc_to_json, dbc_to_text
 
 if TYPE_CHECKING:
@@ -39,18 +39,53 @@ def _write_valid_dbc(tmp_path: Path) -> Path:
     return path
 
 
+# Parses cleanly but fails kernel validation with one error (duplicate signal
+# name 'S') and warnings (min > max on the first 'S'), so the error envelope
+# carries both issue severities.
+_VALIDATION_FAILING_DBC_TEXT = (
+    'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_:\n\n'
+    "BO_ 256 M: 8 ECU1\n"
+    ' SG_ S : 0|8@1+ (1,0) [5|1] "" Vector__XXX\n'
+    ' SG_ S : 8|8@1+ (1,0) [0|255] "" Vector__XXX\n'
+)
+
+
 def test_dbc_to_json_invalid_file_raises(tmp_path: Path) -> None:
     """Reject a malformed .dbc file, naming the path in the error.
 
     The error embeds the path literal and reads ``response['message']``; the
     string-literal and message-key mutants change the prefix (caught by the
     startswith) or look up a missing key (raising, which fails the test).
+    A syntactic parse failure carries no structured issue list, so it stays
+    the generic ``ValidationError`` rather than ``DBCValidationFailedError``.
     """
     bad = tmp_path / "bad.dbc"
     bad.write_text("this is not a valid dbc file\n", encoding="utf-8")
     with pytest.raises(ValidationError) as excinfo:
         dbc_to_json(bad)
     assert str(excinfo.value).startswith(f"Failed to parse DBC file '{bad}': ")
+
+
+def test_dbc_to_json_validation_failure_raises_typed(tmp_path: Path) -> None:
+    """Lift a ``handler_validation_failed`` envelope into the typed exception.
+
+    The message keeps the exact generic-path prefix, and the structured
+    issue list — both severities — plus the decoded ``has_errors`` flag
+    ride on the exception.
+    """
+    bad = tmp_path / "dup_signal.dbc"
+    bad.write_text(_VALIDATION_FAILING_DBC_TEXT, encoding="utf-8")
+    with pytest.raises(DBCValidationFailedError) as excinfo:
+        dbc_to_json(bad)
+    err = excinfo.value
+    assert str(err).startswith(f"Failed to parse DBC file '{bad}': ")
+    assert err.code == "handler_validation_failed"
+    assert err.has_errors is True
+    codes = {issue["code"] for issue in err.issues}
+    assert "duplicate_signal_name" in codes
+    assert "min_exceeds_max" in codes
+    severities = {issue["severity"] for issue in err.issues}
+    assert severities == {"error", "warning"}
 
 
 def test_dbc_to_text_renders_messages() -> None:

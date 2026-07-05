@@ -940,6 +940,36 @@ func jsonNumberToUint64(v any) (uint64, bool) {
 	}
 }
 
+// validationFailedFromResponse lifts a “handler_validation_failed“ wire
+// response carrying the structured “has_errors“ / “issues“ payload into
+// a typed [ValidationFailedError].  Returns nil when either field is
+// missing or ill-typed (same degrade-to-generic rule as
+// “inputBoundExceededFromResponse“) so the caller falls back to the
+// generic coded error — the decode never fails harder than before the
+// lift.  The “issues“ array uses the exact element shape of the
+// validation response, so decoding is shared with “parseIssueArray“;
+// its presence is checked separately because “getArray“ folds a missing
+// key into an empty array.  The legacy “message“ text is carried
+// through unchanged — “*ValidationFailedError.Error()“ renders it
+// byte-identically to the generic error it replaces.
+func validationFailedFromResponse(code, msg string, m map[string]any) *ValidationFailedError {
+	if code != CodeHandlerValidationFailed {
+		return nil
+	}
+	hasErrors, ok := m["has_errors"].(bool)
+	if !ok {
+		return nil
+	}
+	if _, ok := m["issues"].([]any); !ok {
+		return nil
+	}
+	issues, err := parseIssueArray(m, "issues")
+	if err != nil {
+		return nil
+	}
+	return newValidationFailedError(issues, hasErrors, code, msg)
+}
+
 // checkErrorStatus converts a parsed response with status="error" into
 // a typed error carrying the Agda-side code and message. Both “code“
 // and “message“ must be non-null strings — a missing or non-string
@@ -950,6 +980,9 @@ func jsonNumberToUint64(v any) (uint64, bool) {
 // [InputBoundExceededError] when all three of “bound_kind“ /
 // “observed“ / “limit“ are present; mirrors Python's
 // “build_error_response“ and C++'s “make_json_error“ lifting.
+// HandlerValidationFailed responses likewise lift the structured
+// “has_errors“ / “issues“ payload into a typed
+// [ValidationFailedError] when both fields are well-typed.
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
 	if status != "error" {
@@ -965,6 +998,9 @@ func checkErrorStatus(m map[string]any) error {
 	}
 	if bex := inputBoundExceededFromResponse(code, m); bex != nil {
 		return bex
+	}
+	if vfe := validationFailedFromResponse(code, msg, m); vfe != nil {
+		return vfe
 	}
 	return newCodedError(ErrProtocol, code, msg)
 }

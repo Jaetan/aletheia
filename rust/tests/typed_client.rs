@@ -8,7 +8,8 @@
 //! `ALETHEIA_LIB` to the built shared library (run_ci / CI does this).
 
 use aletheia::{
-    CanId, Client, Dlc, Formula, FrameResponse, Predicate, Rational, Timestamp, Verdict,
+    CanId, Client, Dlc, Error, Formula, FrameResponse, IssueCode, IssueSeverity, Predicate,
+    Rational, Timestamp, Verdict,
 };
 
 /// A known-good DBC the verified text parser accepts (the shared corpus
@@ -126,6 +127,44 @@ fn typed_constructors_reject_invalid_input() {
     );
     assert!(CanId::standard(2047).is_ok());
     assert!(Dlc::new(15).is_ok());
+}
+
+#[test]
+fn parse_dbc_text_lifts_validation_failure() {
+    // A syntactically valid DBC that fails structural validation must surface
+    // as the typed Error::ValidationFailed carrying the issue list — not the
+    // generic Error::Core. Derive the invalid input from the known-good corpus
+    // fixture by renaming EngineTemp to EngineSpeed, so message 256 carries a
+    // duplicate signal name.
+    let client = Client::new().expect("init client");
+
+    let broken = DBC.replace("SG_ EngineTemp ", "SG_ EngineSpeed ");
+    assert_ne!(broken, DBC, "the derivation must rewrite a signal name");
+
+    let err = client
+        .parse_dbc_text(&broken)
+        .expect_err("a duplicate signal name must fail validation");
+    match err {
+        Error::ValidationFailed {
+            code,
+            message,
+            has_errors,
+            issues,
+        } => {
+            assert_eq!(code, "handler_validation_failed");
+            assert!(
+                !message.is_empty(),
+                "the legacy wire message must be carried unchanged"
+            );
+            assert!(has_errors, "a duplicate signal name is error-severity");
+            assert!(
+                issues.iter().any(|i| i.severity == IssueSeverity::Error
+                    && i.code == IssueCode::DuplicateSignalName),
+                "expected an error-severity duplicate_signal_name issue, got {issues:?}"
+            );
+        }
+        other => panic!("expected Error::ValidationFailed, got {other:?}"),
+    }
 }
 
 #[test]
