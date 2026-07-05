@@ -1626,15 +1626,30 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo "Installing aletheia Python package..."
         cmd_ venvPip "install" "./python"
 
-        -- Find site-packages and write _install_config.py
-        Stdout sitePackages <- cmd venvPython "-c"
-            "import site; print(site.getsitepackages()[0])"
+        -- Find site-packages and write _install_config.py.  The -c program
+        -- must be passed as a LIST element: Shake's `cmd` word-splits bare
+        -- String arguments, which sent python the lone word "import" and
+        -- made every install since 2026-02-08 die exactly here — after the
+        -- library/package copies but before this config write (a partial
+        -- install with no _install_config.py).
+        Stdout sitePackages <- cmd venvPython
+            ["-c", "import site; print(site.getsitepackages()[0])"]
         let siteDir = strip sitePackages
         let configFile = siteDir </> "aletheia" </> "_install_config.py"
         let soAbsPath = libDir </> "libaletheia-ffi.so"
         putInfo $ "Writing install config: " ++ configFile
         liftIO $ writeFile configFile $
             "from pathlib import Path\n\nLIBRARY_PATH: Path = Path(" ++ show soAbsPath ++ ")\n"
+
+        -- Record where this tree installed to (repo-local, gitignored).
+        -- tools/check_install_freshness.py reads this instead of guessing
+        -- PREFIX — a custom-prefix install stays visible to the gate even
+        -- when PREFIX is no longer exported.  `uninstall` removes it.
+        liftIO $ writeFile ".install-receipt" $ unlines
+            [ prefix
+            , soAbsPath
+            , configFile
+            ]
 
         -- Copy documentation
         putInfo "Copying documentation..."
@@ -1744,6 +1759,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 shareExists <- doesDirectoryExist shareAletheiaDir
                 when shareExists $
                     liftIO $ removeDirectoryRecursive shareAletheiaDir
+                -- Drop the repo-local install receipt so the freshness gate
+                -- stops tracking the removed install.
+                liftIO $ removePathForcibly ".install-receipt"
                 putInfo ""
                 putInfo "Aletheia uninstalled successfully."
                 putInfo ""

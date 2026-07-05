@@ -10,6 +10,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cabal run shake -- install` completes for the first time since the
+  target landed (2026-02-08).** Shake's `cmd` word-splits bare string
+  arguments, so the site-packages query `python3 -c "import site; ..."`
+  reached python as the lone word `import` and every install died there —
+  after copying the libraries and pip-installing the package but before
+  writing `_install_config.py`, leaving a partial install the loader
+  silently ignores. The `-c` program is now passed as a list argument
+  (Shake's no-split form).
+
 ### Added
 
 - **Byte-exact furthest-failure parser positions (PR-V2b).** The verified
@@ -43,6 +54,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   200-msg 1.113s→1.149s (+3.2%), 1000-msg 28.907s→30.381s (+5.1%) —
   confined to the DBC-text cold path; the streaming hot path is
   untouched. PROTOCOL.md documents the watermark semantics.
+
+- **`check-install-freshness` — a `run_ci` gate that makes deployed-kernel
+  rot loud** (`tools/check_install_freshness.py`). Both deployment surfaces
+  copy `build/libaletheia-ffi.so` out of the tree and then rot silently as
+  the tree moves on (the release-packaging `dist/` sat three weeks stale
+  after v2.0.0; the local install was partial for five months, above). The
+  gate verifies any existing copy is the *same build* as `build/`'s
+  library — compared by GNU build-id (strip/patchelf legitimately change
+  the deployed bytes; the build-id note survives both; SHA-256 fallback
+  when absent) — and that an installed library has its completed
+  `_install_config.py`. The install target now writes a repo-local,
+  gitignored `.install-receipt` (prefix, library path, config path) that
+  the gate reads instead of *guessing* the prefix — a custom-`PREFIX`
+  install stays under watch even when `PREFIX` is no longer exported;
+  `uninstall` clears the receipt. Absent artifacts skip (CI runners have
+  neither). 12 hermetic tests (both polarities per artifact class,
+  receipt-precedence discriminator included).
 
 - **Two Agda leaf modules decouple the error/serializer closure from the
   parser combinators (prep for the parser-position redesign) — pure code

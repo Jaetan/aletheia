@@ -489,6 +489,11 @@ def _run_gha_checks(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_venv_convention"],
         cwd=runner.repo_root,
     )
+    runner.step(
+        "check-install-freshness",
+        [runner.python, "-m", "tools.check_install_freshness"],
+        cwd=runner.repo_root,
+    )
 
 
 def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
