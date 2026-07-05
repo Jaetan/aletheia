@@ -21,7 +21,7 @@ open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-m
 open import Aletheia.CAN.DLC using (maxDLC-FD)
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText; errorIssues)
-open import Aletheia.Parser.Combinators using (Position)
+open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Limits using (BoundKind; boundKindLabel)
 
 -- ============================================================================

@@ -14,8 +14,11 @@ open import Data.Maybe using ()
 open import Data.Rational using (ℚ)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Parser.Combinators using (Position)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JStringS; JNumber; JBool)
+open import Aletheia.Parser.Position using (Position)
+-- JSON.Types (not the Protocol.JSON umbrella): this module only BUILDS
+-- JSON values; the umbrella re-exports the parser, which would put this
+-- serializer inside every parser-combinator change's recheck closure.
+open import Aletheia.Protocol.JSON.Types using (JSON; JObject; JArray; JStringS; JNumber; JBool)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;

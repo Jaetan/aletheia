@@ -139,7 +139,9 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.Main
                       MAlonzo.Code.Aletheia.Main.Binary
                       MAlonzo.Code.Aletheia.Main.JSON
+                      MAlonzo.Code.Aletheia.Parser.CharClass
                       MAlonzo.Code.Aletheia.Parser.Combinators
+                      MAlonzo.Code.Aletheia.Parser.Position
                       MAlonzo.Code.Aletheia.Prelude
                       MAlonzo.Code.Aletheia.Protocol.Handlers
                       MAlonzo.Code.Aletheia.Protocol.Handlers.FormatDBCText
