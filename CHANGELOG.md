@@ -12,6 +12,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Two Agda leaf modules decouple the error/serializer closure from the
+  parser combinators (prep for the parser-position redesign) — pure code
+  motion, no behavior change.** `Aletheia.Parser.Position` (the Position
+  record + advance functions) and `Aletheia.Parser.CharClass`
+  (`isUpper` / `isAlphaNum`) move out of `Aletheia.Parser.Combinators`,
+  which re-exports both so parser-side importers are unaffected. Four
+  imports narrow to break the remaining transitive routes:
+  `Aletheia.Error` and `Aletheia.DBC.Identifier` to the new leaves, and
+  `Aletheia.Protocol.ResponseFormat` + `Aletheia.Protocol.Message` from
+  the `Protocol.JSON` umbrella (which re-exports the JSON *parser*) down
+  to `Protocol.JSON.Types` — they only build JSON values. Verified by
+  transitive import walk: the closures of `Error` (17 modules),
+  `ResponseFormat` (34, was 39), and `Message` (24) no longer contain
+  the combinator library, so the upcoming combinator result-type work
+  stops re-checking the whole error/response vocabulary on every
+  iteration. Module count 275 → 277 (both new modules
+  `--safe --without-K`; counts synced in CLAUDE.md).
+
 - **Go: `DispatchThen` — the third exported loader-dispatch helper**
   (`go/aletheia/loader.go`), completing the family started by
   `DispatchSimple` / `DispatchWhen`: maps a then-condition keyword

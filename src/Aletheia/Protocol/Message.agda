@@ -15,7 +15,10 @@ open import Data.List using (List)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
 open import Aletheia.Protocol.Response using (PropertyResult; Warning)
-open import Aletheia.Protocol.JSON using (JSON)
+-- JSON.Types (not the Protocol.JSON umbrella): only the JSON value type
+-- is needed here; the umbrella re-exports the parser, which would put
+-- the message vocabulary inside every combinator change's recheck closure.
+open import Aletheia.Protocol.JSON.Types using (JSON)
 open import Aletheia.DBC.Types using (ValidationIssue)
 import Aletheia.Error as Err
 

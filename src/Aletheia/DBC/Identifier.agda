@@ -42,7 +42,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; con
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Limits using (max-identifier-length)
-open import Aletheia.Parser.Combinators using (isAlphaNum)
+open import Aletheia.Parser.CharClass using (isAlphaNum)
 
 -- ============================================================================
 -- CHARACTER CLASSES (hosted here so Identifier can reference them without a

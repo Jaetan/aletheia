@@ -17,7 +17,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit; isAlpha; isSpace; isLower)
-open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
+open import Data.Bool using (Bool; true; false; not)
 open import Data.Bool.ListAction using (any)
 open import Data.Nat using (ℕ; zero; suc; _∸_)
 open import Data.String as String using (String)
@@ -26,29 +26,11 @@ open import Data.String as String using (String)
 -- POSITION TRACKING
 -- ============================================================================
 
--- Source position (line and column numbers)
-record Position : Set where
-  constructor mkPos
-  field
-    line : ℕ
-    column : ℕ
-
-open Position public
-
--- Initial position (start of input)
-initialPosition : Position
-initialPosition = mkPos 1 1
-
--- Advance position by one character
-advancePosition : Position → Char → Position
-advancePosition pos c with c ≈ᵇ '\n'
-... | true  = mkPos (suc (line pos)) 1
-... | false = mkPos (line pos) (suc (column pos))
-
--- Advance position by a list of characters
-advancePositions : Position → List Char → Position
-advancePositions pos [] = pos
-advancePositions pos (c ∷ cs) = advancePositions (advancePosition pos c) cs
+-- Position lives in its own leaf module so non-parser consumers (the
+-- error vocabulary, the response serializer) can import it without
+-- joining this module's recheck closure. Re-exported here so existing
+-- parser-side importers are unaffected.
+open import Aletheia.Parser.Position public
 
 -- Parse result with position information
 record ParseResult (A : Set) : Set where
@@ -254,13 +236,10 @@ string s = parseCharsSeq (String.toList s) >>= λ _ → pure s
 -- ============================================================================
 
 -- Use stdlib character classification (isDigit, isAlpha, isSpace, isLower)
--- isUpper: stdlib only has isLower, so define isUpper as "alpha but not lower"
-isUpper : Char → Bool
-isUpper c = isAlpha c ∧ not (isLower c)
-
--- isAlphaNum: simple composition of stdlib functions
-isAlphaNum : Char → Bool
-isAlphaNum c = isAlpha c ∨ isDigit c
+-- Character classifiers live in the CharClass leaf module (shared with
+-- the DBC identifier vocabulary without pulling it into this module's
+-- recheck closure); re-exported here for parser-side importers.
+open import Aletheia.Parser.CharClass public
 
 -- Parse a digit character
 digit : Parser Char
