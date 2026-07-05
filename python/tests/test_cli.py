@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import can
 import pytest
 
-from aletheia import ValidationError
+from aletheia import AletheiaClient, ValidationError
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.cli import (
     format_timestamp,
@@ -28,6 +28,7 @@ from aletheia.cli import (
     parse_can_id,
     parse_hex_data,
 )
+from aletheia.dbc import dbc_to_json
 from aletheia.testing import run_checks
 
 if TYPE_CHECKING:
@@ -651,6 +652,43 @@ class TestCheckCommand:
         }
         with pytest.raises(FileNotFoundError, match="log file not found"):
             run_checks(dbc, [], "/nonexistent/drive.asc")
+
+    def test_run_checks_preloaded_client_matches_auto(
+        self,
+        dbc_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """A preloaded client yields the same result as the auto-client path.
+
+        The CLI passes its own client — already holding the DBC from the
+        single load — so ``run_checks`` skips the redundant ``parse_dbc``.
+        The outcome must be identical to the standalone ``client=None`` path
+        that opens its own client and parses internally.
+        """
+        asc_file = tmp_path / "drive.asc"
+        _write_asc(
+            asc_file,
+            [
+                can.Message(
+                    timestamp=1.0,
+                    arbitration_id=0x100,
+                    data=bytearray([0x90, 0x01, 0, 0, 0, 0, 0, 0]),
+                    is_extended_id=False,
+                ),
+            ],
+        )
+        dbc = dbc_to_json(dbc_file)
+
+        auto = run_checks(dbc, [], str(asc_file))
+        with AletheiaClient() as client:
+            # Mirror the CLI: the session already holds the DBC before
+            # run_checks is handed the client.
+            client.parse_dbc(dbc)
+            preloaded = run_checks(dbc, [], str(asc_file), client=client)
+
+        assert preloaded.violations == auto.violations
+        assert preloaded.unresolved == auto.unresolved
+        assert preloaded.total_frames == auto.total_frames
 
 
 # ============================================================================

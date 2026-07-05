@@ -128,9 +128,9 @@ func TestCLISmoke(t *testing.T) {
 }
 
 // TestCLIValidateInvalidDBC: a DBC that parses syntactically but fails
-// structural validation must render the numbered issue list (the same output
-// as a has-errors ValidateDBC result) and exit 1 — not die with the bare
-// message and exit 2. Derives the invalid DBC from the valid minimal.dbc
+// structural validation must render the numbered issue list (the same
+// has_errors report shape as the success path) and exit 1 — not die with the
+// bare message and exit 2. Derives the invalid DBC from the valid minimal.dbc
 // fixture by duplicating a signal name in the text.
 func TestCLIValidateInvalidDBC(t *testing.T) {
 	ensureLib(t)
@@ -214,6 +214,27 @@ func TestCLIValidateInvalidDBC(t *testing.T) {
 			t.Errorf("signals on invalid dbc = %d, want %d", code, exitError)
 		}
 	})
+}
+
+// TestCLIValidateWarningsFromSingleParse: validate performs ONE kernel pass —
+// the parse epilogue IS full validation, so the parse response's warnings are
+// the complete issue list. minimal.dbc parses clean but carries one benign
+// offset_scale_range warning, which must survive into the success report
+// (no ValidateDBC round-trip to re-collect it).
+func TestCLIValidateWarningsFromSingleParse(t *testing.T) {
+	ensureLib(t)
+	dbc := repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc")
+	out := captureStdout(t, func() {
+		if code := run([]string{"validate", "--dbc", dbc}); code != exitOK {
+			t.Errorf("validate exit = %d, want %d", code, exitOK)
+		}
+	})
+	if !strings.Contains(out, "Validation passed with 1 warnings") {
+		t.Errorf("output missing the passed-with-warnings header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "offset_scale_range") {
+		t.Errorf("output missing the offset_scale_range warning carried from the parse; got:\n%s", out)
+	}
 }
 
 func TestCLICheckDeferred(t *testing.T) {

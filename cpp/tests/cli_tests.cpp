@@ -184,6 +184,22 @@ TEST_CASE("validate --json emits the has_errors fail shape when the parser rejec
     CHECK(hit);
 }
 
+TEST_CASE("validate reports warnings from the single parse pass", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    // minimal.dbc parses clean but carries one benign offset_scale_range
+    // warning. The kernel's parse epilogue IS full validation, so the parse
+    // response's warnings are the complete issue list and must survive into
+    // the success report — no validate_dbc round-trip to re-collect them.
+    const auto dbc =
+        (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc").string();
+    auto [code, out] = run_capture({"validate", "--dbc", dbc});
+    CHECK(code == 0);
+    CHECK(out.find("Validation passed with warnings") != std::string::npos);
+    CHECK(out.find("offset_scale_range") != std::string::npos);
+}
+
 TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report path", "[cli]") {
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
