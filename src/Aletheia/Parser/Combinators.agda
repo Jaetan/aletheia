@@ -124,7 +124,10 @@ private
 satisfy : (Char → Bool) → Parser Char
 satisfy pred pos [] = pos , nothing
 satisfy pred pos (c ∷ cs) with pred c
-... | true  = advancePosition pos c , just (mkResult c (advancePosition pos c) cs)
+-- The advanced position is both the success watermark (proj₁) and the
+-- result position; bind it once (per-char hot path).  `let` is
+-- definitional, so proofs matching this branch close by refl unchanged.
+... | true  = let pos' = advancePosition pos c in pos' , just (mkResult c pos' cs)
 ... | false = pos , nothing
 
 -- | Parse specific character
