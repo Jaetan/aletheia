@@ -119,7 +119,10 @@ scenarios:
 
   # midfile_bad.dbc corrupts the BO_ 512 line ("4" -> "X") at line 40: a
   # syntactic parse failure (no issue list), which is an operational error
-  # (exit 2) with the kernel's position-exact message on stderr.
+  # (exit 2) with the kernel's position-exact message on stderr.  Column 22
+  # is the corrupted "X" itself (the furthest-failure watermark — the exact
+  # byte no grammar rule could accept), and the parenthetical reports where
+  # the unparseable statement starts.
   - id: validate-syntax-error
     subcommand: validate
     args: ["--dbc", "{dbc}"]
@@ -127,7 +130,7 @@ scenarios:
     expect:
       exit: 2
       stderr_contains:
-        - "parse failed at line 40, column 1"
+        - "parse failed at line 40, column 22 (first unparseable statement starts at line 40, column 1)"
 
   # A --dbc path that does not exist is an operational error. The message
   # wording differs per CLI (Python: "DBC file not found", Go/C++:

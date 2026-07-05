@@ -12,6 +12,38 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Byte-exact furthest-failure parser positions (PR-V2b).** The verified
+  parser combinators now thread a *failure watermark* — the deepest
+  position any parse attempt reached — through every parse
+  (`Parser A = Position → List Char → Position × Maybe (ParseResult A)`;
+  `<|>` merges failed alternatives' depths via the new `Position.maxₚ`,
+  `many` keeps the depth of the element attempt it swallowed). Every DBC
+  text/JSON parse error now pinpoints the exact offending byte:
+  - `dbc_text_parse_failure` carries structured `line`/`column` (the
+    watermark) and its message reads `DBC text parse failed at line N,
+    column M`.
+  - `dbc_text_trailing_input` reports the watermark in `line`/`column`
+    (byte-exact *inside* the first unparseable statement — previously it
+    could only name the statement's first character) plus new
+    `statement_line`/`statement_column` for the statement start; message:
+    `parse failed at line X, column Y (first unparseable statement starts
+    at line N, column M)`.
+  - `dispatch_invalid_json` gains the same `line`/`column` extras (the
+    JSON protocol parser shares the combinators); message: `invalid JSON:
+    parse failed at line N, column M`.
+  Live acceptance: `validate` on a DBC whose `BO_` line has a corrupted
+  DLC now reports the corrupted byte itself (`line 40, column 22`) instead
+  of the statement start (`column 1`); the CLI parity scenario pins the
+  full positioned message across all three CLIs. Error *codes* are
+  unchanged, extras are additive, and no binding API changes — the
+  ~100-module proof-tree restatement moves every parser-result lemma to
+  the outcome level (`proj₂`), with the universal B.3.d roundtrip theorem
+  (`parseText (formatText d) ≡ inj₂ d`) surviving verbatim.
+  Measured cost (paired, same host, back-to-back): `parseDBCText`
+  200-msg 1.113s→1.149s (+3.2%), 1000-msg 28.907s→30.381s (+5.1%) —
+  confined to the DBC-text cold path; the streaming hot path is
+  untouched. PROTOCOL.md documents the watermark semantics.
+
 - **Two Agda leaf modules decouple the error/serializer closure from the
   parser combinators (prep for the parser-position redesign) — pure code
   motion, no behavior change.** `Aletheia.Parser.Position` (the Position
