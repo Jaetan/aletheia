@@ -8,6 +8,8 @@ build-mutation/
 _build/
 dist/
 dist-newstyle/
+# Machine-local record of where `shake install` deployed (freshness gate input)
+.install-receipt
 
 # Agda
 *.agdai
