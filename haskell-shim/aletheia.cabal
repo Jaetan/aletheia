@@ -145,6 +145,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.Prelude
                       MAlonzo.Code.Aletheia.Protocol.Handlers
                       MAlonzo.Code.Aletheia.Protocol.Handlers.FormatDBCText
+                      MAlonzo.Code.Aletheia.Protocol.Handlers.LoadDBC
                       MAlonzo.Code.Aletheia.Protocol.Handlers.ParseDBCText
                       MAlonzo.Code.Aletheia.Protocol.Iteration
                       MAlonzo.Code.Aletheia.Protocol.JSON

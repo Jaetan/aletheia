@@ -23,17 +23,12 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Bool using (Bool; true; false)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Aletheia.DBC.Types using (DBC; DBCMessage)
-open import Aletheia.DBC.BoundWalks using
-  ( totalValueDescriptions
-  ; firstOverBoundLC; firstOverBoundInMessages; firstOverBoundInComments
-  ; firstOverBoundInAttrs; firstOverBoundInValueTables; firstOverBoundInUnresolved
-  )
+open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
-open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; warningIssues)
+open import Aletheia.DBC.Validator using (validateDBCFull)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.Identifier using (TooLong; BadChars)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache; signalOf; lookupCache)
@@ -53,14 +48,11 @@ open import Aletheia.Error as Err using
   ( HandlerErr; WithContext; ParseErr
   ; InputBoundExceeded
   ; HandlerError; NoDBC; AlreadyStreaming; NotStreaming; StreamActive
-  ; PropertyParseFailed; ValidationFailed
+  ; PropertyParseFailed
   ; InvalidIdentifier
   )
 open import Aletheia.Limits using
-  ( BoundKind; ArrayCardinality; AtomCount; StringLength; PropertyCount; IdentifierLength
-  ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
-  ; max-comments-per-file; max-nodes-per-file; max-value-tables-per-file
-  ; max-value-descriptions-per-file
+  ( AtomCount; PropertyCount; IdentifierLength
   ; max-atom-count-per-property
   ; max-properties-per-stream
   ; max-identifier-length
@@ -74,6 +66,7 @@ open import Aletheia.Protocol.StreamState using
   ; PropertyState; mkPropertyState
   )
 open import Aletheia.Protocol.StreamState.Internals using (collectAtoms; indexFormula)
+open import Aletheia.Protocol.Handlers.LoadDBC using (checkDBCBounds; loadValidatedDBC)
 
 -- ============================================================================
 -- INTERNAL HELPERS
@@ -109,90 +102,6 @@ private
   ... | inj₁ err = (state , Response.Error (WithContext ctx err))
   ... | inj₂ dbc = f dbc
 
-  -- R19 cluster 8 phase e.3: cardinality refinement at the handler boundary.
-  -- parseDBCWithErrors / parseText are intentionally left unchanged so the
-  -- existing roundtrip proofs (parseMessageList-roundtrip,
-  -- parseDBCWithErrors-roundtrip, …) preserve their structural shape.  The
-  -- adversarial-input rejection still happens at the wire entry, just one
-  -- handler layer up.  Post-parse refinement, NOT fuel — direct length
-  -- counts against canonical `Aletheia.Limits` bounds.
-  --
-  -- Returns nothing if all cardinality bounds OK; else a triple
-  -- (context-string, observed, limit) identifying the first violation.
-  -- Discovery order: messages array → per-message signals array →
-  -- attributes array.  Each `DBCMessage.signals` is checked under the
-  -- 1024 signals-per-message bound; the messages array itself is checked
-  -- under the 10000 messages-per-file bound; attributes under 10000.
-
-  signalsBound : List DBCMessage → Maybe (String × ℕ × ℕ)
-  signalsBound [] = nothing
-  signalsBound (msg ∷ rest) with length (DBCMessage.signals msg) <ᵇ suc max-signals-per-message
-  ... | true  = signalsBound rest
-  ... | false = just ("signals array" , length (DBCMessage.signals msg) , max-signals-per-message)
-
-  -- R20 cluster H — AGDA-D-11.2 / AGDA-D-32.4.  Total value-description
-  -- count is the sum across all three carriers (per-signal `VAL_` entries,
-  -- top-level `VAL_TABLE_` definitions, and `unresolvedValueDescs` for
-  -- VAL_ lines whose `(canId, signalName)` did not resolve to a signal).
-  -- Walked at the handler boundary alongside the other cardinality
-  -- checks; one cap closes `max-value-descriptions-per-file` previously
-  -- declared in `Aletheia.Limits` but never consulted.  Walks live in
-  -- `Aletheia.DBC.BoundWalks` (R20 cluster V — AGDA-A-1.3) shared with
-  -- the verified text-parser path in `Handlers.ParseDBCText`.
-
-  firstDBCOverBound : DBC → Maybe (String × ℕ × ℕ)
-  firstDBCOverBound dbc with length (DBC.messages dbc) <ᵇ suc max-messages-per-file
-  ... | false = just ("messages array" , length (DBC.messages dbc) , max-messages-per-file)
-  ... | true  with signalsBound (DBC.messages dbc)
-  ...   | just over = just over
-  ...   | nothing with length (DBC.attributes dbc) <ᵇ suc max-attributes-per-file
-  ...     | false = just ("attributes array" , length (DBC.attributes dbc) , max-attributes-per-file)
-  ...     | true  with length (DBC.comments dbc) <ᵇ suc max-comments-per-file
-  ...       | false = just ("comments array" , length (DBC.comments dbc) , max-comments-per-file)
-  ...       | true  with length (DBC.nodes dbc) <ᵇ suc max-nodes-per-file
-  ...         | false = just ("nodes array" , length (DBC.nodes dbc) , max-nodes-per-file)
-  ...         | true  with length (DBC.valueTables dbc) <ᵇ suc max-value-tables-per-file
-  ...           | false = just ("value tables array" , length (DBC.valueTables dbc) , max-value-tables-per-file)
-  ...           | true  with totalValueDescriptions dbc <ᵇ suc max-value-descriptions-per-file
-  ...             | false = just ("value descriptions total" , totalValueDescriptions dbc , max-value-descriptions-per-file)
-  ...             | true  = nothing
-
-  -- Build a typed error response for an adversarial-bound violation.
-  -- BoundKind discriminates ArrayCardinality (cluster H) vs StringLength
-  -- (R20 cluster I — AGDA-D-32.2).  Per AGENTS.md universal rule
-  -- "Adversarial-input bounds at parser surfaces", rejection is a typed
-  -- `Error.InputBoundExceeded kind observed limit` carrying the offending
-  -- kind, observed value, and limit — never an OOM, never a stalled stream.
-  boundErrorResponse : String → BoundKind → String → ℕ → ℕ → StreamState → StreamState × Response
-  boundErrorResponse cmdCtx kind fieldCtx observed limit state =
-    (state , Response.Error
-      (WithContext cmdCtx
-        (WithContext fieldCtx (InputBoundExceeded kind observed limit))))
-
-  -- R20 cluster I — AGDA-D-32.2.  Post-parse walk of every unbounded
-  -- `List Char` field in the parsed DBC.  Cluster H closed cardinality
-  -- bounds at this same handler boundary; this mirrors the placement for
-  -- string-length bounds (comment text, attribute string values, signal
-  -- units, value-description labels, attribute names — none of which go
-  -- through `validIdentifierᵇ`'s length cap).  Underlying walks live in
-  -- `Aletheia.DBC.BoundWalks` (R20 cluster V — AGDA-A-1.3) shared with
-  -- the verified text-parser path; this aggregator tags each branch with
-  -- a field-name `String` for richer JSON error messages.
-  firstStringOverBound : DBC → Maybe (String × ℕ × ℕ)
-  firstStringOverBound dbc with firstOverBoundLC (DBC.version dbc)
-  ... | just (obs , lim) = just ("version string" , obs , lim)
-  ... | nothing with firstOverBoundInMessages (DBC.messages dbc)
-  ...   | just (obs , lim) = just ("signal text field" , obs , lim)
-  ...   | nothing with firstOverBoundInComments (DBC.comments dbc)
-  ...     | just (obs , lim) = just ("comment text" , obs , lim)
-  ...     | nothing with firstOverBoundInAttrs (DBC.attributes dbc)
-  ...       | just (obs , lim) = just ("attribute text field" , obs , lim)
-  ...       | nothing with firstOverBoundInValueTables (DBC.valueTables dbc)
-  ...         | just (obs , lim) = just ("value table label" , obs , lim)
-  ...         | nothing with firstOverBoundInUnresolved (DBC.unresolvedValueDescs dbc)
-  ...           | just (obs , lim) = just ("unresolved value description label" , obs , lim)
-  ...           | nothing = nothing
-
 -- ============================================================================
 -- COMMAND HANDLERS
 -- ============================================================================
@@ -203,28 +112,15 @@ private
 -- silently dropped.  Same shape as ParseDBCText for binding-side parity.
 handleParseDBC : JSON → StreamState → StreamState × Response
 handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
-  -- Post-parse adversarial-bound refinement at the handler boundary.
-  --   * ArrayCardinality (cluster 8 phase e.3 / cluster H): list-cardinality
-  --     caps on messages / signals / attributes / comments / nodes / value
-  --     tables / total value descriptions.
-  --   * StringLength (R20 cluster I / AGDA-D-32.2): char-length caps on
-  --     `List Char` fields not covered by the Identifier grammar (version,
-  --     comments, attribute names + AVString + ATEnum labels, signal units,
-  --     value-description labels).
-  --   Both walks run on the parsed value; `parseDBCWithErrors` is unchanged
-  --   so existing roundtrip proofs preserve their structural shape.
-  case-helper dbc (firstDBCOverBound dbc) (firstStringOverBound dbc)
-  where
-    case-helper : DBC → Maybe (String × ℕ × ℕ) → Maybe (String × ℕ × ℕ) → StreamState × Response
-    case-helper dbc (just (ctx , obs , lim)) _ =
-      boundErrorResponse "ParseDBC" ArrayCardinality ctx obs lim state
-    case-helper dbc nothing (just (ctx , obs , lim)) =
-      boundErrorResponse "ParseDBC" StringLength ctx obs lim state
-    case-helper dbc nothing nothing =
-      let issues = validateDBCFull dbc
-      in if hasAnyError issues
-         then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed issues))))
-         else (ReadyToStream 0 dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
+  -- Post-parse adversarial-bound cascade + validate-and-load, shared with
+  -- ParseDBCText via Handlers.LoadDBC (the two routes differ only in the
+  -- command-context literal).  ArrayCardinality caps on messages / signals /
+  -- attributes / comments / nodes / value tables / total value descriptions;
+  -- StringLength caps on the `List Char` fields not covered by the Identifier
+  -- grammar; then validateDBCFull with the ReadyToStream / ParsedDBCResponse
+  -- success branch.  `parseDBCWithErrors` is unchanged so the existing
+  -- roundtrip proofs preserve their structural shape.
+  loadValidatedDBC "ParseDBC" dbc state
 
 -- ParseDBCText handler isolated in its own submodule to keep parseText's
 -- transitive import closure (~30 modules: TopLevel → Attributes → …) out
@@ -411,7 +307,16 @@ handleExtractAllSignals canId dlc bytes state = withDBCContext "ExtractAllSignal
 -- Validate DBC structure: parse JSON, then run comprehensive validator
 handleValidateDBC : JSON → StreamState → StreamState × Response
 handleValidateDBC dbcJSON state = withParsedDBC "ValidateDBC" dbcJSON state λ dbc →
-  (state , Response.ValidationResponse (validateDBCFull dbc))
+  -- C2 hardening: run the same adversarial bound cascade as the load routes
+  -- (shared via Handlers.LoadDBC.checkDBCBounds) before validating, so an
+  -- over-cardinality / over-length JSON DBC is rejected with a typed
+  -- InputBoundExceeded rather than validated unbounded.  Discovery order and
+  -- field-context tags are identical to ParseDBC.
+  validateHelper dbc (checkDBCBounds "ValidateDBC" dbc state)
+  where
+    validateHelper : DBC → Maybe (StreamState × Response) → StreamState × Response
+    validateHelper _ (just err) = err
+    validateHelper dbc nothing = (state , Response.ValidationResponse (validateDBCFull dbc))
 
 -- Format DBC: returns currently-loaded DBC as JSON
 handleFormatDBC : StreamState → StreamState × Response

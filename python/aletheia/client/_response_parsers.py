@@ -53,6 +53,48 @@ def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationI
     return issues
 
 
+def _extract_bound_triple(response: Response) -> tuple[str, int, int] | None:
+    """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if absent.
+
+    All-or-nothing: a partial triple is treated as missing, matching the C++
+    binding's degrade-to-nullopt rule in ``make_json_error``. ``bool`` is
+    excluded because ``isinstance(True, int)`` is ``True`` and a boolean
+    observed/limit is a malformed wire value, not a count. Single source for
+    the triple shape, shared by :func:`build_error_response` (which folds it
+    into the ``ErrorResponse``) and :func:`lift_input_bound_exceeded` (which
+    gates it on the wire code) — no call site re-derives the field rules.
+    """
+    bound_kind = response.get("bound_kind")
+    observed = response.get("observed")
+    limit = response.get("limit")
+    if (
+        isinstance(bound_kind, str)
+        and isinstance(observed, int)
+        and not isinstance(observed, bool)
+        and isinstance(limit, int)
+        and not isinstance(limit, bool)
+    ):
+        return (bound_kind, observed, limit)
+    return None
+
+
+def lift_input_bound_exceeded(response: Response) -> tuple[str, int, int] | None:
+    """Extract the bound triple from an ``input_bound_exceeded`` error, else None.
+
+    Gates on the wire code — like :func:`lift_validation_issues` and the
+    Go / C++ / Rust decoders — then reuses :func:`_extract_bound_triple`. The
+    single rule for the code→triple lift so no call site re-implements it: the
+    client's ``validate_dbc`` raises :class:`InputBoundExceededError` from the
+    returned triple, and the load routes' bound rejects flow through the same
+    wire code. A bound-coded error whose triple is missing/partial degrades to
+    ``None`` (falls through to the generic error path) rather than raising with
+    fabricated fields.
+    """
+    if response.get("code") != "input_bound_exceeded":
+        return None
+    return _extract_bound_triple(response)
+
+
 def lift_validation_issues(
     response: Response,
 ) -> tuple[list[ValidationIssue], bool] | None:
@@ -125,19 +167,9 @@ def build_error_response(response: Response) -> ErrorResponse:
             + f" got {type(message).__name__}"
         )
     out: ErrorResponse = {"status": "error", "code": code, "message": message}
-    bound_kind = response.get("bound_kind")
-    observed = response.get("observed")
-    limit = response.get("limit")
-    if (
-        isinstance(bound_kind, str)
-        and isinstance(observed, int)
-        and not isinstance(observed, bool)
-        and isinstance(limit, int)
-        and not isinstance(limit, bool)
-    ):
-        out["bound_kind"] = bound_kind
-        out["observed"] = observed
-        out["limit"] = limit
+    triple = _extract_bound_triple(response)
+    if triple is not None:
+        out["bound_kind"], out["observed"], out["limit"] = triple
     lifted = lift_validation_issues(response)
     if lifted is not None:
         out["issues"], out["has_errors"] = lifted
