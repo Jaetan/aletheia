@@ -1453,8 +1453,8 @@ func TestEOS_MixedVerdicts(t *testing.T) {
 }
 
 func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
-	// Client.EndStream runs enrichPropertyResult for Unresolved verdicts
-	// (client.go case Unresolved). Verify the enrichment field is populated
+	// Client.EndStream runs enrichEndOfStream over Unresolved verdicts
+	// (client.go, todo collection). Verify the enrichment field is populated
 	// with FormulaDesc/CoreReason for an Unresolved result, parallel to the
 	// Fails enrichment path exercised by TestEndStream_Enriched.
 	mock := aletheia.NewMockBackend(

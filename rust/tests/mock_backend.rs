@@ -452,15 +452,15 @@ fn extract_signals_parse_failure_is_logged() {
     );
 }
 
-/// Exercises the end-of-stream multi-frame merge loop (previously untested —
-/// every other enrichment test drives a single CAN id). NOTE: the mock returns
-/// extraction responses positionally, so it cannot observe the `HashMap`
-/// iteration order that #2's sort makes deterministic; that ordering
-/// (lowest-CAN-id wins for a same-name contention) is a total-order-by-
-/// construction guarantee, exercised live by the real-`.so` `enrichment.rs`
-/// tests. Here we confirm the two-frame loop runs and produces enrichment.
+/// Exercises the end-of-stream early break: the frame loop stops as soon as
+/// every signal wanted by a todo diagnostic has been merged. Two frames are
+/// cached, but the first extracted frame (id 256 — lowest first, by the
+/// deterministic (canID, extended) sort) already yields the only wanted signal,
+/// so the second cached frame is never extracted: exactly one extraction call,
+/// and only one extraction response is queued (a second attempt would fail the
+/// mock loudly).
 #[test]
-fn enrich_eos_merges_multiple_frames() {
+fn enrich_eos_stops_extracting_once_wanted_signals_merged() {
     rts_up(); // add_checks → set_properties renders the threshold via the kernel
     let m = MockBackend::new();
     m.respond_json(r#"{"status":"ack"}"#) // add_checks
@@ -470,8 +470,7 @@ fn enrich_eos_merges_multiple_frames() {
         .respond_json(
             r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"}],"warnings":[]}"#,
         ) // end_stream → enrich_eos
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":100,"denominator":1}}]}"#)
-        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":200,"denominator":1}}]}"#);
+        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":100,"denominator":1}}]}"#); // frame 256 satisfies the union
 
     let c = Client::with_backend(Box::new(m.clone()));
     c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
@@ -505,10 +504,84 @@ fn enrich_eos_merges_multiple_frames() {
     let e = pr
         .enrichment
         .as_ref()
-        .expect("the EOS violation carries enrichment merged from the cached frames");
+        .expect("the EOS violation carries enrichment from the first cached frame");
     assert!(
-        e.signals.iter().any(|(n, _)| n == "EngineSpeed"),
-        "merged enrichment should reference EngineSpeed, got: {:?}",
+        e.signals
+            .contains(&("EngineSpeed".to_string(), Rational::integer(100))),
+        "enrichment should carry EngineSpeed from frame 256, got: {:?}",
+        e.signals
+    );
+    let extract_calls = m
+        .captured()
+        .iter()
+        .filter(|s| *s == "<binary:extractAllSignals>")
+        .count();
+    assert_eq!(
+        extract_calls, 1,
+        "frame 256 yields every wanted signal, so the loop must stop before frame 512"
+    );
+}
+
+/// Exercises the end-of-stream multi-frame merge loop — the counterpart of the
+/// early-break pin above: while a wanted signal is still missing, the loop
+/// keeps extracting. Frame 256 yields only a signal no diagnostic wants, so
+/// frame 512 is extracted too and supplies the wanted one. NOTE: the mock
+/// returns extraction responses positionally, so it cannot observe the
+/// `HashMap` iteration order that the (canID, extended) sort makes
+/// deterministic; that ordering (lowest-CAN-id wins for a same-name contention)
+/// is a total-order-by-construction guarantee, exercised live by the
+/// real-`.so` `enrichment.rs` tests.
+#[test]
+fn enrich_eos_merges_across_frames_until_wanted_signals_found() {
+    rts_up(); // add_checks → set_properties renders the threshold via the kernel
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
+        .respond_json(
+            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"}],"warnings":[]}"#,
+        ) // end_stream → enrich_eos
+        .respond_json(r#"{"values":[{"name":"CoolantTemp","value":{"numerator":90,"denominator":1}}]}"#) // frame 256: nothing wanted → keep going
+        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":200,"denominator":1}}]}"#); // frame 512: the wanted signal
+
+    let c = Client::with_backend(Box::new(m.clone()));
+    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+        .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    c.send_frame(
+        Timestamp(0),
+        CanId::standard(256).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 256");
+    c.send_frame(
+        Timestamp(1),
+        CanId::standard(512).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 512");
+    let result = c.end_stream().expect("end_stream");
+
+    let pr = result
+        .results
+        .iter()
+        .find(|r| r.verdict == Verdict::Fails)
+        .expect("a Fails verdict");
+    let e = pr
+        .enrichment
+        .as_ref()
+        .expect("the EOS violation carries enrichment merged from the second frame");
+    assert!(
+        e.signals
+            .contains(&("EngineSpeed".to_string(), Rational::integer(200))),
+        "enrichment should carry EngineSpeed from frame 512, got: {:?}",
         e.signals
     );
     let extract_calls = m
@@ -518,6 +591,223 @@ fn enrich_eos_merges_multiple_frames() {
         .count();
     assert_eq!(
         extract_calls, 2,
-        "enrich_eos must extract from both cached frames"
+        "a still-missing wanted signal must keep the frame loop extracting"
+    );
+}
+
+/// The multi-property-single-extract scenario: two failing properties (two
+/// diagnostics — one wanting EngineSpeed, one CoolantTemp) over the same two
+/// cached frames. The extract-once shape runs ONE extraction pass over the
+/// frames — exactly one call per frame extracted, never one per property —
+/// then distributes the merged map filtered per diagnostic, so each result's
+/// enrichment carries only its own diagnostic's signals. Only two extraction
+/// responses are queued: a per-property re-walk of the frames would exhaust
+/// the queue and fail the mock loudly.
+#[test]
+fn enrich_eos_two_properties_share_one_extraction_pass() {
+    rts_up(); // add_checks → set_properties renders the thresholds via the kernel
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
+        .respond_json(
+            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"},{"status":"fails","property_index":1,"reason":"y"}],"warnings":[]}"#,
+        ) // end_stream → enrich_eos, two todo diagnostics
+        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":100,"denominator":1}}]}"#) // frame 256: property 0's signal
+        .respond_json(r#"{"values":[{"name":"CoolantTemp","value":{"numerator":90,"denominator":1}}]}"#); // frame 512: property 1's signal
+
+    let c = Client::with_backend(Box::new(m.clone()));
+    c.add_checks(&[
+        check::signal("EngineSpeed").never_exceeds(1000),
+        check::signal("CoolantTemp").never_exceeds(120),
+    ])
+    .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    c.send_frame(
+        Timestamp(0),
+        CanId::standard(256).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 256");
+    c.send_frame(
+        Timestamp(1),
+        CanId::standard(512).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 512");
+    let result = c.end_stream().expect("end_stream");
+
+    let extract_calls = m
+        .captured()
+        .iter()
+        .filter(|s| *s == "<binary:extractAllSignals>")
+        .count();
+    assert_eq!(
+        extract_calls, 2,
+        "one extraction call per cached frame — the pass is shared across properties, not repeated per property"
+    );
+    let p0 = result
+        .results
+        .iter()
+        .find(|r| r.property_index == 0)
+        .expect("property 0's result");
+    let e0 = p0
+        .enrichment
+        .as_ref()
+        .expect("property 0 carries enrichment");
+    assert_eq!(
+        e0.signals,
+        vec![("EngineSpeed".to_string(), Rational::integer(100))],
+        "property 0's enrichment must carry only its own diagnostic's signal"
+    );
+    let p1 = result
+        .results
+        .iter()
+        .find(|r| r.property_index == 1)
+        .expect("property 1's result");
+    let e1 = p1
+        .enrichment
+        .as_ref()
+        .expect("property 1 carries enrichment");
+    assert_eq!(
+        e1.signals,
+        vec![("CoolantTemp".to_string(), Rational::integer(90))],
+        "property 1's enrichment must carry only its own diagnostic's signal"
+    );
+}
+
+/// The first-frame-wins discriminator: EngineSpeed is extractable from BOTH
+/// cached frames with different values (frame 256 → 1, frame 512 → 2), and
+/// the wanted union {EngineSpeed, CoolantTemp} is only completed by frame
+/// 512's CoolantTemp, so the early break demonstrably does NOT fire after
+/// frame 256 — the loop reaches frame 512 (two extraction calls). The
+/// first-seen merge must keep frame 256's EngineSpeed = 1; an
+/// overwrite/last-wins merge would surface 2. (The disjoint-signal merge
+/// test above cannot tell those apart; this one pins first-wins.)
+#[test]
+fn enrich_eos_first_frame_wins_for_a_contended_signal() {
+    rts_up(); // add_checks → set_properties renders the thresholds via the kernel
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 256 (caches last_frames)
+        .respond_json(r#"{"status":"ack"}"#) // send_frame id 512 (caches last_frames)
+        .respond_json(
+            r#"{"status":"complete","results":[{"status":"fails","property_index":0,"reason":"x"},{"status":"fails","property_index":1,"reason":"y"}],"warnings":[]}"#,
+        ) // end_stream → enrich_eos
+        .respond_json(r#"{"values":[{"name":"EngineSpeed","value":{"numerator":1,"denominator":1}}]}"#) // frame 256: EngineSpeed's first (winning) value
+        .respond_json(
+            r#"{"values":[{"name":"EngineSpeed","value":{"numerator":2,"denominator":1}},{"name":"CoolantTemp","value":{"numerator":3,"denominator":1}}]}"#,
+        ); // frame 512: a contending EngineSpeed + the still-missing CoolantTemp
+
+    let c = Client::with_backend(Box::new(m.clone()));
+    c.add_checks(&[
+        check::signal("EngineSpeed").never_exceeds(1000),
+        check::signal("CoolantTemp").never_exceeds(120),
+    ])
+    .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    c.send_frame(
+        Timestamp(0),
+        CanId::standard(256).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 256");
+    c.send_frame(
+        Timestamp(1),
+        CanId::standard(512).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 512");
+    let result = c.end_stream().expect("end_stream");
+
+    let extract_calls = m
+        .captured()
+        .iter()
+        .filter(|s| *s == "<binary:extractAllSignals>")
+        .count();
+    assert_eq!(
+        extract_calls, 2,
+        "CoolantTemp is still missing after frame 256, so frame 512 must be extracted too"
+    );
+    let e0 = result
+        .results
+        .iter()
+        .find(|r| r.property_index == 0)
+        .expect("property 0's result")
+        .enrichment
+        .as_ref()
+        .expect("property 0 carries enrichment");
+    assert_eq!(
+        e0.signals,
+        vec![("EngineSpeed".to_string(), Rational::integer(1))],
+        "first frame wins: frame 256's EngineSpeed = 1 must survive frame 512's contending value 2"
+    );
+    let e1 = result
+        .results
+        .iter()
+        .find(|r| r.property_index == 1)
+        .expect("property 1's result")
+        .enrichment
+        .as_ref()
+        .expect("property 1 carries enrichment");
+    assert_eq!(
+        e1.signals,
+        vec![("CoolantTemp".to_string(), Rational::integer(3))],
+        "CoolantTemp arrives from frame 512"
+    );
+}
+
+/// End-of-stream with no verdict needing enrichment (`Holds` only): the frame
+/// snapshot + extraction loop must not run at all — zero extraction calls, even
+/// though a frame is cached (no extraction response is queued, so an attempt
+/// would fail the mock loudly).
+#[test]
+fn enrich_eos_no_todo_makes_no_extract_calls() {
+    rts_up(); // add_checks → set_properties renders the threshold via the kernel
+    let m = MockBackend::new();
+    m.respond_json(r#"{"status":"ack"}"#) // add_checks
+        .respond_json(r#"{"status":"ack"}"#) // start_stream
+        .respond_json(r#"{"status":"ack"}"#) // send_frame (caches last_frames)
+        .respond_json(
+            r#"{"status":"complete","results":[{"status":"holds","property_index":0,"reason":""}],"warnings":[]}"#,
+        ); // end_stream → nothing to enrich
+
+    let c = Client::with_backend(Box::new(m.clone()));
+    c.add_checks(&[check::signal("EngineSpeed").never_exceeds(1000)])
+        .expect("add_checks");
+    c.start_stream().expect("start_stream");
+    c.send_frame(
+        Timestamp(0),
+        CanId::standard(256).unwrap(),
+        Dlc::new(8).unwrap(),
+        &[0u8; 8],
+        None,
+        None,
+    )
+    .expect("send 256");
+    let result = c.end_stream().expect("end_stream");
+
+    assert!(
+        result.results[0].enrichment.is_none(),
+        "a Holds verdict must not be enriched"
+    );
+    assert!(
+        !m.captured()
+            .contains(&"<binary:extractAllSignals>".to_string()),
+        "no todo verdict → no extraction call"
     );
 }

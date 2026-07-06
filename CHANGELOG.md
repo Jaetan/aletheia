@@ -518,6 +518,41 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **End-of-stream violation enrichment extracts each tracked frame once,
+  not once per property (all four bindings, uniform shape).** The Python,
+  Go, and C++ clients used to re-extract every last-seen frame for *each*
+  Fails/Unresolved property at `end_stream` (P×F FFI crossings); all three
+  now run Rust's extract-once shape — collect the todo entries (out-of-range
+  `property_index` still warns `enrichment.property_index_oob` and is
+  excluded), extract each tracked frame exactly once in ascending
+  (CAN-ID, extended) order, merge first-frame-wins, and distribute the
+  merged values to every todo property — at most F crossings. All four
+  bindings additionally gain two uniform guards: an **empty-union skip**
+  (when no todo property wants any signal, the extraction pass is skipped
+  entirely — enrichment is still attached with the existing no-values
+  fallback reason) and an **early break** once every wanted signal has a
+  value (Rust previously always extracted every tracked frame; its
+  mock-count pin moved from 2 to 1 accordingly). In the three reshaped
+  bindings `enrichment.extraction_failed` now warns once per failed *frame*
+  per `end_stream` instead of once per (property, frame) — same event, same
+  fields, lower cardinality (Rust keeps its pre-existing property-level
+  variant of that warning, emitted at distribution). Frame iteration is now
+  uniformly ascending (CAN-ID value, then extended flag) — Go previously
+  ordered all standard frames before all extended ones, so first-frame-wins
+  could pick a different frame's value than the peers on mixed streams; Go
+  also now skips enrichment on an *empty* (not just absent) diagnostics
+  list, matching the peers. The enrichment signal collectors are now uniform
+  pass-throughs: Python's no longer drops empty signal names — the kernel is
+  the single validator of signal identifiers (`setProperties` rejects an
+  invalid or empty name with the typed `parse_invalid_identifier` error
+  before any diagnostic is built), so no binding second-guesses it. The
+  enrichment payload, its attach-always
+  contract, and the streaming (mid-stream) enrichment path are unchanged;
+  no wire shapes moved. All four bindings gain mock-count regression tests
+  over a shared scenario matrix: extractions == frames (not P×F),
+  early-break, first-frame-wins vs overwrite, all-satisfied and
+  no-tracked-frames at zero, OOB exclusion, and failed-extraction warn
+  cardinality.
 - **The CLIs parse a DBC once per invocation, not two or three times.**
   Every `.dbc` subcommand in the Python CLI used to parse the file through
   the verified text parser (`dbc_to_json` on a throwaway client — a full

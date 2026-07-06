@@ -401,8 +401,13 @@ def collect_signals(formula: LTLFormula) -> list[str]:
     seen: set[str] = set()
 
     def on_atomic(pred: SignalPredicate) -> None:
+        # Names pass through verbatim (no empty-name filtering): the kernel
+        # is the single validator of signal identifiers — setProperties
+        # rejects an invalid/empty name with the typed
+        # ``parse_invalid_identifier`` error before any diagnostic is built,
+        # exactly as in the Go/C++/Rust collectors.
         name = pred["signal"]
-        if name and name not in seen:
+        if name not in seen:
             seen.add(name)
             signals.append(name)
 

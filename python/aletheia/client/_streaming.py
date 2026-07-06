@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from aletheia.client._client_bin import FrameIdentity
 from aletheia.client._enrichment import format_enriched_reason
@@ -69,6 +69,18 @@ if TYPE_CHECKING:
 
 
 _logger = logging.getLogger("aletheia")
+
+
+class _EnrichmentTodo(NamedTuple):
+    """One fails/unresolved finalization entry paired with its diagnostic.
+
+    Collected while :func:`parse_finalization_results` walks the results,
+    then serviced by the shared extract-once pass in
+    :meth:`StreamingMixin._enrich_finalization_results`.
+    """
+
+    result: PropertyResultEntry
+    diag: PropertyDiagnostic
 
 
 class StreamingMixin(ClientHostState):
@@ -544,10 +556,12 @@ class StreamingMixin(ClientHostState):
         status = response.get("status")
 
         if status == "complete":
+            todo: list[_EnrichmentTodo] = []
             results = parse_finalization_results(
                 response,
-                self._enrich_finalization_result,
+                lambda entry: self._collect_finalization_todo(entry, todo),
             )
+            self._enrich_finalization_results(todo)
             warnings: list[CompleteWarning] = parse_complete_warnings(response)
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
@@ -578,17 +592,45 @@ class StreamingMixin(ClientHostState):
         msg = f"Unexpected response status: {status!r} (expected 'complete' or 'error')"
         raise ProtocolError(msg)
 
-    def _extract_last_known_values(
+    def _collect_finalization_todo(
         self,
-        diag: PropertyDiagnostic,
-    ) -> dict[str, Fraction | None]:
-        """Extract signal values from last-seen frames for EOS enrichment."""
-        if not self._caches.last_frames or not diag.signals:
-            return {}
-        wanted = set(diag.signals)
-        values: dict[str, Fraction | None] = {}
-        # Sort by (canID, extended) for deterministic enrichment output,
-        # matching Go's explicit sort and C++'s std::map ordering.
+        result: PropertyResultEntry,
+        todo: list[_EnrichmentTodo],
+    ) -> None:
+        """Record a fails/unresolved finalization entry for enrichment.
+
+        Passed to :func:`parse_finalization_results` as its ``enrich``
+        callback.  The out-of-bounds warn-and-exclude happens here at
+        collection time so the warnings keep the results-list order; the
+        actual extraction is deferred to the shared extract-once pass in
+        :meth:`_enrich_finalization_results`.
+        """
+        if not self._diags:
+            return
+        idx = result["property_index"]
+        diag = self._diags.get(idx)
+        if diag is None:
+            log_event(
+                _logger,
+                logging.WARNING,
+                LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
+                index=idx,
+                count=len(self._diags),
+            )
+            return
+        todo.append(_EnrichmentTodo(result, diag))
+
+    def _extract_merged_values(self, union: set[str]) -> dict[str, Fraction]:
+        """Extract signal values from last-seen frames — one pass per frame.
+
+        Runs one full-frame extraction per last-seen frame (ascending
+        ``(canID, extended)`` order — matching Go's explicit sort and C++'s
+        ``std::map`` ordering) and merges every extracted signal
+        first-frame-wins into one map.  Stops early once every name in
+        *union* (the signals wanted by any pending enrichment) has a value.
+        """
+        merged: dict[str, Fraction] = {}
+        remaining = set(union)
         for (lf_id, lf_ext), (lf_dlc, lf_data) in sorted(
             self._caches.last_frames.items(),
             key=lambda item: (item[0][0], item[0][1]),
@@ -604,7 +646,8 @@ class StreamingMixin(ClientHostState):
                 # Finalization enrichment is best-effort (mirrors the hot
                 # path); keep the warning single-line so operators can grep
                 # ``enrichment.extraction_failed`` without drowning in
-                # tracebacks.
+                # tracebacks.  One warning per failed frame per end_stream —
+                # extraction runs once per frame, not once per property.
                 log_event(
                     _logger,
                     logging.WARNING,
@@ -613,38 +656,39 @@ class StreamingMixin(ClientHostState):
                     error=str(exc),
                 )
                 continue
-            for sig in list(wanted):
-                val = extraction.values.get(sig)
-                if val is not None:
-                    values[sig] = val
-                    wanted.discard(sig)
-            if not wanted:
+            for sig, val in extraction.values.items():
+                if sig not in merged:
+                    merged[sig] = val
+                    remaining.discard(sig)
+            if not remaining:
                 break
-        return values
+        return merged
 
-    def _enrich_finalization_result(
-        self,
-        result: PropertyResultEntry,
-    ) -> None:
-        """Enrich an end-of-stream violation with signal diagnostics."""
-        if not self._diags:
+    def _enrich_finalization_results(self, todo: list[_EnrichmentTodo]) -> None:
+        """Enrich the collected end-of-stream entries (extract-once shape).
+
+        One shared extraction pass services every pending entry: the frame
+        loop in :meth:`_extract_merged_values` runs at most once per
+        ``end_stream``, then each entry's enrichment filters the merged map
+        down to its own diagnostic's signals.  An empty signal union skips
+        the extraction pass entirely (zero FFI calls) but every entry still
+        gets its enrichment attached, falling back to the formula
+        description when no values are available.
+        """
+        if not todo:
             return
-        idx = result["property_index"]
-        diag = self._diags.get(idx)
-        if diag is None:
-            log_event(
-                _logger,
-                logging.WARNING,
-                LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
-                index=idx,
-                count=len(self._diags),
-            )
-            return
-        values = self._extract_last_known_values(diag)
-        core_reason = result.get("reason", "")
-        result["enrichment"] = {
-            "signals": values,
-            "formula_desc": diag.formula_desc,
-            "enriched_reason": format_enriched_reason(diag, values, core_reason),
-            "core_reason": core_reason,
-        }
+        union: set[str] = set()
+        for _, diag in todo:
+            union.update(diag.signals)
+        merged = self._extract_merged_values(union) if union else {}
+        for result, diag in todo:
+            values: dict[str, Fraction | None] = {
+                sig: merged[sig] for sig in diag.signals if sig in merged
+            }
+            core_reason = result.get("reason", "")
+            result["enrichment"] = {
+                "signals": values,
+                "formula_desc": diag.formula_desc,
+                "enriched_reason": format_enriched_reason(diag, values, core_reason),
+                "core_reason": core_reason,
+            }

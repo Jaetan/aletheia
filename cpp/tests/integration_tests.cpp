@@ -1432,9 +1432,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
 
 TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics present",
           "[integration][eos][unresolved][enrich]") {
-    // client.cpp end_stream() calls enrich_property_result for both Fails
-    // and Unresolved verdicts. Verify the enrichment pipeline runs on the
-    // Unresolved branch by checking that reason and enrichment are populated.
+    // client.cpp end_stream() calls enrich_end_stream_results, which collects
+    // both Fails and Unresolved verdicts. Verify the enrichment pipeline runs
+    // on the Unresolved branch by checking that reason and enrichment are
+    // populated.
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -1463,7 +1464,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     CHECK(pr.verdict == Verdict::Unresolved);
     // The Agda core emits a human-readable reason for Unresolved verdicts.
     CHECK_FALSE(pr.reason.empty());
-    // enrich_property_result runs unconditionally for Unresolved — the
+    // end-of-stream enrichment attaches unconditionally for Unresolved — the
     // ViolationEnrichment field should be populated.
     REQUIRE(pr.enrichment.has_value());
     CHECK_FALSE(pr.enrichment->enriched_reason.empty());

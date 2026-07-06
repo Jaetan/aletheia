@@ -4,6 +4,7 @@
 package aletheia
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -884,7 +885,7 @@ func (c *Client) sendFrameLocked(
 	// enrich every fails entry in source-order so the binding's user
 	// sees signal diagnostics on each violation in the batch.  Use the
 	// per-frame FFI extraction path (with extraction cache) — mirrors
-	// the pre-R23 enrichViolation behaviour, NOT enrichPropertyResult
+	// the pre-R23 enrichViolation behaviour, NOT enrichEndOfStream
 	// (which uses last-known frames and is the EndStream pattern).
 	if b, ok := fr.(PropertyBatch); ok && c.diags != nil {
 		for i := range b.Results {
@@ -941,16 +942,11 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 		switch sr.Results[i].Verdict {
 		case Fails:
 			numFails++
-			if c.diags != nil {
-				c.enrichPropertyResult(ctx, &sr.Results[i])
-			}
 		case Unresolved:
 			numUnresolved++
-			if c.diags != nil {
-				c.enrichPropertyResult(ctx, &sr.Results[i])
-			}
 		}
 	}
+	c.enrichEndOfStream(ctx, sr.Results)
 	c.lastFrames = nil
 	if c.logger != nil {
 		for _, w := range sr.Warnings {
@@ -973,7 +969,7 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 // violation entry (PropertyResult with Verdict == Fails inside a
 // PropertyBatch).  Uses the per-frame FFI extraction path via
 // extractSignalValues (cached), matching the pre-R23 enrichViolation
-// behaviour.  Distinct from enrichPropertyResult, which is the
+// behaviour.  Distinct from enrichEndOfStream, which is the
 // EndStream path and uses last-known frames rather than the current
 // frame's payload.  Caller must hold the client lock.
 func (c *Client) enrichStreamingViolation(ctx context.Context, pr *PropertyResult, id CANID, dlc DLC, data FramePayload) {
@@ -996,76 +992,113 @@ func (c *Client) enrichStreamingViolation(ctx context.Context, pr *PropertyResul
 	}
 }
 
-// enrichPropertyResult adds a ViolationEnrichment to a failed PropertyResult,
-// including last-known signal values from tracked frames. Caller must hold
-// the client lock.  ctx is forwarded to slog so request-scoped attrs propagate
-// into structured-log records.
-func (c *Client) enrichPropertyResult(ctx context.Context, pr *PropertyResult) {
-	idx := int(pr.PropertyIndex)
-	if idx >= len(c.diags) {
-		if c.logger != nil {
-			c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.property_index_oob",
-				slog.Int("index", idx), slog.Int("count", len(c.diags)))
-		}
+// enrichEndOfStream adds a ViolationEnrichment to every Fails/Unresolved
+// result, extracting each last-seen frame at most once per EndStream (the
+// uniform cross-binding extract-once shape).
+//
+// Three passes: collect the results to enrich (warning on and excluding any
+// out-of-bounds property index); run ONE full-frame extraction per last-seen
+// frame, merging every extracted signal first-frame-wins and breaking early
+// once every signal wanted by any collected diagnostic has a value; then
+// distribute the merged values to each result, filtered to the signals its
+// own diagnostic references. A failed frame extraction warns
+// enrichment.extraction_failed once per frame per EndStream. When no
+// collected diagnostic wants any signal the frame pass is skipped entirely
+// (zero FFI calls), but every collected result still gets an enrichment with
+// the formula-description fallback reason.
+//
+// Caller must hold the client lock.  ctx is forwarded to slog so
+// request-scoped attrs propagate into structured-log records.
+func (c *Client) enrichEndOfStream(ctx context.Context, results []PropertyResult) {
+	if len(c.diags) == 0 {
 		return
 	}
-	diag := c.diags[idx]
-	values := c.extractLastKnownValues(ctx, diag)
-	reason := formatEnrichedReason(diag, values, pr.Reason)
-	pr.Enrichment = &ViolationEnrichment{
-		Signals:        values,
-		FormulaDesc:    diag.FormulaDesc,
-		EnrichedReason: reason,
-		CoreReason:     pr.Reason,
+	type pending struct {
+		pr   *PropertyResult
+		diag PropertyDiagnostic
 	}
-}
-
-// extractLastKnownValues extracts signal values from the last-seen frames for
-// all signals referenced in a diagnostic. Caller must hold the client lock.
-// ctx is forwarded to slog so request-scoped attrs propagate into
-// structured-log records.
-func (c *Client) extractLastKnownValues(ctx context.Context, diag PropertyDiagnostic) map[SignalName]Rational {
-	if len(c.lastFrames) == 0 || len(diag.Signals) == 0 {
-		return nil
-	}
-	wanted := make(map[SignalName]bool, len(diag.Signals))
-	for _, s := range diag.Signals {
-		wanted[s] = true
-	}
-	values := make(map[SignalName]Rational)
-	// Sort map keys for deterministic enrichment output. The uint64 key encodes
-	// (CAN ID value, extended flag) via canIDKey, so the natural ordering sorts
-	// by value then by extended-flag.
-	keys := make([]uint64, 0, len(c.lastFrames))
-	for k := range c.lastFrames {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	// Try extraction against all last-seen frames to find matching signals.
-	for _, k := range keys {
-		lf := c.lastFrames[k]
-		result := c.extractSignalsLocked(ctx, lf.id, lf.dlc, lf.data)
-		if result == nil {
+	var todo []pending
+	for i := range results {
+		pr := &results[i]
+		if pr.Verdict != Fails && pr.Verdict != Unresolved {
+			continue
+		}
+		idx := int(pr.PropertyIndex)
+		if idx >= len(c.diags) {
 			if c.logger != nil {
-				c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.extraction_failed",
-					slog.Uint64("canId", uint64(lf.id.Value())))
+				c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.property_index_oob",
+					slog.Int("index", idx), slog.Int("count", len(c.diags)))
 			}
 			continue
 		}
-		for _, sv := range result.Values {
-			if wanted[sv.Name] {
-				values[sv.Name] = sv.Value
-				delete(wanted, sv.Name)
+		todo = append(todo, pending{pr: pr, diag: c.diags[idx]})
+	}
+	if len(todo) == 0 {
+		return
+	}
+	// Union of signal names wanted by any pending diagnostic; doubles as the
+	// remaining-set that drives the early break below.
+	remaining := make(map[SignalName]bool)
+	for _, p := range todo {
+		for _, s := range p.diag.Signals {
+			remaining[s] = true
+		}
+	}
+	merged := make(map[SignalName]Rational)
+	if len(remaining) > 0 {
+		// Sort map keys for deterministic enrichment output in the
+		// cross-binding order: ascending CAN ID value, then standard before
+		// extended. canIDKey packs the extended flag at bit 32, so a plain
+		// uint64 sort would order (extended, value); decode the two halves
+		// and compare (value, extended) instead.
+		keys := make([]uint64, 0, len(c.lastFrames))
+		for k := range c.lastFrames {
+			keys = append(keys, k)
+		}
+		slices.SortFunc(keys, func(a, b uint64) int {
+			if r := cmp.Compare(a&0xFFFFFFFF, b&0xFFFFFFFF); r != 0 {
+				return r
+			}
+			return cmp.Compare(a&extendedIDFlag, b&extendedIDFlag)
+		})
+		for _, k := range keys {
+			lf := c.lastFrames[k]
+			result := c.extractSignalsLocked(ctx, lf.id, lf.dlc, lf.data)
+			if result == nil {
+				if c.logger != nil {
+					c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.extraction_failed",
+						slog.Uint64("canId", uint64(lf.id.Value())))
+				}
+				continue
+			}
+			for _, sv := range result.Values {
+				if _, ok := merged[sv.Name]; !ok {
+					merged[sv.Name] = sv.Value
+				}
+				delete(remaining, sv.Name)
+			}
+			if len(remaining) == 0 {
+				break
 			}
 		}
-		if len(wanted) == 0 {
-			break
+	}
+	for _, p := range todo {
+		var values map[SignalName]Rational
+		for _, sig := range p.diag.Signals {
+			if val, ok := merged[sig]; ok {
+				if values == nil {
+					values = make(map[SignalName]Rational)
+				}
+				values[sig] = val
+			}
+		}
+		p.pr.Enrichment = &ViolationEnrichment{
+			Signals:        values,
+			FormulaDesc:    p.diag.FormulaDesc,
+			EnrichedReason: formatEnrichedReason(p.diag, values, p.pr.Reason),
+			CoreReason:     p.pr.Reason,
 		}
 	}
-	if len(values) == 0 {
-		return nil
-	}
-	return values
 }
 
 // extractSignalValues extracts signal values for a diagnostic from a frame, using the cache.

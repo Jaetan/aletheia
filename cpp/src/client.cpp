@@ -665,12 +665,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
     auto resp = backend_->end_stream_binary(state_);
     auto result = detail::parse_stream_result(resp);
     if (result.has_value()) {
-        if (!diags_.empty()) {
-            for (auto& pr : result->results) {
-                if (pr.verdict == Verdict::Fails || pr.verdict == Verdict::Unresolved)
-                    enrich_property_result(pr);
-            }
-        }
+        if (!diags_.empty())
+            enrich_end_stream_results(*result);
         if (logger_)
             log_end_stream_summary(*result);
         last_frames_.clear();
@@ -815,25 +811,59 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
     };
 }
 
-void AletheiaClient::enrich_property_result(PropertyResult& pr) {
-    auto idx = pr.property_index.get();
-    if (idx >= diags_.size()) {
-        // Property index out of range — protocol mismatch; skip enrichment.
-        if (logger_)
-            logger_.warn("enrichment.property_index_oob",
-                         {{"index", static_cast<std::int64_t>(idx)},
-                          {"count", static_cast<std::uint64_t>(diags_.size())}});
+void AletheiaClient::enrich_end_stream_results(StreamResult& result) {
+    auto todo = collect_enrichable_results(result);
+    if (todo.empty())
         return;
+
+    // Union of the signal names any collected diagnostic wants. When the
+    // union is empty, skip the frame extraction loop entirely (zero FFI
+    // extraction calls, no extraction_failed warnings) — but still attach
+    // an enrichment to every collected result via the empty-values fallback.
+    std::set<SignalName> wanted;
+    for (const auto& [pr, diag] : todo)
+        wanted.insert(diag->signals.begin(), diag->signals.end());
+    std::map<SignalName, PhysicalValue> merged;
+    if (!wanted.empty())
+        merged = merge_last_known_values(std::move(wanted));
+
+    // Distribute: each result's values are the merged map filtered to its
+    // own diagnostic's signals; the enrichment is always attached (empty
+    // values degrade to the "violated: <formula>" fallback reason).
+    for (auto& [pr, diag] : todo) {
+        std::map<SignalName, PhysicalValue> values;
+        for (const auto& sig : diag->signals) {
+            if (auto it = merged.find(sig); it != merged.end())
+                values.emplace(sig, it->second);
+        }
+        auto reason = format_enriched_reason(*diag, values, pr->reason);
+        pr->enrichment = ViolationEnrichment{
+            .signals = std::move(values),
+            .formula_desc = diag->formula_desc,
+            .enriched_reason = std::move(reason),
+            .core_reason = pr->reason,
+        };
     }
-    const auto& diag = diags_[idx];
-    auto values = extract_last_known_values(diag);
-    auto reason = format_enriched_reason(diag, values, pr.reason);
-    pr.enrichment = ViolationEnrichment{
-        .signals = std::move(values),
-        .formula_desc = diag.formula_desc,
-        .enriched_reason = std::move(reason),
-        .core_reason = pr.reason,
-    };
+}
+
+auto AletheiaClient::collect_enrichable_results(StreamResult& result)
+    -> std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>> {
+    std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>> todo;
+    for (auto& pr : result.results) {
+        if (pr.verdict != Verdict::Fails && pr.verdict != Verdict::Unresolved)
+            continue;
+        auto idx = pr.property_index.get();
+        if (idx >= diags_.size()) {
+            // Property index out of range — protocol mismatch; skip enrichment.
+            if (logger_)
+                logger_.warn("enrichment.property_index_oob",
+                             {{"index", static_cast<std::int64_t>(idx)},
+                              {"count", static_cast<std::uint64_t>(diags_.size())}});
+            continue;
+        }
+        todo.emplace_back(&pr, &diags_[idx]);
+    }
+    return todo;
 }
 
 auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
@@ -874,12 +904,14 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
     return collect_matching_signals(diag, cache_it->second);
 }
 
-auto AletheiaClient::extract_last_known_values(const PropertyDiagnostic& diag)
+auto AletheiaClient::merge_last_known_values(std::set<SignalName> remaining)
     -> std::map<SignalName, PhysicalValue> {
-    if (last_frames_.empty() || diag.signals.empty())
-        return {};
-    std::set<SignalName> wanted(diag.signals.begin(), diag.signals.end());
-    std::map<SignalName, PhysicalValue> values;
+    // One full-frame extraction per tracked frame, in ascending
+    // (CAN id value, extended) order — std::map's key order is the sorted
+    // contract. Every extracted signal merges first-frame-wins (emplace
+    // never overwrites); a failed extraction warns once per frame per
+    // end_stream. Stops early once every remaining wanted name is merged.
+    std::map<SignalName, PhysicalValue> merged;
     for (const auto& [key, last_frame] : last_frames_) {
         auto extraction = extract_signals_internal(last_frame.id, last_frame.dlc, last_frame.data,
                                                    key.first, key.second);
@@ -890,15 +922,13 @@ auto AletheiaClient::extract_last_known_values(const PropertyDiagnostic& diag)
             continue;
         }
         for (const auto& sv : extraction->values) {
-            if (wanted.contains(sv.name)) {
-                values.insert_or_assign(sv.name, sv.value);
-                wanted.erase(sv.name);
-            }
+            if (merged.emplace(sv.name, sv.value).second)
+                remaining.erase(sv.name);
         }
-        if (wanted.empty())
+        if (remaining.empty())
             break;
     }
-    return values;
+    return merged;
 }
 
 auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data,
