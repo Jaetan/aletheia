@@ -216,17 +216,58 @@ def _process_end_stream(
     return violations, unresolved
 
 
+def _run_check_pipeline(
+    client: AletheiaClient,
+    checks: list[CheckResult],
+    logfile: str,
+    all_checks: list[CheckResult],
+) -> CheckRunResult:
+    """Add checks, stream *logfile*, and collect results on a loaded *client*.
+
+    The client's session must already hold the DBC (``ReadyToStream``);
+    ``default_checks`` are applied by the client at ``start_stream`` (from
+    its constructor), so the caller must have built it with them.
+    """
+    resp = client.add_checks(checks)
+    if resp["status"] != "success":
+        msg = f"set properties failed: {resp['message']}"
+        raise AletheiaError(msg)
+
+    resp = client.start_stream()
+    if resp["status"] != "success":
+        msg = f"start stream failed: {resp['message']}"
+        raise AletheiaError(msg)
+
+    violations, total_frames = _process_frames(client, logfile, all_checks)
+    end_violations, unresolved = _process_end_stream(
+        client.end_stream(),
+        all_checks,
+    )
+    violations.extend(end_violations)
+    return CheckRunResult(violations, unresolved, total_frames)
+
+
 def run_checks(
     dbc: DBCDefinition,
     checks: list[CheckResult],
     logfile: str,
     default_checks: list[CheckResult] | None = None,
+    *,
+    client: AletheiaClient | None = None,
 ) -> CheckRunResult:
     """Stream a CAN log through the Aletheia engine.
 
     Returns a :class:`CheckRunResult` carrying the collected violations,
     end-of-stream unresolved results (three-valued Kleene Unknown), and
     the total frame count.
+
+    When *client* is ``None`` (the default, for library callers) a
+    temporary client is created and *dbc* is loaded via ``parse_dbc``.
+    When a *client* is supplied, its session must already hold *dbc*
+    (loaded by the caller) and built with the same *default_checks* — the
+    redundant ``parse_dbc`` is skipped and *dbc* is used only for the
+    None path. The CLI passes its already-loaded client so a `.dbc` file
+    is parsed once, not twice.
 
     Raises:
         FileNotFoundError: ``logfile`` does not exist.
@@ -238,30 +279,14 @@ def run_checks(
     if not Path(logfile).exists():
         msg = f"log file not found: {logfile}"
         raise FileNotFoundError(msg)
-    with AletheiaClient(default_checks=default_checks) as client:
-        resp = client.parse_dbc(dbc)
+    if client is not None:
+        return _run_check_pipeline(client, checks, logfile, all_checks)
+    with AletheiaClient(default_checks=default_checks) as owned:
+        resp = owned.parse_dbc(dbc)
         if resp["status"] != "success":
             msg = f"DBC parse failed: {resp['message']}"
             raise AletheiaError(msg)
-
-        resp = client.add_checks(checks)
-        if resp["status"] != "success":
-            msg = f"set properties failed: {resp['message']}"
-            raise AletheiaError(msg)
-
-        resp = client.start_stream()
-        if resp["status"] != "success":
-            msg = f"start stream failed: {resp['message']}"
-            raise AletheiaError(msg)
-
-        violations, total_frames = _process_frames(client, logfile, all_checks)
-        end_violations, unresolved = _process_end_stream(
-            client.end_stream(),
-            all_checks,
-        )
-        violations.extend(end_violations)
-
-    return CheckRunResult(violations, unresolved, total_frames)
+        return _run_check_pipeline(owned, checks, logfile, all_checks)
 
 
 __all__ = [

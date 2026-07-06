@@ -18,8 +18,13 @@ from typing import TYPE_CHECKING
 import pytest
 from _dbc_helpers import dbc, message, signal
 
-from aletheia import DBCValidationFailedError, ValidationError
-from aletheia.dbc import convert_dbc_file, dbc_to_json, dbc_to_text
+from aletheia import AletheiaClient, DBCValidationFailedError, ValidationError
+from aletheia.dbc import (
+    convert_dbc_file,
+    dbc_and_warnings_from_response,
+    dbc_to_json,
+    dbc_to_text,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,6 +52,15 @@ _VALIDATION_FAILING_DBC_TEXT = (
     "BO_ 256 M: 8 ECU1\n"
     ' SG_ S : 0|8@1+ (1,0) [5|1] "" Vector__XXX\n'
     ' SG_ S : 8|8@1+ (1,0) [0|255] "" Vector__XXX\n'
+)
+
+# Parses AND validates successfully (no duplicate) but the single signal's
+# range is inverted (min 5 > max 1), a warning-severity issue — so the parse
+# succeeds and carries exactly one warning on its envelope.
+_VALIDATION_WARNING_DBC_TEXT = (
+    'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_:\n\n'
+    "BO_ 256 M: 8 ECU1\n"
+    ' SG_ S : 0|8@1+ (1,0) [5|1] "" Vector__XXX\n'
 )
 
 
@@ -86,6 +100,25 @@ def test_dbc_to_json_validation_failure_raises_typed(tmp_path: Path) -> None:
     assert "min_exceeds_max" in codes
     severities = {issue["severity"] for issue in err.issues}
     assert severities == {"error", "warning"}
+
+
+def test_response_helper_returns_dbc_and_warnings() -> None:
+    """A successful parse yields the DBC plus its warning list.
+
+    The shared ``dbc_and_warnings_from_response`` (which the CLI's load path
+    and ``dbc_to_json`` both delegate to) must surface the parse warnings,
+    not only the DBC body — the ``validate`` subcommand reads them as the
+    complete validation result without a second kernel pass. The inverted
+    range on the lone signal is a warning-severity issue, so the parse
+    succeeds and the returned warning list is non-empty.
+    """
+    with AletheiaClient() as client:
+        response = client.parse_dbc_text(_VALIDATION_WARNING_DBC_TEXT)
+    parsed_dbc, warnings = dbc_and_warnings_from_response(response, "warn.dbc")
+    assert parsed_dbc["messages"], "the parsed DBC body must be returned"
+    codes = {issue["code"] for issue in warnings}
+    assert "min_exceeds_max" in codes
+    assert all(issue["severity"] == "warning" for issue in warnings)
 
 
 def test_dbc_to_text_renders_messages() -> None:

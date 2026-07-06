@@ -20,9 +20,43 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   writing `_install_config.py`, leaving a partial install the loader
   silently ignores. The `-c` program is now passed as a list argument
   (Shake's no-split form).
+- **The local mutation-testing gate no longer reuses a stale mutmut
+  work-tree.** `tools/mutation_run.py` now erases `python/mutants/` before
+  each `mutmut run`. mutmut invalidates its cached kill/survive verdicts on
+  *source* changes but not *test* changes (test files live outside
+  `source_paths`, so their content is not hashed), so a test edit — or files
+  arriving via `git merge` / `checkout` / `pull` — could yield stale results
+  (a merge that added a function together with its killing tests reported 20
+  phantom survivors until the tree was cleared). CI was never affected — it
+  checks out fresh and `mutants/` is gitignored and uncached — so this only
+  brings *local* runs to the same fresh-tree semantics. Cost is ~11 s on the
+  Python lane (warm reuse 29 s → clean 40 s), local only.
 
 ### Changed
 
+- **The CLIs parse a DBC once per invocation, not two or three times.**
+  Every `.dbc` subcommand in the Python CLI used to parse the file through
+  the verified text parser (`dbc_to_json` on a throwaway client — a full
+  GHC RTS init, parse, validate, and session-load), then discard that
+  session and re-parse the result through the structured-JSON route
+  (`parse_dbc`) on the real client; `validate` added a third pass
+  (`validate_dbc`). The Go and C++ CLIs each ran the parse plus a
+  redundant `ValidateDBC` round-trip. All three now load a DBC exactly
+  once: a `.dbc` text file goes through `parse_dbc_text` (which parses,
+  validates, and loads the session in one kernel call) on the
+  subcommand's own client, and `validate` renders the parse's warnings
+  directly — the kernel's parse epilogue *is* full validation, so a
+  successful parse has no error-severity issues and its warnings are the
+  complete validation result. Excel-sourced DBCs still route through
+  `parse_dbc` (they have no text form), now with their parse status
+  checked (previously `format-dbc` ignored it, so an invalid
+  Excel-sourced DBC misreported as a `formatDBC` failure). Observable
+  behavior is unchanged — the 40-scenario cross-CLI parity harness passes
+  identically across all three — but large `.dbc` files pay the O(N²)
+  text-parse cost once instead of twice. `dbc_to_json` /
+  `convert_dbc_file` keep their public ad-hoc contract; `run_checks` gains
+  an optional `client=` parameter so a caller that has already loaded the
+  DBC skips the redundant `parse_dbc`.
 - **The two DBC-loading routes share one validate-and-load pipeline, and
   `validateDBC` gained the adversarial bounds cascade.** A new leaf module
   `Aletheia.Protocol.Handlers.LoadDBC` holds the single *tagged* bound cascade
@@ -38,8 +72,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
     over-cardinality / over-length DBC is rejected with `input_bound_exceeded`
     rather than validated unbounded (hardening parity with the load routes). The
     Python binding's `validate_dbc` lifts that rejection to the typed
-    `InputBoundExceededError` (Go / C++ / Rust already typed it via their shared
-    error decoders — only Python re-implemented the error branch inline).
+    `InputBoundExceededError` via a shared `lift_input_bound_exceeded` helper
+    (gated on the wire code, mirroring `lift_validation_issues`;
+    `build_error_response` delegates to the same triple extractor), so no route
+    re-implements the code→typed-error lift — Go / C++ / Rust already typed it
+    via their shared decoders.
 
   `parseDBCText` also materializes `toList text` once (feeding the `List Char`
   entry point `parseTextChars`) instead of twice. The structured

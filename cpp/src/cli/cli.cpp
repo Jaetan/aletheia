@@ -125,10 +125,14 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
     }
 }
 
-// Reads a `.dbc` text file and parses it through the verified Agda text parser.
+// Reads a `.dbc` text file and parses it through the verified Agda text
+// parser, returning the parse result (DBC + warnings). The kernel's parse
+// epilogue IS full DBC validation, so the warnings are the complete
+// validation issue list for the parsed DBC (a parse carrying errors is
+// rejected by the kernel and surfaces as a DbcLoadError with core issues).
 // Canonical-JSON and `.xlsx` inputs are not yet wired.
 static auto load_dbc_text(AletheiaClient& client, const std::string& path)
-    -> std::expected<DbcDefinition, DbcLoadError> {
+    -> std::expected<aletheia::ParsedDBC, DbcLoadError> {
     if (path.empty())
         return std::unexpected(DbcLoadError{.message = "no DBC source (use --dbc <file>.dbc)"});
     if (path.ends_with(".json") || path.ends_with(".xlsx"))
@@ -146,7 +150,7 @@ static auto load_dbc_text(AletheiaClient& client, const std::string& path)
             .message = "parsing " + path + ": " + std::string{parsed.error().message()},
             .core = std::move(parsed.error()),
         });
-    return parsed->dbc;
+    return std::move(*parsed);
 }
 
 // --- value parsing --------------------------------------------------------
@@ -254,9 +258,9 @@ static auto opt_or(const Args& a, const std::string& key) -> std::string {
 // --- subcommands ----------------------------------------------------------
 
 // Renders a validation outcome in both the --json and human-readable forms;
-// shared by the validate-a-parsed-DBC path and the rejected-parse path (a
-// handler_validation_failed error carrying issues), so both print the
-// identical report shape.
+// shared by the parse-success path (the parse warnings, has_errors=false)
+// and the rejected-parse path (a handler_validation_failed error carrying
+// issues), so both print the identical report shape.
 static auto render_validation(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues,
                               bool as_json) -> int {
     if (as_json) {
@@ -320,10 +324,10 @@ static auto cmd_validate(const Args& a) -> int {
         }
         return die(def.error().message);
     }
-    auto res = client->validate_dbc(std::stop_token{}, *def);
-    if (!res)
-        return die(std::string{res.error().message()});
-    return render_validation(res->has_errors, res->issues, a.flags.contains("json"));
+    // The kernel's parse epilogue IS full DBC validation: on parse success
+    // has_errors is structurally false and the parse warnings are the
+    // complete issue list — no second kernel round-trip needed.
+    return render_validation(false, def->warnings, a.flags.contains("json"));
 }
 
 // Exact rational -> JSON for `extract --json`: a bare integer when the
@@ -372,7 +376,7 @@ static auto cmd_extract(const Args& a) -> int {
     auto id = make_can_id(*can_id, extended);
     if (!id)
         return die("invalid CAN ID for the selected width");
-    const DbcMessage* msg = def->message_by_id(*id);
+    const DbcMessage* msg = def->dbc.message_by_id(*id);
     if (msg == nullptr)
         return die("CAN ID not found in DBC");
     auto res = client->extract_signals(std::stop_token{}, *id, msg->dlc, *data);
@@ -424,11 +428,11 @@ static auto cmd_signals(const Args& a) -> int {
     if (!def)
         return die(def.error().message);
     if (a.flags.contains("json")) {
-        std::cout << aletheia::to_canonical_json(*def) << '\n';
+        std::cout << aletheia::to_canonical_json(def->dbc) << '\n';
         return k_exit_ok;
     }
     std::size_t total = 0;
-    for (const auto& msg : def->messages) {
+    for (const auto& msg : def->dbc.messages) {
         std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
                   << msg.name.get() << '\n';
         for (const auto& sig : msg.signals) {
@@ -436,7 +440,7 @@ static auto cmd_signals(const Args& a) -> int {
             print_signal_line(sig);
         }
     }
-    std::cout << '\n' << def->messages.size() << " messages, " << total << " signals\n";
+    std::cout << '\n' << def->dbc.messages.size() << " messages, " << total << " signals\n";
     return k_exit_ok;
 }
 
@@ -531,7 +535,7 @@ static auto cmd_mux_query(const Args& a) -> int {
     if (!def)
         return die(def.error().message);
     const DbcMessage* msg =
-        resolve_mux_message(*def, a.positionals[0], a.flags.contains("extended"));
+        resolve_mux_message(def->dbc, a.positionals[0], a.flags.contains("extended"));
     if (msg == nullptr)
         return die("message not found by id or name: " + a.positionals[0]);
 

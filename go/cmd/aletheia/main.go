@@ -167,24 +167,28 @@ func newClient() (*aletheia.Client, error) {
 }
 
 // loadDBCText reads a .dbc text file and parses it through the verified
-// Agda text parser. Canonical-JSON and .xlsx inputs are not yet wired.
-func loadDBCText(client *aletheia.Client, path string) (aletheia.DBCDefinition, error) {
+// Agda text parser. The kernel's parse epilogue IS full DBC validation, so
+// the returned warnings are the complete validation issue list for the
+// parsed DBC (a parse that would carry errors is rejected by the kernel
+// instead — it surfaces here as a ValidationFailedError). Canonical-JSON
+// and .xlsx inputs are not yet wired.
+func loadDBCText(client *aletheia.Client, path string) (aletheia.DBCDefinition, []aletheia.ValidationIssue, error) {
 	if path == "" {
-		return aletheia.DBCDefinition{}, fmt.Errorf("no DBC source (use --dbc <file>.dbc)")
+		return aletheia.DBCDefinition{}, nil, fmt.Errorf("no DBC source (use --dbc <file>.dbc)")
 	}
 	if strings.HasSuffix(path, ".json") || strings.HasSuffix(path, ".xlsx") {
-		return aletheia.DBCDefinition{}, fmt.Errorf("%s: only .dbc text input is supported by the Go CLI yet "+
+		return aletheia.DBCDefinition{}, nil, fmt.Errorf("%s: only .dbc text input is supported by the Go CLI yet "+
 			"(JSON / .xlsx input not wired)", path)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return aletheia.DBCDefinition{}, fmt.Errorf("reading %s: %w", path, err)
+		return aletheia.DBCDefinition{}, nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	parsed, err := client.ParseDBCText(context.Background(), string(raw))
 	if err != nil {
-		return aletheia.DBCDefinition{}, fmt.Errorf("parsing %s: %w", path, err)
+		return aletheia.DBCDefinition{}, nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	return parsed.DBC, nil
+	return parsed.DBC, parsed.Warnings, nil
 }
 
 func parseCANID(s string) (uint32, error) {
@@ -248,29 +252,28 @@ func cmdValidate(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	def, err := loadDBCText(client, *dbc)
+	_, warnings, err := loadDBCText(client, *dbc)
 	if err != nil {
 		// A DBC that parses syntactically but fails structural validation
-		// carries the same has_errors/issues payload as a ValidateDBC
-		// result — render it identically (issue list, exit 1) instead of
-		// dying with the bare message. A syntactically-unparseable DBC has
-		// no issues payload and still dies below.
+		// carries a has_errors/issues payload — render it as a validation
+		// report (issue list, exit 1) instead of dying with the bare
+		// message. A syntactically-unparseable DBC has no issues payload
+		// and still dies below.
 		var vfe *aletheia.ValidationFailedError
 		if errors.As(err, &vfe) {
 			return renderValidation(vfe.HasErrors, vfe.Issues, *asJSON)
 		}
 		return die(err.Error())
 	}
-	res, err := client.ValidateDBC(context.Background(), def)
-	if err != nil {
-		return die(err.Error())
-	}
-	return renderValidation(res.HasErrors, res.Issues, *asJSON)
+	// The kernel's parse epilogue IS full DBC validation: on parse success
+	// has_errors is structurally false and the parse warnings are the
+	// complete issue list — no second kernel round-trip needed.
+	return renderValidation(false, warnings, *asJSON)
 }
 
 // renderValidation emits the validate subcommand's result — JSON or text —
-// from the has_errors/issues pair shared by a ValidateDBC result and a
-// parse-time ValidationFailedError.
+// from the has_errors/issues pair shared by the parse-success warnings and
+// a parse-time ValidationFailedError.
 func renderValidation(hasErrors bool, resIssues []aletheia.ValidationIssue, asJSON bool) int {
 	if asJSON {
 		issues := make([]map[string]any, 0, len(resIssues))
@@ -346,7 +349,7 @@ func cmdExtract(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	def, err := loadDBCText(client, *dbc)
+	def, _, err := loadDBCText(client, *dbc)
 	if err != nil {
 		return die(err.Error())
 	}
@@ -451,7 +454,7 @@ func cmdSignals(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	def, err := loadDBCText(client, *dbc)
+	def, _, err := loadDBCText(client, *dbc)
 	if err != nil {
 		return die(err.Error())
 	}
@@ -505,7 +508,7 @@ func cmdFormatDBC(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	if _, err := loadDBCText(client, *dbc); err != nil {
+	if _, _, err := loadDBCText(client, *dbc); err != nil {
 		return die(err.Error())
 	}
 	canonical, err := client.FormatDBC(context.Background())
@@ -534,7 +537,7 @@ func cmdMuxQuery(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	def, err := loadDBCText(client, *dbc)
+	def, _, err := loadDBCText(client, *dbc)
 	if err != nil {
 		return die(err.Error())
 	}
