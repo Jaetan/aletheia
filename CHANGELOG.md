@@ -20,6 +20,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   writing `_install_config.py`, leaving a partial install the loader
   silently ignores. The `-c` program is now passed as a list argument
   (Shake's no-split form).
+- **The local mutation-testing gate no longer reuses a stale mutmut
+  work-tree.** `tools/mutation_run.py` now erases `python/mutants/` before
+  each `mutmut run`. mutmut invalidates its cached kill/survive verdicts on
+  *source* changes but not *test* changes (test files live outside
+  `source_paths`, so their content is not hashed), so a test edit — or files
+  arriving via `git merge` / `checkout` / `pull` — could yield stale results
+  (a merge that added a function together with its killing tests reported 20
+  phantom survivors until the tree was cleared). CI was never affected — it
+  checks out fresh and `mutants/` is gitignored and uncached — so this only
+  brings *local* runs to the same fresh-tree semantics. Cost is ~11 s on the
+  Python lane (warm reuse 29 s → clean 40 s), local only.
 
 ### Changed
 

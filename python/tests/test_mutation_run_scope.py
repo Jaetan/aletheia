@@ -184,3 +184,39 @@ def test_main_docs_only_runs_nothing_and_passes(
     _sandbox_main(monkeypatch, tmp_path, files=["README.md"], ran=ran)
     assert mutation_run.main() == 0
     assert not ran  # no engine ran
+
+
+def test_run_python_erases_stale_mutants_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """run_python wipes python/mutants/ before invoking mutmut.
+
+    mutmut's persistent work-tree only invalidates cached kill/survive verdicts
+    on SOURCE changes, not TEST changes, so a reused tree yields stale results
+    (a merge that added a function plus its killing tests once reported phantom
+    survivors).  The gate must start each run from a clean tree — CI parity,
+    since CI checks out fresh.
+    """
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+
+    stale = tmp_path / "python" / "mutants"
+    stale.mkdir(parents=True)
+    (stale / "poisoned.txt").write_text("verdict cached from a prior tree")
+
+    def fake_run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
+        # The stale tree must already be gone before mutmut is ever invoked.
+        assert not stale.exists(), "run_python invoked mutmut without erasing mutants/"
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    mutation_run.run_python(artifacts)
+
+    assert not stale.exists()
