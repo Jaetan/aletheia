@@ -32,6 +32,490 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   brings *local* runs to the same fresh-tree semantics. Cost is ~11 s on the
   Python lane (warm reuse 29 s → clean 40 s), local only.
 
+
+- **`aletheia validate` on a broken DBC now lists the issues instead of
+  dying — the binding/CLI half of the first-touch fix, plus the CLI
+  scenario harness that locks it.** All four bindings lift the
+  `handler_validation_failed` envelope into a typed error carrying the
+  full issue list, mirroring the `input_bound_exceeded` precedent exactly
+  (well-formed payload → typed error; malformed/partial → degrade to the
+  generic coded error): Python `DBCValidationFailedError`, Go
+  `ValidationFailedError`, Rust `Error::ValidationFailed`, and C++ an
+  optional `issues()` payload on `AletheiaError` beside `bound_info()`
+  (`ValidationIssue` relocated to its own small header,
+  `aletheia/validation_issue.hpp`, so `error.hpp` can name it without
+  pulling the DBC vocabulary). All three CLIs' `validate` catch the typed
+  error from their DBC-load step and render the same report as a
+  `has_errors` validation result — "Validation FAILED" + the numbered
+  issue list, warnings included — with exit code 1; other subcommands
+  keep dying with the message (exit 2), as does a syntactically
+  unparseable file. **Behavior change**: `validate --json` with
+  `has_errors` now exits 1 in Go and C++ (previously 0 — the exit code
+  now reflects the outcome in both output modes, per the CLIs' own
+  documented 0/1/2 contract; Python already did this). New
+  `validation_rejection_issues` FEATURE_MATRIX row (44 rows). And the
+  session's structural lesson became a standing gate: a **cross-CLI
+  scenario harness** (`docs/CLI_SCENARIOS.yaml` +
+  `python/tests/test_cli_parity.py`) drives all three real CLI binaries
+  as subprocesses over a shared fixture corpus (including new
+  `python/tests/fixtures/dbc_broken/` files) and pins the exit-code
+  contract and per-scenario output markers — the first-touch failure
+  mode can no longer reappear silently in any CLI.
+
+- **A rejected DBC parse now reports everything the kernel knows — the
+  kernel half of the `aletheia validate` first-touch fix.** `validate` is
+  the first command a user with a broken DBC runs, and it used to die with
+  a flattened one-line error. Three kernel changes (all additive on the
+  wire): (1) the `handler_validation_failed` error envelope now carries the
+  **full structured issue list** — errors *and* warnings, in the same
+  `{severity, code, detail}` element shape as the `validation` response,
+  plus `has_errors` — via a new `errorExtras` case (previously the reject
+  carried error-level issues only, silently dropping warnings, and
+  flattened even those into the message string; the message itself is
+  byte-identical to before). Both the JSON `parseDBC` and text
+  `parseDBCText` handlers flow through the same constructor and inherit
+  the fix. (2) `dbc_text_trailing_input`'s message is now user-facing —
+  "parse failed at line N, column M: first unparseable statement" — instead
+  of parser-internals phrasing ("trailing input after parse"); the
+  structured `line`/`column` fields were already there. (3)
+  `AttributeRefinementFailed` now pinpoints its failure: `refineAttribute`
+  returns a typed cause (`UnknownAttrDef` vs `IllTypedValue`) instead of a
+  bare `Maybe`, and the error names the offending attribute — the old
+  message was an unhelpful disjunction ("references an unknown AttrDef or
+  supplies a value outside the declared type" with no name). Proof impact:
+  the four per-item inverse lemmas and the two list-level lemmas in
+  `Properties/Aggregator/Refine.agda` restated from `≡ just` to `≡ inj₂`
+  (bodies unchanged); `Universal.agda` and the B.3.d universal round-trip
+  proof adapt with zero edits; `check-properties` (55 modules) and all six
+  Agda gates green. The binding/CLI half (typed validation errors in all
+  four bindings; all three CLIs rendering the numbered issue list; the CLI
+  scenario harness) follows in the next PR.
+
+- **r25 B8 DRY + hygiene sweep across Go/C++/Rust — internal, with one
+  realized silent drift fixed.** The drift: C++ `json_parse.cpp`'s
+  hand-maintained `error_code_table` size had decayed — 59 declared vs 57
+  real entries after an earlier entry removal — silently padding the array
+  with two value-initialized `{"", ErrorCode::Unknown}` elements; lookups
+  stayed correct only because `Unknown` is enumerator 0 (a `""` probe matched
+  a phantom entry and returned exactly the fall-through value). All three
+  string→enum lookup tables there now deduce their size via `std::to_array`,
+  so an entry count can never drift again. DRY extractions, each
+  behavior-preserving: C++ `parse_issue_entry` (the validate-response and
+  parsed-DBC-warnings decoders shared two byte-identical 18-line entry
+  blocks — which had even grown their `.code_raw` field in lockstep); the
+  same duplication found and fixed in Go (`parseIssueArray`, `json.go` —
+  Python and Rust already decode issues at a single shared site); Rust
+  `Rational::le` (crate-private inherent method replacing byte-identical free
+  `rational_le` fns in `check.rs` + `ltl.rs`; its doc records why
+  `PartialOrd`/`Ord` are deliberately absent — the unreduced representation
+  makes derived `Eq` structural, so a value-based `Ord` would break the
+  `Ord`/`Eq` contract), `set_extended` (encode-side mirror of the existing
+  decode helper `extended_flag`; replaces 7 copy-pasted emit sites in
+  `dbc.rs`), and `select_diag_values` (the diag-signal filter shared by the
+  streaming and end-of-stream enrichment paths in `lib.rs`). Go hygiene:
+  `MockBackend`'s three binary send shims now pass `state` through like the
+  other six shims (and like the C++ mock; the pointer is still discarded by
+  `Process`), and `ExtractSignalsBin` gains the `runtime.KeepAlive(data)` its
+  three sibling slice-passing cgo wrappers already had (convention
+  consistency — cgo pins the slice for a synchronous call either way, so
+  this was never a use-after-free).
+
+- **Logging docs now acknowledge the Rust binding (r25 B6-logging close-out) —
+  docs only, no behavior change.** `PROTOCOL.md § Structured Logging` (the
+  self-declared SSOT for the event taxonomy) and the `docs/LOG_EVENTS.yaml`
+  header still described a three-binding world: "all three bindings"
+  (Python/C++/Go), a pointer to `go/aletheia/ffi_backend.go` (no such file —
+  the slog emit sites are `go/aletheia/client.go` + `go/aletheia/ffi.go`), and
+  a pointer to `cpp/include/aletheia/log.hpp` "string constants" that have
+  never existed (C++ event names are inline literals at the
+  `cpp/src/client.cpp` emit sites; the string-constants module is Rust's
+  `rust/src/log.rs`). Both surfaces now name all four bindings, the corrected
+  per-binding definition sites, the fourth parity gate
+  (`rust/tests/log_events.rs`), and the one scoped exception: Rust defines the
+  full 16-event vocabulary but emits all of it except the three `cache.*`
+  events (they instrument an extraction memo cache that binding does not
+  implement — a perf layer, not part of the contract). The add-an-event recipe
+  grew the missing Rust step (`events::*` constant + `events::ALL`, which the
+  Rust gate pins to the YAML bijectively). `docs/FEATURE_MATRIX.yaml`: the
+  rust `structured_logging` note states the `cache.*` subset explicitly
+  (aligning it with the `violation_enrichment` note), and the
+  `build_frame`/`update_frame` rust rows now document the `&DbcMessage`
+  signature divergence as by-design (the typed `Dbc` is caller-owned in Rust,
+  so the caller supplies the resolved message — idiom-permitted under the
+  cross-language parity rule).
+
+- **Comment-truth sweep across all four bindings + the CI workflow cache
+  comments (r25 B7) — internal, no behavior change.** Every flagged comment was
+  re-verified against the current code before rewording (a finder-per-binding +
+  adversarial-verifier pass; several review findings turned out already fixed
+  and were left alone). Highlights: the three workflow build-tree-cache
+  comments (`benchmark.yml` / `pr-full-ci.yml` / `pr-heavy-lanes.yml`) claimed
+  `build/libaletheia-ffi.so` "symlinks into" `haskell-shim/dist-newstyle` — it
+  is `cp`-copied out of it by the Shake rule; the cache matters because that
+  tree is the cabal foreign-lib incremental state (the real symlink is
+  `haskell-shim/MAlonzo → ../build/MAlonzo`). Go: `Client.mu` → the channel-token
+  `lockCh`; the stale "(51 codes)" count and the "eight groups lists 7"
+  mismatch in `error.go`; a bogus int64-overflow clause on `validateTimeBound`;
+  `Client.process` → `processLocked`; `ValueDescs` → `ValueDescriptions` (+ the
+  full shallow-copy aliasing set); the sealed-interface default-arm comments
+  (no `sealedFormula`/`sealedPredicate` markers exist — sealing is the
+  unexported `formula()`/`predicate()` methods, and the arms are reachable by
+  degenerate values, not "unreachable"); `InputBoundExceededError` doc now
+  names the consolidated top-level Agda constructor and all three peer
+  bindings (including Rust's new `Error::InputBoundExceeded`). Python: the
+  `dbc_to_json ∘ dbc_to_text` composition is via a file (not literally
+  invocable, and dict-equal, not "byte-identical"); `can_log` docstrings now
+  name the 7-field `CANFrameTuple` (brs/esi were missing); the Excel-loader
+  docstring's DBC column table was missing the `Extended` column;
+  `PropertyResultEntry` is the element type of BOTH mid-stream batches and
+  end-of-stream results; `FractionJSONEncoder` cited a non-existent Agda
+  function (→ `Protocol.JSON.Lookup.getRational`) and predates Rust; Go peer
+  of `from_decimal` is `FromDecimal`, not `ParseDecimal`. C++: `ErrorCode`
+  count/family list corrected count-free; `signal_index_`/`signal_names_` are
+  rebuilt by `populate_signal_lookup()` on BOTH `parse_dbc()` and
+  `parse_dbc_text()`; `last_frames_` is also cleared by `end_stream()`;
+  `end_stream` enriches `Unresolved` too, not just `Fails`; the pre-R23
+  "returned Violation" wording → the `PropertyBatch` Fails entry; the cache
+  fallback logs a `cache.full` warning (not "silent"); `format_formula` /
+  `build_diagnostic` are NOT "always succeeds" — they render thresholds via the
+  kernel renderer and throw `AletheiaException(Ffi)` when the library/RTS is
+  unavailable (the C++ instance of the cross-binding stale claim); the
+  `__int128` comment and `static_assert` diagnostic string (the one
+  behaviorally-inert non-comment hunk) no longer name the dropped
+  "g++ >= 14 / clang >= 21" toolchain — Clang-only per `cpp/CMakeLists.txt`.
+  Rust: the `async_client` module/field/test comments claimed std
+  `mpsc::Sender` is `!Sync` (it is `Sync` for a `Send` payload since Rust
+  1.72 — the `Mutex` exists for the `Drop`-takeable `Option` slot, not for
+  `Sync`ness); the module also uses `futures-util` stream combinators, not
+  "only the reply oneshot"; `build_diagnostic`'s `# Errors` now lists
+  `RtsNotInitialized` (checked before any dlopen) alongside library-load
+  failure; the "render failure is unreachable because extraction loaded the
+  library" justification (wrong since the DI seam — an injected backend
+  extracts without the `.so`) → the truthful setup-time-render latch argument,
+  fixed at both `enrich.rs` and its `lib.rs` twin.
+- **`aletheia_parse_decimal` error envelope is now valid JSON for non-ASCII input
+  (all bindings).** The Haskell shim built the error envelope's echoed `input`
+  (and `message`) field with `show`, which emits a `\NNN` *decimal* escape for a
+  non-ASCII or control character — invalid JSON (JSON requires `\uXXXX`). So
+  `from_decimal` on a non-ASCII literal (e.g. `"1.5€"`) produced an envelope the
+  bindings' decoders could not parse, surfacing a confusing `Protocol`
+  "malformed response" error instead of the correct `Validation` "invalid decimal
+  literal". `Marshal.hs` now encodes string fields with a proper JSON encoder
+  (`jsonString`: escapes the mandatory characters and `\u`-escapes everything
+  outside printable ASCII, with surrogate pairs for astral code points). Fixes
+  every binding at the shared FFI source of truth; regression-tested per binding.
+- **Validation / range error messages render rationals exactly, not a lossy float
+  (Go / Rust).** Go's `between: min (…) exceeds max (…)` and `negative tolerance:
+  …` errors (`json.go`) rendered the threshold via `%g` — rounding a value beyond
+  six significant figures and printing `1/3` as `0.333333`. They now render via a
+  new `formatRationalExact` helper: the kernel `format_rational` when the GHC RTS
+  is up, else an exact `num/den` fallback (predicate validation can run before any
+  backend exists), never lossy. Rust's inverted-range errors (`check.rs`
+  `rat_str`) were already exact but printed a bare fraction (`1/2`); they now
+  route through `format_rational` too (decimal `0.5` when the RTS is up, the
+  fraction as the RTS-down fallback), matching `enrich.rs` and the other bindings.
+  This completes the "render rationals exactly in user-facing output" sweep (r25
+  direction-call #2; PR #134 `extract --json`, PR #135 CLI text).
+  (`go/aletheia/json.go`, `rust/src/check.rs`.)
+
+- **CLI human-readable text renders rationals exactly, not a lossy `%g` /
+  `to_double` (Go / C++ / Python).** The `extract` and `signals` commands printed
+  each signal value, factor, and offset through a lossy float (`%g` in Go/Python,
+  `to_double()` in C++), so a value with more significant figures than the
+  default six was rounded in the operator-facing output. All three now render via
+  the verified kernel `format_rational` (the same renderer behind
+  `enriched_reason`): a terminating decimal (`0.25`) or an exact fraction
+  (`1/3`), never a rounded float. Go gains a public
+  `aletheia.FormatRational(Rational) (string, error)` for this (the CLI is a
+  separate package); the now-unused `ratFloat` / `rationalFloat` float helpers are
+  removed. Output for typical DBCs (values `%g` already printed in fixed,
+  non-scientific notation within six significant figures) is unchanged. PR 2 of
+  the "render rationals exactly in user-facing output" sweep.
+  (`go/cmd/aletheia/main.go`, `go/aletheia/enrich.go`, `cpp/src/cli/cli.cpp`,
+  `python/aletheia/cli.py`.)
+
+- **C++ `extract --json` emits exact rationals, not a lossy `double` (parity
+  with Python/Go; BREAKING for that output).** The CLI's `extract --json`
+  rendered each signal value via `Rational::to_double()`, so a non-integer
+  physical value (e.g. a factor-`0.25` signal → `2500.25`) reached a JSON
+  consumer as a lossy IEEE-754 double. It now emits the exact
+  `{"numerator","denominator"}`-or-bare-int wire shape — the same
+  parser-equivalent shape as Python's `FractionJSONEncoder`, Go's `extract
+  --json`, and the binding's own DBC canonical JSON (the parsed value matches;
+  byte order does not, since nlohmann emits object keys sorted). The float
+  principle bars a lossy float even on machine-readable output. A consumer that
+  parsed an `extract --json` value as a plain JSON number must now read the
+  rational object for non-integer values (integers stay bare ints).
+  (`cpp/src/cli/cli.cpp`.)
+
+- **FFI validation-error envelopes now key the human reason as `message`, not
+  `error`** (`haskell-shim/src/AletheiaFFI/Marshal.hs` `mkErrorJson`). The
+  cross-binding error-envelope convention — the Agda `responseToJSON` emitter and
+  all four bindings — reads `message`; the shim's `mkErrorJson` was the lone
+  hold-out keying `error`, so a binding reading a null-guard / FFI-validation
+  failure (`code: ffi_validation_error`) surfaced `"Unknown error"` instead of the
+  real reason. (The per-signal extraction object `{name, error}` is a different,
+  narrower shape and correctly keeps `error`.)
+- **The `checkFFINames` mangled-name extractor is robust to surrounding
+  punctuation** (`Shakefile.hs` `extractFFIName`). It located the qualifier by
+  `drop (length qualifier + 1)` on the whitespace-delimited word, which assumed
+  the word *started* with the qualifier — so a paren-prefixed call
+  (`unsafeCoerce (AgdaX.d_f_12 …`) or a backtick-wrapped mention in a comment
+  mis-extracted to `.d_f_12`, spuriously failing the FFI-name drift gate. It now
+  finds the qualifier prefix anywhere in the word and takes the trailing digits,
+  so the FFI wrapper can call the export in the natural idiom; the renderer twin
+  only passed by happening to be a standalone word.
+- **Python & C++ reject floats on the internal wire decode**
+  (`python/aletheia/client/_helpers/`, `cpp/src/json_parse.cpp`). A computed value
+  crossing the FFI boundary — an extraction signal value, a DBC
+  factor/offset/min/max read back from the core, an env-var or attribute bound —
+  must be an exact rational (a bare integer or a `{numerator, denominator}`
+  object), never a float; a float on the wire would mean a computation escaped the
+  rational kernel. Both bindings now reject one:
+  - **Python**: a single strict `decode_wire_rational` (rejects float / string /
+    bool) replaces the lenient `parse_rational` on *both* wire paths — extraction
+    responses (`json_codec.parse_values_list`) and DBC responses (`dbc_normalize`,
+    which despite its name decodes `parseDBC`/`formatDBC` *responses*, not user
+    input). `parse_rational` — which silently coerced a float via
+    `Fraction(x).limit_denominator` — is retired; it had no UI caller.
+  - **C++** (`json_parse.cpp`): the `Rational::from_double` branch in
+    `parse_signal_value` is dropped, `parse_rational_dict` guards its
+    numerator/denominator, and ~17 integer-position reads route through new
+    `require_int`/`require_uint` helpers that reject a JSON float (nlohmann
+    silently truncates `5.9 → 5` before the range check) — and, for unsigned
+    positions, a negative.
+  Go (decoder via `UseNumber`) and Rust (serde `as_i64`) were already strict, so
+  all four bindings now agree. The UI float-input converters are untouched (a
+  follow-up replaces them with an exact Agda decimal parser). Boundary tests per
+  binding; the C++ guard is revert-probed (a float `startBit` truncated-and-passed
+  without it).
+- **Go decodes JSON response numbers exactly, not through `float64`**
+  (`go/aletheia/json.go`). `parseResponse` used `json.Unmarshal`, which decodes
+  every JSON number as a `float64` — so a rational numerator/denominator above
+  2^53 was silently rounded (e.g. `9007199254740993` → `…992`), the one binding
+  doing so (Python `json` → `int`, C++ `get<std::int64_t>`, Rust serde `as_i64`
+  all read these exactly). It now uses a `json.Decoder` with `UseNumber()`, so
+  numbers arrive as `json.Number` and the three numeric helpers (`parseRational`,
+  `parseNumberAsInt64`, `jsonNumberToUint64`) read them exactly via
+  `strconv.ParseInt`/`ParseUint` (a `float64` path is retained for hand-built
+  maps / direct callers). The trailing-byte rejection that `json.Unmarshal`
+  provides — but a bare `Decoder` does not — is re-asserted explicitly (a
+  response must be exactly one JSON value).
+  A boundary test feeds `9007199254740993` through the real `parseResponse`
+  path and asserts it survives exactly.
+- **Go `DBCDefinition.MessageByID` / `MessageByName` now return a genuine deep
+  copy** (`go/aletheia/dbc.go`). `copyMessage`'s doc promised a deep copy, but it
+  cloned only the top-level `Signals` slice header — the returned message shared
+  the original's `Senders` backing array and each signal's `Receivers`,
+  `ValueDescriptions`, and (for a `Multiplexed` presence) `MultiplexValues`
+  backing arrays. A caller mutating any of those nested slices on the returned
+  message silently corrupted the `DBC`'s stored definition. Every externally
+  reachable reference field is now cloned (`slices.Clone`); the unexported,
+  build-once `signalIndex` cache stays shared by design (it is read-only, never
+  mutated in place, and remains valid for the cloned same-order signals). A new
+  `TestMessageByName_DeepCopyIndependence` mutates each cloned field and asserts
+  the original is unaffected, with a content-equality guard that the clone is
+  faithful (and that an `AlwaysPresent` presence is not clobbered).
+- **Python & C++ enrichment now render the observed signal value exactly via the
+  kernel `formatℚ`, not lossy `%g`** (`python/aletheia/client/_enrichment.py`,
+  `cpp/src/client.cpp`). A violation's `enriched_reason` interpolated the observed
+  value through `%g` / `Rational::to_double()`, mangling large integers
+  (`1234567` → `1.23457e+06`) and rounding non-terminating fractions
+  (`740/3` → `246.667`). Both now delegate to the same Agda kernel renderer the
+  predicate threshold already uses (`aletheia_format_rational`), so the observed
+  value is exact and byte-identical to the predicate. From the r25 review (§4 #2);
+  first slice of the "all bindings delegate rational rendering to the proven core"
+  directive (Rust + Go to follow).
+- **C++ inline YAML check loader now enforces the 64 MiB input bound**
+  (`cpp/src/yaml.cpp`). `load_checks_from_yaml_string` parsed an unbounded
+  in-memory payload, while the file loader (`load_checks_from_yaml`) and the
+  Go/Rust inline loaders all cap input at `max_dbc_text_bytes`. It now checks
+  `yaml.size()` before the parse via a shared `check_input_size_bound` helper
+  (the in-memory analogue of `check_file_size_bound`), returning the same
+  structured `InputBoundExceeded` error. Closes the trust-boundary gap. From the
+  r25 review (P1 #7).
+- **C++ `build_frame` / `update_frame` now report a distinct error for a CAN ID
+  with no DBC message** (`cpp/src/client.cpp`). `resolve_signals` only did a
+  per-signal lookup, so a CAN ID absent from the DBC produced a misleading
+  "signal '…' not found" error (and a zero-signal call silently succeeded). A
+  message-existence guard now returns "no DBC message for CAN ID {id}
+  (extended={…})" before the per-signal loop, matching Go (`resolveSignalIndices`)
+  and Python (`_resolve_signal_indices`). From the r25 review (P1 #15).
+- **C++ Excel template headers are now bold** (`cpp/src/excel.cpp`). The
+  `create_excel_template` writer emitted plain header cells while its docstring
+  claimed bold — and Python (openpyxl) and Go (excelize) both bold their headers.
+  Header cells now carry a bold font (verified by a save→reopen round-trip test),
+  making the docstring true and the templates consistent across bindings. From
+  the r25 review (P1 #12).
+- **C++ now rejects a negative-denominator rational on JSON decode instead of
+  silently sign-normalizing it** (`cpp/src/json_parse.cpp`). `parse_rational_dict`
+  flipped the signs of a `{numerator, denominator}` payload with `denominator < 0`
+  and accepted it; the kernel emits a positive denominator (the ℕ⁺ invariant), so
+  a negative one is a wire-format violation. It now throws (surfaced as an
+  `ErrorKind::Protocol` error) for `denominator <= 0`, matching Python
+  (`extract_rational_from_dict`), Go (`parseRational`), and Rust (`Rational::new`),
+  which already reject it. From the r25 review (P1 #8).
+- **C++ preserves the original wire string for an unrecognized validation issue
+  code** (`cpp/include/aletheia/validation.hpp`, `cpp/src/json_parse.cpp`).
+  An unknown `code` collapsed to the bare `IssueCode::Unknown` enumerator and
+  rendered as the literal `"unknown"`, discarding the wire string — so a future
+  core code could not round-trip. `ValidationIssue` gains a `code_raw` field (the
+  verbatim wire code) and a new `issue_code_label(issue)` helper returns `code_raw`
+  when the code is `Unknown`; the CLI `validate` output uses it. This matches Go's
+  string-typed `IssueCode`, Rust's `IssueCode::Unknown(String)`, and Python's
+  passthrough. From the r25 review (P1 #16). Note: adding `code_raw` to the public
+  `ValidationIssue` struct changes its layout (ABI) and aggregate-initialization —
+  construct via designated initializers (`{.severity = …, .code = …, .detail = …}`,
+  which the project already uses everywhere); positional `{sev, code, detail}` now
+  binds the third value to `code_raw`. The decoders set it; manual constructors may
+  leave it empty.
+- **Go `FloatToRational` no longer silently wraps an int64-overflowing integral
+  value** (`go/aletheia/types.go`). The integer fast path guarded with
+  `v >= math.MinInt64 && v <= math.MaxInt64`, but `math.MaxInt64` (2⁶³−1) is not
+  exactly representable as `float64` and rounds *up* to 2⁶³, so `2⁶³` passed the
+  bound and `int64(2⁶³)` wrapped to `MinInt64`, returned with `err == nil` — a
+  silently-wrong value. The fast path now uses a round-trip guard
+  (`n := int64(v); float64(n) == v`), mirroring `cpp/src/types.cpp`: it accepts
+  every int64-representable integer (including `MinInt64`) and rejects the rest,
+  which fall through to the scaling path's existing overflow error. From the r25
+  review (P0 #5).
+- **Python `end_stream` now validates the warning `property_index` instead of
+  casting it** (`python/aletheia/client/`). The end-of-stream `complete`-response
+  warning parser used `cast("int", w.get("property_index", 0))` — a no-op at
+  runtime — so a malformed FFI value (a string, a non-unit-denominator rational,
+  or an absent field) flowed through mistyped or silently defaulted to `0`. The
+  warning parse moved into `parse_complete_warnings` (beside
+  `parse_finalization_results`) and runs `property_index` through
+  `validate_integer_field` — the same validator used for the identical field in
+  finalization results — raising `ProtocolError` on a bad or missing value, in
+  lockstep with Go's `parseNumberAsInt64`. The parser also rejects a non-list
+  `warnings` payload or a non-object entry with a typed `ProtocolError` rather
+  than a bare `TypeError` / `AttributeError`. From the r25 review (R2 #6).
+- **C++ / Go memory-safety hardening from the r25 review** — three latent
+  out-of-bounds / overflow defects, each now guarded and regression-tested
+  (a test that fails without the fix):
+  - **C++ `within(ms)` ms→µs overflow** (`cpp/include/aletheia/check.hpp`). The
+    `duration_cast<microseconds>` multiplied the millisecond bound by 1000 with
+    no guard, so a large bound (reachable from untrusted input, e.g. a YAML check
+    with `within_ms: 9300000000000000`) was signed-integer-overflow UB. Both
+    `within()` builders now route through a shared `detail::checked_ms_to_us`
+    helper that rejects `ms > INT64_MAX/1000` with `std::invalid_argument`,
+    mirroring the Go (`MaxInt64/usPerMillisecond`) and Rust guards.
+  - **C++ truncated binary extraction now errors instead of silently succeeding**
+    (`cpp/src/client.cpp`). `parse_extraction_bin` returned an empty *success*
+    (`return {}` → an empty `ExtractionResult`) on a short/truncated FFI buffer,
+    so a truncated response decoded as "zero signals" rather than a failure. All
+    five truncation paths now return an `ErrorKind::Protocol` error, which the
+    call sites already propagate (`extract_signals`) / log + surface as
+    `nullopt` (`extract_signals_internal`) — making their comments true. Matches
+    Go / Python, which already error.
+  - **C++ / Go stale cached-index lookup** (`cpp/src/dbc.cpp`,
+    `go/aletheia/dbc.go`). The lazy name/ID lookup caches freeze positional
+    indices on first build; if the caller then mutates the public `messages` /
+    `signals` slice, the cached index goes stale — out of bounds if the slice
+    shrank (OOB read UB in C++, a panic in Go), or in-bounds-but-wrong if it was
+    reordered or replaced in place (silently returning the wrong message/signal
+    for the requested key). `signal_by_name`, `message_by_id`, and
+    `message_by_name` now validate that the cached index still refers to the
+    requested entry in both bindings — a bounds check plus a key match; any
+    stale or mismatched index reads as not-found (`nullptr` / `nil`).
+- **Rust binding review (r24) — 8 non-breaking fixes** (the two BREAKING ones are
+  under Changed). All are cross-binding parity / determinism / strictness gaps
+  that the `fmt`/`clippy`/`cargo test` gates cannot catch, found by the thorough
+  Rust review and adversarially verified:
+  - **Async `send_frames` is now frame-cancellable** (`rust/src/async_client.rs`).
+    It dispatched the whole batch as one atomic job, so dropping the future
+    committed *all* N frames (or none) — contradicting `CANCELLATION.md` §1.1. It
+    now dispatches one cancellable job per frame, so a dropped future stops at the
+    next boundary committing only a prefix; `CANCELLATION.md` §3.4 updated to match.
+  - **Deterministic end-of-stream enrichment** (`rust/src/lib.rs`). `enrich_eos`
+    merged multi-CAN-id last-frame values in nondeterministic `HashMap` order; it
+    now sorts by `(id, extended)`, matching Go's `slices.Sort` / Python's sort.
+  - **`extract_signals` retains the per-signal error reason** (see Changed —
+    `SignalError`).
+  - **Stricter response decoding** (`rust/src/response.rs`): an empty
+    `property_batch` or an unrecognised status/type in `decode_frame` is now a
+    protocol error, not a silent `Ack` / empty verdicts (mirrors Go's
+    `parseFrameResponse`); and `decode_extraction` rejects a non-object `errors`
+    entry / a non-string `absent` entry, and `decode_issue` requires `code` and
+    `severity` to be present strings — instead of silently blanking/dropping them.
+    All match the Go / C++ / Python decoders, which reject these malformed shapes.
+  - **Strict validation-severity decode** (see Changed — `IssueSeverity`).
+  - **`Rational::from_f64` rejects exactly 2^63** instead of saturating it to
+    `i64::MAX` (`rust/src/types.rs` + the `aletheia-excel` integer fast paths): the
+    guard was `<= i64::MAX as f64`, but that bound rounds up to 2^63; now `<`.
+  - **`MAX_FORMULA_DEPTH` doc corrected** (`rust/src/ltl.rs`): it is a client-side
+    recursion guard (100), distinct from the kernel's 64 JSON nesting wire cap —
+    the old comment wrongly claimed it was the wire cap "matching every binding".
+  - **A compile-time assertion** now pins that the `AsyncClient` method *futures*
+    are `Send` (the documented `tokio::spawn` guarantee), plus new tests for the
+    `property_index_oob` / `extraction_failed` enrichment-warn paths and the
+    multi-frame `enrich_eos` merge loop.
+- **Python mutation lane repaired — it had silently produced zero mutants since
+  #51.** The advisory `mutation testing` lane was red (not from new survivors —
+  it was crash-dead): mutmut runs pytest from a relocated `python/mutants/`
+  work-tree, and two post-baseline test additions broke its baseline collection
+  there. `tests/test_check_changelog.py` (added in #51) imports the repo-root
+  `tools` package, which is absent from `mutants/`, so collection
+  `ModuleNotFound`-aborted; and `tests/test_excel_loader.py`'s two
+  `demo_workbook` tests (changed in #65) resolve the shared
+  `examples/demo/demo_workbook.xlsx` fixture via `parents[2]`, which points
+  outside the copied tree. With `-x`, the first failure killed the whole stats
+  phase → 0 mutants run. Fixed by adding `test_check_changelog.py` to the
+  `[tool.mutmut]` `--ignore` list and `--deselect`-ing only the two out-of-tree
+  excel tests (keeping every other excel test's kill signal). The lane now
+  reconciles to its documented baseline: **827 killed / 1 survived / 828 total**
+  (the lone survivor is the documented `dump_json` `ensure_ascii=False`→`None`
+  equivalent); Go (636/636) and C++ (50/50) were already clean.
+- **Mutmut config migrated to the mutmut 3.6 key names — zero deprecation
+  warnings.** `[tool.mutmut]` `paths_to_mutate` → `source_paths` and
+  `tests_dir` → `pytest_add_cli_args_test_selection` (the loader still honored
+  the old names but emitted a `UserWarning` on every run). Semantically
+  identical; eliminates the warnings so the lane's output stays signal. Docs
+  referencing the old keys (`docs/MUTATION_BENCH.yaml`, `AGENTS/python.md`)
+  updated to match.
+- **CI now tests every Go package, not just `./aletheia/`.** The `run_ci.py` Go
+  lane ran `go test ./aletheia/`, silently skipping `go/cmd/aletheia` (4 tests)
+  and the separate `go/excel` module (64 tests) — 68 tests that never gated a PR.
+  The lane now runs `go test ./...` over the core module (covering `aletheia` +
+  `cmd/aletheia`) **and** a second `go test ./...` over the `go/excel` module
+  (its own `go.mod` makes `./...` stop at the boundary), both with `ALETHEIA_LIB`
+  set so the `.so` is found regardless of each package's test cwd. The `gofmt` /
+  `go vet` lint step is likewise widened from `./aletheia/` to all of `go/` plus
+  the excel module. (Python's `pytest tests/` and C++'s `ctest` were already
+  comprehensive; the Rust `excel` crate gets its own lane when it lands in R3c.)
+- **`check-fidelity` no longer fails to find the MAlonzo modules when the build
+  is a no-op.** The `haskell-shim/MAlonzo -> ../build/MAlonzo` symlink (which
+  cabal resolves the generated `MAlonzo.*` modules through, and which is
+  gitignored) was created only *inside* the `.so` rule's action — so when that
+  rule no-ops (the `.so` already up to date, e.g. a warm build-tree cache restored
+  on a fresh checkout), the symlink was never created, and `check-fidelity`'s
+  `cabal test` failed with `Could not find module 'MAlonzo.Code.…'`. `check-fidelity`
+  now ensures the symlink itself (idempotent, symmetric with the `.so` rule). This
+  was latent until the build-staleness scheduling above made code-only PRs do a
+  genuine no-op build on a fresh CI checkout. Reproduced and fixed deterministically
+  (remove the symlink against an up-to-date `.so` → fail; with the fix → pass).
+- **The build no longer full-recompiles `libaletheia-ffi.so` on every
+  invocation, and can no longer ship a stale one.** The `.so` rule forced a
+  complete ~280-module MAlonzo rebuild each run (an always-dirty phony symlink
+  dependency, plus `rm -rf` of the cabal build tree and a `touch`). That
+  sledgehammer masked a real dependency-graph gap: the foreign library's
+  `other-modules` did not list the generated MAlonzo modules (and
+  `-Wmissing-home-modules` was suppressed), so cabal's up-to-date check never saw
+  them change and would skip GHC entirely — a genuine stale-`.so` hazard once the
+  sledgehammer was removed. Both are resolved (see Added): the Shake rule depends
+  on the Agda sources and cabal now tracks every MAlonzo module, so the build is
+  incremental *and* content-hash-correct, verified by the `build-incremental`
+  gate.
+- **Go and C++ `MockBackend` test doubles record `<binary:OP>` sentinels** for
+  binary-path operations (matching the Python mock), instead of fabricating JSON
+  wire shapes the real backends never emit. Behavior change to the public test
+  doubles only — tests asserting on `MockBackend` recorded inputs now see
+  `<binary:OP>` sentinel strings; no production behavior change. The dead
+  internal serializers behind the old shapes were removed (`serializeDataFrame`
+  / `serializeErrorEvent` / `serializeRemoteEvent` in Go; `serialize_send_frame`
+  in C++).
+
 ### Changed
 
 - **The CLIs parse a DBC once per invocation, not two or three times.**
@@ -84,450 +568,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   unchanged. Module count 277 → 278; the proof tree type-checks unchanged
   (no proof module referenced the moved definitions).
 
-### Added
-
-- **Byte-exact furthest-failure parser positions (PR-V2b).** The verified
-  parser combinators now thread a *failure watermark* — the deepest
-  position any parse attempt reached — through every parse
-  (`Parser A = Position → List Char → Position × Maybe (ParseResult A)`;
-  `<|>` merges failed alternatives' depths via the new `Position.maxₚ`,
-  `many` keeps the depth of the element attempt it swallowed). Every DBC
-  text/JSON parse error now pinpoints the exact offending byte:
-  - `dbc_text_parse_failure` carries structured `line`/`column` (the
-    watermark) and its message reads `DBC text parse failed at line N,
-    column M`.
-  - `dbc_text_trailing_input` reports the watermark in `line`/`column`
-    (byte-exact *inside* the first unparseable statement — previously it
-    could only name the statement's first character) plus new
-    `statement_line`/`statement_column` for the statement start; message:
-    `parse failed at line X, column Y (first unparseable statement starts
-    at line N, column M)`.
-  - `dispatch_invalid_json` gains the same `line`/`column` extras (the
-    JSON protocol parser shares the combinators); message: `invalid JSON:
-    parse failed at line N, column M`.
-  Live acceptance: `validate` on a DBC whose `BO_` line has a corrupted
-  DLC now reports the corrupted byte itself (`line 40, column 22`) instead
-  of the statement start (`column 1`); the CLI parity scenario pins the
-  full positioned message across all three CLIs. Error *codes* are
-  unchanged, extras are additive, and no binding API changes — the
-  ~100-module proof-tree restatement moves every parser-result lemma to
-  the outcome level (`proj₂`), with the universal B.3.d roundtrip theorem
-  (`parseText (formatText d) ≡ inj₂ d`) surviving verbatim.
-  Measured cost (paired, same host, back-to-back): `parseDBCText`
-  200-msg 1.113s→1.149s (+3.2%), 1000-msg 28.907s→30.381s (+5.1%) —
-  confined to the DBC-text cold path; the streaming hot path is
-  untouched. PROTOCOL.md documents the watermark semantics.
-
-- **`check-install-freshness` — a `run_ci` gate that makes deployed-kernel
-  rot loud** (`tools/check_install_freshness.py`). Both deployment surfaces
-  copy `build/libaletheia-ffi.so` out of the tree and then rot silently as
-  the tree moves on (the release-packaging `dist/` sat three weeks stale
-  after v2.0.0; the local install was partial for five months, above). The
-  gate verifies any existing copy is the *same build* as `build/`'s
-  library — compared by GNU build-id (strip/patchelf legitimately change
-  the deployed bytes; the build-id note survives both; SHA-256 fallback
-  when absent) — and that an installed library has its completed
-  `_install_config.py`. The install target now writes a repo-local,
-  gitignored `.install-receipt` (prefix, library path, config path) that
-  the gate reads instead of *guessing* the prefix — a custom-`PREFIX`
-  install stays under watch even when `PREFIX` is no longer exported;
-  `uninstall` clears the receipt. Absent artifacts skip (CI runners have
-  neither). 12 hermetic tests (both polarities per artifact class,
-  receipt-precedence discriminator included).
-
-- **Two Agda leaf modules decouple the error/serializer closure from the
-  parser combinators (prep for the parser-position redesign) — pure code
-  motion, no behavior change.** `Aletheia.Parser.Position` (the Position
-  record + advance functions) and `Aletheia.Parser.CharClass`
-  (`isUpper` / `isAlphaNum`) move out of `Aletheia.Parser.Combinators`,
-  which re-exports both so parser-side importers are unaffected. Four
-  imports narrow to break the remaining transitive routes:
-  `Aletheia.Error` and `Aletheia.DBC.Identifier` to the new leaves, and
-  `Aletheia.Protocol.ResponseFormat` + `Aletheia.Protocol.Message` from
-  the `Protocol.JSON` umbrella (which re-exports the JSON *parser*) down
-  to `Protocol.JSON.Types` — they only build JSON values. Verified by
-  transitive import walk: the closures of `Error` (17 modules),
-  `ResponseFormat` (34, was 39), and `Message` (24) no longer contain
-  the combinator library, so the upcoming combinator result-type work
-  stops re-checking the whole error/response vocabulary on every
-  iteration. Module count 275 → 277 (both new modules
-  `--safe --without-K`; counts synced in CLAUDE.md).
-
-- **Go: `DispatchThen` — the third exported loader-dispatch helper**
-  (`go/aletheia/loader.go`), completing the family started by
-  `DispatchSimple` / `DispatchWhen`: maps a then-condition keyword
-  (`equals` / `exceeds` / `stays_between`) to the bounded-obligation builder
-  call. The YAML and Excel loaders' previously copy-pasted three-arm switches
-  now delegate to it (presence checks and value extraction stay
-  loader-specific; the Excel loader is a separate Go module, which is why the
-  helper is exported — the same reason the other two are). Direct unit tests
-  cover all three arms plus the unknown-condition reject
-  (`go/aletheia/loader_test.go`).
-
-- **CI: a `check-proof-coverage` gate makes the Agda proof checker provably
-  exhaustive — internal, no behavior change.** `check-properties` walks a
-  hand-maintained `proofModules` list (Shakefile.hs); a proof module missing
-  from it was type-checked only as a side effect of the whole-tree `iwyu --all`
-  pass, so `cabal run shake -- check-properties` (the documented proof gate)
-  silently skipped it. Two such modules existed — `DBC.TextFormatter.Properties`
-  and `Protocol.Adequacy.StreamingWarm` (the lemma that discharges
-  `warm-cache-agreement`'s `AllCached` premise) — and are now added to
-  `proofModules`. The new gate (`tools/check_proof_coverage.py`, folded into
-  `run_ci`'s Agda-gate step and a `cabal run shake -- check-proof-coverage`
-  target) asserts that `closure(proofModules) ∪ closure(build)` covers every
-  `src/**.agda`, failing CI the instant a future proof module is not wired into
-  a dedicated gate. It reads `proofModules` from Shakefile.hs (single source of
-  truth — no second copy to drift).
-- **`aletheia_parse_decimal` FFI export — the kernel single source of truth for
-  decimal→rational.** A new Agda module `Aletheia.DBC.TextParser.DecimalEntry`
-  (`parseDecimal : String → Maybe ℚ`) parses a decimal string into the exact
-  rational it denotes by delegating wholesale to the verified `parseDecRat`
-  grammar (`-?digits[.digits+]`; no `'+'`, no leading `'.'`, no exponent) and
-  requiring full consumption (trailing input is rejected, unlike the library
-  `runParser`). The Haskell shim (`aletheia_parse_decimal`) returns the bindings'
-  wire shape — bare `{"numerator":N,"denominator":D}` on success (the exact form
-  `decode_wire_rational` consumes), a `{"status":"error",...}` envelope keyed by
-  `message` with code `decimal_parse_failed` / `decimal_overflow` and the
-  offending `input` echoed on failure — catching Int64 overflow at the marshaling
-  boundary via `toIntegralSized` (the kernel rational is unbounded). This is the
-  input half of the float principle: a decimal is an exact `DecRat`
-  (denominator `2^a·5^b`), never a float. The accepted grammar now lives once in
-  the verified kernel, so it cannot drift between bindings. Phase 0 ships the
-  export + a proof; the per-binding rewire (deleting the float→rational
-  heuristics) follows. (`src/Aletheia/DBC/TextParser/DecimalEntry.agda`,
-  `haskell-shim/src/AletheiaFFI.hs`, `haskell-shim/src/AletheiaFFI/Marshal.hs`.)
-- **`parseDecimal` is proven a weak inverse of the decimal emitter**
-  (`src/Aletheia/DBC/TextParser/DecimalEntry/Properties.agda`):
-  `parseDecimal-chars (showDecRat-dec-chars d) ≡ just d` (every `DecRat` recovered
-  from its canonical decimal text), a `map toℚ` corollary at the ℚ layer the FFI
-  returns, and `parseDecimal-chars (showInt-chars z) ≡ just (fromℤ z)` (the
-  common user-typed bare integer the emitter never prints as `"42"`). Both
-  discharge from the already-proven suffix-aware roundtrips in
-  `…DecRatParse.Properties.Phase6Suffix` specialised to full consumption; the
-  module is registered in `Shakefile.hs` `proofModules` so `check-properties`
-  gates it. A raw-ctypes smoke test (`python/tests/test_parse_decimal_ffi.py`)
-  covers the shim marshaling path end-to-end (success / parse-failure / Int64
-  overflow). Module count 273 → 275.
-- **Rust binding now emits `extraction.process_failed` / `extraction.parse_failed`**
-  (`rust/src/lib.rs`), closing a logging-parity gap with Go/Python/C++. The public
-  `extract_signals` — and, through it, the violation-enrichment loop (`extract_all`
-  funnels through `extract_signals`, mirroring Go's shared `extractSignalsLocked`
-  primitive) — now logs a `Warn` event with `canId` + `error` fields when the
-  backend call fails at the FFI/process boundary, and when a well-formed response
-  cannot be decoded; the single pair of emit sites covers both the public API and
-  enrichment. The `rust/src/log.rs` event-vocabulary doc is corrected to match
-  reality: the two enrichment events and the two extraction events are marked
-  emitted (the enrichment pair was already wired but still filed under "not
-  emitted"), leaving only the three `cache.*` events un-emitted — those instrument
-  an extraction-result memoization cache this binding deliberately does not
-  implement (a perf optimization, not part of the cross-binding contract; see
-  FEATURE_MATRIX `violation_enrichment`). The Go package doc (`go/aletheia/doc.go`)
-  is likewise corrected to list all 16 events (it had omitted
-  `endstream.uncached_atom`). New Rust behavioural tests assert each extraction
-  event fires (process vs parse) without the other; the `log_events` parity gate's
-  emitted-set is extended in lockstep.
-- **Rust documentation is now gated in CI** (`tools/_ci_steps.py`): the rust lint
-  section runs `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
-  --document-private-items` for both the main crate (with `--all-features`) and the
-  `rust/excel/` crate, so broken or redundant intra-doc links fail the build
-  instead of accumulating silently (the gap that let several warnings pile up
-  unnoticed). The pre-existing warnings this surfaced are fixed in the same change:
-  `log.rs` (`[Client]` and `[ALL]` now link via their paths), `yaml.rs`
-  (`MAX_INPUT_BYTES` demoted from a public→private link to a plain code span), and
-  `async_client.rs` (a redundant explicit `[Client]` target dropped; the
-  `AsyncClient` link in `lib.rs` resolves once `--all-features` is on). Doc/CI only
-  — no runtime or API change. `cargo doc --no-deps` runs no doctests, so the gate
-  needs no `.so`.
-- **Async backend dependency-injection seam for the Rust binding** (`rust/`,
-  feature `async`): `ClientBuilder::build_async_with_backend(Box<dyn Backend +
-  Send>)` builds an `AsyncClient` over an injected `Backend` without loading
-  `libaletheia-ffi.so` — the async analogue of the sync
-  `ClientBuilder::build_with_backend` shipped in R5. The injected backend is
-  moved to the async worker thread (where the `!Send` sync `Client` lives), so it
-  carries a `+ Send` bound — the only difference from the sync seam; the
-  `Backend` trait itself stays unbounded (the box coerces, dropping the marker).
-  Both async builders now route through a single client-factory `spawn`, so
-  `build_async` is behaviour-unchanged. This closes the sync↔async injection
-  asymmetry and lets the in-flight cancellation contract be tested
-  deterministically with a `Send` gating backend (no `.so`, no sleeps): the test
-  drives a call to the point the worker is mid-FFI — past the queued-cancel guard
-  — then drops the future and asserts the worker is not wedged and a fresh call
-  still succeeds. (FEATURE_MATRIX `backend_di_seam` Rust note extended; the
-  public `MockBackend` is `Rc`-based and intentionally `!Send`, so the gating
-  double is test-local.)
-- **Fluent comparison-predicate builders for the full Agda comparison family,
-  Go + Rust** (`go/`, `rust/`; new FEATURE_MATRIX `predicate_dsl` row →
-  `implemented` ×4). Python (`aletheia.dsl.Signal`) and C++ (`ltl::`) already
-  exposed the full `ValuePredicate` comparison family —
-  `equals` / `less_than` / `greater_than` and the at-or-below / at-or-above pair
-  (`src/Aletheia/LTL/SignalPredicate/Types.agda`) — as a fluent surface; Go and
-  Rust did not, so the cross-binding contract was never pinned. Now:
-  - **Go** — `aletheia.Signal("X").LessThanOrEqual(v)` etc. via a new
-    `SignalBuilder` (`Signal(name) SignalBuilder` + the five comparison methods),
-    the formula-level predicate DSL, distinct from the higher-level check-DSL
-    (`CheckSignal`).
-  - **Rust** — `Predicate::less_than_or_equal(sig, v)` etc., five `#[must_use]`
-    associated constructors taking `impl Into<String>` / `impl Into<Rational>`
-    (mirroring C++'s free-function shape; Go/Python mirror each other's method
-    chain — same capability, native idiom per binding).
-
-  Each is sugar over the existing predicate structs/variants (a struct-equality
-  test in each binding guards against a method being wired to the wrong
-  constructor), so the wire shape and `FormatFormula` rendering are unchanged.
-  The matrix row pins the `less_than` representative; the gate fails on its
-  silent removal in any binding. The ≤/≥ builders are now spelled
-  `less_than_or_equal` / `greater_than_or_equal` uniformly across all four
-  bindings — the C++ `at_most` / `at_least` builders were renamed to match (see
-  the BREAKING entry under Changed).
-- **Lazy batch frame send across Go, C++, and Rust** (`go/`, `cpp/`, `rust/`;
-  FEATURE_MATRIX `lazy_streaming_batch` → `implemented` ×4, joining Python — and
-  emptying the matrix of its last `not_applicable` cell). A streaming variant of
-  the eager batch send that pulls one frame from the source and yields one
-  outcome at a time, materializing neither the whole input nor the whole response
-  set — for large or live sources (a log reader, a socket) where full
-  materialization is wasteful or impossible. Each binding presents it
-  idiomatically:
-  - **Go** — `Client.SendFramesSeq(ctx, iter.Seq[Frame]) iter.Seq2[FrameResponse, error]`,
-    a Go 1.23 range-over-func (the lazy variant of `SendFrames`, as
-    `strings.SplitSeq` is of `Split`; wrap a slice with `slices.Values`). It
-    locks per frame rather than holding the eager batch-atomic lock, so a slow
-    consumer never starves `Close`.
-  - **C++** — `AletheiaClient::send_frames_lazy(stop, R) -> std::generator<Result<FrameResponse>>`,
-    a C++23 coroutine over any `std::ranges::input_range` of `Frame`; it yields
-    `std::expected`, forwarding cancellation as-is and prefixing the frame index
-    on other errors (mirroring `send_frames`).
-  - **Rust** — sync `Client::send_frames_iter(impl IntoIterator<Item = Frame>) -> impl Iterator<Item = Result<FrameResponse, Error>>`
-    and async `AsyncClient::send_frames_stream(impl IntoIterator<Item = Frame>) -> impl Stream<Item = Result<FrameResponse, Error>>`
-    (built on `futures-util`'s `unfold`, added under the existing runtime-agnostic
-    `async` feature; the input iterator is `Send`-bound so the returned stream
-    stays `tokio::spawn`-able). The async form is named `send_frames_stream`, not `_iter`,
-    because a `Stream` is the async-iterator trait, not `core::iter::Iterator` —
-    the `_iter` suffix is reserved for `Iterator`-returning methods.
-
-  All three reuse the per-frame `send_frame` primitive that the eager form uses
-  (an eager-vs-lazy equivalence test in each binding guards against drift), yield
-  one success-or-error per frame and fuse after the first error, and honor the
-  commit-prefix-and-report cancellation contract — stop pulling and the remaining
-  frames are never sent while the yielded prefix stays committed (see
-  `docs/architecture/CANCELLATION.md` §3.2–§3.4). The terminal error is tagged
-  with the failing frame's 0-based batch index so the caller can locate it (Go /
-  C++ via a `frame N:` message prefix; Rust via a new structured
-  `Error::Frame { index, source }` variant; Python via `BatchError.frame_index`).
-  Python's eager *raise* stays the one idiomatic divergence; the other three
-  yield the error in-band (`std::expected` / `(T, error)` / `Result`).
-- **Rust batch error now carries the frame index** (`rust/`). `Client::send_frames`
-  and `AsyncClient::send_frames` (the eager forms) now wrap a per-frame failure in
-  the new `Error::Frame { index, source }` variant — previously the raw
-  underlying error, which dropped the batch position. This aligns Rust with the
-  Go / C++ eager forms (which already prefixed `frame N:`) and with the new lazy
-  forms. Behavior change: matching the specific inner variant now goes through
-  `Error::Frame.source`.
-
-- **Rust backend dependency-injection seam + test mock** (`rust/`, Rust-parity
-  Slice R5 — the last in-plan slice; `mock_backend` + `backend_di_seam` →
-  rust **36/40**). A public, open `trait Backend` (`rust/src/backend.rs`) is the
-  FFI-boundary abstraction the `Client` is built on; the `Client` now holds a
-  `Box<dyn Backend>`, injected via `Client::with_backend` or
-  `ClientBuilder::build_with_backend`. The production `FfiBackend` (loads the
-  `.so`) and a new public, `Clone`-able `MockBackend` (`rust/src/mock.rs`) both
-  implement it; the mock queues responses (`respond_json` / `respond_bytes` /
-  `respond_err`) and records the cross-binding `<binary:OP>` sentinels for
-  inspection via `captured()`, so the `Client` can be unit-tested without loading
-  `libaletheia-ffi.so` (`rust/tests/mock_backend.rs`). Mirrors the Go / Python
-  `Backend` + `MockBackend` and the C++ `IBackend`, in idiomatic Rust form:
-  **RAII** (the backend owns its session handle and closes it in `Drop`, so the
-  trait has no `init`/`close`/`state` and never traffics in a raw pointer);
-  **shared interior-mutable mock state** (`Rc<RefCell<…>>` + `Clone`, so a test
-  keeps one clone to assert on while the `Client` owns another); and
-  **error-on-exhaustion** (matching Go, vs the Python/C++ default-response — no
-  fabricated mock behavior). The behavior-preserving extraction of the FFI
-  machinery into `FfiBackend` leaves the existing public `Client` API unchanged.
-- **Always-on gate: tools-importing tests must be mutmut-ignored.**
-  `tools/check_mutation_setup.py` (in the required Shake `check` sweep, not the
-  advisory mutation lane) now also verifies that every `python/tests/test_*.py`
-  importing the repo-root `tools` package appears as `--ignore=tests/<name>` in
-  `[tool.mutmut].pytest_add_cli_args`. This catches the exact drift that crash-
-  killed the Python mutation lane (see Fixed) — a new `tools`-importing test
-  landing without its ignore — at PR time in a required check, instead of in the
-  advisory lane where it went unnoticed for days. Forward-revert verified.
-- Rust async client (`rust/`, Rust-parity Slice R4c) — `AsyncClient`, a
-  runtime-agnostic async mirror of `Client`, behind the opt-in `async` cargo
-  feature. The sync `Client` is `!Send` (a thread-pinned `StreamState`), so
-  `AsyncClient` owns it on a dedicated **worker thread** and dispatches jobs over
-  a channel: each `async` method sends a closure (capturing its owned arguments
-  and a `oneshot` reply sender) and `.await`s the reply. The handle is a
-  `Mutex`-wrapped channel sender, so `AsyncClient` is `Send + Sync` — its
-  borrowing futures are `Send`, so it can be `tokio::spawn`ed on a multi-thread
-  runtime (`mpsc::Sender` is `Send` but `!Sync`, hence the `Mutex`). It is
-  runtime-agnostic — only the reply `oneshot` (from `futures-channel`) is used,
-  never a runtime — so it works under tokio / async-std / smol. **Cancellation** = dropping a method's future
-  (the idiomatic Rust cancel; no `ctx`/`stop_token` first parameter): a queued
-  (not-yet-started) job is skipped via a `Sender::is_canceled()` self-guard with
-  no FFI call (no frame committed); an in-flight FFI call runs to completion and
-  advances `StreamState` (commit-prefix, no rollback) — honoring the
-  `docs/architecture/CANCELLATION.md` contract (now with a Rust §2.4). `Drop`
-  closes the channel then joins the worker, so the `Client`'s `aletheia_close`
-  runs on its own thread. Built via `ClientBuilder::build_async()` /
-  `AsyncClient::new()`. Flips the `cancellation_contract` `rust` row to
-  `implemented` (rust 34/40) — completing Rust-parity R4.
-- Rust violation enrichment (`rust/`, Rust-parity Slice R4b) — violations now
-  carry a client-side `Enrichment` (referenced signals + values, formula
-  description, and a combined `enriched_reason`). The verified core emits only a
-  raw reason, so — like the Go (`enrich.go`) and Python (`_enrichment.py`)
-  bindings — each registered formula yields a per-property diagnostic (signals it
-  references + a human-readable description) cached at `set_properties`; on a
-  violation the signals are paired with their last-known values (extracted from
-  the violating frame during streaming, or from the last frame seen per CAN id at
-  end-of-stream) to build the `Enrichment` on `PropertyResult`. Emits the
-  `enrichment.property_index_oob` / `enrichment.extraction_failed` log events.
-  Rational values render via the same local renderer as the check DSL's
-  `condition_desc` (R3a's reduced-fraction form), keeping the two surfaces
-  consistent. Removes the previously-dormant wire-`enrichment` decode (the core
-  never sent that field). The extraction cache / `cache.*` events are
-  deliberately not implemented (an internal perf optimization, not part of the
-  enrichment contract — mirroring the Go/C++ scope). Flips the
-  `violation_enrichment` `rust` row to `implemented` (rust 33/40).
-- Rust ergonomics & runtime infra (`rust/`, Rust-parity Slice R4a) — a
-  `Client::builder()` adding **structured logging** and **RTS-cores
-  configuration**. `.logger(...)` takes a callback `Logger` (a bare
-  `Fn(&LogRecord) + Send + Sync` works via a blanket impl; level + event +
-  typed fields), with `.min_level(...)` filtering; the client emits the shared
-  cross-binding event vocabulary (`docs/LOG_EVENTS.yaml`), enforced by the new
-  `rust/tests/log_events.rs` parity gate. `.rts_cores(k)` passes `+RTS -N<k>
-  -RTS` to `hs_init`; the RTS is process-global, so the first client latches the
-  count and a later mismatching request is a no-op plus a `rts.cores_mismatch`
-  warning (mirrors Go `WithRTSCores` / C++ `make_ffi_backend`). Flips the
-  `structured_logging` and `rts_cores_config` `rust` rows to `implemented`
-  (rust 32/40); `lazy_streaming_batch` is recorded `not_applicable` for Rust
-  (the existing `send_frames(&[Frame])` already delivers commit-prefix-and-report
-  over a caller-materialized slice, mirroring the Go / C++ disposition).
-- Rust Excel check + DBC loader (`rust/excel/`, Rust-parity Slice R3c) — a separate
-  `aletheia-excel` crate (mirroring Go's `go/excel/` module) so the `.xlsx`
-  dependency chain (calamine + rust_xlsxwriter + zip) stays optional for core users.
-  `load_checks_from_excel` / `load_dbc_from_excel` / `create_template` read the
-  `Checks` / `When-Then` / `DBC` sheets and compile each row through the `check` DSL
-  (checks) or into a typed `Dbc` (signals), matching the Python (`excel_loader`) and
-  Go (`excel`) loaders so a workbook is portable across bindings — proven by a test
-  that loads the shared `examples/demo/demo_workbook.xlsx` fixture. At the trust
-  boundary it enforces the shared 64 MiB bound (raw size + a ZIP-bomb guard summing
-  uncompressed entry sizes with a saturating add) and rejects symlink / non-regular
-  paths. The `feature_matrix` parity gate now resolves a `pkg:symbol` entry against
-  `rust/<pkg>/src` (mirroring the Go gate), flipping the `excel_check_loader` `rust`
-  row to `implemented` (rust 30/40).
-- Rust YAML check loader (`rust/`, Rust-parity Slice R3b) — `load_checks_from_yaml`
-  and `load_checks_from_yaml_file` parse a set of named checks from a YAML document
-  into typed `Check`s, behind the default-on `yaml` cargo feature (disable with
-  `--no-default-features`). The schema matches the Python (`load_checks`) and Go
-  (`LoadChecksFromYAML`) loaders — a single `checks:` list of single-signal
-  (`signal` + `condition` + operands) or causal `when`/`then` entries (with a
-  top-level `within_ms`) — so a check file is portable across bindings (proven by a
-  test that loads the shared `go/aletheia/testdata/doc_examples/checks.yaml`
-  fixture). Decimal values go through a new `Rational::from_f64`, which replicates
-  the cross-binding `round(v × 10⁹), 10⁹` convention (reduced to lowest terms) and
-  fails on a non-finite / overflowing value rather than clamping — matching the
-  Python and C++ loaders. Unknown YAML keys are ignored, as in the peers. At the
-  trust boundary it enforces the shared 64 MiB input-length bound (on both inline
-  content and files, checked before reading) and rejects symbolic-link / non-regular
-  file paths — matching the Go and Python loaders' adversarial-input hardening. Flips
-  the `yaml_check_loader` `rust` row to `implemented` (rust 29/40); the Excel check
-  loader is R3c.
-- Rust check DSL (`rust/`, Rust-parity Slice R3a) — a fluent `check` module that
-  compiles domain-friendly checks to LTL `Formula`s plus display metadata:
-  `check::signal("Speed").never_exceeds(120)` (+ `never_below`/`stays_between`/
-  `never_equals`/`equals().always()`/`settles_between().within()`) and the causal
-  `check::when("Brake").exceeds(50).then("Light").equals(1).within(100)`. Numeric
-  values take `impl Into<Rational>` (an `i64` literal works directly; fractions via
-  `Rational::new`). `Check` carries `name`/`severity`/`condition_desc` metadata
-  (`named`/`with_severity`, immutable). `Client::add_checks(&[Check])` binds the
-  checks' formulas (the verdict `property_index` is the check's position; metadata
-  stays client-side). The raw LTL combinators remain on `Formula` for power users.
-  Flips the `check_dsl` / `add_checks` `rust` rows to `implemented` (rust 28/40);
-  the YAML / Excel check loaders are R3b / R3c.
-- Rust frame construction (`rust/`, Rust-parity Slice R2) — `Client::build_frame`
-  and `Client::update_frame` encode named signal values into a CAN payload via the
-  binary build/update FFI (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`);
-  they take a typed `&DbcMessage` (from a parsed `Dbc`) and resolve signal
-  names→indices against it — the idiomatic-Rust surface (no hidden client-side DBC
-  cache, unlike the stateful peers) for the same capability. Adds
-  `Client::send_frames(&[Frame])` for batch submission, returning
-  `(Vec<FrameResponse>, Option<Error>)` — all responses processed plus the first
-  transport error if it stopped early (partial results preserved). `extract_signals`
-  is confirmed mux-aware (the core selects mux-dependent signals by the frame's mux
-  value). Flips the `build_frame` / `update_frame` / `mux_extraction` /
-  `batch_frame_send` `rust` rows to `implemented` (rust now 26/40).
-- Rust DBC serialize side (`rust/`, Rust-parity Slice R1, write side — **completes
-  R1**) — `Client::parse_dbc` (load a typed `Dbc` via the JSON path),
-  `Client::validate_dbc` (→ `ValidationResult { has_errors, issues }`), and
-  `Client::format_dbc_text` (render a `Dbc` to `.dbc` text), backed by a
-  `Dbc` → canonical-JSON serializer (the inverse of the read-side decoders;
-  `Rational` int-when-den=1, flat presence, `extended` emitted only when true).
-  Verified by end-to-end round-trips against the comprehensive `kitchen_sink`
-  fixture (`parse_dbc_text` → `parse_dbc` and → `format_dbc_text` → `parse_dbc_text`
-  are both the identity). Flips the last 3 `rust` rows (`parse_dbc_json`,
-  `validate_dbc`, `dbc_text_format`) to `implemented` — the Rust binding now
-  covers all 11 of Slice R1's DBC-document rows.
-- Rust typed DBC attribute vocabulary (`rust/`, Rust-parity Slice R1, tier-2) —
-  `Dbc.attributes` is now the typed `Attribute` enum (`Definition` / `Default` /
-  `Assignment`) over `AttrType` (`Int` / `Float` / `String` / `Enum` / `Hex`),
-  `AttrValue`, `AttrScope` (7), and `AttrTarget` (7, with `extended` on the
-  CAN-id-bearing targets), replacing the raw-JSON pass-through — mirroring the
-  Go `DBCAttr*` / Python `DBCAttr*` models (`Int`/`Hex` bounds are integers,
-  `Float` bounds rational). Flips the `dbc_metadata_tier2` `rust` row to
-  `implemented`.
-- Rust typed DBC document model (`rust/`, Rust-parity Slice R1, read side) — a
-  typed `Dbc` / `DbcMessage` / `DbcSignal` family (with `Presence`, `ByteOrder`,
-  `ValueDescription`, `Node`, `ValueTable`, `SignalGroup`, `EnvironmentVar`,
-  `Comment` / `CommentTarget`) deserialized from the core's canonical JSON, plus
-  `Client::format_dbc` (export the loaded DBC) and mux-query / lookup helpers
-  (`DbcMessage::is_multiplexed` / `multiplexor_names` / `multiplex_values` /
-  `signal_by_name`; `Dbc::message_by_id` / `message_by_name`). The `attributes`
-  vocabulary is carried as raw-JSON pass-through pending a typed model (a
-  follow-on commit). **Breaking:** `Client::parse_dbc_text` now returns
-  `(Dbc, Vec<ValidationIssue>)` rather than just the warnings. Flips 7 `rust`
-  `docs/FEATURE_MATRIX.yaml` rows to `implemented` (`format_dbc`,
-  `dbc_metadata_tier1`, `dbc_signal_receivers`, `dbc_signal_value_descriptions`,
-  `dbc_message_senders`, `dbc_queries_mux`, `dbc_lookup`).
-- Rust binding (`rust/`) — loads `libaletheia-ffi.so` at runtime via `dlopen`
-  (the `libloading` crate), mirroring the Go and C++ `.so`-consumer model. It
-  enforces the GHC-allocated-memory ownership rules cgo hides (responses copied
-  out and released with `aletheia_free_str` via a RAII guard; the RTS started
-  once and latched in a `OnceLock`). The typed surface validates input at
-  construction — `CanId` (`Standard`/`Extended` enum), `Dlc`, `Rational`,
-  `Timestamp`, `TimeBound` return `Result` — and models LTL `Predicate` /
-  `Formula` as native, exhaustively-matchable enums that serialize to the core's
-  exact wire shape. `Client` loads a DBC (`parse_dbc_text`), binds properties
-  (`set_properties`), and streams frames through the **binary FFI**
-  (`start_stream` / `send_frame` / `send_error` / `send_remote` / `end_stream`,
-  plus `extract_signals`) — the same fast path the other bindings use; `process`
-  remains a raw JSON escape hatch. A `rust` column was added to
-  `docs/FEATURE_MATRIX.yaml` (honest implemented/planned across all 40 rows) with
-  a fourth structural parity gate (`rust/tests/feature_matrix.rs`); the existing
-  Python/Go/C++ gates now validate the `rust` column too. Gated by a required
-  `cargo test` / `cargo fmt --check` / `cargo clippy -D warnings` lane in
-  `tools/run_ci.py`. The typed DBC document model, Check DSL, client-side
-  violation enrichment, and CLI remain `planned`.
-- **Incremental, staleness-safe build of `libaletheia-ffi.so`, plus build
-  tooling.** A single changed Agda module now rebuilds the shared library in ~12s
-  (one regenerated MAlonzo module recompiled + relink) and a no-op
-  `cabal run shake -- build` in ~0.1s, instead of a full ~280-module recompile on
-  every invocation. New developer targets and gates:
-  - `cabal run shake -- gen-ffi-modules` regenerates the foreign library's
-    `other-modules` list (every generated MAlonzo module), making cabal's
-    dependency graph complete; `-Werror=missing-home-modules` is the drift gate —
-    adding an Agda module without re-listing it fails the build, naming the
-    module.
-  - `cabal run shake -- iwyu` regenerates the relevant `.agdai` (via Agda's own
-    incremental interface cache) and runs the import-usage analysis without a full
-    `.hs`/`.so` rebuild.
-  - `tools/check_build_incremental.py` (run as `tools/run_ci.py`'s `build` prereq)
-    edits a source, rebuilds, and asserts the change reaches the `.so`, then
-    reverts — a behavioral gate that the build can never silently ship a stale
-    artifact.
-  - A Shake oracle on `agda --version`, plus a dependency on `aletheia.agda-lib`,
-    rebuild when the Agda toolchain (binary version, stdlib pin, or flags) changes
-    even with no `.agda` source change.
-
-### Changed
 
 - **r25 B8 efficiency batch — off-hot-path allocation and round-trip cuts
   across Go/C++/Rust; no wire or API change.** Go: `serializeDBC` now returns
@@ -1155,6 +1195,449 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `IBackend` implementation that relied on the JSON-fallback defaults must now
   implement these six methods.
 
+### Added
+
+- **Byte-exact furthest-failure parser positions (PR-V2b).** The verified
+  parser combinators now thread a *failure watermark* — the deepest
+  position any parse attempt reached — through every parse
+  (`Parser A = Position → List Char → Position × Maybe (ParseResult A)`;
+  `<|>` merges failed alternatives' depths via the new `Position.maxₚ`,
+  `many` keeps the depth of the element attempt it swallowed). Every DBC
+  text/JSON parse error now pinpoints the exact offending byte:
+  - `dbc_text_parse_failure` carries structured `line`/`column` (the
+    watermark) and its message reads `DBC text parse failed at line N,
+    column M`.
+  - `dbc_text_trailing_input` reports the watermark in `line`/`column`
+    (byte-exact *inside* the first unparseable statement — previously it
+    could only name the statement's first character) plus new
+    `statement_line`/`statement_column` for the statement start; message:
+    `parse failed at line X, column Y (first unparseable statement starts
+    at line N, column M)`.
+  - `dispatch_invalid_json` gains the same `line`/`column` extras (the
+    JSON protocol parser shares the combinators); message: `invalid JSON:
+    parse failed at line N, column M`.
+  Live acceptance: `validate` on a DBC whose `BO_` line has a corrupted
+  DLC now reports the corrupted byte itself (`line 40, column 22`) instead
+  of the statement start (`column 1`); the CLI parity scenario pins the
+  full positioned message across all three CLIs. Error *codes* are
+  unchanged, extras are additive, and no binding API changes — the
+  ~100-module proof-tree restatement moves every parser-result lemma to
+  the outcome level (`proj₂`), with the universal B.3.d roundtrip theorem
+  (`parseText (formatText d) ≡ inj₂ d`) surviving verbatim.
+  Measured cost (paired, same host, back-to-back): `parseDBCText`
+  200-msg 1.113s→1.149s (+3.2%), 1000-msg 28.907s→30.381s (+5.1%) —
+  confined to the DBC-text cold path; the streaming hot path is
+  untouched. PROTOCOL.md documents the watermark semantics.
+
+- **`check-install-freshness` — a `run_ci` gate that makes deployed-kernel
+  rot loud** (`tools/check_install_freshness.py`). Both deployment surfaces
+  copy `build/libaletheia-ffi.so` out of the tree and then rot silently as
+  the tree moves on (the release-packaging `dist/` sat three weeks stale
+  after v2.0.0; the local install was partial for five months, above). The
+  gate verifies any existing copy is the *same build* as `build/`'s
+  library — compared by GNU build-id (strip/patchelf legitimately change
+  the deployed bytes; the build-id note survives both; SHA-256 fallback
+  when absent) — and that an installed library has its completed
+  `_install_config.py`. The install target now writes a repo-local,
+  gitignored `.install-receipt` (prefix, library path, config path) that
+  the gate reads instead of *guessing* the prefix — a custom-`PREFIX`
+  install stays under watch even when `PREFIX` is no longer exported;
+  `uninstall` clears the receipt. Absent artifacts skip (CI runners have
+  neither). 12 hermetic tests (both polarities per artifact class,
+  receipt-precedence discriminator included).
+
+- **Two Agda leaf modules decouple the error/serializer closure from the
+  parser combinators (prep for the parser-position redesign) — pure code
+  motion, no behavior change.** `Aletheia.Parser.Position` (the Position
+  record + advance functions) and `Aletheia.Parser.CharClass`
+  (`isUpper` / `isAlphaNum`) move out of `Aletheia.Parser.Combinators`,
+  which re-exports both so parser-side importers are unaffected. Four
+  imports narrow to break the remaining transitive routes:
+  `Aletheia.Error` and `Aletheia.DBC.Identifier` to the new leaves, and
+  `Aletheia.Protocol.ResponseFormat` + `Aletheia.Protocol.Message` from
+  the `Protocol.JSON` umbrella (which re-exports the JSON *parser*) down
+  to `Protocol.JSON.Types` — they only build JSON values. Verified by
+  transitive import walk: the closures of `Error` (17 modules),
+  `ResponseFormat` (34, was 39), and `Message` (24) no longer contain
+  the combinator library, so the upcoming combinator result-type work
+  stops re-checking the whole error/response vocabulary on every
+  iteration. Module count 275 → 277 (both new modules
+  `--safe --without-K`; counts synced in CLAUDE.md).
+
+- **Go: `DispatchThen` — the third exported loader-dispatch helper**
+  (`go/aletheia/loader.go`), completing the family started by
+  `DispatchSimple` / `DispatchWhen`: maps a then-condition keyword
+  (`equals` / `exceeds` / `stays_between`) to the bounded-obligation builder
+  call. The YAML and Excel loaders' previously copy-pasted three-arm switches
+  now delegate to it (presence checks and value extraction stay
+  loader-specific; the Excel loader is a separate Go module, which is why the
+  helper is exported — the same reason the other two are). Direct unit tests
+  cover all three arms plus the unknown-condition reject
+  (`go/aletheia/loader_test.go`).
+
+- **CI: a `check-proof-coverage` gate makes the Agda proof checker provably
+  exhaustive — internal, no behavior change.** `check-properties` walks a
+  hand-maintained `proofModules` list (Shakefile.hs); a proof module missing
+  from it was type-checked only as a side effect of the whole-tree `iwyu --all`
+  pass, so `cabal run shake -- check-properties` (the documented proof gate)
+  silently skipped it. Two such modules existed — `DBC.TextFormatter.Properties`
+  and `Protocol.Adequacy.StreamingWarm` (the lemma that discharges
+  `warm-cache-agreement`'s `AllCached` premise) — and are now added to
+  `proofModules`. The new gate (`tools/check_proof_coverage.py`, folded into
+  `run_ci`'s Agda-gate step and a `cabal run shake -- check-proof-coverage`
+  target) asserts that `closure(proofModules) ∪ closure(build)` covers every
+  `src/**.agda`, failing CI the instant a future proof module is not wired into
+  a dedicated gate. It reads `proofModules` from Shakefile.hs (single source of
+  truth — no second copy to drift).
+- **`aletheia_parse_decimal` FFI export — the kernel single source of truth for
+  decimal→rational.** A new Agda module `Aletheia.DBC.TextParser.DecimalEntry`
+  (`parseDecimal : String → Maybe ℚ`) parses a decimal string into the exact
+  rational it denotes by delegating wholesale to the verified `parseDecRat`
+  grammar (`-?digits[.digits+]`; no `'+'`, no leading `'.'`, no exponent) and
+  requiring full consumption (trailing input is rejected, unlike the library
+  `runParser`). The Haskell shim (`aletheia_parse_decimal`) returns the bindings'
+  wire shape — bare `{"numerator":N,"denominator":D}` on success (the exact form
+  `decode_wire_rational` consumes), a `{"status":"error",...}` envelope keyed by
+  `message` with code `decimal_parse_failed` / `decimal_overflow` and the
+  offending `input` echoed on failure — catching Int64 overflow at the marshaling
+  boundary via `toIntegralSized` (the kernel rational is unbounded). This is the
+  input half of the float principle: a decimal is an exact `DecRat`
+  (denominator `2^a·5^b`), never a float. The accepted grammar now lives once in
+  the verified kernel, so it cannot drift between bindings. Phase 0 ships the
+  export + a proof; the per-binding rewire (deleting the float→rational
+  heuristics) follows. (`src/Aletheia/DBC/TextParser/DecimalEntry.agda`,
+  `haskell-shim/src/AletheiaFFI.hs`, `haskell-shim/src/AletheiaFFI/Marshal.hs`.)
+- **`parseDecimal` is proven a weak inverse of the decimal emitter**
+  (`src/Aletheia/DBC/TextParser/DecimalEntry/Properties.agda`):
+  `parseDecimal-chars (showDecRat-dec-chars d) ≡ just d` (every `DecRat` recovered
+  from its canonical decimal text), a `map toℚ` corollary at the ℚ layer the FFI
+  returns, and `parseDecimal-chars (showInt-chars z) ≡ just (fromℤ z)` (the
+  common user-typed bare integer the emitter never prints as `"42"`). Both
+  discharge from the already-proven suffix-aware roundtrips in
+  `…DecRatParse.Properties.Phase6Suffix` specialised to full consumption; the
+  module is registered in `Shakefile.hs` `proofModules` so `check-properties`
+  gates it. A raw-ctypes smoke test (`python/tests/test_parse_decimal_ffi.py`)
+  covers the shim marshaling path end-to-end (success / parse-failure / Int64
+  overflow). Module count 273 → 275.
+- **Rust binding now emits `extraction.process_failed` / `extraction.parse_failed`**
+  (`rust/src/lib.rs`), closing a logging-parity gap with Go/Python/C++. The public
+  `extract_signals` — and, through it, the violation-enrichment loop (`extract_all`
+  funnels through `extract_signals`, mirroring Go's shared `extractSignalsLocked`
+  primitive) — now logs a `Warn` event with `canId` + `error` fields when the
+  backend call fails at the FFI/process boundary, and when a well-formed response
+  cannot be decoded; the single pair of emit sites covers both the public API and
+  enrichment. The `rust/src/log.rs` event-vocabulary doc is corrected to match
+  reality: the two enrichment events and the two extraction events are marked
+  emitted (the enrichment pair was already wired but still filed under "not
+  emitted"), leaving only the three `cache.*` events un-emitted — those instrument
+  an extraction-result memoization cache this binding deliberately does not
+  implement (a perf optimization, not part of the cross-binding contract; see
+  FEATURE_MATRIX `violation_enrichment`). The Go package doc (`go/aletheia/doc.go`)
+  is likewise corrected to list all 16 events (it had omitted
+  `endstream.uncached_atom`). New Rust behavioural tests assert each extraction
+  event fires (process vs parse) without the other; the `log_events` parity gate's
+  emitted-set is extended in lockstep.
+- **Rust documentation is now gated in CI** (`tools/_ci_steps.py`): the rust lint
+  section runs `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+  --document-private-items` for both the main crate (with `--all-features`) and the
+  `rust/excel/` crate, so broken or redundant intra-doc links fail the build
+  instead of accumulating silently (the gap that let several warnings pile up
+  unnoticed). The pre-existing warnings this surfaced are fixed in the same change:
+  `log.rs` (`[Client]` and `[ALL]` now link via their paths), `yaml.rs`
+  (`MAX_INPUT_BYTES` demoted from a public→private link to a plain code span), and
+  `async_client.rs` (a redundant explicit `[Client]` target dropped; the
+  `AsyncClient` link in `lib.rs` resolves once `--all-features` is on). Doc/CI only
+  — no runtime or API change. `cargo doc --no-deps` runs no doctests, so the gate
+  needs no `.so`.
+- **Async backend dependency-injection seam for the Rust binding** (`rust/`,
+  feature `async`): `ClientBuilder::build_async_with_backend(Box<dyn Backend +
+  Send>)` builds an `AsyncClient` over an injected `Backend` without loading
+  `libaletheia-ffi.so` — the async analogue of the sync
+  `ClientBuilder::build_with_backend` shipped in R5. The injected backend is
+  moved to the async worker thread (where the `!Send` sync `Client` lives), so it
+  carries a `+ Send` bound — the only difference from the sync seam; the
+  `Backend` trait itself stays unbounded (the box coerces, dropping the marker).
+  Both async builders now route through a single client-factory `spawn`, so
+  `build_async` is behaviour-unchanged. This closes the sync↔async injection
+  asymmetry and lets the in-flight cancellation contract be tested
+  deterministically with a `Send` gating backend (no `.so`, no sleeps): the test
+  drives a call to the point the worker is mid-FFI — past the queued-cancel guard
+  — then drops the future and asserts the worker is not wedged and a fresh call
+  still succeeds. (FEATURE_MATRIX `backend_di_seam` Rust note extended; the
+  public `MockBackend` is `Rc`-based and intentionally `!Send`, so the gating
+  double is test-local.)
+- **Fluent comparison-predicate builders for the full Agda comparison family,
+  Go + Rust** (`go/`, `rust/`; new FEATURE_MATRIX `predicate_dsl` row →
+  `implemented` ×4). Python (`aletheia.dsl.Signal`) and C++ (`ltl::`) already
+  exposed the full `ValuePredicate` comparison family —
+  `equals` / `less_than` / `greater_than` and the at-or-below / at-or-above pair
+  (`src/Aletheia/LTL/SignalPredicate/Types.agda`) — as a fluent surface; Go and
+  Rust did not, so the cross-binding contract was never pinned. Now:
+  - **Go** — `aletheia.Signal("X").LessThanOrEqual(v)` etc. via a new
+    `SignalBuilder` (`Signal(name) SignalBuilder` + the five comparison methods),
+    the formula-level predicate DSL, distinct from the higher-level check-DSL
+    (`CheckSignal`).
+  - **Rust** — `Predicate::less_than_or_equal(sig, v)` etc., five `#[must_use]`
+    associated constructors taking `impl Into<String>` / `impl Into<Rational>`
+    (mirroring C++'s free-function shape; Go/Python mirror each other's method
+    chain — same capability, native idiom per binding).
+
+  Each is sugar over the existing predicate structs/variants (a struct-equality
+  test in each binding guards against a method being wired to the wrong
+  constructor), so the wire shape and `FormatFormula` rendering are unchanged.
+  The matrix row pins the `less_than` representative; the gate fails on its
+  silent removal in any binding. The ≤/≥ builders are now spelled
+  `less_than_or_equal` / `greater_than_or_equal` uniformly across all four
+  bindings — the C++ `at_most` / `at_least` builders were renamed to match (see
+  the BREAKING entry under Changed).
+- **Lazy batch frame send across Go, C++, and Rust** (`go/`, `cpp/`, `rust/`;
+  FEATURE_MATRIX `lazy_streaming_batch` → `implemented` ×4, joining Python — and
+  emptying the matrix of its last `not_applicable` cell). A streaming variant of
+  the eager batch send that pulls one frame from the source and yields one
+  outcome at a time, materializing neither the whole input nor the whole response
+  set — for large or live sources (a log reader, a socket) where full
+  materialization is wasteful or impossible. Each binding presents it
+  idiomatically:
+  - **Go** — `Client.SendFramesSeq(ctx, iter.Seq[Frame]) iter.Seq2[FrameResponse, error]`,
+    a Go 1.23 range-over-func (the lazy variant of `SendFrames`, as
+    `strings.SplitSeq` is of `Split`; wrap a slice with `slices.Values`). It
+    locks per frame rather than holding the eager batch-atomic lock, so a slow
+    consumer never starves `Close`.
+  - **C++** — `AletheiaClient::send_frames_lazy(stop, R) -> std::generator<Result<FrameResponse>>`,
+    a C++23 coroutine over any `std::ranges::input_range` of `Frame`; it yields
+    `std::expected`, forwarding cancellation as-is and prefixing the frame index
+    on other errors (mirroring `send_frames`).
+  - **Rust** — sync `Client::send_frames_iter(impl IntoIterator<Item = Frame>) -> impl Iterator<Item = Result<FrameResponse, Error>>`
+    and async `AsyncClient::send_frames_stream(impl IntoIterator<Item = Frame>) -> impl Stream<Item = Result<FrameResponse, Error>>`
+    (built on `futures-util`'s `unfold`, added under the existing runtime-agnostic
+    `async` feature; the input iterator is `Send`-bound so the returned stream
+    stays `tokio::spawn`-able). The async form is named `send_frames_stream`, not `_iter`,
+    because a `Stream` is the async-iterator trait, not `core::iter::Iterator` —
+    the `_iter` suffix is reserved for `Iterator`-returning methods.
+
+  All three reuse the per-frame `send_frame` primitive that the eager form uses
+  (an eager-vs-lazy equivalence test in each binding guards against drift), yield
+  one success-or-error per frame and fuse after the first error, and honor the
+  commit-prefix-and-report cancellation contract — stop pulling and the remaining
+  frames are never sent while the yielded prefix stays committed (see
+  `docs/architecture/CANCELLATION.md` §3.2–§3.4). The terminal error is tagged
+  with the failing frame's 0-based batch index so the caller can locate it (Go /
+  C++ via a `frame N:` message prefix; Rust via a new structured
+  `Error::Frame { index, source }` variant; Python via `BatchError.frame_index`).
+  Python's eager *raise* stays the one idiomatic divergence; the other three
+  yield the error in-band (`std::expected` / `(T, error)` / `Result`).
+- **Rust batch error now carries the frame index** (`rust/`). `Client::send_frames`
+  and `AsyncClient::send_frames` (the eager forms) now wrap a per-frame failure in
+  the new `Error::Frame { index, source }` variant — previously the raw
+  underlying error, which dropped the batch position. This aligns Rust with the
+  Go / C++ eager forms (which already prefixed `frame N:`) and with the new lazy
+  forms. Behavior change: matching the specific inner variant now goes through
+  `Error::Frame.source`.
+
+- **Rust backend dependency-injection seam + test mock** (`rust/`, Rust-parity
+  Slice R5 — the last in-plan slice; `mock_backend` + `backend_di_seam` →
+  rust **36/40**). A public, open `trait Backend` (`rust/src/backend.rs`) is the
+  FFI-boundary abstraction the `Client` is built on; the `Client` now holds a
+  `Box<dyn Backend>`, injected via `Client::with_backend` or
+  `ClientBuilder::build_with_backend`. The production `FfiBackend` (loads the
+  `.so`) and a new public, `Clone`-able `MockBackend` (`rust/src/mock.rs`) both
+  implement it; the mock queues responses (`respond_json` / `respond_bytes` /
+  `respond_err`) and records the cross-binding `<binary:OP>` sentinels for
+  inspection via `captured()`, so the `Client` can be unit-tested without loading
+  `libaletheia-ffi.so` (`rust/tests/mock_backend.rs`). Mirrors the Go / Python
+  `Backend` + `MockBackend` and the C++ `IBackend`, in idiomatic Rust form:
+  **RAII** (the backend owns its session handle and closes it in `Drop`, so the
+  trait has no `init`/`close`/`state` and never traffics in a raw pointer);
+  **shared interior-mutable mock state** (`Rc<RefCell<…>>` + `Clone`, so a test
+  keeps one clone to assert on while the `Client` owns another); and
+  **error-on-exhaustion** (matching Go, vs the Python/C++ default-response — no
+  fabricated mock behavior). The behavior-preserving extraction of the FFI
+  machinery into `FfiBackend` leaves the existing public `Client` API unchanged.
+- **Always-on gate: tools-importing tests must be mutmut-ignored.**
+  `tools/check_mutation_setup.py` (in the required Shake `check` sweep, not the
+  advisory mutation lane) now also verifies that every `python/tests/test_*.py`
+  importing the repo-root `tools` package appears as `--ignore=tests/<name>` in
+  `[tool.mutmut].pytest_add_cli_args`. This catches the exact drift that crash-
+  killed the Python mutation lane (see Fixed) — a new `tools`-importing test
+  landing without its ignore — at PR time in a required check, instead of in the
+  advisory lane where it went unnoticed for days. Forward-revert verified.
+- Rust async client (`rust/`, Rust-parity Slice R4c) — `AsyncClient`, a
+  runtime-agnostic async mirror of `Client`, behind the opt-in `async` cargo
+  feature. The sync `Client` is `!Send` (a thread-pinned `StreamState`), so
+  `AsyncClient` owns it on a dedicated **worker thread** and dispatches jobs over
+  a channel: each `async` method sends a closure (capturing its owned arguments
+  and a `oneshot` reply sender) and `.await`s the reply. The handle is a
+  `Mutex`-wrapped channel sender, so `AsyncClient` is `Send + Sync` — its
+  borrowing futures are `Send`, so it can be `tokio::spawn`ed on a multi-thread
+  runtime (`mpsc::Sender` is `Send` but `!Sync`, hence the `Mutex`). It is
+  runtime-agnostic — only the reply `oneshot` (from `futures-channel`) is used,
+  never a runtime — so it works under tokio / async-std / smol. **Cancellation** = dropping a method's future
+  (the idiomatic Rust cancel; no `ctx`/`stop_token` first parameter): a queued
+  (not-yet-started) job is skipped via a `Sender::is_canceled()` self-guard with
+  no FFI call (no frame committed); an in-flight FFI call runs to completion and
+  advances `StreamState` (commit-prefix, no rollback) — honoring the
+  `docs/architecture/CANCELLATION.md` contract (now with a Rust §2.4). `Drop`
+  closes the channel then joins the worker, so the `Client`'s `aletheia_close`
+  runs on its own thread. Built via `ClientBuilder::build_async()` /
+  `AsyncClient::new()`. Flips the `cancellation_contract` `rust` row to
+  `implemented` (rust 34/40) — completing Rust-parity R4.
+- Rust violation enrichment (`rust/`, Rust-parity Slice R4b) — violations now
+  carry a client-side `Enrichment` (referenced signals + values, formula
+  description, and a combined `enriched_reason`). The verified core emits only a
+  raw reason, so — like the Go (`enrich.go`) and Python (`_enrichment.py`)
+  bindings — each registered formula yields a per-property diagnostic (signals it
+  references + a human-readable description) cached at `set_properties`; on a
+  violation the signals are paired with their last-known values (extracted from
+  the violating frame during streaming, or from the last frame seen per CAN id at
+  end-of-stream) to build the `Enrichment` on `PropertyResult`. Emits the
+  `enrichment.property_index_oob` / `enrichment.extraction_failed` log events.
+  Rational values render via the same local renderer as the check DSL's
+  `condition_desc` (R3a's reduced-fraction form), keeping the two surfaces
+  consistent. Removes the previously-dormant wire-`enrichment` decode (the core
+  never sent that field). The extraction cache / `cache.*` events are
+  deliberately not implemented (an internal perf optimization, not part of the
+  enrichment contract — mirroring the Go/C++ scope). Flips the
+  `violation_enrichment` `rust` row to `implemented` (rust 33/40).
+- Rust ergonomics & runtime infra (`rust/`, Rust-parity Slice R4a) — a
+  `Client::builder()` adding **structured logging** and **RTS-cores
+  configuration**. `.logger(...)` takes a callback `Logger` (a bare
+  `Fn(&LogRecord) + Send + Sync` works via a blanket impl; level + event +
+  typed fields), with `.min_level(...)` filtering; the client emits the shared
+  cross-binding event vocabulary (`docs/LOG_EVENTS.yaml`), enforced by the new
+  `rust/tests/log_events.rs` parity gate. `.rts_cores(k)` passes `+RTS -N<k>
+  -RTS` to `hs_init`; the RTS is process-global, so the first client latches the
+  count and a later mismatching request is a no-op plus a `rts.cores_mismatch`
+  warning (mirrors Go `WithRTSCores` / C++ `make_ffi_backend`). Flips the
+  `structured_logging` and `rts_cores_config` `rust` rows to `implemented`
+  (rust 32/40); `lazy_streaming_batch` is recorded `not_applicable` for Rust
+  (the existing `send_frames(&[Frame])` already delivers commit-prefix-and-report
+  over a caller-materialized slice, mirroring the Go / C++ disposition).
+- Rust Excel check + DBC loader (`rust/excel/`, Rust-parity Slice R3c) — a separate
+  `aletheia-excel` crate (mirroring Go's `go/excel/` module) so the `.xlsx`
+  dependency chain (calamine + rust_xlsxwriter + zip) stays optional for core users.
+  `load_checks_from_excel` / `load_dbc_from_excel` / `create_template` read the
+  `Checks` / `When-Then` / `DBC` sheets and compile each row through the `check` DSL
+  (checks) or into a typed `Dbc` (signals), matching the Python (`excel_loader`) and
+  Go (`excel`) loaders so a workbook is portable across bindings — proven by a test
+  that loads the shared `examples/demo/demo_workbook.xlsx` fixture. At the trust
+  boundary it enforces the shared 64 MiB bound (raw size + a ZIP-bomb guard summing
+  uncompressed entry sizes with a saturating add) and rejects symlink / non-regular
+  paths. The `feature_matrix` parity gate now resolves a `pkg:symbol` entry against
+  `rust/<pkg>/src` (mirroring the Go gate), flipping the `excel_check_loader` `rust`
+  row to `implemented` (rust 30/40).
+- Rust YAML check loader (`rust/`, Rust-parity Slice R3b) — `load_checks_from_yaml`
+  and `load_checks_from_yaml_file` parse a set of named checks from a YAML document
+  into typed `Check`s, behind the default-on `yaml` cargo feature (disable with
+  `--no-default-features`). The schema matches the Python (`load_checks`) and Go
+  (`LoadChecksFromYAML`) loaders — a single `checks:` list of single-signal
+  (`signal` + `condition` + operands) or causal `when`/`then` entries (with a
+  top-level `within_ms`) — so a check file is portable across bindings (proven by a
+  test that loads the shared `go/aletheia/testdata/doc_examples/checks.yaml`
+  fixture). Decimal values go through a new `Rational::from_f64`, which replicates
+  the cross-binding `round(v × 10⁹), 10⁹` convention (reduced to lowest terms) and
+  fails on a non-finite / overflowing value rather than clamping — matching the
+  Python and C++ loaders. Unknown YAML keys are ignored, as in the peers. At the
+  trust boundary it enforces the shared 64 MiB input-length bound (on both inline
+  content and files, checked before reading) and rejects symbolic-link / non-regular
+  file paths — matching the Go and Python loaders' adversarial-input hardening. Flips
+  the `yaml_check_loader` `rust` row to `implemented` (rust 29/40); the Excel check
+  loader is R3c.
+- Rust check DSL (`rust/`, Rust-parity Slice R3a) — a fluent `check` module that
+  compiles domain-friendly checks to LTL `Formula`s plus display metadata:
+  `check::signal("Speed").never_exceeds(120)` (+ `never_below`/`stays_between`/
+  `never_equals`/`equals().always()`/`settles_between().within()`) and the causal
+  `check::when("Brake").exceeds(50).then("Light").equals(1).within(100)`. Numeric
+  values take `impl Into<Rational>` (an `i64` literal works directly; fractions via
+  `Rational::new`). `Check` carries `name`/`severity`/`condition_desc` metadata
+  (`named`/`with_severity`, immutable). `Client::add_checks(&[Check])` binds the
+  checks' formulas (the verdict `property_index` is the check's position; metadata
+  stays client-side). The raw LTL combinators remain on `Formula` for power users.
+  Flips the `check_dsl` / `add_checks` `rust` rows to `implemented` (rust 28/40);
+  the YAML / Excel check loaders are R3b / R3c.
+- Rust frame construction (`rust/`, Rust-parity Slice R2) — `Client::build_frame`
+  and `Client::update_frame` encode named signal values into a CAN payload via the
+  binary build/update FFI (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`);
+  they take a typed `&DbcMessage` (from a parsed `Dbc`) and resolve signal
+  names→indices against it — the idiomatic-Rust surface (no hidden client-side DBC
+  cache, unlike the stateful peers) for the same capability. Adds
+  `Client::send_frames(&[Frame])` for batch submission, returning
+  `(Vec<FrameResponse>, Option<Error>)` — all responses processed plus the first
+  transport error if it stopped early (partial results preserved). `extract_signals`
+  is confirmed mux-aware (the core selects mux-dependent signals by the frame's mux
+  value). Flips the `build_frame` / `update_frame` / `mux_extraction` /
+  `batch_frame_send` `rust` rows to `implemented` (rust now 26/40).
+- Rust DBC serialize side (`rust/`, Rust-parity Slice R1, write side — **completes
+  R1**) — `Client::parse_dbc` (load a typed `Dbc` via the JSON path),
+  `Client::validate_dbc` (→ `ValidationResult { has_errors, issues }`), and
+  `Client::format_dbc_text` (render a `Dbc` to `.dbc` text), backed by a
+  `Dbc` → canonical-JSON serializer (the inverse of the read-side decoders;
+  `Rational` int-when-den=1, flat presence, `extended` emitted only when true).
+  Verified by end-to-end round-trips against the comprehensive `kitchen_sink`
+  fixture (`parse_dbc_text` → `parse_dbc` and → `format_dbc_text` → `parse_dbc_text`
+  are both the identity). Flips the last 3 `rust` rows (`parse_dbc_json`,
+  `validate_dbc`, `dbc_text_format`) to `implemented` — the Rust binding now
+  covers all 11 of Slice R1's DBC-document rows.
+- Rust typed DBC attribute vocabulary (`rust/`, Rust-parity Slice R1, tier-2) —
+  `Dbc.attributes` is now the typed `Attribute` enum (`Definition` / `Default` /
+  `Assignment`) over `AttrType` (`Int` / `Float` / `String` / `Enum` / `Hex`),
+  `AttrValue`, `AttrScope` (7), and `AttrTarget` (7, with `extended` on the
+  CAN-id-bearing targets), replacing the raw-JSON pass-through — mirroring the
+  Go `DBCAttr*` / Python `DBCAttr*` models (`Int`/`Hex` bounds are integers,
+  `Float` bounds rational). Flips the `dbc_metadata_tier2` `rust` row to
+  `implemented`.
+- Rust typed DBC document model (`rust/`, Rust-parity Slice R1, read side) — a
+  typed `Dbc` / `DbcMessage` / `DbcSignal` family (with `Presence`, `ByteOrder`,
+  `ValueDescription`, `Node`, `ValueTable`, `SignalGroup`, `EnvironmentVar`,
+  `Comment` / `CommentTarget`) deserialized from the core's canonical JSON, plus
+  `Client::format_dbc` (export the loaded DBC) and mux-query / lookup helpers
+  (`DbcMessage::is_multiplexed` / `multiplexor_names` / `multiplex_values` /
+  `signal_by_name`; `Dbc::message_by_id` / `message_by_name`). The `attributes`
+  vocabulary is carried as raw-JSON pass-through pending a typed model (a
+  follow-on commit). **Breaking:** `Client::parse_dbc_text` now returns
+  `(Dbc, Vec<ValidationIssue>)` rather than just the warnings. Flips 7 `rust`
+  `docs/FEATURE_MATRIX.yaml` rows to `implemented` (`format_dbc`,
+  `dbc_metadata_tier1`, `dbc_signal_receivers`, `dbc_signal_value_descriptions`,
+  `dbc_message_senders`, `dbc_queries_mux`, `dbc_lookup`).
+- Rust binding (`rust/`) — loads `libaletheia-ffi.so` at runtime via `dlopen`
+  (the `libloading` crate), mirroring the Go and C++ `.so`-consumer model. It
+  enforces the GHC-allocated-memory ownership rules cgo hides (responses copied
+  out and released with `aletheia_free_str` via a RAII guard; the RTS started
+  once and latched in a `OnceLock`). The typed surface validates input at
+  construction — `CanId` (`Standard`/`Extended` enum), `Dlc`, `Rational`,
+  `Timestamp`, `TimeBound` return `Result` — and models LTL `Predicate` /
+  `Formula` as native, exhaustively-matchable enums that serialize to the core's
+  exact wire shape. `Client` loads a DBC (`parse_dbc_text`), binds properties
+  (`set_properties`), and streams frames through the **binary FFI**
+  (`start_stream` / `send_frame` / `send_error` / `send_remote` / `end_stream`,
+  plus `extract_signals`) — the same fast path the other bindings use; `process`
+  remains a raw JSON escape hatch. A `rust` column was added to
+  `docs/FEATURE_MATRIX.yaml` (honest implemented/planned across all 40 rows) with
+  a fourth structural parity gate (`rust/tests/feature_matrix.rs`); the existing
+  Python/Go/C++ gates now validate the `rust` column too. Gated by a required
+  `cargo test` / `cargo fmt --check` / `cargo clippy -D warnings` lane in
+  `tools/run_ci.py`. The typed DBC document model, Check DSL, client-side
+  violation enrichment, and CLI remain `planned`.
+- **Incremental, staleness-safe build of `libaletheia-ffi.so`, plus build
+  tooling.** A single changed Agda module now rebuilds the shared library in ~12s
+  (one regenerated MAlonzo module recompiled + relink) and a no-op
+  `cabal run shake -- build` in ~0.1s, instead of a full ~280-module recompile on
+  every invocation. New developer targets and gates:
+  - `cabal run shake -- gen-ffi-modules` regenerates the foreign library's
+    `other-modules` list (every generated MAlonzo module), making cabal's
+    dependency graph complete; `-Werror=missing-home-modules` is the drift gate —
+    adding an Agda module without re-listing it fails the build, naming the
+    module.
+  - `cabal run shake -- iwyu` regenerates the relevant `.agdai` (via Agda's own
+    incremental interface cache) and runs the import-usage analysis without a full
+    `.hs`/`.so` rebuild.
+  - `tools/check_build_incremental.py` (run as `tools/run_ci.py`'s `build` prereq)
+    edits a source, rebuilds, and asserts the change reaches the `.so`, then
+    reverts — a behavioral gate that the build can never silently ship a stale
+    artifact.
+  - A Shake oracle on `agda --version`, plus a dependency on `aletheia.agda-lib`,
+    rebuild when the Agda toolchain (binary version, stdlib pin, or flags) changes
+    even with no `.agda` source change.
+
 ### Removed
 
 - **Two unreachable defensive branches in the Go JSON decoder — internal, no
@@ -1223,491 +1706,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   binding-side serializers (C++ `detail::serialize_*` for the removed commands
   plus the former default `IBackend` impls; Python's JSON-command ack-default
   markers) were removed too.
-
-### Fixed
-
-- **`aletheia validate` on a broken DBC now lists the issues instead of
-  dying — the binding/CLI half of the first-touch fix, plus the CLI
-  scenario harness that locks it.** All four bindings lift the
-  `handler_validation_failed` envelope into a typed error carrying the
-  full issue list, mirroring the `input_bound_exceeded` precedent exactly
-  (well-formed payload → typed error; malformed/partial → degrade to the
-  generic coded error): Python `DBCValidationFailedError`, Go
-  `ValidationFailedError`, Rust `Error::ValidationFailed`, and C++ an
-  optional `issues()` payload on `AletheiaError` beside `bound_info()`
-  (`ValidationIssue` relocated to its own small header,
-  `aletheia/validation_issue.hpp`, so `error.hpp` can name it without
-  pulling the DBC vocabulary). All three CLIs' `validate` catch the typed
-  error from their DBC-load step and render the same report as a
-  `has_errors` validation result — "Validation FAILED" + the numbered
-  issue list, warnings included — with exit code 1; other subcommands
-  keep dying with the message (exit 2), as does a syntactically
-  unparseable file. **Behavior change**: `validate --json` with
-  `has_errors` now exits 1 in Go and C++ (previously 0 — the exit code
-  now reflects the outcome in both output modes, per the CLIs' own
-  documented 0/1/2 contract; Python already did this). New
-  `validation_rejection_issues` FEATURE_MATRIX row (44 rows). And the
-  session's structural lesson became a standing gate: a **cross-CLI
-  scenario harness** (`docs/CLI_SCENARIOS.yaml` +
-  `python/tests/test_cli_parity.py`) drives all three real CLI binaries
-  as subprocesses over a shared fixture corpus (including new
-  `python/tests/fixtures/dbc_broken/` files) and pins the exit-code
-  contract and per-scenario output markers — the first-touch failure
-  mode can no longer reappear silently in any CLI.
-
-- **A rejected DBC parse now reports everything the kernel knows — the
-  kernel half of the `aletheia validate` first-touch fix.** `validate` is
-  the first command a user with a broken DBC runs, and it used to die with
-  a flattened one-line error. Three kernel changes (all additive on the
-  wire): (1) the `handler_validation_failed` error envelope now carries the
-  **full structured issue list** — errors *and* warnings, in the same
-  `{severity, code, detail}` element shape as the `validation` response,
-  plus `has_errors` — via a new `errorExtras` case (previously the reject
-  carried error-level issues only, silently dropping warnings, and
-  flattened even those into the message string; the message itself is
-  byte-identical to before). Both the JSON `parseDBC` and text
-  `parseDBCText` handlers flow through the same constructor and inherit
-  the fix. (2) `dbc_text_trailing_input`'s message is now user-facing —
-  "parse failed at line N, column M: first unparseable statement" — instead
-  of parser-internals phrasing ("trailing input after parse"); the
-  structured `line`/`column` fields were already there. (3)
-  `AttributeRefinementFailed` now pinpoints its failure: `refineAttribute`
-  returns a typed cause (`UnknownAttrDef` vs `IllTypedValue`) instead of a
-  bare `Maybe`, and the error names the offending attribute — the old
-  message was an unhelpful disjunction ("references an unknown AttrDef or
-  supplies a value outside the declared type" with no name). Proof impact:
-  the four per-item inverse lemmas and the two list-level lemmas in
-  `Properties/Aggregator/Refine.agda` restated from `≡ just` to `≡ inj₂`
-  (bodies unchanged); `Universal.agda` and the B.3.d universal round-trip
-  proof adapt with zero edits; `check-properties` (55 modules) and all six
-  Agda gates green. The binding/CLI half (typed validation errors in all
-  four bindings; all three CLIs rendering the numbered issue list; the CLI
-  scenario harness) follows in the next PR.
-
-- **r25 B8 DRY + hygiene sweep across Go/C++/Rust — internal, with one
-  realized silent drift fixed.** The drift: C++ `json_parse.cpp`'s
-  hand-maintained `error_code_table` size had decayed — 59 declared vs 57
-  real entries after an earlier entry removal — silently padding the array
-  with two value-initialized `{"", ErrorCode::Unknown}` elements; lookups
-  stayed correct only because `Unknown` is enumerator 0 (a `""` probe matched
-  a phantom entry and returned exactly the fall-through value). All three
-  string→enum lookup tables there now deduce their size via `std::to_array`,
-  so an entry count can never drift again. DRY extractions, each
-  behavior-preserving: C++ `parse_issue_entry` (the validate-response and
-  parsed-DBC-warnings decoders shared two byte-identical 18-line entry
-  blocks — which had even grown their `.code_raw` field in lockstep); the
-  same duplication found and fixed in Go (`parseIssueArray`, `json.go` —
-  Python and Rust already decode issues at a single shared site); Rust
-  `Rational::le` (crate-private inherent method replacing byte-identical free
-  `rational_le` fns in `check.rs` + `ltl.rs`; its doc records why
-  `PartialOrd`/`Ord` are deliberately absent — the unreduced representation
-  makes derived `Eq` structural, so a value-based `Ord` would break the
-  `Ord`/`Eq` contract), `set_extended` (encode-side mirror of the existing
-  decode helper `extended_flag`; replaces 7 copy-pasted emit sites in
-  `dbc.rs`), and `select_diag_values` (the diag-signal filter shared by the
-  streaming and end-of-stream enrichment paths in `lib.rs`). Go hygiene:
-  `MockBackend`'s three binary send shims now pass `state` through like the
-  other six shims (and like the C++ mock; the pointer is still discarded by
-  `Process`), and `ExtractSignalsBin` gains the `runtime.KeepAlive(data)` its
-  three sibling slice-passing cgo wrappers already had (convention
-  consistency — cgo pins the slice for a synchronous call either way, so
-  this was never a use-after-free).
-
-- **Logging docs now acknowledge the Rust binding (r25 B6-logging close-out) —
-  docs only, no behavior change.** `PROTOCOL.md § Structured Logging` (the
-  self-declared SSOT for the event taxonomy) and the `docs/LOG_EVENTS.yaml`
-  header still described a three-binding world: "all three bindings"
-  (Python/C++/Go), a pointer to `go/aletheia/ffi_backend.go` (no such file —
-  the slog emit sites are `go/aletheia/client.go` + `go/aletheia/ffi.go`), and
-  a pointer to `cpp/include/aletheia/log.hpp` "string constants" that have
-  never existed (C++ event names are inline literals at the
-  `cpp/src/client.cpp` emit sites; the string-constants module is Rust's
-  `rust/src/log.rs`). Both surfaces now name all four bindings, the corrected
-  per-binding definition sites, the fourth parity gate
-  (`rust/tests/log_events.rs`), and the one scoped exception: Rust defines the
-  full 16-event vocabulary but emits all of it except the three `cache.*`
-  events (they instrument an extraction memo cache that binding does not
-  implement — a perf layer, not part of the contract). The add-an-event recipe
-  grew the missing Rust step (`events::*` constant + `events::ALL`, which the
-  Rust gate pins to the YAML bijectively). `docs/FEATURE_MATRIX.yaml`: the
-  rust `structured_logging` note states the `cache.*` subset explicitly
-  (aligning it with the `violation_enrichment` note), and the
-  `build_frame`/`update_frame` rust rows now document the `&DbcMessage`
-  signature divergence as by-design (the typed `Dbc` is caller-owned in Rust,
-  so the caller supplies the resolved message — idiom-permitted under the
-  cross-language parity rule).
-
-- **Comment-truth sweep across all four bindings + the CI workflow cache
-  comments (r25 B7) — internal, no behavior change.** Every flagged comment was
-  re-verified against the current code before rewording (a finder-per-binding +
-  adversarial-verifier pass; several review findings turned out already fixed
-  and were left alone). Highlights: the three workflow build-tree-cache
-  comments (`benchmark.yml` / `pr-full-ci.yml` / `pr-heavy-lanes.yml`) claimed
-  `build/libaletheia-ffi.so` "symlinks into" `haskell-shim/dist-newstyle` — it
-  is `cp`-copied out of it by the Shake rule; the cache matters because that
-  tree is the cabal foreign-lib incremental state (the real symlink is
-  `haskell-shim/MAlonzo → ../build/MAlonzo`). Go: `Client.mu` → the channel-token
-  `lockCh`; the stale "(51 codes)" count and the "eight groups lists 7"
-  mismatch in `error.go`; a bogus int64-overflow clause on `validateTimeBound`;
-  `Client.process` → `processLocked`; `ValueDescs` → `ValueDescriptions` (+ the
-  full shallow-copy aliasing set); the sealed-interface default-arm comments
-  (no `sealedFormula`/`sealedPredicate` markers exist — sealing is the
-  unexported `formula()`/`predicate()` methods, and the arms are reachable by
-  degenerate values, not "unreachable"); `InputBoundExceededError` doc now
-  names the consolidated top-level Agda constructor and all three peer
-  bindings (including Rust's new `Error::InputBoundExceeded`). Python: the
-  `dbc_to_json ∘ dbc_to_text` composition is via a file (not literally
-  invocable, and dict-equal, not "byte-identical"); `can_log` docstrings now
-  name the 7-field `CANFrameTuple` (brs/esi were missing); the Excel-loader
-  docstring's DBC column table was missing the `Extended` column;
-  `PropertyResultEntry` is the element type of BOTH mid-stream batches and
-  end-of-stream results; `FractionJSONEncoder` cited a non-existent Agda
-  function (→ `Protocol.JSON.Lookup.getRational`) and predates Rust; Go peer
-  of `from_decimal` is `FromDecimal`, not `ParseDecimal`. C++: `ErrorCode`
-  count/family list corrected count-free; `signal_index_`/`signal_names_` are
-  rebuilt by `populate_signal_lookup()` on BOTH `parse_dbc()` and
-  `parse_dbc_text()`; `last_frames_` is also cleared by `end_stream()`;
-  `end_stream` enriches `Unresolved` too, not just `Fails`; the pre-R23
-  "returned Violation" wording → the `PropertyBatch` Fails entry; the cache
-  fallback logs a `cache.full` warning (not "silent"); `format_formula` /
-  `build_diagnostic` are NOT "always succeeds" — they render thresholds via the
-  kernel renderer and throw `AletheiaException(Ffi)` when the library/RTS is
-  unavailable (the C++ instance of the cross-binding stale claim); the
-  `__int128` comment and `static_assert` diagnostic string (the one
-  behaviorally-inert non-comment hunk) no longer name the dropped
-  "g++ >= 14 / clang >= 21" toolchain — Clang-only per `cpp/CMakeLists.txt`.
-  Rust: the `async_client` module/field/test comments claimed std
-  `mpsc::Sender` is `!Sync` (it is `Sync` for a `Send` payload since Rust
-  1.72 — the `Mutex` exists for the `Drop`-takeable `Option` slot, not for
-  `Sync`ness); the module also uses `futures-util` stream combinators, not
-  "only the reply oneshot"; `build_diagnostic`'s `# Errors` now lists
-  `RtsNotInitialized` (checked before any dlopen) alongside library-load
-  failure; the "render failure is unreachable because extraction loaded the
-  library" justification (wrong since the DI seam — an injected backend
-  extracts without the `.so`) → the truthful setup-time-render latch argument,
-  fixed at both `enrich.rs` and its `lib.rs` twin.
-- **`aletheia_parse_decimal` error envelope is now valid JSON for non-ASCII input
-  (all bindings).** The Haskell shim built the error envelope's echoed `input`
-  (and `message`) field with `show`, which emits a `\NNN` *decimal* escape for a
-  non-ASCII or control character — invalid JSON (JSON requires `\uXXXX`). So
-  `from_decimal` on a non-ASCII literal (e.g. `"1.5€"`) produced an envelope the
-  bindings' decoders could not parse, surfacing a confusing `Protocol`
-  "malformed response" error instead of the correct `Validation` "invalid decimal
-  literal". `Marshal.hs` now encodes string fields with a proper JSON encoder
-  (`jsonString`: escapes the mandatory characters and `\u`-escapes everything
-  outside printable ASCII, with surrogate pairs for astral code points). Fixes
-  every binding at the shared FFI source of truth; regression-tested per binding.
-- **Validation / range error messages render rationals exactly, not a lossy float
-  (Go / Rust).** Go's `between: min (…) exceeds max (…)` and `negative tolerance:
-  …` errors (`json.go`) rendered the threshold via `%g` — rounding a value beyond
-  six significant figures and printing `1/3` as `0.333333`. They now render via a
-  new `formatRationalExact` helper: the kernel `format_rational` when the GHC RTS
-  is up, else an exact `num/den` fallback (predicate validation can run before any
-  backend exists), never lossy. Rust's inverted-range errors (`check.rs`
-  `rat_str`) were already exact but printed a bare fraction (`1/2`); they now
-  route through `format_rational` too (decimal `0.5` when the RTS is up, the
-  fraction as the RTS-down fallback), matching `enrich.rs` and the other bindings.
-  This completes the "render rationals exactly in user-facing output" sweep (r25
-  direction-call #2; PR #134 `extract --json`, PR #135 CLI text).
-  (`go/aletheia/json.go`, `rust/src/check.rs`.)
-
-- **CLI human-readable text renders rationals exactly, not a lossy `%g` /
-  `to_double` (Go / C++ / Python).** The `extract` and `signals` commands printed
-  each signal value, factor, and offset through a lossy float (`%g` in Go/Python,
-  `to_double()` in C++), so a value with more significant figures than the
-  default six was rounded in the operator-facing output. All three now render via
-  the verified kernel `format_rational` (the same renderer behind
-  `enriched_reason`): a terminating decimal (`0.25`) or an exact fraction
-  (`1/3`), never a rounded float. Go gains a public
-  `aletheia.FormatRational(Rational) (string, error)` for this (the CLI is a
-  separate package); the now-unused `ratFloat` / `rationalFloat` float helpers are
-  removed. Output for typical DBCs (values `%g` already printed in fixed,
-  non-scientific notation within six significant figures) is unchanged. PR 2 of
-  the "render rationals exactly in user-facing output" sweep.
-  (`go/cmd/aletheia/main.go`, `go/aletheia/enrich.go`, `cpp/src/cli/cli.cpp`,
-  `python/aletheia/cli.py`.)
-
-- **C++ `extract --json` emits exact rationals, not a lossy `double` (parity
-  with Python/Go; BREAKING for that output).** The CLI's `extract --json`
-  rendered each signal value via `Rational::to_double()`, so a non-integer
-  physical value (e.g. a factor-`0.25` signal → `2500.25`) reached a JSON
-  consumer as a lossy IEEE-754 double. It now emits the exact
-  `{"numerator","denominator"}`-or-bare-int wire shape — the same
-  parser-equivalent shape as Python's `FractionJSONEncoder`, Go's `extract
-  --json`, and the binding's own DBC canonical JSON (the parsed value matches;
-  byte order does not, since nlohmann emits object keys sorted). The float
-  principle bars a lossy float even on machine-readable output. A consumer that
-  parsed an `extract --json` value as a plain JSON number must now read the
-  rational object for non-integer values (integers stay bare ints).
-  (`cpp/src/cli/cli.cpp`.)
-
-- **FFI validation-error envelopes now key the human reason as `message`, not
-  `error`** (`haskell-shim/src/AletheiaFFI/Marshal.hs` `mkErrorJson`). The
-  cross-binding error-envelope convention — the Agda `responseToJSON` emitter and
-  all four bindings — reads `message`; the shim's `mkErrorJson` was the lone
-  hold-out keying `error`, so a binding reading a null-guard / FFI-validation
-  failure (`code: ffi_validation_error`) surfaced `"Unknown error"` instead of the
-  real reason. (The per-signal extraction object `{name, error}` is a different,
-  narrower shape and correctly keeps `error`.)
-- **The `checkFFINames` mangled-name extractor is robust to surrounding
-  punctuation** (`Shakefile.hs` `extractFFIName`). It located the qualifier by
-  `drop (length qualifier + 1)` on the whitespace-delimited word, which assumed
-  the word *started* with the qualifier — so a paren-prefixed call
-  (`unsafeCoerce (AgdaX.d_f_12 …`) or a backtick-wrapped mention in a comment
-  mis-extracted to `.d_f_12`, spuriously failing the FFI-name drift gate. It now
-  finds the qualifier prefix anywhere in the word and takes the trailing digits,
-  so the FFI wrapper can call the export in the natural idiom; the renderer twin
-  only passed by happening to be a standalone word.
-- **Python & C++ reject floats on the internal wire decode**
-  (`python/aletheia/client/_helpers/`, `cpp/src/json_parse.cpp`). A computed value
-  crossing the FFI boundary — an extraction signal value, a DBC
-  factor/offset/min/max read back from the core, an env-var or attribute bound —
-  must be an exact rational (a bare integer or a `{numerator, denominator}`
-  object), never a float; a float on the wire would mean a computation escaped the
-  rational kernel. Both bindings now reject one:
-  - **Python**: a single strict `decode_wire_rational` (rejects float / string /
-    bool) replaces the lenient `parse_rational` on *both* wire paths — extraction
-    responses (`json_codec.parse_values_list`) and DBC responses (`dbc_normalize`,
-    which despite its name decodes `parseDBC`/`formatDBC` *responses*, not user
-    input). `parse_rational` — which silently coerced a float via
-    `Fraction(x).limit_denominator` — is retired; it had no UI caller.
-  - **C++** (`json_parse.cpp`): the `Rational::from_double` branch in
-    `parse_signal_value` is dropped, `parse_rational_dict` guards its
-    numerator/denominator, and ~17 integer-position reads route through new
-    `require_int`/`require_uint` helpers that reject a JSON float (nlohmann
-    silently truncates `5.9 → 5` before the range check) — and, for unsigned
-    positions, a negative.
-  Go (decoder via `UseNumber`) and Rust (serde `as_i64`) were already strict, so
-  all four bindings now agree. The UI float-input converters are untouched (a
-  follow-up replaces them with an exact Agda decimal parser). Boundary tests per
-  binding; the C++ guard is revert-probed (a float `startBit` truncated-and-passed
-  without it).
-- **Go decodes JSON response numbers exactly, not through `float64`**
-  (`go/aletheia/json.go`). `parseResponse` used `json.Unmarshal`, which decodes
-  every JSON number as a `float64` — so a rational numerator/denominator above
-  2^53 was silently rounded (e.g. `9007199254740993` → `…992`), the one binding
-  doing so (Python `json` → `int`, C++ `get<std::int64_t>`, Rust serde `as_i64`
-  all read these exactly). It now uses a `json.Decoder` with `UseNumber()`, so
-  numbers arrive as `json.Number` and the three numeric helpers (`parseRational`,
-  `parseNumberAsInt64`, `jsonNumberToUint64`) read them exactly via
-  `strconv.ParseInt`/`ParseUint` (a `float64` path is retained for hand-built
-  maps / direct callers). The trailing-byte rejection that `json.Unmarshal`
-  provides — but a bare `Decoder` does not — is re-asserted explicitly (a
-  response must be exactly one JSON value).
-  A boundary test feeds `9007199254740993` through the real `parseResponse`
-  path and asserts it survives exactly.
-- **Go `DBCDefinition.MessageByID` / `MessageByName` now return a genuine deep
-  copy** (`go/aletheia/dbc.go`). `copyMessage`'s doc promised a deep copy, but it
-  cloned only the top-level `Signals` slice header — the returned message shared
-  the original's `Senders` backing array and each signal's `Receivers`,
-  `ValueDescriptions`, and (for a `Multiplexed` presence) `MultiplexValues`
-  backing arrays. A caller mutating any of those nested slices on the returned
-  message silently corrupted the `DBC`'s stored definition. Every externally
-  reachable reference field is now cloned (`slices.Clone`); the unexported,
-  build-once `signalIndex` cache stays shared by design (it is read-only, never
-  mutated in place, and remains valid for the cloned same-order signals). A new
-  `TestMessageByName_DeepCopyIndependence` mutates each cloned field and asserts
-  the original is unaffected, with a content-equality guard that the clone is
-  faithful (and that an `AlwaysPresent` presence is not clobbered).
-- **Python & C++ enrichment now render the observed signal value exactly via the
-  kernel `formatℚ`, not lossy `%g`** (`python/aletheia/client/_enrichment.py`,
-  `cpp/src/client.cpp`). A violation's `enriched_reason` interpolated the observed
-  value through `%g` / `Rational::to_double()`, mangling large integers
-  (`1234567` → `1.23457e+06`) and rounding non-terminating fractions
-  (`740/3` → `246.667`). Both now delegate to the same Agda kernel renderer the
-  predicate threshold already uses (`aletheia_format_rational`), so the observed
-  value is exact and byte-identical to the predicate. From the r25 review (§4 #2);
-  first slice of the "all bindings delegate rational rendering to the proven core"
-  directive (Rust + Go to follow).
-- **C++ inline YAML check loader now enforces the 64 MiB input bound**
-  (`cpp/src/yaml.cpp`). `load_checks_from_yaml_string` parsed an unbounded
-  in-memory payload, while the file loader (`load_checks_from_yaml`) and the
-  Go/Rust inline loaders all cap input at `max_dbc_text_bytes`. It now checks
-  `yaml.size()` before the parse via a shared `check_input_size_bound` helper
-  (the in-memory analogue of `check_file_size_bound`), returning the same
-  structured `InputBoundExceeded` error. Closes the trust-boundary gap. From the
-  r25 review (P1 #7).
-- **C++ `build_frame` / `update_frame` now report a distinct error for a CAN ID
-  with no DBC message** (`cpp/src/client.cpp`). `resolve_signals` only did a
-  per-signal lookup, so a CAN ID absent from the DBC produced a misleading
-  "signal '…' not found" error (and a zero-signal call silently succeeded). A
-  message-existence guard now returns "no DBC message for CAN ID {id}
-  (extended={…})" before the per-signal loop, matching Go (`resolveSignalIndices`)
-  and Python (`_resolve_signal_indices`). From the r25 review (P1 #15).
-- **C++ Excel template headers are now bold** (`cpp/src/excel.cpp`). The
-  `create_excel_template` writer emitted plain header cells while its docstring
-  claimed bold — and Python (openpyxl) and Go (excelize) both bold their headers.
-  Header cells now carry a bold font (verified by a save→reopen round-trip test),
-  making the docstring true and the templates consistent across bindings. From
-  the r25 review (P1 #12).
-- **C++ now rejects a negative-denominator rational on JSON decode instead of
-  silently sign-normalizing it** (`cpp/src/json_parse.cpp`). `parse_rational_dict`
-  flipped the signs of a `{numerator, denominator}` payload with `denominator < 0`
-  and accepted it; the kernel emits a positive denominator (the ℕ⁺ invariant), so
-  a negative one is a wire-format violation. It now throws (surfaced as an
-  `ErrorKind::Protocol` error) for `denominator <= 0`, matching Python
-  (`extract_rational_from_dict`), Go (`parseRational`), and Rust (`Rational::new`),
-  which already reject it. From the r25 review (P1 #8).
-- **C++ preserves the original wire string for an unrecognized validation issue
-  code** (`cpp/include/aletheia/validation.hpp`, `cpp/src/json_parse.cpp`).
-  An unknown `code` collapsed to the bare `IssueCode::Unknown` enumerator and
-  rendered as the literal `"unknown"`, discarding the wire string — so a future
-  core code could not round-trip. `ValidationIssue` gains a `code_raw` field (the
-  verbatim wire code) and a new `issue_code_label(issue)` helper returns `code_raw`
-  when the code is `Unknown`; the CLI `validate` output uses it. This matches Go's
-  string-typed `IssueCode`, Rust's `IssueCode::Unknown(String)`, and Python's
-  passthrough. From the r25 review (P1 #16). Note: adding `code_raw` to the public
-  `ValidationIssue` struct changes its layout (ABI) and aggregate-initialization —
-  construct via designated initializers (`{.severity = …, .code = …, .detail = …}`,
-  which the project already uses everywhere); positional `{sev, code, detail}` now
-  binds the third value to `code_raw`. The decoders set it; manual constructors may
-  leave it empty.
-- **Go `FloatToRational` no longer silently wraps an int64-overflowing integral
-  value** (`go/aletheia/types.go`). The integer fast path guarded with
-  `v >= math.MinInt64 && v <= math.MaxInt64`, but `math.MaxInt64` (2⁶³−1) is not
-  exactly representable as `float64` and rounds *up* to 2⁶³, so `2⁶³` passed the
-  bound and `int64(2⁶³)` wrapped to `MinInt64`, returned with `err == nil` — a
-  silently-wrong value. The fast path now uses a round-trip guard
-  (`n := int64(v); float64(n) == v`), mirroring `cpp/src/types.cpp`: it accepts
-  every int64-representable integer (including `MinInt64`) and rejects the rest,
-  which fall through to the scaling path's existing overflow error. From the r25
-  review (P0 #5).
-- **Python `end_stream` now validates the warning `property_index` instead of
-  casting it** (`python/aletheia/client/`). The end-of-stream `complete`-response
-  warning parser used `cast("int", w.get("property_index", 0))` — a no-op at
-  runtime — so a malformed FFI value (a string, a non-unit-denominator rational,
-  or an absent field) flowed through mistyped or silently defaulted to `0`. The
-  warning parse moved into `parse_complete_warnings` (beside
-  `parse_finalization_results`) and runs `property_index` through
-  `validate_integer_field` — the same validator used for the identical field in
-  finalization results — raising `ProtocolError` on a bad or missing value, in
-  lockstep with Go's `parseNumberAsInt64`. The parser also rejects a non-list
-  `warnings` payload or a non-object entry with a typed `ProtocolError` rather
-  than a bare `TypeError` / `AttributeError`. From the r25 review (R2 #6).
-- **C++ / Go memory-safety hardening from the r25 review** — three latent
-  out-of-bounds / overflow defects, each now guarded and regression-tested
-  (a test that fails without the fix):
-  - **C++ `within(ms)` ms→µs overflow** (`cpp/include/aletheia/check.hpp`). The
-    `duration_cast<microseconds>` multiplied the millisecond bound by 1000 with
-    no guard, so a large bound (reachable from untrusted input, e.g. a YAML check
-    with `within_ms: 9300000000000000`) was signed-integer-overflow UB. Both
-    `within()` builders now route through a shared `detail::checked_ms_to_us`
-    helper that rejects `ms > INT64_MAX/1000` with `std::invalid_argument`,
-    mirroring the Go (`MaxInt64/usPerMillisecond`) and Rust guards.
-  - **C++ truncated binary extraction now errors instead of silently succeeding**
-    (`cpp/src/client.cpp`). `parse_extraction_bin` returned an empty *success*
-    (`return {}` → an empty `ExtractionResult`) on a short/truncated FFI buffer,
-    so a truncated response decoded as "zero signals" rather than a failure. All
-    five truncation paths now return an `ErrorKind::Protocol` error, which the
-    call sites already propagate (`extract_signals`) / log + surface as
-    `nullopt` (`extract_signals_internal`) — making their comments true. Matches
-    Go / Python, which already error.
-  - **C++ / Go stale cached-index lookup** (`cpp/src/dbc.cpp`,
-    `go/aletheia/dbc.go`). The lazy name/ID lookup caches freeze positional
-    indices on first build; if the caller then mutates the public `messages` /
-    `signals` slice, the cached index goes stale — out of bounds if the slice
-    shrank (OOB read UB in C++, a panic in Go), or in-bounds-but-wrong if it was
-    reordered or replaced in place (silently returning the wrong message/signal
-    for the requested key). `signal_by_name`, `message_by_id`, and
-    `message_by_name` now validate that the cached index still refers to the
-    requested entry in both bindings — a bounds check plus a key match; any
-    stale or mismatched index reads as not-found (`nullptr` / `nil`).
-- **Rust binding review (r24) — 8 non-breaking fixes** (the two BREAKING ones are
-  under Changed). All are cross-binding parity / determinism / strictness gaps
-  that the `fmt`/`clippy`/`cargo test` gates cannot catch, found by the thorough
-  Rust review and adversarially verified:
-  - **Async `send_frames` is now frame-cancellable** (`rust/src/async_client.rs`).
-    It dispatched the whole batch as one atomic job, so dropping the future
-    committed *all* N frames (or none) — contradicting `CANCELLATION.md` §1.1. It
-    now dispatches one cancellable job per frame, so a dropped future stops at the
-    next boundary committing only a prefix; `CANCELLATION.md` §3.4 updated to match.
-  - **Deterministic end-of-stream enrichment** (`rust/src/lib.rs`). `enrich_eos`
-    merged multi-CAN-id last-frame values in nondeterministic `HashMap` order; it
-    now sorts by `(id, extended)`, matching Go's `slices.Sort` / Python's sort.
-  - **`extract_signals` retains the per-signal error reason** (see Changed —
-    `SignalError`).
-  - **Stricter response decoding** (`rust/src/response.rs`): an empty
-    `property_batch` or an unrecognised status/type in `decode_frame` is now a
-    protocol error, not a silent `Ack` / empty verdicts (mirrors Go's
-    `parseFrameResponse`); and `decode_extraction` rejects a non-object `errors`
-    entry / a non-string `absent` entry, and `decode_issue` requires `code` and
-    `severity` to be present strings — instead of silently blanking/dropping them.
-    All match the Go / C++ / Python decoders, which reject these malformed shapes.
-  - **Strict validation-severity decode** (see Changed — `IssueSeverity`).
-  - **`Rational::from_f64` rejects exactly 2^63** instead of saturating it to
-    `i64::MAX` (`rust/src/types.rs` + the `aletheia-excel` integer fast paths): the
-    guard was `<= i64::MAX as f64`, but that bound rounds up to 2^63; now `<`.
-  - **`MAX_FORMULA_DEPTH` doc corrected** (`rust/src/ltl.rs`): it is a client-side
-    recursion guard (100), distinct from the kernel's 64 JSON nesting wire cap —
-    the old comment wrongly claimed it was the wire cap "matching every binding".
-  - **A compile-time assertion** now pins that the `AsyncClient` method *futures*
-    are `Send` (the documented `tokio::spawn` guarantee), plus new tests for the
-    `property_index_oob` / `extraction_failed` enrichment-warn paths and the
-    multi-frame `enrich_eos` merge loop.
-- **Python mutation lane repaired — it had silently produced zero mutants since
-  #51.** The advisory `mutation testing` lane was red (not from new survivors —
-  it was crash-dead): mutmut runs pytest from a relocated `python/mutants/`
-  work-tree, and two post-baseline test additions broke its baseline collection
-  there. `tests/test_check_changelog.py` (added in #51) imports the repo-root
-  `tools` package, which is absent from `mutants/`, so collection
-  `ModuleNotFound`-aborted; and `tests/test_excel_loader.py`'s two
-  `demo_workbook` tests (changed in #65) resolve the shared
-  `examples/demo/demo_workbook.xlsx` fixture via `parents[2]`, which points
-  outside the copied tree. With `-x`, the first failure killed the whole stats
-  phase → 0 mutants run. Fixed by adding `test_check_changelog.py` to the
-  `[tool.mutmut]` `--ignore` list and `--deselect`-ing only the two out-of-tree
-  excel tests (keeping every other excel test's kill signal). The lane now
-  reconciles to its documented baseline: **827 killed / 1 survived / 828 total**
-  (the lone survivor is the documented `dump_json` `ensure_ascii=False`→`None`
-  equivalent); Go (636/636) and C++ (50/50) were already clean.
-- **Mutmut config migrated to the mutmut 3.6 key names — zero deprecation
-  warnings.** `[tool.mutmut]` `paths_to_mutate` → `source_paths` and
-  `tests_dir` → `pytest_add_cli_args_test_selection` (the loader still honored
-  the old names but emitted a `UserWarning` on every run). Semantically
-  identical; eliminates the warnings so the lane's output stays signal. Docs
-  referencing the old keys (`docs/MUTATION_BENCH.yaml`, `AGENTS/python.md`)
-  updated to match.
-- **CI now tests every Go package, not just `./aletheia/`.** The `run_ci.py` Go
-  lane ran `go test ./aletheia/`, silently skipping `go/cmd/aletheia` (4 tests)
-  and the separate `go/excel` module (64 tests) — 68 tests that never gated a PR.
-  The lane now runs `go test ./...` over the core module (covering `aletheia` +
-  `cmd/aletheia`) **and** a second `go test ./...` over the `go/excel` module
-  (its own `go.mod` makes `./...` stop at the boundary), both with `ALETHEIA_LIB`
-  set so the `.so` is found regardless of each package's test cwd. The `gofmt` /
-  `go vet` lint step is likewise widened from `./aletheia/` to all of `go/` plus
-  the excel module. (Python's `pytest tests/` and C++'s `ctest` were already
-  comprehensive; the Rust `excel` crate gets its own lane when it lands in R3c.)
-- **`check-fidelity` no longer fails to find the MAlonzo modules when the build
-  is a no-op.** The `haskell-shim/MAlonzo -> ../build/MAlonzo` symlink (which
-  cabal resolves the generated `MAlonzo.*` modules through, and which is
-  gitignored) was created only *inside* the `.so` rule's action — so when that
-  rule no-ops (the `.so` already up to date, e.g. a warm build-tree cache restored
-  on a fresh checkout), the symlink was never created, and `check-fidelity`'s
-  `cabal test` failed with `Could not find module 'MAlonzo.Code.…'`. `check-fidelity`
-  now ensures the symlink itself (idempotent, symmetric with the `.so` rule). This
-  was latent until the build-staleness scheduling above made code-only PRs do a
-  genuine no-op build on a fresh CI checkout. Reproduced and fixed deterministically
-  (remove the symlink against an up-to-date `.so` → fail; with the fix → pass).
-- **The build no longer full-recompiles `libaletheia-ffi.so` on every
-  invocation, and can no longer ship a stale one.** The `.so` rule forced a
-  complete ~280-module MAlonzo rebuild each run (an always-dirty phony symlink
-  dependency, plus `rm -rf` of the cabal build tree and a `touch`). That
-  sledgehammer masked a real dependency-graph gap: the foreign library's
-  `other-modules` did not list the generated MAlonzo modules (and
-  `-Wmissing-home-modules` was suppressed), so cabal's up-to-date check never saw
-  them change and would skip GHC entirely — a genuine stale-`.so` hazard once the
-  sledgehammer was removed. Both are resolved (see Added): the Shake rule depends
-  on the Agda sources and cabal now tracks every MAlonzo module, so the build is
-  incremental *and* content-hash-correct, verified by the `build-incremental`
-  gate.
-- **Go and C++ `MockBackend` test doubles record `<binary:OP>` sentinels** for
-  binary-path operations (matching the Python mock), instead of fabricating JSON
-  wire shapes the real backends never emit. Behavior change to the public test
-  doubles only — tests asserting on `MockBackend` recorded inputs now see
-  `<binary:OP>` sentinel strings; no production behavior change. The dead
-  internal serializers behind the old shapes were removed (`serializeDataFrame`
-  / `serializeErrorEvent` / `serializeRemoteEvent` in Go; `serialize_send_frame`
-  in C++).
 
 ### Security
 
