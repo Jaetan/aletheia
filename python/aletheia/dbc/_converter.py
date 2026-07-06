@@ -15,7 +15,10 @@ writing ``dbc_to_text(d)`` to a file and running ``dbc_to_json`` on that
 file returns ``d`` for any well-formed DBC (Track B.3.d / E.9a universal).
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aletheia.client._client import AletheiaClient
 from aletheia.client._response_parsers import lift_validation_issues
@@ -25,6 +28,52 @@ from aletheia.client._types import (
     check_dbc_text_size_bound,
 )
 from aletheia.types import DBCDefinition, ErrorResponse, ParsedDBCResponse, dump_json
+
+if TYPE_CHECKING:
+    from aletheia.codes import ValidationIssue
+
+
+def dbc_and_warnings_from_response(
+    response: ParsedDBCResponse | ErrorResponse,
+    source: str,
+) -> tuple[DBCDefinition, list[ValidationIssue]]:
+    """Extract ``(dbc, warnings)`` from a parse response, raising on error.
+
+    The single decision point for turning a ``parseDBCText`` / ``parseDBC``
+    wire response into either a parsed DBC (with its warning list) or the
+    appropriate typed exception — shared by :func:`dbc_to_json` and the
+    CLI's load path so the error semantics cannot drift between them. The
+    ``warnings`` list is the parse's non-error issues; because the kernel's
+    parse epilogue runs full validation, it is the complete validation
+    result for a DBC that passed every error-severity check.
+
+    Args:
+        response: The wire response from a parse command.
+        source: Human-readable origin (a file path) for the error message.
+
+    Raises:
+        DBCValidationFailedError: The DBC parsed but failed validation with
+            a structured issue list (``handler_validation_failed``).
+        ValidationError: The error envelope carries no structured issue
+            list (e.g. a syntactic parse failure).
+
+    """
+    if response["status"] == "error":
+        msg = f"Failed to parse DBC file '{source}': {response['message']}"
+        # One rule decides liftability — the same helper the client's
+        # validate_dbc uses (gated on the wire code, pair attached
+        # atomically); no local re-implementation to drift.
+        lifted = lift_validation_issues(response)
+        if lifted is not None:
+            issues, has_errors = lifted
+            raise DBCValidationFailedError(
+                msg,
+                issues,
+                has_errors=has_errors,
+                code="handler_validation_failed",
+            )
+        raise ValidationError(msg)
+    return response["dbc"], response["warnings"]
 
 
 def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
@@ -61,22 +110,8 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     text = path.read_text(encoding="utf-8")  # pragma: no mutate
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
-    if response["status"] == "error":
-        msg = f"Failed to parse DBC file '{dbc_path}': {response['message']}"
-        # One rule decides liftability — the same helper the client's
-        # validate_dbc uses (gated on the wire code, pair attached
-        # atomically); no local re-implementation to drift.
-        lifted = lift_validation_issues(response)
-        if lifted is not None:
-            issues, has_errors = lifted
-            raise DBCValidationFailedError(
-                msg,
-                issues,
-                has_errors=has_errors,
-                code="handler_validation_failed",
-            )
-        raise ValidationError(msg)
-    return response["dbc"]
+    dbc, _ = dbc_and_warnings_from_response(response, str(dbc_path))
+    return dbc
 
 
 def dbc_to_text(dbc: DBCDefinition) -> str:

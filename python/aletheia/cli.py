@@ -38,9 +38,11 @@ from aletheia.client._types import (
     SignalExtractionResult,
     ValidationError,
     bytes_to_dlc,
+    check_dbc_text_size_bound,
 )
 from aletheia.codes import IssueSeverity, ValidationIssue
 from aletheia.dbc import (
+    dbc_and_warnings_from_response,
     is_multiplexed,
     message_by_id,
     message_by_name,
@@ -70,11 +72,6 @@ if TYPE_CHECKING:
 # corresponding extras installed. Using ``importlib`` (rather than a
 # function-scoped ``from .X import Y``) keeps pylint's
 # ``import-outside-toplevel`` check happy without suppressions.
-def _lazy_dbc_to_json() -> Callable[[str | Path], DBCDefinition]:
-    mod = importlib.import_module(".dbc", __package__)
-    return cast("Callable[[str | Path], DBCDefinition]", mod.dbc_to_json)
-
-
 def _lazy_load_dbc_from_excel() -> Callable[[str | Path], DBCDefinition]:
     mod = importlib.import_module(".excel_loader", __package__)
     return cast("Callable[[str | Path], DBCDefinition]", mod.load_dbc_from_excel)
@@ -184,18 +181,28 @@ def format_timestamp(us: int) -> str:
     return f"{ms:.3f}ms"
 
 
-def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
-    """Load a DBC definition from the parsed CLI namespace.
+def _load_dbc_with(
+    client: AletheiaClient,
+    args: argparse.Namespace,
+) -> tuple[DBCDefinition, list[ValidationIssue]]:
+    """Load and kernel-validate a DBC on *client*, returning ``(dbc, warnings)``.
 
-    Dispatches on which of ``--dbc`` / ``--excel`` is set.  Excel
-    workbooks are routed through :func:`load_dbc_from_excel`; ``.dbc``
-    text files are parsed by :func:`dbc_to_json`.  Calls :func:`_die`
-    (exit code 2) when neither flag is set or the named path does not
-    exist.  DBC-content failures propagate as exceptions from the
-    loaders (``DBCValidationFailedError`` when the kernel returned a
-    structured issue list, else ``ValidationError``); ``validate``
-    catches the former to render the issue list, every other subcommand
-    lets it reach ``main``'s ``AletheiaError`` handler (exit code 2).
+    One kernel round-trip per invocation. Dispatches on which of ``--dbc``
+    / ``--excel`` is set: a ``.dbc`` text file is parsed via
+    ``parse_dbc_text`` (the verified text parser, which also validates and
+    loads the session); an ``.xlsx`` workbook (whether named by ``--dbc``
+    or ``--excel``) is assembled into a structured definition and run
+    through ``parse_dbc``. Calls :func:`_die` (exit code 2) when neither
+    flag is set or the named path does not exist.
+
+    DBC-content failures surface as ``DBCValidationFailedError`` (kernel
+    returned a structured issue list) or ``ValidationError`` (no issue
+    list, e.g. a syntactic parse failure); ``validate`` catches the former
+    to render the issue list, every other subcommand lets it reach
+    ``main``'s ``AletheiaError`` handler. The returned ``warnings`` is the
+    parse's non-error issue list — the complete validation result for a
+    DBC that passed every error check, so ``validate`` needs no second
+    kernel pass.
     """
     dbc_path: str | None = getattr(args, "dbc", None)
     excel_path: str | None = getattr(args, "excel", None)
@@ -204,15 +211,37 @@ def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
         p = Path(dbc_path)
         _require_existing_path(p, "DBC file", dbc_path)
         if p.suffix == ".xlsx":
-            return _lazy_load_dbc_from_excel()(p)
-        return _lazy_dbc_to_json()(p)
+            return _parse_structured(client, _lazy_load_dbc_from_excel()(p), dbc_path)
+        # `.dbc` text route: verified text parser, one pass. The size
+        # pre-check mirrors dbc_to_json's defense-in-depth (rejects >64 MiB
+        # before crossing the FFI boundary).
+        check_dbc_text_size_bound(p.stat().st_size)
+        # read_text's encoding is NOT droppable (default is the locale, not
+        # utf-8); "UTF-8" is a codec-name alias → both the case and the None
+        # mutant are runtime-equivalent here (pragma).
+        text = p.read_text(encoding="utf-8")  # pragma: no mutate
+        return dbc_and_warnings_from_response(client.parse_dbc_text(text), dbc_path)
 
     if excel_path is not None:
         p = Path(excel_path)
         _require_existing_path(p, "Excel file", excel_path)
-        return _lazy_load_dbc_from_excel()(p)
+        return _parse_structured(client, _lazy_load_dbc_from_excel()(p), excel_path)
 
     _die("no DBC source specified (use --dbc or --excel)")
+
+
+def _parse_structured(
+    client: AletheiaClient,
+    dbc: DBCDefinition,
+    source: str,
+) -> tuple[DBCDefinition, list[ValidationIssue]]:
+    """Validate an already-assembled (Excel-sourced) DBC via ``parse_dbc``.
+
+    The kernel canonicalises and validates the structured definition, so
+    its status must be checked (an invalid Excel-sourced DBC raises the
+    same typed errors as the text route rather than being silently used).
+    """
+    return dbc_and_warnings_from_response(client.parse_dbc(dbc), source)
 
 
 def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
@@ -319,7 +348,8 @@ def _print_signals_text(dbc: DBCDefinition) -> None:
 
 def _cmd_signals(args: argparse.Namespace) -> int:
     """List signals defined in a DBC file."""
-    dbc = _load_dbc(args)
+    with AletheiaClient() as client:
+        dbc, _ = _load_dbc_with(client, args)
 
     if getattr(args, "json", False):
         _emit(dump_json(dbc, indent=2))
@@ -387,20 +417,18 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     (exit code 1) instead of dying with exit code 2; a syntactically
     unparseable DBC (no issue list) still dies via ``main``'s
     ``AletheiaError`` handler.
+
+    The kernel's parse epilogue IS full DBC validation, so a load that
+    succeeds has no error-severity issues by construction and its warnings
+    are the complete validation result — no second ``validate_dbc`` pass.
     """
     try:
-        dbc = _load_dbc(args)
+        with AletheiaClient() as client:
+            _, warnings = _load_dbc_with(client, args)
     except DBCValidationFailedError as exc:
         return _emit_validation_result(args, list(exc.issues), has_errors=exc.has_errors)
 
-    with AletheiaClient() as client:
-        result = client.validate_dbc(dbc)
-
-    return _emit_validation_result(
-        args,
-        list(result["issues"]),
-        has_errors=result["has_errors"],
-    )
+    return _emit_validation_result(args, warnings, has_errors=False)
 
 
 # ============================================================================
@@ -450,31 +478,31 @@ def _print_extract_errors(result: SignalExtractionResult) -> None:
 
 def _cmd_extract(args: argparse.Namespace) -> int:
     """Decode signals from a single CAN frame."""
-    dbc = _load_dbc(args)
     can_id = parse_can_id(args.can_id)
     data = parse_hex_data(args.data)
     extended: bool = getattr(args, "extended", False)
 
-    # Look up expected DLC from the DBC message definition
-    msg = _find_message(dbc, can_id, extended=extended)
-    if msg is None:
-        id_kind = "extended" if extended else "standard"
-        _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
-    # ``msg["dlc"]`` is the payload byte count (DBC convention), not the
-    # raw DLC code — no conversion needed.  Going through
-    # ``dlc_to_bytes(byte_count)`` would raise ``ValueError`` for CAN-FD
-    # byte counts > 8, since 12/16/... are not valid DLC codes.
-    expected_bytes = msg["dlc"]
-    if len(data) != expected_bytes:
-        _die(
-            f"data length ({len(data)} bytes) does not match "
-            + f"DBC message DLC ({msg['dlc']} bytes)"
-        )
-
     with AletheiaClient() as client:
-        resp = client.parse_dbc(dbc)
-        if resp["status"] != "success":
-            _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
+        # The load parses AND loads the session (ReadyToStream), so
+        # extract_signals runs on it directly — no second parse.
+        dbc, _ = _load_dbc_with(client, args)
+
+        # Look up expected DLC from the DBC message definition
+        msg = _find_message(dbc, can_id, extended=extended)
+        if msg is None:
+            id_kind = "extended" if extended else "standard"
+            _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
+        # ``msg["dlc"]`` is the payload byte count (DBC convention), not the
+        # raw DLC code — no conversion needed.  Going through
+        # ``dlc_to_bytes(byte_count)`` would raise ``ValueError`` for CAN-FD
+        # byte counts > 8, since 12/16/... are not valid DLC codes.
+        expected_bytes = msg["dlc"]
+        if len(data) != expected_bytes:
+            _die(
+                f"data length ({len(data)} bytes) does not match "
+                + f"DBC message DLC ({msg['dlc']} bytes)"
+            )
+
         # ``extract_signals`` takes the DLC code (CAN frame wire convention),
         # not the byte count; convert via ``bytes_to_dlc``.
         result = client.extract_signals(
@@ -559,13 +587,17 @@ def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
 
 def _cmd_check(args: argparse.Namespace) -> int:
     """Run LTL checks against a CAN log file."""
-    dbc = _load_dbc(args)
     checks = _load_checks_from_args(args)
     default_checks = _load_defaults(args)
     logfile: str = args.logfile
 
     try:
-        result = run_checks(dbc, checks, logfile, default_checks)
+        # One client, one DBC parse: the load populates the session, and
+        # run_checks reuses it (default_checks go through the constructor,
+        # applied at start_stream).
+        with AletheiaClient(default_checks=default_checks) as client:
+            dbc, _ = _load_dbc_with(client, args)
+            result = run_checks(dbc, checks, logfile, default_checks, client=client)
     except (FileNotFoundError, AletheiaError) as exc:
         _die(str(exc))
 
@@ -590,24 +622,33 @@ def _cmd_check(args: argparse.Namespace) -> int:
         }
         _emit(dump_json(out, indent=2))
     else:
-        dbc_label = getattr(args, "dbc", None) or getattr(args, "excel", None) or "?"
-        checks_label = getattr(args, "checks", None) or getattr(args, "excel", None) or "?"
-        total_checks = len(default_checks) + len(checks)
-        _emit("Aletheia — CAN Signal Verification")
-        _emit()
-        _emit(f"DBC:    {dbc_label}")
-        if default_checks:
-            _emit(
-                f"Checks: {checks_label} ({len(checks)} checks"
-                + f" + {len(default_checks)} defaults)"
-            )
-        else:
-            _emit(f"Checks: {checks_label} ({len(checks)} checks)")
-        _emit(f"Log:    {logfile}")
-        _emit()
-        _print_check_results(result, total_checks)
+        _print_check_report(args, result, checks, default_checks, logfile)
 
     return _EXIT_VIOLATIONS if violations else _EXIT_OK
+
+
+def _print_check_report(
+    args: argparse.Namespace,
+    result: CheckRunResult,
+    checks: list[CheckResult],
+    default_checks: list[CheckResult],
+    logfile: str,
+) -> None:
+    """Print the human-readable ``check`` header + results block."""
+    dbc_label = getattr(args, "dbc", None) or getattr(args, "excel", None) or "?"
+    checks_label = getattr(args, "checks", None) or getattr(args, "excel", None) or "?"
+    _emit("Aletheia — CAN Signal Verification")
+    _emit()
+    _emit(f"DBC:    {dbc_label}")
+    if default_checks:
+        _emit(
+            f"Checks: {checks_label} ({len(checks)} checks" + f" + {len(default_checks)} defaults)"
+        )
+    else:
+        _emit(f"Checks: {checks_label} ({len(checks)} checks)")
+    _emit(f"Log:    {logfile}")
+    _emit()
+    _print_check_results(result, len(default_checks) + len(checks))
 
 
 # ============================================================================
@@ -689,9 +730,12 @@ def _cmd_format_dbc(args: argparse.Namespace) -> int:
     normalized DBC JSON where numeric fields are exact rationals
     matching the Agda core's representation.
     """
-    dbc = _load_dbc(args)
     with AletheiaClient() as client:
-        client.parse_dbc(dbc)
+        # The load parses AND loads the session; format_dbc re-exports it.
+        # Loading via the seam also checks the parse status, so an invalid
+        # Excel-sourced DBC raises here instead of failing later in
+        # format_dbc with a misleading message.
+        _load_dbc_with(client, args)
         canonical = client.format_dbc()
     _emit(dump_json(canonical, indent=2))
     return _EXIT_OK
@@ -699,7 +743,8 @@ def _cmd_format_dbc(args: argparse.Namespace) -> int:
 
 def _cmd_mux_query(args: argparse.Namespace) -> int:
     """Inspect multiplexor structure of a DBC message."""
-    dbc = _load_dbc(args)
+    with AletheiaClient() as client:
+        dbc, _ = _load_dbc_with(client, args)
     msg = _resolve_mux_message(args, dbc)
 
     mux_name: str | None = getattr(args, "mux", None)

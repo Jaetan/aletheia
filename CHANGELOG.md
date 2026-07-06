@@ -21,6 +21,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   silently ignores. The `-c` program is now passed as a list argument
   (Shake's no-split form).
 
+### Changed
+
+- **The CLIs parse a DBC once per invocation, not two or three times.**
+  Every `.dbc` subcommand in the Python CLI used to parse the file through
+  the verified text parser (`dbc_to_json` on a throwaway client — a full
+  GHC RTS init, parse, validate, and session-load), then discard that
+  session and re-parse the result through the structured-JSON route
+  (`parse_dbc`) on the real client; `validate` added a third pass
+  (`validate_dbc`). The Go and C++ CLIs each ran the parse plus a
+  redundant `ValidateDBC` round-trip. All three now load a DBC exactly
+  once: a `.dbc` text file goes through `parse_dbc_text` (which parses,
+  validates, and loads the session in one kernel call) on the
+  subcommand's own client, and `validate` renders the parse's warnings
+  directly — the kernel's parse epilogue *is* full validation, so a
+  successful parse has no error-severity issues and its warnings are the
+  complete validation result. Excel-sourced DBCs still route through
+  `parse_dbc` (they have no text form), now with their parse status
+  checked (previously `format-dbc` ignored it, so an invalid
+  Excel-sourced DBC misreported as a `formatDBC` failure). Observable
+  behavior is unchanged — the 40-scenario cross-CLI parity harness passes
+  identically across all three — but large `.dbc` files pay the O(N²)
+  text-parse cost once instead of twice. `dbc_to_json` /
+  `convert_dbc_file` keep their public ad-hoc contract; `run_checks` gains
+  an optional `client=` parameter so a caller that has already loaded the
+  DBC skips the redundant `parse_dbc`.
+
 ### Added
 
 - **Byte-exact furthest-failure parser positions (PR-V2b).** The verified
