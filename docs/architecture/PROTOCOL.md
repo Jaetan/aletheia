@@ -1175,6 +1175,8 @@ The `message` field embeds the kind label, observed value, and limit; the struct
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ```
 
+For the post-parse DBC bounds (`array_cardinality` and `string_length`), all three DBC commands — `parseDBC`, `parseDBCText`, and `validateDBC` — run one shared cascade (kernel `Aletheia.Protocol.Handlers.LoadDBC.checkDBCBounds`), so the `message` names the offending field alongside the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536` (previously the text route dropped the field label). `validateDBC` gained this cascade in the dual-route factoring — an over-cardinality / over-length DBC is now rejected with `input_bound_exceeded` *before* validation runs, rather than validated unbounded (the structured `bound_kind` / `observed` / `limit` remain unchanged, so a binding decodes it with the same typed handler it uses for the load routes).
+
 `handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
 
 ```

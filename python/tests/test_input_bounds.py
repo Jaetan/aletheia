@@ -548,3 +548,42 @@ class TestPythonLoaderBoundChecks:
         assert exc_info.value.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
         assert exc_info.value.observed == 2048
         assert exc_info.value.limit == 1024
+
+
+class TestSharedDBCBoundCascade:
+    """The load + validate routes share one tagged bound cascade (LoadDBC).
+
+    All three DBC commands run the same adversarial bound cascade in the
+    kernel's ``Handlers.LoadDBC``, so ``validate_dbc`` rejects an over-length
+    / over-cardinality DBC with the typed :class:`InputBoundExceededError`
+    (C2 hardening — the reject arm was unreachable before, and now lifts the
+    bound triple like ``parse_dbc``, parity with Go / C++ / Rust whose shared
+    error decoders already typed it), and the text route's bound error
+    message names the offending field (e.g. ``"version string"``), parity
+    with the JSON route.
+    """
+
+    def test_validate_dbc_rejects_over_long_string_field(self) -> None:
+        """An over-length string field trips the cascade before validation."""
+        big = "z" * (limits.MAX_STRING_LENGTH_BYTES + 10)
+        over = dbc([message(100, "M", [], senders=[])], version=big)
+        with AletheiaClient() as client:
+            with pytest.raises(InputBoundExceededError) as exc_info:
+                client.validate_dbc(over)
+            err = exc_info.value
+            assert err.kind == limits.BOUND_KIND_STRING_LENGTH
+            assert err.observed == limits.MAX_STRING_LENGTH_BYTES + 10
+            assert err.limit == limits.MAX_STRING_LENGTH_BYTES
+            # The lifted error echoes the wire code (not the default None) —
+            # pins the code kwarg that validate_dbc passes to the constructor.
+            assert err.code == "input_bound_exceeded"
+
+    def test_parse_dbc_text_bound_error_names_field(self) -> None:
+        """An over-length version field yields a field-tagged bound message."""
+        big = "z" * (limits.MAX_STRING_LENGTH_BYTES + 10)
+        text = f'VERSION "{big}"\nNS_:\nBS_:\nBU_: ECU\nBO_ 100 M: 8 ECU\n'
+        with AletheiaClient() as client:
+            resp = client.parse_dbc_text(text)
+            assert resp["status"] == "error"
+            assert resp.get("code") == "input_bound_exceeded"
+            assert "version string" in resp.get("message", "")

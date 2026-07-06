@@ -83,12 +83,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-277 total modules (`cabal run shake -- count-modules`):
-- **272**: `--safe --without-K`
+278 total modules (`cabal run shake -- count-modules`):
+- **273**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) AND the B.3.d outer-wrap `parseText-on-formatText` consumer — co-located here to keep the trusted-axiom-consuming surface at one allowlisted module (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-276 of 277 modules use `--safe`. No modules require `--sized-types`. The per-commit module-count genealogy (which split/extraction added each module across A.2, Path A.4, Tracks D/E, and rounds R18–R23) lives in [PROJECT_STATUS.md](PROJECT_STATUS.md) and the `memory/project_*.md` round files — not duplicated here.
+277 of 278 modules use `--safe`. No modules require `--sized-types`. The per-commit module-count genealogy (which split/extraction added each module across A.2, Path A.4, Tracks D/E, rounds R18–R23, and the #107 dual-route factoring's `Handlers.LoadDBC`) lives in [PROJECT_STATUS.md](PROJECT_STATUS.md) and the `memory/project_*.md` round files — not duplicated here.
 
 ## Common Commands
 

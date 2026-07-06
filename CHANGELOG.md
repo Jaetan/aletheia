@@ -57,6 +57,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `convert_dbc_file` keep their public ad-hoc contract; `run_checks` gains
   an optional `client=` parameter so a caller that has already loaded the
   DBC skips the redundant `parse_dbc`.
+- **The two DBC-loading routes share one validate-and-load pipeline, and
+  `validateDBC` gained the adversarial bounds cascade.** A new leaf module
+  `Aletheia.Protocol.Handlers.LoadDBC` holds the single *tagged* bound cascade
+  (array-cardinality + string-length, each branch field-tagged) and the
+  validate-and-load epilogue that the JSON route (`parseDBC`) and the verified
+  text route (`parseDBCText`) previously ran as byte-identical copies; the two
+  handlers now differ only in the command-context literal. Wire consequences:
+  - The **text route's** `input_bound_exceeded` message now names the offending
+    field, e.g. `ParseDBCText: version string: string length 65546 exceeds
+    limit 65536` (the field label was previously dropped on this route only) —
+    parity with the JSON route.
+  - **`validateDBC`** now runs the same bounds cascade before validating, so an
+    over-cardinality / over-length DBC is rejected with `input_bound_exceeded`
+    rather than validated unbounded (hardening parity with the load routes). The
+    Python binding's `validate_dbc` lifts that rejection to the typed
+    `InputBoundExceededError` via a shared `lift_input_bound_exceeded` helper
+    (gated on the wire code, mirroring `lift_validation_issues`;
+    `build_error_response` delegates to the same triple extractor), so no route
+    re-implements the code→typed-error lift — Go / C++ / Rust already typed it
+    via their shared decoders.
+
+  `parseDBCText` also materializes `toList text` once (feeding the `List Char`
+  entry point `parseTextChars`) instead of twice. The structured
+  `bound_kind` / `observed` / `limit` payload and every error `code` are
+  unchanged. Module count 277 → 278; the proof tree type-checks unchanged
+  (no proof module referenced the moved definitions).
 
 ### Added
 

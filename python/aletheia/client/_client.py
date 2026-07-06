@@ -19,6 +19,7 @@ from aletheia.client._helpers.rational import (
 )
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
+    lift_input_bound_exceeded,
     lift_validation_issues,
     parse_parsed_dbc_response,
     parse_success_or_error,
@@ -454,6 +455,20 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             message = response.get("message", "Unknown error")
             code = response.get("code")
             msg = f"validateDBC failed: {message}"
+            # C2 gave validateDBC the adversarial bound cascade, so an
+            # over-cardinality / over-length DBC now rejects with the same
+            # typed InputBoundExceededError the load routes raise (previously
+            # this arm was unreachable and fell through to ProtocolError).
+            # lift_input_bound_exceeded is the SSOT lift (mirrors
+            # lift_validation_issues): it gates on the wire code and returns
+            # the triple all-or-nothing, so a malformed/partial bound response
+            # degrades to None and falls through to the lenient path below.
+            bound = lift_input_bound_exceeded(response)
+            if bound is not None:
+                # bound is (kind, observed, limit) — splat into the positional
+                # constructor args; code echoes the wire literal (pinned by the
+                # bound test's err.code assertion).
+                raise InputBoundExceededError(*bound, code="input_bound_exceeded")
             lifted = lift_validation_issues(response)
             if lifted is not None:
                 issues, has_errors = lifted
