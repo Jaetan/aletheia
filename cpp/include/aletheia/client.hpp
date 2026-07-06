@@ -28,6 +28,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -234,13 +235,22 @@ private:
     void finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
                                  std::span<const std::byte> data, std::uint32_t id_value,
                                  bool is_extended);
-    void enrich_property_result(PropertyResult& pr);
+    // End-of-stream enrichment, extract-once shape (uniform across bindings):
+    // pass 1 collects the Fails/Unresolved results paired with their
+    // diagnostics (OOB property indices warn and are excluded); pass 2
+    // extracts each tracked last-frame at most once and merges the extracted
+    // signals first-frame-wins; pass 3 distributes per-diagnostic value
+    // slices, always attaching the enrichment. Replaces the former
+    // per-property extraction (≤ properties × frames FFI calls → ≤ frames).
+    void enrich_end_stream_results(StreamResult& result);
+    auto collect_enrichable_results(StreamResult& result)
+        -> std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>>;
+    auto merge_last_known_values(std::set<SignalName> remaining)
+        -> std::map<SignalName, PhysicalValue>;
     void log_end_stream_summary(const StreamResult& result);
     auto extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
                                std::span<const std::byte> data, std::uint32_t id_value,
                                bool is_extended) -> std::map<SignalName, PhysicalValue>;
-    auto extract_last_known_values(const PropertyDiagnostic& diag)
-        -> std::map<SignalName, PhysicalValue>;
     auto extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data,
                                   std::uint32_t id_value, bool is_extended)
         -> std::optional<ExtractionResult>;

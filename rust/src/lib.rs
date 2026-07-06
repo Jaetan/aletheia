@@ -471,9 +471,13 @@ impl Client {
         }
     }
 
-    /// Enrich the final `Fails` verdicts at end-of-stream from the last frame
-    /// seen per CAN id. Each distinct frame is extracted once and its values
-    /// merged (first-seen order), then reused across every violation.
+    /// Enrich the final `Fails` / `Unresolved` verdicts at end-of-stream from
+    /// the last frame seen per CAN id. Each distinct frame is extracted once and
+    /// its values merged (first-seen order), then reused across every violation.
+    /// Extraction only serves the signals the todo diagnostics reference: the
+    /// frame loop stops as soon as all of them are merged, and is skipped
+    /// outright when no diagnostic references any signal (enrichment still
+    /// attaches below, with the no-values fallback reason).
     fn enrich_eos(&self, results: &mut [PropertyResult]) {
         if self.diags.borrow().is_empty() {
             return;
@@ -482,33 +486,46 @@ impl Client {
         if todo.is_empty() {
             return;
         }
-        // Snapshot the last frames so no borrow is held across extraction. Sort
-        // by (id value, extended) so the first-seen merge below is deterministic
-        // regardless of `HashMap` iteration order — matching Go's `slices.Sort`
-        // and Python's sort-by-(canID, extended) enrichment-ordering contract.
-        let mut frames: Vec<(CanId, Dlc, Vec<u8>)> = self
-            .last_frames
-            .borrow()
+        // The union of signal names any todo diagnostic wants, consumed as the
+        // frame loop merges them ⇒ empty means extraction has nothing left to
+        // contribute.
+        let mut remaining: HashSet<&str> = todo
             .iter()
-            .map(|(id, (dlc, data))| (*id, *dlc, data.clone()))
+            .flat_map(|(_, diag)| diag.signals.iter().map(String::as_str))
             .collect();
-        frames.sort_by_key(|(id, _, _)| (id.value(), id.is_extended()));
         // `merged` stays a Vec to preserve the documented deterministic
         // first-seen order; `seen` is the O(1) membership guard beside it.
         let mut merged: Vec<(String, Rational)> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
         let mut any_failed = false;
-        for (id, dlc, data) in &frames {
-            match self.extract_all(*id, *dlc, data) {
-                Some(found) => {
-                    for (name, value) in found {
-                        if !seen.contains(&name) {
-                            seen.insert(name.clone());
-                            merged.push((name, value));
+        if !remaining.is_empty() {
+            // Snapshot the last frames so no borrow is held across extraction. Sort
+            // by (id value, extended) so the first-seen merge below is deterministic
+            // regardless of `HashMap` iteration order — matching Go's `slices.Sort`
+            // and Python's sort-by-(canID, extended) enrichment-ordering contract.
+            let mut frames: Vec<(CanId, Dlc, Vec<u8>)> = self
+                .last_frames
+                .borrow()
+                .iter()
+                .map(|(id, (dlc, data))| (*id, *dlc, data.clone()))
+                .collect();
+            frames.sort_by_key(|(id, _, _)| (id.value(), id.is_extended()));
+            let mut seen: HashSet<String> = HashSet::new();
+            for (id, dlc, data) in &frames {
+                match self.extract_all(*id, *dlc, data) {
+                    Some(found) => {
+                        for (name, value) in found {
+                            if !seen.contains(&name) {
+                                remaining.remove(name.as_str());
+                                seen.insert(name.clone());
+                                merged.push((name, value));
+                            }
                         }
                     }
+                    None => any_failed = true,
                 }
-                None => any_failed = true,
+                if remaining.is_empty() {
+                    break;
+                }
             }
         }
         for (slot, diag) in todo {
@@ -1001,5 +1018,58 @@ impl Client {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A diagnostic that references no signals is unreachable through the
+    /// formula DSL (every predicate names a signal), so this drives the private
+    /// state directly: when no todo diagnostic wants any signal, end-of-stream
+    /// enrichment must skip the frame snapshot + extraction loop entirely (zero
+    /// backend calls, hence no `enrichment.extraction_failed` warns) while
+    /// still attaching the no-values enrichment to every todo result.
+    #[test]
+    fn enrich_eos_skips_extraction_when_no_diag_wants_signals() {
+        let m = MockBackend::new();
+        let c = Client::with_backend(Box::new(m.clone()));
+        *c.diags.borrow_mut() = vec![PropertyDiagnostic {
+            signals: Vec::new(),
+            formula_desc: "always(TRUE)".to_string(),
+        }];
+        // A cached frame is available — proving the skip comes from the empty
+        // union, not from an empty frame store. No extraction response is
+        // queued, so any extraction attempt would fail the mock loudly.
+        c.last_frames.borrow_mut().insert(
+            CanId::standard(256).expect("valid id"),
+            (Dlc::new(8).expect("valid dlc"), vec![0u8; 8]),
+        );
+        let mut results = vec![PropertyResult {
+            property_index: 0,
+            verdict: Verdict::Fails,
+            reason: "x".to_string(),
+            timestamp: None,
+            enrichment: None,
+        }];
+
+        c.enrich_eos(&mut results);
+
+        assert!(
+            !m.captured()
+                .iter()
+                .any(|s| s == "<binary:extractAllSignals>"),
+            "an empty wanted-signal union must skip extraction entirely"
+        );
+        let e = results[0]
+            .enrichment
+            .as_ref()
+            .expect("enrichment still attaches when the frame loop is skipped");
+        assert!(e.signals.is_empty(), "no values were extracted");
+        assert_eq!(
+            e.enriched_reason, "violated: always(TRUE) [core: x]",
+            "the no-values fallback reason must be used"
+        );
     }
 }
