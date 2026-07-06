@@ -251,8 +251,23 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # ALETHEIA_LIB short-circuits the lookup.
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(lib)
-    # mutmut 3.x writes its mutation cache to .mutmut/ in cwd.  Run produces
-    # the cache; results parses it.  Both write to stdout; we capture both.
+    # Erase mutmut's persistent work-tree before every run.  mutmut reuses
+    # ``python/mutants/`` across invocations and only invalidates cached
+    # kill/survive verdicts on SOURCE changes — NOT on TEST changes (test files
+    # are not in ``source_paths``, so their content is not tracked).  A test
+    # edit, or files arriving via ``git merge`` / ``checkout`` / ``pull``,
+    # therefore yields stale verdicts (observed live: a merge that added a
+    # function plus its killing tests reported 20 phantom survivors until the
+    # tree was cleared).  Erasing it makes this local gate reproduce CI's
+    # fresh-checkout semantics exactly — CI already starts from a clean checkout
+    # (``mutants/`` is gitignored and uncached), so this is a no-op there.  Cost
+    # is local only: ~11 s on the Python lane (warm reuse 29 s -> clean 40 s).
+    shutil.rmtree(cwd / "mutants", ignore_errors=True)
+    # mutmut 3.6 keeps ALL state under mutants/ — the mutated tree, the copied
+    # tests/ (the piece that goes stale), and the mutmut-stats.json results —
+    # with no separate .mutmut/ cache, so the erase above is complete.  Run
+    # produces that state; results parses it.  Both write to stdout; we capture
+    # both.
     # These two calls carry a custom ``env`` (ALETHEIA_LIB), which the shared
     # ``run_capture`` helper does not thread through, so they go direct to
     # ``subprocess.run``; ``str(mutmut_bin)`` is an absolute path (no S607).
