@@ -180,17 +180,26 @@ fn clone_shares_the_capture_log() {
 /// by all four bindings' mocks (none synthesises a default response).
 #[test]
 fn exhausted_queue_is_an_error() {
-    let c = Client::with_backend(Box::new(MockBackend::new()));
+    // Keep a clone to inspect after injection (shared interior-mutable state),
+    // so we can assert the starved call was recorded — matching the peer
+    // bindings' record-before-error checks (Go `Inputs()`, C++ `last_captured()`).
+    let mock = MockBackend::new();
+    let probe = mock.clone();
+    let c = Client::with_backend(Box::new(mock));
     let err = c.start_stream().expect_err("empty queue must error");
-    assert!(matches!(err, Error::Protocol(_)), "got {err:?}");
-    // The op token is the cross-binding `<binary:OP>` sentinel (identical to
-    // Python/Go/C++), not a Rust method name — pin it so the unified message
-    // shape cannot drift.
-    assert!(
-        err.to_string()
-            .contains("mock backend: no queued response for <binary:startStream>"),
-        "message: {err}"
-    );
+    // Pin the EXACT inner message, not a substring of the "protocol error: …"
+    // Display, so the cross-binding unified shape cannot drift. The op token is
+    // the `<binary:OP>` sentinel (identical to Python/Go/C++), not a Rust method
+    // name; `Error::Protocol` is Rust's wrong-state category (see mock.rs).
+    match &err {
+        Error::Protocol(msg) => assert_eq!(
+            msg.as_str(),
+            "mock backend: no queued response for <binary:startStream>"
+        ),
+        other => panic!("expected Error::Protocol, got {other:?}"),
+    }
+    // Record-before-error: the starved sentinel is captured on the erroring call.
+    assert_eq!(probe.captured(), vec!["<binary:startStream>".to_string()]);
 }
 
 /// A queued [`Error`] surfaces unchanged through the [`Client`].
