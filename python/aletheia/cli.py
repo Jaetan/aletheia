@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, NoReturn, cast
 from aletheia import __version__
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND
 from aletheia.checks_runner import CheckRunResult, Violation, run_checks
+from aletheia.client._backend import FFIBackend
 from aletheia.client._client import AletheiaClient
 from aletheia.client._enrichment import format_rational
 from aletheia.client._types import (
@@ -587,15 +588,21 @@ def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
 
 def _cmd_check(args: argparse.Namespace) -> int:
     """Run LTL checks against a CAN log file."""
-    checks = _load_checks_from_args(args)
-    default_checks = _load_defaults(args)
     logfile: str = args.logfile
 
     try:
-        # One client, one DBC parse: the load populates the session, and
-        # run_checks reuses it (default_checks go through the constructor,
-        # applied at start_stream).
-        with AletheiaClient(default_checks=default_checks) as client:
+        # Bring the GHC RTS up BEFORE loading the check files.  A DECIMAL check
+        # threshold (e.g. ``max: 6553.5``) is parsed exactly through the
+        # kernel's ``from_decimal`` SSOT, which is RTS-gated and vocal — it
+        # never self-initialises the runtime.  Constructing the production
+        # FFIBackend here acquires the RTS (the same resolution the client's own
+        # factory uses); injecting that backend into the client keeps "one
+        # client, one DBC parse" while ``default_checks`` still flow through the
+        # constructor (applied at ``start_stream``), so they are NOT dropped.
+        backend = FFIBackend()
+        checks = _load_checks_from_args(args)
+        default_checks = _load_defaults(args)
+        with AletheiaClient(default_checks=default_checks, backend=backend) as client:
             dbc, _ = _load_dbc_with(client, args)
             result = run_checks(dbc, checks, logfile, default_checks, client=client)
     except (FileNotFoundError, AletheiaError) as exc:

@@ -189,6 +189,14 @@ WHEN_THEN_HEADERS = [
 # Minimum row count for a usable DBC sheet: 1 header row + at least 1 data row.
 _MIN_DBC_SHEET_ROWS = 2
 
+# DBC's reserved "no transmitter assigned" placeholder. The Excel schema has no
+# transmitter column, so every message built from a workbook carries this
+# sentinel. It is a valid DBC identifier (the empty string is NOT — the parser
+# rejects it), and it is deliberately NOT unique: any number of transmitter-less
+# messages legitimately share it, exactly as `Vector__XXX` marks an unassigned
+# receiver on a signal line.
+_DBC_NO_TRANSMITTER = "Vector__XXX"
+
 
 # ============================================================================
 # Row helpers
@@ -619,7 +627,7 @@ def _parse_dbc_rows(rows: list[dict[str, CellValue]]) -> DBCDefinition:
             id=key.msg_id,
             name=key.name,
             dlc=DLCByteCount(key.dlc),
-            sender="",
+            sender=_DBC_NO_TRANSMITTER,
             signals=signals,
         )
         if key.extended:
