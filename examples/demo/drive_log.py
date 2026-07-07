@@ -152,6 +152,49 @@ def generate_overspeed_drive() -> list[CANFrame]:
     return frames
 
 
+def _shift(frames: list[CANFrame], offset_us: int) -> list[CANFrame]:
+    """Return a copy of ``frames`` with every timestamp advanced by ``offset_us``."""
+    return [CANFrame(f.timestamp_us + offset_us, f.can_id, f.data) for f in frames]
+
+
+def generate_combined_drive() -> list[CANFrame]:
+    """Build a single monotonic trace: a normal drive, then an overspeed event.
+
+    The normal segment satisfies the speed limit; the overspeed segment is
+    time-shifted to continue *after* it (never restarting the clock), so the
+    whole trace has strictly non-decreasing timestamps — a requirement of the
+    streaming LTL evaluator. VehicleSpeed climbs past the 120 kph limit in the
+    second segment, so ``aletheia check`` reports VehicleSpeed violations and
+    exits 1. This is the trace written to ``drive.log`` and streamed by the
+    flagship ``aletheia check`` example.
+    """
+    normal = generate_normal_drive()
+    gap_us = 100_000  # 100 ms of clear air between the two segments
+    offset = max(f.timestamp_us for f in normal) + gap_us
+    combined = normal + _shift(generate_overspeed_drive(), offset)
+    combined.sort(key=lambda f: f.timestamp_us)
+    return combined
+
+
+def to_candump(frames: list[CANFrame]) -> str:
+    """Render frames in candump log format: ``(secs.micros) can0 ID#HEXDATA``."""
+    lines = [
+        f"({f.timestamp_us / 1_000_000:.6f}) can0 {f.can_id:03X}#{f.data.hex()}" for f in frames
+    ]
+    return "\n".join(lines) + "\n"
+
+
 # Pre-generated data for the demo
 NORMAL_DRIVE = generate_normal_drive()
 OVERSPEED_DRIVE = generate_overspeed_drive()
+COMBINED_DRIVE = generate_combined_drive()
+
+
+if __name__ == "__main__":
+    # Regenerate the shipped flagship fixture `drive.log` (a single monotonic
+    # normal-then-overspeed trace). Run: `python3 drive_log.py`.
+    from pathlib import Path
+
+    out = Path(__file__).resolve().parent / "drive.log"
+    out.write_text(to_candump(COMBINED_DRIVE), encoding="utf-8")
+    print(f"wrote {out} ({len(COMBINED_DRIVE)} frames)")

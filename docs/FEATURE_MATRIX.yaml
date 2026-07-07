@@ -3,7 +3,7 @@
 # Aletheia Cross-Binding Feature Matrix
 #
 # Authoritative source for feature parity across Python, C++, Go, Rust.
-# See docs/development/PARITY_PLAN.md for the roadmap and locked design decisions.
+# This matrix is the authoritative live parity source. Roadmap/status: PROJECT_STATUS.md.
 #
 # Schema:
 #   features[]: one entry per user-facing capability (NOT per method)
@@ -618,7 +618,7 @@ features:
         status: implemented
         entry: cmd/aletheia:run
         notes: "Phase 6 (2026-06-12): go/cmd/aletheia host binary — validate/extract/signals/format-dbc/mux-query dispatching to Client. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
-      rust: { status: planned, notes: "Phase 6 — Rust host CLI, scheduled with the python-can replacement / host-surface work (see can_log_reader); out of scope for the Rust parity plan (docs/development/RUST_PARITY_PLAN.md)." }
+      rust: { status: planned, notes: "Phase 6 — Rust host CLI, scheduled with the python-can replacement / host-surface work (see can_log_reader); a Phase 6 host-surface item, beyond the completed Rust parity work." }
 
   - id: can_log_reader
     name: CAN log file reader
@@ -653,4 +653,4 @@ features:
         status: implemented
         entry: Client
         notes: "D.2 (2026-05-04) — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
-      rust: { status: planned, notes: "Phase 6 — Rust doc-example gate, scheduled with the python-can replacement / host-surface work; out of scope for the Rust parity plan (docs/development/RUST_PARITY_PLAN.md)." }
+      rust: { status: planned, notes: "Phase 6 — Rust doc-example gate, scheduled with the python-can replacement / host-surface work; a Phase 6 host-surface item, beyond the completed Rust parity work." }

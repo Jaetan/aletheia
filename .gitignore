@@ -72,6 +72,9 @@ examples/*.log
 examples/output/
 *.log
 c.log
+# ...but the shipped flagship demo trace is a tracked fixture: the documented
+# `aletheia check` example streams it, so it must exist in a fresh clone / CI.
+!examples/demo/drive.log
 
 # Temporary test files (development artifacts)
 /test_*.yaml

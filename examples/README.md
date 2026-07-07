@@ -23,9 +23,11 @@ This directory contains example DBC files and verification scripts demonstrating
 - `frame_injection.py` - Real-time frame injection during streaming
 
 **Support files**:
-- `vehicle.dbc` - DBC file for streaming demos
-- `drive_log.py` - Sample CAN frame generators (normal + overspeed drives)
-- `demo_checks.yaml` - YAML check definitions (companion to YAML demo)
+- `vehicle.dbc` - DBC file for streaming demos and the flagship `aletheia check` example
+- `vehicle_checks.yaml` - YAML checks matched to `vehicle.dbc` (VehicleSpeed / BrakePressure / Acceleration); companion to `drive.log`
+- `drive.log` - Recorded candump trace (a two-minute drive that speeds past its limit); the flagship `check` example streams it and reports a `VehicleSpeed` violation
+- `drive_log.py` - Sample CAN frame generators (normal + overspeed drives) that produce `drive.log`
+- `demo_checks.yaml` - YAML check definitions (companion to the Check-API / YAML demos; targets a richer signal set than `vehicle.dbc`)
 - `demo_workbook.xlsx` - Persistent Excel workbook for live demos
 
 ## Running Examples

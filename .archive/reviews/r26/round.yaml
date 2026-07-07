@@ -1,0 +1,34 @@
+id: R26
+fork_point: 3776e8f9
+fork_date: "2026-07-07"
+status: open
+raw_findings_count: 0
+closed_findings_count: 0
+agent_fleet:
+  - docs-persona-technician
+  - docs-persona-test-engineer
+  - docs-persona-python
+  - docs-persona-cpp
+  - docs-persona-go
+  - docs-persona-rust
+  - docs-persuade-critic
+  - docs-audit-guides
+  - docs-audit-reference
+  - docs-audit-architecture
+  - docs-audit-development
+  - docs-audit-operations
+  - docs-audit-project-meta
+  - docs-audit-verifier
+notes: |
+  Documentation-only review round (the first pure-DOCS round in the r-series).
+  Scope: full adversarial audit of ~57 tracked docs against the 22-category
+  rubric (AGENTS/docs.md), plus three non-audit activities — curate (delete/
+  merge stale files), generate (Rust API ref, C++/Go/Rust tutorial paths,
+  cookbook FAQ), and persuade (README/PITCH advertising rewrite). Structure
+  model: Diátaxis; coverage lenses: the six personae. Full-execute round —
+  fixes land alongside findings in one review PR.
+
+  Closing deliverable: tools/check_docs.py (link resolver + cited-header
+  checker + transient/internal-label linter), wired into run_ci as the
+  anti-rot gate. Ground truth pinned at fork: 6 CLI subcommands, 44
+  FEATURE_MATRIX features, 16 LOG_EVENTS.

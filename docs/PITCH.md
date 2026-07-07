@@ -1,19 +1,47 @@
 # Aletheia: Project Pitch
 
-**Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
-**Last Updated**: 2026-05-12
+**Check recorded CAN logs against plain-language rules — with a signal decoder that's mathematically proven correct, not just tested.**
+**Last Updated**: 2026-07-07
 
-LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
+Aletheia checks recorded CAN logs against rules like *"Speed never exceeds 220"* or *"the brake light turns on within 100 ms of the pedal"* — and the code that decodes your signals is mathematically **proven** correct, not just tested. Point it at your `.dbc` and your `.blf` / `.asc` / `.mf4` / candump log; get pass/fail plus the exact timestamp of every violation.
+
+> **The jargon, glossed once:** the "rules" are [Linear Temporal Logic](GLOSSARY.md) (LTL) formulas — a formal method for specifying how a sequence must behave over time — and the checker is written in [Agda](GLOSSARY.md), a proof assistant. You never touch either; every italicized term is defined in the **[Glossary](GLOSSARY.md)**.
+
+**Building something safety-critical?** Formal methods like Aletheia's are exactly what **ISO 26262** (automotive functional safety) *recommends* for **ASIL-D**, the highest integrity level. Aletheia gives you a decoder whose correctness is a theorem, not a test suite.
+
+**One honest caveat up front:** the proof covers the decoder and the rule-checker — not whether your DBC is right for your vehicle, the logger hardware, or a rule you specified wrong. ([Full scope below.](#what-the-proofs-dont-cover))
 
 This document explains what Aletheia is, why it exists, and what it means for your team to adopt it.
 
 ---
 
+## The pain this removes
+
+Every item below is a bug class that has shipped in real CAN tooling. Aletheia turns each into a proven guarantee:
+
+- **Wrong endianness / byte order** → silently swapped bytes, a plausible-but-wrong speed. → *The decoder is proven to honor the DBC's byte order for every signal.*
+- **Bit-shift & masking mistakes** → a signal straddling a byte boundary reads garbage. → *Proven correct for every start-bit / length, cross-byte signals included.*
+- **Sign extension** → a small negative temperature reads as a huge positive number. → *Signed decoding is proven for all widths.*
+- **Multiplexed-signal decoding** → the wrong multiplexer case selects the wrong signal. → *Mux selection is part of the proof.*
+- **Ad-hoc scripts with their own bugs** → every team re-implements decode + threshold logic, each with fresh mistakes. → *One proven core, four language bindings, zero re-implementation.*
+
+## Why switch from cantools / python-can / hand-rolled scripts?
+
+All three decode CAN with **tested** code: correct on the cases someone thought to test, and still potentially wrong on an untried endianness, sign, or multiplexer case. Aletheia's decoder is **proven correct for all inputs** — the guarantee holds even for signals no test ever exercised.
+
+| If you use… | How it decodes signals | The gap Aletheia closes |
+|---|---|---|
+| **cantools** | hand-written Python decoders, validated by unit tests | an untested endianness / sign / mux combination can still decode wrong |
+| **python-can** | transport plus tested per-DBC decoders | same tested-not-proven decode path, and no temporal-rule checking |
+| **hand-rolled scripts** | your own bit-shifts and threshold checks | the most bug-prone option — every script re-derives decode logic from scratch |
+
+---
+
 ## What is Aletheia?
 
-Aletheia is a library for analyzing automotive CAN bus data with **mathematical guarantees of correctness**, with bindings for Python, C++, and Go. You write temporal properties (e.g., "Speed never exceeds 220 km/h"), and Aletheia verifies them against CAN traces with proofs that the checker itself is bug-free.
+Aletheia is a library for analyzing automotive CAN bus data with **mathematical guarantees of correctness**, with first-class bindings for **Python, C++, Go, and Rust**. You write temporal properties (e.g., "Speed never exceeds 220 km/h"), and Aletheia verifies them against CAN traces with proofs that the checker itself is bug-free.
 
-**Elevator pitch**: Testing shows the presence of bugs. Formal verification proves their absence. Aletheia brings proof-backed CAN analysis to engineers (Python, C++, Go) without requiring a PhD in formal methods.
+**Elevator pitch**: Testing shows the presence of bugs. Formal verification proves their absence. Aletheia brings proof-backed CAN analysis to engineers — in Python, C++, Go, or Rust — without requiring a PhD in formal methods.
 
 ---
 
@@ -45,6 +73,9 @@ Aletheia provides:
    ```go
    aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
    ```
+   ```rust
+   check::signal("Speed").never_exceeds(220)                   // Rust
+   ```
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
 
@@ -52,7 +83,16 @@ Aletheia provides:
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 
-**Key insight**: You write Python, C++, or Go. The proof burden lives in Agda. If the code type-checks, it's correct by construction.
+5. **Exact arithmetic**: Signal values are exact rationals end-to-end, never floats — a decoded value is never off by a rounding step.
+
+**Key insight**: You write Python, C++, Go, or Rust. The proof burden lives in Agda. If the code type-checks, it's correct by construction.
+
+**Where to start, by language** — Python is the reference binding; the others are API-compatible ports that call the same proven core:
+
+- **Python** → [Python API Guide](reference/PYTHON_API.md)
+- **C++** → [C++ API Guide](reference/CPP_API.md)
+- **Go** → [Go API Guide](reference/GO_API.md)
+- **Rust** → [Rust API Guide](reference/RUST_API.md)
 
 ---
 
@@ -65,6 +105,8 @@ Aletheia provides:
 | Unit tests | Examples of correct behavior | Edge cases, unexpected inputs |
 | Property-based testing | Random exploration | Exhaustive coverage guarantees |
 | **Formal verification** | **Mathematical proof of correctness** | **Nothing (within specified properties)** |
+
+<a id="what-the-proofs-dont-cover"></a>
 
 **What the proofs don't cover** (important to set expectations):
 
@@ -88,18 +130,18 @@ In other words: Aletheia eliminates the class of bugs where "the signal extracti
 Aletheia uses a three-layer architecture:
 
 ```
-Python / C++ / Go (user-facing APIs, FFI)
-   ↓ FFI (shared library via ctypes / dlopen)
-Haskell (FFI wrapper → libaletheia-ffi.so)
+Python / C++ / Go / Rust (user-facing APIs, in-process)
+   ↓ shared library, loaded in-process (no subprocess, no IPC)
+Haskell (thin FFI wrapper → libaletheia-ffi.so)
    ↓
-Agda (all logic + proofs, compiled via MAlonzo)
+Agda (all logic + proofs, compiled via the MAlonzo backend)
 ```
 
 **Why these technologies?**
 
 - **Agda**: A proof assistant where code that type-checks is mathematically proven correct — similar to how Rust's compiler guarantees memory safety, but for logical correctness. Used in aerospace, cryptography, and compilers.
 - **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Meta, Standard Chartered, IOHK). Compiled to a shared library loaded by all bindings.
-- **Python / C++ / Go**: Familiar interfaces for automotive engineers. All complexity hidden behind FFI (Foreign Function Interface — each language's standard mechanism for calling compiled code directly, with no subprocess overhead).
+- **Python / C++ / Go / Rust**: Familiar interfaces for automotive engineers. All complexity hidden behind a shared library each language loads in-process, with no subprocess overhead.
 
 **Proven track record**:
 - Agda: Used in verified compilers (Agda-to-Haskell compiler itself), verified data structures, and verified network protocols
@@ -114,17 +156,17 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, tested on Ubuntu/Debian/WSL2. |
+| **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, tested on Ubuntu/Debian/WSL2. One-time build-time toolchain; runtime is just the shared library + Python. |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Low | High-throughput streaming via binary FFI across all three bindings (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks). Sufficient for 1 Mbps CAN bus real-time analysis. |
-| **Agda learning curve** | Modifying core requires expertise | Medium | Python API is stable. Core changes rare. Can contract experts if needed. |
+| **Performance** | Formal verification adds overhead | Low | High-throughput streaming via binary FFI across all four bindings (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks). Sufficient for 1 Mbps CAN bus real-time analysis. |
+| **Agda learning curve** | Modifying core requires expertise | Medium | Binding APIs are stable. Core changes rare. Can contract experts if needed. |
 
 ### People Risks
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
 | **Bus factor** | Knowledge concentrated in one person | High initially | Documentation emphasizes maintainability. CLAUDE.md provides AI-assisted development guide. |
-| **Hiring difficulty** | Agda experts are rare | Medium | Not needed for Python API users. For core development: remote contractors available, or train interested engineers. |
+| **Hiring difficulty** | Agda experts are rare | Medium | Not needed for binding-API users. For core development: remote contractors available, or train interested engineers. |
 | **Team resistance** | "Not invented here" / unfamiliar tech | Medium | Start with non-critical use cases. Demonstrate value before mandating adoption. |
 
 ### Legal/Compliance Risks
@@ -133,7 +175,7 @@ Agda (all logic + proofs, compiled via MAlonzo)
 |------|--------|------------|------------|
 | **License compatibility** | BSD 2-Clause vs. company policy | Low | Permissive license, allows proprietary use. No copyleft. |
 | **Patent issues** | Agda/GHC patents | Very Low | Agda is open source (MIT). GHC is open source (BSD 3-Clause). No known patent issues. |
-| **Regulatory acceptance** | Formal methods not in compliance checklist | Medium | Formal verification **strengthens** compliance story. ISO 26262 (the automotive functional safety standard) encourages formal methods for ASIL-D (the highest safety integrity level). |
+| **Regulatory acceptance** | Formal methods not in compliance checklist | Medium | Formal verification **strengthens** compliance story. ISO 26262 (the automotive functional safety standard) recommends formal methods for ASIL-D (the highest safety integrity level). |
 
 ---
 
@@ -173,7 +215,15 @@ f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal:
 _ = f
 ```
 
-**Streaming workflow** (Python shown; C++ and Go follow the same pattern):
+Rust:
+```rust
+let speed = check::signal("Speed").never_exceeds(220);       // Check API (i64 → exact Rational)
+let coolant = check::signal("Coolant").stays_between(80, 105)?;
+// LTL formulas via the compositional Formula/Predicate AST:
+let f = Formula::Always(Box::new(Formula::Atomic(Predicate::less_than("Speed", 220))));
+```
+
+**Streaming workflow** (Python shown; C++, Go, and Rust follow the same pattern):
 
 ```python
 from aletheia import AletheiaClient, checks
@@ -196,7 +246,21 @@ with AletheiaClient() as client:
     client.end_stream()
 ```
 
-**Learning curve**: If you can use a standard library in your language, you can use Aletheia. All three bindings follow the same workflow and produce identical verification results — surface APIs use each language's idioms (Python fluent DSL, C++ strong types + `std::expected`, Go interfaces + functional options) but the protocol-level behavior is the same.
+In Rust the same loop reads verdicts by matching on the frame response — `FrameResponse::Ack` for an accepted frame with no verdict yet, `FrameResponse::Verdicts(Vec<PropertyResult>)` when a frame closes one or more checks:
+
+```rust
+match client.send_frame(ts, id, dlc, &data, None, None)? {
+    FrameResponse::Ack => {}                       // frame accepted, no verdict yet
+    FrameResponse::Verdicts(results) => {          // Vec<PropertyResult>
+        for r in &results {
+            // r.property_index, r.verdict (Verdict::Fails on a violation), r.enrichment
+            let _ = r;
+        }
+    }
+}
+```
+
+**Learning curve**: If you can use a standard library in your language, you can use Aletheia. All four bindings follow the same workflow and produce identical verification results — surface APIs use each language's idioms (Python fluent DSL, C++ strong types + `std::expected`, Go interfaces + functional options, Rust `Result` + builder) but the protocol-level behavior is the same.
 
 **Debugging**: Violations include counterexamples (frame number, signal values). Standard debugging in your language applies.
 
@@ -209,7 +273,7 @@ with AletheiaClient() as client:
 **Integration questions**:
 
 **Q: How does this fit into our CI/CD pipeline?**
-A: Aletheia provides Python, C++, and Go bindings. Integrate like any test suite in your language. Run `pytest tests/` in CI for Python. Checks can also be defined in YAML for version-controlled CI configurations.
+A: Aletheia provides Python, C++, Go, and Rust bindings. Integrate like any test suite in your language. Run `pytest tests/` in CI for Python. Checks can also be defined in YAML for version-controlled CI configurations, and the `aletheia` CLI returns a shell exit code (0 pass / 1 violations / 2 error) for pipeline gating.
 
 **Q: What's the maintenance burden?**
 A: Binding layers: Standard maintenance per language. Agda core: Rarely changes (core logic stable since Phase 3, extensions added in Phases 4-5). Build system: Shake + Cabal, documented in BUILDING.md.
@@ -219,13 +283,13 @@ A: Documentation includes:
 - BUILDING.md: Complete build instructions
 - CLAUDE.md: AI-assisted development guide
 - CONTRIBUTING.md: Contribution guidelines
-- Examples: 11 demo scripts covering all four interface tiers
+- Examples: demo scripts covering all four interface tiers
 
 The core is stable. Most changes will be binding-side (adding checks, integrating with tools).
 
 **Q: Can we extend it?**
 A: Yes. Extension points:
-- Bindings (Python/C++/Go): Add new DSL methods, integrations, visualizations
+- Bindings (Python/C++/Go/Rust): Add new DSL methods, integrations, visualizations
 - Agda (advanced): Add new LTL operators, signal predicates, DBC features
 
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
@@ -234,7 +298,7 @@ See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current throughput benchmarks.
 
 **Q: Dependencies?**
-A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libaletheia-ffi.so` and Python 3.14+. See [Building Guide § Prerequisites](../development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
+A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime is just `libaletheia-ffi.so` and Python 3.14+ (plus your binding's own runtime). There is no published wheel yet — install the Python binding editable from source after building. See [Building Guide § Prerequisites](development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
 
 ---
 
@@ -251,8 +315,8 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 - **Ongoing**: Catch bugs in production that testing would miss
 
 **Cost structure**:
-- **Upfront**: Integration (1-2 weeks), training (Python engineers: 1 day, Agda maintainer: 1-2 weeks)
-- **Ongoing**: Maintenance (minimal for stable core, standard for Python API)
+- **Upfront**: Integration (1-2 weeks), training (binding-API engineers: 1 day, Agda maintainer: 1-2 weeks)
+- **Ongoing**: Maintenance (minimal for stable core, standard for the binding APIs)
 
 **Risk management**:
 
@@ -287,21 +351,21 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 
 ## Current Status
 
-**Phase 5.1 complete** ✅ — all three binding stacks (Python, C++, Go) at cross-language parity, plus post-R17 Tracks A–E (matrix gates, DBC text parser, cancellation, doc-example harness, VAL_ promotion) all complete. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
+**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, Rust) at cross-language parity, plus post-R17 Tracks A–E (matrix gates, DBC text parser, cancellation, doc-example harness, VAL_ promotion) all complete. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser in the verified Agda kernel)
 - LTL verification with streaming architecture
 - Formal correctness proofs (parser, CAN encoding, LTL adequacy, DSL roundtrip)
 - DBC validator with formal proof (soundness + completeness; see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
-- Python API with signal operations (FFI, no subprocess)
+- Python, C++, Go, and Rust APIs with signal operations (in-process shared library, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
-- CLI tool (Python only — `python3 -m aletheia {check,validate,extract,signals,mux-query,format-dbc}`; C++/Go CLI parity is a Phase 6 stretch goal)
+- **CLI ships today** — the Python CLI has six subcommands (`python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query}`); the C++ and Go host CLIs ship five of those (`check` deferred — it needs a verified CAN-log reader); Rust has a typed client today, with a CLI planned for Phase 6.
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
 - Per-binding and total test counts tracked in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics)
-- High-throughput streaming via binary FFI across Python/C++/Go (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks)
+- High-throughput streaming via binary FFI across all four bindings (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks)
 
-**Phase 5**: CAN-FD, binary FFI (streaming + signal extraction + frame build/update), C++/Go bindings, cross-language benchmarks — all delivered. Phase 6 candidate goals: CLI parity for C++/Go (stretch), python-can replacement (Agda+proof for ASC/BLF parsers), GHC `--bignum=native` rebuild (LGPL contingency for libgmp), SOME/IP. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
+**Phase 5**: CAN-FD, binary FFI (streaming + signal extraction + frame build/update), C++/Go/Rust bindings, cross-language benchmarks — all delivered. Phase 6 candidate goals: CLI parity for C++/Go (`check` subcommand) and a Rust CLI, python-can replacement (Agda+proof for ASC/BLF parsers), GHC `--bignum=native` rebuild (LGPL contingency for libgmp), SOME/IP. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
 
 ---
 
@@ -310,7 +374,7 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 **Strengths**:
 - Mathematical guarantees of correctness (unique in CAN tooling)
 - Proven technology stack (Agda/Haskell used in high-assurance systems)
-- Python, C++, and Go bindings hide complexity
+- Python, C++, Go, and Rust bindings hide the complexity
 - CAN-FD support (variable-length payloads up to 64 bytes, DLC 0-15)
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
 
@@ -318,6 +382,7 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 - Performance: Sufficient for 1 Mbps CAN bus real-time analysis and multi-bus (see Technical Risks table for current throughput numbers)
 - Learning curve for Agda core maintenance (binding APIs and Check API are easy)
 - Small ecosystem (fewer community resources than mainstream-only tools)
+- No published package yet — install is build-from-source (no `pip install aletheia` wheel today)
 
 **Best fit for**:
 - Safety-critical CAN verification (ASIL-C/D)
@@ -334,15 +399,24 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 
 ## Try It
 
-**Quick start**:
+**Fastest path — no code (the CLI):**
+```bash
+# A matched sample set ships in examples/demo/ (vehicle.dbc, vehicle_checks.yaml, drive.log),
+# so this runs as-is. The sample drive speeds past its limit, so it exits 1.
+cd examples/demo
+aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
+# exit 0 = all checks passed · 1 = violations (with timestamps) · 2 = error
+```
+
+**From source (build once, then script it):**
 ```bash
 git clone <repository>
 cd aletheia
-cabal run shake -- build
+cabal run shake -- build            # one-time: compiles the verified core → libaletheia-ffi.so
 cd python
 python3 -m venv .venv
 source .venv/bin/activate        # fish: source .venv/bin/activate.fish
-pip install -e .
+pip install -e '.[can]'          # editable from source — there is no published wheel yet
 cd ..
 python3 examples/simple_verification.py
 ```
@@ -352,20 +426,19 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 **Questions?**
 
 - Interfaces: See [Interface Guide](reference/INTERFACES.md) (Check API, YAML, Excel)
-- Python API: See [Python API Guide](reference/PYTHON_API.md)
+- Language APIs: [Python](reference/PYTHON_API.md) · [C++](reference/CPP_API.md) · [Go](reference/GO_API.md) · [Rust](reference/RUST_API.md)
 - Architecture: See [Architecture Overview](architecture/DESIGN.md)
 - Contributing: See [CONTRIBUTING.md](../CONTRIBUTING.md)
-
-**For stakeholders / talks**: A standalone HTML slide deck lives at [`docs/presentation/index.html`](presentation/index.html) — open it directly in a browser.
 
 ---
 
 ## Bottom Line
 
-**For engineers**: Use a proven-correct library — in Python, C++, or Go — instead of hoping your tests caught everything.
+**For engineers**: Use a proven-correct library — in Python, C++, Go, or Rust — instead of hoping your tests caught everything.
 
 **For team leads**: Formal verification reduces long-term maintenance cost by eliminating a class of bugs.
 
 **For engineering managers**: High-assurance systems justify the upfront investment. For safety-critical work, formal methods are becoming table stakes.
 
 Aletheia brings proof-backed correctness to automotive CAN analysis. The question is whether your use case justifies the investment in learning and integration. For safety-critical systems, the answer is likely yes.
+</content>

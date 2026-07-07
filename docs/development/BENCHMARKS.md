@@ -1,6 +1,7 @@
 # Aletheia Performance Benchmarks
 
-Benchmarks across the three bindings (Python, C++, Go). The canonical
+Benchmarks across the Python, C++, and Go bindings (the Rust binding is not yet
+wired into the cross-language runner). The canonical
 per-binding / per-lane / per-property-shape throughput table — dated
 measurements on fixed hardware — lives in
 [PROJECT_STATUS.md § Key Metrics](../../PROJECT_STATUS.md#key-metrics). This
@@ -24,7 +25,7 @@ source python/.venv/bin/activate && (cd python && pip install -e '.[dev]')  # Py
 cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build  # C++ binary (Clang 22)
 (cd go && go build -o benchmarks/benchmark ./benchmarks/)                # Go binary
 
-# Run throughput across all three bindings, 10,000 frames × 5 runs
+# Run throughput across the Python, C++, and Go bindings, 10,000 frames × 5 runs
 ./benchmarks/run_all.sh
 
 # Other lanes / scales

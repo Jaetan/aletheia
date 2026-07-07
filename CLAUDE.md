@@ -47,7 +47,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 When the user's message is just `UPD` (case-insensitive, no other content), interpret it as **"Update session state, memory/feedback, plan/project status, CLAUDE.md/AGENTS.md."** Sweep:
 - `.session-state.md` (gitignored — local resume notes)
 - `MEMORY.md` + relevant files under `memory/` (open-work pointers; new feedback memories if a generalizable lesson surfaced)
-- `PROJECT_STATUS.md` and `docs/development/PARITY_PLAN.md` (the two roadmap surfaces — keep in sync)
+- `PROJECT_STATUS.md` (the roadmap/status surface)
 - `CLAUDE.md` (Current Session Progress, module-flag breakdown, anything that drifted)
 - `AGENTS.md` (only if a new rule / cross-ref was earned this session)
 
@@ -62,7 +62,7 @@ When the user's message is just `UPD` (case-insensitive, no other content), inte
 When the user's message is just `READ` (case-insensitive, no other content), interpret it as **"Read the session state, memory/feedback, plan/project status, CLAUDE.md/AGENTS.md."** Sweep (read-only — no edits):
 - `.session-state.md` (gitignored — local resume notes)
 - `MEMORY.md` + relevant files under `memory/` (open-work pointers, feedback memories)
-- `PROJECT_STATUS.md` and `docs/development/PARITY_PLAN.md` (the two roadmap surfaces)
+- `PROJECT_STATUS.md` (the roadmap/status surface)
 - `CLAUDE.md` (already loaded into context)
 - `AGENTS.md` (per-language coding standards)
 
@@ -146,7 +146,7 @@ foreign library's `-Werror=missing-home-modules` drift gate). Details:
 - **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++/Go dlopen)
 - **python/pyproject.toml**: Python package config
 - **cpp/CMakeLists.txt**: C++23 build (CMake 3.25+, FetchContent for nlohmann/json + Catch2)
-- **docs/FEATURE_MATRIX.yaml**: cross-binding feature parity matrix; structural gate tests in `python/tests/`, `go/aletheia/`, `cpp/tests/` fail CI on silent symbol removal. Roadmap: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md).
+- **docs/FEATURE_MATRIX.yaml**: cross-binding feature parity matrix; structural gate tests in `python/tests/`, `go/aletheia/`, `cpp/tests/` fail CI on silent symbol removal. This matrix is the authoritative live parity source; roadmap/status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Important Notes
 
@@ -234,7 +234,7 @@ Start with the [Project Pitch](docs/PITCH.md) for context.
 - Running tools from the repo root: `pytest` / `basedpyright` / `pylint` need `cd python` first (config picks up nearest `pyproject.toml`).
 
 **Key terms used elsewhere in this file:**
-- **"Phase" (capital P) is reserved.** It denotes a **whole-project phase only** — Phase 1 … Phase 6 (see [PROJECT_STATUS.md](PROJECT_STATUS.md) § Project Phases). **Never call the sub-units of any other plan "phases"** — it conflates them with project phases and causes confusion. For the Rust binding's incremental deliverables use **"slice"** (the established term: "tracer-bullet slice", "a later Rust slice"); for other plans use "cluster" / "stage" / "step" / "track". Worked example: [docs/development/RUST_PARITY_PLAN.md](docs/development/RUST_PARITY_PLAN.md) organizes its work into *slices*, not phases. (Convention pinned 2026-06-14 at user request.)
+- **"Phase" (capital P) is reserved.** It denotes a **whole-project phase only** — Phase 1 … Phase 6 (see [PROJECT_STATUS.md](PROJECT_STATUS.md) § Project Phases). **Never call the sub-units of any other plan "phases"** — it conflates them with project phases and causes confusion. For the Rust binding's incremental deliverables use **"slice"** (the established term: "tracer-bullet slice", "a later Rust slice"); for other plans use "cluster" / "stage" / "step" / "track". Worked example: the Rust binding's incremental deliverables were organized into *slices*, not phases. (Convention pinned 2026-06-14 at user request.)
 - **MAlonzo**: Agda's Haskell backend. `agda --compile` produces a `MAlonzo/` directory of generated `.hs` files; the Cabal package and FFI shared library are built on top. Function names get mangled.
 - **`Dec A`**: A type expressing decidability (`yes (a : A) ⊎ no (¬ A)`). Carries a *proof object* at runtime — that's why it allocates on hot paths.
 - **`memory/<name>.md`**: a pointer to Claude Code's agent memory store (under `~/.claude/`, **outside this repository**) — written for the agent, not a repo-relative link, so it will not resolve in a repo checkout. The same convention appears in several docs (AGENTS.md, PROJECT_STATUS.md, …). Documented here as an explicit convention 2026-06-12 — it had accreted unratified, not by deliberate decision.
@@ -281,7 +281,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **🧬 MUTATION LANE REPAIRED + CACHED + REQUIRED ✅ 2026-06-20 (#71/#72)** — the advisory `mutation testing` lane was **crash-dead** (zero mutants since #51 — a baseline-COLLECTION failure, NOT survivors); #71 fixed it (`--ignore`/`--deselect` + mutmut-3.6 keys + always-on `check_mutation_setup.py` gate → baseline 827/1/828), #72 cached it (push:[main] seeds Mull+build-tree caches; ~33→~22min) and made `mutation testing` a `main`-ruleset **required** check (gh `PUT`). Detail: `memory/project_mutation_to_zero.md` + CHANGELOG + git #71/#72.
 
-**🦀 RUST PARITY R1–R5 ✅ + r24 REVIEW ✅ (#53-77, rust 37/40)** — functional parity with Py/Go/C++ (typed DBC, frame build/update+mux, check tier, logging/enrichment, runtime-agnostic `AsyncClient`, open `Backend` DI-seam + `Clone` `MockBackend`); only Phase 6 host rows remain. r24 multi-agent review (#77): 10 fixed, 2 BREAKING. Earned the two cross-binding-review rules now in AGENTS.md (read ALL peers; consistency≠correctness). Detail: `memory/project_rust_parity_r1.md` + `RUST_PARITY_PLAN.md` + git #53–77.
+**🦀 RUST PARITY R1–R5 ✅ + r24 REVIEW ✅ (#53-77, rust 37/40)** — functional parity with Py/Go/C++ (typed DBC, frame build/update+mux, check tier, logging/enrichment, runtime-agnostic `AsyncClient`, open `Backend` DI-seam + `Clone` `MockBackend`); only Phase 6 host rows remain. r24 multi-agent review (#77): 10 fixed, 2 BREAKING. Earned the two cross-binding-review rules now in AGENTS.md (read ALL peers; consistency≠correctness). Detail: `memory/project_rust_parity_r1.md` + git #53–77.
 
 **🐹 GO CHECK-BUILDER FLOAT-ERROR FIX ✅ #61** (2026-06-18) — Go check builders silently clamped bad floats to `0/1` (peers raise/throw); now uniform `(CheckResult, error)`; BREAKING (Go). Detail: CHANGELOG + git #61.
 
@@ -291,7 +291,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **⚡ INCREMENTAL + STALENESS-SAFE BUILD ✅ MERGED 2026-06-15** (PR #37 `e80a101`) — `.so` now builds incrementally (no-op ~0.1s, one-module ~12s): the Shake `.so` rule depends on `.agda` SOURCES + `aletheia.cabal` lists all 433 MAlonzo modules (`-Werror=missing-home-modules` drift gate); + `check_build_incremental` staleness gate, `AgdaVersion` oracle, `iwyu` target. Now fully documented in BUILDING.md/CI_LOCAL.md (G.3). Detail: `memory/project_build_so_idempotency.md` (RESOLVED), `memory/feedback_no_git_checkout_in_revert_traps.md`.
 
-**🦀 RUST TYPED BINDING ✅ 2026-06-14** — tracer→typed client + the fourth FEATURE_MATRIX column/parity gate; foundation for R1–R5 (see that entry). Detail: PROJECT_STATUS § Phase 6, `docs/development/RUST_PARITY_PLAN.md`.
+**🦀 RUST TYPED BINDING ✅ 2026-06-14** — tracer→typed client + the fourth FEATURE_MATRIX column/parity gate; foundation for R1–R5 (see that entry). Detail: PROJECT_STATUS § Phase 6.
 
 **🪞 GO/C++ MOCK FIDELITY + 🧹 DEAD JSON-STREAMING PRUNE ✅** (2026-06-14) — mocks record `<binary:OP>` sentinels matching Python (fabricated JSON dropped); the 5 test-only JSON streaming-command mirrors + dead binding serializers removed (binary FFI retained). Detail: PROJECT_STATUS.
 
@@ -339,4 +339,4 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 Path A profile (post-3d.4 + JSON-mirror, runtime impact retained from `320c5a9`): Stream LTL +12-38% across bindings (Bool fast path); Signal Extraction -2-9% / Frame Building -1-7% (Path A structural cost). All 3d.5+ Format DSL work + Track E sub-phases are proof-only and runtime-neutral on the streaming hot path. Baselines NOT refreshed per user "wait and see" 2026-04-28; COMPILE-pragma escape hatch deferred (requires explicit user approval per `feedback_no_suppression_without_approval`).
 
-**Cross-binding parity roadmap**: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. **R17 deferrals all closed**: R17-DEF-1 (2026-05-07) by comprehensive check-fidelity coverage; R17-DEF-2 (2026-05-07) by re-verify against the Agda DBC truth set — B.1 Tier 1 + B.1.x Tier 2 + B.1.x commit-3 senders + Track E VAL_ ship every `DBC` / `DBCSignal` / `DBCMessage` field across all 3 bindings, with FEATURE_MATRIX rows (`dbc_metadata_tier1` / `_tier2` / `dbc_signal_receivers` / `dbc_message_senders` / `dbc_signal_value_descriptions` / `dbc_text_format`) + per-binding parity tests + CHECK 23 `unknown_value_description_target` IssueCode mirror; R17-DEF-3 by Track C.2; R17-DEF-4 by Track B.3; R17-DEF-5 by Track C.3; R17-DEF-6 by Track D.
+**Cross-binding parity**: tracked in [docs/FEATURE_MATRIX.yaml](docs/FEATURE_MATRIX.yaml) (the executed plan's Tracks A–E are all complete). **R17 deferrals all closed**: R17-DEF-1 (2026-05-07) by comprehensive check-fidelity coverage; R17-DEF-2 (2026-05-07) by re-verify against the Agda DBC truth set — B.1 Tier 1 + B.1.x Tier 2 + B.1.x commit-3 senders + Track E VAL_ ship every `DBC` / `DBCSignal` / `DBCMessage` field across all 3 bindings, with FEATURE_MATRIX rows (`dbc_metadata_tier1` / `_tier2` / `dbc_signal_receivers` / `dbc_message_senders` / `dbc_signal_value_descriptions` / `dbc_text_format`) + per-binding parity tests + CHECK 23 `unknown_value_description_target` IssueCode mirror; R17-DEF-3 by Track C.2; R17-DEF-4 by Track B.3; R17-DEF-5 by Track C.3; R17-DEF-6 by Track D.

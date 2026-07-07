@@ -211,7 +211,7 @@ Only needed if building the C++ binding (`cpp/`). Not required for Agda/Python d
 
 #### 7. Go (for Go binding only)
 
-**Version**: 1.24+ required
+**Version**: 1.24+ required (the `go.mod` floor; the project tracks the latest stable Go — currently 1.26 — per the [toolchain support policy](#toolchain-support-policy))
 
 ```bash
 go version
@@ -236,7 +236,7 @@ cd aletheia
 # expects it — run_ci.py, the mutation/stability runners, and basedpyright's
 # venvPath all resolve python/.venv).
 cd python
-python3 -m venv .venv
+python3.14 -m venv .venv
 
 # Activate the virtual environment
 source .venv/bin/activate          # fish: source .venv/bin/activate.fish
@@ -322,7 +322,7 @@ cd python && pip install -e ".[dev]"
 python3 -m pytest tests/ -v
 
 # C++ tests
-cd ../cpp && cmake -B build && cmake --build build && ctest --test-dir build
+cd ../cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build && ctest --test-dir build
 
 # Go tests (requires cgo + libaletheia-ffi.so on LD_LIBRARY_PATH)
 cd ../go && go test ./aletheia/ -v -count=1 -race
@@ -334,7 +334,7 @@ python3 examples/simple_verification.py
 
 ### 7. System Installation (Optional)
 
-For integrating `libaletheia-ffi.so` into C, C++, or Go projects, see [DISTRIBUTION.md](DISTRIBUTION.md).
+For integrating `libaletheia-ffi.so` into C, C++, Go, or Rust projects, see [DISTRIBUTION.md](DISTRIBUTION.md).
 
 For deployment outside the git repository (Docker, CI/CD, shared servers), Aletheia can be installed
 as a self-contained bundle with all GHC runtime libraries included. No GHC or Agda is needed at
@@ -427,7 +427,7 @@ git commit --no-verify   # skip pre-commit IWYU advisory
 git push   --no-verify   # skip pre-push CI sweep
 ```
 
-The pre-push sweep includes the IWYU gate on `.agda` files modified vs `main`: step 9 (`tools/iwyu.py --check --diff`) judges both named imports (DEAD/UNRESOLVED) and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware `.agdai` reader in one warm process and fails on any finding; step 10 (`tools/iwyu.py --self-test`) validates that reader against the synthetic fixture matrix. The gate reads interfaces directly (no recompile) and runs on every scoped file. Cross-file deadness is caught by the periodic whole-tree (`--all`) run.
+The pre-push sweep includes the IWYU gate on `.agda` files modified vs `main`: the `tools/iwyu.py --check --diff` gate judges both named imports (DEAD/UNRESOLVED) and wildcard `open import M` (DEAD/REDUNDANT/NARROWABLE) via the scope-aware `.agdai` reader in one warm process and fails on any finding; the `tools/iwyu.py --self-test` gate validates that reader against the synthetic fixture matrix. The gate reads interfaces directly (no recompile) and runs on every scoped file. Cross-file deadness is caught by the periodic whole-tree (`--all`) run.
 
 Both hooks are optional; the project is fully functional without them. They are strongly recommended for contributors because they catch many issues before they reach the maintainer's review.
 
@@ -448,7 +448,7 @@ cabal run shake -- gen-ffi-modules    # Regenerate the MAlonzo module list in al
 cabal run shake -- iwyu               # Regenerate the relevant .agdai + run the import (IWYU) analysis — no full .hs/.so rebuild
 cabal run shake -- install-python     # Build + install Python package (pip install -e .)
 cabal run shake -- check-properties   # Type-check all proof modules
-cabal run shake -- dist               # Package dist/aletheia.tar.gz (C/C++/Go)
+cabal run shake -- dist               # Package dist/aletheia.tar.gz (C/C++/Go/Rust)
 cabal run shake -- docker             # Build Docker runtime image (requires dist)
 cabal run shake -- clean              # Remove build artifacts
 cabal run shake -- install            # System install (default: ~/.local)
@@ -488,7 +488,7 @@ shake clean       # Clean build
 ```bash
 cd python
 rm -rf .venv
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 cd ..
@@ -585,7 +585,7 @@ cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
 deactivate  # if already active
 cd python
 rm -rf .venv
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[all,dev]'
 cd ..
@@ -720,7 +720,7 @@ agda +RTS -N32 -M16G -RTS Aletheia/Protocol/Message.agda  # Check just Message m
 
 **Solution**: These are fetched automatically via CMake FetchContent. Ensure CMake 3.25+ and an internet connection on first build:
 ```bash
-cd cpp && cmake -B build && cmake --build build
+cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build
 ```
 
 **Error**: `error: use of undeclared identifier 'std::format'`
@@ -779,7 +779,7 @@ If you encounter issues not covered here:
 ```bash
 # Initial setup (once)
 cd python
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip setuptools wheel
 pip install -e ".[dev]"
@@ -800,7 +800,7 @@ deactivate                       # Deactivate virtual environment
 
 1. **Always activate** the virtual environment before running Python commands
 2. **Never commit** the `.venv/` directory to git (already in `.gitignore`)
-3. **Recreate venv** if you upgrade Python: `cd python && rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]" && cd ..`
+3. **Recreate venv** if you upgrade Python: `cd python && rm -rf .venv && python3.14 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]" && cd ..`
 4. **Document dependencies**: When adding Python packages, update `python/pyproject.toml`
 
 ---

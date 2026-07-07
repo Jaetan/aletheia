@@ -111,16 +111,16 @@ cmake --build build-ubsan
 ctest --test-dir build-ubsan
 ```
 
-`tools/run_ci.py` wires this exactly as an always-on step (promoted
-from opt-in R21 CPP-SYS-32.2 — UB in `Rational::from_double` had
-previously shipped undetected exactly because the lane was opt-in).
+`tools/run_ci.py` wires this exactly as an always-on step, not opt-in:
+an opt-in sanitizer lane can let UB — as in `Rational::from_double` —
+ship undetected.
 When clang-22 is unavailable, the always-on step fails loudly rather than
 silently degrading.  The sanitizer build uses the same clang toolchain as the
 unit-test build (Clang 22 — see
 [BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy))
 and must be present for `tools/run_ci.py` to return a green report.
 
-## Sanitizer lane decisions (R18 cluster 5, advisor option (d))
+## Sanitizer lane decisions
 
 | Lane | Scope | Catches | Blind spot |
 |---|---|---|---|
@@ -130,7 +130,7 @@ and must be present for `tools/run_ci.py` to return a green report.
 
 The blind spots are covered by:
 
-- **C++ → FFI marshal path**: the Track D doc-example harness exercises
+- **C++ → FFI marshal path**: the doc-example harness exercises
   every documented call path end-to-end against the real FFI. Coverage is
   behavioral (the documented example must produce the documented response)
   rather than memory-safety, but combined with the binding's per-method
@@ -139,7 +139,7 @@ The blind spots are covered by:
   bugs in the marshal code is reasonable.
 - **GHC RTS internals**: GHC has its own test suite. Aletheia inherits
   RTS correctness from GHC's release process and pins the GHC version in
-  `Shakefile.hs` for reproducibility (R18 cluster 3 reproducible-build).
+  `Shakefile.hs` for reproducibility.
 
 ## Go cgo specifics
 
@@ -158,17 +158,17 @@ Go's cgo extends the above concerns:
   tests that import the FFI backend.
 
 The Go test runner does not currently expose a per-test ASan lane —
-this is the cat 33a CI surface that cluster 5 has scoped explicitly.
+this is the cat 33a CI surface.
 The `tools/run_ci.py` orchestrator runs the C++ sanitizer lanes; the
 Go counterpart is a build-tag-gated rebuild of the binding's test
 binary, opt-in via `go test -tags=asan ./aletheia/`.
 
 ## Operator runbook reference
 
-Sanitizer-discovered failures are catalogued in
-[docs/operations/RUNBOOK.md](../operations/RUNBOOK.md) under
-"Sanitizer-detected failures" — symptom + cause + action per lane,
-mirroring the per-event entries from `docs/LOG_EVENTS.yaml`.
+The sanitizer-lane failure modes above (ASan against the `.so`, UBSan
+against the C++ dependency tree) surface as CI-lane failures; see
+[docs/operations/RUNBOOK.md](../operations/RUNBOOK.md) for operational
+triage of CI-lane failures.
 
 ## When to revisit
 
@@ -182,6 +182,6 @@ mirroring the per-event entries from `docs/LOG_EVENTS.yaml`.
 - A new C++ standard library / clang version that ships sanitizer
   improvements changing the cost calculus.
 
-This document records the state as of R18 cluster 5 (2026-05-08). The
+This document records the current sanitizer-lane state. The
 gaps named here are real and the compensating coverage is real; if
 either drifts, update this document in the same commit as the change.

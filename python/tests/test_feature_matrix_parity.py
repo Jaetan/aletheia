@@ -16,7 +16,7 @@ A failure here means the Python public surface drifted from what the matrix
 declares. Fix: either the code (add the symbol back), or the matrix (mark
 the feature as ``planned`` or ``not_applicable`` with justification).
 
-See ``docs/development/PARITY_PLAN.md`` for the rationale and roadmap.
+See ``docs/FEATURE_MATRIX.yaml`` (authoritative) and ``PROJECT_STATUS.md`` for the parity rationale.
 """
 
 from __future__ import annotations

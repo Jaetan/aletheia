@@ -187,11 +187,11 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Verdict** — `DONE` for the bridge + per-section discharge lemmas; threading
   removal folded into E.2's reassessment.
 
-### E.2 — `WellFormedTextDBCAgg` runtime discharge (AGDA-D-11.2 / 19.6)
+### E.2 — `WellFormedTextDBCAgg` runtime discharge
 
 - **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:46`; handler
   `src/Aletheia/Protocol/Handlers/FormatDBCText.agda`.
-- **Origin** — R18 cluster 14 deferral.
+- **Origin** — text round-trip proof obligation (`WellFormedTextDBCAgg` precondition).
 - **Today** — the `FormatDBCText` handler emits
   `formatText (deriveNodesIfEmpty dbc)` unconditionally; `formatText : DBC →
   String` is total and takes no proof argument. `WellFormedTextDBCAgg` is the

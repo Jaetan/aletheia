@@ -1,6 +1,6 @@
 # Dependencies and Licenses
 
-**Last Updated**: 2026-05-12
+**Last Updated**: 2026-07-07
 
 This document lists all third-party software Aletheia depends on, their licenses,
 and the resulting obligations when distributing Aletheia.
@@ -26,7 +26,7 @@ These tools are used to compile Aletheia but are **not** present in the distribu
 | Agda standard library | 2.3 | MIT | Type-checked at compile time |
 | GHC | 9.6.7 | BSD-3-Clause | Compiler (Haskell → machine code) |
 | Shake | ≥ 0.19 | BSD-3-Clause | Build orchestration |
-| setuptools | ≥ 61.0 | MIT | Python build backend |
+| setuptools | ≥ 82.0.1 | MIT | Python build backend |
 | wheel | — | MIT | Python wheel packaging |
 
 **Obligations**: None for downstream users. These tools are not redistributed
@@ -75,6 +75,8 @@ The C++ binding (`cpp/`) wraps `libaletheia-ffi.so` via `dlopen`. It has no runt
 | Package | Version | License | Purpose |
 |---|---|---|---|
 | nlohmann/json | 3.11.3 | MIT | JSON serialization/deserialization |
+| yaml-cpp | 0.8.0 | MIT | YAML check-rule loader (statically linked into the C++ binding) |
+| OpenXLSX | master (commit `5723411`, 2025-07-14) | BSD-3-Clause | Excel template loader (statically linked into the C++ binding) |
 | Catch2 | 3.7.1 | BSL-1.0 | Unit testing (test-only, not shipped) |
 
 Requires CMake 3.25+ and **Clang 22** with a C++23 libstdc++/libc++ (`<expected>`, `<format>`); see [BUILDING.md § Toolchain support policy](docs/development/BUILDING.md#toolchain-support-policy) for the full compiler policy.
@@ -83,7 +85,19 @@ Requires CMake 3.25+ and **Clang 22** with a C++23 libstdc++/libc++ (`<expected>
 
 ## Runtime — Go Layer
 
-The Go binding (`go/`) wraps `libaletheia-ffi.so` via cgo + `dlopen`. It has no third-party Go dependencies.
+The Go binding (`go/`) wraps `libaletheia-ffi.so` via cgo + `dlopen`.
+
+### Third-party Go dependencies
+
+| Package | Version | License | Pulled in by |
+|---|---|---|---|
+| gopkg.in/yaml.v3 | v3.0.1 | MIT | `go/aletheia` (YAML check-rule loader) |
+| github.com/xuri/excelize/v2 | v2.10.1 | BSD-3-Clause | `go/excel` (optional module — Excel template loader) |
+
+The optional `go/excel` module is a separate Go module so the heavy `excelize`
+dependency (and its transitive `golang.org/x/{crypto,net,text}`, `richardlehane/{mscfb,msoleps}`,
+`tiendc/go-deepcopy`, `xuri/{efp,nfp}` chain) is not imposed on consumers of the
+core `go/aletheia` module.
 
 ### System dependencies
 
@@ -96,6 +110,26 @@ Requires Go 1.24+.
 
 ---
 
+## Runtime — Rust Layer
+
+The Rust binding (`rust/`) wraps `libaletheia-ffi.so` via the `libloading` crate
+(runtime `dlopen`/`dlsym`). Its crate dependencies (from `rust/Cargo.toml`):
+
+| Crate | Version pin | License | Role |
+|---|---|---|---|
+| libloading | 0.8 | ISC | Runtime `dlopen` of `libaletheia-ffi.so` |
+| serde_json | 1 | MIT OR Apache-2.0 | JSON protocol serialization/deserialization |
+| yaml-rust2 | 0.10 | MIT OR Apache-2.0 | YAML check-rule loader (optional `yaml` feature, on by default) |
+| futures-channel | 0.3 | MIT OR Apache-2.0 | Async client reply channel (optional `async` feature) |
+| futures-util | 0.3 | MIT OR Apache-2.0 | Stream combinators for the lazy async batch send (optional `async` feature) |
+
+`serde` (MIT OR Apache-2.0) is pulled in transitively by `serde_json`.
+Dev-only (test/bench, not shipped): `futures` 0.3 and `yaml-rust2` 0.10.
+
+Requires the Rust 2021 edition toolchain.
+
+---
+
 ## Runtime — Python Layer
 
 ### Optional dependencies (from `pyproject.toml` extras)
@@ -103,7 +137,7 @@ Requires Go 1.24+.
 | Package | Version | License |
 |---|---|---|
 | openpyxl | ≥ 3.1.5 | MIT |
-| **python-can** | **≥ 4.0** | **LGPL-3.0-only** |
+| **python-can** | **≥ 4.6.1** | **LGPL-3.0-only** |
 | pyyaml | ≥ 6.0.3 | MIT |
 
 (cantools was dropped 2026-05-03 in Track B.3.g `2daa2fb` — DBC parsing now goes through the verified Agda kernel via the FFI; no Python dep required.)
@@ -121,7 +155,7 @@ Requires Go 1.24+.
 
 ## License Obligations Summary
 
-### Permissive licenses (MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, PSF-2.0)
+### Permissive licenses (MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, PSF-2.0)
 
 All permissive-licensed dependencies require only:
 - **Attribution**: include the original copyright notice and license text when

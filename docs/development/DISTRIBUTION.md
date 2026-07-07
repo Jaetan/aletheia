@@ -2,13 +2,13 @@
 
 ---
 **Version**: 2.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
-**Last Updated**: 2026-05-10
+**Last Updated**: 2026-07-07
 **Platform**: Linux x86-64 only
 ---
 
-> **Python users**: The library is loaded automatically via ctypes. This guide is for C, C++, and Go consumers integrating `libaletheia-ffi.so` directly.
+> **Python users**: The library is loaded automatically via ctypes. This guide is for C, C++, Go, and Rust consumers integrating `libaletheia-ffi.so` directly.
 
-How to package, distribute, and integrate `libaletheia-ffi.so` into C, C++, and Go projects.
+How to package, distribute, and integrate `libaletheia-ffi.so` into C, C++, Go, and Rust projects.
 
 **Prerequisites**: Build Aletheia first following [BUILDING.md](BUILDING.md). The `dist` target requires `patchelf` (see below).
 
@@ -75,15 +75,15 @@ LD_LIBRARY_PATH=/path/to/aletheia/lib ./my_app
 
 All bindings share the same Agda core and JSON protocol, but surface coverage differs. The authoritative feature matrix lives in the [Interface Guide § Binding parity](../reference/INTERFACES.md#binding-parity); the highlights are:
 
-| Feature | C | Python | C++ | Go |
-|---|---|---|---|---|
-| Raw JSON FFI (`aletheia_process`) | ✅ | ✅ | ✅ | ✅ |
-| Binary `aletheia_send_frame` hot path | ✅ | ✅ | ✅ | ✅ |
-| Check API fluent interface | — | ✅ | ✅ | ✅ |
-| YAML loader | — | ✅ | ✅ | ✅ |
-| Excel loader | — | ✅ | ✅ | ✅ (separate `go/excel/` module) |
-| DBC JSON input | ✅ | ✅ | ✅ | ✅ |
-| DBC text (`.dbc`) parsing | — | ✅ | ✅ | ✅ |
+| Feature | C | Python | C++ | Go | Rust |
+|---|---|---|---|---|---|
+| Raw JSON FFI (`aletheia_process`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Binary `aletheia_send_frame` hot path | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Check API fluent interface | — | ✅ | ✅ | ✅ | ✅ |
+| YAML loader | — | ✅ | ✅ | ✅ | ✅ |
+| Excel loader | — | ✅ | ✅ | ✅ (separate `go/excel/` module) | ✅ (separate `rust/excel/` crate) |
+| DBC JSON input | ✅ | ✅ | ✅ | ✅ | ✅ |
+| DBC text (`.dbc`) parsing | — | ✅ | ✅ | ✅ | ✅ |
 
 C consumers get the raw JSON/binary FFI surface — higher-level conveniences (Check API, loaders, DBC text parsing) live in the language bindings.
 
@@ -252,6 +252,50 @@ CGO_ENABLED=1 go build ./...
 
 `CGO_ENABLED=1` is required because the Go binding uses cgo to call `dlopen`/`dlsym` from `<dlfcn.h>`.
 
+### Rust
+
+The Rust binding (`rust/` in the Aletheia repository) `dlopen`s `libaletheia-ffi.so`
+at runtime through the [`libloading`](https://crates.io/crates/libloading) crate. It
+resolves the library from the `ALETHEIA_LIB` environment variable (default:
+`libaletheia-ffi.so` on the loader path), rather than taking the path as a
+constructor argument. See the [Rust API reference](../reference/RUST_API.md) for the
+full surface.
+
+#### Cargo dependency
+
+The crate is not published to crates.io; depend on it by git or path:
+
+```toml
+[dependencies]
+aletheia = { git = "https://github.com/Jaetan/aletheia", package = "aletheia" }
+# or, for a local checkout:
+# aletheia = { path = "/path/to/aletheia/rust" }
+```
+
+#### Usage
+
+```rust
+// Functional equivalent of C++'s make_ffi_backend + AletheiaClient and
+// Python's AletheiaClient(ffi_path=...). Point ALETHEIA_LIB at the built
+// libaletheia-ffi.so, then construct a Client — it loads the same verified
+// Agda core via dlopen.
+//
+//   ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so cargo run
+use aletheia::Client;
+
+fn main() {
+    let client = Client::new().expect("init client — is ALETHEIA_LIB set?");
+    // ... use client (see the Rust API reference for the typed surface) ...
+    let _ = client;
+}
+```
+
+#### Build
+
+```bash
+cargo build --release
+```
+
 ### Docker
 
 Two Dockerfiles are provided in the repository root:
@@ -274,7 +318,7 @@ docker run --rm aletheia:runtime python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
 ```
 
-For C/C++/Go consumers who don't need Python, use the dist tarball with a minimal base image:
+For C/C++/Go/Rust consumers who don't need Python, use the dist tarball with a minimal base image:
 
 ```dockerfile
 FROM debian:bookworm-slim
@@ -283,16 +327,14 @@ COPY dist/aletheia /opt/aletheia
 ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
 ```
 
-See [BUILDING.md § Docker](BUILDING.md#docker) for the full from-source build option.
-
 ## Library Loading: dlopen vs Link-Time
 
 | Approach | Used by | How it finds the .so |
 |----------|---------|---------------------|
 | **Link-time** (`-laletheia-ffi`) | C | `-L` at compile time + `RPATH` at runtime |
-| **dlopen** (runtime) | C++, Go, Python | Full path passed to `dlopen()` |
+| **dlopen** (runtime) | C++, Go, Rust, Python | Full path passed to `dlopen()` (Rust via the `ALETHEIA_LIB` env var) |
 
-C++ and Go use `dlopen` because they wrap the FFI through a `Backend` interface that abstracts the loading mechanism, enabling mock backends for testing without a real `.so`.
+C++, Go, and Rust use `dlopen` because they wrap the FFI through a `Backend` interface that abstracts the loading mechanism, enabling mock backends for testing without a real `.so`.
 
 For all `dlopen` consumers, the only input is the **path to `libaletheia-ffi.so`**. The bundled GHC `.so` files are found via `RPATH=$ORIGIN`.
 

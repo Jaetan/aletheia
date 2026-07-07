@@ -40,11 +40,11 @@ to maintain.  The same gate runs blocking at pre-push.
 ## Offline correctness sweep — `tools/run_ci.py`
 
 Documented in [`tools/run_ci.py`](../../tools/run_ci.py). The always-on
-sequential steps run ~22-30 minutes warm (UBSan ctest promoted from opt-in
-to always-on R21 CPP-SYS-32.2 — UB had previously shipped undetected in
-`Rational::from_double` because the lane was opt-in; the IWYU gate +
-its self-test replaced the recompile dead-import gate post-R23). `run_ci`
-prints each step as `[i/N]` at runtime, so the live count is authoritative.
+sequential steps run ~22-30 minutes warm (UBSan ctest is always-on, not
+opt-in: an opt-in sanitizer lane can let UB — as in `Rational::from_double`
+— ship undetected; the IWYU gate + its self-test is the dead-import gate).
+`run_ci` prints each step as `[i/N]` at runtime, so the live count is
+authoritative.
 Plus 3 opt-in lanes (reproducible build, stability bench, mutation
 testing) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
@@ -120,9 +120,9 @@ Each opt-in lane has a CLI flag, an env-var fallback, and a paired
 
 | Flag | Env var | Cost | Coverage |
 |---|---|---|---|
-| `--repro` | `ALETHEIA_REPRO_CHECK=1` | ~10 min | Two-clean-build sha256 verification (R18 cluster 3 / UR-3) |
-| `--stability` | `ALETHEIA_STABILITY_CHECK=1` | ~5 min | Long-run leak detection across 3 bindings + GHC RTS heap profile (R18 cluster 6) |
-| `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / go-mutesting / Mull (R18 cluster 7) |
+| `--repro` | `ALETHEIA_REPRO_CHECK=1` | ~10 min | Two-clean-build sha256 verification |
+| `--stability` | `ALETHEIA_STABILITY_CHECK=1` | ~5 min | Long-run leak detection across 3 bindings + GHC RTS heap profile |
+| `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / gremlins / Mull |
 
 Precedence: **CLI flag > env var > default-off**.  `--full` enables every
 opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
@@ -158,8 +158,7 @@ build` already requires.  The opt-in lanes need additional installs.
 default `clang` package is sufficient; verify with `clang --version`.  No
 extra install if you already use `tools/run_ci.py` for the mutation lane
 (the supported clang-22 covers sanitizers too; older clang also works here).
-Promoted from opt-in
-to always-on R21 CPP-SYS-32.2; if clang is absent the step fails loudly
+This lane is always-on, not opt-in; if clang is absent the step fails loudly
 rather than silently skipping — install clang or run the sweep on a host
 that has it.
 
@@ -198,7 +197,7 @@ which mutmut gremlins mull-runner-22  # mutmut is in python/.venv/bin/
 Each tool's absence is detected by `tools/mutation_run.py` and surfaces
 as a precise error in the per-binding JSON report; the orchestrator marks
 the lane as failed but doesn't crash, so a partial install (e.g.
-mutmut+go-mutesting without Mull) still gets you 2 of 3 binding reports.
+mutmut+gremlins without Mull) still gets you 2 of 3 binding reports.
 
 ## Push-time meta-gates — `.github/workflows/`
 
@@ -211,7 +210,7 @@ equivalent or that need GHA's own infrastructure to be validated:
 - Workflow-permissions hygiene — minimal `permissions:` scope per workflow.
 - Dependabot scans — pull-request-gated; runs on dependabot's own schedule.
 
-These workflows DO NOT duplicate the correctness sweep from `run-ci.sh`.
+These workflows DO NOT duplicate the correctness sweep from `tools/run_ci.py`.
 External-contributor PRs from forks that don't have the pre-push hook
 installed are gated only by the meta-gates plus repository review. For
 high-stakes external PRs, run `tools/run_ci.py` locally on the merged branch
@@ -336,4 +335,4 @@ assertions, even if the pre-push hook didn't run.
 - [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store) + its `test/` fixture matrix.
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — CHANGELOG discipline (public API + build/CI/tooling).
 - [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity (Phase 2).
-- [`memory/feedback_gate_claim_integrity.md`](../../../.claude/projects/-home-nicolas-dev-agda-aletheia/memory/feedback_gate_claim_integrity.md) — the discipline this enforces.
+- Gate-claim integrity — a "gates clean" claim means fresh runs at the head SHA, the discipline `tools/check_gate_claim.py` enforces.

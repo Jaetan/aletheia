@@ -12,6 +12,36 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`aletheia check` / `signals` / `validate --excel` now accept an
+  Excel-authored DBC instead of failing with "`''` is not a valid DBC
+  identifier".** The Excel schema has no transmitter column, so the loader
+  built every message with an empty sender — not a legal DBC identifier, which
+  the kernel's DBC text parser rejected, so *every* `--excel` command exited 2
+  (the technician's Excel on-ramp was broken end-to-end). The loader now emits
+  the reserved `Vector__XXX` "no transmitter assigned" placeholder (a valid
+  identifier that legitimately repeats across messages, exactly as it marks an
+  unassigned receiver on a signal line).
+- **`aletheia check` now runs check files that use decimal thresholds
+  (e.g. `max: 6553.5`) instead of dying with "GHC runtime not
+  initialized".** A decimal check threshold is parsed exactly through the
+  kernel's `from_decimal` SSOT, which is RTS-gated and never self-initialises
+  the GHC runtime; `_cmd_check` used to load the check files before any
+  client (and thus any backend) had brought the runtime up, so in a fresh
+  process every decimal threshold aborted the command with exit 2 before a
+  single frame streamed. `_cmd_check` now constructs the FFI backend first
+  (bringing the RTS up) and injects it into the client, so decimal thresholds
+  parse with the runtime already live; `default_checks` still flow through the
+  client constructor. Integer thresholds were unaffected.
+- **`aletheia check` now fails fast (exit 2) on a per-frame kernel error such
+  as a non-monotonic timestamp, instead of dropping the errored frames and
+  reporting "all checks passed".** The streaming check pipeline acted only on
+  property-batch responses and silently discarded a per-frame error response
+  (e.g. the kernel's `handler_non_monotonic_timestamp` rejection — its metric
+  LTL operators require monotonic time), so a run over a trace with a clock
+  reset or a multi-source merge reported a **false PASS**. Each frame response
+  now goes through the same fail-fast path the batch `send_frames` API already
+  uses, surfacing the kernel error and exiting 2 (operational error) per the
+  CLI's documented 0/1/2 contract.
 - **`cabal run shake -- install` completes for the first time since the
   target landed (2026-02-08).** Shake's `cmd` word-splits bare string
   arguments, so the site-packages query `python3 -c "import site; ..."`
@@ -1271,6 +1301,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **`tools/check_docs.py` — a documentation-accuracy gate, wired into
+  `tools/run_ci.py` as `check-docs`.** It scans every tracked Markdown file and
+  fails on: broken relative links (`[text](target)` whose target is missing),
+  broken header anchors (`#slug` with no matching header, using GitHub's
+  slug rules), and transient/internal labels or links into the private agent
+  memory store in the living docs (`docs/` + the READMEs; the historical logs
+  CHANGELOG / PROJECT_STATUS are link-checked but not label-scoped). Code
+  fences are skipped so a `[](const T& e)` lambda is not mistaken for a link.
 - **Byte-exact furthest-failure parser positions (PR-V2b).** The verified
   parser combinators now thread a *failure watermark* — the deepest
   position any parse attempt reached — through every parse

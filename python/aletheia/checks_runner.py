@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from aletheia.client._client import AletheiaClient
-from aletheia.client._types import AletheiaError
+from aletheia.client._types import AletheiaError, raise_on_error_response
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -177,7 +177,7 @@ def _process_frames(
     """
     violations: list[Violation] = []
     total_frames = 0
-    for can_frame in _lazy_iter_can_log()(logfile):
+    for frame_index, can_frame in enumerate(_lazy_iter_can_log()(logfile)):
         total_frames += 1
         response = client.send_frame(
             can_frame.timestamp,
@@ -188,8 +188,15 @@ def _process_frames(
             brs=can_frame.brs,
             esi=can_frame.esi,
         )
-        if response.get("type") == "property_batch":
-            batch = cast("PropertyBatchResponse", response)
+        # A per-frame ErrorResponse (e.g. the kernel refusing a non-monotonic
+        # timestamp) must NOT be silently dropped: a checker that skips frames
+        # it could not evaluate and still reports "all checks passed" is
+        # unsound — a false PASS from a verified safety tool. raise_on_error_response
+        # raises BatchError (an AletheiaError → the CLI renders it and exits 2),
+        # the same fail-fast contract send_frames already enforces.
+        checked = raise_on_error_response(response, [], frame_index=frame_index)
+        if checked.get("type") == "property_batch":
+            batch = cast("PropertyBatchResponse", checked)
             violations.extend(
                 _build_violation(entry, all_checks)
                 for entry in batch["results"]

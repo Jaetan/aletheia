@@ -15,7 +15,7 @@
 -- public entry point here (not re-routed through a deeper module)
 -- matches the JSON side's `Aletheia.DBC.Formatter` top-level.
 --
--- Semantic-equivalence caveat (from PARITY_PLAN.md §B.3.a):
+-- Semantic-equivalence caveat (B.3.a):
 --   The roundtrip target is `parseText ∘ formatText ≡ id` at the DBC
 --   *value* level, equivalently: `dbc_to_json (parseText (formatText d))`
 --   is byte-identical to `dbc_to_json d`.  It is NOT `formatText ∘

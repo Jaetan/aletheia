@@ -73,6 +73,10 @@ char *aletheia_process(void *state, const char *input);
  *                  ISO 11898 field order — not host endianness). Must not
  *                  be NULL if data_len > 0.
  * @param data_len  Number of payload bytes. Must equal dlcToBytes(dlc).
+ * @param brs_present 1 if the CAN-FD Bit Rate Switch flag is specified, else 0.
+ * @param brs_value   BRS flag value (0/1); ignored when brs_present is 0.
+ * @param esi_present 1 if the CAN-FD Error State Indicator flag is specified, else 0.
+ * @param esi_value   ESI flag value (0/1); ignored when esi_present is 0.
  * @return          UTF-8 encoded, null-terminated JSON response.
  *                  The caller MUST free the returned string with
  *                  aletheia_free_str(). Returns NULL only on allocation failure.
@@ -84,7 +88,9 @@ char *aletheia_process(void *state, const char *input);
 char *aletheia_send_frame(void *state, unsigned long long timestamp,
                           unsigned int can_id, unsigned char extended,
                           unsigned char dlc, const unsigned char *data,
-                          unsigned char data_len);
+                          unsigned char data_len,
+                          unsigned char brs_present, unsigned char brs_value,
+                          unsigned char esi_present, unsigned char esi_value);
 
 /*
  * Send a binary CAN error frame (no payload) for LTL analysis.

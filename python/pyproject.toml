@@ -324,6 +324,13 @@ pytest_add_cli_args = [
     # demo gate it can kill zero mutants by construction, and per-mutant
     # subprocess fan-out would dominate the lane's runtime.
     "--ignore=tests/test_cli_parity.py",
+    # The three CLI `check` regression tests each drive `aletheia check` as a
+    # SUBPROCESS against generated fixtures (installed package, not the mutated
+    # mutants/ copy), so they kill zero mutants by construction — same class as
+    # test_cli_parity above.
+    "--ignore=tests/test_cli_check_decimal_rts.py",
+    "--ignore=tests/test_cli_check_error_frames.py",
+    "--ignore=tests/test_cli_check_excel.py",
     "--ignore=tests/test_format_dbc.py",
     "--ignore=tests/test_agda_open_grammar.py",
     "--ignore=tests/test_agda_open_grammar_generated.py",
@@ -340,6 +347,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_install_freshness.py",
     "--ignore=tests/test_check_proof_coverage.py",
     "--ignore=tests/test_check_clang_tidy_coverage.py",
+    "--ignore=tests/test_check_docs.py",
     "--ignore=tests/test_mutation_run_scope.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
