@@ -518,6 +518,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The Rust binding resolves its FFI symbols once per process instead of
+  per call.** `FfiBackend` used to run `dlsym` on every operation — two
+  lookups per streamed frame (the op symbol + `aletheia_free_str`); a new
+  internal `Symbols` table now resolves every export exactly once, cached
+  in a `OnceLock` alongside the process-lifetime `Library` (so each cached
+  `Symbol<'static, _>` stays borrow-tied to the mapping that backs it).
+  Failure does not latch a poisoned cache: a failed library *load* is
+  returned to the caller and retried on the next construction, and a
+  resolution failure caches nothing — only a fully successful resolution
+  is latched (the RTS-init latch semantics are unchanged). A library that
+  loads but lacks exports fail-fasts at construction with the precise
+  missing-symbol name instead of erroring on the Nth call — note that such
+  a library itself stays loaded for the process lifetime (the pre-existing
+  loaded-once contract), so correcting the path after that requires a new
+  process. No public API change. Measured with the new
+  `rust/examples/bench_send_frame.rs` micro-benchmark (100 000 frames,
+  release, WSL2): ~3 913 → ~3 733 ns per `send_frame` (~+4.8% throughput,
+  255.6k → 267.9k frames/sec) — consistent direction across all paired
+  runs, though within WSL2's ±5% jitter band the margin is at the edge of
+  resolution; the structural guarantee is the mechanism itself (two
+  `dlsym` per frame → zero).
 - **End-of-stream violation enrichment extracts each tracked frame once,
   not once per property (all four bindings, uniform shape).** The Python,
   Go, and C++ clients used to re-extract every last-seen frame for *each*

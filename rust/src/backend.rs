@@ -56,6 +56,14 @@ type SendErrorFn = unsafe extern "C" fn(StateHandle, u64) -> *mut c_char;
 type SendRemoteFn = unsafe extern "C" fn(StateHandle, u64, u32, u8) -> *mut c_char;
 type StreamLifecycleFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
 type ExtractFn = unsafe extern "C" fn(StateHandle, u32, u8, u8, *const u8, u8) -> *mut c_char;
+type ProcessFn = unsafe extern "C" fn(StateHandle, *const c_char) -> *mut c_char;
+type FormatDbcFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
+type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
+type ParseDecimalFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+type InitFn = unsafe extern "C" fn() -> StateHandle;
+type CloseFn = unsafe extern "C" fn(StateHandle);
+type FreeStrFn = unsafe extern "C" fn(*mut c_char);
+type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
 // Build/update use an output-buffer convention: the caller allocates `out_buf`
 // (`dlc` bytes), passes the parallel (indices, nums, dens) signal arrays, and
 // reads an `i8` status — nonzero means failure, with the message in `out_err`
@@ -214,7 +222,7 @@ static RTS_INIT: OnceLock<Result<(), Error>> = OnceLock::new();
 /// `-N<k>`). A later init requesting a different spec is a no-op + a warning.
 static RTS_SPEC: OnceLock<Option<u32>> = OnceLock::new();
 
-pub(crate) fn library() -> Result<&'static Library, Error> {
+fn library() -> Result<&'static Library, Error> {
     if let Some(lib) = LIB.get() {
         return Ok(lib);
     }
@@ -245,6 +253,89 @@ unsafe fn symbol<'lib, T>(lib: &'lib Library, name: &[u8]) -> Result<Symbol<'lib
     })
 }
 
+/// Every C ABI export the binding calls, resolved once per process.
+///
+/// Re-running `dlsym` on every call put two lookups on the per-frame hot path
+/// (the op symbol + `aletheia_free_str`); this table pays them exactly once.
+/// Each field is a `Symbol<'static, _>` borrowing the process-global [`LIB`]:
+/// the `Library` lives in a `static OnceLock` and is never unloaded, so the
+/// `'static` borrow is honest and each fn pointer stays type-tied to the
+/// mapping that backs it — no `Symbol::into_raw` / raw-pointer step needed.
+pub(crate) struct Symbols {
+    process: Symbol<'static, ProcessFn>,
+    send_frame: Symbol<'static, SendFrameFn>,
+    send_error: Symbol<'static, SendErrorFn>,
+    send_remote: Symbol<'static, SendRemoteFn>,
+    start_stream: Symbol<'static, StreamLifecycleFn>,
+    end_stream: Symbol<'static, StreamLifecycleFn>,
+    format_dbc: Symbol<'static, FormatDbcFn>,
+    extract_signals: Symbol<'static, ExtractFn>,
+    build_frame: Symbol<'static, BuildFrameFn>,
+    update_frame: Symbol<'static, UpdateFrameFn>,
+    format_rational: Symbol<'static, FormatRationalFn>,
+    parse_decimal: Symbol<'static, ParseDecimalFn>,
+    init: Symbol<'static, InitFn>,
+    close: Symbol<'static, CloseFn>,
+    free_str: Symbol<'static, FreeStrFn>,
+    hs_init: Symbol<'static, HsInitFn>,
+}
+
+impl Symbols {
+    /// Resolve every export, failing with the missing symbol's name if the
+    /// `.so` lacks one — at construction, not on the Nth call against a stale
+    /// library (the exports move together; `check-ffi-exports` pins the set).
+    fn resolve(lib: &'static Library) -> Result<Self, Error> {
+        // SAFETY: each type argument is that export's exact C ABI signature,
+        // matching haskell-shim/src/AletheiaFFI.hs (see the aliases above).
+        unsafe {
+            Ok(Symbols {
+                process: symbol::<ProcessFn>(lib, b"aletheia_process\0")?,
+                send_frame: symbol::<SendFrameFn>(lib, b"aletheia_send_frame\0")?,
+                send_error: symbol::<SendErrorFn>(lib, b"aletheia_send_error\0")?,
+                send_remote: symbol::<SendRemoteFn>(lib, b"aletheia_send_remote\0")?,
+                start_stream: symbol::<StreamLifecycleFn>(lib, b"aletheia_start_stream\0")?,
+                end_stream: symbol::<StreamLifecycleFn>(lib, b"aletheia_end_stream\0")?,
+                format_dbc: symbol::<FormatDbcFn>(lib, b"aletheia_format_dbc\0")?,
+                extract_signals: symbol::<ExtractFn>(lib, b"aletheia_extract_signals\0")?,
+                build_frame: symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0")?,
+                update_frame: symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0")?,
+                format_rational: symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0")?,
+                parse_decimal: symbol::<ParseDecimalFn>(lib, b"aletheia_parse_decimal\0")?,
+                init: symbol::<InitFn>(lib, b"aletheia_init\0")?,
+                close: symbol::<CloseFn>(lib, b"aletheia_close\0")?,
+                free_str: symbol::<FreeStrFn>(lib, b"aletheia_free_str\0")?,
+                hs_init: symbol::<HsInitFn>(lib, b"hs_init\0")?,
+            })
+        }
+    }
+}
+
+/// Process-global symbol table (see [`Symbols`]). Latched separately from
+/// [`LIB`] so both caches share the only-success-latches rule.
+static SYMBOLS: OnceLock<Symbols> = OnceLock::new();
+
+/// The cached symbol table, resolving it on first use.
+///
+/// Mirrors [`library`]'s non-latching shape: resolution runs *outside* a
+/// `get_or_init`, so a failure is returned to the caller and nothing is cached
+/// — only a fully successful resolution is latched. A library-*load* failure
+/// (unloadable `.so`) is therefore retried on the next call, so correcting
+/// `ALETHEIA_LIB` before any successful load can still succeed. A library that
+/// *loads* but lacks an export fail-fasts with the missing symbol's name — but
+/// that library itself stays loaded for the process lifetime (the loaded-once
+/// contract on [`LIB`]), so recovering from a wrong-but-loadable path requires
+/// a new process.
+pub(crate) fn symbols() -> Result<&'static Symbols, Error> {
+    if let Some(syms) = SYMBOLS.get() {
+        return Ok(syms);
+    }
+    let syms = Symbols::resolve(library()?)?;
+    // If another thread won the race, drop ours and use theirs (both were
+    // resolved from the same process-global library, so they are identical).
+    let _ = SYMBOLS.set(syms);
+    Ok(SYMBOLS.get().expect("SYMBOLS was just set"))
+}
+
 /// Initialise the GHC RTS exactly once for the process.
 ///
 /// Mirrors the Go binding: the RTS cannot be re-initialised after `hs_exit`, so
@@ -252,7 +343,7 @@ unsafe fn symbol<'lib, T>(lib: &'lib Library, name: &[u8]) -> Result<Symbol<'lib
 /// `OnceLock<Result<…>>` so a second backend after a failed first one fails
 /// identically rather than silently masking a broken `.so`.
 fn ensure_rts(
-    lib: &Library,
+    syms: &Symbols,
     cores: Option<u32>,
     logger: Option<&dyn Logger>,
     min_level: LogLevel,
@@ -275,7 +366,7 @@ fn ensure_rts(
             }
         }
     }
-    RTS_INIT.get_or_init(|| init_rts(lib, latched)).clone()
+    RTS_INIT.get_or_init(|| init_rts(syms, latched)).clone()
 }
 
 /// Test-only: bring the GHC RTS up for unit tests that render. The production
@@ -287,8 +378,8 @@ fn ensure_rts(
 /// fixture, which bring the RTS up for their render-dependent mock-backend tests.
 #[cfg(test)]
 pub(crate) fn ensure_rts_for_test() {
-    let lib = library().expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)");
-    ensure_rts(lib, None, None, LogLevel::Warn).expect("init GHC RTS for test");
+    let syms = symbols().expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)");
+    ensure_rts(syms, None, None, LogLevel::Warn).expect("init GHC RTS for test");
 }
 
 /// Render a [`Rational`] via the verified Agda kernel's `formatℚ` (the FFI export
@@ -304,32 +395,30 @@ pub(crate) fn ensure_rts_for_test() {
 /// # Errors
 /// [`Error::RtsNotInitialized`] if the GHC runtime is not initialised (no backend
 /// created), or [`Error::Protocol`] in the unreachable case of a null return (an
-/// ABI/kernel malfunction); [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the
-/// `.so` is not loadable or the export is absent. The call cannot fail for a
-/// well-formed rational once a backend is up: the kernel never emits a zero
-/// denominator and the input's denominator is positive by construction.
+/// ABI/kernel malfunction). A library-load / missing-symbol failure cannot surface
+/// here: the RTS gate passing implies the symbol table is already latched
+/// ([`FfiBackend::new`] resolves the table before `ensure_rts`, and it is the sole
+/// RTS initialiser). The call cannot fail for a well-formed rational once a
+/// backend is up: the kernel never emits a zero denominator and the input's
+/// denominator is positive by construction.
 pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
-    type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
     // Check the RTS BEFORE loading the library. The renderer never initialises the
     // RTS — an FfiBackend is the sole initialiser, so RTS_INIT is Some exactly when
     // a real backend has run ensure_rts (which also loaded the .so). Returning
     // first means a caller that renders before any backend exists (e.g. a
     // check-builder validation error) fails fast without attempting a dlopen —
     // and, when the .so is absent, without re-attempting it on every call (the
-    // library() OnceLock caches only successes). Invoking the MAlonzo export with
-    // the RTS down is undefined behaviour, not a catchable error.
+    // library()/symbols() OnceLocks cache only successes). Invoking the MAlonzo
+    // export with the RTS down is undefined behaviour, not a catchable error.
     match RTS_INIT.get() {
         None => return Err(Error::RtsNotInitialized),
         Some(Err(e)) => return Err(e.clone()),
         Some(Ok(())) => {}
     }
-    let lib = library()?;
-    let f = unsafe { symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0") }?;
-    let free_str =
-        unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+    let syms = symbols()?;
     // SAFETY: numerator/denominator are plain `i64` the kernel renders; the returned
     // pointer is a GHC-allocated CString released by the `Response` guard.
-    let ptr = unsafe { f(r.numerator(), r.denominator()) };
+    let ptr = unsafe { (syms.format_rational)(r.numerator(), r.denominator()) };
     if ptr.is_null() {
         // Unreachable for a well-formed rational (the kernel never returns null and
         // the denominator is positive by construction). Surface a typed error rather
@@ -339,7 +428,11 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
             "aletheia_format_rational returned a null pointer".to_string(),
         ));
     }
-    Ok(Response { ptr, free_str }.into_string())
+    Ok(Response {
+        ptr,
+        free_str: syms.free_str.clone(),
+    }
+    .into_string())
 }
 
 /// Parse a decimal string into an exact [`Rational`] via the verified Agda
@@ -354,36 +447,40 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
 /// (invoking the MAlonzo export with the RTS down is undefined behaviour).
 ///
 /// # Errors
-/// [`Error::RtsNotInitialized`] if no backend is up; [`Error::Validation`] if the
-/// string is not a valid decimal literal or its rational overflows `i64` (the
-/// kernel's `decimal_parse_failed` / `decimal_overflow` — user input, not a wire
-/// fault); [`Error::LibraryLoad`] / [`Error::SymbolMissing`] if the `.so` or the
-/// export is absent; [`Error::Protocol`] on a null return or malformed response
-/// (an ABI/kernel malfunction).
+/// [`Error::RtsNotInitialized`] if no backend is up (as for [`format_rational`],
+/// the RTS gate passing implies the symbol table is already latched, so a
+/// library-load / missing-symbol failure cannot surface here);
+/// [`Error::Validation`] if the string is not a valid decimal literal or its
+/// rational overflows `i64` (the kernel's `decimal_parse_failed` /
+/// `decimal_overflow` — user input, not a wire fault); [`Error::Protocol`] on a
+/// null return or malformed response (an ABI/kernel malfunction).
 pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
-    type ParseDecimalFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
-    let lib = library()?;
-    // Vocal, exactly like format_rational: never self-init the RTS; return before
-    // the FFI call (the MAlonzo export with the RTS down is UB).
+    // Vocal, exactly like format_rational (and in the same order: RTS gate first,
+    // symbols second): never self-init the RTS; return before the FFI call (the
+    // MAlonzo export with the RTS down is UB) — see format_rational's rationale.
     match RTS_INIT.get() {
         None => return Err(Error::RtsNotInitialized),
         Some(Err(e)) => return Err(e.clone()),
         Some(Ok(())) => {}
     }
+    let syms = symbols()?;
     let input = CString::new(s)
         .map_err(|_| Error::Validation("decimal literal contains an interior NUL".to_string()))?;
-    let f = unsafe { symbol::<ParseDecimalFn>(lib, b"aletheia_parse_decimal\0") }?;
-    let free_str =
-        unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
     // SAFETY: `input` is a valid NUL-terminated C string held alive across the
     // call; the returned pointer is a GHC-allocated CString freed by `Response`.
-    let ptr = unsafe { f(input.as_ptr()) };
+    let ptr = unsafe { (syms.parse_decimal)(input.as_ptr()) };
     if ptr.is_null() {
         return Err(Error::Protocol(
             "aletheia_parse_decimal returned a null pointer".to_string(),
         ));
     }
-    decode_decimal_response(&Response { ptr, free_str }.into_string())
+    decode_decimal_response(
+        &Response {
+            ptr,
+            free_str: syms.free_str.clone(),
+        }
+        .into_string(),
+    )
 }
 
 /// Decode the `aletheia_parse_decimal` wire envelope: a bare
@@ -414,12 +511,14 @@ fn spec_str(cores: Option<u32>) -> String {
 /// Run `hs_init`, either with GHC defaults (`cores = None`) or a leaked
 /// `+RTS -N<k> -RTS` argv (`cores = Some(k)`). GHC retains the argv pointers for
 /// the process lifetime, so the strings and the array are intentionally leaked.
-fn init_rts(lib: &Library, cores: Option<u32>) -> Result<(), Error> {
-    // SAFETY: `hs_init` is `void hs_init(int *argc, char ***argv)`.
-    let hs_init = unsafe {
-        symbol::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(lib, b"hs_init\0")
-    }?;
+///
+/// Infallible today (the `hs_init` symbol is pre-resolved in [`Symbols`]), but
+/// kept `Result`-shaped: [`RTS_INIT`] latches a `Result` so a failed first init
+/// would fail every later one identically, and this is its only writer.
+fn init_rts(syms: &Symbols, cores: Option<u32>) -> Result<(), Error> {
+    let hs_init = &syms.hs_init;
     match cores {
+        // SAFETY (both arms): `hs_init` is `void hs_init(int *argc, char ***argv)`.
         // NULL/NULL selects GHC default flags.
         None => unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) },
         Some(k) => {
@@ -443,16 +542,15 @@ fn init_rts(lib: &Library, cores: Option<u32>) -> Result<(), Error> {
 ///
 /// The bytes must be copied out and then released with `aletheia_free_str` —
 /// **never** with `CString::from_raw`, which would hand RTS memory to Rust's
-/// allocator and corrupt the heap. Resolving `free_str` up front (in the caller,
-/// before allocating) keeps this guard's `Drop` infallible.
-type FreeStrFn<'a> = Symbol<'a, unsafe extern "C" fn(*mut c_char)>;
-
-struct Response<'a> {
+/// allocator and corrupt the heap. `free_str` is the pre-resolved deallocator
+/// from [`Symbols`] (a cheap `Symbol` clone), keeping this guard's `Drop`
+/// infallible.
+struct Response {
     ptr: *mut c_char,
-    free_str: FreeStrFn<'a>,
+    free_str: Symbol<'static, FreeStrFn>,
 }
 
-impl Response<'_> {
+impl Response {
     /// Copy the bytes into an owned `String`; the C buffer is freed on drop.
     fn into_string(self) -> String {
         // SAFETY: `ptr` is a non-null, NUL-terminated C string from the core.
@@ -462,10 +560,10 @@ impl Response<'_> {
     }
 }
 
-impl Drop for Response<'_> {
+impl Drop for Response {
     fn drop(&mut self) {
         // SAFETY: `ptr` was allocated by the core; `free_str` is its matching
-        // deallocator (resolved up front, so it is known to exist).
+        // deallocator (pre-resolved in `Symbols`, so it is known to exist).
         unsafe { (self.free_str)(self.ptr) };
     }
 }
@@ -505,7 +603,7 @@ fn slice_ptr<T>(s: &[T]) -> *const T {
 fn check_buffer_status(
     status: i8,
     out_err: *mut c_char,
-    free_str: &Symbol<unsafe extern "C" fn(*mut c_char)>,
+    free_str: &Symbol<'static, FreeStrFn>,
     op: &str,
 ) -> Result<(), Error> {
     if status == 0 {
@@ -544,49 +642,43 @@ impl FfiBackend {
         logger: Option<&dyn Logger>,
         min_level: LogLevel,
     ) -> Result<Self, Error> {
-        let lib = library()?;
-        ensure_rts(lib, cores, logger, min_level)?;
+        // Resolves the WHOLE export table up front (once per process): any
+        // missing symbol fails construction here with its name, instead of on
+        // a later call — and, per `symbols()`, a failure is not latched.
+        let syms = symbols()?;
+        ensure_rts(syms, cores, logger, min_level)?;
         // SAFETY: `aletheia_init` is `StateHandle aletheia_init(void)`.
-        let init =
-            unsafe { symbol::<unsafe extern "C" fn() -> StateHandle>(lib, b"aletheia_init\0") }?;
-        let handle = unsafe { init() };
+        let handle = unsafe { (syms.init)() };
         if handle.is_null() {
             return Err(Error::InitFailed);
         }
         Ok(FfiBackend { handle })
     }
 
-    /// Resolve `aletheia_free_str` up front, run `call` to obtain a GHC-allocated
-    /// response pointer, then copy it out and free it via the RAII [`Response`].
-    fn invoke(
-        &self,
-        call: impl FnOnce(&'static Library) -> Result<*mut c_char, Error>,
-    ) -> Result<String, Error> {
-        let lib = library()?;
-        // Resolve the deallocator BEFORE the call so a `.so` missing
-        // `aletheia_free_str` fails here instead of leaking in Response::drop.
-        let free_str =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
-        let ptr = call(lib)?;
+    /// Run `call` (handed the cached symbol table) to obtain a GHC-allocated
+    /// response pointer, then copy it out and free it via the RAII [`Response`]
+    /// (whose deallocator was pre-resolved with everything else — a `.so`
+    /// missing `aletheia_free_str` already failed in [`FfiBackend::new`]).
+    fn invoke(&self, call: impl FnOnce(&Symbols) -> *mut c_char) -> Result<String, Error> {
+        let syms = symbols()?;
+        let ptr = call(syms);
         if ptr.is_null() {
             return Err(Error::NullResponse);
         }
-        Ok(Response { ptr, free_str }.into_string())
+        Ok(Response {
+            ptr,
+            free_str: syms.free_str.clone(),
+        }
+        .into_string())
     }
 }
 
 impl Backend for FfiBackend {
     fn process(&self, input: &str) -> Result<String, Error> {
         let c_cmd = CString::new(input).map_err(|_| Error::NulInString)?;
-        self.invoke(|lib| {
-            let process = unsafe {
-                symbol::<unsafe extern "C" fn(StateHandle, *const c_char) -> *mut c_char>(
-                    lib,
-                    b"aletheia_process\0",
-                )
-            }?;
-            Ok(unsafe { process(self.handle, c_cmd.as_ptr()) })
-        })
+        // SAFETY: `handle` is the live StreamState this backend owns; `c_cmd`
+        // is a valid NUL-terminated C string held alive across the call.
+        self.invoke(|syms| unsafe { (syms.process)(self.handle, c_cmd.as_ptr()) })
     }
 
     fn send_frame_binary(
@@ -602,82 +694,65 @@ impl Backend for FfiBackend {
         let ext = u8::from(id.is_extended());
         let (brs_p, brs_v) = encode_opt_bool(brs);
         let (esi_p, esi_v) = encode_opt_bool(esi);
-        self.invoke(|lib| {
-            let f = unsafe { symbol::<SendFrameFn>(lib, b"aletheia_send_frame\0") }?;
-            Ok(unsafe {
-                f(
-                    self.handle,
-                    ts.micros(),
-                    id.value(),
-                    ext,
-                    dlc.value(),
-                    data.as_ptr(),
-                    len,
-                    brs_p,
-                    brs_v,
-                    esi_p,
-                    esi_v,
-                )
-            })
+        // SAFETY: `handle` is the live StreamState this backend owns; `data`
+        // is valid for `len` bytes (validated ≤ 64 by `frame_len`).
+        self.invoke(|syms| unsafe {
+            (syms.send_frame)(
+                self.handle,
+                ts.micros(),
+                id.value(),
+                ext,
+                dlc.value(),
+                data.as_ptr(),
+                len,
+                brs_p,
+                brs_v,
+                esi_p,
+                esi_v,
+            )
         })
     }
 
     fn send_error_binary(&self, ts: Timestamp) -> Result<String, Error> {
-        self.invoke(|lib| {
-            let f = unsafe { symbol::<SendErrorFn>(lib, b"aletheia_send_error\0") }?;
-            Ok(unsafe { f(self.handle, ts.micros()) })
-        })
+        // SAFETY: `handle` is the live StreamState this backend owns.
+        self.invoke(|syms| unsafe { (syms.send_error)(self.handle, ts.micros()) })
     }
 
     fn send_remote_binary(&self, ts: Timestamp, id: CanId) -> Result<String, Error> {
         let ext = u8::from(id.is_extended());
-        self.invoke(|lib| {
-            let f = unsafe { symbol::<SendRemoteFn>(lib, b"aletheia_send_remote\0") }?;
-            Ok(unsafe { f(self.handle, ts.micros(), id.value(), ext) })
-        })
+        // SAFETY: `handle` is the live StreamState this backend owns.
+        self.invoke(|syms| unsafe { (syms.send_remote)(self.handle, ts.micros(), id.value(), ext) })
     }
 
     fn start_stream_binary(&self) -> Result<String, Error> {
-        self.invoke(|lib| {
-            let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_start_stream\0") }?;
-            Ok(unsafe { f(self.handle) })
-        })
+        // SAFETY: `handle` is the live StreamState this backend owns.
+        self.invoke(|syms| unsafe { (syms.start_stream)(self.handle) })
     }
 
     fn end_stream_binary(&self) -> Result<String, Error> {
-        self.invoke(|lib| {
-            let f = unsafe { symbol::<StreamLifecycleFn>(lib, b"aletheia_end_stream\0") }?;
-            Ok(unsafe { f(self.handle) })
-        })
+        // SAFETY: `handle` is the live StreamState this backend owns.
+        self.invoke(|syms| unsafe { (syms.end_stream)(self.handle) })
     }
 
     fn format_dbc_binary(&self) -> Result<String, Error> {
-        self.invoke(|lib| {
-            let f = unsafe {
-                symbol::<unsafe extern "C" fn(StateHandle) -> *mut c_char>(
-                    lib,
-                    b"aletheia_format_dbc\0",
-                )
-            }?;
-            Ok(unsafe { f(self.handle) })
-        })
+        // SAFETY: `handle` is the live StreamState this backend owns.
+        self.invoke(|syms| unsafe { (syms.format_dbc)(self.handle) })
     }
 
     fn extract_signals_binary(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<String, Error> {
         let len = frame_len(data)?;
         let ext = u8::from(id.is_extended());
-        self.invoke(|lib| {
-            let f = unsafe { symbol::<ExtractFn>(lib, b"aletheia_extract_signals\0") }?;
-            Ok(unsafe {
-                f(
-                    self.handle,
-                    id.value(),
-                    ext,
-                    dlc.value(),
-                    data.as_ptr(),
-                    len,
-                )
-            })
+        // SAFETY: `handle` is the live StreamState this backend owns; `data`
+        // is valid for `len` bytes (validated ≤ 64 by `frame_len`).
+        self.invoke(|syms| unsafe {
+            (syms.extract_signals)(
+                self.handle,
+                id.value(),
+                ext,
+                dlc.value(),
+                data.as_ptr(),
+                len,
+            )
         })
     }
 
@@ -691,10 +766,7 @@ impl Backend for FfiBackend {
         let num_signals = u32::try_from(signals.indices.len())
             .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
         let mut out = vec![0u8; dlc.to_bytes()];
-        let lib = library()?;
-        let build = unsafe { symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0") }?;
-        let free_str =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+        let syms = symbols()?;
         let mut out_err: *mut c_char = std::ptr::null_mut();
         let out_ptr = if out.is_empty() {
             std::ptr::null_mut()
@@ -704,7 +776,7 @@ impl Backend for FfiBackend {
         // SAFETY: `out` is `dlc.to_bytes()` long (what the core writes); the
         // parallel arrays all share `indices.len()`; `out_err` is an out-param.
         let status = unsafe {
-            build(
+            (syms.build_frame)(
                 self.handle,
                 id,
                 u8::from(extended),
@@ -717,7 +789,7 @@ impl Backend for FfiBackend {
                 &mut out_err,
             )
         };
-        check_buffer_status(status, out_err, &free_str, "build_frame")?;
+        check_buffer_status(status, out_err, &syms.free_str, "build_frame")?;
         Ok(out)
     }
 
@@ -733,10 +805,7 @@ impl Backend for FfiBackend {
         let num_signals = u32::try_from(signals.indices.len())
             .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
         let mut out = vec![0u8; dlc.to_bytes()];
-        let lib = library()?;
-        let update = unsafe { symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0") }?;
-        let free_str =
-            unsafe { symbol::<unsafe extern "C" fn(*mut c_char)>(lib, b"aletheia_free_str\0") }?;
+        let syms = symbols()?;
         let mut out_err: *mut c_char = std::ptr::null_mut();
         let out_ptr = if out.is_empty() {
             std::ptr::null_mut()
@@ -745,7 +814,7 @@ impl Backend for FfiBackend {
         };
         // SAFETY: as `build_frame_bin`, plus `frame`/`frame_n` describe the input bytes.
         let status = unsafe {
-            update(
+            (syms.update_frame)(
                 self.handle,
                 id,
                 u8::from(extended),
@@ -760,20 +829,18 @@ impl Backend for FfiBackend {
                 &mut out_err,
             )
         };
-        check_buffer_status(status, out_err, &free_str, "update_frame")?;
+        check_buffer_status(status, out_err, &syms.free_str, "update_frame")?;
         Ok(out)
     }
 }
 
 impl Drop for FfiBackend {
     fn drop(&mut self) {
-        if let Ok(lib) = library() {
-            // SAFETY: `aletheia_close` is `void aletheia_close(StateHandle)`.
-            if let Ok(close) =
-                unsafe { symbol::<unsafe extern "C" fn(StateHandle)>(lib, b"aletheia_close\0") }
-            {
-                unsafe { close(self.handle) };
-            }
+        // Always the latched fast path: `new()` already resolved the table.
+        if let Ok(syms) = symbols() {
+            // SAFETY: `handle` is the live StreamState `new()` allocated; it is
+            // not used again after `aletheia_close` releases it.
+            unsafe { (syms.close)(self.handle) };
         }
     }
 }
