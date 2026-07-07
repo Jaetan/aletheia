@@ -31,7 +31,7 @@ Six subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-q
 Run LTL checks against a CAN log file.
 
 ```
-aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LOGFILE
+aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--defaults FILE] [--json] LOGFILE
 ```
 
 **Arguments**:
@@ -47,49 +47,82 @@ aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LOGFILE
 
 \* At least one DBC source (`--dbc` or `--excel`) and one checks source (`--checks` or `--excel`) required.
 
-**Text output**:
+**Text output** (from the shipped demo trio — `examples/demo/vehicle.dbc` +
+`vehicle_checks.yaml` + `drive.log`, whose overspeed segment breaks the 120 kph
+`VehicleSpeed` limit):
 ```
 Aletheia — CAN Signal Verification
 
 DBC:    vehicle.dbc
-Checks: checks.yaml (3 checks)
-Log:    drive.blf
+Checks: vehicle_checks.yaml (3 checks)
+Log:    drive.log
 
-Streaming 12450 frames...
+Streaming 134 frames...
 
-RESULT: 2 violations found
+RESULT: 18 violations found
 
-  1. [t=4523.000ms] Speed limit (safety)
-     VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))
+  1. [t=4710.000ms] Speed limit (safety)
+     VehicleSpeed = 126 (formula: always(VehicleSpeed <= 120)) [core: Atomic: predicate failed]
 
-  2. [t=8100.500ms] Brake response (safety)
-     BrakePressure = 0 (formula: always(BrakePressure > 0))
+  ... (18 violations total)
 
-Summary: 2 violations in 3 checks, 12450 frames processed
+Summary: 18 violations, 0 unresolved in 3 checks, 134 frames processed
 ```
 
-**JSON output** (`--json`):
+**JSON output** (`--json`, same run — the `violations` array is abridged here to
+two of its 18 entries):
 ```json
 {
   "status": "violations",
-  "total_frames": 12450,
-  "total_violations": 2,
+  "total_frames": 134,
+  "total_violations": 18,
+  "total_unresolved": 0,
   "violations": [
     {
       "check_index": 0,
       "check_name": "Speed limit",
       "severity": "safety",
-      "timestamp_us": 4523000,
-      "reason": "Always violated",
+      "timestamp_us": 4710000,
+      "reason": "VehicleSpeed = 126 (formula: always(VehicleSpeed <= 120)) [core: Atomic: predicate failed]",
       "signal_name": "VehicleSpeed",
-      "actual_value": 225.5,
-      "condition": "always(VehicleSpeed < 220)"
+      "actual_value": 126,
+      "condition": "always(VehicleSpeed <= 120)"
+    },
+    {
+      "check_index": 0,
+      "check_name": "Speed limit",
+      "severity": "safety",
+      "timestamp_us": 5210000,
+      "reason": "VehicleSpeed = 143.33 (formula: always(VehicleSpeed <= 120)) [core: Atomic: predicate failed]",
+      "signal_name": "VehicleSpeed",
+      "actual_value": {"numerator": 14333, "denominator": 100},
+      "condition": "always(VehicleSpeed <= 120)"
     }
-  ]
+  ],
+  "unresolved": []
 }
 ```
 
 Enriched fields (`signal_name`, `actual_value`, `condition`) are populated when check diagnostics are available.
+
+Rational fields (e.g. `actual_value`) are never JSON floats: a value whose denominator is 1 is emitted as a bare integer (`126` above), otherwise as `{"numerator": N, "denominator": D}` (`143.33` → `14333/100`).
+
+### Unresolved outcome
+
+A check is **unresolved** when the stream ends with its verdict still `Unknown` — typically because a referenced signal was never observed in the log. Unresolved checks are neither passes nor violations; they are reported separately and do **not** affect the exit code (exit `0`).
+
+Text output (a separate illustrative run — a check whose signal the log never carries; the shipped demo trio above has no unresolved checks):
+```
+RESULT: no violations, 1 unresolved
+
+Unresolved (1 — signal never observed or verdict Unknown):
+  1. [t=12450.000ms] Brake response (safety)
+     Signal never observed
+
+Summary: 0 violations, 1 unresolved in 3 checks, 12450 frames processed
+```
+
+In `--json` output the `unresolved` array holds records of the same shape as `violations`, and `total_unresolved` is its length.
 
 ---
 
@@ -121,6 +154,16 @@ Validation FAILED: 2 errors, 1 warnings
 
 ```
 
+**Text output** (warnings only, no errors):
+```
+Validation passed with 1 warnings
+
+  1. [WARNING] empty_message: Message 'Empty' has no signals defined
+
+```
+
+Warnings alone do not fail validation — this case still exits `0`.
+
 **Text output** (no issues):
 ```
 Validation passed: no issues found
@@ -151,7 +194,7 @@ Validation passed: no issues found
 Decode signals from a single CAN frame.
 
 ```
-aletheia extract --dbc FILE CAN_ID DATA
+aletheia extract --dbc FILE [--extended] [--json] CAN_ID DATA
 ```
 
 **Arguments**:
@@ -176,8 +219,8 @@ aletheia extract --dbc FILE CAN_ID DATA
 ```
 CAN ID 0x100 (EngineData):
 
-  EngineSpeed          = 2000.0 rpm
-  EngineTemp           = 85.0 C
+  EngineSpeed          = 2000 rpm
+  EngineTemp           = 85 C
 
 Errors: none
 Absent: none
@@ -187,7 +230,8 @@ Absent: none
 ```json
 {
   "can_id": 256,
-  "values": {"EngineSpeed": 2000.0, "EngineTemp": 85.0},
+  "extended": false,
+  "values": {"EngineSpeed": 2000, "EngineTemp": 85},
   "errors": {},
   "absent": []
 }
@@ -302,7 +346,7 @@ candump -l vcan0   # writes candump-YYYY-MM-DD_hhmmss.log
 Feed the capture straight into Aletheia:
 
 ```bash
-aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
+aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 ```
 
 Wireshark can also capture from SocketCAN, but it writes `pcap`, which is **not** a supported Aletheia input. Use `candump` when Aletheia is the target.
@@ -386,6 +430,16 @@ $ aletheia mux-query --dbc vehicle.dbc 0x100 --json
   ]
 }
 
+# JSON output (selection: --mux/--value)
+$ aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5 --json
+{
+  "message_id": 256,
+  "message_name": "EngineCmd",
+  "multiplexor": "Mode",
+  "value": 5,
+  "signals": ["Diag_FaultCode", "Diag_FaultData"]
+}
+
 # Non-multiplexed message
 $ aletheia mux-query --dbc vehicle.dbc 0x200
 Message 0x200 EngineStatus (DLC 8)
@@ -441,6 +495,9 @@ ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicl
 # or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
 ```
 
+The **Rust** binding ships a typed client library but no CLI yet (a Phase 6
+item) — see the [Rust API Guide](RUST_API.md).
+
 ---
 
 ## See Also
@@ -448,4 +505,5 @@ ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicl
 - **[Interface Guide](INTERFACES.md)** — Check API, YAML, Excel loader reference
 - **[Python API Guide](PYTHON_API.md)** — Full DSL and AletheiaClient reference
 - **[C++ API Guide](CPP_API.md)** / **[Go API Guide](GO_API.md)** — client + CLI references
+- **[Rust API Guide](RUST_API.md)** — typed client + async reference (client-only; no CLI yet)
 - **[Quick Start](../guides/QUICKSTART.md)** — 5-minute tutorial

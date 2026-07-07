@@ -36,7 +36,7 @@
 -- spuriously under `check-properties`.
 --
 -- Pre-implementation audit (2026-04-22, pre-layer-1).  The stdlib
--- substrate audit mandated by PARITY_PLAN.md §B.3.d is complete.
+-- substrate audit (B.3.d, completed 2026-05-03) is complete.
 -- Finding: the layer-1 target lemma
 --
 --     toList-++ₛ : ∀ s t → toList (s ++ₛ t) ≡ toList s ++ₗ toList t

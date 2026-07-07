@@ -20,8 +20,9 @@ Guarantee that **no code lands on `main` without passing every gate** — as
 
 Aletheia's CI is **local-first** (see [CI_LOCAL.md](CI_LOCAL.md)):
 
-- The full 33-step sweep — `tools/run_ci.py`, including the IWYU import gate
-  (steps 9-10) — runs in the **pre-push hook** on the contributor's machine.
+- The full always-on sweep — `tools/run_ci.py`, including the IWYU import gate
+  (the `tools/iwyu.py --check --diff` and `--self-test` steps) — runs in the
+  **pre-push hook** on the contributor's machine.
 - GitHub Actions runs only `gha-checks.yml`: three narrow meta-checks
   (actionlint, action-pin policy, workflow-permissions) that need only Python.
 
@@ -72,8 +73,9 @@ followed.
 5. *Then* flip the `main` ruleset's **Enforcement status** to **Enabled** (next
    section), so every subsequent PR is gated.
 
-**Mutation testing → required (2026-06-20).** The `mutation testing` lane (all
-three bindings' drift gate in `pr-heavy-lanes.yml`) follows the same
+**Mutation testing → required (2026-06-20).** The `mutation testing` lane (the
+Python, Go, and C++ drift gate in `pr-heavy-lanes.yml` — the Rust binding has no
+mutation lane yet) follows the same
 advisory-green → required rollout. But because its heavy caches (Mull-from-source,
 the build tree) only seed on `push: main`, adding it to the ruleset is gated on a
 **cache-seeding proof**, not merely a green PR:

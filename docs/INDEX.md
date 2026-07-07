@@ -11,6 +11,7 @@ Start here:
 1. **[Quick Start](guides/QUICKSTART.md)** - 5-minute verification walkthrough (assumes built library)
 2. **[README](../README.md)** - Project overview
 3. **[PITCH](PITCH.md)** - Why use Aletheia? Elevator pitch for stakeholders
+4. **[Glossary](GLOSSARY.md)** - Plain-language definitions of CAN, LTL, DBC, MAlonzo, and the other domain terms (read this first if the jargon is unfamiliar)
 
 ---
 
@@ -32,6 +33,7 @@ Complete API documentation:
 - **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
 - **[C++ API Guide](reference/CPP_API.md)** - `AletheiaClient`, Check API, and the `ltl::` DSL
 - **[Go API Guide](reference/GO_API.md)** - `Client`, Check API, and the LTL DSL
+- **[Rust API Guide](reference/RUST_API.md)** - `Client`, Check API, the typed DBC model, and the async client
 - **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query
 - **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
@@ -68,7 +70,7 @@ Build and contribute:
 3. **[Local CI](development/CI_LOCAL.md)** - Three-layer CI architecture (always-on / opt-in / external); pre-push hook; orchestrator (`tools/run_ci.py`)
 4. **[Branch & PR Hygiene](development/BRANCH_PR_HYGIENE.md)** - The local-first + server-enforced gate model, required checks, and merge rules for `main`
 5. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
-6. **[Parity Plan](development/PARITY_PLAN.md)** - Cross-binding feature parity roadmap (Tracks A–E + post-R17 follow-ups); paired with `docs/FEATURE_MATRIX.yaml`
+6. **[Feature Matrix](FEATURE_MATRIX.yaml)** - Cross-binding feature parity matrix — the canonical record of which capability each binding (Python / C++ / Go / Rust / CLI) supports, and why any gap exists
 7. **[Deferred Items](development/DEFERRED_ITEMS.md)** - The in-source-deferral backlog and per-item re-examination
 8. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
 9. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
@@ -98,9 +100,8 @@ Learn by example:
 - **[LICENSE](../LICENSE.md)** - BSD 2-Clause License
 - **[Python Package README](../python/README.md)** - Installation via pip
 - **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Third-party runtime dependencies and their licenses
-- **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED` or `DO NOT RE-RAISE IN REVIEW`).  Round-scope working file: `review-rN-findings.md` (latest round in the repo root).
+- **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED` or `DO NOT RE-RAISE IN REVIEW`).
 - **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review)
-- **[Presentation](presentation/index.html)** - Slide deck for talks and demos (open in browser)
 
 ---
 
@@ -116,12 +117,12 @@ aletheia/
 ├── LICENSE.md                         # Legal
 ├── AGENTS.md                          # Per-language coding standards / review categories
 ├── DEPENDENCIES.md                    # Third-party dependencies & licenses
-├── review-rN-findings.md              # Round-scope working file (per-round, latest round in repo root; deleted pre-merge)
-├── .session-state.md                  # Session recovery + resume instructions (AI-assisted dev)
 │
 ├── docs/
 │   ├── INDEX.md                       # THIS FILE - Navigation hub
 │   ├── PITCH.md                       # Elevator pitch
+│   ├── GLOSSARY.md                    # Plain-language domain glossary (CAN / LTL / DBC / MAlonzo)
+│   ├── FEATURE_MATRIX.yaml            # Cross-binding parity matrix (canonical)
 │   │
 │   ├── guides/
 │   │   ├── QUICKSTART.md              # 5-minute quick start
@@ -133,6 +134,7 @@ aletheia/
 │   │   ├── PYTHON_API.md              # Raw DSL and AletheiaClient
 │   │   ├── CPP_API.md                 # C++ AletheiaClient + Check/ltl DSL
 │   │   ├── GO_API.md                  # Go Client + Check/LTL DSL
+│   │   ├── RUST_API.md                # Rust Client + Check DSL + typed DBC + async client
 │   │   └── CLI.md                     # CLI subcommands (check / validate / extract / signals / format-dbc / mux-query)
 │   │
 │   ├── architecture/
@@ -154,11 +156,7 @@ aletheia/
 │   │   ├── CI_LOCAL.md                # Three-layer CI architecture
 │   │   ├── BRANCH_PR_HYGIENE.md       # Gate model + merge rules for main
 │   │   ├── RELEASE.md                 # Tag / sign / publish procedure
-│   │   ├── PARITY_PLAN.md             # Cross-binding feature parity roadmap
 │   │   └── DEFERRED_ITEMS.md          # In-source-deferral backlog
-│   │
-│   └── presentation/
-│       └── index.html                 # Slide deck for talks and demos
 │
 └── examples/
     ├── README.md                      # Curated index of demo scripts

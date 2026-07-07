@@ -7,9 +7,9 @@ Check API, and the raw LTL DSL. Version in [DISTRIBUTION.md](../development/DIST
 > under `cpp/include/aletheia/` — especially `client.hpp`, `check.hpp`,
 > `ltl.hpp`, `types.hpp`, `dbc.hpp`, `yaml.hpp`, `excel.hpp`, and `error.hpp`.
 > This guide is the narrative walkthrough; the headers are the contract.
-> **Other bindings**: see the [Python API Guide](PYTHON_API.md) and the
-> [Interface Guide](INTERFACES.md) — the three bindings ship the same verified
-> core with line-by-line-equivalent APIs.
+> **Other bindings**: see the [Python API Guide](PYTHON_API.md), the
+> [Rust API Guide](RUST_API.md), and the [Interface Guide](INTERFACES.md) — the
+> four bindings ship the same verified core with line-by-line-equivalent APIs.
 
 The C++ binding targets the latest stable Clang only — see
 [BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy).
@@ -75,7 +75,8 @@ Response-time / causal checks use `check::when(...).then(...)`:
 ```cpp
 using namespace aletheia;
 auto brake_response = check::when("Brake").exceeds(PhysicalValue{Rational{50, 1}})
-                          .then("Decel").exceeds(PhysicalValue{Rational{2, 1}});
+                          .then("Decel").exceeds(PhysicalValue{Rational{2, 1}})
+                          .within(std::chrono::milliseconds{500});
 (void)brake_response;
 ```
 
@@ -238,9 +239,9 @@ cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
 ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
 ```
 
-`--dbc` reads `.dbc` text (the verified Agda text parser); `--json` selects
-canonical JSON output. The library path resolves from `$ALETHEIA_LIB`, else a
-build/install default. Full subcommand contract: the [CLI Reference](CLI.md).
+The `--dbc` / `--json` flags and `$ALETHEIA_LIB` library-path resolution are the
+shared host-CLI contract; the full subcommand reference lives in the
+[CLI Reference](CLI.md).
 
 ---
 

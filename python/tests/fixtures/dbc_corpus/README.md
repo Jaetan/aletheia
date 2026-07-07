@@ -1,7 +1,7 @@
 # B.3 DBC Text Parser Corpus
 
 This directory holds the regression corpus for the Track B.3 Agda DBC text
-parser (`docs/development/PARITY_PLAN.md` §B.3). Every B.3 construct
+parser (the B.3 construct inventory, completed 2026-05-03). Every B.3 construct
 inventory row is exercised by at least one corpus file.
 
 The `parity_snapshots/` tree is the B.3.j cross-binding parity oracle for

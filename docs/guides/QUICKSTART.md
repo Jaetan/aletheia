@@ -28,28 +28,37 @@ If any of those steps fail, the [Building Guide](../development/BUILDING.md) has
 
 ## 1. Define Checks (YAML)
 
-Create `checks.yaml`:
+The demo ships `examples/demo/vehicle_checks.yaml` — three checks matched to the
+signals in `examples/demo/vehicle.dbc`:
 
 ```yaml
 checks:
   - name: "Speed limit"
     signal: VehicleSpeed
     condition: never_exceeds
-    value: 220
+    value: 120
     severity: safety
 
-  - name: "Battery range"
-    signal: BatteryVoltage
+  - name: "Brake pressure in range"
+    signal: BrakePressure
     condition: stays_between
-    min: 11.5
-    max: 14.5
+    min: 0.0
+    max: 6553.5
+    severity: warning
+
+  - name: "Acceleration bounded"
+    signal: Acceleration
+    condition: stays_between
+    min: -32.768
+    max: 32.767
     severity: warning
 ```
 
 ## 2. Run Against a CAN Log
 
 ```bash
-aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+cd examples/demo
+aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 ```
 
 ## 3. Interpret Results
@@ -58,18 +67,23 @@ aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 Aletheia — CAN Signal Verification
 
 DBC:    vehicle.dbc
-Checks: checks.yaml (2 checks)
-Log:    drive.blf
+Checks: vehicle_checks.yaml (3 checks)
+Log:    drive.log
 
-Streaming 8200 frames...
+Streaming 134 frames...
 
-RESULT: 1 violations found
+RESULT: 18 violations found
 
-  1. [t=4523.000ms] Speed limit (safety)
-     Always violated
+  1. [t=4710.000ms] Speed limit (safety)
+     VehicleSpeed = 126 (formula: always(VehicleSpeed <= 120)) [core: Atomic: predicate failed]
 
-Summary: 1 violations in 2 checks, 8200 frames processed
+  ... (18 violations total)
+
+Summary: 18 violations, 0 unresolved in 3 checks, 134 frames processed
 ```
+
+The overspeed segment of `drive.log` pushes `VehicleSpeed` past the 120 kph
+limit, so the run reports 18 timestamped violations and exits `1`.
 
 Exit codes: `0` = all passed, `1` = violations found, `2` = error.
 
@@ -86,8 +100,8 @@ from aletheia.can_log import iter_can_log
 
 dbc = dbc_to_json("vehicle.dbc")
 check_list = [
-    checks.signal("VehicleSpeed").never_exceeds(220).severity("safety"),
-    checks.signal("BatteryVoltage").stays_between(Fraction("11.5"), Fraction("14.5")),
+    checks.signal("VehicleSpeed").never_exceeds(120).severity("safety"),
+    checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5")),
 ]
 
 with AletheiaClient() as client:
@@ -95,7 +109,7 @@ with AletheiaClient() as client:
     client.add_checks(check_list)
     client.start_stream()
 
-    for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
+    for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.log"):
         response = client.send_frame(ts, can_id, dlc, data)
         if response.get("type") == "property_batch":
             for entry in response["results"]:

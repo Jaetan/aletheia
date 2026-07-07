@@ -1,7 +1,7 @@
 # Long-Run Stability Bench
 
-Procedure for running the per-binding long-run resource-leakage harnesses
-(R18 cluster 6).  AGENTS.md cat 16 / 25 / 26 / 27 mandate that a stability
+Procedure for running the per-binding long-run resource-leakage harnesses.
+AGENTS.md cat 16 / 25 / 26 / 27 mandate that a stability
 bench of ≥ 1M frames must run with no per-iteration drift on RSS / FD count /
 binding-specific resource accounting (`StablePtr` for Go, `RTSState` for
 Python, `std::thread` for C++) and emit a GHC RTS heap-typed profile so
@@ -30,9 +30,9 @@ summary.json     Aggregated verdict
 `benchmarks/stability/` is gitignored — these are volatile per-run
 artifacts.  The spec defining what each binding's harness MUST measure
 lives at `docs/STABILITY_BENCH.yaml`; the static gate
-`tools/check_stability_bench.py` (Shake target `check-stability-bench` /
-`tools/run_ci.py` step 15) verifies every (binding, sub_check) pair's
-`source_marker` is present in the harness source.
+`tools/check_stability_bench.py` (Shake target `check-stability-bench`,
+an always-on offline enforcer in `tools/run_ci.py`) verifies every
+(binding, sub_check) pair's `source_marker` is present in the harness source.
 
 ## Tuning the run
 
@@ -55,7 +55,7 @@ ALETHEIA_STABILITY_CYCLES=2 ALETHEIA_STABILITY_FRAMES=1000 \
 > nearly-empty `aletheia-ffi.hp` (≤ 100 samples) — useful only as a
 > file-existence smoke test for the env-var path, not for retention
 > analysis.  Meaningful heap-shape inference needs ≥ 30s wall (≥ 300
-> samples).  The default 10 cycles × 100K frames cycles × frames clears
+> samples).  The default 10 cycles × 100K frames clears
 > this comfortably; tune `ALETHEIA_STABILITY_FRAMES` upward when running
 > short cycles to compensate (e.g. `CYCLES=2 FRAMES=200000` for a quick
 > heap-profile capture).  Sample interval can be tightened via
@@ -142,8 +142,7 @@ identically.
 
 ## Forward-revert verification
 
-Each harness was forward-revert-verified at ship time (R18 cluster 6,
-2026-05-08).  To re-verify after a refactor:
+Each harness is forward-revert-verified.  To re-verify after a refactor:
 
 1. **Static gate** — comment out one sub-check call in any harness
    (e.g., delete the `RTSState.refcount` line in
@@ -160,10 +159,10 @@ Each harness was forward-revert-verified at ship time (R18 cluster 6,
 
 The static grep gate (`tools/check_stability_bench.py`) is always-on:
 * Shake `phony "check-stability-bench"`.
-* `tools/run_ci.py` step 15 (offline enforcers section).
+* `tools/run_ci.py` always-on offline enforcer (`check-stability-bench`).
 
 The dynamic run (`tools/stability_run.py`) is opt-in:
-* `tools/run_ci.py` opt-in lane (step 35 when enabled) — set `ALETHEIA_STABILITY_CHECK=1` (or pass `--stability`).
+* `tools/run_ci.py` opt-in `--stability` lane — set `ALETHEIA_STABILITY_CHECK=1` (or pass `--stability`).
 
 A 1M-frame full run is ~5-10 min on a quiet host; the static gate is
 sub-second.  Default-on the cheap one, default-off the expensive one.

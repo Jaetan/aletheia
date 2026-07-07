@@ -25,8 +25,8 @@
 //!
 //! Frame streaming uses the binary FFI (`aletheia_send_frame`, …), *not* the
 //! JSON command path — that mirrors every other binding and the core's intended
-//! hot path. The typed DBC document model, the Check DSL, and CLI affordances
-//! are tracked as `planned` in `docs/FEATURE_MATRIX.yaml`.
+//! hot path. The typed DBC document model and the Check DSL are implemented; a
+//! Rust host CLI remains `planned` (Phase 6) in `docs/FEATURE_MATRIX.yaml`.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

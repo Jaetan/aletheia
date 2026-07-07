@@ -89,7 +89,7 @@ open import Aletheia.Error public using
 --
 -- Whitespace (` `, `\t`) between lexemes on the same line is permissive;
 -- newlines terminate top-level statements.  Sections below are keyed to the
--- PARITY_PLAN.md §B.3 construct inventory categories — a 1:1 review audit
+-- the B.3 construct-inventory categories — a 1:1 review audit
 -- target so new inventory rows always get a grammar line.
 --
 -- A. Preamble

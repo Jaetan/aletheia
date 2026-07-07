@@ -41,23 +41,25 @@ property loaded from one source is indistinguishable from one built in code.
 
 ### Binding parity
 
-All three bindings (Python, C++, Go) share the same verified Agda core and the
-same JSON protocol. Code snippets in this guide are in Python for brevity, but
+All four bindings (Python, C++, Go, Rust) share the same verified Agda core and
+the same JSON protocol. Code snippets in this guide are in Python for brevity, but
 the Check API, YAML loader, and DSL are available in every binding. The
-following table summarizes feature availability per binding:
+authoritative, gate-checked source for per-binding feature availability is
+[`docs/FEATURE_MATRIX.yaml`](../FEATURE_MATRIX.yaml); the table below summarizes it:
 
-| Feature | Python | C++ | Go |
-|---|---|---|---|
-| Check API (`checks.signal(...).never_exceeds(...)`) | ✅ (`aletheia.checks.signal(...)`) | ✅ (`aletheia::check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
-| Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`aletheia.Always{Inner: ...}` struct literals) |
-| YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::load_checks_from_yaml`) | ✅ (`aletheia.LoadChecksFromYAMLFile`) |
-| Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::load_checks_from_excel`) | ✅ (separate `go/excel/` module) |
-| DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
-| DBC text (`.dbc`) parsing | ✅ (`parse_dbc_text` / `dbc_to_json`) | ✅ (`parse_dbc_text`) | ✅ (`ParseDBCText`) |
-| DBC text (`.dbc`) formatting | ✅ (`format_dbc_text` / `dbc_to_text`) | ✅ (`format_dbc_text`) | ✅ (`FormatDBCText`) |
-| Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ |
+| Feature | Python | C++ | Go | Rust |
+|---|---|---|---|---|
+| Check API (`checks.signal(...).never_exceeds(...)`) | ✅ (`aletheia.checks.signal(...)`) | ✅ (`aletheia::check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) | ✅ (`aletheia::check::signal(...)`) |
+| Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`aletheia.Always{Inner: ...}` struct literals) | ✅ (`Predicate` / `Formula` enums) |
+| YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::load_checks_from_yaml`) | ✅ (`aletheia.LoadChecksFromYAMLFile`) | ✅ (`yaml::load_checks_from_yaml`) |
+| Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::load_checks_from_excel`) | ✅ (separate `go/excel/` module) | ✅ (separate `rust/excel/` crate) |
+| Load DBC from JSON dict | ✅ (`parse_dbc`) | ✅ (`AletheiaClient::parse_dbc`) | ✅ (`Client.ParseDBC`) | ✅ (`Client::parse_dbc`) |
+| DBC text (`.dbc`) parsing | ✅ (`parse_dbc_text` / `dbc_to_json`) | ✅ (`parse_dbc_text`) | ✅ (`ParseDBCText`) | ✅ (`Client::parse_dbc_text`) |
+| DBC text (`.dbc`) formatting | ✅ (`format_dbc_text` / `dbc_to_text`) | ✅ (`format_dbc_text`) | ✅ (`FormatDBCText`) | ✅ (`Client::format_dbc_text`) |
+| Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ | ✅ (`Client::send_frame`) |
 
-The same call, side by side across the three bindings:
+The same call, side by side (Python, C++, and Go shown for brevity; the Rust
+equivalents are in the [Rust API Guide](RUST_API.md)):
 
 **Check API** — "Speed must never exceed 220":
 ```python
@@ -136,9 +138,9 @@ _, _ = text, err
 
 These pairs are deliberately line-by-line equivalent — a regression in one binding that diverges from the others is a parity bug, not a design choice. See the [Distribution Guide § Loading the FFI library](../development/DISTRIBUTION.md) for the constructor boilerplate (`make_ffi_backend` / `NewFFIBackend` / `AletheiaClient(ffi_path=...)`) that sits one layer below these calls.
 
-**`.dbc` text parsing across bindings.** All three bindings parse `.dbc`
+**`.dbc` text parsing across bindings.** All four bindings parse `.dbc`
 text directly via the verified Agda parser (`parse_dbc_text` /
-`ParseDBCText`); the JSON-detour and Excel-sheet workarounds are no
+`ParseDBCText` / `Client::parse_dbc_text`); the JSON-detour and Excel-sheet workarounds are no
 longer needed. The Excel loader remains available for sheet-based
 authoring workflows, but is no longer the only cross-binding option.
 
@@ -265,9 +267,11 @@ with AletheiaClient() as client:
 
     for timestamp, can_id, dlc, data, _extended, _brs, _esi in can_trace:
         response = client.send_frame(timestamp, can_id, dlc, data)
-        if response.get("status") == "fails":
-            enrichment = response.get("enrichment", {})
-            print(f"Violation: {enrichment.get('enriched_reason')}")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry["status"] == "fails":
+                    enrichment = entry.get("enrichment", {})
+                    print(f"Violation: {enrichment.get('enriched_reason')}")
 
     client.end_stream()
 ```
@@ -276,16 +280,18 @@ with AletheiaClient() as client:
 
 ```text
 # Module ``aletheia.checks`` — entry-point free functions
+# Numeric params are `int | Fraction` and REJECT float (the float principle).
+# For an exact decimal, pass `from_decimal("11.5")` or `Fraction("11.5")`.
 def signal(name: str) -> CheckSignal
 def when(signal_name: str) -> WhenSignal
 
 class CheckSignal:
-    def never_exceeds(self, value: float) -> CheckResult
-    def never_below(self, value: float) -> CheckResult
-    def never_equals(self, value: float) -> CheckResult
-    def stays_between(self, lo: float, hi: float) -> CheckResult
-    def equals(self, value: float) -> CheckSignalPredicate
-    def settles_between(self, lo: float, hi: float) -> SettlesBuilder
+    def never_exceeds(self, value: int | Fraction) -> CheckResult
+    def never_below(self, value: int | Fraction) -> CheckResult
+    def never_equals(self, value: int | Fraction) -> CheckResult
+    def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> CheckResult
+    def equals(self, value: int | Fraction) -> CheckSignalPredicate
+    def settles_between(self, lo: int | Fraction, hi: int | Fraction) -> SettlesBuilder
 
 class CheckSignalPredicate:
     def always(self) -> CheckResult
@@ -294,17 +300,17 @@ class SettlesBuilder:
     def within(self, time_ms: int) -> CheckResult
 
 class WhenSignal:
-    def exceeds(self, value: float) -> WhenCondition
-    def equals(self, value: float) -> WhenCondition
-    def drops_below(self, value: float) -> WhenCondition
+    def exceeds(self, value: int | Fraction) -> WhenCondition
+    def equals(self, value: int | Fraction) -> WhenCondition
+    def drops_below(self, value: int | Fraction) -> WhenCondition
 
 class WhenCondition:
     def then(self, signal_name: str) -> ThenSignal
 
 class ThenSignal:
-    def equals(self, value: float) -> ThenCondition
-    def exceeds(self, value: float) -> ThenCondition
-    def stays_between(self, lo: float, hi: float) -> ThenCondition
+    def equals(self, value: int | Fraction) -> ThenCondition
+    def exceeds(self, value: int | Fraction) -> ThenCondition
+    def stays_between(self, lo: int | Fraction, hi: int | Fraction) -> ThenCondition
 
 class ThenCondition:
     def within(self, time_ms: int) -> CheckResult
@@ -349,7 +355,7 @@ checks:
 client.add_checks(checks)
 ```
 
-**Type-based dispatch**: `load_checks()` distinguishes file vs. inline YAML by argument type. Pass a `pathlib.Path` to load from a file (`FileNotFoundError` if missing). Pass a `str` to parse inline YAML (`ValueError` on a malformed YAML body). The previous heuristic that auto-promoted a file-path-shaped string to a file load was removed in R19 cluster B (`PY-B-26.12`) to close a path-confusion vector. Static type checkers (pyright/mypy) catch non-(`str` | `Path`) arguments at check time.
+**Type-based dispatch**: `load_checks()` distinguishes file vs. inline YAML by argument type. Pass a `pathlib.Path` to load from a file (`FileNotFoundError` if missing). Pass a `str` to parse inline YAML (`ValueError` on a malformed YAML body). The previous heuristic that auto-promoted a file-path-shaped string to a file load was removed to close a path-confusion vector. Static type checkers (pyright/mypy) catch non-(`str` | `Path`) arguments at check time.
 
 ### YAML Schema
 
@@ -530,9 +536,11 @@ with AletheiaClient() as client:
 
     for timestamp, can_id, dlc, data, _extended, _brs, _esi in can_trace:
         response = client.send_frame(timestamp, can_id, dlc, data)
-        if response.get("status") == "fails":
-            enrichment = response.get("enrichment", {})
-            print(f"Violation: {enrichment.get('enriched_reason')}")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry["status"] == "fails":
+                    enrichment = entry.get("enrichment", {})
+                    print(f"Violation: {enrichment.get('enriched_reason')}")
 
     client.end_stream()
 ```
@@ -716,11 +724,20 @@ backend, _ := aletheia.NewFFIBackend(libPath, aletheia.WithFFILogger(slog.Defaul
 client, _  := aletheia.NewClient(backend,  aletheia.WithLogger(slog.Default()))
 ```
 
-**Emission point of `rts.cores_mismatch`.**  All three bindings emit the warning the second (and subsequent) time a process initialises the GHC RTS with a different `-N` value than the first call.  The exact moment differs by binding:
+**Rust** — a `logger` closure on `Client::builder()` (a callback sink; zero-cost when none is set):
+```rust
+let client = Client::builder()
+    .logger(|rec: &aletheia::LogRecord| eprintln!("{}: {}", rec.level, rec.event))
+    .min_level(aletheia::LogLevel::Info)
+    .build()?;
+```
+
+**Emission point of `rts.cores_mismatch`.**  All four bindings emit the warning the second (and subsequent) time a process initialises the GHC RTS with a different `-N` value than the first call.  The exact moment differs by binding:
 
 - **Go** — emitted from `NewFFIBackend` via the `WithFFILogger` slog handler.  Fires before any `Client` exists.
 - **Python** — emitted from `LibraryHandle.acquire`, which runs during `AletheiaClient.__init__` (the FFI is acquired lazily on first client construction).  Goes through the module-level `aletheia` logger, so a Python application sees it via the standard `logging` configuration without per-client wiring.
 - **C++** — captured at `make_ffi_backend()` time but emitted from the `AletheiaClient` constructor through the `Logger` passed to that constructor (the FFI backend has no logger of its own).  Wire one up to the client to observe it.
+- **Rust** — emitted from `FfiBackend::new` (via `ensure_rts`) during `ClientBuilder::build`, routed through the `logger` closure configured on the builder.  The process-global RTS-init latch replays the first init's outcome on later calls.
 
 The wire format (`active_cores` and `requested_cores` as integer fields, level `WARNING`) is identical across bindings.  The choice of emission point is a layering trade-off: Go gives the FFI layer its own logger so backend-level events are observable without a client; Python relies on the global logging tree; C++ keeps the backend logger-free and routes everything through the client.
 

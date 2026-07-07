@@ -1,8 +1,8 @@
 # Aletheia Operations Runbook
 
 Operator-facing reference for diagnosing log events and failure modes
-emitted by Aletheia's Python / Go / C++ bindings against the verified
-Agda kernel. Each entry is keyed on what an on-call operator actually
+emitted by Aletheia's Python / Go / C++ / Rust bindings against the
+verified Agda kernel. Each entry is keyed on what an on-call operator actually
 sees (a structured log line, an exception class, a build error) and
 gives the likely cause plus the suggested next step.
 
@@ -29,7 +29,7 @@ cross-references these — it does not duplicate them.
 ## Audience
 
 On-call operators and integrators who deploy `libaletheia-ffi.so`
-behind a Python / Go / C++ application. If you are debugging a build
+behind a Python / Go / C++ / Rust application. If you are debugging a build
 or developing the kernel, prefer
 [BUILDING.md](../development/BUILDING.md) and
 [DESIGN.md](../architecture/DESIGN.md).
@@ -42,18 +42,19 @@ or developing the kernel, prefer
 3. Run the **Action** entry. If the action does not resolve the
    symptom, escalate with the log line and the bound / error code.
 
-Every event listed here is emitted by the Python / Go / C++ bindings
-with the same name (the per-binding parity tests in
+Every event listed here is emitted by the Python / Go / C++ / Rust
+bindings with the same name (the per-binding parity tests in
 `python/tests/test_log_events_parity.py`,
-`go/aletheia/log_events_test.go`, and
-`cpp/tests/test_log_events_parity.cpp` enforce this). A regression
+`go/aletheia/log_events_test.go`,
+`cpp/tests/test_log_events_parity.cpp`, and
+`rust/tests/log_events.rs` enforce this). A regression
 that drops or renames an event fails the build before reaching
 production.
 
 ## Log Events
 
 Sixteen structured log events are emitted by the bindings. Levels
-(info / debug / warn) are the same in all three bindings; severity is
+(info / debug / warn) are the same in all four bindings; severity is
 informational below and authoritative in
 [LOG_EVENTS.yaml](../LOG_EVENTS.yaml).
 
@@ -65,9 +66,9 @@ informational below and authoritative in
 completion, carrying the parsed message / signal counts.
 
 **Cause:** A DBC definition (Python `DBCDefinition` / Go `DBCDefinition` /
-C++ `DbcDefinition`) was successfully loaded — either from the JSON-shape
-command (`parseDBC`) or the DBC-text path (`parseDBCText`). Both paths emit
-the same canonical event name.
+C++ `DbcDefinition` / Rust `Dbc`) was successfully loaded — either from the
+JSON-shape command (`parseDBC`) or the DBC-text path (`parseDBCText`). Both
+paths emit the same canonical event name.
 
 **Action:** None. This is a normal lifecycle marker. If you expected
 a higher message count, check for `extraction.parse_failed` or
@@ -110,8 +111,8 @@ expectations; investigate any `extraction.process_failed` /
 #### `rts.cores_mismatch`
 
 **Symptom:** warn-level log line at `make_ffi_backend(path, rts_cores)`
-(C++) / `WithRTSCores(N)` (Go) / RTS-init equivalent (Python),
-emitted once per subsequent mismatching call.
+(C++) / `WithRTSCores(N)` (Go) / `ClientBuilder::rts_cores(N)` (Rust) /
+RTS-init equivalent (Python), emitted once per subsequent mismatching call.
 
 **Cause:** GHC RTS init was requested with a core count that
 disagrees with an earlier process-wide init. The first call wins —
@@ -127,10 +128,11 @@ warning is informational only.
 **Cross-binding wiring asymmetry — wire the logger early:** The event
 fires from different sites depending on the binding (Go: `NewFFIBackend`
 before any client; Python: `LibraryHandle.acquire` during first client
-construction; C++: `AletheiaClient` constructor). An operator who has
+construction; C++: `AletheiaClient` constructor; Rust: `FfiBackend::new`
+during `ClientBuilder::build`). An operator who has
 wired the logger only at one point may silently miss the warning.
 The safe pattern: wire the structured logger to the FFI Backend (Go /
-C++ / Python alike) at the earliest construction step in the host
+C++ / Python / Rust alike) at the earliest construction step in the host
 program, then pass that backend to every Client.
 
 ### Frame processing
@@ -203,8 +205,8 @@ workflow:
 ```bash
 # Python (or via the unified CLI):
 python3 -m aletheia signals --dbc <file>.dbc | grep -i <signal_name>
-# Inspect the CAN ID:
-python3 -m aletheia messages --dbc <file>.dbc | grep -i <can_id_hex>
+# Inspect the message hosting a CAN ID:
+python3 -m aletheia mux-query --dbc <file>.dbc <can_id_hex>
 ```
 
 If the predicate is correct, the frame is malformed (check the producer's
@@ -319,8 +321,9 @@ guards a fault path the test session deliberately avoided), the
 `Unresolved` verdict is the correct outcome and the warning is
 informational. If the absence is a surprise, cross-check the
 property's signal name against the DBC (`aletheia.dbc`
-`signal_by_name` returns the message that hosts a given signal) and
-the producer side of the bus.
+`signal_by_name(msg, name)` returns the `DBCSignal` within a given
+message — to find which message hosts a signal, iterate
+`dbc['messages']`) and the producer side of the bus.
 
 ## Failure Modes
 
@@ -350,7 +353,7 @@ exists on the loader path. The Python loader checks
 
 **Symptom:** `FileNotFoundError: libaletheia-ffi.so not found`
 (Python) / `dlopen` failure (Go) / `make_ffi_backend(...)` throws
-(C++) at client construction.
+(C++) / `Error::LibraryLoad` (Rust) at client construction.
 
 **Cause:** The binding loader could not resolve `libaletheia-ffi.so`
 on its search path.
@@ -416,18 +419,17 @@ need the FFI backend, `MockBackend` is pure Go and works under
 
 #### `input_bound_exceeded`
 
-Post R19 cluster 14 / AGDA-C-6.2 consolidation 2026-05-11: the three
-previously-split codes (`parse_input_bound_exceeded` /
-`dbc_text_input_bound_exceeded` / `frame_input_bound_exceeded`) merged
-into a single `input_bound_exceeded` code; discriminate by the
-`bound_kind` field on the structured payload.
+A single `input_bound_exceeded` code covers every input-bound
+violation; discriminate by the `bound_kind` field on the structured
+payload.
 
 **Symptom:** Any command (JSON-shape `parseDBC` / `setProperties` /
 binary `aletheia_send_frame` / `parse_dbc_text`) returns
 `{"status": "error", "code": "input_bound_exceeded", "bound_kind": "...", ...}`,
 or the binding raises `aletheia.InputBoundExceededError` (Python) /
 `*aletheia.InputBoundExceededError` (Go) / throws
-`aletheia::InputBoundExceededError` (C++).
+`aletheia::InputBoundExceededError` (C++) / returns
+`Error::InputBoundExceeded` (Rust).
 
 **Cause:** An input exceeded one of the limits in
 [PROTOCOL.md § Limits](../architecture/PROTOCOL.md#limits).  The
@@ -478,8 +480,7 @@ splits by bound-kind family:
   fit in a few atoms); restructure rather than raising the cap.
 - **`frame_byte_count`** — structurally impossible for a valid CAN /
   CAN-FD frame.  Indicates a binding-side encoding bug; check the
-  producer's DLC-to-bytes mapping (valid table:
-  `{0..8, 12, 16, 20, 24, 32, 48, 64}` for DLC values `0..15`).
+  producer's DLC-to-bytes mapping (valid table under Cause).
 
 ### Runtime — OOM / heap pressure
 
@@ -547,9 +548,10 @@ codified in `Aletheia.DBC.Validator`.
 
 **Action:** Run `aletheia validate --dbc <file>` (or the binding
 equivalent) to enumerate issues. Each issue carries a stable
-`IssueCode` mapped across all three bindings — see the
+`IssueCode` mapped across all four bindings — see the
 `IssueCode` enum (`python/aletheia/codes/_issue.py`,
-`go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`).
+`go/aletheia/result.go`, `cpp/include/aletheia/validation.hpp`,
+`rust/src/response.rs`).
 Warnings (e.g., `UnknownSignalReceiver`, `UnknownValueDescriptionTarget`)
 do not block parse; errors do.
 
@@ -566,6 +568,9 @@ handler):
 - **C++**: `aletheia::ValidationError` (subclass of
   `aletheia::AletheiaException`).  Catch via
   `catch (const aletheia::ValidationError& e) { ... e.issues() ... }`.
+- **Rust**: `Error::ValidationFailed` carrying the structured `issues`
+  list.  Match via
+  `Err(aletheia::Error::ValidationFailed { issues, .. }) => { ... }`.
 
 #### `handler_non_monotonic_timestamp` on `send_frame` / `send_error` / `send_remote`
 
@@ -597,10 +602,19 @@ interleaves real Data frames with Error / Remote frames (e.g., to
 inject bus-fault events into a replay) must order ALL three kinds
 together by timestamp, not just within each kind.
 
-#### `dbc_text_parse_error` on `parse_dbc_text`
+#### `dbc_text_*` on `parse_dbc_text`
 
-**Symptom:** `parse_dbc_text` returns
-`{"status": "error", "code": "dbc_text_parse_error", ...}`.
+**Symptom:** `parse_dbc_text` returns an error whose `code` is one of
+the three `dbc_text_*` codes:
+- `dbc_text_parse_failure` — the text could not be parsed; structured
+  `line` / `column` mark the deepest byte any parse attempt reached
+  (the watermark).
+- `dbc_text_trailing_input` — the top-level parse stopped at the first
+  unparseable statement; `line` / `column` mark the failing byte,
+  `statement_line` / `statement_column` where that statement starts.
+- `dbc_text_attribute_refinement_failed` — a `BA_DEF_DEF_` / `BA_` /
+  `BA_REL_` entry failed refinement (undeclared attribute, or a value
+  that does not fit its declared type).
 
 **Cause:** The DBC source text failed the Agda-verified grammar
 parser (`Aletheia.DBC.TextParser`).  Causes: malformed `BO_` / `SG_` /
@@ -610,8 +624,8 @@ cover (the parser implements full cantools equivalence; if a
 construct is rejected, the source likely has a syntax error rather
 than a cantools-only extension).
 
-**Action:** The error message carries the line offset and a
-`DBCTextParseError` constructor identifying the parse stage.  Compare
+**Action:** The error carries the structured `line` / `column`
+watermark identifying the failing byte.  Compare
 the rejected line against the `cantools` reference parser
 (`python3 -c 'import cantools; cantools.db.load_string(open("...").read())'`);
 if cantools also rejects, the DBC is malformed at source.  If cantools
@@ -627,8 +641,9 @@ contract; this section captures the operator-visible symptoms.
 
 **Symptom:** A streaming or batch operation returns early with the
 binding's cancellation type (Python `asyncio.CancelledError`,
-Go `ctx.Err()`, C++ `ErrorKind::Cancellation`) plus a committed
-prefix of frame results.
+Go `ctx.Err()`, C++ `ErrorKind::Cancellation`; in Rust a dropped
+`AsyncClient` future simply never resolves — there is no `Error`
+value) plus a committed prefix of frame results.
 
 **Cause:** The caller cancelled — a context deadline expired, a stop
 token was requested, or an asyncio task was cancelled.
@@ -654,7 +669,8 @@ committed prefix; the cancellation never fires because the loop
 terminated first.
 
 **Action:** Check the returned error type — cancellation produces
-`ctx.Err()` / `CancelledError` / `ErrorKind::Cancellation`; a real
+`ctx.Err()` / `CancelledError` / `ErrorKind::Cancellation` (or, in
+Rust, no result at all — the dropped future never resolves); a real
 error produces a binding-specific error type. If you observed both,
 the error is the actionable signal; the cancellation was just
 pre-empted.
@@ -701,7 +717,7 @@ the kernel — no state was touched.
 - [BUILDING.md § Troubleshooting](../development/BUILDING.md#troubleshooting)
   — exhaustive build / install error catalogue.
 - [CANCELLATION.md](../architecture/CANCELLATION.md) — cooperative
-  cancellation contract across the three bindings.
+  cancellation contract across the four bindings.
 - [DESIGN.md](../architecture/DESIGN.md) — three-layer architecture.
 
 ## Versioning

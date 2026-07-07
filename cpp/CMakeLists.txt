@@ -481,7 +481,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # Layer 6: Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
     # ("<header>#<symbol>") resolves to an existing header containing the
-    # symbol as a whole-word match. See docs/development/PARITY_PLAN.md.
+    # symbol as a whole-word match. Parity source: docs/FEATURE_MATRIX.yaml.
     add_executable(feature_matrix_tests tests/test_feature_matrix_parity.cpp)
     target_link_libraries(feature_matrix_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)

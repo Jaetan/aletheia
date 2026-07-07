@@ -26,7 +26,7 @@
 ## Audience
 
 This document is for:
-- Python, C++, and Go developers integrating the Aletheia client with custom tooling
+- Python, C++, Go, and Rust developers integrating the Aletheia client with custom tooling
 - Maintainers modifying the JSON protocol or FFI boundary
 - System architects understanding the communication layer
 
@@ -38,10 +38,10 @@ This document is for:
 
 ## Overview
 
-Aletheia uses a JSON protocol for communication between language bindings (Python, C++, Go) and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
+Aletheia uses a JSON protocol for communication between language bindings (Python, C++, Go, Rust) and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
 
 **Communication Model**:
-- Four FFI entry points, all returning JSON response strings:
+- The FFI exposes several binary entry points (the full streaming set is listed under [Message Types](#message-types)); the four core request/response ones return JSON response strings:
   - `aletheia_process()`: JSON string in — handles the DBC/property commands (parseDBC, setProperties, validateDBC, parseDBCText, formatDBCText)
   - `aletheia_send_frame()`: Binary data in — streaming hot path for CAN data frames (no JSON parsing on input)
   - `aletheia_send_error()`: Binary error frame (timestamp only, no payload)
@@ -314,7 +314,7 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 
 **Issue Codes** (21 total):
 - **Error** (8): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `signal_exceeds_dlc`, `signal_overlap`, `bit_length_zero`
-- **Warning** (13): `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`, `duplicate_attribute_name`, `unknown_comment_target`, `unknown_message_sender`, `unknown_signal_receiver`, `unknown_value_description_target` (last 5 added Track B.1.x Tier 2 — see PROJECT_STATUS.md for the per-track ship history)
+- **Warning** (13): `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`, `duplicate_attribute_name`, `unknown_comment_target`, `unknown_message_sender`, `unknown_signal_receiver`, `unknown_value_description_target`
 
 **State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).
 
@@ -495,7 +495,7 @@ send-only wire-symmetry contract.
 {"status": "ack"}
 ```
 
-**Response** (Property Batch — R23 — AGDA-D-12.1):
+**Response** (Property Batch):
 ```json
 {
   "type": "property_batch",
@@ -579,8 +579,7 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
 - `brs_present` / `brs_value`: CAN-FD Bit Rate Switch encoding (ISO
   11898-1:2015 §10.4.2). `*_present = 0` → bit absent (CAN 2.0B);
   `*_present != 0` → bit present with `*_value != 0` for `true`.
-  See the JSON `sendFrame` § above for full semantics.  (R19 Phase 2
-  cluster 18 — AGDA-D-10.1 closure.)
+  See the JSON `sendFrame` § above for full semantics.
 - `esi_present` / `esi_value`: CAN-FD Error State Indicator encoding
   (ISO 11898-1:2015 §10.4.3); same wire encoding as BRS.
 
@@ -591,7 +590,7 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
 }
 ```
 
-**Response** (Property Batch — R23 — AGDA-D-12.1):
+**Response** (Property Batch):
 ```json
 {
   "type": "property_batch",
@@ -615,7 +614,7 @@ empty-list-is-unreachable invariant (frames with no events return Ack).
 4. If violation or satisfaction detected, return property response immediately
 5. Otherwise, return acknowledgment
 
-**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md#key-metrics) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go) use this entry point for `send_frame()`.
+**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md#key-metrics) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go, Rust) use this entry point for `send_frame()`.
 
 ### aletheia_send_error and aletheia_send_remote
 
@@ -676,7 +675,7 @@ resolves on the next timestamp regardless of the event kind.
 The response shape is identical to `aletheia_send_frame`: an `ack` if no
 property terminated, or a `property` response (`status: "holds"` / `"fails"`)
 if one did. There is no error- or remote-specific response variant — the
-binding-layer wrappers `send_error()` / `send_remote()` (Python, C++, Go)
+binding-layer wrappers `send_error()` / `send_remote()` (Python, C++, Go, Rust)
 parse the same response types they use for data frames.
 
 ---
@@ -707,7 +706,7 @@ parse the same response types they use for data frames.
 ```
 Used for data frames when no violation is detected.
 
-### Property Batch Response (R23 — AGDA-D-12.1)
+### Property Batch Response
 ```json
 {
   "type": "property_batch",
@@ -1163,7 +1162,7 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 ### Wire shape
 
-`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with the consolidated code `input_bound_exceeded` (post R19 cluster 14 / AGDA-C-6.2 consolidation 2026-05-11; previously split into `parse_input_bound_exceeded` / `dbc_text_input_bound_exceeded` / `frame_input_bound_exceeded`). The `bound_kind` field in the structured payload discriminates which kind of bound was crossed, matching the `BoundKind` enum in `Aletheia.Limits`:
+`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with the consolidated code `input_bound_exceeded`. The `bound_kind` field in the structured payload discriminates which kind of bound was crossed, matching the `BoundKind` enum in `Aletheia.Limits`:
 
 | Code | bound_kind values |
 |---|---|
@@ -1175,7 +1174,7 @@ The `message` field embeds the kind label, observed value, and limit; the struct
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ```
 
-For the post-parse DBC bounds (`array_cardinality` and `string_length`), all three DBC commands — `parseDBC`, `parseDBCText`, and `validateDBC` — run one shared cascade (kernel `Aletheia.Protocol.Handlers.LoadDBC.checkDBCBounds`), so the `message` names the offending field alongside the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536` (previously the text route dropped the field label). `validateDBC` gained this cascade in the dual-route factoring — an over-cardinality / over-length DBC is now rejected with `input_bound_exceeded` *before* validation runs, rather than validated unbounded (the structured `bound_kind` / `observed` / `limit` remain unchanged, so a binding decodes it with the same typed handler it uses for the load routes).
+For the post-parse DBC bounds (`array_cardinality` and `string_length`), all three DBC commands — `parseDBC`, `parseDBCText`, and `validateDBC` — run one shared cascade (kernel `Aletheia.Protocol.Handlers.LoadDBC.checkDBCBounds`), so the `message` names the offending field alongside the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536`. `validateDBC` runs the same cascade — an over-cardinality / over-length DBC is rejected with `input_bound_exceeded` *before* validation runs (the structured `bound_kind` / `observed` / `limit` fields are identical across all three routes, so a binding decodes it with the same typed handler it uses for the load routes).
 
 `handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
 

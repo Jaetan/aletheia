@@ -12,10 +12,17 @@ Queryable via `tools/review_db.py` (see below).
 | R21   | merged | 2026-05-17 | 2026-05-18 (`315c1a3`) | 241          | 48     | 0              | 17         |
 | R22   | merged | 2026-05-18 | 2026-05-22 (`3ebfc37`) | 0 *          | 4      | 0              | 1          |
 | R23   | merged | 2026-05-22 | 2026-05-26 (`4cb5220`) | 219          | 57     | 1              | 8          |
+| R24   | merged | 2026-06-20 | 2026-06-21 (`551b033`) | 15           | 10     | 0              | 0          |
+| R25   | merged | —          | 2026-07-07 (#80–164)   | 71 †         | ~65    | 0              | 1          |
+| R26   | open   | 2026-07-07 | —                      | — ‡          | —      | —              | —          |
 
 \* R22 is a carry-over round; no fresh Step-1/Step-2 agent fleet was launched.  Its work-to-date is exclusively closure of R21 carry-over items (AGDA-A-1.1 dead-import sweep #4, AGDA-D-12.1 end-of-stream warning emission, AGDA-D-15.1 `Format/AttrLine` split, Assign.agda b15 marker retirement) plus the review-process meta-review (this archive infrastructure).  R23 launched a fresh Step-1/Step-2 fleet on the new protocol.
 
-Earlier rounds (R6 — R19) are narrated in `memory/project_review_round{N}.md` and PROJECT_STATUS.md; their per-finding YAMLs were not retroactively backfilled — the YAML archive begins at R20.
+† R25 was a two-round binding-review *program* over the Python / Go / C++ / Rust API surface (the first round to cover Rust), not a single fork→merge round.  It is archived as `FINAL_report.md` + `round{1,2}_findings.json` rather than per-finding YAML.  The 71 round-1 filings collapse to ~65 distinct defects; fixes shipped across PRs #80–164 (program closed 2026-07-07).  Severity was corrected by round 2 to 0 critical / 1 HIGH (the `never_exceeds` strict-inequality bug present consistently across all four bindings).
+
+‡ R26 (this round) is the in-progress documentation overhaul; its finding counts finalize at close.
+
+Earlier rounds (R6 — R19) are narrated in `memory/project_review_round{N}.md` and PROJECT_STATUS.md; their per-finding YAMLs were not retroactively backfilled — the per-finding YAML archive begins at R20 (R25 is the lone exception, archived in the pre-YAML JSON form noted above).
 
 ## Queries
 
@@ -58,7 +65,7 @@ R<round>-<lang>-<agent>-<cat>.<num>
         |       |       |
         |       |       └── category number (1..N per AGENTS.md per-language section)
         |       └────────── A | B | C | D  (Step-1 hygiene / correctness / cross-file / Step-2 system-level)
-        └────────────────── AGDA | GO | CPP | PY | DOCS | CICD | XBINDING
+        └────────────────── AGDA | GO | CPP | PY | RUST | DOCS | CICD | XBINDING
 ```
 
 Examples: `R20-AGDA-A-1.1` · `R21-CPP-D-15.3` · `R22-PY-B-26.2`.

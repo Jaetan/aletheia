@@ -8,8 +8,9 @@ and the LTL DSL. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 > e.g. `go doc aletheia.Client.SendFrame`). This guide is the narrative
 > walkthrough; godoc is the contract.
 > **Other bindings**: see the [Python API Guide](PYTHON_API.md), the
-> [C++ API Guide](CPP_API.md), and the [Interface Guide](INTERFACES.md) — the
-> three bindings ship the same verified core with line-by-line-equivalent APIs.
+> [C++ API Guide](CPP_API.md), the [Rust API Guide](RUST_API.md), and the
+> [Interface Guide](INTERFACES.md) — the four bindings ship the same verified
+> core with line-by-line-equivalent APIs.
 
 ---
 
@@ -264,9 +265,9 @@ ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicl
 # or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
 ```
 
-`--dbc` reads `.dbc` text (the verified Agda text parser); `--json` selects
-canonical JSON output. The library path resolves from `$ALETHEIA_LIB`, else a
-build/install default. Full subcommand contract: the [CLI Reference](CLI.md).
+The `--dbc` / `--json` flags and `$ALETHEIA_LIB` library-path resolution are the
+shared host-CLI contract; the full subcommand reference lives in the
+[CLI Reference](CLI.md).
 
 ---
 

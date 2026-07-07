@@ -64,10 +64,11 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"Violation at {ts}us")
-            break
+        if response.get("type") == "property_batch":
+            fails = [e for e in response["results"] if e["status"] == "fails"]
+            if fails:
+                print(f"Violation at {fails[0]['timestamp']}us")
+                break
 
     client.end_stream()
 ```
@@ -381,10 +382,11 @@ with AletheiaClient() as client:
     for timestamp, can_id, dlc, data, _extended, _brs, _esi in frames:
         response = client.send_frame(timestamp, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"Speed limit exceeded at {ts}us")
-            break
+        if response.get("type") == "property_batch":
+            fails = [e for e in response["results"] if e["status"] == "fails"]
+            if fails:
+                print(f"Speed limit exceeded at {fails[0]['timestamp']}us")
+                break
 
     client.end_stream()
 ```
@@ -489,10 +491,11 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data in trace:
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            vts = response['timestamp']['numerator']
-            print(f"Invalid power mode transition at {vts}us")
-            break
+        if response.get("type") == "property_batch":
+            fails = [e for e in response["results"] if e["status"] == "fails"]
+            if fails:
+                print(f"Invalid power mode transition at {fails[0]['timestamp']}us")
+                break
 
     client.end_stream()
 ```
@@ -654,7 +657,11 @@ frames = [
     CANFrameTuple(2000, 0x100, 8, bytearray(b'\x40\x1C\x00\x00\x00\x00\x00\x00'), False),
 ]
 responses = client.send_frames(frames)
-violations = [r for r in responses if r["status"] == "fails"]
+violations = [
+    entry
+    for r in responses if r.get("type") == "property_batch"
+    for entry in r["results"] if entry["status"] == "fails"
+]
 ```
 
 **Parameters**: List of `CANFrameTuple(timestamp, can_id, dlc, data, extended, brs, esi)`. The trailing `brs` / `esi` default to `None` for CAN 2.0B frames; supply `True` / `False` for CAN-FD when surfacing the Bit Rate Switch and Error State Indicator (ISO 11898-1:2015 §10.4.2 / §10.4.3).
@@ -868,10 +875,11 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("huge_trace.log"):
         response = client.send_frame(ts, can_id, dlc, data)
 
-        if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"First violation at {ts}us")
-            break  # Early termination
+        if response.get("type") == "property_batch":
+            fails = [e for e in response["results"] if e["status"] == "fails"]
+            if fails:
+                print(f"First violation at {fails[0]['timestamp']}us")
+                break  # Early termination
 
     client.end_stream()
 ```
@@ -887,22 +895,24 @@ See [BENCHMARKS.md](../development/BENCHMARKS.md) for the benchmark suite (cross
 ### Signal
 
 ```text
+# Numeric params are `int | Fraction` and REJECT float (the float principle).
+# For an exact decimal, pass `from_decimal("11.5")` or `Fraction("11.5")`.
 class Signal:
     def __init__(self, name: str)
 
     # Comparisons
-    def equals(self, value: float) -> Predicate
-    def less_than(self, value: float) -> Predicate
-    def greater_than(self, value: float) -> Predicate
-    def less_than_or_equal(self, value: float) -> Predicate
-    def greater_than_or_equal(self, value: float) -> Predicate
-    def between(self, min_val: float, max_val: float) -> Predicate
+    def equals(self, value: int | Fraction) -> Predicate
+    def less_than(self, value: int | Fraction) -> Predicate
+    def greater_than(self, value: int | Fraction) -> Predicate
+    def less_than_or_equal(self, value: int | Fraction) -> Predicate
+    def greater_than_or_equal(self, value: int | Fraction) -> Predicate
+    def between(self, min_val: int | Fraction, max_val: int | Fraction) -> Predicate
 
     # Change detection (directional)
-    def changed_by(self, delta: float) -> Predicate
+    def changed_by(self, delta: int | Fraction) -> Predicate
 
     # Stability (magnitude tolerance)
-    def stable_within(self, tolerance: float) -> Predicate
+    def stable_within(self, tolerance: int | Fraction) -> Predicate
 ```
 
 ### Predicate
@@ -996,22 +1006,27 @@ When checks are registered via `set_properties()` (or `add_checks()`), violation
 
 ```python
 {
-    "type": "property",
-    "status": "fails",
-    "property_index": 0,
-    "timestamp": 4523000,
-    "reason": "Always violated",  # core_reason (raw Agda string)
-    "enrichment": {
-        "signals": {"VehicleSpeed": 225.5},                    # extracted signal values
-        "formula_desc": "always(VehicleSpeed < 220)",           # formula description
-        "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))",
-        "core_reason": "Always violated"                        # original Agda reason
-    }
+    "type": "property_batch",
+    "results": [
+        {
+            "type": "property",
+            "status": "fails",
+            "property_index": 0,
+            "timestamp": 4523000,
+            "reason": "Always violated",  # core_reason (raw Agda string)
+            "enrichment": {
+                "signals": {"VehicleSpeed": 225.5},                    # extracted signal values
+                "formula_desc": "always(VehicleSpeed < 220)",           # formula description
+                "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))",
+                "core_reason": "Always violated"                        # original Agda reason
+            }
+        }
+    ]
 }
 ```
 
-Access the enriched fields via `response["enrichment"]["enriched_reason"]`, etc.
-Without registered checks, only `property_index`, `timestamp`, and `reason` are present (no `enrichment` field).
+Access the enriched fields via `response["results"][i]["enrichment"]["enriched_reason"]`, etc.
+Without registered checks, each result carries only `property_index`, `timestamp`, and `reason` (no `enrichment` field).
 
 ---
 
@@ -1025,20 +1040,14 @@ Every record carries:
 - `record.event` — the same name as a structured attribute, so JSON/OTel handlers can parse it.
 - Additional `LogRecord` attributes for the event's fields (e.g. `frames`, `properties`, `reason`).
 
-The event set is the source of truth in `aletheia.client._log.LogEvent` (16 values) and is kept identical across Python, C++ (`aletheia::Logger`), and Go (`slog`) so a single log pipeline can consume all three bindings.
+The event set mirrors `aletheia.client._log.LogEvent` and is kept identical across Python, C++ (`aletheia::Logger`), Go (`slog`), and Rust (`aletheia::log::Logger`) so a single log pipeline can consume all four bindings. The canonical event set (and its count) lives in [`docs/LOG_EVENTS.yaml`](../LOG_EVENTS.yaml).
 
-```python
-import logging
-
-# Capture Aletheia events — route to stdout in this example.
-aletheia_logger = logging.getLogger("aletheia")
-aletheia_logger.setLevel(logging.INFO)
-aletheia_logger.addHandler(logging.StreamHandler())
-
-# Now AletheiaClient lifecycle events (dbc.parsed, properties.set, stream.started,
-# stream.ended) appear at INFO. Per-frame events (frame.processed, cache.hit /
-# cache.miss) are at DEBUG and stay silent unless the level is lowered.
-```
+For the handler-attach snippet (and its C++/Go/Rust equivalents), see
+[INTERFACES.md § Structured Logging](INTERFACES.md#structured-logging). Once a
+handler is attached to the `aletheia` logger at INFO, `AletheiaClient` lifecycle
+events (`dbc.parsed`, `properties.set`, `stream.started`, `stream.ended`) appear;
+per-frame events (`frame.processed`, `cache.hit` / `cache.miss`) are at DEBUG and
+stay silent unless the level is lowered.
 
 **Performance note**: `log_event` short-circuits on `logger.isEnabledFor(level)` before allocating the `extra` dict, so the default (no DEBUG handler attached) costs a single method call per frame. A missing guard here was the root cause of the R12 Stream LTL regression, fixed in commit `1e40b4d`.
 
@@ -1049,8 +1058,8 @@ For the full event vocabulary and field list, see the `LogEvent` enum and its do
 ## Exceptions
 
 All Aletheia exceptions inherit from a common base class.  The kind hierarchy
-mirrors Go's `ErrorKind` and C++'s `ErrorKind` so callers can branch on the
-same conceptual error categories across all three bindings:
+mirrors Go's `ErrorKind`, C++'s `ErrorKind`, and Rust's `Error` enum so callers
+can branch on the same conceptual error categories across all four bindings:
 
 ```
 AletheiaError (base)

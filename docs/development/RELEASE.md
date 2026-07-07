@@ -4,8 +4,7 @@ The release pipeline for Aletheia.  Cuts a tagged distribution tarball,
 records a CycloneDX SBOM, signs the tarball with cosign, and produces
 the verifiable artifact set consumers should rely on.
 
-Closes R18 cluster 3 (UR-3 reproducible-build hash + SBOM + signing) +
-CICD cat 5 sub-items.  Cross-references:
+Cross-references:
 
 - [`docs/development/DISTRIBUTION.md`](DISTRIBUTION.md) — what the
   tarball contains and how consumers integrate it.
@@ -55,8 +54,8 @@ tools/check_reproducible_build.py --keep-artifacts
 ```
 
 Empirically verified: same-host `libaletheia-ffi.so` is bit-identical
-across two clean builds without any reproducibility flags (R18 cluster
-3, sha256 `e095fb1c93bda5f390cffb401f88251ec75a6b33c1eaecf5f6da536817cd2265`).
+across two clean builds without any reproducibility flags (sha256
+`e095fb1c93bda5f390cffb401f88251ec75a6b33c1eaecf5f6da536817cd2265`).
 The flags below harden against regressions.
 
 ### Hardening flags wired into the build
@@ -204,7 +203,7 @@ Before tagging a release:
 - [ ] Working tree clean (`git status --porcelain` empty).  A dirty
       tree shows up as `Git tree: dirty` in the MANIFEST and signals
       that the dist may not match any committed source.
-- [ ] `tools/run_ci.py` passes end-to-end (33 always-on steps, ~22-30 min warm).
+- [ ] `tools/run_ci.py` passes end-to-end (the always-on gate sweep, ~22-30 min warm).
 - [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
 - [ ] `CHANGELOG.md` has an entry under `## [X.Y.Z] — Unreleased`
       describing the release.

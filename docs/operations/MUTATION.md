@@ -1,6 +1,6 @@
 # Mutation Testing — operations guide
 
-R18 cluster 7 wires mutation testing across all three bindings.
+Mutation testing runs across all three bindings.
 The actual tools are: **Python** via `mutmut`, **Go** via `gremlins`
 (substituted for the AGENTS.md cat 14(g)–named `go-mutesting`, which is
 unmaintained — see § Per-binding sub-checks), **C++** via `Mull`.  This doc
@@ -23,9 +23,9 @@ tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ```
 
-The static gate (`tools/check_mutation_setup.py`) runs always-on as step
-16 of `tools/run_ci.py`; it fires when a hot-path source file is renamed
-or deleted without updating the YAML.  The dynamic runner is opt-in via
+The static gate (`tools/check_mutation_setup.py`) runs always-on
+(`check-mutation-setup`) in `tools/run_ci.py`; it fires when a hot-path
+source file is renamed or deleted without updating the YAML.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
 ## Threshold model
@@ -52,7 +52,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
-| C++ | `Mull` 0.34.0 (LLVM 22, from source) | `cpp/src/*.cpp` (full set, mock_backend.cpp + types.cpp excluded as test/type-defs) |
+| C++ | `Mull` 0.34.0 (LLVM 22, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp` — the exact mutated set is enumerated in `docs/MUTATION_BENCH.yaml` |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -245,7 +245,7 @@ ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 
 | Step | Frequency | Cost | Trigger |
 |---|---|---|---|
-| Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on, step 16 of `run_ci.py` |
+| Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on (`check-mutation-setup`) in `run_ci.py` |
 | Dynamic gate (`mutation testing`) | Per PR | ~30 min - 2 hrs | Opt-in via `--mutation` / `ALETHEIA_MUTATION_CHECK=1` |
 
 The static gate guards against silent rename / removal of a hot-path file
@@ -274,6 +274,6 @@ needed.
 - `docs/MUTATION_BENCH.yaml` — actual on-disk paths, baseline numbers
 - `tools/check_mutation_setup.py` — static gate (always-on)
 - `tools/mutation_run.py` — dynamic runner (opt-in)
-- `docs/operations/STABILITY.md` — sibling opt-in lane (R18 cluster 6)
+- `docs/operations/STABILITY.md` — sibling opt-in lane
 - `docs/development/CI_LOCAL.md` — three-layer CI architecture
 - `memory/feedback_orchestrator_end_to_end_validation.md` — forward-revert protocol
