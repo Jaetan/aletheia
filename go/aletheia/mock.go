@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"unsafe"
 )
@@ -109,11 +110,24 @@ func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
 	return m.processLocked(input)
 }
 
+// mockOpName names the starved operation for the exhaustion error.  Binary
+// shims record a "<binary:OP>" sentinel as their input, which already names
+// the operation, so it is reported verbatim (e.g. "<binary:sendFrame>").
+// Every JSON control-plane command funnels through Process, so the generic
+// "process" op names that path — matching the unified cross-binding message
+// shape (the Rust mock reports the same "process" op for its JSON path).
+func mockOpName(input string) string {
+	if strings.HasPrefix(input, "<binary:") {
+		return input
+	}
+	return "process"
+}
+
 // processLocked is the inner implementation of Process. Caller must hold m.mu.
 func (m *MockBackend) processLocked(input string) (string, error) {
 	m.inputs = append(m.inputs, input)
 	if m.cursor >= len(m.responses) {
-		return "", stateError(fmt.Sprintf("mock backend: no more responses (got %d calls, have %d responses)", m.cursor+1, len(m.responses)))
+		return "", stateError(fmt.Sprintf("mock backend: no queued response for %s", mockOpName(input)))
 	}
 	resp := m.responses[m.cursor]
 	m.cursor++

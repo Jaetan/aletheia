@@ -117,6 +117,7 @@ TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
 
 TEST_CASE("send_error succeeds with mock backend", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "ack"})"); // send_error binary response
     AletheiaClient client(std::move(mock));
     auto result = client.send_error(std::stop_token{}, Timestamp{1'000'000});
     CHECK(result.has_value());
@@ -133,6 +134,7 @@ TEST_CASE("send_error rejects negative timestamp", "[client][validation]") {
 
 TEST_CASE("send_remote succeeds with mock backend", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "ack"})"); // send_remote binary response
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
     auto result = client.send_remote(std::stop_token{}, Timestamp{1'000'000}, id);

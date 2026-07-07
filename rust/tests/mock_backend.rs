@@ -176,15 +176,19 @@ fn clone_shares_the_capture_log() {
     assert_eq!(m.captured(), vec!["<binary:startStream>".to_string()]);
 }
 
-/// An exhausted queue is an explicit error (the Rust-idiomatic, no-surprise
-/// contract — the peer Python/C++ mocks synthesise a default instead).
+/// An exhausted queue is an explicit error — the no-surprise contract shared
+/// by all four bindings' mocks (none synthesises a default response).
 #[test]
 fn exhausted_queue_is_an_error() {
     let c = Client::with_backend(Box::new(MockBackend::new()));
     let err = c.start_stream().expect_err("empty queue must error");
     assert!(matches!(err, Error::Protocol(_)), "got {err:?}");
+    // The op token is the cross-binding `<binary:OP>` sentinel (identical to
+    // Python/Go/C++), not a Rust method name — pin it so the unified message
+    // shape cannot drift.
     assert!(
-        err.to_string().contains("no queued response"),
+        err.to_string()
+            .contains("mock backend: no queued response for <binary:startStream>"),
         "message: {err}"
     );
 }

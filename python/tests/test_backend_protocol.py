@@ -99,7 +99,13 @@ def test_mockbackend_process_returns_canned_queue_in_order() -> None:
 
 def test_mockbackend_records_all_inputs() -> None:
     """``inputs`` accumulates every ``process()`` and binary-shim call."""
-    backend = MockBackend()
+    backend = MockBackend(
+        [
+            b'{"status":"success"}',
+            b'{"status":"success"}',
+            b'{"status":"ack"}',
+        ]
+    )
     state = backend.init()
     backend.process(state, b'{"command":"alpha"}')
     backend.process(state, b'{"command":"beta"}')
@@ -111,24 +117,37 @@ def test_mockbackend_records_all_inputs() -> None:
     ]
 
 
-def test_mockbackend_default_ack_for_fire_and_forget() -> None:
-    """Empty queue + a binary fire-and-forget op returns the ack default.
+def test_mockbackend_exhausted_fire_and_forget_raises() -> None:
+    """A fire-and-forget binary op on an empty queue raises StateError.
 
-    Real backends drive these through the binary FFI, so the mock records a
-    ``<binary:OP>`` sentinel; an empty response queue defaults to ``ack``.
+    An exhausted mock is a test-harness misconfiguration, never a fabricated
+    default (cross-binding parity: Go ``ErrState`` / Rust / C++ ``State``).
+    The starved-operation name is the ``<binary:OP>`` sentinel — byte-for-byte
+    the shared cross-binding op token — and the sentinel is recorded into
+    ``inputs`` BEFORE the raise, so a starved call stays observable in the
+    capture log (mirroring Go, which records the input before erroring).
     """
     backend = MockBackend()
     state = backend.init()
-    out = backend.send_error_binary(state, 0)
-    assert out == b'{"status":"ack"}'
+    with pytest.raises(StateError) as excinfo:
+        backend.send_error_binary(state, 0)
+    # Exact-equality pin (the contract says the message is *exactly* this — a
+    # substring ``match=`` would pass on any appended trailing text).
+    assert str(excinfo.value) == "mock backend: no queued response for <binary:sendError>"
+    assert backend.inputs == [b"<binary:sendError>"]
 
 
-def test_mockbackend_default_success_for_non_fire_and_forget() -> None:
-    """Empty queue + non-fire-and-forget input returns the success default."""
+def test_mockbackend_exhausted_process_raises() -> None:
+    """A ``process`` call on an empty queue raises StateError, op-named ``process``.
+
+    The JSON command is recorded into ``inputs`` before the raise.
+    """
     backend = MockBackend()
     state = backend.init()
-    out = backend.process(state, b'{"command":"parseDBC","dbc":{}}')
-    assert out == b'{"status":"success"}'
+    with pytest.raises(StateError) as excinfo:
+        backend.process(state, b'{"command":"parseDBC","dbc":{}}')
+    assert str(excinfo.value) == "mock backend: no queued response for process"
+    assert backend.inputs == [b'{"command":"parseDBC","dbc":{}}']
 
 
 def test_mockbackend_queue_response_appends() -> None:
@@ -148,9 +167,11 @@ def test_mockbackend_clear_resets_queue_and_inputs() -> None:
     backend.process(state, b'{"x":1}')
     backend.clear()
     assert not backend.inputs
-    # Queue empty again — default response applies.
+    # clear() drained the queue too — a freshly queued response pops as usual.
+    backend.queue_response(b'{"status":"success","after_clear":true}')
     out = backend.process(state, b'{"command":"setProperties"}')
-    assert out == b'{"status":"success"}'
+    assert out == b'{"status":"success","after_clear":true}'
+    assert backend.inputs == [b'{"command":"setProperties"}']
 
 
 def test_mockbackend_extract_signals_bin_raises_unsupported() -> None:
@@ -213,7 +234,7 @@ def test_client_send_frame_routes_through_backend() -> None:
             b'{"status":"success","dbc":{"version":"","messages":[]},"warnings":[]}',  # parseDBC
             b'{"status":"success"}',  # setProperties
             b'{"status":"success"}',  # startStream
-            # send_frame default fires the ack default.
+            b'{"status":"ack"}',  # send_frame
         ]
     )
     with AletheiaClient(backend=backend) as client:

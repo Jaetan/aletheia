@@ -338,12 +338,10 @@ def test_failed_extraction_warns_once_per_frame_not_per_property(
     Two failing properties over one last-seen frame whose extraction errors:
     the shared pass attempts the frame once and emits ONE
     ``enrichment.extraction_failed`` warning.  The discrimination against
-    the P-outer shape is carried by the SENTINEL count (1 vs 2 — each
-    property's walk re-extracted the frame), not the warn count: with this
-    fixture the old shape also warned exactly once, because the queued
-    error response is consumed by the first property's walk and the second
-    walk pops the mock's empty-queue default success (empty values, no
-    warning).  Both entries still get the fallback enrichment.
+    the P-outer shape is carried by the SENTINEL count (1 vs 2 — the
+    per-property P-outer shape would have re-extracted the frame once per
+    property), not the warn count.  Both entries still get the fallback
+    enrichment.
     """
     backend = MockBackend()
     _queue_session_setup(backend)

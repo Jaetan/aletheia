@@ -29,10 +29,10 @@
 //!
 //! # Responses
 //!
-//! Unlike the Python / C++ mocks (which synthesise a default `ack`/`success`
-//! when the queue is empty), this mock **errors** on exhaustion — the
-//! more-Rust-idiomatic, no-surprise contract (matching Go's `MockBackend`). A
-//! test queues exactly the responses it expects, including the
+//! This mock **errors** on exhaustion rather than synthesising a default
+//! response — the no-surprise contract now shared by all four bindings'
+//! `MockBackend`s (an under-provisioned test fails loudly at the missing
+//! response). A test queues exactly the responses it expects, including the
 //! `extract_signals_binary` calls the client makes during violation enrichment.
 
 use std::cell::RefCell;
@@ -124,6 +124,13 @@ impl MockBackend {
     }
 
     /// Pop the next response, requiring it be a JSON body.
+    ///
+    /// On exhaustion this returns [`Error::Protocol`] rather than a dedicated
+    /// state-error variant: `Error` has no `State` kind, and Rust already
+    /// reports every wrong-lifecycle condition as `Protocol` (e.g. the async
+    /// client's "closed" / "worker stopped"). So `Protocol` is this binding's
+    /// wrong-state category — the peers' `State` kind (Go / C++ / Python) maps
+    /// onto it. Only the message text is unified across bindings (#108).
     fn pop_json(&self, op: &str) -> Result<String, Error> {
         match self.state.borrow_mut().responses.pop_front() {
             Some(MockResponse::Json(s)) => Ok(s),
@@ -175,37 +182,37 @@ impl Backend for MockBackend {
         _esi: Option<bool>,
     ) -> Result<String, Error> {
         self.record("<binary:sendFrame>");
-        self.pop_json("send_frame_binary")
+        self.pop_json("<binary:sendFrame>")
     }
 
     fn send_error_binary(&self, _ts: Timestamp) -> Result<String, Error> {
         self.record("<binary:sendError>");
-        self.pop_json("send_error_binary")
+        self.pop_json("<binary:sendError>")
     }
 
     fn send_remote_binary(&self, _ts: Timestamp, _id: CanId) -> Result<String, Error> {
         self.record("<binary:sendRemote>");
-        self.pop_json("send_remote_binary")
+        self.pop_json("<binary:sendRemote>")
     }
 
     fn start_stream_binary(&self) -> Result<String, Error> {
         self.record("<binary:startStream>");
-        self.pop_json("start_stream_binary")
+        self.pop_json("<binary:startStream>")
     }
 
     fn end_stream_binary(&self) -> Result<String, Error> {
         self.record("<binary:endStream>");
-        self.pop_json("end_stream_binary")
+        self.pop_json("<binary:endStream>")
     }
 
     fn format_dbc_binary(&self) -> Result<String, Error> {
         self.record("<binary:formatDBC>");
-        self.pop_json("format_dbc_binary")
+        self.pop_json("<binary:formatDBC>")
     }
 
     fn extract_signals_binary(&self, _id: CanId, _dlc: Dlc, _data: &[u8]) -> Result<String, Error> {
         self.record("<binary:extractAllSignals>");
-        self.pop_json("extract_signals_binary")
+        self.pop_json("<binary:extractAllSignals>")
     }
 
     fn build_frame_bin(
@@ -216,7 +223,7 @@ impl Backend for MockBackend {
         _signals: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
         self.record("<binary:buildFrameBin>");
-        self.pop_bytes("build_frame_bin")
+        self.pop_bytes("<binary:buildFrameBin>")
     }
 
     fn update_frame_bin(
@@ -228,6 +235,6 @@ impl Backend for MockBackend {
         _signals: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
         self.record("<binary:updateFrameBin>");
-        self.pop_bytes("update_frame_bin")
+        self.pop_bytes("<binary:updateFrameBin>")
     }
 }

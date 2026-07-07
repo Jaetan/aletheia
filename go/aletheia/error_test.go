@@ -5,6 +5,7 @@ package aletheia_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
@@ -293,6 +294,90 @@ func TestParseError_NonTerminatingRational(t *testing.T) {
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
+}
+
+// TestMockBackend_ErrorsOnQueueExhaustion pins the queue-exhaustion contract
+// (#108 cross-binding unification): an empty MockBackend queue is a harness
+// misconfiguration, so Process returns a typed ErrState error rather than
+// fabricating a default response.  Mirrors the C++ sibling "MockBackend throws
+// on queue exhaustion" (cpp/tests/unit_tests_client.cpp) and the Python/Rust
+// siblings.  The starved request is recorded BEFORE the error, so Inputs()
+// stays populated on the erroring call.
+func TestMockBackend_ErrorsOnQueueExhaustion(t *testing.T) {
+	// wantStateError asserts err is a non-nil *aletheia.Error of kind ErrState
+	// whose Message is exactly wantMsg.  The exported Message field carries the
+	// bare diagnostic; (*Error).Error() prefixes "aletheia state error: ", so
+	// pinning Message directly is the tightest available assertion.
+	wantStateError := func(t *testing.T, err error, wantMsg string) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("expected error on exhausted queue, got nil")
+		}
+		var aErr *aletheia.Error
+		if !errors.As(err, &aErr) {
+			t.Fatalf("expected *aletheia.Error, got %T", err)
+		}
+		if aErr.Kind != aletheia.ErrState {
+			t.Errorf("expected ErrState, got %s", aErr.Kind)
+		}
+		if aErr.Message != wantMsg {
+			t.Errorf("Message = %q, want %q", aErr.Message, wantMsg)
+		}
+	}
+
+	// --- Empty queue: both the JSON control-plane and the binary shim starve. ---
+	empty := aletheia.NewMockBackend() // no responses
+	state, err := empty.Init()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (1) JSON path → op token "process".
+	jsonCmd := `{"command":"setProperties","formulas":[]}`
+	_, err = empty.Process(state, jsonCmd)
+	wantStateError(t, err, "mock backend: no queued response for process")
+
+	// (2) Binary path → op token "<binary:sendFrame>".  Args are zero-ish but
+	// validly constructed; SendFrameBinary ignores them beyond recording the
+	// sentinel input.
+	id, err := aletheia.NewStandardID(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dlc, err := aletheia.NewDLC(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = empty.SendFrameBinary(state, aletheia.Timestamp{}, id, dlc, nil, nil, nil)
+	wantStateError(t, err, "mock backend: no queued response for <binary:sendFrame>")
+
+	// (3) Record-before-error: the starved calls are still recorded, so Inputs()
+	// stays populated even though both Process calls returned an error.
+	inputs := empty.Inputs()
+	if !slices.Contains(inputs, jsonCmd) {
+		t.Errorf("Inputs() = %q, want it to contain the starved JSON input %q", inputs, jsonCmd)
+	}
+	if !slices.Contains(inputs, "<binary:sendFrame>") {
+		t.Errorf("Inputs() = %q, want it to contain the starved binary sentinel", inputs)
+	}
+
+	// (4) A queued response takes priority over the error path; once drained,
+	// the next call re-drains and errors again (the error path is re-entrant,
+	// not one-shot).
+	primed := aletheia.NewMockBackend(aletheia.Respond(`{"custom":true}`))
+	pState, err := primed.Init()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := primed.Process(pState, jsonCmd)
+	if err != nil {
+		t.Fatalf("queued response should not error: %v", err)
+	}
+	if got != `{"custom":true}` {
+		t.Errorf("Process = %q, want the queued response %q", got, `{"custom":true}`)
+	}
+	_, err = primed.Process(pState, jsonCmd)
+	wantStateError(t, err, "mock backend: no queued response for process")
 }
 
 func TestParseError_NonIntegerMultiplexValue(t *testing.T) {
