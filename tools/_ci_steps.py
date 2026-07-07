@@ -485,6 +485,11 @@ def _run_gha_checks(runner: Runner) -> None:
         cwd=runner.repo_root,
     )
     runner.step(
+        "check-docs",
+        [runner.python, "-m", "tools.check_docs"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
         "check-venv-convention",
         [runner.python, "-m", "tools.check_venv_convention"],
         cwd=runner.repo_root,
