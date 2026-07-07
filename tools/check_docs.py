@@ -4,17 +4,20 @@
 
 Scans every tracked ``*.md`` and fails (exit 1) on:
 
-1. **Broken relative links** — ``[text](target)`` whose target file is missing.
-   Fenced code blocks are skipped, so a ``[](const T& e)`` lambda inside a
-   ```` ``` ```` fence is not mistaken for a link (a real false positive the
-   r26 audit hit).
+1. **Broken / escaping relative links** — ``[text](target)`` whose target file
+   is missing, or whose resolved target escapes the repository (not a valid
+   in-checkout relative link). Fenced code blocks AND inline code spans are
+   skipped, so a ``[](const T& e)`` lambda in a fence — or ``[text](target)``
+   shown as inline syntax — is not mistaken for a link (a real false positive
+   the r26 audit hit).
 2. **Broken anchors** — ``#slug`` (same-file or ``file.md#slug``) with no matching
    header in the target. GitHub slugs are computed WITHOUT collapsing whitespace
    runs, so ``## Change Detection & Stability`` → ``change-detection--stability``.
 3. **Transient / internal labels** in the user-facing docs — internal review
    marks (``(PR C)``, ``R19 cluster``, ``AGDA-C-6.2``, ``PY-S-20.1``), transient
    session phrases (``pending push``), and committed links INTO the private
-   ``~/.claude`` agent memory store (unresolvable in a checkout).
+   ``~/.claude`` agent memory store (unresolvable in a checkout). Linted in
+   PROSE only — a mark shown as a code example (fenced or ``inline``) is skipped.
 
 Run ``python -m tools.check_docs`` from the repo root. Its parsers are unit-tested
 by ``python/tests/test_check_docs.py``.
@@ -117,20 +120,32 @@ def header_slugs(path: Path) -> set[str]:
     return slugs
 
 
-def links(path: Path) -> list[str]:
-    """Links outside fenced code blocks."""
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+def prose_lines(text: str) -> list[str]:
+    """Return the PROSE lines of ``text`` — fenced code dropped, inline spans masked.
+
+    Both link extraction and transient-label linting target prose only — a link
+    or an internal mark shown as a code EXAMPLE (fenced, or an ``inline`` span)
+    is documentation, not a live link/label. Centralising the fence-skip +
+    inline-code mask here keeps ``links`` and ``_label_findings`` consistent.
+    """
     out: list[str] = []
     in_fence = False
-    for line in lines:
+    for line in text.splitlines():
         if _FENCE.match(line):
             in_fence = not in_fence
             continue
         if in_fence:
             continue
-        masked = _INLINE_CODE.sub("", line)  # a `[t](u)`-shaped code span is not a link
-        out.extend(_INLINE.findall(masked))
-        out.extend(_REFDEF.findall(masked))
+        out.append(_INLINE_CODE.sub("", line))  # a `[t](u)`-shaped span is not a link
+    return out
+
+
+def links(path: Path) -> list[str]:
+    """Links outside fenced code blocks and inline code spans."""
+    out: list[str] = []
+    for line in prose_lines(path.read_text(encoding="utf-8", errors="replace")):
+        out.extend(_INLINE.findall(line))
+        out.extend(_REFDEF.findall(line))
     return out
 
 
@@ -142,6 +157,17 @@ def _in_label_scope(rel: str) -> bool:
     )
 
 
+def escapes_repo(tgt: Path) -> bool:
+    """Return True if a resolved link target lies outside the repository.
+
+    A relative link resolving outside ``REPO`` (e.g. ``../../../etc/passwd``) is
+    not a valid in-checkout link — GitHub would not render it — so the gate
+    treats it as a defect even when the path happens to exist on the CI runner.
+    ``tgt`` is expected already-resolved, as ``_link_finding`` passes it.
+    """
+    return not tgt.is_relative_to(REPO)
+
+
 def _link_finding(raw: str, src: Path, header_cache: dict[Path, set[str]]) -> str | None:
     """Return a finding suffix for one extracted link, or None if it resolves."""
     link = raw.strip().split(" ", 1)[0]  # drop optional "title"
@@ -149,6 +175,8 @@ def _link_finding(raw: str, src: Path, header_cache: dict[Path, set[str]]) -> st
         return None
     target, _, anchor = link.partition("#")
     tgt = src if target == "" else (src.parent / target).resolve()
+    if escapes_repo(tgt):
+        return f"link escapes the repo -> {link}"
     if not tgt.exists():
         return f"broken link -> {link}"
     if anchor and tgt.is_file() and tgt.suffix in (".md", ".markdown"):
@@ -183,8 +211,8 @@ def check_tree(md_files: list[Path]) -> list[str]:
             if (f := _link_finding(raw, src, header_cache)) is not None
         )
         if _in_label_scope(rel):
-            text = src.read_text(encoding="utf-8", errors="replace")
-            findings.extend(f"{rel}: {suffix}" for suffix in _label_findings(text))
+            prose = "\n".join(prose_lines(src.read_text(encoding="utf-8", errors="replace")))
+            findings.extend(f"{rel}: {suffix}" for suffix in _label_findings(prose))
     return findings
 
 
