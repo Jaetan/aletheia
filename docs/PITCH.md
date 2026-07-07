@@ -430,8 +430,6 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 - Architecture: See [Architecture Overview](architecture/DESIGN.md)
 - Contributing: See [CONTRIBUTING.md](../CONTRIBUTING.md)
 
-**For stakeholders / talks**: A standalone HTML slide deck lives at [`docs/presentation/index.html`](presentation/index.html) — open it directly in a browser.
-
 ---
 
 ## Bottom Line

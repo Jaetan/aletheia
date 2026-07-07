@@ -15,13 +15,24 @@ Covers the parsers/predicates the gate depends on:
   caller's job).
 * ``escapes_repo`` — a relative link resolving outside the repo is a defect
   (not a valid in-checkout link) even if the path exists on the CI runner.
+* ``target_in_checkout`` — a link resolves only if its target is git-TRACKED
+  (present in a fresh checkout); a gitignored file that merely sits in the
+  working tree does not count (the local-only false green that fails on CI).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from tools.check_docs import REPO, escapes_repo, header_slugs, links, prose_lines, slug
+from tools.check_docs import (
+    REPO,
+    escapes_repo,
+    header_slugs,
+    links,
+    prose_lines,
+    slug,
+    target_in_checkout,
+)
 
 
 def test_slug_no_whitespace_collapse() -> None:
@@ -79,3 +90,19 @@ def test_escapes_repo_flags_out_of_tree_targets() -> None:
     assert escapes_repo(Path("/etc/passwd"))
     assert not escapes_repo(REPO / "README.md")
     assert not escapes_repo(REPO / "docs" / "INDEX.md")
+
+
+def test_target_in_checkout_gates_on_git_tracking() -> None:
+    """A tracked file/dir resolves; an untracked target does not (even if on disk).
+
+    This is the fix for the local-only false green: ``docs/presentation/index.html``
+    is gitignored and present in a working tree, so ``Path.exists()`` said True and
+    the gate passed locally — but a fresh CI checkout lacks it, so the PITCH.md link
+    to it was broken. Resolving against git's tracked set makes local match CI.
+    """
+    tracked = {"docs/PITCH.md", "src/Aletheia/Main.agda"}
+    tracked_dirs = {"docs", "src", "src/Aletheia"}
+    assert target_in_checkout("docs/PITCH.md", tracked, tracked_dirs)  # tracked file
+    assert target_in_checkout("src/Aletheia", tracked, tracked_dirs)  # tracked dir
+    assert not target_in_checkout("docs/presentation/index.html", tracked, tracked_dirs)  # ignored
+    assert not target_in_checkout("nope.md", tracked, tracked_dirs)  # nonexistent

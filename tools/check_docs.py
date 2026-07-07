@@ -4,12 +4,13 @@
 
 Scans every tracked ``*.md`` and fails (exit 1) on:
 
-1. **Broken / escaping relative links** — ``[text](target)`` whose target file
-   is missing, or whose resolved target escapes the repository (not a valid
-   in-checkout relative link). Fenced code blocks AND inline code spans are
-   skipped, so a ``[](const T& e)`` lambda in a fence — or ``[text](target)``
-   shown as inline syntax — is not mistaken for a link (a real false positive
-   the r26 audit hit).
+1. **Broken / escaping relative links** — ``[text](target)`` whose target is not
+   tracked by git (absent from a fresh checkout — a gitignored file that merely
+   sits in the working tree still counts as broken, since ``git ls-files`` is
+   asked, not ``Path.exists()``), or whose resolved target escapes the
+   repository. Fenced code blocks AND inline code spans are skipped, so a
+   ``[](const T& e)`` lambda in a fence — or ``[text](target)`` shown as inline
+   syntax — is not mistaken for a link (a real false positive the r26 audit hit).
 2. **Broken anchors** — ``#slug`` (same-file or ``file.md#slug``) with no matching
    header in the target. GitHub slugs are computed WITHOUT collapsing whitespace
    runs, so ``## Change Detection & Stability`` → ``change-detection--stability``.
@@ -83,6 +84,32 @@ def _tracked_md() -> list[Path]:
         check=True,
     ).stdout.split()
     return [REPO / p for p in out]
+
+
+def _tracked_index() -> tuple[set[str], set[str]]:
+    """Return (tracked files, tracked dirs) as POSIX repo-relative strings.
+
+    A link resolves iff its target is something git TRACKS — the set a fresh
+    checkout contains. Resolving against ``Path.exists()`` instead passes a link
+    to an untracked / gitignored file that merely sits in the working tree (e.g.
+    ``docs/presentation/index.html``) yet is absent from any checkout — a
+    local-only false green that then fails on CI.
+    """
+    files = set(
+        subprocess.run(
+            [find_executable("git"), "ls-files"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+    )
+    dirs: set[str] = set()
+    for posix in files:
+        parts = Path(posix).parts
+        for i in range(1, len(parts)):
+            dirs.add(Path(*parts[:i]).as_posix())
+    return files, dirs
 
 
 def slug(header: str) -> str:
@@ -168,7 +195,23 @@ def escapes_repo(tgt: Path) -> bool:
     return not tgt.is_relative_to(REPO)
 
 
-def _link_finding(raw: str, src: Path, header_cache: dict[Path, set[str]]) -> str | None:
+def target_in_checkout(rel: str, tracked: set[str], tracked_dirs: set[str]) -> bool:
+    """Return True if a repo-relative target is a tracked file or tracked directory.
+
+    ``rel`` is a POSIX repo-relative path. Membership in git's tracked set — not
+    filesystem existence — is what a fresh checkout contains, so this is the
+    faithful "does this link resolve for someone who cloned the repo?" test.
+    """
+    return rel in tracked or rel in tracked_dirs
+
+
+def _link_finding(
+    raw: str,
+    src: Path,
+    tracked: set[str],
+    tracked_dirs: set[str],
+    header_cache: dict[Path, set[str]],
+) -> str | None:
     """Return a finding suffix for one extracted link, or None if it resolves."""
     link = raw.strip().split(" ", 1)[0]  # drop optional "title"
     if link.startswith(("http://", "https://", "mailto:", "tel:", "#!", "<")):
@@ -177,9 +220,10 @@ def _link_finding(raw: str, src: Path, header_cache: dict[Path, set[str]]) -> st
     tgt = src if target == "" else (src.parent / target).resolve()
     if escapes_repo(tgt):
         return f"link escapes the repo -> {link}"
-    if not tgt.exists():
+    rel = tgt.relative_to(REPO).as_posix()
+    if target != "" and not target_in_checkout(rel, tracked, tracked_dirs):
         return f"broken link -> {link}"
-    if anchor and tgt.is_file() and tgt.suffix in (".md", ".markdown"):
+    if anchor and rel in tracked and tgt.suffix in (".md", ".markdown"):
         hs = header_cache.get(tgt) or header_slugs(tgt)
         if anchor.lower() not in {h.lower() for h in hs}:
             return f"broken anchor -> {link}"
@@ -199,6 +243,7 @@ def _label_findings(text: str) -> list[str]:
 def check_tree(md_files: list[Path]) -> list[str]:
     """Return a list of human-readable findings (empty = clean)."""
     header_cache = {p: header_slugs(p) for p in md_files}
+    tracked, tracked_dirs = _tracked_index()
     findings: list[str] = []
 
     for src in md_files:
@@ -208,7 +253,7 @@ def check_tree(md_files: list[Path]) -> list[str]:
         findings.extend(
             f"{rel}: {f}"
             for raw in links(src)
-            if (f := _link_finding(raw, src, header_cache)) is not None
+            if (f := _link_finding(raw, src, tracked, tracked_dirs, header_cache)) is not None
         )
         if _in_label_scope(rel):
             prose = "\n".join(prose_lines(src.read_text(encoding="utf-8", errors="replace")))
