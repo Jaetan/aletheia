@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Safety checks matched to examples/demo/vehicle.dbc, run against drive.log.
+#
+#   aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
+#
+# The overspeed segment of drive.log exceeds the 120 kph limit, so this file
+# reports a timestamped VehicleSpeed violation (exit code 1).
+
+checks:
+  - name: "Speed limit"
+    signal: VehicleSpeed
+    condition: never_exceeds
+    value: 120           # kph — the overspeed frames violate this
+    severity: safety
+
+  - name: "Brake pressure in range"
+    signal: BrakePressure
+    condition: stays_between
+    min: 0.0             # decimal thresholds — exercise the exact-rational path
+    max: 6553.5
+    severity: warning
+
+  - name: "Acceleration bounded"
+    signal: Acceleration
+    condition: stays_between
+    min: -32.768
+    max: 32.767
+    severity: warning
