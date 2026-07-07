@@ -819,24 +819,85 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
     }
 }
 
-TEST_CASE("MockBackend default response path", "[client][mock]") {
+TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
     MockBackend mock;
     auto* state = mock.init();
 
-    // Fire-and-forget binary call (no queued response) → ack
-    auto ack = mock.process(state, "<binary:sendFrame>");
-    CHECK(ack == R"({"status": "ack"})");
+    // Empty queue → exhaustion is a harness misconfiguration: the mock throws
+    // rather than fabricating a default (#108 cross-binding unification). The
+    // starved request is recorded BEFORE the throw, so captured() stays
+    // populated on the erroring call.  Pin the kind AND exact message so a
+    // silent downgrade (wrong ErrorKind, or a drifted op token) trips here.
+    try {
+        static_cast<void>(mock.process(state, "<binary:sendFrame>"));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.error().kind() == ErrorKind::State);
+        CHECK(std::string{e.error().message()} ==
+              "mock backend: no queued response for <binary:sendFrame>");
+    }
+    REQUIRE_FALSE(mock.captured().empty());
+    CHECK(mock.last_captured() == "<binary:sendFrame>");
 
-    // Other fire-and-forget binary calls → ack
-    auto ack_err = mock.process(state, "<binary:sendError>");
-    CHECK(ack_err == R"({"status": "ack"})");
+    // A JSON control-plane command starves the same way, but maps to the
+    // generic "process" op token — the JSON→"process" mapping is the one most
+    // likely to silently regress, so pin it exactly.
+    try {
+        static_cast<void>(mock.process(state, R"({"command":"setProperties","formulas":[]})"));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.error().kind() == ErrorKind::State);
+        CHECK(std::string{e.error().message()} == "mock backend: no queued response for process");
+    }
 
-    // Non-fire-and-forget command → success
-    auto ok = mock.process(state, R"({"command":"setProperties","formulas":[]})");
-    CHECK(ok == R"({"status": "success"})");
-
-    // Queued response takes priority over defaults
+    // A queued response takes priority over the throw path.
     mock.queue_response(R"({"custom": true})");
     auto custom = mock.process(state, "<binary:sendFrame>");
     CHECK(custom == R"({"custom": true})");
+
+    // Queue drained again → throws once more.
+    CHECK_THROWS_AS(mock.process(state, "<binary:sendFrame>"), AletheiaException);
+}
+
+TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaustion",
+          "[client][mock]") {
+    // Unlike process() (which returns std::string and throws on exhaustion),
+    // the binary frame methods return std::expected and the Client forwards the
+    // result directly — so exhaustion RETURNS a State-kinded unexpected with the
+    // unified cross-binding message (#108), it does NOT throw.  The op token is
+    // still recorded on the starved call, matching Go / Python / Rust.
+    MockBackend mock;
+    auto* state = mock.init();
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    // The mock ignores the injection contents; an empty (count 0) block suffices.
+    SignalInjection signals{
+        .count = 0, .indices = nullptr, .numerators = nullptr, .denominators = nullptr};
+
+    {
+        auto result = mock.build_frame_bin(state, id, dlc, signals, 8);
+        CHECK_FALSE(result.has_value());
+        CHECK(result.error().kind() == ErrorKind::State);
+        CHECK(std::string{result.error().message()} ==
+              "mock backend: no queued response for <binary:buildFrameBin>");
+        CHECK(mock.last_captured() == "<binary:buildFrameBin>");
+    }
+
+    {
+        auto result =
+            mock.update_frame_bin(state, id, dlc, std::span<const std::byte>{}, signals, 8);
+        CHECK_FALSE(result.has_value());
+        CHECK(result.error().kind() == ErrorKind::State);
+        CHECK(std::string{result.error().message()} ==
+              "mock backend: no queued response for <binary:updateFrameBin>");
+        CHECK(mock.last_captured() == "<binary:updateFrameBin>");
+    }
+
+    // Success path: a queued packed-frame byte buffer is returned verbatim.
+    {
+        mock.queue_frame_bytes({std::byte{0x01}, std::byte{0x02}});
+        auto result = mock.build_frame_bin(state, id, dlc, signals, 8);
+        REQUIRE(result.has_value());
+        CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
+    }
 }

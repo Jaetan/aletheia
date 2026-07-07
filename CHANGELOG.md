@@ -518,6 +518,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **`MockBackend` errors on queue exhaustion instead of fabricating a default
+  response (all four bindings). BREAKING (test doubles).** When a test asks a
+  `MockBackend` for more responses than it queued, every binding now
+  raises/throws immediately — Python `StateError`, C++ `AletheiaException`
+  (`ErrorKind::State`), Go `ErrState`, Rust `Error::Protocol` — with the
+  byte-identical message `mock backend: no queued response for {op}`, where
+  `{op}` is the starved operation's cross-binding token (the `<binary:OP>`
+  sentinel, or `process` for the JSON control-plane path). Previously Python
+  and C++ fabricated a `{"status":"ack"}` / `{"status":"success"}` default
+  (silently absorbing an under-provisioned test), and Go/Rust already errored
+  but with divergent wording and, in Rust, a method-name op token instead of
+  the shared sentinel. The starved call is still recorded in
+  `inputs()`/`captured()` before the error, and the error *kind* stays
+  idiomatic per binding (only the message and op token are unified). An
+  under-provisioned mock test now fails loudly at the missing response rather
+  than passing on a fabricated one. `MockBackend` is public API in
+  Python/Go/Rust (`make_mock_backend` in C++), so test code that relied on the
+  fabricated defaults must queue the responses it consumes or assert the error.
 - **The Rust binding resolves its FFI symbols once per process instead of
   per call.** `FfiBackend` used to run `dlsym` on every operation — two
   lookups per streamed frame (the op symbol + `aletheia_free_str`); a new

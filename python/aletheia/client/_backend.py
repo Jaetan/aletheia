@@ -31,7 +31,13 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from aletheia.client._enrichment import set_renderer_lib
 from aletheia.client._ffi import RTSState, configure_ffi_signatures, find_ffi_library
-from aletheia.client._types import AletheiaError, FFIError, ProtocolError, encode_maybe_bool
+from aletheia.client._types import (
+    AletheiaError,
+    FFIError,
+    ProtocolError,
+    StateError,
+    encode_maybe_bool,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -532,12 +538,6 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
 # ---------------------------------------------------------------------------
 
 
-# Default ack JSON for unsolicited "fire-and-forget" mock calls.  Mirrors
-# the Go MockBackend default at ``go/aletheia/mock.go`` and the C++ default
-# at ``cpp/src/detail/mock_backend.hpp:62``.
-_MOCK_ACK_RESPONSE: bytes = b'{"status":"ack"}'
-_MOCK_SUCCESS_RESPONSE: bytes = b'{"status":"success"}'
-
 _MOCK_SENTINEL_STATE: int = 0xDEADBEEF  # Non-null sentinel; mock ignores state value.
 
 
@@ -575,12 +575,14 @@ class MockBackend:  # pylint: disable=too-many-public-methods
 
         Args:
             responses: JSON response bytes returned one per call.  Empty
-                / None queues an empty deque; calls past the queue length
-                fall back to :func:`default_response` (``{"status":"ack"}``
-                for fire-and-forget endpoints, ``{"status":"success"}``
-                otherwise) so simple smoke tests work without explicit
-                priming.  Tests asserting on exact response shapes should
-                enqueue every expected call.
+                / None queues an empty deque.  A call that finds the queue
+                empty raises :class:`StateError` (an exhausted mock is a
+                test-harness misconfiguration, never a fabricated default)
+                — so every test must enqueue exactly one response per
+                expected backend call.  Cross-binding parity: Go
+                ``ErrState`` / Rust ``Error`` / C++ ``ErrorKind::State`` all
+                error on an exhausted mock queue rather than inventing a
+                response.
 
         """
         self._responses: deque[bytes] = deque(responses or [])
@@ -606,36 +608,30 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         self._responses.clear()
         self._inputs.clear()
 
-    # Marker substrings identifying fire-and-forget binary-shim calls that
-    # should default to ``{"status":"ack"}`` rather than ``{"status":"success"}``.
-    # Real backends drive these through the binary FFI, so the mock records a
-    # ``<binary:OP>`` sentinel; the frame/error/remote ops are the ack-default
-    # ones (a frame fires a verdict batch only when a property triggers).
-    _ACK_DEFAULT_MARKERS: tuple[bytes, ...] = (
-        b"<binary:sendFrame>",
-        b"<binary:sendError>",
-        b"<binary:sendRemote>",
-    )
+    def _record_and_pop(self, input_bytes: bytes, op: str | None = None) -> bytes:
+        """Record *input_bytes*, then pop and return the next queued response.
 
-    @classmethod
-    def default_response(cls, input_bytes: bytes) -> bytes:
-        """Return the default response when the queue is empty.
+        Raises :class:`StateError` on an exhausted queue — a MockBackend
+        that runs out of canned responses is a test-harness
+        misconfiguration, NEVER a fabricated default that would let an
+        under-provisioned test pass silently (cross-binding parity: Go
+        ``ErrState`` / Rust ``Error`` / C++ ``ErrorKind::State``).  The
+        input is appended to :attr:`inputs` BEFORE the raise, so the
+        capture log stays populated on the starved call (mirroring Go,
+        which records the input before erroring).
 
-        Mirrors C++ ``MockBackend::process`` default: fire-and-forget
-        commands (``sendFrame`` / ``sendError`` / ``sendRemote`` — JSON
-        path or binary sentinel) return ``{"status":"ack"}``; everything
-        else returns ``{"status":"success"}``.
+        The starved-operation name in the message is *op* when given (the
+        JSON path passes ``"process"``); otherwise it defaults to the
+        decoded *input_bytes*, which for every binary shim is the
+        ``<binary:OP>`` sentinel it records — yielding a message byte-for-byte
+        identical to the peer bindings.
         """
-        if any(m in input_bytes for m in cls._ACK_DEFAULT_MARKERS):
-            return _MOCK_ACK_RESPONSE
-        return _MOCK_SUCCESS_RESPONSE
-
-    def _pop_or_default(self, input_bytes: bytes) -> bytes:
-        """Record the input then return the next queued response, or the default."""
         self._inputs.append(input_bytes)
-        if self._responses:
-            return self._responses.popleft()
-        return self.default_response(input_bytes)
+        if not self._responses:
+            starved = op if op is not None else input_bytes.decode("utf-8", "replace")
+            msg = f"mock backend: no queued response for {starved}"
+            raise StateError(msg)
+        return self._responses.popleft()
 
     def init(self) -> int:
         """Return a non-zero sentinel state handle (mock keeps no per-state record)."""
@@ -646,9 +642,9 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         del state
 
     def process(self, state: int, input_bytes: bytes) -> bytes:
-        """Record the JSON input and return the next queued (or default) response."""
+        """Record the JSON input and return the next queued response."""
         del state
-        return self._pop_or_default(input_bytes)
+        return self._record_and_pop(input_bytes, "process")
 
     def send_frame_binary(  # pylint: disable=too-many-arguments  # noqa: PLR0913
         self,
@@ -662,14 +658,14 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         brs: bool | None,
         esi: bool | None,
     ) -> bytes:
-        """Record a ``<binary:sendFrame>`` sentinel; return queued or default-ack."""
+        """Record a ``<binary:sendFrame>`` sentinel; return the queued response."""
         del state, timestamp, can_id, extended, dlc, data, brs, esi
-        return self._pop_or_default(b"<binary:sendFrame>")
+        return self._record_and_pop(b"<binary:sendFrame>")
 
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
-        """Record a ``<binary:sendError>`` sentinel; return queued or default-ack."""
+        """Record a ``<binary:sendError>`` sentinel; return the queued response."""
         del state, timestamp
-        return self._pop_or_default(b"<binary:sendError>")
+        return self._record_and_pop(b"<binary:sendError>")
 
     def send_remote_binary(
         self,
@@ -679,24 +675,24 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         can_id: int,
         extended: bool,
     ) -> bytes:
-        """Record a ``<binary:sendRemote>`` sentinel; return queued or default-ack."""
+        """Record a ``<binary:sendRemote>`` sentinel; return the queued response."""
         del state, timestamp, can_id, extended
-        return self._pop_or_default(b"<binary:sendRemote>")
+        return self._record_and_pop(b"<binary:sendRemote>")
 
     def start_stream_binary(self, state: int) -> bytes:
-        """Record a ``<binary:startStream>`` sentinel; return queued or success."""
+        """Record a ``<binary:startStream>`` sentinel; return the queued response."""
         del state
-        return self._pop_or_default(b"<binary:startStream>")
+        return self._record_and_pop(b"<binary:startStream>")
 
     def end_stream_binary(self, state: int) -> bytes:
-        """Record a ``<binary:endStream>`` sentinel; return queued or success."""
+        """Record a ``<binary:endStream>`` sentinel; return the queued response."""
         del state
-        return self._pop_or_default(b"<binary:endStream>")
+        return self._record_and_pop(b"<binary:endStream>")
 
     def format_dbc_binary(self, state: int) -> bytes:
-        """Record a ``<binary:formatDBC>`` sentinel; return queued or success."""
+        """Record a ``<binary:formatDBC>`` sentinel; return the queued response."""
         del state
-        return self._pop_or_default(b"<binary:formatDBC>")
+        return self._record_and_pop(b"<binary:formatDBC>")
 
     def extract_signals_binary(  # pylint: disable=too-many-arguments
         self,
@@ -707,9 +703,9 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         dlc: int,
         data: bytes | bytearray,
     ) -> bytes:
-        """Record a ``<binary:extractAllSignals>`` sentinel; return queued or success."""
+        """Record a ``<binary:extractAllSignals>`` sentinel; return the queued response."""
         del state, can_id, extended, dlc, data
-        return self._pop_or_default(b"<binary:extractAllSignals>")
+        return self._record_and_pop(b"<binary:extractAllSignals>")
 
     def build_frame_bin(  # pylint: disable=too-many-arguments  # noqa: PLR0913
         self,
@@ -723,15 +719,10 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         denominators: tuple[int, ...],
         expected_bytes: int,
     ) -> bytes:
-        """Pop a queued frame bytes; zero-fill to ``expected_bytes`` if empty."""
-        del state, can_id, extended, dlc, indices, numerators, denominators
-        # The next queued response is treated as the packed frame bytes;
-        # without a queued response, zero-fill to expected_bytes so the
-        # downstream length validation in update_frame passes.
-        self._inputs.append(b"<binary:buildFrameBin>")
-        if self._responses:
-            return self._responses.popleft()
-        return bytes(expected_bytes)
+        """Record a ``<binary:buildFrameBin>`` sentinel; return the queued packed frame bytes."""
+        del state, can_id, extended, dlc, indices, numerators, denominators, expected_bytes
+        # The next queued response is treated as the packed frame bytes.
+        return self._record_and_pop(b"<binary:buildFrameBin>")
 
     def update_frame_bin(  # pylint: disable=too-many-arguments  # noqa: PLR0913
         self,
@@ -746,12 +737,9 @@ class MockBackend:  # pylint: disable=too-many-public-methods
         denominators: tuple[int, ...],
         expected_bytes: int,
     ) -> bytes:
-        """Pop a queued frame bytes; zero-fill to ``expected_bytes`` if empty."""
-        del state, can_id, extended, dlc, data, indices, numerators, denominators
-        self._inputs.append(b"<binary:updateFrameBin>")
-        if self._responses:
-            return self._responses.popleft()
-        return bytes(expected_bytes)
+        """Record a ``<binary:updateFrameBin>`` sentinel; return the queued packed frame bytes."""
+        del state, can_id, extended, dlc, data, indices, numerators, denominators, expected_bytes
+        return self._record_and_pop(b"<binary:updateFrameBin>")
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
         self,
