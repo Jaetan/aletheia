@@ -300,6 +300,22 @@ parseLibgmpVersion dockerfile =
       of (x:_) -> x
          []    -> "unknown"
 
+-- | Parse the @version:@ field (e.g. "3.0.0.0") from a .cabal file's contents.
+-- cabal builds each package version into a SEPARATE @dist-newstyle@ tree
+-- (@aletheia-<VER>/…@), so the built @.so@ must be located under the CURRENT
+-- version's tree — locating by bare name picks a stale sibling tree when one
+-- lingers from a prior version (see the @build/libaletheia-ffi.so@ rule).
+-- Returns "" when absent so the caller can fail loud.
+parseCabalVersion :: String -> String
+parseCabalVersion contents =
+    case [ v | line <- lines contents
+             , Just rest <- [stripPrefix "version:" line]
+             , let v = strip rest
+             , not (null v)
+             ]
+      of (x:_) -> x
+         []    -> ""
+
 -- | Get GHC runtime .so dependencies for a shared library.
 -- Runs ldd and filters for libraries under GHC's lib directory.
 getGhcDeps :: FilePath -> Action [FilePath]
@@ -1073,6 +1089,22 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     --   * Per-gate:  `cabal run shake -- check-properties` (etc.)
 
     phony "dist" $ do
+        -- Release hygiene: prune stale per-version dist-newstyle trees BEFORE the
+        -- .so is (re)built below, so a release cut builds from only the current
+        -- version's tree.  The build/libaletheia-ffi.so rule already selects the
+        -- .so version-aware, but a lingering prior-version tree wastes disk and
+        -- is the exact footgun a release path must not carry (a version bump
+        -- leaves the previous version's tree behind).
+        distCabal <- liftIO $ readFile "haskell-shim/aletheia.cabal"
+        let distVer = parseCabalVersion distCabal
+        when (null distVer) $
+            error "Could not parse `version:` from haskell-shim/aletheia.cabal"
+        cmd_ (Cwd "haskell-shim") Shell $
+            "for d in dist-newstyle/build/*/*/aletheia-*; do "
+            ++ "[ -d \"$d\" ] || continue; "
+            ++ "[ \"$(basename \"$d\")\" = 'aletheia-" ++ distVer
+            ++ "' ] || rm -rf \"$d\"; done"
+
         -- CICD-5.2 (R23): dist must NOT ship a tarball that skipped the proof
         -- tree.  Pre-push hook is the canonical defense; bind the proof gates
         -- here too as defense-in-depth so direct `cabal run shake -- dist`
@@ -1553,15 +1585,36 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             ["--ghc-options=+RTS -A64M -M3G -RTS"]
             "aletheia-ffi"
 
-        -- Find and copy the built .so file
-        Stdout soPath <- cmd (Cwd "haskell-shim") Shell
-            "find dist-newstyle -name 'libaletheia-ffi.so' -type f | head -1"
-        let trimmedPath = strip soPath
-        if null trimmedPath
-            then error "Could not find libaletheia-ffi.so in dist-newstyle"
-            else do
+        -- Find and copy the built .so.  cabal keeps a SEPARATE dist-newstyle
+        -- tree per package version (aletheia-<VER>/…), so a bare
+        -- `find … | head -1` is non-deterministic when a stale tree from a prior
+        -- version lingers (readdir order is unstable) — after a version bump it
+        -- can silently copy the OLD version's .so (verified: it shipped a
+        -- Jun-build .so under a bumped version).  Scope to the CURRENT package
+        -- version's subtree (the stable, semantic boundary — NOT cabal's
+        -- internal component layout) and FAIL LOUD on anything but exactly one
+        -- match rather than guessing: the exactly-one check is the real guard,
+        -- so no coupling to the `f/aletheia-ffi/…` path is needed (there is one
+        -- libaletheia-ffi.so per version tree).  (`dist` additionally prunes
+        -- stale trees up front; this rule is the always-on guard.)
+        cabalContents <- liftIO $ readFile "haskell-shim/aletheia.cabal"
+        let ver = parseCabalVersion cabalContents
+        when (null ver) $
+            error "Could not parse `version:` from haskell-shim/aletheia.cabal"
+        Stdout rawSo <- cmd (Cwd "haskell-shim") Shell
+            ( "find dist-newstyle -type f -path '*/aletheia-" ++ ver
+              ++ "/*' -name 'libaletheia-ffi.so'" )
+        case filter (not . null) (map strip (lines rawSo)) of
+            [trimmedPath] -> do
                 cmd_ (Cwd "haskell-shim") "cp" trimmedPath ("../" ++ out)
                 putInfo $ "Shared library created: " ++ out
+                                ++ " (from aletheia-" ++ ver ++ ")"
+            [] -> error $ "No libaletheia-ffi.so under haskell-shim/dist-newstyle"
+                        ++ " for the current version aletheia-" ++ ver
+                        ++ " (did `cabal build aletheia-ffi` run?)."
+            many -> error $ "Ambiguous libaletheia-ffi.so for aletheia-" ++ ver
+                        ++ " — expected exactly one, found "
+                        ++ show (length many) ++ ": " ++ intercalate ", " many
 
     -- =========================================================================
     -- Install / Uninstall targets

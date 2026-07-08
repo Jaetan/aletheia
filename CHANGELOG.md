@@ -10,6 +10,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-07-09
+
 ### Fixed
 
 - **`aletheia check` / `signals` / `validate --excel` now accept an

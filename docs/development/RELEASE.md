@@ -205,12 +205,22 @@ Before tagging a release:
       that the dist may not match any committed source.
 - [ ] `tools/run_ci.py` passes end-to-end (the always-on gate sweep, ~22-30 min warm).
 - [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
-- [ ] `CHANGELOG.md` has an entry under `## [X.Y.Z] — Unreleased`
-      describing the release.
+- [ ] `CHANGELOG.md` has the release's notes accumulated under `## [Unreleased]`
+      (Keep-a-Changelog shape — one `### Added/Changed/Fixed/…` header per
+      category).
 - [ ] Version bumped to `X.Y.Z` in every package-metadata file:
       `python/pyproject.toml` (`version = "X.Y.Z"`),
-      `haskell-shim/aletheia.cabal` (`version: X.Y.Z.0` — note the 4-part form),
-      `cpp/CMakeLists.txt` (`project(aletheia-cpp VERSION X.Y.Z ...)`).
+      `haskell-shim/aletheia.cabal` (`version: X.Y.Z.0` — 4-part form; this is
+      also the single source `libaletheia-ffi.so` and the SBOM read their
+      version from, via `tools/sbom_generate.py`),
+      `cpp/CMakeLists.txt` (`project(aletheia-cpp VERSION X.Y.Z ...)`),
+      `rust/Cargo.toml` and `rust/excel/Cargo.toml` (`version = "X.Y.Z"`),
+      then `cargo update -p aletheia` (in `rust/`) and
+      `cargo update -p aletheia -p aletheia-excel` (in `rust/excel/`) to refresh
+      the local-package entries in `rust/Cargo.lock` + `rust/excel/Cargo.lock`
+      without disturbing pinned dependencies,
+      and `shake.cabal` (`version: X.Y.Z.0` — the build orchestrator, bumped in
+      lockstep at every prior release).
       (Go derives its version from the git tag — no in-file semver to bump.)
 - [ ] Cosign keypair is the current key (`keys/cosign.pub` matches
       `~/.config/aletheia/cosign.key`).
@@ -219,8 +229,8 @@ Before tagging a release:
 - [ ] Manual verify of all three checks (sha256, cosign, SBOM look-OK).
 - [ ] Tag the release commit + push tarball + signature + sha256 +
       `keys/cosign.pub` to the release host.
-- [ ] Edit `CHANGELOG.md` to flip `## [X.Y.Z] — Unreleased` to
-      `## [X.Y.Z] — YYYY-MM-DD`.
+- [ ] Edit `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
+      and add a fresh empty `## [Unreleased]` header above it for the next cycle.
 
 ## Troubleshooting
 

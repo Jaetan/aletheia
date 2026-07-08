@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 [package]
 name = "aletheia"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
 description = "Formally verified CAN frame analysis — Rust binding (loads libaletheia-ffi.so at runtime)"
 license = "BSD-2-Clause"
