@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 cmake_minimum_required(VERSION 3.25)
-project(aletheia-cpp VERSION 2.0.0 LANGUAGES CXX)
+project(aletheia-cpp VERSION 3.0.0 LANGUAGES CXX)
 
 # ── Compiler policy: Clang only; supported = latest stable Clang ────────────
 # Supported toolchain: the latest stable Clang (currently 22; moves to 23 when

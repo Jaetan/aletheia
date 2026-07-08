@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 [package]
 name = "aletheia-excel"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
 description = "Aletheia Excel check/DBC loader — a separate crate so the .xlsx dependency chain (calamine + rust_xlsxwriter) is optional for core users."
 license = "BSD-2-Clause"
