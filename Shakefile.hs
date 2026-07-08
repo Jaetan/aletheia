@@ -1586,21 +1586,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             "aletheia-ffi"
 
         -- Find and copy the built .so.  cabal keeps a SEPARATE dist-newstyle
-        -- tree per package version (aletheia-<VER>/f/aletheia-ffi/…), so a bare
+        -- tree per package version (aletheia-<VER>/…), so a bare
         -- `find … | head -1` is non-deterministic when a stale tree from a prior
         -- version lingers (readdir order is unstable) — after a version bump it
         -- can silently copy the OLD version's .so (verified: it shipped a
-        -- Jun-build .so under a bumped version).  Select the .so under the
-        -- CURRENT package version only, and FAIL LOUD on anything but exactly
-        -- one match rather than guessing.  (`dist` additionally prunes stale
-        -- trees up front; this rule is the always-on guard.)
+        -- Jun-build .so under a bumped version).  Scope to the CURRENT package
+        -- version's subtree (the stable, semantic boundary — NOT cabal's
+        -- internal component layout) and FAIL LOUD on anything but exactly one
+        -- match rather than guessing: the exactly-one check is the real guard,
+        -- so no coupling to the `f/aletheia-ffi/…` path is needed (there is one
+        -- libaletheia-ffi.so per version tree).  (`dist` additionally prunes
+        -- stale trees up front; this rule is the always-on guard.)
         cabalContents <- liftIO $ readFile "haskell-shim/aletheia.cabal"
         let ver = parseCabalVersion cabalContents
         when (null ver) $
             error "Could not parse `version:` from haskell-shim/aletheia.cabal"
         Stdout rawSo <- cmd (Cwd "haskell-shim") Shell
             ( "find dist-newstyle -type f -path '*/aletheia-" ++ ver
-              ++ "/f/aletheia-ffi/*' -name 'libaletheia-ffi.so'" )
+              ++ "/*' -name 'libaletheia-ffi.so'" )
         case filter (not . null) (map strip (lines rawSo)) of
             [trimmedPath] -> do
                 cmd_ (Cwd "haskell-shim") "cp" trimmedPath ("../" ++ out)
