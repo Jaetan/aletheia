@@ -16,7 +16,7 @@ Demonstrates:
 
 from pathlib import Path
 
-from aletheia import AletheiaClient, AletheiaError, Signal
+from aletheia import AletheiaClient, AletheiaError, Signal, from_decimal
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DLCCode
 
@@ -46,7 +46,7 @@ def main() -> int:
     prop2 = Signal("EngineTemp").between(-40, 215).always()
     print("  2. Always: -40 <= EngineTemp <= 215")
 
-    prop3 = Signal("BrakePressure").less_than(6553.5).always()
+    prop3 = Signal("BrakePressure").less_than(from_decimal("6553.5")).always()
     print("  3. Always: BrakePressure < 6553.5\n")
 
     properties = [prop1.to_dict(), prop2.to_dict(), prop3.to_dict()]

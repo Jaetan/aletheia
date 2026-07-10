@@ -71,7 +71,7 @@ print("=" * 60)
 print("TIER 1: Raw DSL (developer)")
 print("=" * 60)
 
-dsl_1 = Signal("VehicleSpeed").less_than(220).always().to_dict()
+dsl_1 = Signal("VehicleSpeed").less_than_or_equal(220).always().to_dict()
 dsl_2 = Signal("BatteryVoltage").between(Fraction("11.5"), Fraction("14.5")).always().to_dict()
 dsl_3 = (
     Signal("BrakePedal")
@@ -81,7 +81,7 @@ dsl_3 = (
     .to_dict()
 )
 
-print("\n  Signal('VehicleSpeed').less_than(220).always()")
+print("\n  Signal('VehicleSpeed').less_than_or_equal(220).always()")
 print("  Signal('BatteryVoltage').between(11.5, 14.5).always()")
 print("  Signal('BrakePedal').greater_than(50)")
 print("      .implies(Signal('BrakeLight').equals(1).within(100)).always()")

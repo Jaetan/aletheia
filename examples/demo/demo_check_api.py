@@ -102,11 +102,11 @@ print("\n" + "=" * 60)
 print("SECTION 5: Equivalence with Raw DSL")
 print("=" * 60)
 
-dsl_formula = Signal("VehicleSpeed").less_than(220).always().to_dict()
+dsl_formula = Signal("VehicleSpeed").less_than_or_equal(220).always().to_dict()
 check_formula = signal("VehicleSpeed").never_exceeds(220).to_dict()
 
 print("\n  Check API: signal('VehicleSpeed').never_exceeds(220)")
-print("  Raw DSL:   Signal('VehicleSpeed').less_than(220).always()")
+print("  Raw DSL:   Signal('VehicleSpeed').less_than_or_equal(220).always()")
 print(f"  Identical: {dsl_formula == check_formula}")
 
 dsl_wt = (
