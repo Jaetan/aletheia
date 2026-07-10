@@ -490,6 +490,11 @@ def _run_gha_checks(runner: Runner) -> None:
         cwd=runner.repo_root,
     )
     runner.step(
+        "check-no-review-marks",
+        [runner.python, "-m", "tools.check_no_review_marks"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
         "check-venv-convention",
         [runner.python, "-m", "tools.check_venv_convention"],
         cwd=runner.repo_root,

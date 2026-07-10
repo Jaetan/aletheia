@@ -16,7 +16,7 @@
 -- Each sub-formula is extracted via lookupAndParse, which walks the JSON field
 -- list and calls parseLTL on the structurally smaller sub-value.
 --
--- Failure surface (AGDA-D-10.1): the parser is reason-carrying — it returns
+-- Failure surface: the parser is reason-carrying — it returns
 -- `ParseFail ⊎ _`, never a bare `Maybe`.  Signal-name validity is decided in
 -- exactly ONE place (`Identifier.parseIdentifierField`, surfaced here through
 -- `signalField`); an invalid name propagates up the single parse path as
@@ -193,7 +193,7 @@ mutual
     else if ⌊ op ≟ "release" ⌋ then parseBinaryOp LTL.Release obj
     -- Metric operators: startTime initialized to 0 (= uninitialized, suc-encoded).
     -- timebound=0 is accepted: means "must hold immediately" (see Syntax.agda).
-    -- R6-B7.2 closure: lift JSON ℕ → `Timestamp μs` via `mkTs` at the parse
+    -- Lift JSON ℕ → `Timestamp μs` via `mkTs` at the parse
     -- boundary so the dimensional invariant holds inside the kernel.
     else if ⌊ op ≟ "metricEventually" ⌋ then parseBoundedOp (λ n → LTL.MetricEventually (mkTs n) 0) obj
     else if ⌊ op ≟ "metricAlways" ⌋ then parseBoundedOp (λ n → LTL.MetricAlways (mkTs n) 0) obj
@@ -269,6 +269,6 @@ mutual
 -- by `parseAllProperties` (`Protocol.Handlers`) as a typed `ParseErr
 -- (InputBoundExceeded AtomCount …)` rejection, since it needs the constructed
 -- tree's atom count.  Formatter-side bound preservation lives in
--- `DBC/Formatter/Bounded.agda` (cluster 8 e.4 length-map lemmas).
+-- `DBC/Formatter/Bounded.agda` (length-map lemmas).
 parseProperty : JSON → ParseFail ⊎ (LTL SignalPredicate)
 parseProperty j = parseLTL j

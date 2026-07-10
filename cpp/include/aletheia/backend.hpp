@@ -51,7 +51,7 @@ public:
 
     // ========================================================================
     // [MANDATORY] — every backend MUST implement these.
-    // R19 cluster 9 — CPP-D-17.1: pure-virtual sites grouped together;
+    // Pure-virtual sites grouped together;
     // optional default-implementation overrides live in the [OPTIONAL]
     // section below so a new backend implementer can read off the surface.
     // ========================================================================
@@ -64,8 +64,7 @@ public:
     // CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
     // passed as std::optional<bool> — std::nullopt for CAN 2.0B frames
     // where the bits do not exist.  The Aletheia kernel does not consume
-    // BRS / ESI; they are pass-through metadata for binding consumers
-    // (R19P2 cluster 18 — AGDA-D-10.1 closure).
+    // BRS / ESI; they are pass-through metadata for binding consumers.
     [[nodiscard]] virtual auto send_frame_binary(void* state, Timestamp ts, const CanId& id,
                                                  Dlc dlc, std::span<const std::byte> data,
                                                  std::optional<bool> brs, std::optional<bool> esi)

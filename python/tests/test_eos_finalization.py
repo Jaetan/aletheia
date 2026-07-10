@@ -251,11 +251,11 @@ class TestMissingSignalFinalization:
     def test_uncached_atom_warning_emitted(self) -> None:
         """Signal never observed → EndStream emits an `uncached_atom` warning.
 
-        R21 cluster 1 — AGDA-D-12.1: ratifies the `Unresolved` verdict
-        with diagnostic context.  The kernel walks every property's
-        atoms at EndStream and emits one warning per atom whose target
-        signal never appeared in the cache.  Verifies the Python
-        binding surfaces these warnings on the `CompleteResponse`.
+        Ratifies the `Unresolved` verdict with diagnostic context.  The
+        kernel walks every property's atoms at EndStream and emits one
+        warning per atom whose target signal never appeared in the cache.
+        Verifies the Python binding surfaces these warnings on the
+        `CompleteResponse`.
         """
         with AletheiaClient() as client:
             client.parse_dbc(TWO_MESSAGE_DBC)

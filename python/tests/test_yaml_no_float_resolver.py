@@ -11,10 +11,9 @@ RTS-gated decimal tests in ``test_yaml_loader.py``. Kept in its own module
 exercised even where a backend is unavailable.
 """
 
-import textwrap
+from _check_asserts import assert_yaml_single_check
 
 from aletheia.checks import signal
-from aletheia.yaml_loader import load_checks
 
 
 def test_integer_valued_check_loads_without_a_backend() -> None:
@@ -23,27 +22,25 @@ def test_integer_valued_check_loads_without_a_backend() -> None:
     ``never_exceeds(220)`` is an exact ``int`` (no ``from_decimal``), so the whole
     load is RTS-free; it still flows through the no-float YAML loader.
     """
-    checks = load_checks(
-        textwrap.dedent("""\
+    assert_yaml_single_check(
+        """\
         checks:
           - signal: Speed
             condition: never_exceeds
             value: 220
-    """)
+    """,
+        signal("Speed").never_exceeds(220),
     )
-    assert len(checks) == 1
-    assert checks[0].to_dict() == signal("Speed").never_exceeds(220).to_dict()
 
 
 def test_negative_integer_value_loads_without_a_backend() -> None:
     """A negative integer threshold also loads RTS-free (no float coercion)."""
-    checks = load_checks(
-        textwrap.dedent("""\
+    assert_yaml_single_check(
+        """\
         checks:
           - signal: Temp
             condition: never_below
             value: -40
-    """)
+    """,
+        signal("Temp").never_below(-40),
     )
-    assert len(checks) == 1
-    assert checks[0].to_dict() == signal("Temp").never_below(-40).to_dict()

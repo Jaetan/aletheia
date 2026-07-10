@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseBitTiming-roundtrip` derived from
--- the universal Format DSL roundtrip.
+-- Slim `parseBitTiming-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Pre-3d.5.d (3a): hand-written ~226-line bind-chain proof through
+-- The earlier form was a hand-written ~226-line bind-chain proof through
 -- 7 parser primitives.
 --
--- Post-3d.5.d-3a: `parseBitTiming = parse bitTimingFmt >>= λ _ → many
+-- Now `parseBitTiming = parse bitTimingFmt >>= λ _ → many
 -- parseNewline >>= λ _ → pure tt` (in `TextParser.Preamble`), and the
 -- roundtrip reduces to the same 3-step bind chain as
 -- `parseVersion-roundtrip`:

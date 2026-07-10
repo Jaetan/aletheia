@@ -2,15 +2,15 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseComment-roundtrip` derived from the
--- universal Format DSL roundtrip.
+-- Slim `parseComment-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Pre-3d.5.d (3b): hand-written 2,533-line case-by-case proof with 5-way
+-- The earlier form was a hand-written 2,533-line case-by-case proof with 5-way
 -- `CommentTarget` dispatch (CTNetwork / CTNode / CTMessage / CTSignal /
 -- CTEnvVar) through 4-deep `<|>`-chain composition + per-target bind
--- chains.  CM_ was the heaviest single Layer-3 construct.
+-- chains.  CM_ was the heaviest single per-line construct.
 --
--- Post-3d.5.d: `parseComment = parse commentFmt >>= many parseNewline >>=
+-- Now `parseComment = parse commentFmt >>= many parseNewline >>=
 -- buildCommentP` (in `TextParser.Comments`), and the roundtrip reduces to:
 --
 --   1. A bridge `emit-commentFmt-eq-emitComment-chars` proving DSL emit
@@ -119,8 +119,8 @@ private
   standard-max<extFlagBit : standard-can-id-max < extFlagBit
   standard-max<extFlagBit = <ᵇ⇒< standard-can-id-max extFlagBit tt
 
-  -- `<ᵇ⇒<` accepting irrelevant `T (m <ᵇ n)` — needed because R18 cluster
-  -- 17 made `CANId` proof fields `.(…)`-irrelevant, so pattern-matched
+  -- `<ᵇ⇒<` accepting irrelevant `T (m <ᵇ n)` — needed because `CANId`
+  -- proof fields are `.(…)`-irrelevant, so pattern-matched
   -- `Standard n pf` binds `pf` irrelevantly and stdlib `<ᵇ⇒<` requires
   -- relevant input.  Materializes a relevant `T b` via case split on the
   -- Bool, then defers to stdlib `<ᵇ⇒<`.
@@ -145,8 +145,8 @@ private
 --     `(n + extFlagBit) ∸ extFlagBit ≡ n` rewrites the inner ifᵀ's
 --     domain to `n <ᵇ extended-can-id-max`, and `ifᵀ-witness pf` lands.
 --
--- The Extended clause uses pointwise `subst` (not `rewrite`) per the
--- 3d.3b heap-blowup root cause: `rewrite n+ext∸ext≡n` over a goal
+-- The Extended clause uses pointwise `subst` (not `rewrite`) to avoid a
+-- heap-blowup root cause: `rewrite n+ext∸ext≡n` over a goal
 -- containing nested `ifᵀ`s produces a `with`-aux that exhausted -M48G
 -- in the original CM_ proof.  See AGENTS.md G-A2.
 buildCANId-rawCanIdℕ : ∀ (cid : CANId) → buildCANId (rawCanIdℕ cid) ≡ just cid

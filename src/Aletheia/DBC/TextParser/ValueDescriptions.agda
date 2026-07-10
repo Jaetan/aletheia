@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Track E.6 — VAL_ refinement: distribute parsed `RawValueDesc` payloads
+-- VAL_ refinement: distribute parsed `RawValueDesc` payloads
 -- back into the per-signal `DBCSignal.valueDescriptions` field.
 --
 -- Mirrors the `refineAttributes` pattern (in `TextParser.Attributes`) that
@@ -31,14 +31,14 @@
 --     emits one `mkRawValueDesc msg.id sig.name sig.valueDescriptions`
 --     per signal whose `valueDescriptions` is non-empty.  Empty-vds
 --     signals contribute nothing — this matches the formatter's behavior
---     at E.7 (only emit `VAL_` lines for signals with value descriptions).
+--     (only emit `VAL_` lines for signals with value descriptions).
 --
 -- The proof side (`Properties.Aggregator.Refine.ValueDescriptions`) shows
 -- `attachValueDescs (collectFromMessages msgs) msgs ≡ msgs` under WF.
 -- The vacuous case `attachValueDescs [] msgs ≡ msgs` is the form used by
--- the universal aggregator at E.6 closure (`partitionTopStmts-bridge`
--- still produces `rawValueDescs = []` until E.7 flips `toTopStmtsTyped`
--- to 7 chunks via `collectFromMessages`).
+-- the universal aggregator (`partitionTopStmts-bridge` still produces
+-- `rawValueDescs = []` until `toTopStmtsTyped` is wired to 7 chunks via
+-- `collectFromMessages`).
 --
 -- API design discipline:
 --   * `lookup-vd` and `attachWithMaybe` use Maybe-elim direct pattern
@@ -116,7 +116,7 @@ attachValueDescs rvds = map (attachToMessage rvds)
 -- ============================================================================
 --
 -- `collectFromSignals` skips signals whose `valueDescriptions` is `[]`,
--- matching E.7's formatter (which only emits `VAL_` for non-empty
+-- matching the formatter (which only emits `VAL_` for non-empty
 -- value-description lists).
 --
 -- The `prependVdsRvd` helper case-splits on the vds list explicitly (not

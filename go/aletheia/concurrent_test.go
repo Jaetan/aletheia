@@ -11,7 +11,7 @@ import (
 )
 
 // TestExtractSignals_MockBinaryFallthrough is a regression guard for the
-// Mock+DBC parity gap in extractSignalsLocked (R12 H1). After ParseDBC
+// Mock+DBC parity gap in extractSignalsLocked. After ParseDBC
 // populates the signal-name cache, the binary extraction path is exercised
 // first — but MockBackend returns ErrBinaryPathUnsupported, which must
 // trigger the JSON fallback via ExtractSignalsBinary. Without the fall-

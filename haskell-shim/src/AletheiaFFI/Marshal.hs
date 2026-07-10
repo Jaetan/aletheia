@@ -101,7 +101,7 @@ decimalResultJson input (Just q) =
 
 -- | Typed FFI error carrying either a free-form string (legacy validation
 -- messages) or a structured adversarial-input bound violation that mirrors
--- Agda's `Error.InputBoundExceeded` wire shape (R20 cluster I — AGDA-D-32.3).
+-- Agda's `Error.InputBoundExceeded` wire shape.
 -- The bound-kind discriminator is carried as the canonical wire code
 -- (`"frame_byte_count"`, etc.) so the rendered JSON matches the Agda-side
 -- `errorExtras` payload byte-for-byte.
@@ -140,14 +140,14 @@ dlcToBytes n = fromIntegral (AgdaDLC.d_dlcToBytes_6 (toInteger n))
 -- present == 0 → Nothing; present /= 0 → Just (value /= 0). Used to lift
 -- the CAN-FD BRS/ESI bits from the binary FFI into Agda's `Maybe Bool`.
 -- The kernel does not consume BRS/ESI; they are pass-through metadata for
--- bindings (R19 Phase 2 cluster 18 — AGDA-D-10.1 closure).
+-- bindings.
 mkMaybeBool :: Word8 -> Word8 -> Maybe Bool
 mkMaybeBool 0 _ = Nothing
 mkMaybeBool _ v = Just (v /= 0)
 
 -- | Validate DLC code (must be ≤ 15) and dataLen/DLC consistency.
 --
--- R20 cluster I — AGDA-D-32.3.  The dataLen pre-check emits a typed
+-- The dataLen pre-check emits a typed
 -- `FFIBoundExceeded "frame_byte_count" observed maxFrameByteCount` so
 -- the binary FFI's bound rejection mirrors the JSON-side
 -- `Error.InputBoundExceeded FrameByteCount …` emit from

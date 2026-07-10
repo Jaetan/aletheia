@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.c-η — universal `signalLine-roundtrip`.
+-- universal `signalLine-roundtrip`.
 --
 -- Closes the parse-after-emit law for `signalLineFmt` via one
 -- `roundtrip signalLineFmt` call backed by an `EmitsOK` certificate
@@ -18,7 +18,7 @@
 -- (`:`, `|`, `@`, `(`, `)`, `[`, `]`, `,`, `"`, `\n`, `' '`, `M`, `m`).
 --
 -- Companion to `Format.SignalLine.signalLineFmt`; consumed by
--- `Properties.Topology.Signal` (the post-η slim dispatcher wrappers).
+-- `Properties.Topology.Signal` (the slim dispatcher wrappers).
 module Aletheia.DBC.TextParser.Format.SignalLine.Roundtrip where
 
 open import Data.Bool using (Bool; true; false)
@@ -86,7 +86,7 @@ private
 -- ============================================================================
 
 -- The signal name's first char must be non-hspace.  Identical to the
--- existing `SignalNameStop`-style precondition the pre-η dispatchers
+-- existing `SignalNameStop`-style precondition the earlier dispatchers
 -- carried.
 NameStop : RawSignal → Set
 NameStop rs =
@@ -101,7 +101,7 @@ NameStop rs =
 -- the outer concat reduces to the head of `emit canonicalReceiversFmt
 -- recv` (when non-empty — which the canonical AST guarantees, since
 -- the empty case re-encodes as `vectorXXX-id` whose name is `'V' ∷ …`).
--- Owed by Layer 4 via the `isIdentStart→¬isHSpace` bridge for the
+-- Owed by a later step via the `isIdentStart→¬isHSpace` bridge for the
 -- non-empty cases; the empty case discharges definitionally.
 RecvHeadStop : CanonicalReceivers → Set
 RecvHeadStop recv =

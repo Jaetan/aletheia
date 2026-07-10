@@ -2,11 +2,11 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — DSL-side Format for the BA_DEF_DEF_ /
+-- DSL-side Format for the BA_DEF_DEF_ /
 -- BA_ / BA_REL_ attribute lines + parseAttrLine 5-way `<|>` composer.
 --
--- Mirrors `Format/AttrDef.agda` (3c-A) for the attribute-definition lines.
--- The crucial difference: 3c-B's value slot is shape-polymorphic (3 emit
+-- Mirrors `Format/AttrDef.agda` for the attribute-definition lines.
+-- The crucial difference: this value slot is shape-polymorphic (3 emit
 -- shapes — RavwString / RavwFrac / RavwBareInt — see
 -- `Format/AttrValue.agda`), routed through the universal `attrValueWireFmt`
 -- 3-way altSum.  The line-level Format `attrDefaultFmt` etc. then plug
@@ -23,25 +23,24 @@
 --                    attr-rel <|> attr-assign      (5-way <|>)
 --
 -- The trailing `many parseNewline` consumption stays in the production
--- wrapper, NOT in this Format — same η-style wrap pattern as
+-- wrapper, NOT in this Format — same wrap pattern as
 -- `Format/EnvVar.agda` / `Format/AttrDef.agda`.
 --
--- AGDA-D-15.1 CLOSED (2026-05-18, R22): file split into this module
+-- This file was split into this module
 -- (826 LOC, retains L1-L7 base/dispatch/std/rel/lineformats/emits-ok-
 -- builder/public-emit-equations) + sibling
 -- `Format/AttrLine/Builders.agda` (493 LOC, holds the L5 disjointness
 -- helpers + KEYWORD-TARGET emit equations & L5 builders).  Pattern:
--- external-consumer-redirect (mirrors R20 cluster Y's `627ad25`
+-- external-consumer-redirect (mirrors the `627ad25`
 -- ValueDescriptions split).  Minimum-lift mechanic: only
 -- `parseStdTgtL1-fails-on-non-keyword-head` and `bridge-emit-tail`
 -- were promoted private→public (the two names actually referenced
--- across the cut).  The empirically abandoned multi-helper-lift
--- (path-b extract to leaf `Helpers.agda`) and the conservative
--- everything-lift (path-a "drop `private` on all 7 blocks") were
--- both unnecessary — the L5+KW-T section uses only two private names.
--- The 6 consumer Properties files (`Properties/Attributes/Assign/*.agda`)
--- split their `using` clause across both modules.  All 8 of the
--- AGDA-D-15.1 candidates are now closed.
+-- across the cut).  The abandoned multi-helper-lift (extract to a leaf
+-- `Helpers.agda`) and the conservative everything-lift (drop `private`
+-- on all 7 blocks) were both unnecessary — the L5+KW-T section uses
+-- only two private names.  The 6 consumer Properties files
+-- (`Properties/Attributes/Assign/*.agda`) split their `using` clause
+-- across both modules.
 
 module Aletheia.DBC.TextParser.Format.AttrLine where
 
@@ -373,7 +372,7 @@ private
 -- Public (lifted from private block on 2026-05-18) so the L5
 -- disjointness sibling `Format/AttrLine/Builders.agda` can consume it
 -- through `emit-stdTargetWireFmt-RatwNet-on-non-keyword-head` after the
--- AGDA-D-15.1 split.  The body still references the private arm/step
+-- split.  The body still references the private arm/step
 -- helpers above — same-module reach keeps that working.
 parseStdTgtL1-fails-on-non-keyword-head :
   ∀ (x : Char)  -- explicit (avoid implicit-inference failure across `with`)
@@ -763,7 +762,7 @@ private
 --
 -- Public (lifted from private block on 2026-05-18) so the KEYWORD-TARGET
 -- emit-equation sibling `Format/AttrLine/Builders.agda` can compose the
--- `*-with-outer` lemmas after the AGDA-D-15.1 split.
+-- `*-with-outer` lemmas after the split.
 bridge-emit-tail :
   ∀ (name : List Char) (kw-body : List Char) (value-chars : List Char)
     (outer-suffix : List Char)

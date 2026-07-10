@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Value-table parsers for the DBC text format (Track B.3.c.4).
+-- Value-table parsers for the DBC text format.
 --
 -- Grammar slice covered (BNF section C from `Aletheia.DBC.TextParser`):
 --   val-table    ::= "VAL_TABLE_" ws identifier (ws nat ws string-lit)*
@@ -10,11 +10,11 @@
 --   value-desc   ::= "VAL_" ws nat ws identifier (ws nat ws string-lit)*
 --                    ws? ";" newline
 --
--- Track E.4 — `VAL_` payload promotion:
+-- `VAL_` payload promotion:
 --   `parseValueDescription` now yields a `RawValueDesc` carrying the
 --   decoded `CANId`, the signal `Identifier`, and the `(value, label)`
 --   entries.  Earlier the parser dropped to `⊤` because `DBCSignal` had
---   no place to store per-signal enum labels; with E.1's
+--   no place to store per-signal enum labels; with the
 --   `DBCSignal.valueDescriptions` field, the value can now be threaded
 --   through `TopStmt.TSValueDesc → TopStmtTyped.TVD → attachValueDescs`
 --   to land on the owning signal's record.
@@ -34,7 +34,7 @@
 -- Zero-entry handling: `VAL_TABLE_ Empty ;` is syntactically valid — the
 -- `many parseValueEntry` combinator accepts zero entries.  Corpus-never-
 -- seen but grammar-allowed; `emitValueTable` mirrors this on the output
--- side so B.3.d composes.
+-- side so the roundtrip composes.
 module Aletheia.DBC.TextParser.ValueTables where
 
 open import Data.List using (List)
@@ -65,7 +65,7 @@ open import Aletheia.DBC.Types using (ValueTable)
 -- when the next character is the `;` terminator (the mandatory leading
 -- `parseWS` fails on `;`, so the repetition stops cleanly without a
 -- separator combinator).
--- Post-3d.4 + JSON-mirror: `parseStringLit : Parser (List Char)` and
+-- `parseStringLit : Parser (List Char)` and
 -- `ValueTable.entries : List (ℕ × List Char)`, so the entry pair carries
 -- raw chars throughout.
 parseValueEntry : Parser (ℕ × List Char)
@@ -80,7 +80,7 @@ parseValueEntry = do
 -- VAL_TABLE_ LINE
 -- ============================================================================
 
--- Post 3d.5.c-η/3d.5.d: derived from the Format DSL `ValueTable-format`,
+-- Derived from the Format DSL `ValueTable-format`,
 -- so the universal `roundtrip` theorem in `Format.agda` discharges the
 -- parse-after-emit law via a single `EmitsOK` certificate (see
 -- `Properties/ValueTables/ValueTable.parseValueTable-roundtrip`).  The
@@ -88,7 +88,7 @@ parseValueEntry = do
 -- (production-permissive whitespace via `withWS`/`withWSCanonOne`,
 -- both LF and CR-LF newline via `newlineFmt`).  The trailing `many
 -- parseNewline` consumes optional blank lines between tables, mirroring
--- η's `parseSignalLine` vs `parseMessage` split (line consumes one
+-- the `parseSignalLine` vs `parseMessage` split (line consumes one
 -- terminator, block-level wrapper absorbs blanks).
 parseValueTable : Parser ValueTable
 parseValueTable = do
@@ -101,7 +101,7 @@ parseValueTable = do
 -- ============================================================================
 
 -- `RawValueDesc` is defined in `Aletheia.DBC.Types` so `DBC.unresolved
--- ValueDescs : List RawValueDesc` (Plan B, Track E.8) does not induce a
+-- ValueDescs : List RawValueDesc` does not induce a
 -- cycle.  Re-exported here so existing parser-side imports keep working
 -- without an upstream rewrite.
 open import Aletheia.DBC.Types using (RawValueDesc; mkRawValueDesc) public
@@ -129,7 +129,7 @@ buildResultP (just canId)  sigId vds = pure (mkRawValueDesc canId sigId vds)
 -- the standard/extended max) reject the whole file, mirroring
 -- `parseMessage`'s stance on `BO_` headers.
 --
--- Track E.5β — derived from the Format DSL `ValueDescription-format`
+-- Derived from the Format DSL `ValueDescription-format`
 -- (parallels `parseValueTable`'s shape).  The DSL universal in
 -- `Format.ValueDescription` discharges the line-shape roundtrip up to
 -- the trailing newline; the wrapper here consumes optional blank lines

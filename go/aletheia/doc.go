@@ -67,7 +67,7 @@
 // When a *slog.Logger is wired in (via WithLogger or WithFFILogger), the
 // Client and FFIBackend emit structured records with the following event
 // names. Cross-binding parity is asserted against the C++ Logger and the
-// Python logger adapter — any drift here is a finding.
+// Python logger adapter — any drift here is a bug.
 //
 //	rts.cores_mismatch              (FFIBackend, Warn)
 //	dbc.parsed                      (Client, Info)

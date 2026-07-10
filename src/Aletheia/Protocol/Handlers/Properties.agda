@@ -4,7 +4,7 @@
 
 -- Correctness of the SetProperties parse-failure → wire-error routing.
 --
--- AGDA-D-10.1 (R23): the LTL-property JSON parser is reason-carrying
+-- The LTL-property JSON parser is reason-carrying
 -- (`parseProperty : JSON → ParseFail ⊎ _`, fork-free), and `parseFailResponse`
 -- (`Protocol.Handlers`) maps each `ParseFail` verdict to the wire error.  That
 -- mapping is the one link in the chain that the parser roundtrip proof does NOT
@@ -57,7 +57,7 @@ parseFailResponse-shape _ _ = refl
 
 -- Over-long signal name → typed InputBoundExceeded carrying the
 -- IdentifierLength bound kind, the observed length, and the limit
--- (preserves AGDA-D-32.1's structured triple).
+-- (a structured triple).
 parseFailResponse-tooLong : ∀ (st : StreamState) (i n : ℕ)
   → proj₂ (parseFailResponse st i (BadSignal (TooLong n)))
     ≡ Response.Error (WithContext "SetProperties"

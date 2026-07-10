@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Newline-related helpers shared across every Layer-3 commit in B.3.d.
+-- Newline-related helpers shared across every per-line construct.
 --
 -- This module hosts the infrastructure that reasons about
 -- `parseNewline` and its use under `many`:
@@ -53,7 +53,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives using
 
 -- Characterises where `parseNewline` fails and hence where `many
 -- parseNewline` terminates.  A char starts a newline iff it is `'\n'`
--- or `'\r'`; `SuffixStops isNewlineStart suffix` is the standard Layer-3
+-- or `'\r'`; `SuffixStops isNewlineStart suffix` is the standard
 -- stop-boundary witness.
 isNewlineStart : Char → Bool
 isNewlineStart c = (c ≈ᵇ '\n') ∨ (c ≈ᵇ '\r')
@@ -166,7 +166,7 @@ parseNewline-fail-on-stop pos (c ∷ cs) (∷-stop h) =
 -- `manyHelper parseNewline` exhausts to the empty list on any fuel `n`
 -- when the suffix cannot start another newline.  Parallels
 -- `manyHelper-satisfy-exhaust-many` but for the `<|>`-composed
--- `parseNewline`.  This is the Layer-3 workhorse for `many
+-- `parseNewline`.  This is the workhorse for `many
 -- parseNewline` termination — reused wherever a construct's parser
 -- ends with `<many parseNewline>`.
 manyHelper-parseNewline-exhaust : ∀ (pos : Position) (suffix : List Char)

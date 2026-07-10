@@ -1,10 +1,10 @@
-# B.3 DBC Text Parser Corpus
+# DBC Text Parser Corpus
 
-This directory holds the regression corpus for the Track B.3 Agda DBC text
-parser (the B.3 construct inventory, completed 2026-05-03). Every B.3 construct
+This directory holds the regression corpus for the Agda DBC text
+parser (the construct inventory, completed 2026-05-03). Every construct
 inventory row is exercised by at least one corpus file.
 
-The `parity_snapshots/` tree is the B.3.j cross-binding parity oracle for
+The `parity_snapshots/` tree is the cross-binding parity oracle for
 the Agda-backed `parse_dbc_text`. Sorted keys, "emit int when
 denominator=1" rule, `presence: always` always explicit, `extended` omitted
 on standard CAN frames. The Python (`test_dbc_corpus_parity.py`), C++
@@ -14,13 +14,13 @@ byte-equality against the same files.
 
 The Agda parser correctness itself is not under test here — that is
 established by the universal roundtrip theorem in
-`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (B.3.d). What
+`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`. What
 this corpus catches is binding-layer drift: wire-to-native mismatches in
 how each language deserializes the Agda JSON envelope.
 
 ## Coverage map
 
-| File | B.3 inventory rows exercised |
+| File | Inventory rows exercised |
 |---|---|
 | `minimal.dbc` | `VERSION`, `NS_`, `BS_`, `BU_`, `BO_`, `SG_`, start bit, length, byte order (Intel `@1` + Motorola `@0`), signedness (`+`/`-`), factor, offset, min/max, unit, receivers (list / single / empty), sender, DLC |
 | `multiplexing.dbc` | mux indicator (`M`, `m<n>`), nested mux (`m0M`), `SG_MUL_VAL_` (single range + multi-range) |
@@ -46,12 +46,12 @@ cd python && ALETHEIA_UPDATE_SNAPSHOTS=1 python3 -m pytest \
   tests/test_dbc_corpus_parity.py::test_corpus_parses_to_parity_snapshot
 ```
 
-The cantools-baseline `snapshots/` tree was retired in B.3.g together with
+The cantools-baseline `snapshots/` tree was retired together with
 the cantools fallback.
 
-## Known divergences from the B.3 construct inventory
+## Known divergences from the construct inventory
 
-Two rows in the B.3 inventory are *in the DBC* but not yet reflected in
+Two rows in the inventory are *in the DBC* but not yet reflected in
 `dbc_to_json` output. They are kept in the corpus so the Agda parser has
 coverage when these rows get wired:
 

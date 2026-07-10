@@ -84,7 +84,7 @@ type Frame struct {
 	// non-nil for CAN-FD frames carrying the bit, nil for CAN 2.0B
 	// frames where it does not exist on the wire.  The Aletheia kernel
 	// does not consume BRS — it is pass-through metadata for binding
-	// consumers and the JSON wire shape (R19P2 cluster 18).
+	// consumers and the JSON wire shape.
 	BRS *bool
 	// ESI is the CAN-FD Error State Indicator bit (ISO 11898-1:2015
 	// §10.4.3); same semantics + pass-through status as BRS.
@@ -155,11 +155,10 @@ const MaxExtendedID = 1<<29 - 1
 
 // StandardID is an 11-bit CAN identifier (0-2047).
 //
-// DO NOT RE-RAISE IN REVIEW (R20-GO-A-3.6 — DROP).  Future style sweeps may
-// flag the asymmetry between StandardID/ExtendedID exposing values via a
+// The asymmetry between StandardID/ExtendedID exposing values via a
 // Value() uint32 method while primitive typedefs (BitPosition uint16,
-// BitLength uint8, etc.) use direct conversion (uint16(bp), uint8(bl)).
-// Closed DROP after re-audit: the asymmetry is structural, not naming.
+// BitLength uint8, etc.) use direct conversion (uint16(bp), uint8(bl))
+// is intentional and structural, not naming.
 // StandardID/ExtendedID wrap an unexported field (enforces NewStandardID
 // validation; raw construction is unrepresentable), so Value() is the only
 // accessor.  Primitive typedefs carry no validation invariant and don't hide

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c task D — `refineAttributes` inverse under WF.
+-- `refineAttributes` inverse under WF.
 --
 -- Two pieces:
 --   1. **Passthrough**:

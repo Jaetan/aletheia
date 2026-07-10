@@ -12,7 +12,7 @@
 -- Returns typed ParseError values on parse failures.
 -- Current protocol: Python converts .dbc → JSON, Agda parses JSON → DBC types.
 --
--- Track B.3.d 3d.4 + JSON-mirror (2026-04-27): JSON internal strings are
+-- JSON internal strings are
 -- `List Char`.  Identifier-typed JSON fields and AST text fields (unit,
 -- version, comment text, AVString payload, ATEnum labels, value-table
 -- description, attribute names) are extracted via `lookupChars` and stored
@@ -77,7 +77,7 @@ open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
 -- Validate a `List Char` as a DBC identifier.  Used at every site where a
 -- JSON String field is assigned to an Identifier-typed record field.
 --
--- R20 cluster I — AGDA-D-32.1.  Split the rejection paths so the
+-- Split the rejection paths so the
 -- adversarial-input length bound surfaces as a typed
 -- `Error.InputBoundExceeded IdentifierLength observed limit` (wire code
 -- `"input_bound_exceeded"` + `bound_kind: "identifier_length"`); the
@@ -188,7 +188,7 @@ parseSigned obj with lookupBool "signed" obj
 
 -- Context wrapper for signal parse errors (extracted from parseSignal where-block so proofs can case-split).
 -- Top-level (not private) so SignalWF proofs can mention it in helper signatures.
--- Post-R20 cluster I: return type is `Error ⊎ DBCSignal`, so the wrapper
+-- The return type is `Error ⊎ DBCSignal`, so the wrapper
 -- uses the top-level `WithContext : String → Error → Error` (which
 -- forwards `errorCode` / `errorExtras` through to the inner error) rather
 -- than the ParseError-local `InContext`.  Wire shape is unchanged — both
@@ -240,8 +240,8 @@ parseValueEntryList = parseObjectList "valueEntry" parseValueEntry 0
 
 -- Physical-validity gate (BigEndian signals only).
 -- Both byte orders require `bitLength ≥ 1` — parse-time rejection of
--- zero-length signals (R5-B1 / R6-B7.1 closure, 2026-05-15: was previously
--- LE-permissive with the validator catching the violation post-parse;
+-- zero-length signals (previously LE-permissive with the validator
+-- catching the violation post-parse;
 -- the validator path stays as defense-in-depth but is unreachable from
 -- any parse-driven external entry point now).
 -- BE signals additionally satisfy two BE-roundtrip constraints:
@@ -450,7 +450,7 @@ parseValueTable obj =
 parseValueTableList : List JSON → Error ⊎ List ValueTable
 parseValueTableList = parseObjectList "valueTable" parseValueTable 0
 
--- Track E.8 (Plan B): JSON wire shape for one RawValueDesc.
+-- JSON wire shape for one RawValueDesc.
 -- Mirrors `parseDBCMessage` for the (id, extended) CAN-ID pair via
 -- `parseMessageId`; the rest is signal-name + entries.
 parseRawValueDesc : List (String × JSON) → Error ⊎ RawValueDesc
@@ -640,7 +640,7 @@ parseAttrTarget obj =
 
 -- BA_DEF_ / BA_DEF_REL_ — carries name, scope, and type declaration.
 -- Attribute names are quoted strings in DBC wire format (not restricted to the
--- identifier grammar); after 3d.4 the AST stores them as `List Char` so the
+-- identifier grammar); the AST stores them as `List Char` so the
 -- JSON-side roundtrip lemma can close axiom-free.
 parseAttrDef : List (String × JSON) → Error ⊎ AttrDef
 parseAttrDef obj =
@@ -710,8 +710,8 @@ parseDBCWithErrors (JObject obj) =
     ; nodes = nodes
     ; comments = comments
     ; attributes = attributes
-    -- Track E.8 (Plan B): wire field; defaults to `[]` if absent (the
-    -- key was added in Track E and old DBC JSON predating it omits it).
+    -- Wire field; defaults to `[]` if absent (the
+    -- key was added later and old DBC JSON predating it omits it).
     -- The text-parse path through `buildDBC` populates it with RVDs that
     -- did not resolve against `messages`; the JSON-emit path round-trips
     -- whatever was supplied.

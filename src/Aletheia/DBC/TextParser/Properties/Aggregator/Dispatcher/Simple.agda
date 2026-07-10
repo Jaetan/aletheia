@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Façade re-exporting the 5 simple-section dispatchers
--- (+ Track E.5β TVD).  Per-section modules live under `Dispatcher/Simple/`
+-- Façade re-exporting the 5 simple-section dispatchers
+-- (+ the TVD dispatcher).  Per-section modules live under `Dispatcher/Simple/`
 -- to keep each module's elaboration working set within `-M16G`.  The
 -- dispatcher consumers (Aggregator.Properties / Aggregator.Universal)
 -- import these names from this façade.

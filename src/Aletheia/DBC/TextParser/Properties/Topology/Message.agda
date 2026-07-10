@@ -2,15 +2,15 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.8 — `parseMessage`-roundtrip composer.
+-- `parseMessage`-roundtrip composer.
 --
 -- Closes the BO_ block roundtrip: header (via DSL `messageHeaderFmt`) +
--- SG_ block (via 3d.6 `parseSignalLines-roundtrip`) + trailing newline +
--- `buildMessage` (via 3d.7 `resolveSignalList-roundtrip` + Layer-2
+-- SG_ block (via `parseSignalLines-roundtrip`) + trailing newline +
+-- `buildMessage` (via `resolveSignalList-roundtrip` +
 -- `buildCANId-rawCanIdℕ` + `bytesToValidDLC-roundtrip`).
 --
 -- Composition strategy: 4 `bind-just-step` calls peel off the four chained
--- binds in `parseMessage`'s body (post-3d.8 refactor: `parse
+-- binds in `parseMessage`'s body (`parse
 -- messageHeaderFmt >>= λ hdr → many parseSignalLine >>= λ raws → many
 -- parseNewline *> buildMessage rawId msgName rawDlc msgSender raws`).
 --
@@ -19,8 +19,8 @@
 -- the input shape that `roundtrip messageHeaderFmt` consumes; the SG_
 -- block then matches `parseSignalLines-roundtrip`'s expected shape.
 --
--- Layer 4 will lift this to `parseMessages-roundtrip` over a list of
--- DBCMessages via `manyHelper`-induction.
+-- A later list-level composer lifts this to `parseMessages-roundtrip`
+-- over a list of DBCMessages via `manyHelper`-induction.
 module Aletheia.DBC.TextParser.Properties.Topology.Message where
 
 open import Data.Bool using (false)
@@ -218,18 +218,18 @@ emitMessage-chars-decompose msg =
 -- ============================================================================
 
 -- `buildMessage` succeeds with `just (clearBothMsg msg)` when:
---   * `buildCANId (rawCanIdℕ msg.id) ≡ just msg.id` (Layer-2: canid-roundtrip)
---   * `bytesToValidDLC (dlcBytes msg.dlc) ≡ just msg.dlc` (Layer-2: dlc-roundtrip)
+--   * `buildCANId (rawCanIdℕ msg.id) ≡ just msg.id` (canid-roundtrip)
+--   * `bytesToValidDLC (dlcBytes msg.dlc) ≡ just msg.dlc` (dlc-roundtrip)
 --   * `resolveSignalList (dlcBytes msg.dlc) (map ...) ≡ just (map clearVds msg.signals)`
---     (3d.7: resolveSignalList-roundtrip; E.9a returns the cleared form)
+--     (`resolveSignalList-roundtrip` returns the cleared form)
 -- `buildMessage` hardcodes `senders = []`, so the result is `clearBothMsg msg`
--- (= `clearVdsMsg msg` with senders also cleared) — A.2 dropped the
--- `senders-empty` precondition; the BO_TX_BU_ section restores the senders
+-- (= `clearVdsMsg msg` with senders also cleared); the `senders-empty`
+-- precondition was dropped, and the BO_TX_BU_ section restores the senders
 -- at DBC level via `attachSenders`.
 -- Three sequential `rewrite` steps thread the with-clauses; record-η
 -- closes the final equation by `refl`.
 --
--- E.9a: `vds-eq` precondition removed; result is `clearBothMsg msg`
+-- The `vds-eq` precondition was removed; result is `clearBothMsg msg`
 -- because `resolveSignalList` returns `map clearVds msg.signals` and
 -- the BO_/SG_ block carries no VAL_ data.  The Universal layer threads
 -- `attachValueDescs ∘ collectFromMessages ≡ id` to recover the original
@@ -252,7 +252,7 @@ buildMessage-roundtrip :
            (DBCMessage.signals msg))
       pos rest)
     ≡ just (mkResult (clearBothMsg msg) pos rest)
--- A.2: `senders-empty` precondition dropped.  `buildMessage` hardcodes
+-- The `senders-empty` precondition is dropped.  `buildMessage` hardcodes
 -- `senders = []`, and `clearBothMsg msg` (= `clearVdsMsg msg` with senders
 -- also cleared) is record-η-equal to that output, so the result is exactly
 -- `clearBothMsg msg` with no senders-bridging `cong` — the three existing
@@ -272,10 +272,10 @@ buildMessage-roundtrip msg pos rest fb≤64 wf-sigs pvs wfps mc
 
 -- Used at the two `withWS ident`/`pair … ident` slots in `messageHeaderFmt`
 -- where the parser/formatter boundary follows a single space and the next
--- chunk is an identifier name.  Owed by Layer 4 via the
+-- chunk is an identifier name.  Owed by the list-level composer via the
 -- `isIdentStart→¬isHSpace` bridge (every valid Identifier starts with
 -- alpha or underscore, and neither is hspace); carried as a precondition
--- here so 3d.8 doesn't pull in Layer 4 obligations.
+-- here so this proof doesn't pull in the list-level composer's obligations.
 IdentHeadNonHSpace : Identifier → Set
 IdentHeadNonHSpace i =
   Σ Char (λ c → Σ (List Char) (λ cs →
@@ -482,7 +482,7 @@ parseMessage-roundtrip pos msg outer-suffix
         (messageHeader-roundtrip pos rawId msgName rawDlc msgSender
           (body ++ₗ '\n' ∷ outer-suffix) name-pre send-pre)
 
-    -- Step 2: peel many parseSignalLine via 3d.6.
+    -- Step 2: peel many parseSignalLine via `parseSignalLines-roundtrip`.
     step-signals :
       proj₂ (cont-after-hdr (rawId , msgName , rawDlc , msgSender)
         pos-after-hdr (body ++ₗ '\n' ∷ outer-suffix))
@@ -508,7 +508,7 @@ parseMessage-roundtrip pos msg outer-suffix
 
     -- Step 4: apply buildMessage-roundtrip; bridge the goal's position
     -- to the canonical `advancePositions pos (emitMessage-chars msg)`
-    -- form (so Layer 4's `parseMessages-roundtrip` doesn't need a
+    -- form (so the list-level `parseMessages-roundtrip` doesn't need a
     -- per-message bridge).  Two-stage chain:
     --   (a) Two `advancePositions-++` applications collapse
     --       `pos-after-nl` to `advancePositions pos (hdr ++ body ++ '\n' ∷ [])`.
@@ -548,7 +548,7 @@ parseMessage-roundtrip pos msg outer-suffix
 -- Bundled so the polymorphic `many-η-roundtrip` helper sees a single
 -- `Stop : DBCMessage → Set`.
 --
--- E.9a (2026-05-07): `vds-empty` removed.  The text round-trip's
+-- The `vds-empty` precondition was removed (2026-05-07).  The text round-trip's
 -- per-message claim now reads `parseMessage … ≡ just (mkResult
 -- (clearBothMsg msg) … …)`, NOT `mkResult msg`, since `buildSignal`
 -- hardcodes `valueDescriptions = []` and the parser cannot recover the
@@ -568,7 +568,7 @@ record MessageWF (msg : DBCMessage) : Set where
     name-pre      : IdentHeadNonHSpace (DBCMessage.name msg)
     send-pre      : IdentHeadNonHSpace (DBCMessage.sender msg)
     item-pres     : All SignalLineWF (DBCMessage.signals msg)
-    -- E.6: signal-name uniqueness within this message.  Required by
+    -- Signal-name uniqueness within this message.  Required by
     -- `attachValueDescs ∘ collectFromMessages ≡ id` (the inverse-bridge
     -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
     -- signals with the same name would have their per-signal VAL_
@@ -611,7 +611,7 @@ emitMessage-chars-head-not-newline _ _ = ∷-stop refl
 -- polymorphic helper sees only `Stop = MessageWF` + the standard
 -- `SuffixStops isNewlineStart` outer condition.
 --
--- E.9a: result is `mkResult (clearBothMsg msg) …`; the Universal
+-- The result is `mkResult (clearBothMsg msg) …`; the Universal
 -- threads `attachValueDescs ∘ collectFromMessages ≡ id` post-parse to
 -- recover the original.
 parseMessage-roundtrip-bundled :
@@ -636,7 +636,7 @@ parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
     nl-stop
 
 
--- E.9a: result list is `map clearBothMsg msgs`, not `msgs`.  Per-element
+-- The result list is `map clearBothMsg msgs`, not `msgs`.  Per-element
 -- `parseMessage-roundtrip-bundled` emits `mkResult (clearBothMsg msg) …`,
 -- so the polymorphic helper `many-η-roundtrip-with-lift` (with `L =
 -- clearBothMsg`) lifts it to the list level.  The Universal threads

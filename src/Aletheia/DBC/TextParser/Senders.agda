@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- A.2 — BO_TX_BU_ refinement: distribute parsed per-message sender lists
+-- BO_TX_BU_ refinement: distribute parsed per-message sender lists
 -- back into the `DBCMessage.senders` field.
 --
 -- The message-level analogue of `TextParser.ValueDescriptions` (the VAL_

@@ -8,10 +8,8 @@ mirrored here verbatim).  Wire spec: ``docs/architecture/PROTOCOL.md § Limits``
 Parity with the SSOT is enforced by ``tools/check_limits_parity.py`` (also
 invoked as ``cabal run shake -- check-limits-parity``); see ``PYTHON_NAME_MAPPING``
 and ``PYTHON_BOUND_KIND_MAPPING`` in that tool for the kebab-case ↔
-SCREAMING_SNAKE_CASE mapping table.  PY-S-22.1 (R21) closure: this gate was
-extended to walk Python in addition to Go after the Step 2 Python finding
-caught the gate's "out of scope" header claim contradicting the file's own
-"mirrored here verbatim" header.
+SCREAMING_SNAKE_CASE mapping table. The gate walks the Python mirror in
+addition to the Go mirror, so neither can drift from the Agda SSOT.
 
 The Aletheia Agda kernel enforces these bounds at every parser entry; this
 module additionally rejects oversize inputs at the FFI boundary so a 100 MB

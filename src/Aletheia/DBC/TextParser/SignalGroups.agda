@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Signal-group parser for the DBC text format (Track B.3.c.7).
+-- Signal-group parser for the DBC text format.
 --
 -- Grammar slice covered (BNF section F from `Aletheia.DBC.TextParser`):
 --   sig-group    ::= "SIG_GROUP_" ws nat ws identifier ws nat ws? ":"
@@ -27,7 +27,7 @@
 -- valid — the `many parseSigNameEntry` combinator accepts zero entries
 -- (same shape as `VAL_TABLE_`'s zero-entry case).  Corpus-never-seen but
 -- grammar-allowed; `emitSignalGroup` mirrors this on the output side so
--- B.3.d composes.
+-- the roundtrip composes.
 module Aletheia.DBC.TextParser.SignalGroups where
 
 open import Aletheia.Parser.Combinators using
@@ -42,7 +42,7 @@ open import Aletheia.DBC.Types using (SignalGroup)
 -- SIG_GROUP_ LINE
 -- ============================================================================
 
--- Post 3d.5.d-4a: derived from the Format DSL `signalGroupFmt`, so the
+-- Derived from the Format DSL `signalGroupFmt`, so the
 -- universal `roundtrip` theorem in `Format.agda` discharges the
 -- parse-after-emit law via a single `EmitsOK` certificate (see
 -- `Properties/SignalGroups/SignalGroup.parseSignalGroup-roundtrip`).
@@ -50,7 +50,7 @@ open import Aletheia.DBC.Types using (SignalGroup)
 -- entries ws? ";" newline` (production-permissive whitespace via
 -- `withWS`/`withWSCanonOne`/`withWSOpt`, both LF and CR-LF newline via
 -- `newlineFmt`).  The trailing `many parseNewline` consumes optional
--- blank lines between groups, mirroring η's `parseSignalLine` vs
+-- blank lines between groups, mirroring the `parseSignalLine` vs
 -- `parseMessage` split (line consumes one terminator, block-level
 -- wrapper absorbs blanks).
 parseSignalGroup : Parser SignalGroup

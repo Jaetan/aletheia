@@ -2,16 +2,16 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-A — cycle-break extraction of Attribute scope
--- parsers from `TextParser/Attributes.agda`.
+-- Cycle-break extraction of Attribute scope parsers from
+-- `TextParser/Attributes.agda`.
 --
--- Background: 3c-A migrates `parseAttrDef` / `parseAttrDefRel` onto the
--- Format DSL (`Format/AttrDef.agda`).  That requires `TextParser/
+-- Background: migrating `parseAttrDef` / `parseAttrDefRel` onto the
+-- Format DSL (`Format/AttrDef.agda`) requires `TextParser/
 -- Attributes.agda` to import `Format`, but `Format` already imports
 -- `Properties/Primitives`, which previously imported the scope parsers
 -- from `TextParser/Attributes.agda` — a cycle.
 --
--- Resolution mirrors the Topology split (3d.5.c-ε): the cycle-relevant
+-- Resolution mirrors the Topology split: the cycle-relevant
 -- subset (the four parsers `Properties/Primitives` actually needs)
 -- moves here, and `TextParser/Attributes.agda` re-exports them for
 -- backward source compatibility.  No semantic change.

@@ -331,7 +331,7 @@ def _normalize_value_table(raw: Mapping[str, JSONValue]) -> DBCValueTable:
 def _normalize_raw_value_desc(raw: Mapping[str, JSONValue]) -> DBCRawValueDesc:
     """Normalize one ``unresolvedValueDescs`` entry from Agda formatDBC output.
 
-    Track E.8 (Plan B): wire shape is ``{id, [extended], signalName, entries}``,
+    The wire shape is ``{id, [extended], signalName, entries}``,
     paralleling ``DBCMessage`` for the CAN-ID half.
     """
     raw_entries = raw.get("entries")

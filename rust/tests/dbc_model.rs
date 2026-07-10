@@ -3,8 +3,8 @@
 
 //! Typed DBC document tests against the real `libaletheia-ffi.so`.
 //!
-//! Exercises the read side of Slice R1: `parse_dbc_text` returning the typed
-//! [`Dbc`], the `format_dbc` export round-trip, and the mux-query / lookup
+//! Exercises the read side of the typed DBC API: `parse_dbc_text` returning the
+//! typed [`Dbc`], the `format_dbc` export round-trip, and the mux-query / lookup
 //! helpers. Set `ALETHEIA_LIB` to the built shared library (run_ci / CI does).
 
 use aletheia::{CanId, Client, Presence};

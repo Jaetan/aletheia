@@ -2,20 +2,20 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- DBC (Database CAN) text format parser — entry point (Track B.3.c.k).
+-- DBC (Database CAN) text format parser — entry point.
 --
 -- Purpose: Parse the canonical ASCII `.dbc` text format directly in Agda,
 -- producing the `DBC` structural shape already defined in `Aletheia.DBC.Types`.
--- Replaces the R17-deferred cantools-backed `dbc_to_json` pipeline; together
+-- Replaces the earlier cantools-backed `dbc_to_json` pipeline; together
 -- with `Aletheia.DBC.TextFormatter` it closes `parseText ∘ formatText ≡ id`
 -- at the DBC value level (see companion Properties module for the
 -- semantic-equivalence caveat — byte-identity of the text itself is NOT a
 -- target).
 --
--- Role: Track B.3.c.k wires the concrete combinator-based parsers from
--- `TextParser.TopLevel` into a single `parseText : String → ⊎`.  B.3.d
--- proves the structural roundtrip; B.3.e exposes a JSON protocol command;
--- B.3.f/g retire the cantools dependency.
+-- Role: this module wires the concrete combinator-based parsers from
+-- `TextParser.TopLevel` into a single `parseText : String → ⊎`.  The
+-- structural roundtrip is proven separately, a JSON protocol command
+-- exposes it, and the cantools dependency is retired.
 --
 -- Design notes:
 --   * `Aletheia.Parser.Combinators` provides the structural-recursion
@@ -38,8 +38,7 @@
 --                                      redesign of `Parser` to thread
 --                                      the last-touched position out of
 --                                      `nothing`, which is scoped for a
---                                      future refactor rather than
---                                      B.3.c.k.
+--                                      future refactor.
 --       * `TrailingInput`            — parser succeeded but left bytes
 --                                      on the tape.  Position of the
 --                                      first unconsumed byte is carried
@@ -89,7 +88,7 @@ open import Aletheia.Error public using
 --
 -- Whitespace (` `, `\t`) between lexemes on the same line is permissive;
 -- newlines terminate top-level statements.  Sections below are keyed to the
--- the B.3 construct-inventory categories — a 1:1 review audit
+-- construct-inventory categories — a 1:1 mapping
 -- target so new inventory rows always get a grammar line.
 --
 -- A. Preamble
@@ -180,9 +179,9 @@ open import Aletheia.Error public using
 -- ERROR TAXONOMY
 -- ============================================================================
 
--- Error ADT for DBC-text parsing lives in `Aletheia.Error.DBCTextParseError`
--- (Track B.3.e).  Re-exported via the top-level `Error` sum so callers and
--- the JSON envelope share the same vocabulary as the JSON-protocol parser.
+-- Error ADT for DBC-text parsing lives in `Aletheia.Error.DBCTextParseError`,
+-- re-exported via the top-level `Error` sum so callers and the JSON
+-- envelope share the same vocabulary as the JSON-protocol parser.
 
 -- ============================================================================
 -- ENTRY POINT
@@ -194,17 +193,17 @@ open import Aletheia.Error public using
 -- `attributes` carries the refined (resolved-def-reference) list — the
 -- raw two-stage split stays internal to the parser.
 --
--- Track E.6 — `messages` is post-`attachValueDescs`: the parser produces
+-- `messages` is post-`attachValueDescs`: the parser produces
 -- messages with empty `valueDescriptions` on every signal (buildSignal
 -- hardcodes `[]`); the refine pass distributes the parsed `RawValueDesc`s
 -- (collected separately under `partitionTopStmts.rawValueDescs`) back
 -- into the matching signals' `valueDescriptions` field.  The inverse-
 -- bridge proof in `Properties.Aggregator.Refine.ValueDescriptions`
 -- closes `attachValueDescs (collectFromMessages msgs) (map clearVdsMsg
--- msgs) ≡ msgs` under WF (E.9a, 2026-05-07).  E.7 wired `collect
--- FromMessages` into the formatter side; E.9a lifted the interim
--- `vds-empty` clauses and replaced the vacuous TVD arm with a real
--- derivation of `All RawValueDescStop` from `Identifier.valid`.
+-- msgs) ≡ msgs` under WF.  `collectFromMessages` is wired into the
+-- formatter side; the interim `vds-empty` clauses were lifted and the
+-- vacuous TVD arm replaced with a real derivation of
+-- `All RawValueDescStop` from `Identifier.valid`.
 buildDBC : List Char → List Node → CollectedTop → List DBCAttribute → DBC
 buildDBC ver nodes c attrs = record
   { version              = ver
@@ -217,7 +216,7 @@ buildDBC ver nodes c attrs = record
   ; nodes                = nodes
   ; comments             = CollectedTop.comments        c
   ; attributes           = attrs
-  -- Track E.8 (Plan B): unresolved RVDs are computed against the
+  -- Unresolved RVDs are computed against the
   -- pre-attach `CollectedTop.messages` (the same list the resolved RVDs
   -- match against).  Under WF (`unresolvedRVDs-on-collected`) this list
   -- is `[]` for any DBC built from `formatText`, so the universal proof
@@ -241,10 +240,9 @@ finalizeParse (w , just res) with remaining res
 ...       | inj₁ (cause , bad) = inj₁ (AttributeRefinementFailed cause (fromList bad))
 ...       | inj₂ attrs         = inj₂ (buildDBC ver nodes collected attrs)
 
--- Parse a DBC text image given as a `List Char`.  Layer-1 form
--- (B.3.d Option 3a, 2026-04-24): the parser already operates on
--- `List Char` throughout — `runParserPartial` takes one — so the
--- only `String` site is the public `parseText` boundary, which
+-- Parse a DBC text image given as a `List Char`.  The parser already
+-- operates on `List Char` throughout — `runParserPartial` takes one — so
+-- the only `String` site is the public `parseText` boundary, which
 -- bridges via `Data.String.toList`.  The universal roundtrip proof
 -- composes `parseTextChars (formatChars d) ≡ inj₂ d` (internal,
 -- 100% `--safe`) with the `Substrate/Unsafe` bridging axioms.
@@ -261,6 +259,6 @@ parseTextChars : List Char → DBCTextParseError ⊎ DBC
 parseTextChars cs = finalizeParse (runParserPartial parseDBCText cs)
 
 -- Parse a DBC text image.  See `parseTextChars` for the `List Char`
--- entry point used by the B.3.d roundtrip proofs.
+-- entry point used by the roundtrip proofs.
 parseText : String → DBCTextParseError ⊎ DBC
 parseText s = parseTextChars (toList s)

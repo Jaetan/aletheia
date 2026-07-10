@@ -36,8 +36,8 @@ func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ D
 // Compile-time assertion that *FFIBackend satisfies the Backend interface
 // under the !cgo || !linux build tag, mirroring the cgo branch in ffi.go.
 // This catches Backend-interface signature drift at `go build` time rather
-// than at the first downstream caller — the gap that let R19P2 cluster 18
-// phase A (brs/esi *bool args) miss this stub for the !cgo build.
+// than at the first downstream caller — the gap that once let a signature
+// change (brs/esi *bool args) miss this stub for the !cgo build.
 var _ Backend = (*FFIBackend)(nil)
 
 // SendErrorBinary is unavailable without cgo.

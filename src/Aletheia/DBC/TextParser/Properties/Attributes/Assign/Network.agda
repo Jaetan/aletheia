@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtNetwork
--- per-line construct roundtrips (3 emit shapes), η-style migration onto
--- the universal `parseAttrAssign-format-roundtrip` lemma.
+-- `parseRawAttrAssign` × ATgtNetwork per-line construct roundtrips
+-- (3 emit shapes), η-style migration onto the universal
+-- `parseAttrAssign-format-roundtrip` lemma.
 --
 -- ATgtNetwork is the `RatwNet` constructor of `RawAttrTargetWire`,
 -- emitting `[]` (no keyword body).  The Format DSL routes RatwNet through
@@ -144,11 +144,11 @@ private
 -- COMMON RAW-LEVEL ROUNDTRIP — Network arm
 -- ============================================================================
 
--- B.3.d 3d.5.d 3c-B Path 1 — RatwNet helper now uses the specialized
+-- RatwNet helper now uses the specialized
 -- `parseAttrAssign-format-roundtrip-RatwNet` (head-class witness) rather
 -- than the universal lemma + EmitsOK obligation.  See
 -- `feedback_emitsok_inj2_deep_pattern.md` for the rationale: the
--- universal-lemma path's L5 (`EmitsOK stdTargetWireFmt RatwNet …`) blows
+-- universal-lemma path's `EmitsOK stdTargetWireFmt RatwNet …` obligation blows
 -- -M16G at the inj₂-deep altSum position with abstract input.  The head
 -- witness (head Char + 3 inequalities `(x ≈ᵇ 'B') ≡ false`, `'S'`, `'E'`)
 -- is small and locally derivable in the per-shape dispatchers.
@@ -264,10 +264,10 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavString pos name s outer-suffix ss-NL
                            (emit-attrAssignFmt-RatwNet name (RavwString s)))
 
 -- ============================================================================
--- L5 DISJOINTNESS — sourced from Format/AttrLine.agda
+-- DISJOINTNESS — sourced from Format/AttrLine.agda
 -- ============================================================================
 --
--- The L5 obligation of `parseAttrAssign-format-roundtrip` for `RatwNet`
+-- The EmitsOK obligation of `parseAttrAssign-format-roundtrip` for `RatwNet`
 -- reduces to `⊤ × (∀ pos → parse <left-keyword-chain> pos input ≡ nothing)`.
 -- The keyword chain is private to Format/AttrLine.agda — so the public
 -- `emit-stdTargetWireFmt-RatwNet-on-{quote,dash,digit}-head` helpers
@@ -285,11 +285,11 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavString pos name s outer-suffix ss-NL
 -- ATgtNetwork × RavDecRat-frac dispatcher
 -- ============================================================================
 --
--- B.3.d 3d.5.d 3c-B Path 1: dispatch on `showDecRat-chars-head-classify`'s
--- digit-or-dash sum, deriving the 3 keyword inequalities (x ≢ 'B' / 'S'
--- / 'E') for each head class.  Calls the head-witness-aware helper.
+-- Dispatch on `showDecRat-chars-head-classify`'s digit-or-dash sum,
+-- deriving the 3 keyword inequalities (x ≢ 'B' / 'S' / 'E') for each
+-- head class.  Calls the head-witness-aware helper.
 
--- B.3.d 3d.5.d 3c-B Path 1 — hoisted per-shape helpers.  See
+-- Hoisted per-shape helpers.  See
 -- `feedback_with_abstraction_traps.md` rule #2 + advisor diagnosis
 -- 2026-05-01: when each `with`-arm of the Frac/BareInt dispatchers had
 -- its own where-block defining `l4`/`l6`/`result-eq`/etc., Agda type-
@@ -327,7 +327,7 @@ private
          (cong (advancePositions pos)
                (emit-attrAssignFmt-RatwNet name (RavwFrac d)))
 
--- B.3.d 3d.5.d 3c-B Path 1 — Frac dispatcher refactored to constructor
+-- Frac dispatcher refactored to constructor
 -- pattern-match + projection-based head-witness extraction.  See
 -- `feedback_with_abstraction_traps.md` rule #2 + advisor diagnosis 2026-05-01.
 -- The original `with showDecRat-chars-head-classify d` over abstract DecRat
@@ -474,7 +474,7 @@ private
                                   ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
                               (showInt-eq-BareInt z))))
 
--- B.3.d 3d.5.d 3c-B Path 1 — BareInt dispatcher refactored to constructor
+-- BareInt dispatcher refactored to constructor
 -- pattern-match on `z : ℤ` + projection-based head-witness extraction
 -- (mirror of Frac's refactor, same rationale).  For `z = + n`, head is
 -- digit `digitChar k` derived from `showNat-chars-head n` (since

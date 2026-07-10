@@ -137,6 +137,18 @@ def run_capture(
     return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check)
 
 
+def git_ls_files(repo: Path, *patterns: str) -> list[str]:
+    """Return git-tracked paths (repo-relative POSIX strings) under ``repo``.
+
+    Optional ``patterns`` are passed as ``git ls-files`` pathspecs. The result is
+    the set a fresh checkout contains, so resolving against it (rather than
+    ``Path.exists()``) never sees an untracked / gitignored working-tree file.
+    """
+    return run_capture(
+        [find_executable("git"), "ls-files", *patterns], cwd=repo, check=True
+    ).stdout.split()
+
+
 def git_toplevel(start: Path | None = None) -> Path:
     """Return the git work-tree root containing ``start`` (default: this file).
 

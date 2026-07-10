@@ -28,15 +28,15 @@ namespace aletheia {
 // both carry numeric values.
 //
 // `of(...)` is a perfect-forwarding factory: `PhysicalValue::of(1, 10)`
-// instead of `PhysicalValue{Rational{1, 10}}`. R20 CPP-D-15.2 chose this
+// instead of `PhysicalValue{Rational{1, 10}}`. This form is preferred
 // over per-tag free `make_*` factories so the convenience scales to every
 // Strong instantiation without N new symbols.
 //
 // String specialization: when `T == std::string`, also exposes an
 // explicit `operator std::string_view()` so log/format sites can write
 // `std::string_view{name}` without copying. Concept-gated so non-string
-// strongs can't accidentally convert. R20 CPP-D-15.3 merged the
-// previously-separate `StrongString<Tag>` into this single template.
+// strongs can't accidentally convert. This template merges the
+// previously-separate `StrongString<Tag>` into a single template.
 template<typename Tag, typename T>
 class Strong {
     T value_;
@@ -75,7 +75,7 @@ using Unit = Strong<struct UnitTag, std::string>;
 // ---------------------------------------------------------------------------
 
 // Exact rational with the invariant `den_ > 0`, enforced by every ctor +
-// factory.  Class (not struct) per R23 — CPP-D-15.1: a public-fields
+// factory.  Class (not struct): a public-fields
 // struct invites direct writes that would bypass the invariant; private
 // fields + `numerator()` / `denominator()` accessors make `den_ > 0` a
 // type-level guarantee rather than a callsite discipline.
@@ -181,7 +181,7 @@ private:
 // {numerator, denominator} pairs; double would lose precision on 1/3, 1/7 etc.
 using PhysicalValue = Strong<struct PhysicalValueTag, Rational>;
 // Signed change threshold for ChangedBy predicates (sign determines direction).
-// R19 cluster 7 — CPP-D-19.2: cross-binding parity with Python (Fraction)
+// Cross-binding parity with Python (Fraction)
 // and Go (Rational) — was double, now Rational so the wire-shape is
 // numerator/denominator-exact across all three bindings.
 using Delta = Strong<struct DeltaTag, Rational>;
@@ -284,15 +284,14 @@ using CanId = std::variant<StandardId, ExtendedId>;
 /// Extract the underlying 11- or 29-bit value from a CanId, regardless
 /// of standard vs extended discrimination.  Replaces the
 /// `std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id)`
-/// pattern repeated across the source tree (R19 cluster 14 / CPP-A-6.2).
+/// pattern repeated across the source tree.
 [[nodiscard]] constexpr auto can_id_value(const CanId& id) -> std::uint32_t {
     return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
 }
 
 /// Returns true when the CanId carries an `ExtendedId` (29-bit) variant,
 /// false for `StandardId` (11-bit).  Replaces
-/// `std::holds_alternative<ExtendedId>(id)` site-by-site (R19 cluster 14
-/// / CPP-A-6.2).
+/// `std::holds_alternative<ExtendedId>(id)` site-by-site.
 [[nodiscard]] constexpr auto can_id_is_extended(const CanId& id) -> bool {
     return std::holds_alternative<ExtendedId>(id);
 }
@@ -384,7 +383,7 @@ struct Frame {
     // frames carrying the bit, std::nullopt for CAN 2.0B frames where it
     // does not exist on the wire.  The Aletheia kernel does not consume
     // BRS — pass-through metadata for binding consumers and the JSON wire
-    // shape (R19P2 cluster 18 — AGDA-D-10.1 closure).
+    // shape.
     std::optional<bool> brs;
     // CAN-FD Error State Indicator (ISO 11898-1:2015 §10.4.3); same
     // semantics + pass-through status as brs.

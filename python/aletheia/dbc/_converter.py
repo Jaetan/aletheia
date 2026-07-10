@@ -5,14 +5,14 @@
 * ``dbc_to_json``: parse a .dbc file to the Agda wire format via the
   verified Agda text parser (no third-party Python deps).
 * ``dbc_to_text``: render a JSON DBC dict back to .dbc text via the
-  verified Agda formatter (FFI-delegated, Track E.10).
+  verified Agda formatter (FFI-delegated).
 * ``convert_dbc_file``: ``dbc_to_json`` + write JSON to disk.
 
 All three are thin wrappers over ``AletheiaClient`` operations; the FFI
 shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 ``dbc_to_text`` and ``dbc_to_json`` together form a verified roundtrip:
 writing ``dbc_to_text(d)`` to a file and running ``dbc_to_json`` on that
-file returns ``d`` for any well-formed DBC (Track B.3.d / E.9a universal).
+file returns ``d`` for any well-formed DBC.
 """
 
 from __future__ import annotations
@@ -21,9 +21,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aletheia.client._client import AletheiaClient
-from aletheia.client._response_parsers import lift_validation_issues
+from aletheia.client._response_parsers import raise_if_dbc_validation_failed
 from aletheia.client._types import (
-    DBCValidationFailedError,
     ValidationError,
     check_dbc_text_size_bound,
 )
@@ -60,18 +59,9 @@ def dbc_and_warnings_from_response(
     """
     if response["status"] == "error":
         msg = f"Failed to parse DBC file '{source}': {response['message']}"
-        # One rule decides liftability — the same helper the client's
-        # validate_dbc uses (gated on the wire code, pair attached
-        # atomically); no local re-implementation to drift.
-        lifted = lift_validation_issues(response)
-        if lifted is not None:
-            issues, has_errors = lifted
-            raise DBCValidationFailedError(
-                msg,
-                issues,
-                has_errors=has_errors,
-                code="handler_validation_failed",
-            )
+        # One rule decides liftability — the shared helper the client's
+        # validate_dbc uses (gated on the wire code); no local re-implementation.
+        raise_if_dbc_validation_failed(response, msg)
         raise ValidationError(msg)
     return response["dbc"], response["warnings"]
 
@@ -119,7 +109,7 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
 
     Inverse of :func:`dbc_to_json` at the wire level: writing this text to a
     file and running :func:`dbc_to_json` on it returns an equal ``d`` for
-    any well-formed DBC (Track B.3.d / E.9a).
+    any well-formed DBC.
 
     Args:
         dbc: DBC definition dict (as returned by :func:`dbc_to_json` or

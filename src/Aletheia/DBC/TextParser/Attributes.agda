@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Attribute parsers for the DBC text format (Track B.3.c.5).
+-- Attribute parsers for the DBC text format.
 --
 -- Grammar slice covered (BNF section D from `Aletheia.DBC.TextParser`):
 --   attr-def     ::= "BA_DEF_" (ws attr-scope)? ws string-lit ws attr-type
@@ -128,8 +128,8 @@ open import Aletheia.DBC.Types using
 -- parseDecRatBareInt` (see `Aletheia.DBC.TextParser.DecRatParse`).
 -- There is no `parseRational-roundtrip` and proving it from scratch
 -- (scientific notation, sign + fraction + exponent unrolling) would add
--- ~1 kLOC of foundation work for B.3.d Layer 3 attribute proofs.
--- Post 3d.4 + JSON-mirror: `RavString` and `name` carry `List Char`
+-- ~1 kLOC of foundation work for attribute proofs.
+-- `RavString` and `name` carry `List Char`
 -- (matching `parseStringLit : Parser (List Char)` and the AST's
 -- `AttrDefault.name : List Char` / `AttrAssign.name : List Char`).
 data RawAttrValue : Set where
@@ -160,7 +160,7 @@ data RawDBCAttribute : Set where
 --
 -- The four scope parsers (`parseStandardScope`, `parseRelScope`,
 -- `parseOptionalStandardScope`, `parseStringType`) live in `Attributes/
--- Foundations.agda` (cycle-break for the 3d.5.d 3c-A migration; see
+-- Foundations.agda` (cycle-break for the migration; see
 -- `Foundations.agda` header) and are re-exported `public` from this
 -- module's import block.
 
@@ -185,7 +185,7 @@ parseFloatType = do
 -- Comma-separated enum labels; at least one is required by the grammar.
 -- `parseWSOpt` after the comma tolerates the cantools-observed
 -- `"A", "B"` and `"A","B"` forms alike.  Labels are `List Char` to align
--- with `ATEnum : List (List Char) → AttrType` post 3d.4 + JSON-mirror.
+-- with `ATEnum : List (List Char) → AttrType`.
 parseEnumLabels : Parser (List (List Char))
 parseEnumLabels = do
   h ← parseStringLit
@@ -347,11 +347,11 @@ parseRawAttrValue =
 
 -- `"BA_DEF_" ws (attr-scope ws)? string-lit ws attr-type ws? ";" newline`.
 --
--- B.3.d Layer 3 3d.5.d 3c-A migration: line-portion expressed via the
+-- The line-portion is expressed via the
 -- Format DSL (`attrDefFmt` in `Format.AttrDef`); the trailing `many
 -- parseNewline` for blank-line padding stays in the production wrapper,
 -- mirroring the η-style wrap of `parseEnvVar` / `parseValueTable` /
--- `parseBU`.  Pre-3d.5.d (3c.1): hand-written 14-step bind chain.
+-- `parseBU`.  The previous form was a hand-written 14-step bind chain.
 parseAttrDef : Parser AttrDef
 parseAttrDef =
   parse attrDefFmt >>= λ result →
@@ -369,7 +369,7 @@ parseAttrDefRel =
 -- Both numeric wire ctors collapse to `RavDecRat`: `RavwFrac` carries the
 -- DecRat directly (frac wire form preserves DecRat shape), `RavwBareInt`
 -- carries an `IntDecRat` whose underlying DecRat is the bareInt's
--- canonical form.  Public for 3c-B's per-shape dispatcher proofs in
+-- canonical form.  Public for the per-shape dispatcher proofs in
 -- `Properties/Attributes/Default.agda` (and Assign/Line follow-ups).
 liftRavw : RawAttrValueWire → RawAttrValue
 liftRavw (RavwString s)   = RavString s
@@ -381,10 +381,10 @@ liftDefaultLine (n , wire-val , _) = mkRawAttrDefault n (liftRavw wire-val)
 
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.
 --
--- B.3.d Layer 3 3d.5.d 3c-B migration: line-portion expressed via the
+-- The line-portion is expressed via the
 -- Format DSL (`attrDefaultFmt` in `Format.AttrLine`); the trailing `many
 -- parseNewline` for blank-line padding stays in the production wrapper,
--- mirroring the η-style wrap of `parseAttrDef`.  Pre-3d.5.d (3c.2):
+-- mirroring the η-style wrap of `parseAttrDef`.  The previous form was a
 -- hand-written 9-step bind chain (now ≡ universal roundtrip + many
 -- parseNewline + pure-lift via `liftDefaultLine`).
 parseRawAttrDefault : Parser RawAttrDefault
@@ -397,11 +397,11 @@ parseRawAttrDefault =
 -- WIRE → AST LIFTERS — Maybe-fail at buildCANId
 -- ============================================================================
 --
--- Mirror of `buildCommentP` (CM_'s 3d.5.d-CM_ precedent).  Pure-target
+-- Mirror of `buildCommentP`.  Pure-target
 -- cases (Network/Node/EnvVar) reduce by `pure (mkRawAttrAssign ...)`.
 -- CAN-ID-bearing cases (Msg/Sig for std; both NodeMsg/NodeSig for rel)
 -- use `with buildCANId`; on `nothing` (out-of-range raw ID) the parser
--- fails — matching the pre-3d.5.d backtrack-then-fail behaviour of
+-- fails — matching the backtrack-then-fail behaviour of
 -- `wrapMsgTarget` / `wrapSigTarget` / `wrapNodeMsgTarget` / `wrapNodeSigTarget`.
 
 -- Maybe-form lift (used in proofs).  Definitionally equal to the
@@ -458,7 +458,7 @@ buildAttrRelP n (RrtNodeSig i r s) wireVal with buildCANId r
 
 -- `"BA_" ws string-lit (ws attr-target)? ws attr-value ws? ";" newline`.
 --
--- B.3.d Layer 3 3d.5.d 3c-B migration: line-portion expressed via the
+-- The line-portion is expressed via the
 -- Format DSL (`attrAssignFmt` in `Format.AttrLine`); the trailing `many
 -- parseNewline` for blank-line padding stays in the production wrapper,
 -- mirroring the η-style wrap of `parseAttrDef` / `parseRawAttrDefault`.
@@ -515,8 +515,7 @@ decRatToℕ? (mkDecRat _         _       (suc _) _) = nothing
 -- `refineDefaultValue` to convert an enum-default's string label into
 -- its canonical `AVEnum` index.  Enum-label uniqueness within an AttrDef
 -- is a well-formedness assumption (and corpus invariant); if two labels
--- collide, `findLabel` returns the first match.  `List Char` post 3d.4 +
--- JSON-mirror to align with `ATEnum : List (List Char) → AttrType`.
+-- collide, `findLabel` returns the first match.  `List Char` to align with `ATEnum : List (List Char) → AttrType`.
 findLabel : List Char → List (List Char) → Maybe ℕ
 findLabel _ []       = nothing
 findLabel s (x ∷ xs) with ⌊ ListProps.≡-dec _≟ᶜ_ s x ⌋
@@ -573,7 +572,7 @@ collectRawDefs (RawAssign _  ∷ rest) = collectRawDefs rest
 
 -- Look up an attribute definition by name.  Linear scan; fine for the
 -- small def counts seen in practice (corpus: single digits).  Both name and
--- AttrDef.name are `List Char` post 3d.4 + JSON-mirror.
+-- AttrDef.name are `List Char`.
 lookupDef : List Char → List AttrDef → Maybe AttrDef
 lookupDef _ [] = nothing
 lookupDef name (d ∷ rest) =

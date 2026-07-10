@@ -5,8 +5,8 @@
 -- Phase 3 of the `parseDecRat` roundtrip proof — `parseNatural`
 -- roundtrip, canonicalisation extractors, and arithmetic bindings
 -- consumed by Phase 4.  Carved out of the historical
--- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module under
--- the R21 cluster 9 split (closes AGDA-D-15.1 for this file).
+-- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module when it
+-- was split into submodules.
 --
 -- Phase organisation (preserved from the original section headers):
 --   * 3.1: Non-emptiness and position/length lemmas.
@@ -613,7 +613,7 @@ optional-dash-succ _ _ = refl
 10^n≢0 : ∀ n → NonZero (10 ^ n)
 10^n≢0 n = m^n≢0 10 n
 
--- R21 cluster 9 — split: these were `private` in the original mega-module
+-- These were `private` in the original mega-module
 -- because they were internal helpers above the consumer code in the same
 -- file.  After the split, Phase 4+ live in the parent `Properties.agda`
 -- facade (or further submodules) and need to reach `mag-quot` / `mag-rem`

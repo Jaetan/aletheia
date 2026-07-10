@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Signal-group emitter for the DBC text format (Track B.3.c.7; layer-1
--- form 2026-04-24).
+-- Signal-group emitter for the DBC text format.
 --
 -- Grammar slice emitted (mirrors `TextParser.SignalGroups`):
 --   sig-group    ::= "SIG_GROUP_" ws nat ws identifier ws nat ws? ":"
@@ -18,13 +17,13 @@
 --   repetitions `1` — which is the cantools-canonical "one rep,
 --   message-agnostic" shape used by the `comments_groups.dbc` corpus for
 --   groups that don't pin to a specific message.  The parser is ID-agnostic
---   (discards both nats), so the B.3.d roundtrip `parseText ∘ formatText`
+--   (discards both nats), so the roundtrip `parseText ∘ formatText`
 --   sees a stable value regardless of what was in the original source.
 --
 -- Canonical spacing (cantools parity):
 --   * Single space between every lexeme.  The parser accepts runs of
 --     whitespace (`parseWS = some (satisfy isHSpace)`), so the roundtrip
---     `parseText ∘ formatText ≡ id` (B.3.d) composes either way.
+--     `parseText ∘ formatText ≡ id` composes either way.
 --   * Space before `:` (the grammar's pre-`:` `ws?` slot, always filled
 --     here) and no space before `;` on non-empty entry lists.  Matches
 --     the corpus shape `SIG_GROUP_ 500 Electrical 1 : Voltage Current;`.
@@ -32,8 +31,7 @@
 --     `:` and `;`.  Grammar's `ws?` before `;` accepts the tight form;
 --     the corpus never exercises it but the shape stays valid.
 --
--- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
--- see `Emitter` module header).
+-- All emitters are `List Char`-valued (see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.SignalGroups where
 open import Aletheia.DBC.Identifier using (Identifier)
 

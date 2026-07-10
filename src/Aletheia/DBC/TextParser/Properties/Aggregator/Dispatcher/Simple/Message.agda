@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TM dispatcher under head-dispatched parseTopStmt.
+-- TM dispatcher under head-dispatched parseTopStmt.
 --
 -- `emitMessage-chars msg ++ outer` starts with 'B'∷'O'∷'_'∷' ', so
 -- parseTopStmt reduces to its BO-bucket:
 -- `(parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) <|> (parseMessage >>= λ m → pure (TSMessage m))`.
 --
--- parseBOTxBu (the A.2 Format-DSL parser) opens with the `"BO_TX_BU_"`
+-- parseBOTxBu (the Format-DSL parser) opens with the `"BO_TX_BU_"`
 -- literal (char 3 = 'T'); on the emitter's `'B'∷'O'∷'_'∷' '∷…` it fails at
 -- char 3, so the left arm is `nothing` (`botxbu-fail = refl`).  parseMessage
 -- succeeds via `parseMessage-roundtrip-bundled`.
@@ -47,7 +47,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (alt-right-nothing)
 
--- E.9a: result is `mkResult (TSMessage (clearBothMsg msg)) …` because
+-- Result is `mkResult (TSMessage (clearBothMsg msg)) …` because
 -- `parseMessage-roundtrip-bundled` returns `mkResult (clearBothMsg msg) …`.
 -- The Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
 -- post-buildDBC to recover the original messages.

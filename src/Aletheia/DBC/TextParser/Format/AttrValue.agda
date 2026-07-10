@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — DSL-side Format for the BA_DEF_DEF_ / BA_ /
+-- DSL-side Format for the BA_DEF_DEF_ / BA_ /
 -- BA_REL_ attribute-value slot.
 --
 -- The wire grammar at the value slot is 3-emit-shape:

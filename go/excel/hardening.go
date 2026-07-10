@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Loader-entry hardening helpers (R20 cluster N — cross-binding parity).
+// Loader-entry hardening helpers (cross-binding parity).
 //
 // Mirrors the C++ aletheia::detail::validate_loader_path /
 // check_file_size_bound / check_xlsx_uncompressed_bound /

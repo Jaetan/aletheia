@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! Frame construction / update / batch-send tests (Slice R2) against the real
+//! Frame construction / update / batch-send tests against the real
 //! `libaletheia-ffi.so`. Set `ALETHEIA_LIB` to the built shared library.
 
 use aletheia::{

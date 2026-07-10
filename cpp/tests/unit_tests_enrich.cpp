@@ -120,8 +120,8 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
 
 TEST_CASE("send_frame enrichment renders the observed value exactly (kernel formatℚ)",
           "[client][enrich]") {
-    // r25 B5a: the observed value renders via the kernel formatℚ (the renderer
-    // the predicate threshold already uses), not lossy %g/to_double(). 740/3 is
+    // The observed value renders via the kernel formatℚ (the renderer the
+    // predicate threshold already uses), not lossy %g/to_double(). 740/3 is
     // non-terminating: old `{:g}` gave "246.667"; formatℚ gives the exact "740/3".
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
@@ -309,9 +309,9 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
 }
 
 TEST_CASE("end_stream surfaces uncached_atom warnings", "[client][warnings]") {
-    // R21 cluster 1 — AGDA-D-12.1: kernel emits one `uncached_atom`
-    // warning per atom whose target signal never appeared in trace.
-    // Verifies the C++ binding decodes these into StreamResult::warnings.
+    // The kernel emits one `uncached_atom` warning per atom whose target
+    // signal never appeared in trace.  Verifies the C++ binding decodes these
+    // into StreamResult::warnings.
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
 

@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4a — slim `parseSignalGroup-roundtrip` derived from the
--- universal Format DSL roundtrip.
+-- Slim `parseSignalGroup-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Layer 3 carry-over: `SignalGroup` was the last per-line construct
+-- `SignalGroup` was the last per-line construct
 -- without a Format DSL form.  The slim is shaped identically to
 -- `parseValueTable-roundtrip` and `parseEnvVar-roundtrip`.
 --

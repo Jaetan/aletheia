@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Long-run resource-leakage stability harness (R18 cluster 6 / C++ cat 26).
+// Long-run resource-leakage stability harness (C++ cat 26).
 //
 // Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M
 // total frames) and asserts no per-iteration drift on:
@@ -53,10 +53,10 @@ constexpr std::int64_t kMallocDeltaBytesCap = 50LL * 1024 * 1024; // 50 MiB
 
 // Warmup cycles before the measurement window opens.  The GHC RTS heap +
 // MAlonzo dictionaries + lazy Agda structures need a substantial workload
-// before they reach steady state — empirical probe (2026-05-09 cluster 7
-// orchestrator e2e) showed the heap plateaus around cycle 7 of 100k frames;
-// a 100-frame warmup as cluster 6 originally shipped left ~138 MiB of RTS
-// warmup leaking into the measurement window.  7 cycles of WARMUP gives
+// before they reach steady state — an empirical probe (2026-05-09) showed the
+// heap plateaus around cycle 7 of 100k frames; a 100-frame warmup (the
+// original default) left ~138 MiB of RTS warmup leaking into the measurement
+// window.  7 cycles of WARMUP gives
 // ≥ 30 MiB headroom over the 50 MiB threshold without inflating the bench
 // beyond ~3-4s wall.
 constexpr int kWarmupCycles = 7;

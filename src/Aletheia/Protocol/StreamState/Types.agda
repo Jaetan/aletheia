@@ -32,13 +32,13 @@ open import Aletheia.Trace.CANTrace using (TimedFrame)
 -- StreamState's set; `index : Fin n` makes "no out-of-bounds property
 -- identifier reaches the wire" structurally true (the wire-side ℕ used
 -- by `PropertyResult.Violation`/`Satisfaction`/`Unresolved` is obtained
--- via `Data.Fin.toℕ` only at emission, never as a free input).  Closed
--- via R20 cluster R6-B7.4 — replaces the prior `index : ℕ` design which
--- left "raw ℕ identifier" as an open-shape concern across the streaming
--- pipeline.  Not on the hot path: this index is consulted once per
--- `PropertyResult` constructor call (after a verdict is reached), not on
--- the per-frame predicate dispatch (which keeps a `ℕ` index into the
--- atom table — see the in-source `DEFERRED REFACTOR` block in
+-- via `Data.Fin.toℕ` only at emission, never as a free input).  This
+-- replaces the prior `index : ℕ` design which left "raw ℕ identifier"
+-- as an open-shape concern across the streaming pipeline.  Not on the hot
+-- path: this index is consulted once per `PropertyResult` constructor
+-- call (after a verdict is reached), not on the per-frame predicate
+-- dispatch (which keeps a `ℕ` index into the atom table — see the
+-- in-source `DEFERRED REFACTOR` block in
 -- `Aletheia.Protocol.StreamState.Internals`).
 record PropertyState (n : ℕ) : Set where
   constructor mkPropertyState

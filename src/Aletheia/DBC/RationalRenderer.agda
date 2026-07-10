@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
+-- Cross-binding-identical Rational pretty-printer.
 --
 -- Replaces three independent per-binding implementations (Python
 -- `_format_rational`, Go `formatRational`, C++ `format_value(const
@@ -42,7 +42,7 @@
 --      the fractional part; drop the decimal point when fractional
 --      is empty.
 --
--- The cluster-Y output convention (`"42"` not `"42.0"`, `"0"` not
+-- The trimmed output convention (`"42"` not `"42.0"`, `"0"` not
 -- `"0.0"`) intentionally diverges from `Aletheia.DBC.TextFormatter.
 -- Emitter.showDecRat-dec-chars`'s "Shape B" — which is fine because
 -- the renderer here is for human-readable predicate display, not the
@@ -81,7 +81,7 @@ maxDecimalPlaces : ℕ
 maxDecimalPlaces = 18
 
 -- ============================================================================
--- TRIM TRAILING ZEROS — cluster-Y convention
+-- TRIM TRAILING ZEROS
 -- ============================================================================
 
 -- Drop leading characters equal to '0' from a list.  Used on the
@@ -103,7 +103,7 @@ trimTrailingZeros : List Char → List Char
 trimTrailingZeros cs = reverse (dropLeadingZeros (reverse cs))
 
 -- ============================================================================
--- DECIMAL MAGNITUDE EMITTER (cluster-Y convention, no mandatory ".0")
+-- DECIMAL MAGNITUDE EMITTER (no mandatory ".0")
 -- ============================================================================
 
 -- Append "." + fractional digits to the integer part — but only when the
@@ -119,8 +119,8 @@ joinIntFrac : List Char → List Char → List Char
 joinIntFrac intPart []       = intPart
 joinIntFrac intPart (c ∷ cs) = intPart ++ₗ ('.' ∷ c ∷ cs)
 
--- Emit `absNum / (2^a · 5^b)` as a decimal `List Char` in cluster-Y
--- shape.  When `a = b = 0` the value is integer; otherwise scale into a
+-- Emit `absNum / (2^a · 5^b)` as a decimal `List Char`.  When `a = b = 0`
+-- the value is integer; otherwise scale into a
 -- digit stream of length `m+1` where `m = max(a, b)`, split at the
 -- decimal point, and trim trailing zeros.
 emitMagnitude-trimmed-chars : (absNum a b : ℕ) → List Char

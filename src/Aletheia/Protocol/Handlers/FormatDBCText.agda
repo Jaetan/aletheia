@@ -18,9 +18,10 @@
 -- → formatText → String.  `deriveNodesIfEmpty` runs at the protocol layer
 -- so every binding's `format_dbc_text` (Python / C++ / Go) gets uniform
 -- sender→nodes derivation; pushing it here avoided a Python-only shim.
--- Both proof halves (JSONParser roundtrip + B.3.d universal) still apply
--- — `deriveNodesIfEmpty` is upstream of `formatText`, so the universal
--- `parseText (formatText d) ≡ inj₂ d` holds for the *normalized* `d`.
+-- Both proof halves (JSONParser roundtrip + universal text-roundtrip)
+-- still apply — `deriveNodesIfEmpty` is upstream of `formatText`, so the
+-- universal `parseText (formatText d) ≡ inj₂ d` holds for the
+-- *normalized* `d`.
 module Aletheia.Protocol.Handlers.FormatDBCText where
 
 open import Data.Bool using (Bool; true; false; _∨_)
@@ -77,7 +78,7 @@ deriveNodesIfEmpty d with DBC.nodes d
 -- State is never mutated — read-only operation on the JSON argument; the
 -- currently-loaded DBC (if any) is untouched.
 --
--- ROUND-TRIP CONTRACT (caller obligation, AGDA-D-19.6 / G-A7(c)):
+-- ROUND-TRIP CONTRACT (caller obligation, G-A7(c)):
 --
 -- The universal text-roundtrip theorem
 -- `Aletheia.DBC.TextParser.Properties.Substrate.Unsafe.parseText-on-formatText`
@@ -117,7 +118,7 @@ deriveNodesIfEmpty d with DBC.nodes d
 -- with the JSON-side `WellFormedDBC`.
 --
 -- Wire-level: text → JSON → text closes byte-identical modulo
--- `WellFormedTextDBCAgg d` (post-Phase-E.9a, modulo other WF fields only).
+-- `WellFormedTextDBCAgg d` (modulo other WF fields only).
 handleFormatDBCText : JSON → StreamState → StreamState × Response
 handleFormatDBCText dbcJSON state with parseDBCWithErrors dbcJSON
 ... | inj₁ err = (state , Response.Error (WithContext "FormatDBCText" err))

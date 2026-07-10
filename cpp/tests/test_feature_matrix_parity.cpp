@@ -39,10 +39,10 @@ constexpr std::array<std::string_view, 3> kValidStatuses = {"implemented", "not_
 
 constexpr std::array<std::string_view, 4> kBindings = {"python", "cpp", "go", "rust"};
 
-// CPP-D-18.1 R23: repo root is passed via the ALETHEIA_REPO_ROOT env var
-// by ctest's set_tests_properties(ENVIRONMENT ...) rather than baked
-// into a compile-time define.  Keeps the test binary bit-identical
-// regardless of build location — required for reproducible builds.
+// Repo root is passed via the ALETHEIA_REPO_ROOT env var by ctest's
+// set_tests_properties(ENVIRONMENT ...) rather than baked into a compile-time
+// define.  Keeps the test binary bit-identical regardless of build location —
+// required for reproducible builds.
 auto repo_root() -> std::filesystem::path {
     if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
         return std::filesystem::path{env};

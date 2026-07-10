@@ -912,7 +912,7 @@ func TestBetween_MinExceedsMax_RendersExactRational(t *testing.T) {
 	}
 }
 
-// --- Group R6-J: startBit/length range validation tests ---
+// --- startBit/length range validation tests ---
 
 func TestFormatDBC_StartBitOutOfRange(t *testing.T) {
 	mock := aletheia.NewMockBackend(
@@ -1171,7 +1171,7 @@ func TestFormatDBC_NonBoolExtended(t *testing.T) {
 	}
 }
 
-// --- Group R6-K: Empty name validation tests ---
+// --- Empty name validation tests ---
 
 func TestExtractSignals_EmptySignalName(t *testing.T) {
 	mock := aletheia.NewMockBackend(

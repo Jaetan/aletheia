@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` and `parseRawAttrRel`
--- per-line construct roundtrips — facade module.
+-- `parseRawAttrAssign` and `parseRawAttrRel` per-line construct
+-- roundtrips — facade module.
 --
 -- `parseRawAttrAssign` consumes
 --   `"BA_" ws string-lit ws (attr-target ws)? raw-value ws? ";" newline ...`

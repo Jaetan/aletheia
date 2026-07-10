@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// libFuzzer harness for the JSON response parser (R18 cluster 5 — Cat 33b).
+// libFuzzer harness for the JSON response parser (Cat 33b).
 // Counterpart of go FuzzParseResponse and python fuzz_parse_response.
 //
 // Build: requires clang with -fsanitize=fuzzer (configured in CMakeLists.txt

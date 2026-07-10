@@ -244,7 +244,7 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
 // ---------------------------------------------------------------------------
 
 auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vector<CheckResult>> {
-    // R20 cluster N — CPP-B-29.1/2 / CPP-D-21.2: reject symlinks + raw-size
+    // Reject symlinks + raw-size
     // cap before handing the path to yaml-cpp.  YAML has no compressed
     // container so the .xlsx ZIP-uncompressed walk doesn't apply.
     if (auto v = detail::validate_loader_path(path, "YAML"); !v)

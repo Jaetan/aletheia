@@ -66,7 +66,7 @@ rejectDec-complete (no  _) _ _  = refl
 
 -- All-Q witness lifters: given Q i, every element of `requireDec d i` /
 -- `rejectDec d i` satisfies Q.  Used to collapse the 6 per-check `-allE`
--- proofs in Validity/Composition.agda (R23-AGDA-C-6.1 closure) — when Q
+-- proofs in Validity/Composition.agda — when Q
 -- is `λ x → severity x ≡ IsError` and i is `mkIssue IsError ...`, the
 -- witness is `refl` and the proof becomes a one-liner.
 requireDec-allE : ∀ {P : Set} {Q : B → Set} (dec : Dec P) (i : B) →

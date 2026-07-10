@@ -536,7 +536,7 @@ func TestDBCMessageSenders_RoundtripThroughMock(t *testing.T) {
 }
 
 func TestDBCMessageSenders_EmptyWhenAbsent(t *testing.T) {
-	// Pre-B.1.x DBC responses may omit "senders"; parser defaults to nil.
+	// Older DBC responses may omit "senders"; parser defaults to nil.
 	mock := aletheia.NewMockBackend(aletheia.Respond(`{
 		"status":"success",
 		"dbc":{

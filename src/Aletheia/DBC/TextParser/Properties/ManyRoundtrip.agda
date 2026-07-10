@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4b — polymorphic `many P` roundtrip helper.
+-- Polymorphic `many P` roundtrip helper.
 --
 -- Lifts a per-element η-style slim roundtrip (one of the five sections —
 -- ValueTable, EnvVar, Comment, SignalGroup, DBCMessage) to its `many P`
@@ -288,12 +288,12 @@ many-η-roundtrip P E Stop rt nz hns pos xs outer xs-stops os pf =
 
 
 -- ============================================================================
--- LIFT-AWARE VARIANT (B.3.d Layer 4c) — `many P` over a foldr-emit where
+-- LIFT-AWARE VARIANT — `many P` over a foldr-emit where
 -- the parser yields `O` and the emitter consumes `I`, with a lift `L : I
--- → O`.  The result list is `map L xs`.  The 4b `many-η-roundtrip` is
+-- → O`.  The result list is `map L xs`.  The plain `many-η-roundtrip` is
 -- the special case `I = O`, `L = id`.
 --
--- Used by Layer 4c to lift `many parseTopStmt` over the body bytes
+-- Used to lift `many parseTopStmt` over the body bytes
 -- emitted from a `List TopStmtTyped` (typed shadow), where
 -- `liftTopStmt defs : TopStmtTyped → TopStmt` routes attributes through
 -- `rawOf defs`.  The 4b helper does not apply directly because parsed-

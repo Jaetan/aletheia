@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TAT (TSAttribute) dispatcher under head-dispatched
+-- TAT (TSAttribute) dispatcher under head-dispatched
 -- parseTopStmt.
 --
 -- Every attribute-line emitter starts with `toList "BA_..."` which

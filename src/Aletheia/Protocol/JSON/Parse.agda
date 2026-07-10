@@ -264,7 +264,7 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
 -- recursion depth above by `length input`.  The adversarial-input nesting-depth
 -- cap (`max-nesting-depth`, 64) is enforced ONE LAYER UP by `processJSONLine`
 -- (`Main/JSON.agda`) as a typed `ParseErr (InputBoundExceeded NestingDepth …)`
--- rejection (AGDA-D-13.4 phase 2a — closes R19 cluster 8 phase e.2 companion).
+-- rejection.
 -- Placing the check at the handler boundary rather than inside `parseJSON`
 -- keeps the parser as the pure inverse of `formatJSON` (no `nothing`-as-bound
 -- punning) and exposes the structured `bound_kind / observed / limit` triple

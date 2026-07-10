@@ -28,9 +28,8 @@ enum class ErrorKind {
                        // runs to completion. Mirrors Go's wrapped context.Canceled.
     InputBoundExceeded // Adversarial-input bound crossed at a parser surface;
                        // mirrors Python's `InputBoundExceededError` and Go's
-                       // `*InputBoundExceededError` (R19 cluster 8 — CPP-D-21.3
-                       // cross-binding parity).  Post R19 cluster 14 /
-                       // AGDA-C-6.2 consolidation, the wire code is the single
+                       // `*InputBoundExceededError` for cross-binding parity.
+                       // After consolidation, the wire code is the single
                        // `ErrorCode::InputBoundExceeded`; `bound_kind` from
                        // the structured payload discriminates which bound.
 };
@@ -81,8 +80,8 @@ enum class ErrorCode {
     FrameCanIdNotFound,
     FrameCanIdMismatch,
     FrameSignalValueOutOfBounds,
-    // Top-level adversarial-input bound (consolidated 2026-05-11 per
-    // R19 cluster 14 / AGDA-C-6.2 — replaces ParseInputBoundExceeded /
+    // Top-level adversarial-input bound (consolidated 2026-05-11 —
+    // replaces ParseInputBoundExceeded /
     // FrameInputBoundExceeded / DBCTextInputBoundExceeded; discriminate
     // by `bound_kind` from the structured payload).
     InputBoundExceeded,
@@ -129,7 +128,7 @@ class AletheiaError {
     // Populated only when `kind_ == ErrorKind::InputBoundExceeded`; carries
     // the structured `bound_kind/observed/limit` that the Python and Go
     // bindings already expose via their typed `InputBoundExceededError`
-    // (R19 cluster 8 — CPP-D-21.5 cross-binding parity).  Errors of any
+    // for cross-binding parity.  Errors of any
     // other kind have `std::nullopt`.
     std::optional<InputBoundExceededError> bound_info_;
     // Populated only when `code_ == ErrorCode::HandlerValidationFailed` and
@@ -172,7 +171,7 @@ using Result = std::expected<T, AletheiaError>;
 /// `std::string` use exceptions instead; `AletheiaException` carries the
 /// same `AletheiaError` value so callers can branch on `kind()` /
 /// `code()` after a `catch`.  Derives from `std::runtime_error` so
-/// pre-R20 `catch (const std::exception&)` blocks keep catching it via
+/// existing `catch (const std::exception&)` blocks keep catching it via
 /// the base; new code can `catch (const AletheiaException&)` to recover
 /// the kind-tagged error.
 class AletheiaException : public std::runtime_error {

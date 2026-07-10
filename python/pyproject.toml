@@ -85,11 +85,11 @@ dev = [
     "pytest>=9.1.1,<10",
     "pytest-cov>=7.1.0,<8",
     "pytest-markdown-docs>=0.9.2,<1",
-    # AGENTS.md Python cat 14(f) (NEW R18) requires test-isolation runs via
+    # AGENTS.md Python cat 14(f) requires test-isolation runs via
     # ``pytest --random-order --random-order-bucket=package`` alongside the
     # deterministic lane.  Both must stay green.
     "pytest-random-order>=1.2.0,<2",
-    # AGENTS.md Python cat 34(b) (NEW R18) — hypothesis-driven property
+    # AGENTS.md Python cat 34(b) — hypothesis-driven property
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
     "hypothesis>=6.155.7,<7",
@@ -99,7 +99,7 @@ dev = [
     # new rules land in minor bumps) per the gate mapping above.  Bumped to 0.15
     # for STABLE py314 lint-target support (0.13.x had it preview-only).
     "ruff>=0.15.20,<0.16",
-    # AGENTS.md Python cat 25 long-run sub-check (NEW R18) — psutil drives
+    # AGENTS.md Python cat 25 long-run sub-check — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
     # opt-in via ``ALETHEIA_STABILITY_CHECK=1`` so the dependency only
@@ -115,12 +115,12 @@ dev = [
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
     "clang-format>=22.1.5,<22.2",
 ]
-# AGENTS.md Python cat 34(c) (NEW R18) opt-in fuzz extras.  Atheris is a
+# AGENTS.md Python cat 34(c) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
 # only the fuzz lane installs it.  Hypothesis stays in ``[dev]`` because
 # property tests run in every standard pytest invocation.
 fuzz = ["atheris>=3.1.0,<4"]
-# AGENTS.md Python cat 14(g) (NEW R18) opt-in mutation-testing extras.  mutmut
+# AGENTS.md Python cat 14(g) opt-in mutation-testing extras.  mutmut
 # is the AGENTS.md-named first-choice tool; pinned to 3.x where the cli +
 # pyproject ``[tool.mutmut]`` config still works.  Lives in its own group
 # rather than ``[dev]`` because the lane is opt-in only (per AGENTS.md "once
@@ -253,10 +253,10 @@ show_missing = true
 skip_covered = false
 
 [tool.mutmut]
-# AGENTS.md Python cat 14(g) (NEW R18) — mutation testing config.  Hot-path
+# AGENTS.md Python cat 14(g) — mutation testing config.  Hot-path
 # modules per AGENTS.md, mapped to the actual on-disk paths after the
 # protocols split (``client.py`` -> ``aletheia/client/_client.py``) and the
-# Track E.11 IssueCode extraction (``codes/_issue.py`` is new).  ``dbc_loader.py``
+# IssueCode extraction (``codes/_issue.py`` is new).  ``dbc_loader.py``
 # from AGENTS.md was renamed/split into ``dbc/_converter.py`` + ``yaml_loader.py``;
 # both included.  See ``docs/MUTATION_BENCH.yaml`` for the canonical list and
 # the static gate that enforces it.
@@ -312,6 +312,11 @@ pytest_add_cli_args = [
     "--ignore=tests/test_feature_matrix_parity.py",
     "--ignore=tests/test_log_events_parity.py",
     "--ignore=tests/test_unified_client.py",
+    # test_check_no_review_marks.py imports the repo-root `tools` package (the
+    # review-mark gate it covers) — `import tools` ModuleNotFound-aborts
+    # collection in the relocated mutants/ tree, like the grammar tests above.
+    # Infra coverage, not hot-path, so excluding it removes no mutation signal.
+    "--ignore=tests/test_check_no_review_marks.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the
@@ -348,6 +353,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_proof_coverage.py",
     "--ignore=tests/test_check_clang_tidy_coverage.py",
     "--ignore=tests/test_check_docs.py",
+    "--ignore=tests/test_check_no_review_marks.py",
     "--ignore=tests/test_mutation_run_scope.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /

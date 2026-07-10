@@ -85,9 +85,9 @@ static auto get_cpu_model() -> std::string {
 }
 
 // NDEBUG is defined by CMake's Release/RelWithDebInfo/MinSizeRel build types.
-// An absent NDEBUG means an unoptimized build — a silent 20%+ regression (see
-// R15 investigation). We expose the build type via get_system_info() and fail
-// loudly at startup in check_release_build() below.
+// An absent NDEBUG means an unoptimized build — a silent 20%+ regression. We
+// expose the build type via get_system_info() and fail loudly at startup in
+// check_release_build() below.
 #ifdef NDEBUG
 constexpr auto k_build_type = "Release";
 #else

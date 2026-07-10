@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-A — `Format.AttrDef` head-non-hspace helpers.
+-- `Format.AttrDef` head-non-hspace helpers.
 --
--- Extracted from `Format/AttrDef.agda` (R22 continuation of R21
--- AGDA-D-15.1) to bring the parent module under the 800-LOC trigger.
+-- Extracted from `Format/AttrDef.agda` to bring the parent module under
+-- the 800-LOC trigger.
 -- These helpers bridge from emit-shape to `SuffixStops isHSpace …` /
 -- `SuffixStops isDigit …` preconditions required by the EMITS-OK
 -- BUILDERS section in AttrDef.agda; for closed prefixes the head is a

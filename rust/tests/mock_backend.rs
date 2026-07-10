@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! The [`Backend`] dependency-injection seam and the [`MockBackend`] test double
-//! (Slice R5). The seam exercises the [`Client`] against a recorded/replayed mock
+//! The [`Backend`] dependency-injection seam and the [`MockBackend`] test double.
+//! The seam exercises the [`Client`] against a recorded/replayed mock
 //! command backend. Most tests need no `libaletheia-ffi.so`; the four that render
 //! predicate thresholds (`add_checks` → `set_properties`) do, because the rational
 //! renderer is a process-global MAlonzo export that always loads the real `.so` and

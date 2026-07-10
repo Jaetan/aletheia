@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Strip-after-scale substrate for the DecRat parser roundtrip
--- (Track B.3.d commit 2/6).
+-- Strip-after-scale substrate for the DecRat parser roundtrip.
 --
 -- Purpose: the Shape B emitter writes every DecRat as
 -- `<sign><int>.<frac>` with m = max(a ⊔ b, 1) fractional digits,

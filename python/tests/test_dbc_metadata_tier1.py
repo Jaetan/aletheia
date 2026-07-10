@@ -5,7 +5,7 @@
 Tier 1 covers the three metadata arrays already modeled by the Agda ``DBC``
 record but previously dropped by all three bindings: ``signalGroups``,
 ``environmentVars``, ``valueTables``. Tier 2 (nodes / comments / attributes /
-receivers requiring Agda core extension) is tracked separately as B.1.x.
+receivers requiring Agda core extension) is tracked separately.
 
 Each test drives ``parse_dbc`` → ``format_dbc`` through the real FFI to prove
 the Agda core reconstructs the metadata on the return trip. Equality is

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Foundations for the universal aggregator.
+-- Foundations for the universal aggregator.
 --
 -- Closes the typed/raw asymmetry between the formatter (which emits
 -- bytes from `DBCAttribute` with ambient `defs`) and the parser (which
@@ -163,12 +163,12 @@ data WFAttribute (defs : List AttrDef) : DBCAttribute → Set where
 -- TYPED TopStmt SHADOW (carries `DBCAttribute`, not `RawDBCAttribute`).
 -- ============================================================================
 --
--- Layer 4c bridges between the typed formatter and the raw-yielding
+-- This module bridges between the typed formatter and the raw-yielding
 -- parser by introducing a typed shadow of `TopStmt`.  Parser-only
 -- constructors of `TopStmt` not lifted into this typed shadow
 -- (`TSBOTxBu` / `TSSigValType` / `TSSigMulVal`) are absent here.
--- `TSValueDesc` carries `RawValueDesc` post-E.4 at the parser side; its
--- typed-shadow lift `TVD` lands at E.5.
+-- `TSValueDesc` carries `RawValueDesc` at the parser side; its
+-- typed-shadow lift is `TVD`.
 
 data TopStmtTyped : Set where
   TVT : ValueTable     → TopStmtTyped
@@ -177,15 +177,15 @@ data TopStmtTyped : Set where
   TCM : DBCComment     → TopStmtTyped
   TAT : DBCAttribute   → TopStmtTyped
   TSG : SignalGroup    → TopStmtTyped
-  -- Track E.5–E.7: VAL_ payload at the typed-shadow level.  `TVD rvd`
+  -- VAL_ payload at the typed-shadow level.  `TVD rvd`
   -- mirrors `TopStmt.TSValueDesc rvd`; the typed-shadow shape is
   -- monomorphic since `RawValueDesc` is parser-level (the refined form
   -- lives nested under `messages[i].signals[j].valueDescriptions`, not
-  -- as a flat top-level field on `DBC`).  E.7 wires the chunk into
+  -- as a flat top-level field on `DBC`).  The chunk is wired into
   -- `toTopStmtsTyped` via `collectFromMessages` per the C1 sort key
   -- `(message-index, signal-index, val-desc-index)`.
   TVD : RawValueDesc   → TopStmtTyped
-  -- A.2: BO_TX_BU_ payload at the typed-shadow level.  `TBO rms` mirrors
+  -- BO_TX_BU_ payload at the typed-shadow level.  `TBO rms` mirrors
   -- `TopStmt.TSBOTxBu rms`; the section is sourced via `collectSenders` per
   -- message ID, the inverse of `attachSenders` at `buildDBC`.
   TBO : RawMsgSenders  → TopStmtTyped
@@ -193,7 +193,7 @@ data TopStmtTyped : Set where
 -- Lift typed shadow → parser-side `TopStmt`.  Attributes are routed
 -- through `rawOf defs`; non-attributes are constructor-renames; the BO
 -- section lifts `TBO rms` to `TSBOTxBu rms`.
--- A.2: the TM case lifts `m` through `clearBothMsg`.  `parseMessage` produces
+-- The TM case lifts `m` through `clearBothMsg`.  `parseMessage` produces
 -- signals with `vds = []` AND `senders = []` (`buildSignal`/`buildMessage`
 -- hardcode them — VAL_ entries arrive via TVD top-stmts, BO_TX_BU_ senders
 -- via TBO top-stmts), so the per-message dispatcher slim claims the parsed
@@ -240,9 +240,9 @@ emitTopStmt-chars _    (TBO rms) = emitMsgSenders-line-chars rms
 -- Concatenates the 7 list-shaped sections in the same order
 -- `formatChars-body` emits them.  The preamble (VERSION/NS_/BS_/BU_) is
 -- handled separately at the top level — it's not in the `many parseTop-
--- Stmt` body.  The TVD chunk (E.7) is sourced via `collectFromMessages`
--- so partition's inverse (`attachValueDescs ∘ collectFromMessages ≡ id`,
--- E.6) closes the universal aggregator.
+-- Stmt` body.  The TVD chunk is sourced via `collectFromMessages`
+-- so partition's inverse (`attachValueDescs ∘ collectFromMessages ≡ id`)
+-- closes the universal aggregator.
 
 toTopStmtsTyped : DBC → List TopStmtTyped
 toTopStmtsTyped d =

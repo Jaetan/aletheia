@@ -107,9 +107,9 @@ intDecRatToℤ-mkIntDecRatFromℤ (+ suc _)   = refl
 intDecRatToℤ-mkIntDecRatFromℤ -[1+ _ ]    = refl
 
 -- Other direction: IntDecRat → ℤ → IntDecRat recovers the original
--- record value.  `IntDecRat.isInt` is `.(…)`-irrelevant (R18 cluster 17,
--- AGENTS.md G-A4) so the witness slot closes by `refl` directly via
--- record η.  The DecRat slot closes definitionally because
+-- record value.  `IntDecRat.isInt` is `.(…)`-irrelevant (AGENTS.md G-A4),
+-- so the witness slot closes by `refl` directly via record η.  The DecRat
+-- slot closes definitionally because
 -- `DecRat.canonical` is irrelevant — `mkDecRat z 0 0 c₁` and
 -- `mkDecRat z 0 0 c₂` (the latter from `fromℤ z`) are syntactically
 -- identical up to irrelevant arguments.
@@ -202,7 +202,7 @@ natDecRatToIntDecRat (mkNatDecRat d wf) =
 --
 -- `fromℤ (intDecRatToℤ v) ≡ IntDecRat.value v` — projecting through ℤ and
 -- back recovers the underlying DecRat record.  Per-line attribute proofs
--- (Layer 3 Commit 3c) lean on this when the parser produces
+-- lean on this when the parser produces
 -- `RavDecRat (fromℤ z)` from `showInt-chars z` (via
 -- `parseDecRat-bareInt-roundtrip-suffix`) and the rawOf*Value bridge in
 -- `Properties/Attributes/Common.agda` references `IntDecRat.value v`.

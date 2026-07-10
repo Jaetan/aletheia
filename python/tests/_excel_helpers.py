@@ -309,14 +309,16 @@ INVALID_MESSAGE_ID_ROW: list[CellValue] = [
     100,
     "",
 ]
+# A minimal signal spec (name / start bit / length / byte order) shared by the
+# demo DBC rows — named once so tests don't re-spell it (and don't trip the
+# duplicate-code detector on the identical cells).
+STD_SIGNAL_CELLS: list[CellValue] = ["Sig", "0", "8", "little_endian"]
+
 SYMLINK_DBC_ROW: list[CellValue] = [
     "256",
     "Msg",
     "8",
-    "Sig",
-    "0",
-    "8",
-    "little_endian",
+    *STD_SIGNAL_CELLS,
     "FALSE",
     "1",
     "0",

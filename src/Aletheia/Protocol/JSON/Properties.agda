@@ -99,8 +99,8 @@ getNat-ℕtoℚ n with 1 ∣? n
 
 -- DBC File Structure
 -- Proves that DBC files have expected structure (object with version and messages)
--- Post-3d.4 + JSON-mirror: `JString : List Char → JSON`, so `version` is the
--- raw `List Char` payload of the JString constructor.
+-- `JString : List Char → JSON`, so `version` is the raw `List Char`
+-- payload of the JString constructor.
 data DBCFileStructure : JSON → Set where
   dbc-structure : ∀ (obj : List (String × JSON)) (version : List Char) (messages : List JSON) →
     lookupByKey "version" obj ≡ just (JString version) →
@@ -118,7 +118,7 @@ parseDBC-sound : ∀ (input : JSON) (result : DBC)
       (input ≡ JObject obj
        × lookupByKey "version" obj ≡ just (JString version)
        × lookupByKey "messages" obj ≡ just (JArray messages))
-  -- `version` quantifies over `List Char` (JString's payload type post-3d.4).
+  -- `version` quantifies over `List Char` (JString's payload type).
 parseDBC-sound (JObject obj) result eq with lookupByKey "version" obj in eqVer
 parseDBC-sound (JObject obj) result eq | just (JString version)
   with lookupByKey "messages" obj in eqMsgs
@@ -152,8 +152,8 @@ parseDBC-sound (JArray _) result ()
 -- TYPED LOOKUP LEMMAS (for roundtrip proofs)
 -- ============================================================================
 
--- Typed lookup at head position: lookupString.  Post-3d.4 + JSON-mirror,
--- `JString` carries `List Char`, so the result is `fromList cs`.
+-- Typed lookup at head position: lookupString.  `JString` carries `List
+-- Char`, so the result is `fromList cs`.
 open import Data.String using (fromList)
 lookupString-here : (k : String) (cs : List Char) (rest : List (String × JSON))
   → lookupString k ((k , JString cs) ∷ rest) ≡ just (fromList cs)

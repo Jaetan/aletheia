@@ -29,7 +29,7 @@
 #include <variant>
 #include <vector>
 
-// R19 cluster 12 — CPP-B-13.1: parse_extraction_bin uses std::memcpy reads
+// parse_extraction_bin uses std::memcpy reads
 // in native byte order (per the wire-format note at AletheiaFFI.hs:235).
 // On a big-endian host the same memcpy would silently misinterpret the
 // bytes; refuse to compile rather than ship an architecture-dependent ABI.
@@ -176,7 +176,7 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
     -> Result<ParsedDBC> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("parse_dbc_text"));
-    // Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
+    // Defense-in-depth (cross-binding parity):
     // reject DBC text inputs longer than max_dbc_text_bytes before wrapping
     // them in a JSON command.  The outer max_json_bytes cap in
     // FfiBackend::process covers the wrapped command separately; the
@@ -247,7 +247,7 @@ constexpr std::array extraction_error_messages = {
 
 // Constructs a SignalValue from a wire-extracted (idx, num, den) triple.
 // Centralizes the den-positive normalization required for cross-binding
-// wire symmetry (R19 cluster 12 — CPP-B-7.3) and keeps `parse_extraction_bin`
+// wire symmetry and keeps `parse_extraction_bin`
 // under the clang-tidy readability-function-size threshold.
 static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
                               const std::vector<std::string>& names) -> Result<SignalValue> {
@@ -564,7 +564,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         // `FramePayload(data.begin(), data.end())` allocation that
         // `insert_or_assign` would force per call.  First frame for a key
         // still allocates via `emplace`; this is the common cold path on a
-        // bounded number of unique CAN IDs.  (R19 cluster 19 / CPP-B-25.1.)
+        // bounded number of unique CAN IDs.
         if (!diags_.empty()) {
             auto key = detail::MessageKey{id_value, is_extended};
             if (auto it = last_frames_.find(key); it != last_frames_.end()) {
@@ -577,7 +577,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
                              .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
             }
         }
-        // R23 — AGDA-D-12.1: PropertyBatch may carry mid-stream
+        // PropertyBatch may carry mid-stream
         // Satisfactions + a terminal Violation; enrich each fails entry
         // and emit the standard frame.processed log event.  Extracted
         // into a helper to keep send_frame under clang-tidy's
@@ -607,7 +607,7 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             if (e.kind() == ErrorKind::Cancellation) {
                 batch.error = e;
             } else {
-                // R20 cluster D — CPP-D-22.1: forward `bound_info_` so a
+                // Forward `bound_info_` so a
                 // mid-batch `InputBoundExceededError` payload survives the
                 // per-frame context wrap.  Without this the 3-arg ctor
                 // defaulted `bound_info` to `std::nullopt`, dropping the

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TCM dispatcher under head-dispatched parseTopStmt.
+-- TCM dispatcher under head-dispatched parseTopStmt.
 --
 -- `emitComment-chars c ++ outer` starts with 'C'∷'M' for every concrete
 -- target.  Because `emitComment-chars` dispatches on `c.target` via a

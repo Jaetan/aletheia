@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.c-η — DSL-side `signalLineFmt`.
+-- DSL-side `signalLineFmt`.
 --
 -- The full SG_ signal-line format as a single `Format RawSignal`.
 -- Replaces the production `parseSignalLine` (in

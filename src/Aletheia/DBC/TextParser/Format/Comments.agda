@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — DSL-side `commentFmt` for the DBC `CM_` line.
+-- DSL-side `commentFmt` for the DBC `CM_` line.
 --
 -- Grammar slice (mirrors `TextParser.Comments.parseComment`):
 --   comment        ::= "CM_" ws (comment-target)? ws? string-lit
@@ -13,7 +13,7 @@
 --                    | "EV_" ws ident ws            (CTEnvVar)
 --                    | (empty)                      (CTNetwork)
 --
--- Raw-ℕ-in-Format precedent: 3d.8 `messageHeaderFmt : Format (ℕ × Identifier
+-- Raw-ℕ-in-Format precedent: `messageHeaderFmt : Format (ℕ × Identifier
 -- × ℕ × Identifier)` keeps the CAN-ID as raw ℕ; the wrapper
 -- (`buildCommentP`, in `TextParser.Comments`) lifts to `CANId` via
 -- `buildCANId` and fails on out-of-range IDs.  Behaviour preserved: an
@@ -107,7 +107,7 @@ private
 -- Mirrors `CommentTarget` but with raw ℕ for CAN-IDs.  The Format produces
 -- this intermediate; the wrapper `buildCommentP` in `TextParser.Comments`
 -- runs `buildCANId` on the raw ℕ to recover the real `CANId`, failing on
--- out-of-range IDs.  Same precedent as 3d.8's `(rawId , msgName , rawDlc ,
+-- out-of-range IDs.  Same precedent as the `(rawId , msgName , rawDlc ,
 -- msgSender)` carrier of `messageHeaderFmt`.
 data RawCommentTarget : Set where
   RawCTNet  : RawCommentTarget
@@ -236,7 +236,7 @@ commentFmt =
 -- ============================================================================
 
 -- Each Identifier-bearing target arm requires `Identifier.name`
--- decomposes as `c ∷ cs` with `isHSpace c ≡ false`.  Layer 4 will
+-- decomposes as `c ∷ cs` with `isHSpace c ≡ false`.  A later step will
 -- discharge this universally from `validIdentifierᵇ` via the
 -- `isIdentStart→¬isHSpace` bridge (see
 -- `project_b3d_layer4_owed_lemmas.md`).
@@ -547,7 +547,7 @@ build-emits-ok (mkComment (CTEnvVar ev) text) outer-suffix evStop =
 -- THE GATE: parseComment's line-portion expressed via Format DSL.  Body is
 -- one `roundtrip` call + the EmitsOK construction.  Universal in `c` and
 -- `outer-suffix`; the only domain precondition is `CommentTargetStop c`,
--- which Layer 4 will discharge universally from `validIdentifierᵇ`.
+-- which a later step will discharge universally from `validIdentifierᵇ`.
 parseComment-format-roundtrip :
     ∀ (pos : Position) (c : DBCComment) (outer-suffix : List Char)
   → CommentTargetStop c

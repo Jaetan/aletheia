@@ -2,16 +2,15 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Top-level composer for the DBC text format (Track B.3.c.k; layer-1 form
--- 2026-04-24).
+-- Top-level composer for the DBC text format.
 --
--- Concatenates the per-section emitters from B.3.c.2–B.3.c.9 into a
+-- Concatenates the per-section emitters into a
 -- single `formatChars : DBC → List Char`.  `Aletheia.DBC.TextFormatter.
 -- formatText` delegates to `fromList ∘ formatChars`.  This module is the
 -- one that pins the emission order.
 --
 -- Canonical section order (matches `minimal.dbc` / `kitchen_sink.dbc`
--- and the `parseText` top-level dispatch, so the B.3.d roundtrip
+-- and the `parseText` top-level dispatch, so the roundtrip
 -- composes):
 --   1.  VERSION
 --   2.  NS_
@@ -20,7 +19,7 @@
 --   5.  VAL_TABLE_
 --   6.  BO_ blocks (each with inner SG_ lines)
 --   6a. BO_TX_BU_  (per-message extra transmitter/sender lists)  (A.2)
---   7.  VAL_                                         (E.7)
+--   7.  VAL_
 --   8.  EV_
 --   9.  CM_
 --  10.  BA_DEF_* / BA_DEF_DEF_ / BA_ / BA_REL_
@@ -40,7 +39,7 @@
 -- per-section parser tolerances in `TextParser.*`, so the roundtrip
 -- composes without whitespace drift.
 --
--- Layer-1 form (B.3.d Option 3a, 2026-04-24):
+-- `List Char` substrate:
 --   `formatChars : DBC → List Char` is the substrate the top-level
 --   roundtrip proof reasons about.  The `String`-typed boundary lives
 --   in `Aletheia.DBC.TextFormatter.formatText = fromList ∘ formatChars`,

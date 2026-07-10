@@ -2,16 +2,15 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-A — slim `parseAttrDef-roundtrip` /
--- `parseAttrDefRel-roundtrip` derived from the universal Format DSL
--- roundtrip (`Format.AttrDef`).
+-- Slim `parseAttrDef-roundtrip` / `parseAttrDefRel-roundtrip` derived
+-- from the universal Format DSL roundtrip (`Format.AttrDef`).
 --
--- Pre-3d.5.d (3c.1): hand-written 1,428-line bind-chain proofs through
+-- Formerly: hand-written 1,428-line bind-chain proofs through
 -- 14 parser primitives per scope (`parseAttrDef-roundtrip` × 5 std-scope
 -- cases + `parseAttrDefRel-roundtrip` × 2 rel-scope cases) + 5-way
 -- attribute-type dispatcher.
 --
--- Post-3d.5.d: per-scope wrappers around the universal `parseAttrDef-
+-- Now: per-scope wrappers around the universal `parseAttrDef-
 -- format-roundtrip` / `parseAttrDefRel-format-roundtrip` lemmas, plus
 -- two per-construct bridges (`emit attrDefFmt raw ≡ emitAttrDef-chars
 -- d` per std scope; same for rel) and the η-style trailing-newline /
@@ -62,7 +61,7 @@ open import Aletheia.DBC.TextParser.Format.AttrDef as FmtAD using
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATES — kept for source compatibility with the
--- `Properties/Attributes` facade and downstream Layer-4 callers
+-- `Properties/Attributes` facade and downstream callers
 -- (`Properties/Attributes/Line.agda`).
 -- ============================================================================
 

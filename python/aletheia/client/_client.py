@@ -20,15 +20,14 @@ from aletheia.client._helpers.rational import (
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
     lift_input_bound_exceeded,
-    lift_validation_issues,
     parse_parsed_dbc_response,
     parse_success_or_error,
+    raise_if_dbc_validation_failed,
     validate_issue_severities,
 )
 from aletheia.client._signal_ops import SignalOpsMixin
 from aletheia.client._streaming import StreamingMixin
 from aletheia.client._types import (
-    DBCValidationFailedError,
     FFIError,
     InputBoundExceededError,
     PropertyDiagnostic,
@@ -400,7 +399,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Parse and validate a DBC from raw .dbc file text via the Agda text parser.
 
         Mirrors :meth:`parse_dbc`'s response shape; both routes share the
-        same Agda core post-B.3.f.
+        same Agda core.
 
         Defense-in-depth (cross-binding parity): rejects DBC text inputs
         longer than :data:`MAX_DBC_TEXT_BYTES` before wrapping them in a
@@ -455,7 +454,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             message = response.get("message", "Unknown error")
             code = response.get("code")
             msg = f"validateDBC failed: {message}"
-            # C2 gave validateDBC the adversarial bound cascade, so an
+            # validateDBC got the adversarial bound cascade, so an
             # over-cardinality / over-length DBC now rejects with the same
             # typed InputBoundExceededError the load routes raise (previously
             # this arm was unreachable and fell through to ProtocolError).
@@ -469,18 +468,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
                 # constructor args; code echoes the wire literal (pinned by the
                 # bound test's err.code assertion).
                 raise InputBoundExceededError(*bound, code="input_bound_exceeded")
-            lifted = lift_validation_issues(response)
-            if lifted is not None:
-                issues, has_errors = lifted
-                # The lift gates on this exact wire code, so echoing the
-                # literal is exact (and keeps the type narrow without an
-                # unreachable isinstance arm).
-                raise DBCValidationFailedError(
-                    msg,
-                    issues,
-                    has_errors=has_errors,
-                    code="handler_validation_failed",
-                )
+            raise_if_dbc_validation_failed(response, msg)
             raise ProtocolError(
                 msg,
                 code=code if isinstance(code, str) else None,
@@ -537,7 +525,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         Inverse of :meth:`parse_dbc_text` at the wire level: ``parse_dbc_text(
         format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed
-        DBC (Track E.9a coverage).  Does not modify client state — pass any
+        DBC. Does not modify client state — pass any
         ``DBCDefinition`` value (typically from :meth:`parse_dbc_text`,
         :meth:`format_dbc`, or :func:`aletheia.dbc_to_json`).
 

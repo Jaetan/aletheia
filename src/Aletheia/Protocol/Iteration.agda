@@ -42,7 +42,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; con
 -- the iterator alongside the survivor list.  Parametric over state type
 -- S, halt-evidence E, and completion-payload C.
 --
--- `complete` carries `C` (R23 — AGDA-D-12.1): when a property is decided
+-- `complete` carries `C`: when a property is decided
 -- in favour of the user (its `stepL` returns Satisfied), the streaming
 -- runtime drops it from the iteration list rather than re-evaluating it
 -- on subsequent frames, and the caller-supplied payload (typically the
@@ -196,7 +196,7 @@ iterate-correct : ∀ {S E C : Set} (step : S → StepOutcome S E C)
 iterate-correct step props = iterate-equiv step props [] []
 
 -- ============================================================================
--- ACTIVE-SET MONOTONICITY (AGDA-B-9.2 closure)
+-- ACTIVE-SET MONOTONICITY
 -- ============================================================================
 --
 -- The post-iteration survivor list is no longer than the input.  `halt`

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — DSL-side `envVarFmt` for the DBC `EV_` line.
+-- DSL-side `envVarFmt` for the DBC `EV_` line.
 --
 -- The wire grammar carries 14 tokens (cantools `dbc.py:308-311` Sequence);
 -- the Agda `EnvironmentVar` record retains 5 (name, varType, initial,
@@ -228,11 +228,11 @@ envVarFmt =
                                                     ))))))))))))))))))))))))
 
 -- ============================================================================
--- PER-LINE PRECONDITION (mirrors η's `NameStop`)
+-- PER-LINE PRECONDITION (mirrors the signal-line `NameStop`)
 -- ============================================================================
 
 -- Each EV_ entry's `name` decomposes as `c ∷ cs` with `isHSpace c ≡
--- false`.  Layer 4 will discharge this universally from
+-- false`.  A later step will discharge this universally from
 -- `validIdentifierᵇ` via the `isIdentStart→¬isHSpace` bridge (see
 -- `project_b3d_layer4_owed_lemmas.md`).
 EnvVarNameStop : EnvironmentVar → Set
@@ -248,7 +248,7 @@ private
   -- Head of `(showDecRat-dec-chars d ++ inner-rest) ++ outer-suffix` is
   -- non-hspace.  Two cases on the integer numerator: `-[1+ n ]` ⇒ `'-'`;
   -- `+ absNum` ⇒ `digitChar k` with `k < 10`.  Mirrors `decrat-suffix-
-  -- stop` in the pre-3d.5.d EV_ proof and `showDecRat-chars-head-stop-
+  -- stop` in the earlier EV_ proof and `showDecRat-chars-head-stop-
   -- isHSpace` in `Properties/Attributes/Type.agda`; kept local pending
   -- the cross-module consolidation flagged in `Format/ValueTable.agda`.
   -- Left-bracketed form matches the natural shape of `withWS (pair
@@ -375,7 +375,7 @@ build-emits-ok ev outer-suffix nameStop =
 -- THE GATE: parseEnvVar's line-portion expressed via Format DSL.  Body is
 -- one `roundtrip` call + the EmitsOK construction.  Universal in `ev`
 -- and `outer-suffix`; the only domain precondition is `EnvVarNameStop
--- ev`, which Layer 4 will discharge universally from `validIdentifierᵇ`.
+-- ev`, which a later step will discharge universally from `validIdentifierᵇ`.
 parseEnvVar-format-roundtrip :
     ∀ (pos : Position) (ev : EnvironmentVar) (outer-suffix : List Char)
   → EnvVarNameStop ev

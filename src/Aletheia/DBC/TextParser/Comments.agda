@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Comment parsers for the DBC text format (Track B.3.c.6, migrated to
--- Format DSL in 3d.5.d).
+-- Comment parsers for the DBC text format (migrated to the Format DSL).
 --
 -- Grammar slice (BNF section E from `Aletheia.DBC.TextParser`):
 --   comment        ::= "CM_" ws (comment-target)? ws? string-lit
@@ -14,7 +13,7 @@
 --                    | "EV_" ws ident ws            (CTEnvVar)
 --                    | (empty)                      (CTNetwork)
 --
--- Migration shape (mirrors 3d.5.d EnvVar / BU_ / ValueTable):
+-- Migration shape (mirrors EnvVar / BU_ / ValueTable):
 --
 --     parseComment = parse commentFmt >>= λ (rt , text , _) →
 --                    many parseNewline >>= λ _ →
@@ -26,7 +25,7 @@
 -- (which carries raw ℕ for CAN-IDs) to the user-facing `CommentTarget`
 -- via `buildCANId`, failing on out-of-range IDs.
 --
--- Behavioural parity with the pre-3d.5.d hand-written parser: an
+-- Behavioural parity with the earlier hand-written parser: an
 -- out-of-range CAN-ID inside a `CM_ BO_ <id> "text";` line caused the
 -- old parser to backtrack via `<|>` (`parseBOTgt` failed at
 -- `wrapCTMessage`, the `<|> pure CTNetwork` fell through, then
@@ -65,7 +64,7 @@ open import Aletheia.DBC.TextParser.Format.Comments using
 -- raw target plus the parsed text body.  For `RawCTMsg` / `RawCTSig`
 -- (the CAN-ID-bearing arms), `buildCANId` must succeed on the raw ℕ;
 -- if it returns `nothing` (out-of-range ID), the whole comment line
--- fails to parse — matching the pre-3d.5.d backtrack-then-fail behaviour.
+-- fails to parse — matching the earlier backtrack-then-fail behaviour.
 buildCommentP : RawCommentTarget → List Char → Parser DBCComment
 buildCommentP RawCTNet      text = pure (mkComment CTNetwork text)
 buildCommentP (RawCTNode n) text = pure (mkComment (CTNode n) text)

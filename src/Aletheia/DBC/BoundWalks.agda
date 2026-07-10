@@ -22,8 +22,6 @@
 -- naming differs by site (`Handlers` carries field names for richer
 -- JSON error messages, `ParseDBCText` does not) which keeps that
 -- choice local to the call site rather than baked into the helpers.
---
--- R20 cluster V — AGDA-A-1.3 closure (cluster Q DEFER-end-of-round).
 module Aletheia.DBC.BoundWalks where
 
 open import Data.Bool using (true; false)
@@ -46,8 +44,8 @@ open import Aletheia.Limits using (max-string-length-bytes)
 -- Total value-description count summed across the three carriers:
 -- per-signal `VAL_` entries, top-level `VAL_TABLE_` definitions, and
 -- `unresolvedValueDescs` for VAL_ lines whose `(canId, signalName)` did
--- not resolve to a signal.  R20 cluster H (AGDA-D-11.2 / AGDA-D-32.4)
--- consults this sum against `max-value-descriptions-per-file`.
+-- not resolve to a signal.  This sum is consulted against
+-- `max-value-descriptions-per-file`.
 
 vdsInSignals : List DBCSignal → ℕ
 vdsInSignals [] = 0
@@ -75,7 +73,7 @@ totalValueDescriptions dbc =
 -- STRING-LENGTH WALKS (`max-string-length-bytes`)
 -- ============================================================================
 
--- R20 cluster I (AGDA-D-32.2) — post-parse walks for every unbounded
+-- Post-parse walks for every unbounded
 -- `List Char` field.  Returns `nothing` if all fields are within bound,
 -- else `(observed , limit)` for the first violation in discovery order.
 

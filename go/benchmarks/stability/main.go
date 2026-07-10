@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Command stability is the Go long-run resource-leakage harness (R18 cluster
-// 6 / Go cat 27).
+// Command stability is the Go long-run resource-leakage harness (Go cat 27).
 //
 // Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M
 // total frames) and asserts no per-iteration drift on:

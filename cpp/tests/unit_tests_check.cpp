@@ -212,7 +212,7 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
 }
 
 // ===========================================================================
-// within(): ms→µs overflow guard (r25 — untrusted-YAML-reachable int64 UB).
+// within(): ms→µs overflow guard (untrusted-YAML-reachable int64 UB).
 // duration_cast<microseconds>(ms) multiplies by 1000; without the guard a large
 // ms is signed-overflow UB.  The boundary is INT64_MAX/1000: that value is
 // accepted (×1000 < INT64_MAX), the next ms up is rejected.  Mirrors Go's

@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — DSL-side `ValueTable-format` (production
+-- DSL-side `ValueTable-format` (production
 -- migration).
 --
--- Replaces the canonical-only 3d.5.b version with a production-permissive
+-- Replaces the earlier canonical-only version with a production-permissive
 -- form: every formatter slot the production parser treats as `parseWS`
 -- (mandatory whitespace, one-or-more) becomes `withWS`; every slot the
 -- production parser treats as `parseWSOpt` (zero-or-more) where the
@@ -23,10 +23,10 @@
 -- The trailing `many parseNewline` consumption (zero-or-more blank lines
 -- after the line terminator) lives in the `Aletheia.DBC.TextParser
 -- .ValueTables.parseValueTable` wrapper, NOT in this Format — same
--- pattern as η's `parseSignalLine` vs `parseMessage` (line consumes one
+-- pattern as `parseSignalLine` vs `parseMessage` (line consumes one
 -- terminator, block-level composer absorbs blanks).
 --
--- This file replaces 3d.5.b's canonical-only gate measurement.  Post-3d.5.d
+-- This file replaces the earlier canonical-only gate measurement.  Since then
 -- the 88-strict-LOC canonical figure no longer applies; the equivalent
 -- measurement is the combined `Format/ValueTable.agda` + thin proof in
 -- `Properties/ValueTables/ValueTable.agda` strict-LOC vs the existing
@@ -114,12 +114,12 @@ ValueTable-format =
     bwd vt = ValueTable.name vt , ValueTable.entries vt , tt
 
 -- ============================================================================
--- PER-TABLE PRECONDITION (mirrors η's `NameStop`)
+-- PER-TABLE PRECONDITION (mirrors the signal-line `NameStop`)
 -- ============================================================================
 
 -- Each table's name decomposes as `c ∷ cs` with `isHSpace c ≡ false`,
 -- so the `withWS ident` slot's `SuffixStops isHSpace (Identifier.name name
--- ++ rest)` obligation reduces to `∷-stop c-non-hspace`.  Layer 4 will
+-- ++ rest)` obligation reduces to `∷-stop c-non-hspace`.  A later step will
 -- discharge this universally from `validIdentifierᵇ` via the
 -- `isIdentStart→¬isHSpace` bridge (see
 -- `project_b3d_layer4_owed_lemmas.md`).
@@ -299,7 +299,7 @@ build-emits-ok record { name = name ; entries = (v , d) ∷ rest } outer-suffix
 -- THE GATE: parseValueTable expressed via Format DSL.  Body is one
 -- `roundtrip` call + the EmitsOK construction.  Universal in `vt` and
 -- `outer-suffix`; the only domain precondition is `ValueTableNameStop vt`
--- (the table's name first char is non-hspace), which Layer 4 discharges
+-- (the table's name first char is non-hspace), which a later step discharges
 -- universally.
 parseValueTable-format-roundtrip : ∀ pos vt outer-suffix
   → ValueTableNameStop vt

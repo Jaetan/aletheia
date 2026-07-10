@@ -31,7 +31,7 @@
 #include <string>
 #include <utility>
 
-TEST_CASE("InputBoundExceededError carries kind / observed / limit", "[input_bounds][trackUR2]") {
+TEST_CASE("InputBoundExceededError carries kind / observed / limit", "[input_bounds]") {
     aletheia::InputBoundExceededError err{
         .bound_kind = std::string{aletheia::bound_kind_input_length_bytes},
         .observed = 100,
@@ -42,7 +42,7 @@ TEST_CASE("InputBoundExceededError carries kind / observed / limit", "[input_bou
     CHECK(err.limit == 50);
 }
 
-TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bounds][trackUR2]") {
+TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bounds]") {
     CHECK(aletheia::max_dbc_text_bytes == 64ULL * 1024 * 1024);
     CHECK(aletheia::max_json_bytes == 64ULL * 1024 * 1024);
     CHECK(aletheia::max_nesting_depth == 64);
@@ -56,8 +56,7 @@ TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bound
     CHECK(aletheia::max_atom_count_per_property == 1024);
 }
 
-TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits",
-          "[input_bounds][trackUR2]") {
+TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits", "[input_bounds]") {
     CHECK(aletheia::bound_kind_input_length_bytes == "input_length_bytes");
     CHECK(aletheia::bound_kind_nesting_depth == "nesting_depth");
     CHECK(aletheia::bound_kind_array_cardinality == "array_cardinality");
@@ -67,10 +66,10 @@ TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits",
     CHECK(aletheia::bound_kind_frame_byte_count == "frame_byte_count");
 }
 
-TEST_CASE("New ErrorCode entries map from string", "[input_bounds][trackUR2]") {
-    // Post R19 cluster 14 / AGDA-C-6.2 — the parse / dbc_text / frame
-    // input-bound codes consolidated to a single InputBoundExceeded;
-    // discriminate the source bound via the structured bound_kind field.
+TEST_CASE("New ErrorCode entries map from string", "[input_bounds]") {
+    // The parse / dbc_text / frame input-bound codes consolidated to a single
+    // InputBoundExceeded; discriminate the source bound via the structured
+    // bound_kind field.
     CHECK(aletheia::error_code_from_string("input_bound_exceeded") ==
           aletheia::ErrorCode::InputBoundExceeded);
     CHECK(aletheia::error_code_from_string("parse_invalid_identifier") ==
@@ -83,7 +82,7 @@ TEST_CASE("New ErrorCode entries map from string", "[input_bounds][trackUR2]") {
           aletheia::ErrorCode::DBCTextAttributeRefinementFailed);
 }
 
-TEST_CASE("R23 — AGDA-C-5.1: parse_non_integer_multiplex_value maps from string", "[parse_error]") {
+TEST_CASE("parse_non_integer_multiplex_value maps from string", "[parse_error]") {
     // Typed sub-ctor split out from `parse_invalid_presence` so the wire
     // code distinguishes "presence string not 'always'" from "non-natural
     // element in multiplex_values array".  Asserts the C++ binding decodes
@@ -92,7 +91,7 @@ TEST_CASE("R23 — AGDA-C-5.1: parse_non_integer_multiplex_value maps from strin
           aletheia::ErrorCode::ParseNonIntegerMultiplexValue);
 }
 
-// R19 cluster A: every detail::parse_* callsite uses the parse_bounded helper
+// Every detail::parse_* callsite uses the parse_bounded helper
 // which enforces nlohmann's nesting depth via a SAX callback. Defense-in-depth
 // against malformed-but-bound-passing responses (the FFI-entry size cap fires
 // first for oversize inputs; a 1 MiB response with 10⁵ nesting still depth-
@@ -102,7 +101,7 @@ TEST_CASE("R23 — AGDA-C-5.1: parse_non_integer_multiplex_value maps from strin
 // shared across all 10 detail::parse_* callsites so depth-bound coverage is
 // uniform.
 
-TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds][trackUR2]") {
+TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds]") {
     // Build a JSON with (max_nesting_depth + 1) levels of array nesting.
     std::string deep_json;
     deep_json.reserve(2 * (aletheia::max_nesting_depth + 2));
@@ -123,7 +122,7 @@ TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds][
                Catch::Matchers::ContainsSubstring("exceeds limit"));
 }
 
-TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds][trackUR2]") {
+TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds]") {
     // Build a JSON at exactly max_nesting_depth - 1 levels (well within bound).
     std::string ok_json;
     constexpr std::uint64_t safe_depth = 10;
@@ -145,13 +144,12 @@ TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds][trackUR
     }
 }
 
-// R19 cluster 8 (CPP-D-21.3 cross-binding parity): parse_dbc_text pre-checks
-// the inner text size against max_dbc_text_bytes before wrapping it in a JSON
-// command, so the rejection carries the consolidated InputBoundExceeded
-// error code and InputBoundExceeded error kind (post R19 cluster 14 /
-// AGDA-C-6.2 consolidation).
+// parse_dbc_text pre-checks the inner text size against max_dbc_text_bytes
+// before wrapping it in a JSON command, so the rejection carries the
+// consolidated InputBoundExceeded error code and InputBoundExceeded error
+// kind.
 
-TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds][cluster8]") {
+TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
     // Mock backend that never returns — the bound check fires before any
     // backend call. Construct with no scripted responses.
     auto mock = std::make_unique<aletheia::MockBackend>();
@@ -166,8 +164,8 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds][cluster8]"
     CHECK_THAT(std::string{result.error().message()},
                Catch::Matchers::ContainsSubstring("exceeds limit"));
 
-    // R19 cluster 8 — CPP-D-21.5: bound_info() is populated with the
-    // structured triple, matching Python's `InputBoundExceededError.kind`
+    // bound_info() is populated with the structured triple, matching Python's
+    // `InputBoundExceededError.kind`
     // / `.observed` / `.limit` and Go's `*InputBoundExceededError.BoundKind`
     // / `.Observed` / `.Limit`.
     REQUIRE(result.error().bound_info().has_value());
@@ -176,15 +174,14 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds][cluster8]"
     CHECK(result.error().bound_info()->limit == aletheia::max_dbc_text_bytes);
 }
 
-// R19 cluster 8 — CPP-D-21.5: the FFI-entry oversize-JSON short-circuit in
-// FfiBackend::process emits structured bound_kind/observed/limit fields
+// The FFI-entry oversize-JSON short-circuit in FfiBackend::process emits
+// structured bound_kind/observed/limit fields
 // alongside the wire code; the public parse_* paths lift those into the
 // AletheiaError's bound_info() so consumers get the typed triple regardless
 // of which parser surface rejected the input.  Tested here against a hand-
 // crafted wire-form JSON that mirrors the FFI backend's synthesis.
 
-TEST_CASE("Input-bound error JSON lifts structured fields into bound_info",
-          "[input_bounds][cluster8]") {
+TEST_CASE("Input-bound error JSON lifts structured fields into bound_info", "[input_bounds]") {
     const std::string err_json =
         R"({"status":"error",)"
         R"("code":"input_bound_exceeded",)"
@@ -203,8 +200,8 @@ TEST_CASE("Input-bound error JSON lifts structured fields into bound_info",
 }
 
 TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt",
-          "[input_bounds][cluster8]") {
-    // Older Agda responses (pre-cluster-8) emit only `code` and `message`.
+          "[input_bounds]") {
+    // Older Agda responses emit only `code` and `message`.
     // The kind/code lifting still applies; bound_info() stays nullopt.
     const std::string err_json = R"({"status":"error",)"
                                  R"("code":"input_bound_exceeded",)"

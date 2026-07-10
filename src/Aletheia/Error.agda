@@ -59,22 +59,22 @@ data ParseError : Set where
   -- argument is the field name for diagnostics.
   NonTerminatingRational  : String → ParseError
   -- Name field that fails the DBC identifier grammar (letter/underscore start,
-  -- alphanumeric/underscore continue).  Introduced in Track B.3.d Layer 2 to
+  -- alphanumeric/underscore continue).  Introduced to
   -- reject invalid identifiers at the JSON parse boundary; the text parser
   -- already rejects these syntactically via `parseIdentifier`.
   InvalidIdentifier       : String → ParseError
   -- Non-integer value in a `multiplex_values` JSON array.  Split out from
-  -- `InvalidPresence` in R23 (AGDA-C-5.1) so the wire code distinguishes
+  -- `InvalidPresence` so the wire code distinguishes
   -- "presence string not 'always'" (the original InvalidPresence intent)
   -- from "multiplex_values array contains a non-natural element".  The
-  -- two pre-R23 emit sites at `JSONParser.parseNatList[⁺]` shared the
+  -- two former emit sites at `JSONParser.parseNatList[⁺]` shared the
   -- `InvalidPresence "non-integer in multiplex_values"` literal which
   -- collapsed both classes onto a single wire code.
   NonIntegerMultiplexValue : ParseError
   InContext               : String → ParseError → ParseError
   -- NOTE: Adversarial-input bounds are emitted via the top-level
-  -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2 —
-  -- consolidated from the three previously duplicate per-ADT ctors).
+  -- `Error.InputBoundExceeded` ctor (consolidated from the three
+  -- previously duplicate per-ADT ctors).
   -- A ParseError observer sees `InputBoundExceeded` at the Error sum
   -- level rather than inside ParseError itself.
 
@@ -193,8 +193,7 @@ data FrameError : Set where
   SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
   InContext              : String → FrameError → FrameError
   -- NOTE: Frame-byte-count and similar adversarial-input bounds emit
-  -- via the top-level `Error.InputBoundExceeded` ctor (R19 cluster 14 /
-  -- AGDA-C-6.2 consolidation).
+  -- via the top-level `Error.InputBoundExceeded` ctor.
 
 formatFrameError : FrameError → String
 formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "' not found in message"
@@ -367,7 +366,7 @@ dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 -- DBC TEXT PARSE ERRORS (DBC/TextParser.agda)
 -- ============================================================================
 
--- Errors emitted by the DBC text parser (Track B.3.e entry point).  Kept
+-- Errors emitted by the DBC text parser.  Kept
 -- separate from `ParseError` (the JSON-protocol parser) because the
 -- vocabularies do not overlap; each evolves independently.
 -- Why `refineAttributes` rejected an attribute entry — carried alongside
@@ -395,7 +394,7 @@ data DBCTextParseError : Set where
   -- and WHY (unknown attribute vs ill-typed value).
   AttributeRefinementFailed : AttrRefineCause → String → DBCTextParseError
   -- NOTE: DBC-text-input bytes adversarial bound emits via the top-level
-  -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2).
+  -- `Error.InputBoundExceeded` ctor.
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError (ParseFailure pos) =
@@ -434,7 +433,7 @@ data Error : Set where
   WithContext        : String → Error → Error
   -- Adversarial-input bound exceeded at any parser surface.  Consolidated
   -- from the previously per-ADT `InputBoundExceeded` ctors on ParseError /
-  -- FrameError / DBCTextParseError (R19 cluster 14 / AGDA-C-6.2).  The
+  -- FrameError / DBCTextParseError.  The
   -- `BoundKind` discriminates which kind of bound (NestingDepth /
   -- AtomCount / IdentifierLength / FrameByteCount / etc.); the
   -- ADT-prefix discrimination on the wire code is no longer needed —

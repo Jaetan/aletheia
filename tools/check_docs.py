@@ -28,11 +28,10 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-from tools._common import emit, find_executable
+from tools._common import emit, git_ls_files
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -76,14 +75,7 @@ _LABEL_SCOPE_SUFFIX = "/README.md"
 
 
 def _tracked_md() -> list[Path]:
-    out = subprocess.run(
-        [find_executable("git"), "ls-files", "*.md", "*.markdown"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    return [REPO / p for p in out]
+    return [REPO / p for p in git_ls_files(REPO, "*.md", "*.markdown")]
 
 
 def _tracked_index() -> tuple[set[str], set[str]]:
@@ -95,15 +87,7 @@ def _tracked_index() -> tuple[set[str], set[str]]:
     ``docs/presentation/index.html``) yet is absent from any checkout — a
     local-only false green that then fails on CI.
     """
-    files = set(
-        subprocess.run(
-            [find_executable("git"), "ls-files"],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split()
-    )
+    files = set(git_ls_files(REPO))
     dirs: set[str] = set()
     for posix in files:
         parts = Path(posix).parts

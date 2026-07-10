@@ -56,7 +56,7 @@ x ≥ℚ y = y ≤ℚ x
 -- ============================================================================
 
 -- Extract signal value using extraction with multiplexing support.
--- Signal name is List Char throughout post Path-A.3.
+-- Signal name is List Char throughout.
 extractTruthValue : ∀ {n} → List Char → DBC → CANFrame n → Maybe ℚ
 extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 

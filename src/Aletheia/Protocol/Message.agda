@@ -47,11 +47,11 @@ data StreamCommand : Set where
   ValidateDBC : JSON → StreamCommand
 
   -- Parse DBC from raw DBC text using the verified Agda text parser
-  -- (Track B.3.e — exposes parseText + validateDBCFull as one operation).
+  -- (exposes parseText + validateDBCFull as one operation).
   -- Args: DBC text image (e.g. the contents of a .dbc file)
   ParseDBCText : String → StreamCommand
 
-  -- Format DBC JSON dict back to .dbc text (Track E.10 — closes C3 deferral).
+  -- Format DBC JSON dict back to .dbc text.
   -- Args: DBC JSON structure (same wire shape ParseDBCText returns)
   FormatDBCText : JSON → StreamCommand
 
@@ -79,17 +79,17 @@ data Response : Set where
   -- Empty list is unreachable here — `dispatchIterResult` emits `Ack`
   -- instead when no events fired on the frame (so a single-event frame
   -- is encoded as a one-element list, never as `PropertyResponse []`).
-  -- R23 — AGDA-D-12.1: lifted from `PropertyResult → Response` (singular)
-  -- to surface mid-stream Satisfaction events that were previously lost
-  -- (a Satisfied property was dropped from the active set without any
-  -- wire emission, and finalizeL at EndStream only walks the survivors).
+  -- Lifted from `PropertyResult → Response` (singular) to surface
+  -- mid-stream Satisfaction events that were previously lost (a Satisfied
+  -- property was dropped from the active set without any wire emission,
+  -- and finalizeL at EndStream only walks the survivors).
   PropertyResponse : List PropertyResult → Response
 
   -- Acknowledgment (for data frames that don't trigger property results)
   Ack : Response
 
   -- Stream complete with finalization results for all properties + any
-  -- EndStream warnings (cache-miss diagnostics per AGDA-D-12.1).  The
+  -- EndStream warnings (cache-miss diagnostics).  The
   -- warnings list is empty when no atom went uncached; new wire field
   -- `warnings: [...]` on the JSON Complete response (binding parsers see
   -- it as an optional field).
@@ -107,6 +107,6 @@ data Response : Set where
   -- (option 6b: warnings are NOT silently dropped on success).
   ParsedDBCResponse : JSON → List ValidationIssue → Response
 
-  -- DBC text image (for FormatDBCText command, Track E.10).
+  -- DBC text image (for FormatDBCText command).
   -- Carries `formatText dbc : String` produced from a JSON DBC input.
   DBCTextResponse : String → Response

@@ -494,7 +494,7 @@ class FormatDBCTextCommand(TypedDict):
     """Format DBC JSON dict back to .dbc text using the verified Agda formatter.
 
     The inverse of ``ParseDBCTextCommand`` at the wire level: text → JSON → text
-    closes byte-identical for any well-formed DBC (post-Phase-E.9a).
+    closes byte-identical for any well-formed DBC.
     """
 
     type: Literal["command"]
@@ -675,7 +675,7 @@ class ParsedDBCResponse(TypedDict):
 
 
 class DBCTextResponse(TypedDict):
-    """Response from formatDBCText command (Track E.10).
+    """Response from formatDBCText command.
 
     Carries the .dbc text image produced by ``formatText`` over a JSON DBC
     input.  Errors (JSON parse failure on the input) short-circuit to

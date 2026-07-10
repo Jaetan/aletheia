@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c / Track E.5β — TVD dispatcher under head-dispatched
+-- TVD dispatcher under head-dispatched
 -- parseTopStmt.
 --
 -- `emitValueDescription-chars rvd ++ outer` starts with 'V' (followed by

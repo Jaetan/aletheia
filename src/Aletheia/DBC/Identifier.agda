@@ -67,7 +67,7 @@ allᵇ : (Char → Bool) → List Char → Bool
 allᵇ _ []       = true
 allᵇ p (c ∷ cs) = p c ∧ allᵇ p cs
 
--- R19 cluster 8 phase e.1: extended with a length bound against
+-- Extended with a length bound against
 -- `max-identifier-length` (128) so every constructed `Identifier`
 -- provably satisfies AGENTS.md "Adversarial-input bounds at parser
 -- surfaces".  The bound check is the third conjunct; existing
@@ -104,7 +104,7 @@ record Identifier : Set where
 
 -- The reason an identifier char list fails the DBC grammar.  Carried out of
 -- the ONE validity decision (`parseIdentifierField`) so a caller that needs a
--- typed rejection (the LTL-property JSON parser, AGDA-D-10.1) gets the reason
+-- typed rejection (the LTL-property JSON parser) gets the reason
 -- from the parse itself, with no second validity walk to keep in sync:
 --   * `TooLong  n`  — `n` chars, over `max-identifier-length` (the length
 --                     conjunct of `validIdentifierᵇ` failed).  Surfaced as
@@ -151,7 +151,7 @@ mkIdentFromString = mkIdentFromChars ∘ toList
 -- witness; `no` is absurd against the stored `valid`), with the `Maybe` form as
 -- its image under the `toMaybeIdent` erasure.  Axiom-free.  Single home for
 -- this fact (cat 27 dedup): `parseIdentifierField-on-valid` feeds the LTL-JSON
--- predicate roundtrip (`LTL.JSON.Properties`, AGDA-D-10.1);
+-- predicate roundtrip (`LTL.JSON.Properties`);
 -- `mkIdentFromChars-on-valid` the DBC text-parser roundtrip
 -- (`TextParser.Properties.Primitives`).
 parseIdentifierField-on-valid : ∀ (i : Identifier)
@@ -191,7 +191,7 @@ mkIdent cs₁ v₁ ≟ᴵ mkIdent cs₂ v₂ with ListProps.≡-dec _≟ᶜ_ cs�
 ... | no  ¬eq  = no λ { refl → ¬eq refl }
 
 -- ============================================================================
--- Bool-valued List Char equality (Path-A.5 hot-path Dec-allocation escape)
+-- Bool-valued List Char equality (hot-path Dec-allocation escape)
 -- ============================================================================
 --
 -- Used as a Bool fast path in cache lookup

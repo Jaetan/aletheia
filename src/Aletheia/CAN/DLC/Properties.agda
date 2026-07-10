@@ -170,5 +170,5 @@ bytesToValidDLC-roundtrip (mkDLC 15 _) = refl
 -- those alternatives need a relevant witness — `bounded` is `@0` (record
 -- field on `DLC`, MAlonzo-erased), so the helper-lemma route breaks
 -- erasure.  16 explicit refl clauses + one `()`-on-erased-bounded clause
--- is the minimum-cost shape (R19 cluster 5 — AGDA-A-1.3 audit closure).
+-- is the minimum-cost shape.
 bytesToValidDLC-roundtrip (mkDLC (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))))))))) ())

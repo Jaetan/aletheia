@@ -27,10 +27,10 @@ namespace aletheia::detail {
 
 static auto rational_to_json(const Rational& r) -> Json {
     // Normalize via gcd so the wire shape is byte-identical with Python's
-    // ``Fraction`` (auto-canonical) and Go's parseRational sign convention.
-    // R19 cluster 7 — CPP-B-8.1 / CPP-D-22.5 (cross-binding wire symmetry).
+    // ``Fraction`` (auto-canonical) and Go's parseRational sign convention,
+    // preserving cross-binding wire symmetry.
     //
-    // R20 cluster C — CPP-B-11.4: guard ``INT64_MIN`` before any negation
+    // Guard ``INT64_MIN`` before any negation
     // or ``std::abs``.  ``-INT64_MIN`` and ``std::abs(INT64_MIN)`` are both
     // signed-overflow UB; the Rational::make invariant rejects such values
     // at construction, but on the format-only path we emit raw to surface
@@ -62,7 +62,7 @@ static auto rational_to_json(const Rational& r) -> Json {
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
     // Mirror the Agda wire form: emit "presence": "always" / "multiplexed"
-    // explicitly. R19 cluster 17 / PY-D-19.2: both variants now carry the
+    // explicitly. Both variants now carry the
     // explicit discriminator (cross-binding parity with Agda Formatter and
     // Python TypedDict / Go serializeDBC).
     std::visit(
@@ -118,7 +118,7 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     // extended (29-bit). Agda omits the field for standard 11-bit frames;
     // its parser accepts both forms but the omit-when-false shape is
     // canonical (matches attach_can_id used for comment / attribute targets,
-    // and the same convention enforced by the Python and Go bindings — B.3.j).
+    // and the same convention enforced by the Python and Go bindings).
     if (can_id_is_extended(m.id))
         msg["extended"] = true;
     return msg;
@@ -319,7 +319,7 @@ static auto attribute_to_json(const DbcAttribute& a) -> Json {
         a);
 }
 
-// Track E.8 (Plan B): JSON wire form for one unresolved RawValueDesc.
+// JSON wire form for one unresolved RawValueDesc.
 // Mirrors message_to_json's leading {id, extended} pair via attach_can_id.
 static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
     Json entries = Json::array();
@@ -421,8 +421,7 @@ static auto predicate_to_json(const Predicate& p) -> Json {
 // a deeper formula would pass this local check, serialize to JSON, then
 // get rejected on the wire as `bound_kind_nesting_depth`.  Mirroring the
 // kernel cap surfaces the rejection immediately as `std::runtime_error`
-// instead of as a wire round-trip error.  R21 CPP-B-9.1 / CPP-A-2.1 /
-// AGDA-D-17.1 cross-binding SSOT fix.
+// instead of as a wire round-trip error — a cross-binding SSOT fix.
 static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
     if (std::cmp_greater(depth, max_nesting_depth))
         throw std::runtime_error("Formula nesting depth exceeds " +

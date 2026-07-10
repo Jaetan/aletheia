@@ -63,7 +63,7 @@ open import Aletheia.LTL.SignalPredicate.Evaluation using (cachedSignalValue; ev
 
 -- Associate a SignalPredicate with its target signal name.
 -- Definition lifted to `SignalPredicate.Types` (so the EndStream warning
--- walker in `Protocol.Handlers` — R21 AGDA-D-12.1 — can call it from
+-- walker in `Protocol.Handlers` can call it from
 -- runtime code).  Already in scope via `open import SignalPredicate.Types`
 -- at line 49; this comment marks the historic location for grep.
 

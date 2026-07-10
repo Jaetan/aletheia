@@ -11,7 +11,7 @@ type Predicate interface {
 
 // Predicate values carry exact [Rational] precision per the DecRat
 // universal principle — wire-symmetric with C++ ``rational_to_json`` and
-// Python's ``Fraction`` (cluster 17 / GO-D-19.1 mirror of PY-D-19.1).
+// Python's ``Fraction``.
 // Use [IntRational] for exact integer literals; for arbitrary floats,
 // see the convenience helpers used by the [CheckSignalBuilder] surface.
 

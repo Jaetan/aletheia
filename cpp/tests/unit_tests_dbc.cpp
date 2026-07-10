@@ -242,7 +242,7 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
 }
 
 // ===========================================================================
-// Stale cached-index safety (r25): the lazy index caches freeze positional
+// Stale cached-index safety: the lazy index caches freeze positional
 // indices on first lookup.  If the caller then shrinks the public signals /
 // messages vector, an unguarded cached index is an out-of-bounds read (UB).
 // The guard turns a stale index into a defined "no longer present" (nullptr).

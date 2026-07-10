@@ -4,8 +4,8 @@
 
 -- Phase 1 of the `parseDecRat` roundtrip proof — digit-character
 -- arithmetic and list-level lemmas.  Carved out of the historical
--- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module under
--- the R21 cluster 9 split (closes AGDA-D-15.1 for this file).
+-- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module when it
+-- was split into submodules.
 --
 -- Self-contained: no parser machinery and no DecRat algebra needed.
 -- Imports are the strict subset of the original module's import block

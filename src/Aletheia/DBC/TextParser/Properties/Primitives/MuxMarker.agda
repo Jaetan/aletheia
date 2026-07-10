@@ -2,11 +2,11 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- parseMuxMarker per-tag roundtrips (B.3.d Layer 2 — Tier B).
+-- parseMuxMarker per-tag roundtrips (Tier B).
 --
--- Extracted from Properties/Primitives.agda for AGDA-D-15.1 closure (R22
--- continuation of R21 cluster 9).  See Properties/Primitives.agda header
--- for the Layer 2 narrative and the parseStringLit-roundtrip companion.
+-- Extracted from Properties/Primitives.agda.  See
+-- Properties/Primitives.agda header for the narrative and the
+-- parseStringLit-roundtrip companion.
 --
 -- Three tags (all statements at the outcome level, `proj₂`):
 --   * IsMux       : `proj₂ (parseMuxMarker pos (toList " M" ++ suffix))` →
@@ -46,11 +46,11 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (alt-left-just; alt-right-nothing; bind-nothing; parseWS-one-space)
 
--- IsMux: `" M"` emission.  Layer 3 discharges this when the SG_ mux
+-- IsMux: `" M"` emission.  The signal-line roundtrip discharges this when the SG_ mux
 -- marker is present.  Note that the precondition on suffix is now
 -- against the FIRST character of the inner input (`'M' ∷ suffix`),
 -- whose stop predicate `isHSpace 'M' ≡ false` is closed.  Required by
--- the SG_ mux roundtrip (3d.3) where the post-mux suffix is `" : ..."`
+-- the SG_ mux roundtrip where the post-mux suffix is `" : ..."`
 -- (starts with hspace), making the original precondition unprovable.
 parseMuxMarker-IsMux-roundtrip : ∀ (pos : Position) (suffix : List Char)
   → proj₂ (parseMuxMarker pos (toList " M" ++ₗ suffix))
@@ -93,7 +93,7 @@ parseMuxMarker-IsMux-roundtrip pos suffix =
     step-left = trans step-parseWS step-inner
 
 -- NotMux: empty emission.  Precondition exposes the whole left branch
--- of parseMuxMarker's `<|>`; Layer 3 discharges it by computing through
+-- of parseMuxMarker's `<|>`; the signal-line roundtrip discharges it by computing through
 -- parseWS + char M / char m failures on the grammar's specific
 -- successor characters (e.g. `" :"` for SG_, `" ;"` for EV_).
 

@@ -10,7 +10,7 @@ import (
 
 // formatRational renders a Rational as a string identical across all
 // bindings.  Every render flows through the Agda kernel via
-// `aletheia_format_rational` (R20 cluster Y stage 2): the Go binding
+// `aletheia_format_rational`: the Go binding
 // calls the same function as Python and C++, so the same Rational
 // value renders to byte-identical output everywhere.
 //

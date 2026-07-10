@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// libFuzzer harness for DBC JSON parser (R18 cluster 5 — Cat 33b).
+// libFuzzer harness for DBC JSON parser (Cat 33b).
 // Counterpart of go FuzzParseDBCJSON and python fuzz_dbc_to_json.
 //
 // Build/run: see fuzz_parse_response.cpp comment header.

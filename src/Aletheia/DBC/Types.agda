@@ -53,10 +53,10 @@ record DBCSignal : Set where
     name : Identifier
     signalDef : SignalDef
     byteOrder : ByteOrder
-    unit : List Char                 -- DBC unit literal; List Char post 3d.4 JSON-mirror
+    unit : List Char                 -- DBC unit literal
     presence : SignalPresence        -- Conditional presence for multiplexing
-    receivers : CanonicalReceivers   -- Node names from SG_ trailing receiver list (3d.5.c-γ.2: refined to exclude singleton-Vector__XXX)
-    valueDescriptions : List (ℕ × List Char)  -- DBC VAL_ keyword: (numeric value, label) pairs scoped to this signal; List Char post 3d.4 JSON-mirror.  Empty list when no VAL_ entries exist for this signal — matches the cantools-equivalent empty-then-attach pattern at refine time.
+    receivers : CanonicalReceivers   -- Node names from SG_ trailing receiver list (refined to exclude singleton-Vector__XXX)
+    valueDescriptions : List (ℕ × List Char)  -- DBC VAL_ keyword: (numeric value, label) pairs scoped to this signal.  Empty list when no VAL_ entries exist for this signal — matches the cantools-equivalent empty-then-attach pattern at refine time.
 
 record DBCMessage : Set where
   field
@@ -98,14 +98,14 @@ record EnvironmentVar : Set where
 record ValueTable : Set where
   field
     name : Identifier
-    entries : List (ℕ × List Char)  -- (numeric value, description) — List Char post 3d.4 JSON-mirror
+    entries : List (ℕ × List Char)  -- (numeric value, description)
 
--- Raw value description from a DBC VAL_ line (Track E).  Carries the
+-- Raw value description from a DBC VAL_ line.  Carries the
 -- owning message's `CANId`, the signal `Identifier`, and the value-label
 -- entries.  `attachValueDescs` matches `(canId, signalName)` against the
 -- assembled message list to land each entry on the owning signal's
 -- `DBCSignal.valueDescriptions`; entries that do not match any signal
--- are preserved on `DBC.unresolvedValueDescs` (Plan B, 2026-05-07).
+-- are preserved on `DBC.unresolvedValueDescs`.
 --
 -- Defined here (not in `TextParser.ValueTables`) so `DBC` can reference
 -- it without inducing a cycle.  `TextParser.ValueTables` re-exports for
@@ -122,7 +122,7 @@ record RawValueDesc : Set where
 -- (because `buildSignal` hardcodes the field — VAL_ entries arrive at
 -- DBC-level via `TVD` top-stmts and are stitched back in by
 -- `attachValueDescs`), so the per-message proof claims its result equals
--- `clearVdsMsg msg`, NOT `msg`.  The Universal then bridges via E.6's
+-- `clearVdsMsg msg`, NOT `msg`.  The Universal then bridges via
 -- `attachValueDescs (collectFromMessages msgs) (map clearVdsMsg msgs) ≡ msgs`
 -- to recover the original.
 clearVds : DBCSignal → DBCSignal
@@ -131,7 +131,7 @@ clearVds s = record s { valueDescriptions = [] }
 clearVdsMsg : DBCMessage → DBCMessage
 clearVdsMsg m = record m { signals = map clearVds (DBCMessage.signals m) }
 
--- Drop the `senders` field on a message.  The A.2 (BO_TX_BU_) analogue of
+-- Drop the `senders` field on a message.  The BO_TX_BU_ analogue of
 -- `clearVdsMsg`: `parseMessage` produces messages with `senders = []`
 -- (BO_TX_BU_ lines arrive at DBC-level via top-stmts and are stitched back
 -- in by `attachSenders`), so the per-message proof claims its result equals
@@ -144,7 +144,7 @@ clearSendersMsg m = record m { senders = [] }
 -- `parseMessage` produces messages with `vds = []` on every signal AND
 -- `senders = []` (neither the VAL_ entries nor the BO_TX_BU_ senders are
 -- recoverable from the BO_/SG_ block alone — both arrive at DBC level as
--- separate top-statements).  Once the BO_TX_BU_ section is wired (A.2), the
+-- separate top-statements).  Once the BO_TX_BU_ section is wired, the
 -- per-message text-roundtrip claim becomes `parseMessage … ≡ clearBothMsg
 -- msg`, and the Universal bridges via the composition
 -- `attachSenders (collectSenders msgs)
@@ -184,7 +184,7 @@ record DBCComment : Set where
   constructor mkComment
   field
     target : CommentTarget
-    text   : List Char  -- DBC comment body; List Char post 3d.4 JSON-mirror
+    text   : List Char  -- DBC comment body
 
 -- ============================================================================
 -- ATTRIBUTES (DBC BA_DEF_, BA_DEF_DEF_, BA_, BA_DEF_REL_, BA_REL_)
@@ -209,7 +209,7 @@ data AttrType : Set where
   ATInt    : (min max : IntDecRat) → AttrType
   ATFloat  : (min max : DecRat) → AttrType
   ATString : AttrType
-  ATEnum   : (values : List (List Char)) → AttrType  -- enum labels; List Char post 3d.4 JSON-mirror
+  ATEnum   : (values : List (List Char)) → AttrType  -- enum labels
   ATHex    : (min max : NatDecRat) → AttrType
 
 -- Concrete attribute value (BA_, BA_REL_, BA_DEF_DEF_).
@@ -217,7 +217,7 @@ data AttrType : Set where
 data AttrValue : Set where
   AVInt    : IntDecRat → AttrValue
   AVFloat  : DecRat → AttrValue
-  AVString : List Char → AttrValue  -- DBC string-attribute payload; List Char post 3d.4 JSON-mirror
+  AVString : List Char → AttrValue  -- DBC string-attribute payload
   AVEnum   : NatDecRat → AttrValue
   AVHex    : NatDecRat → AttrValue
 
@@ -234,7 +234,7 @@ data AttrTarget : Set where
 
 -- BA_DEF_ / BA_DEF_REL_ — attribute type declaration.
 -- `name` is a DBC wire-format quoted string literal (not restricted to the
--- identifier grammar).  Stored as `List Char` post 3d.4 JSON-mirror so the
+-- identifier grammar).  Stored as `List Char` so the
 -- JSON-side roundtrip stays axiom-free.
 record AttrDef : Set where
   constructor mkAttrDef
@@ -268,7 +268,7 @@ data DBCAttribute : Set where
 
 record DBC : Set where
   field
-    version : List Char  -- DBC VERSION header content; List Char post 3d.4 JSON-mirror
+    version : List Char  -- DBC VERSION header content
     messages : List DBCMessage
     signalGroups : List SignalGroup
     environmentVars : List EnvironmentVar
@@ -276,7 +276,7 @@ record DBC : Set where
     nodes : List Node
     comments : List DBCComment
     attributes : List DBCAttribute
-    -- Track E.8 (Plan B, 2026-05-07): VAL_ entries from the text-parse path
+    -- VAL_ entries from the text-parse path
     -- whose `(canId, signalName)` pair did not resolve to any signal in
     -- `messages`.  Always `[]` on the JSON-parse path (JSON's per-signal
     -- `valueDescriptions` field has no notion of "unresolved" —
@@ -290,7 +290,7 @@ record DBC : Set where
 -- ============================================================================
 -- IDENTIFIER NAME ACCESSORS (convenience helpers — Identifier → String)
 -- ============================================================================
--- After 3d.4 (2026-04-26) `Identifier.name : List Char`, so each accessor
+-- `Identifier.name` is `List Char`, so each accessor
 -- composes `fromList` to recover the String.  Per-call cost is O(name-length)
 -- and identifier names are <30 chars; not on the per-frame signal-extraction
 -- hot path (called only at JSON serialization and validation sites).
@@ -316,8 +316,8 @@ envVarNameStr = fromList ∘ Identifier.name ∘ EnvironmentVar.name
 valueTableNameStr : ValueTable → String
 valueTableNameStr = fromList ∘ Identifier.name ∘ ValueTable.name
 
--- Attribute names are free-form quoted strings in DBC wire format; post 3d.4
--- JSON-mirror they are stored as `List Char`, so each accessor composes
+-- Attribute names are free-form quoted strings in DBC wire format; they
+-- are stored as `List Char`, so each accessor composes
 -- `fromList` to recover the String.
 attrDefNameStr : AttrDef → String
 attrDefNameStr = fromList ∘ AttrDef.name
@@ -329,7 +329,7 @@ attrAssignNameStr : AttrAssign → String
 attrAssignNameStr = fromList ∘ AttrAssign.name
 
 -- ============================================================================
--- TEXT-TYPED FIELD ACCESSORS (post 3d.4 JSON-mirror — fields are List Char,
+-- TEXT-TYPED FIELD ACCESSORS (fields are List Char,
 -- callers in String contexts can use these for `fromList ∘ field`)
 -- ============================================================================
 

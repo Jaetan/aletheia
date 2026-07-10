@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Signal value-type parser for the DBC text format (Track B.3.c.8).
+-- Signal value-type parser for the DBC text format.
 --
 -- Grammar slice covered (BNF section F from `Aletheia.DBC.TextParser`):
 --   sig-valtype  ::= "SIG_VALTYPE_" ws nat ws identifier ws? ":" ws
@@ -28,7 +28,7 @@
 --   digit position instead of silently succeeding on a >9 number.
 --
 -- Longest-first dispatch (future top-level aggregator):
---   `SIG_VALTYPE_` and `SIG_GROUP_` (B.3.c.7) both begin `SIG_` but
+--   `SIG_VALTYPE_` and `SIG_GROUP_` both begin `SIG_` but
 --   diverge at position 4 (`V` vs `G`), so neither is a prefix of the
 --   other and no longest-first ordering is required to distinguish
 --   them.  No ambiguity with `SG_` either — `SIG_` vs `SG_` diverge at

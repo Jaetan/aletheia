@@ -2,12 +2,12 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B sibling — L5 disjointness helpers and
+-- L5 disjointness helpers and
 -- KEYWORD-TARGET emit equations / L5 builders extracted from
 -- `Format/AttrLine.agda` to keep the parent module below the 800-LOC
 -- `feedback_properties_facade_split.md` trigger.
 --
--- Pattern: external-consumer-redirect (R20 cluster Y's
+-- Pattern: external-consumer-redirect (mirrors the
 -- `Properties/Aggregator/Refine/ValueDescriptions` split via `627ad25`).
 -- This sibling imports from the parent for public types / Formats /
 -- universal-roundtrip lemmas, plus the two names lifted private→public

@@ -32,18 +32,28 @@ def skip_without_ffi() -> None:
         pytest.skip(f"libaletheia-ffi.so missing at {FFI_LIB} — run 'cabal run shake -- build'")
 
 
+def run_captured(
+    argv: list[str], env: dict[str, str], *, cwd: Path, timeout: int
+) -> subprocess.CompletedProcess[str]:
+    """Run ``argv`` as a captured-output text subprocess (the shared CLI-drive primitive).
+
+    The single ``subprocess.run`` invocation the CLI regression harnesses share,
+    so no test file re-spells the capture/text/timeout/no-raise options.
+    """
+    return subprocess.run(
+        argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout, check=False
+    )
+
+
 def run_check(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Run ``aletheia check <args>`` as a subprocess against the real ``.so``."""
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(FFI_LIB)
-    return subprocess.run(
+    return run_captured(
         [sys.executable, "-m", "aletheia", "check", *args],
+        env,
         cwd=_SUBPROCESS_CWD,
-        env=env,
-        capture_output=True,
-        text=True,
         timeout=_RUN_TIMEOUT_S,
-        check=False,
     )
 
 

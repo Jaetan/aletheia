@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4a — char-class disjointness lemmas.
+-- Char-class disjointness lemmas.
 --
--- Layer 3 per-line-construct roundtrips take char-class-disjointness
+-- The per-line-construct roundtrips take char-class-disjointness
 -- facts as preconditions (`NodeNameStop`, `IdentNameStop`, etc.) rather
 -- than discharging them in-place.  Those facts are universal (they
--- don't depend on the construct) and discharging them once at Layer 4
--- keeps Layer 3 proofs construct-local.
+-- don't depend on the construct) and discharging them once here
+-- keeps the per-construct proofs local.
 --
 -- This module hosts the four facts the universal aggregator owes:
 --

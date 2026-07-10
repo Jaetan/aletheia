@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Track E — VAL_ value descriptions on DBCSignal.ValueDescriptions and the
+// VAL_ value descriptions on DBCSignal.ValueDescriptions and the
 // matching CHECK 23 (UnknownValueDescriptionTarget) emitted by parse_dbc_text
 // when a VAL_ line points at a (message-id, signal-name) pair not declared in
 // BO_ / SG_.

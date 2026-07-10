@@ -70,7 +70,7 @@ private
   -- Combined helper extracting BOTH WellFormedSignal AND PhysicallyValid in a
   -- single pass after the 11-deep with-chain. Takes byte order as an explicit
   -- parameter so we can pattern-match: LE now also forces a `1 ≤ᵇ bl` gate
-  -- (R5-B1 / R6-B7.1 closure, 2026-05-15) so both branches do at least one
+  -- so both branches do at least one
   -- with-step; BE adds a 3-deep with-chain on top of the LE shape.
   -- Combining eliminates the duplicate postPresence-wf/postPresence-pv pair.
   postPresence-wf×pv :

@@ -46,11 +46,11 @@ data PropertyResult : Set where
   Unresolved   : ℕ → LTLReason → PropertyResult
 
 -- ============================================================================
--- WARNINGS (R21 cluster 1 — AGDA-D-12.1 scaffolding)
+-- WARNINGS
 -- ============================================================================
 
 -- Cache-miss-class warnings emitted at EndStream alongside the property
--- verdicts.  Closes the diagnostic-context gap from AGDA-D-12.1: a property
+-- verdicts.  Closes the diagnostic-context gap: a property
 -- whose atom's target signal never appears in trace returns `Unresolved`
 -- (sound — three-valued Kleene Unknown) but the user previously had no way
 -- to distinguish a cache-miss `Unresolved` from a genuine Kleene-undecidable

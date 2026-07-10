@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TAT TopStmt dispatcher: DBCAttrDefault arm.
+-- TAT TopStmt dispatcher: DBCAttrDefault arm.
 --
 -- ONE case.  Uses `parseTopStmt-on-BA-head-via-prefix` with the explicit
 -- prefix witness from `emitAttrDefault-chars-BA-head` (uniform with the

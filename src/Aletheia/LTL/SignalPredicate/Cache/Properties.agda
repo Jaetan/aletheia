@@ -44,7 +44,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst
 -- All cache entries have observation timestamps ≤ a given bound.
 -- Under monotonic frame streams, this bound is the current frame timestamp.
 --
--- R6-B7.3 (2026-05-17): bound type lifted from `ℕ` to `Timestamp μs`
+-- Bound type lifted from `ℕ` to `Timestamp μs`
 -- alongside `CachedSignal.lastObserved`.  Comparison via `_≤ᵗ_` (Trace.Time)
 -- which unfolds to `tsValue _ ≤ tsValue _`, so existing `≤-refl` proofs
 -- continue to work via Agda's automatic unfolding of the type alias.

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, cast
 from aletheia.client._helpers.dbc_normalize import normalize_dbc
 from aletheia.client._helpers.rational import validate_integer_field
 from aletheia.client._log import LogEvent, log_event
-from aletheia.client._types import ProtocolError
+from aletheia.client._types import DBCValidationFailedError, ProtocolError
 from aletheia.types import (
     AckResponse,
     CompleteWarning,
@@ -132,6 +132,23 @@ def lift_validation_issues(
         return None
 
 
+def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
+    """Raise :class:`DBCValidationFailedError` for a structured DBC validation failure.
+
+    Returns normally when ``response`` is not a structured validation failure, so
+    the caller raises its own fallback (``ProtocolError`` on the client,
+    ``ValidationError`` in the converter). The single lift-and-raise shared by the
+    client's DBC routes and the ``dbc`` converter — one wire-code gate, no
+    per-caller re-implementation.
+    """
+    lifted = lift_validation_issues(response)
+    if lifted is not None:
+        issues, has_errors = lifted
+        raise DBCValidationFailedError(
+            msg, issues, has_errors=has_errors, code="handler_validation_failed"
+        )
+
+
 def build_error_response(response: Response) -> ErrorResponse:
     """Build an ``ErrorResponse`` from a raw FFI response dict.
 
@@ -224,7 +241,7 @@ def parse_parsed_dbc_response(
         # symmetry of ``FractionJSONEncoder`` on the request side, and
         # mirrors what Go's ``parseRational`` and the C++ JSON deserialiser
         # already do — the asymmetry was a Python-side bug surfaced by
-        # B.3.f's switch to the Agda-backed ``dbc_to_json`` default.
+        # the switch to the Agda-backed ``dbc_to_json`` default.
         return {
             "status": "success",
             "dbc": normalize_dbc(dbc_field),

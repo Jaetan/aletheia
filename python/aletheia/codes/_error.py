@@ -55,10 +55,10 @@ class ErrorCode(StrEnum):
     FRAME_CAN_ID_NOT_FOUND = "frame_can_id_not_found"
     FRAME_CAN_ID_MISMATCH = "frame_can_id_mismatch"
     FRAME_SIGNAL_VALUE_OUT_OF_BOUNDS = "frame_signal_value_out_of_bounds"
-    # Top-level adversarial-input bound (consolidated 2026-05-11 per
-    # R19 cluster 14 / AGDA-C-6.2 — replaces PARSE_INPUT_BOUND_EXCEEDED /
-    # FRAME_INPUT_BOUND_EXCEEDED / DBC_TEXT_INPUT_BOUND_EXCEEDED;
-    # discriminate by `bound_kind` from the structured payload).
+    # Top-level adversarial-input bound (consolidated 2026-05-11;
+    # replaces PARSE_INPUT_BOUND_EXCEEDED / FRAME_INPUT_BOUND_EXCEEDED /
+    # DBC_TEXT_INPUT_BOUND_EXCEEDED; discriminate by `bound_kind` from
+    # the structured payload).
     INPUT_BOUND_EXCEEDED = "input_bound_exceeded"
     # Route errors
     ROUTE_MISSING_FIELD = "route_missing_field"

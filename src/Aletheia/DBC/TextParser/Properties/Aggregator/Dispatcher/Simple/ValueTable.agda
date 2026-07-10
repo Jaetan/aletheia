@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TVT dispatcher under head-dispatched parseTopStmt.
+-- TVT dispatcher under head-dispatched parseTopStmt.
 --
 -- `emitValueTable-chars vt ++ outer` starts with 'V', so parseTopStmt
 -- reduces (by head pattern match on its first char) to its V-bucket:
 -- `(parseValueTable       >>= λ vt  → pure (TSValueTable vt))
 --   <|> (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))`.
--- (Track E.4 lifted the second arm from `*> pure TSValueDesc` to bind
+-- (The second arm was lifted from `*> pure TSValueDesc` to bind
 -- the `RawValueDesc` payload — the `alt-left-just` proof is polymorphic
 -- in the right arm so this dispatcher closes unchanged.)
 --

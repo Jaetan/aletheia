@@ -16,7 +16,7 @@ import (
 var ctx = context.Background()
 
 // requireErrorContains asserts err is a non-nil *Error whose message
-// contains substr. Uses errors.As for proper unwrapping (G-6 review finding).
+// contains substr. Uses errors.As for proper unwrapping.
 func requireErrorContains(t *testing.T, err error, substr string) {
 	t.Helper()
 	if err == nil {

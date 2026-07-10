@@ -156,13 +156,13 @@ runL-stepL-satisfied table proc y rest refl | .Satisfied = refl
 -- the streaming runtime's reuse pattern are below.
 
 -- ============================================================================
--- STEP-LEVEL SHAPE CHARACTERIZATIONS (AGDA-B-9.2)
+-- STEP-LEVEL SHAPE CHARACTERIZATIONS
 -- ============================================================================
 --
 -- The streaming runtime drops a property from the iteration list when
 -- `stepL` returns `Satisfied` (`Protocol.StreamState.Internals.classifyStepResult
--- Satisfied _ = complete`).  This is the structural soundness fix for the
--- AGDA-B-9.2 gap: re-evaluating a Satisfied proc on subsequent frames was
+-- Satisfied _ = complete`).  This is the structural soundness fix:
+-- re-evaluating a Satisfied proc on subsequent frames was
 -- unsound for top-level `Until` / `Release` / `MetricUntil` / `MetricRelease`
 -- / raw `Atomic` / `And`/`Or`-of-atomic shapes (concrete `Until` witness in
 -- the comment block above `classifyStepResult Satisfied`).

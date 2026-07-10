@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- A.2 — BO_TX_BU_ dispatcher slim + section well-formedness.
+-- BO_TX_BU_ dispatcher slim + section well-formedness.
 --
 -- Mirrors the VAL_ chain (`Properties.ValueTables.ValueDesc` +
 -- `Dispatcher.Simple.ValueDesc`), adapted to message senders:

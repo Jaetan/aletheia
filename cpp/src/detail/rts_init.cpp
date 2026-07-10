@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 //
 // Shared GHC RTS init state — see header for the cross-singleton
-// rationale (R23 — CPP-D-17.1).
+// rationale.
 
 #include "rts_init.hpp"
 

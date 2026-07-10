@@ -35,8 +35,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 
 -- A CAN data frame with timestamp and optional CAN-FD metadata.
 --
--- brs/esi convention (ISO 11898-1:2015 §10.4.2 / §10.4.3, R19P2 cluster 18
--- — AGDA-D-10.1 closure): bindings populate `Just b` for CAN-FD frames
+-- brs/esi convention (ISO 11898-1:2015 §10.4.2 / §10.4.3): bindings
+-- populate `Just b` for CAN-FD frames
 -- carrying a Bit Rate Switch / Error State Indicator bit, and `Nothing`
 -- for CAN 2.0B frames where the bits do not exist on the wire.  The Agda
 -- kernel does not consume these fields — they are pass-through metadata
@@ -99,8 +99,7 @@ open TimedFrame public
 -- This is the Phase 5.1 "minimal trace, signal-level LTL" scope; the
 -- ADT can be extended later if the LTL atomic-predicate vocabulary is
 -- broadened to bit-level / frame-format-level checks (see PROJECT_STATUS.md
--- Phase 6 candidate-goal list — none currently planned).  R19 Phase 2
--- cluster 5 — AGDA-D-10.3 audit closure.
+-- Phase 6 candidate-goal list — none currently planned).
 data TraceEvent : Set where
   Data   : TimedFrame → TraceEvent
   Error  : Timestamp μs → TraceEvent

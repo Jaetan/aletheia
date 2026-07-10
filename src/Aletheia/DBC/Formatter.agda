@@ -79,7 +79,7 @@ formatCANId : CANId → List (String × JSON)
 formatCANId (CANId.Standard n _) = ("id" , ℕtoJSON n) ∷ []
 formatCANId (CANId.Extended n _) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool true) ∷ []
 
--- R19 cluster 17 / PY-D-19.2: emit ``"presence": "multiplexed"`` on
+-- Emit ``"presence": "multiplexed"`` on
 -- multiplexed signals (symmetric to ``"presence": "always"`` on Always
 -- signals).  Cross-binding parity: Python TypedDict, Go serializeDBC,
 -- and C++ serialize_dbc all emit the discriminator.
@@ -153,7 +153,7 @@ formatValueTable vt = JObject (
   ("entries" , JArray (map formatValueEntry (ValueTable.entries vt))) ∷
   [])
 
--- Track E.8 (Plan B): JSON wire shape for one RawValueDesc.
+-- JSON wire shape for one RawValueDesc.
 -- The CAN-ID half mirrors `formatDBCMessage`'s leading `("id", …) ± ("extended", true)`
 -- pair (via `formatCANId`); the signal target + entries follow.
 formatRawValueDesc : RawValueDesc → JSON
@@ -297,7 +297,7 @@ formatDBC dbc = JObject (
   ("nodes"           , JArray (map formatNode (DBC.nodes dbc))) ∷
   ("comments"        , JArray (map formatComment (DBC.comments dbc))) ∷
   ("attributes"      , JArray (map formatAttribute (DBC.attributes dbc))) ∷
-  -- Track E.8 (Plan B): always emit (defaults to `[]` on JSON path; only
+  -- Always emit (defaults to `[]` on JSON path; only
   -- the text-parse path can populate this with non-empty entries).
   ("unresolvedValueDescs" , JArray (map formatRawValueDesc (DBC.unresolvedValueDescs dbc))) ∷
   [])

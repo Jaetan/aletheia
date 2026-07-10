@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Internal-package tests for the frozen-index lookup guards (r25). The lazy
+// Internal-package tests for the frozen-index lookup guards. The lazy
 // indexes freeze positional indices on first build; if the caller then shrinks
 // the public Messages / Signals slice, an unguarded cached index would panic on
 // the subscript. The guard turns a stale index into a defined nil ("no longer

@@ -163,9 +163,9 @@ def _harness_iter_can_log[**P](*_args: P.args, **_kwargs: P.kwargs) -> Iterator[
     """Return a single illustrative 7-tuple frame.
 
     Empty iterators silently pass any unpack — including a 4-tuple unpack
-    against a 7-tuple yield, the exact drift that R18 cluster 11 (5-tuple
-    era) and R20 cluster L (5 → 7 transition after R19 cluster 18 added
-    BRS/ESI) surfaced across the doc sites. Yielding at least one real
+    against a 7-tuple yield, the exact drift that the old 5-tuple era and
+    the later 5 → 7 transition (which added BRS/ESI) surfaced across the
+    doc sites. Yielding at least one real
     ``CANFrameTuple`` ensures every fence body that iterates is actually
     exercised, so unpack-arity drift fails fast at fence-execution time.
     The synthetic frame ``(0, 0x100, 8, bytes(8), False, None, None)``

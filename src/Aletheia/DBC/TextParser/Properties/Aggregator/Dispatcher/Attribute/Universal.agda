@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Universal-attribute roundtrip dispatcher.
+-- Universal-attribute roundtrip dispatcher.
 --
 -- 3-way dispatch on `DBCAttribute`:
 --   * DBCAttrDef d     → forward to Def.parseAttrLine-on-emit-RawDef.
