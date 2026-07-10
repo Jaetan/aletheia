@@ -312,7 +312,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **Branch & PR hygiene ✅ ENFORCED** — `.github/workflows/pr-full-ci.yml` runs `tools/run_ci.py` (all gates) on every `pull_request` + `push:main`; the `main` ruleset now **requires** `tools/run_ci.py (all gates)` (2026-06-10) **and `mutation testing`** (2026-06-20, #72 — drift gate, merge-blocking).  C++ builds with **Clang 22** (the supported toolchain — see [BUILDING.md § Toolchain support policy](docs/development/BUILDING.md#toolchain-support-policy)), enforced in `cpp/CMakeLists.txt`.  Detail: `docs/development/BRANCH_PR_HYGIENE.md`, `memory/project_cpp_compilers.md`.
 
-**Post-merge cleanup** (2026-06-10): `docs/development/DEFERRED_ITEMS.md` created — the open backlog lives there (A.2 since ✅ DONE; E.2 HOLD 5/9 on the parked `agda/e1-isidentstart-hspace-bridge` branch; the rest HOLD/CAN'T or parked by prior user decision).
+**Post-merge cleanup** (2026-06-10): `docs/development/DEFERRED_ITEMS.md` created — the open backlog lives there (E.2 HOLD on the parked `agda/e1-isidentstart-hspace-bridge` branch; the rest HOLD/CAN'T or parked by prior user decision).
 
 **Phase 6 — CLI parity (C++/Go) ✅ done 2026-06-12** (the quick-wins track; see top). Remaining Phase 6 candidates (not started): Rust/Haskell bindings (Haskell native; Rust via `.so`), python-can replacement (`can_log_reader`), GHC native bignum, SOME/IP.
 
