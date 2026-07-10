@@ -5,28 +5,31 @@ This directory contains example DBC files and verification scripts demonstrating
 ## Files
 
 - `example.dbc` - Sample DBC file with engine and brake signals (standard Vector DBC format)
-- `example_canfd.dbc` - CAN-FD variant of `example.dbc` covering 12/16/20/24/32/48/64-byte payloads (CAN-FD specific DLC table per ISO 11898-1:2015 §10.4.2)
+- `example_canfd.dbc` - CAN-FD variant of `example.dbc` with a 64-byte-payload message (vs. classic CAN's 8-byte limit), exercising the extended CAN-FD DLC encoding per ISO 11898-1:2015 §10.4.2
 - `simple_verification.py` - Complete verification example using AletheiaClient API
 - `demo/` - Demo scripts for presentations and walkthroughs
 
 ### Demo Scripts (`demo/`)
 
-**Four-tier interface demos** (no FFI/build required):
+**Check-building demo** (no build required — builds checks purely in memory):
 - `demo_check_api.py` - Check API fluent interface (9 checks, all condition types)
+
+**FFI-backed demos** (require `cabal run shake -- build` — they parse decimals or stream frames through the verified kernel):
 - `demo_yaml_loader.py` - YAML loader with `demo_checks.yaml`
 - `demo_excel_loader.py` - Excel loader: templates, checks, DBC from spreadsheets
 - `demo_all_interfaces.py` - Equivalence proof: DSL == Check API == YAML == Excel
-
-**Streaming demos** (require `cabal run shake -- build`):
 - `demo.py` - Full presentation: DBC loading, property definition, streaming, fault injection
 - `dbc_validation.py` - DBC validation (overlap detection, range consistency, multiplexing)
 - `frame_injection.py` - Real-time frame injection during streaming
+- `demo_ltl_bug.py` - "Why LTL": an LTL property catches a frozen-signal firmware bug that naive unit tests miss
+- `test_engine_naive.py` - The naive-unit-test companion (8 tests, all pass) that misses the bug `demo_ltl_bug.py` catches
 
 **Support files**:
 - `vehicle.dbc` - DBC file for streaming demos and the flagship `aletheia check` example
 - `vehicle_checks.yaml` - YAML checks matched to `vehicle.dbc` (VehicleSpeed / BrakePressure / Acceleration); companion to `drive.log`
-- `drive.log` - Recorded candump trace (a two-minute drive that speeds past its limit); the flagship `check` example streams it and reports a `VehicleSpeed` violation
+- `drive.log` - Recorded candump trace (a ~6.6-second drive that speeds past its limit); the flagship `check` example streams it and reports a `VehicleSpeed` violation
 - `drive_log.py` - Sample CAN frame generators (normal + overspeed drives) that produce `drive.log`
+- `engine_ecu_sim.py` - Engine-ECU frame simulator (with an intentional staleness bug) shared by `demo_ltl_bug.py` and `test_engine_naive.py`
 - `demo_checks.yaml` - YAML check definitions (companion to the Check-API / YAML demos; targets a richer signal set than `vehicle.dbc`)
 - `demo_workbook.xlsx` - Persistent Excel workbook for live demos
 
@@ -39,19 +42,21 @@ See [Building Guide](../docs/development/BUILDING.md) for build instructions.
 source python/.venv/bin/activate.fish  # fish
 # source python/.venv/bin/activate      # bash/zsh
 
-# Four-tier demos (no build required)
+# Check-building demo (no build required)
 python3 examples/demo/demo_check_api.py
+
+# FFI-backed demos (require built FFI library: cabal run shake -- build)
 python3 examples/demo/demo_yaml_loader.py
 python3 examples/demo/demo_excel_loader.py
 python3 examples/demo/demo_all_interfaces.py
 
-# Streaming demos (require built FFI library)
+# Streaming demos import sibling modules, so run them from examples/demo/
 cd examples/demo && python3 demo.py
 ```
 
 ## Example DBC Structure
 
-The `example.dbc` file defines two CAN messages:
+The `example.dbc` file defines three CAN messages:
 
 **Message 0x100 (EngineStatus)**:
 - `EngineSpeed` (16-bit): 0-8000 rpm, scale 0.25, offset 0
@@ -60,6 +65,10 @@ The `example.dbc` file defines two CAN messages:
 **Message 0x200 (BrakeStatus)**:
 - `BrakePressure` (16-bit): 0-6553.5 bar, scale 0.1, offset 0
 - `BrakePressed` (1-bit): 0 or 1, scale 1.0, offset 0
+
+**Message 0x300 (SteeringData)**:
+- `SteeringAngle` (16-bit): -780 to 779.9 °, scale 0.1, offset -780
+- `SteeringRate` (8-bit): -128 to 127 °/s, scale 1.0, offset -128
 
 ## LTL Properties Example
 
