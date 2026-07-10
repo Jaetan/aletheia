@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Grammar-complete detection of Agda ``open``/``import`` directives.
+r"""Grammar-complete detection of Agda ``open``/``import`` directives.
 
 This is the substrate for the IWYU gate (:mod:`tools.iwyu`, via its engine
 :mod:`tools._iwyu` — both named-import and wildcard analysis): what opens exist,
@@ -9,7 +9,15 @@ wildcard)?  It finds *every* open the Agda grammar permits, in *every* position
 (top-level, ``where``/``let``, non-``import`` ``open M``, open-module-macro),
 and classifies it — not just top-level ``open import`` / ``import`` blocks.
 
-Grounding (Agda ``src/full/Agda/Syntax/Parser/Parser.y``):
+Grounding — Agda's concrete grammar, ``src/full/Agda/Syntax/Parser/Parser.y``
+(pinned tag ``v2.8.0``, matching the Agda the build uses; BSD-2-Clause).  It is
+not vendored; fetch a local, git-ignored working copy on demand with::
+
+    curl -fsSL \
+      https://raw.githubusercontent.com/agda/agda/v2.8.0/src/full/Agda/Syntax/Parser/Parser.y \
+      -o .agda-reference/Parser.y
+
+The productions that matter — ``ImportDirective`` / ``Open`` / ``ModuleName``:
 
 * ``ImportDirective`` is a free combination, in any order, of ``public`` |
   ``using (names)`` | ``hiding (names)`` | ``renaming (renames)``.  Only
