@@ -10,6 +10,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Internal (no behavior change): removed the unused `.agda-reference/README.md`
+  stub and moved its provenance (the Agda `Parser.y` source URL, the `v2.8.0` pin,
+  and the `curl` re-fetch recipe) into the `tools/_agda_opens.py` module docstring
+  that grounds in that grammar.
+
 ## [3.0.0] — 2026-07-09
 
 ### Fixed
