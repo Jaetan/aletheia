@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Package aletheia_test — Track D.2 doc-example harness.
+// Package aletheia_test — doc-example harness.
 //
-// Mirror of R17 C6 Python `pytest --markdown-docs`: every ```go fence in the
+// Mirror of Python's `pytest --markdown-docs`: every ```go fence in the
 // tracked user-facing markdown files is extracted, wrapped, compiled, and
 // executed end-to-end via `go run`. A failing fence (compile or runtime) is
 // a test failure with file:line precision. Coverage contract is parity with

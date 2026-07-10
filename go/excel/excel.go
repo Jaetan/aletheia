@@ -85,7 +85,7 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 		o(&cfg)
 	}
 
-	// R20 cluster N — symlink + size + ZIP-bomb gates before excelize open.
+	// Symlink + size + ZIP-bomb gates before excelize open.
 	if err := validateLoaderPath(path, "excel"); err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 		o(&cfg)
 	}
 
-	// R20 cluster N — same hardening as LoadChecks.
+	// Same hardening as LoadChecks.
 	if err := validateLoaderPath(path, "excel"); err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
 // CreateTemplate creates a blank Excel template with headers and formatting.
 // Does not overwrite existing files.
 func CreateTemplate(path string) error {
-	// R20 cluster N — parent-dir gate before excelize.NewFile/SaveAs.
+	// Parent-dir gate before excelize.NewFile/SaveAs.
 	if err := validateOutputParentDir(path); err != nil {
 		return err
 	}

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Load-bearing reduction canary for the B.3.d Layer 3 `NS_` proof.
+-- Load-bearing reduction canary for the `NS_` proof.
 --
 -- `Namespace.parseNSLine-keyword`'s validity precondition is discharged
 -- via `nsKeywords-valid : All (T ∘ validIdentifierᵇ ∘ toList) nsKeywords`

@@ -97,7 +97,7 @@ cd cpp && cmake --build build --target fuzz_parse_response && ./build/tests/fuzz
 cd cpp && cmake --build build --target cross_binding_integration_tests && ctest --test-dir build -R cross_binding
 ```
 
-The `ctest` battery includes the Track D.1 doc-example harness
+The `ctest` battery includes the doc-example harness
 (`doc_example_tests`) — every ```cpp fence across `README.md`,
 `docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
 `docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`

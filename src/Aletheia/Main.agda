@@ -33,7 +33,7 @@
 -- (`ResponseError` and `TraceError`) to keep all three names in scope
 -- simultaneously from this facade.
 --
--- Adequacy scope (R17 A.D.2): The production pipeline exposed here has
+-- Adequacy scope: The production pipeline exposed here has
 -- a formal soundness proof chain composed of two theorems:
 --   * `Aletheia.LTL.Adequacy.Pipeline.pipeline-adequate` — the
 --     simplify/stepL loop preserves the adequacy of the coalgebra (the
@@ -134,7 +134,7 @@ open import Aletheia.Protocol.JSON public
 open import Aletheia.Protocol.ResponseFormat public
   using ()
 
--- Cross-binding-identical Rational pretty-printer (R20 cluster Y stage 2).
+-- Cross-binding-identical Rational pretty-printer.
 -- Exposed so the FFI shim can call `formatRational` on raw (numerator,
 -- denominator) pairs and return the result via CString.  Replaces three
 -- per-binding implementations with a single Agda kernel function.

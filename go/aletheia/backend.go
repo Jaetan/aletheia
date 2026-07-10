@@ -34,7 +34,7 @@ func WithFFILogger(l *slog.Logger) FFIBackendOption {
 // Production code uses [FFIBackend]; tests use [MockBackend].
 // Sealed: only types in this package may implement Backend.
 //
-// # Thread safety (GO-S-17.1 contract — R21)
+// # Thread safety contract
 //
 // Implementations MAY assume the caller serialises all method
 // invocations against a single backend instance.  [Client] provides
@@ -52,7 +52,7 @@ func WithFFILogger(l *slog.Logger) FFIBackendOption {
 // IORef updates race).
 //
 // The method set is grouped by data-format and direction to document the
-// JSON-command / binary-FFI mix flagged in R20 GO-D-20.1.  The grouping
+// JSON-command / binary-FFI mix.  The grouping
 // mirrors the [MANDATORY] / [OPTIONAL] split on C++ `IBackend` at
 // `cpp/include/aletheia/backend.hpp`; Go interfaces have no default-method
 // machinery, so every method is technically mandatory at the type level,

@@ -152,10 +152,9 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 
 -- Structural recursion on input length: if a parser doesn't consume input, we stop
 
--- R20-AGDA-C-27.1 — DO NOT RE-RAISE IN REVIEW.
---
--- A reviewer may suggest replacing this with `length xs ≡ᵇ length ys` to
--- "use stdlib `_≡ᵇ_`".  That swap is NOT a stdlib equivalence — stdlib
+-- This structural definition is kept deliberately rather than
+-- `length xs ≡ᵇ length ys` ("use stdlib `_≡ᵇ_`"): that swap is NOT a
+-- stdlib equivalence — stdlib
 -- has no list-length-equality primitive; `_≡ᵇ_` is on `ℕ`, and routing
 -- through `length` changes the runtime profile from O(min(|xs|, |ys|))
 -- parallel walk (short-circuits on the first constructor mismatch) to
@@ -172,8 +171,6 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 -- -cons-cons, -lt, -len-≢, -app-nz) re-type-check unchanged under either
 -- definition (the wrapper is definitionally equivalent on list-ctor
 -- matches), so the cleanup yields no proof-side simplification either.
--- Disposition history: initial DEFER (2026-05-15) → re-flip to FIX
--- (cluster U) → revert + DROP after empirical 5.69× measurement above.
 sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool
 sameLengthᵇ [] [] = true
 sameLengthᵇ (_ ∷ _) [] = false
@@ -228,7 +225,7 @@ countRange min max p = count min p >>= λ xs →
 -- ============================================================================
 
 -- | Match an exact char list (helper for `string`).  Lifted from
--- `string`'s `where` clause so B.3.d Layer 2 roundtrip proofs in
+-- `string`'s `where` clause so roundtrip proofs in
 -- `Aletheia.DBC.TextParser.Properties.Primitives` can reason about
 -- the internal recursion by name (`string-success` + `parseCharsSeq-
 -- success`).  Behaviour preserved: `string s` still calls this on

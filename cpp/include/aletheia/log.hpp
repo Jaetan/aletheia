@@ -65,7 +65,7 @@ public:
     // Add an additional sink callback.  Multiple sinks fire in registration
     // order; each sees the same `LogRecord`.  Keeps the original
     // single-callback constructor working unchanged for callers that only
-    // need one sink.  R19 cluster 9 — CPP-D-17.4.
+    // need one sink.
     void add_sink(LogCallback cb) {
         if (cb)
             sinks_.emplace_back(std::move(cb));
@@ -109,7 +109,7 @@ public:
     // two in lockstep is what makes the outer guard equivalent.  Go binding's
     // `slog.Logger.Enabled` is the cross-binding analogue; Python uses
     // `logging.Logger.isEnabledFor` (see `python/aletheia/client/_client.py`
-    // R19 cluster 19 fast-path guards).
+    // fast-path guards).
     [[nodiscard]] bool enabled(LogLevel lvl) const noexcept {
         return !sinks_.empty() && lvl >= min_;
     }

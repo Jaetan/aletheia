@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Layer 1: Compile-time tests.
+// Compile-time tests.
 // If this file compiles, all static assertions pass. No runtime needed.
 
 #include <aletheia/aletheia.hpp>
@@ -183,8 +183,8 @@ static_assert(static_cast<int>(ErrorKind::Ffi) == 3);
 // LtlFormula variant — correct number of alternatives
 // ===========================================================================
 
-// LtlFormula wraps the LtlFormulaVariant alias by composition (R20
-// CPP-D-15.4 / 17.3); the count must match the Agda kernel's LTL ADT.
+// LtlFormula wraps the LtlFormulaVariant alias by composition; the count must
+// match the Agda kernel's LTL ADT.
 static_assert(std::variant_size_v<LtlFormulaVariant> == 14);
 static_assert(std::variant_size_v<decltype(std::declval<LtlFormula>().value)> == 14);
 static_assert(std::variant_size_v<Predicate> == 8);
@@ -237,8 +237,8 @@ static_assert(std::has_virtual_destructor_v<IBackend>);
 
 // string_view must be constructible from a string-valued Strong (direct-init
 // form: std::string_view{name}), but the conversion is explicit so implicit
-// conversion is disallowed. Concept-gated to T == std::string per R20
-// CPP-D-15.3 (the previously-separate StrongString template was merged in).
+// conversion is disallowed. Concept-gated to T == std::string (the
+// previously-separate StrongString template was merged in).
 static_assert(std::is_constructible_v<std::string_view, SignalName>);
 static_assert(std::is_constructible_v<std::string_view, MessageName>);
 static_assert(std::is_constructible_v<std::string_view, NodeName>);

@@ -139,7 +139,7 @@ CPP_BIN="$PROJECT_DIR/cpp/build/benchmark"
 CPP_CACHE="$PROJECT_DIR/cpp/build/CMakeCache.txt"
 if [[ -f "$CPP_BIN" ]]; then
     # Refuse to run a Debug-mode C++ tree — an -O0 benchmark silently looks
-    # like a 20%+ regression (see R15 investigation). CMakeLists.txt defaults
+    # like a 20%+ regression. CMakeLists.txt defaults
     # to Release when the cache is empty, but an explicit
     # -DCMAKE_BUILD_TYPE=Debug from a prior session persists in the cache.
     if [[ -f "$CPP_CACHE" ]]; then

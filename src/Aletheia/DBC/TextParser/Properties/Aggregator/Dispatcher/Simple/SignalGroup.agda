@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TSG dispatcher under head-dispatched parseTopStmt.
+-- TSG dispatcher under head-dispatched parseTopStmt.
 --
 -- `emitSignalGroup-chars sg ++ outer` starts with 'S'∷'I'∷'G'∷'_'∷'G'…,
 -- so parseTopStmt reduces to its SI-bucket:

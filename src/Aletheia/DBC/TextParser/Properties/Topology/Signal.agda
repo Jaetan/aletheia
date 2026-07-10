@@ -3,14 +3,13 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- `parseSignalLine-roundtrip-{NotMux,IsMux,SelBy}` — per-MuxMarker-shape
--- roundtrip lemmas for the SG_ DBC signal line (B.3.d Layer 3 Commit
--- 3d.5.c-η).
+-- roundtrip lemmas for the SG_ DBC signal line.
 --
--- Pre-η (3d.3): each dispatcher was a 700+ LOC step-by-step bind-chain
+-- Previously, each dispatcher was a 700+ LOC step-by-step bind-chain
 -- proof through `parseSignalTail-roundtrip` (1140 LOC) over 28 parser
 -- primitives; total ~1873 LOC across the three dispatchers + shared tail.
 --
--- Post-η: `parseSignalLine = parse signalLineFmt` (single DSL form), and
+-- Now `parseSignalLine = parse signalLineFmt` (single DSL form), and
 -- the dispatchers reduce to:
 --
 --   1. A bridge `emit-signalLineFmt-eq-emitSignalLine-chars` proving
@@ -26,11 +25,11 @@
 -- Universal receivers roundtrip: `Format.Receivers.Roundtrip
 -- .canonicalReceivers-roundtrip`.
 --
--- Dispatcher signature change: the pre-η `novecxxx : All ¬...vectorXXX
+-- Dispatcher signature change: the former `novecxxx : All ¬...vectorXXX
 -- (.list)` precondition is dropped — `DBCSignal.receivers : CanonicalReceivers`
--- (post-γ.2 retype) already carries `T (isCanonicalReceiversᵇ list)`,
+-- (after the retype) already carries `T (isCanonicalReceiversᵇ list)`,
 -- which subsumes the singleton-Vector__XXX prohibition.  No external
--- callers (the 3d.4+ composers are still pending).
+-- callers (the composers are still pending).
 module Aletheia.DBC.TextParser.Properties.Topology.Signal where
 
 open import Data.Bool using (Bool; true; false)
@@ -110,8 +109,8 @@ SignalNameStop sig =
 --   * `RawSignal.startBit` is the formatter-emitted RAW value
 --     `unconvertStartBit fb bo (SignalDef.startBit def) (SignalDef.bitLength def)`,
 --     not the post-`% max-physical-bits` clamped value.  The `% / convert`
---     roundtrip is a 3d.5+ / Layer 4 concern.
---   * `RawSignal.receivers ≡ DBCSignal.receivers sig` directly post-η
+--     roundtrip is handled by a later composition step.
+--   * `RawSignal.receivers ≡ DBCSignal.receivers sig` directly
 --     (both fields are `CanonicalReceivers` — no projection needed).
 expectedRaw : MuxMarker → DBCSignal → ℕ → RawSignal
 expectedRaw mux sig frameBytes = mkRawSignal

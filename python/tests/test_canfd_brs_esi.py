@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Unit tests for CAN-FD BRS / ESI metadata plumbing on the Python side.
 
-R19 Phase 2 cluster 18 — AGDA-D-10.1 / 13.1 / 17.1 closure.
-
 The Aletheia kernel does not consume BRS / ESI (LTL atomic-predicate
 scope is signal-level per ``Aletheia.Trace.CANTrace`` design comment);
 these bits are pass-through metadata threaded from the binding through

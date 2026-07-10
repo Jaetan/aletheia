@@ -247,16 +247,16 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	defer runtime.UnlockOSThread()
 
 	libPath = filepath.Clean(libPath)
-	// Reject NUL bytes before C.CString silently truncates.  R19 cluster 12
-	// — GO-B-27.2: filepath.Clean does not validate NUL; a NUL-bearing
+	// Reject NUL bytes before C.CString silently truncates.
+	// filepath.Clean does not validate NUL; a NUL-bearing
 	// libPath would translate to a different on-disk path inside cgo.
 	if strings.ContainsRune(libPath, 0) {
 		return nil, validationError("libPath contains NUL byte")
 	}
-	// R21 cluster 2: register the user's libPath so the lazy-loaded
+	// Register the user's libPath so the lazy-loaded
 	// Rational renderer (renderer.go) prefers the same .so instead of
-	// falling back to its relative-path heuristic.  Closes GO-S-17.2 —
-	// production users who pass an explicit libPath to NewFFIBackend
+	// falling back to its relative-path heuristic.  Production users
+	// who pass an explicit libPath to NewFFIBackend
 	// now have their choice honored by the renderer.
 	RegisterDefaultLibPath(libPath)
 	cPath := C.CString(libPath)
@@ -276,7 +276,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}()
 
 	// Required symbols from libaletheia-ffi.so (keep in sync with the
-	// loadSym calls below — a drifted comment is a finding).
+	// loadSym calls below — a drifted comment is a bug).
 	// `aletheia_format_rational` is not loaded here: the cross-binding
 	// Rational pretty-printer is reached via the lazy-load in
 	// `renderer.go`, independent of FFIBackend, so tests that never
@@ -445,8 +445,8 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 			CodeInputBoundExceeded,
 		)
 	}
-	// Reject embedded NUL bytes before C.CString truncates.  R19 cluster
-	// 12 — GO-B-27.3: the Agda parser is byte-oriented (not C-string-
+	// Reject embedded NUL bytes before C.CString truncates.
+	// The Agda parser is byte-oriented (not C-string-
 	// oriented); a NUL-bearing input would silently truncate at the FFI
 	// boundary.  The bound check above is bytes-of-Go-string, so the
 	// post-truncation length disagreement is otherwise undetectable.
@@ -697,7 +697,7 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numS
 	// aggressive inliner could observe that `indices`/`nums`/`dens`/`outBuf`
 	// are no longer referenced from Go after their pointers cross the cgo
 	// boundary, and the GC could reclaim them while the C code is still
-	// reading.  R19 cluster 12 — GO-B-10.3.
+	// reading.
 	runtime.KeepAlive(indices)
 	runtime.KeepAlive(nums)
 	runtime.KeepAlive(dens)

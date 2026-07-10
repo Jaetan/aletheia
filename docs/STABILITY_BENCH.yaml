@@ -5,7 +5,7 @@
 # (static gate — grep/AST verifies each binding's harness source references the
 # named symbol or function call).
 #
-# Scope: AGENTS.md universal rule "Long-run leak detection R18 sub-checks"
+# Scope: AGENTS.md universal rule "Long-run leak detection sub-checks"
 # (Agda cat 16, Go cat 27, C++ cat 26, Python cat 25).
 #
 # One row per (binding, sub_check) pair.  Fields:

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — DSL-side `nodeListFmt` for the `BU_` (node-list)
+-- DSL-side `nodeListFmt` for the `BU_` (node-list)
 -- DBC line.
 --
 -- The formatter emits `BU_:` + zero-or-more ` <name>` + `\n\n` (line
@@ -25,7 +25,7 @@
 -- The trailing `many parseNewline` consumption (the second `\n` plus any
 -- additional blank lines after) lives in the
 -- `Aletheia.DBC.TextParser.Topology.SignalLine.parseBU` wrapper, NOT in
--- this Format — same pattern as η's `parseSignalLine` / 3d.5.d's
+-- this Format — same pattern as `parseSignalLine` /
 -- `parseValueTable`.
 module Aletheia.DBC.TextParser.Format.Nodes where
 
@@ -79,7 +79,7 @@ private
 
 -- Single-field record `Node` reduces `mkNode (Node.name n) ≡ n`
 -- definitionally; the list induction lifts to the full equation.  The
--- pre-3d.5.d `Properties/Topology/Nodes.agda` had a private copy; this
+-- earlier `Properties/Topology/Nodes.agda` had a private copy; this
 -- copy is the canonical site post-migration.
 private
   map-mkNode-Node-name : ∀ (ns : List Node)
@@ -123,7 +123,7 @@ nodeListFmt =
 -- Each node's name decomposes as `c ∷ cs` with `isHSpace c ≡ false`,
 -- discharging the `withWS ident` slot's `SuffixStops isHSpace
 -- (Identifier.name (Node.name n) ++ rest)` obligation via `∷-stop
--- c-non-hspace`.  Mirrors `ValueTableNameStop`; Layer 4 will discharge
+-- c-non-hspace`.  Mirrors `ValueTableNameStop`; a later step will discharge
 -- this universally from `validIdentifierᵇ` via the
 -- `isIdentStart→¬isHSpace` bridge (see
 -- `project_b3d_layer4_owed_lemmas.md`).
@@ -231,7 +231,7 @@ build-emits-ok ns outer-suffix node-stops =
 -- THE GATE: parseBU's line-portion expressed via Format DSL.  Body is one
 -- `roundtrip` call + the EmitsOK construction.  Universal in `ns` and
 -- `outer-suffix`; the only domain precondition is `All NodeNameStop ns`,
--- which Layer 4 will discharge universally from `validIdentifierᵇ`.
+-- which a later step will discharge universally from `validIdentifierᵇ`.
 parseNodeList-format-roundtrip :
     ∀ (pos : Position) (ns : List Node) (outer-suffix : List Char)
   → All NodeNameStop ns

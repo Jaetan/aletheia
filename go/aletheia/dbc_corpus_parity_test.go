@@ -3,11 +3,11 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// B.3.j — DBC text parser cross-binding parity gate (Go side).
+// DBC text parser cross-binding parity gate (Go side).
 //
 // Scope. This is a binding-layer integration test on a finite fixture corpus.
 // It does NOT extend, replace, or stand in for the universal Agda roundtrip
-// theorem proven in B.3.d (∀ d → WellFormedDBC d → parseText (formatText d) ≡
+// theorem (∀ d → WellFormedDBC d → parseText (formatText d) ≡
 // inj₂ d, in Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda). Parser
 // correctness is established by that proof, universally over the DBC domain.
 // What this test validates instead is that the Go binding's wire-to-native

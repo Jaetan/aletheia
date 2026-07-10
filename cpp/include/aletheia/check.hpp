@@ -36,7 +36,7 @@ namespace aletheia::detail {
 
 // Render a PhysicalValue via the Agda kernel renderer (cross-binding-identical
 // output).  Invoked lazily from `CheckResult::condition_desc()` accessor
-// (R21 cluster CPP-SYS-15.3) so the .so need NOT be loadable at Check builder
+// so the .so need NOT be loadable at Check builder
 // time — only at the first `condition_desc()` read.  The human-readable check
 // description matches the predicate-side `format_value`
 // (`enrich.cpp:format_value(const Rational&)`) byte-for-byte AND matches
@@ -83,7 +83,7 @@ public:
         , signal_name_(std::move(sig))
         , condition_desc_(std::move(desc)) {}
 
-    // Lazy-builder form (R21 cluster CPP-SYS-15.3).  Defers the
+    // Lazy-builder form.  Defers the
     // `detail::format_rational_ffi` call to the first `condition_desc()`
     // accessor read, so Check builders work without the .so being loadable
     // at construction time.  Result is cached after first invocation.

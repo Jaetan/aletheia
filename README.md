@@ -35,7 +35,7 @@ All three decode CAN with **tested** code: correct on the cases someone thought 
 ## What you get
 
 - **Proven-correct decoding** — signal extraction and frame building are correct for *every* valid DBC, by mathematical proof rather than test coverage.
-- **Temporal rules, not just thresholds** — *"within 100 ms"*, *"eventually"*, *"never after"*: full LTL over the whole trace, with a streaming checker that runs in O(1) memory (verified 1.08× growth across a 100× longer trace) — fast enough for real-time 1 Mbps CAN. Per-binding / per-lane throughput lives in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
+- **Temporal rules, not just thresholds** — *"within 100 ms"*, *"eventually"*, *"never after"*: full LTL over the whole trace, with a streaming checker that runs in O(1) memory (verified 1.08× growth across a 100× longer trace) — fast enough for real-time 1 Mbps CAN. Per-binding / per-lane throughput lives in [BENCHMARKS.md § Canonical Results](docs/development/BENCHMARKS.md#canonical-results).
 - **Four first-class bindings** — Python, C++, Go, and Rust, all running in-process (no subprocess, no IPC overhead) and all producing identical verdicts.
 - **Real-world DBC support** — multiplexed signals, 29-bit IDs, signed integers, value tables, attributes, environment variables, and comments; validated against a cross-binding corpus with typed rejection codes ([error reference](docs/architecture/PROTOCOL.md#error-code-reference)).
 - **Exact arithmetic** — signal values are exact rationals end-to-end, never floats: a decoded value is never off by a rounding step.

@@ -62,7 +62,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
-    // Top-level adversarial-input bound (R19 cluster 14 / AGDA-C-6.2)
+    // Top-level adversarial-input bound
     {"input_bound_exceeded", ErrorCode::InputBoundExceeded},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
@@ -151,7 +151,7 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
 // passing responses (the FFI-entry size cap fires first for oversize inputs;
 // a 1 MiB response with 10⁵ nesting still depth-bombs the recursive-descent
 // parser via stack overflow without this guard).  See AGENTS.md universal
-// rule "Adversarial-input bounds at parser surfaces" + R18 cluster 2 closure.
+// rule "Adversarial-input bounds at parser surfaces".
 //
 // Throws `std::runtime_error` (not typed `InputBoundExceeded`) by design:
 // `InputBoundExceeded` carries the kernel-side `bound_kind / observed / limit`
@@ -174,13 +174,13 @@ static auto parse_bounded(std::string_view input) -> Json {
     return Json::parse(input, callback);
 }
 
-// Post-R19P2-cluster-14: routes the response through `ErrorKind::InputBoundExceeded`
+// Routes the response through `ErrorKind::InputBoundExceeded`
 // regardless of the kind the caller guessed from the response section (Protocol /
 // Validation), so the typed bound-info shape is exposed uniformly across the JSON /
 // DBC-text / binary parser surfaces.  Mirrors Python's `InputBoundExceededError`
 // subclassing and Go's typed `*InputBoundExceededError` discriminator.  Originally
-// dispatched over three codes; cluster 14 collapsed Parse/Route/Handler input-bound
-// variants into a single top-level `ErrorCode::InputBoundExceeded`.
+// dispatched over three codes; a later consolidation collapsed Parse/Route/Handler
+// input-bound variants into a single top-level `ErrorCode::InputBoundExceeded`.
 static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
     return code == ErrorCode::InputBoundExceeded;
 }
@@ -222,7 +222,7 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
 /// Both ``code`` and ``message`` must be non-null strings — a missing or
 /// non-string value surfaces as a ``Protocol`` error rather than being
 /// papered over with a default. Matches Python's ``build_error_response``
-/// strict contract; R16 shipped with a silent "unknown error code"
+/// strict contract; a previous version shipped with a silent "unknown error code"
 /// regression in production logs because the old ``j.value("code", "")``
 /// / ``j.value("message", "Unknown error")`` defaults masked malformed
 /// responses.
@@ -760,7 +760,7 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
     throw std::runtime_error("Unknown attribute kind: " + kind);
 }
 
-// Track E.8 (Plan B): inverse of json_serialize.cpp's raw_value_desc_to_json.
+// Inverse of json_serialize.cpp's raw_value_desc_to_json.
 // Reads one unresolved RawValueDesc from the wire — message-id pair (id +
 // optional extended) plus signalName + entries array. Wire shape is fixed
 // at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
@@ -947,7 +947,7 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 
 // Parse one inner per-property verdict object — shared between the
 // streaming PropertyBatch path (frame response) and the EndStream
-// StreamResult path (parse_stream_result).  R23 — AGDA-D-12.1.
+// StreamResult path (parse_stream_result).
 static auto parse_property_result_entry(const Json& r) -> PropertyResult {
     auto entry_status = r.value("status", "");
     Verdict verdict{};
@@ -1001,7 +1001,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
 
-        // R23 — AGDA-D-12.1: streaming PropertyResponse is now a
+        // Streaming PropertyResponse is now a
         // batch envelope `{"type": "property_batch", "results": [...]}`.
         // Each results entry is a PropertyResult (holds/fails/unresolved);
         // violations close the batch in source-order per the Agda
@@ -1029,8 +1029,8 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
 
 // Parse one entry in the `warnings` array.  Extracted from
 // `parse_stream_result` so the outer function stays under clang-tidy's
-// readability-function-cognitive-complexity threshold (25).  R23 cluster C
-// added the `contains("property_index")` guard, which bumped the outer
+// readability-function-cognitive-complexity threshold (25).  Adding the
+// `contains("property_index")` guard bumped the outer
 // function above the threshold.
 static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
     if (!w.contains("property_index"))

@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Text-roundtrip-specific well-formedness predicates (Track B.3.d Layer 3
--- Commit 3d.1).
+-- Text-roundtrip-specific well-formedness predicates.
 --
 -- Extends `Aletheia.DBC.Formatter.WellFormed` with constraints that hold
 -- ONLY on the text-format roundtrip path (and not on the JSON-format path
@@ -11,7 +10,7 @@
 -- each motivated by a specific lossy region of `TextFormatter.Topology`.
 --
 -- 1. `NoVectorXXXReceiver` — `emitReceivers-chars []` emits the cantools
---    `Vector__XXX` placeholder; `parseReceiverList` (post-ε.3, derived
+--    `Vector__XXX` placeholder; `parseReceiverList` (derived
 --    from the Format DSL `canonicalReceiversFmt` via the iso `fwd =
 --    mkCanonicalFromList`) parses it back as `[]` directly.  A
 --    user-supplied list `[Identifier "Vector__XXX"]` would also emit
@@ -41,11 +40,11 @@
 --    `findMuxMaster` returns the first `When` clause's master name).
 --
 -- 4. `WellFormedTextMessage` extends `WellFormedMessageRT` with these.
---    (A.2 removed the former `senders ≡ []` constraint: `BO_TX_BU_` now
+--    (The former `senders ≡ []` constraint was removed: `BO_TX_BU_` now
 --    round-trips, with `senders` restored at DBC level by `attachSenders`.)
 --
 -- All predicates are `Set`-valued data types or records, no proofs.
--- 3d.2+ will discharge them in the per-construct roundtrip lemmas.
+-- The per-construct roundtrip lemmas discharge them.
 module Aletheia.DBC.Formatter.WellFormedText where
 
 open import Data.Char using (Char)
@@ -74,7 +73,7 @@ open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
 -- (`[]` is the empty-list case; the formatter emits the placeholder
 -- exactly there and the parser collapses it back to `[]`.  Forbidding
 -- `"Vector__XXX"` in any element is the simplest sufficient condition.)
--- Post γ.2: `DBCSignal.receivers s : CanonicalReceivers` excludes the
+-- `DBCSignal.receivers s : CanonicalReceivers` excludes the
 -- singleton-Vector__XXX placeholder by the type-level invariant.  The
 -- length≥2 case still admits Vector__XXX (rare third-party wire form);
 -- the All-precondition is preserved here for those callers, projected
@@ -92,7 +91,7 @@ data WellFormedTextPresence : SignalPresence → Set where
 
 -- Bundle the per-signal text constraints.
 --
--- E.9a (2026-05-07): `vds-empty` removed.  The per-message roundtrip now
+-- `vds-empty` was removed.  The per-message roundtrip now
 -- claims `parseMessage … ≡ just (mkResult (clearVdsMsg msg) … …)` and
 -- the Universal layer threads `attachValueDescs ∘ collectFromMessages
 -- ≡ id` (Refine bridge) post-buildDBC to recover the original VAL_
@@ -133,7 +132,7 @@ data MasterCoherent : List DBCSignal → Set where
 
   -- Mux case: one master, every When slave references it.  The master
   -- signal record `masterSig` is exhibited by `Σ`-style witness fields.
-  -- Post-3d.4 + JSON-mirror: `findMuxMaster` returns `Maybe (List Char)`
+  -- `findMuxMaster` returns `Maybe (List Char)`
   -- (matching `Identifier.name : List Char`).
   mc-mux : ∀ {sigs}
          → (masterName : List Char)
@@ -141,7 +140,7 @@ data MasterCoherent : List DBCSignal → Set where
          -- Master existence (some signal in sigs has name = masterName
          -- and presence = Always).  We carry the full signal record so
          -- downstream proofs can refer to it by name; the `∈` witness
-         -- locates it in `sigs` (3d.7 needs this for the parser-side
+         -- locates it in `sigs` (needed for the parser-side
          -- `findMuxName` resolution proof).
          → (masterSig : DBCSignal)
          → masterSig ∈ sigs
@@ -169,7 +168,7 @@ record WellFormedTextMessage (m : DBCMessage) : Set where
     msg-wf-rt     : WellFormedMessageRT m
     sigs-text-wf  : All WellFormedTextSignal (DBCMessage.signals m)
     master-coh    : MasterCoherent (DBCMessage.signals m)
-    -- A.2: the `senders-empty` field was removed — `BO_TX_BU_` now
+    -- The `senders-empty` field was removed — `BO_TX_BU_` now
     -- round-trips (the universal aggregator restores `senders` via
     -- `attachSenders`), so the in-memory `senders` list no longer has to be
     -- empty.  (This record is now used only via the parser-side `MessageWF`
@@ -181,4 +180,4 @@ record WellFormedTextMessage (m : DBCMessage) : Set where
 -- aggregator predicate consumed by `parseText-on-formatText` in
 -- `Substrate.Unsafe`).  The earlier 1-field stub previously named
 -- `WellFormedTextDBC` here was superseded by that 8-field record and is
--- removed (R18 cluster 14, AGDA-D-11.1 / AGDA-D-15.4).
+-- removed.

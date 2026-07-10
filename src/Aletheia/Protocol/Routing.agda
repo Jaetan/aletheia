@@ -78,8 +78,8 @@ private
 
 -- Parse StreamCommand from JSON object (returns Error on failure).  Return
 -- type lifted from `RouteError ⊎ _` to `Error ⊎ _` to accommodate the
--- typed `InputBoundExceeded FrameByteCount …` emit at `parseBytePayload`
--- (R20 cluster I — AGDA-D-32.3); RouteError emits compose via `RouteErr`.
+-- typed `InputBoundExceeded FrameByteCount …` emit at `parseBytePayload`;
+-- RouteError emits compose via `RouteErr`.
 parseCommand : List (String × JSON) → Error ⊎ StreamCommand
 parseCommand obj with lookupString "command" obj
 ... | nothing = inj₁ (RouteErr MissingCommandField)

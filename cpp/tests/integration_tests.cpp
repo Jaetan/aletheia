@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Layer 3: Integration tests with real libaletheia-ffi.so.
+// Integration tests with real libaletheia-ffi.so.
 // Requires: cabal run shake -- build (produces build/libaletheia-ffi.so)
 // Run with: ctest -R integration (or ./integration_tests)
 #include <catch2/catch_approx.hpp>
@@ -1475,9 +1475,9 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 // ---------------------------------------------------------------------------
 // The JSON parser enforces PhysicallyValid at parse time via
 // DBC/JSONParser.agda's physicalGate. Both byte orders require
-// bitLength ≥ 1 (R5-B1 / R6-B7.1 closure 2026-05-15: LE was previously
-// permissive on bl=0, deferring to the validator's BitLengthZero warning
-// — now uniformly rejected at the parse boundary, completing BE-LE parity).
+// bitLength ≥ 1 (LE was previously permissive on bl=0, deferring to the
+// validator's BitLengthZero warning — now uniformly rejected at the parse
+// boundary, completing BE-LE parity).
 // BE additionally enforces two roundtrip-shape constraints:
 //   • bitLength ≥ 1                     → SignalBitLengthZero (BE + LE)
 //   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame (BE only)
@@ -1551,7 +1551,7 @@ TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_len
     AletheiaClient client(std::move(backend));
 
     // LE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails →
-    // SignalBitLengthZero (R5-B1 / R6-B7.1 closure: completes BE-LE parity).
+    // SignalBitLengthZero (completes BE-LE parity).
     auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0, ByteOrder::LittleEndian,
                                       /*dlc_bytes=*/1);
 
@@ -1600,9 +1600,9 @@ TEST_CASE(
 
 TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
           "[integration][parse_error]") {
-    // Prior to R5-B1 / R6-B7.1 closure (2026-05-15), LE signals passed
-    // through physicalGate unchanged and length=0 was caught downstream
-    // by the validator's IssueCode::BitLengthZero warning. The fix makes
+    // Previously, LE signals passed through physicalGate unchanged and
+    // length=0 was caught downstream by the validator's
+    // IssueCode::BitLengthZero warning. The fix makes
     // physicalGate's `1 ≤ᵇ bl` check fire for BOTH byte orders, so LE
     // length=0 now surfaces as a parse error from validate_dbc — same
     // behavior as BE (BE-LE parity completion). The validator check
@@ -1752,15 +1752,15 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 
 TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]") {
     auto lib = find_lib();
-    // R20 cluster K migrated `rts_cores < 1` from `std::invalid_argument` to
-    // `AletheiaException(ErrorKind::Validation)` so callers can branch on
-    // `kind()` like every other typed FFI error.
+    // `rts_cores < 1` raises `AletheiaException(ErrorKind::Validation)` rather
+    // than `std::invalid_argument` so callers can branch on `kind()` like
+    // every other typed FFI error.
     CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/0), AletheiaException);
     CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/-1), AletheiaException);
 }
 
 // ---------------------------------------------------------------------------
-// Event ack wire-contract tests (closes SC.22.3 from R11 review).
+// Event ack wire-contract tests.
 //
 // send_error and send_remote go through `parse_event_ack`, which is
 // authoritative for the `{"status":"ack"}` wire returned by the real FFI

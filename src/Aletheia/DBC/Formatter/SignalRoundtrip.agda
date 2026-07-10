@@ -87,7 +87,7 @@ private
   -- LE roundtrip: unconvertStartBit _ LE s _ = s, convertStartBit _ LE s _ = s,
   -- so the startBit roundtrips through % 512 using WF bounds.  Takes the
   -- `len-pos : 1 ≤ bitLength sd` witness so the formatter side can enable
-  -- physicalGate's new LE `1 ≤ᵇ bl` branch (R5-B1 / R6-B7.1 closure).
+  -- physicalGate's new LE `1 ≤ᵇ bl` branch.
   signal-roundtrip-LE : ∀ frameBytes ctx n sd u p rs vds → WellFormedSignalDef sd
     → 1 ≤ SignalDef.bitLength sd
     → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd LittleEndian u p rs vds))

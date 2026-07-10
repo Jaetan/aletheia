@@ -24,7 +24,7 @@ permissions:
 # same PR ref — saves Actions minutes on rapid PR push sequences.  Pushes to
 # mainline refs (`refs/heads/main`, `refs/heads/review-*`) are NOT cancelled
 # so that the mainline build always completes (silent cancel of a mainline
-# build would mask regressions per R23 CICD-1.2).
+# build would mask regressions per CICD-1.2).
 concurrency:
   group: gha-checks-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

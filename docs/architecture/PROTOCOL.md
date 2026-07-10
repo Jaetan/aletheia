@@ -614,7 +614,7 @@ empty-list-is-unreachable invariant (frames with no events return Ack).
 4. If violation or satisfaction detected, return property response immediately
 5. Otherwise, return acknowledgment
 
-**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md#key-metrics) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go, Rust) use this entry point for `send_frame()`.
+**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [BENCHMARKS.md](../development/BENCHMARKS.md#canonical-results) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go, Rust) use this entry point for `send_frame()`.
 
 ### aletheia_send_error and aletheia_send_remote
 

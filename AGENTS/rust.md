@@ -24,7 +24,7 @@ their Go/C++ counterparts.
 ### Correctness (4)
 
 11. **Serialization fidelity** -- `serde_json` output matches the Agda protocol exactly (field names, types, structure, command strings); numeric fields honor the decimal SSOT (`rust/tests/decimal_ssot.rs`) — a bare int for denominator 1, `{numerator, denominator}` otherwise, never a float.
-12. **Parsing robustness** -- handles all response variants, all three number formats (int / float / rational dict), error paths, no silent data loss. A decoder that silently blanks a malformed `code` / `errors` / `absent` field instead of rejecting it is a finding (the r24 lenient-outlier lesson — Rust was the lone binding that blanked; the fix restored parity).
+12. **Parsing robustness** -- handles all response variants, all three number formats (int / float / rational dict), error paths, no silent data loss. A decoder that silently blanks a malformed `code` / `errors` / `absent` field instead of rejecting it is a finding (the lenient-outlier lesson — Rust was the lone binding that blanked; the fix restored parity).
 13. **FFI lifecycle** -- `dlopen` (via `libloading`) / `aletheia_init` / close ordering, null-pointer checks on every returned handle, never call `hs_exit`, and the symbol cache resolves once and stays non-latching (an export-less library fail-fasts but stays loaded).
 14. **Test adequacy** -- sub-checks:
     - (a) **Baseline coverage**: public API, edge cases, negative paths, `cargo test` clean including the `async` and `--no-default-features` matrices.

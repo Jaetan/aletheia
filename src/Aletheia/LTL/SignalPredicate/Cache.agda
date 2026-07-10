@@ -21,14 +21,14 @@ open import Data.Unit using ()
 open import Relation.Binary.PropositionalEquality using (_≢_; subst)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 
--- Bool-valued List Char equality (Path-A.5 hot-path Dec-allocation escape).
+-- Bool-valued List Char equality (hot-path Dec-allocation escape).
 -- Soundness/completeness via `Identifier.≡csᵇ-sound` / `≡csᵇ-complete` /
 -- `≡csᵇ-false→≢`; structural and `--safe` (no axioms).
 open import Aletheia.DBC.Identifier using (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-false→≢)
 
 -- Cached signal value with observation timestamp.
 --
--- R6-B7.3 — 2026-05-17: `lastObserved` lifted from `ℕ` to `Timestamp μs`.
+-- `lastObserved` lifted from `ℕ` to `Timestamp μs`.
 -- The prior `ℕ` rationale ("avoids an unwrap at every cache lookup / update")
 -- was a phantom hazard — `lastObserved` has zero runtime READ sites
 -- (verified by grep; only proof-side use in `Cache/Properties.AllTimestamps≤`).
@@ -69,7 +69,7 @@ record SignalCache : Set where
 -- (`updateEntries-All-neq`, `updateEntries-unique`) bridge from `_≡csᵇ_`'s
 -- Bool result back to propositional `name ≡ n` via `≡csᵇ-sound` in the
 -- `true` branch, so `UniqueKeys` preservation is preserved without a
--- `prim-string-eq-sound` postulate. Path A.5 confirmed +9–39% Stream LTL
+-- `prim-string-eq-sound` postulate.  This form measured +9–39% Stream LTL
 -- throughput across all bindings vs the prior `_≟ₗᶜ_` form.
 lookupEntries : List Char → CacheEntries → Maybe CachedSignal
 lookupEntries _ [] = nothing

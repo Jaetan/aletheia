@@ -30,7 +30,7 @@ open import Aletheia.Error using
 open import Aletheia.Limits using (InputLengthBytes; max-dbc-text-bytes)
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
--- Track B.3.e — composes the proven `parseTextChars` (DBC/TextParser.agda)
+-- Composes the proven `parseTextChars` (DBC/TextParser.agda)
 -- with the runtime validate-and-load pipeline (shared verbatim with the JSON
 -- route via `Aletheia.Protocol.Handlers.LoadDBC`) so the success path returns
 -- a parsed-AND-validated DBC.  Three result categories:

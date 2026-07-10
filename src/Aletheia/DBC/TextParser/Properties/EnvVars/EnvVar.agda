@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseEnvVar-roundtrip` derived from the
--- universal Format DSL roundtrip.
+-- Slim `parseEnvVar-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Pre-3d.5.d (3b): hand-written 1,581-line bind-chain proof through 14
+-- The earlier form was a hand-written 1,581-line bind-chain proof through 14
 -- parser primitives (every wire-level token + line terminator).
 --
--- Post-3d.5.d: `parseEnvVar = parse envVarFmt >>= many parseNewline >>=
+-- Now `parseEnvVar = parse envVarFmt >>= many parseNewline >>=
 -- pure` (in `TextParser.EnvVars`), and the roundtrip reduces to:
 --
 --   1. A bridge `emit-envVarFmt-eq-emitEnvVar-chars` proving DSL emit on

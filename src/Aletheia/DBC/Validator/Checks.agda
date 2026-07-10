@@ -18,7 +18,7 @@
 -- validator is promoted to a hot-path consumer (e.g. per-frame re-validation),
 -- at which point the same Bool fast-path treatment applied to
 -- `LTL/SignalPredicate/Cache` would be needed here. Mirrors the in-source
--- revisit signal pattern from `Aletheia.Prelude.lookupByKey` (R20 cluster S).
+-- revisit signal pattern from `Aletheia.Prelude.lookupByKey`.
 module Aletheia.DBC.Validator.Checks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
@@ -589,7 +589,7 @@ checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
 -- ============================================================================
 -- A `VAL_` line carries a `(canId, signalName)` pair plus value-label entries.
 -- The text parser preserves entries that did not resolve against the assembled
--- message list on `DBC.unresolvedValueDescs` (Plan B, 2026-05-07); the rest
+-- message list on `DBC.unresolvedValueDescs`; the rest
 -- are stitched onto their owning `DBCSignal.valueDescriptions` by
 -- `attachValueDescs`.  This check walks the residual list and emits one
 -- warning per entry.  Unlike CHECK 21/22, the input is a flat list of

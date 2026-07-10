@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS_GHC -Wno-unused-imports -Wno-missing-signatures -Wno-missing-home-modules #-}
 
--- | Binary FFI Smoke Test (R17-DEF-1: comprehensive unsafeCoerce drift guard)
+-- | Binary FFI Smoke Test (comprehensive unsafeCoerce drift guard)
 --
 -- End-to-end test of every FFI export, mirroring the unsafeCoerce dance from
 -- AletheiaFFI.hs / AletheiaFFI/Marshal.hs / AletheiaFFI/BinaryOutput.hs. If a
@@ -149,7 +149,7 @@ walkPartitionedResults ier =
 -- Mirrors aletheia_send_frame's construction in AletheiaFFI.hs.
 -- The brs/esi arguments populate `TimedFrame.brs` / `.esi`: pass `Nothing`
 -- for CAN 2.0B frames, `Just b` for CAN-FD frames carrying the BRS / ESI
--- bits (R19 Phase 2 cluster 18 — AGDA-D-10.1 closure).
+-- bits.
 mkTimedFrame :: Integer -> Integer -> Bool -> Integer -> [Word8]
              -> Maybe Bool -> Maybe Bool
              -> AgdaTrace.T_TimedFrame_6
@@ -262,7 +262,7 @@ assertTrue label detail False = do
 
 main :: IO ()
 main = do
-    putStrLn "Binary FFI Smoke Test (R17-DEF-1: comprehensive unsafeCoerce drift guard)"
+    putStrLn "Binary FFI Smoke Test (comprehensive unsafeCoerce drift guard)"
     putStrLn "=========================================================================="
     putStrLn ""
 
@@ -445,7 +445,7 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Tests 13-15: CAN-FD BRS/ESI metadata pass-through (R19P2 cluster 18)
+    -- Tests 13-15: CAN-FD BRS/ESI metadata pass-through
     -- BRS/ESI are stored on TimedFrame and never read by the kernel; the
     -- constructor path must accept Just True / Just False / Nothing for both
     -- bits without distorting downstream JSON output.

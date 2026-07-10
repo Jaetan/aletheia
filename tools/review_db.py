@@ -77,7 +77,7 @@ directly; review_db.py is for analytics, not workflow state.
 References:
   * memory/feedback_review_branch_workflow.md  (archive lifecycle)
   * AGENTS.md § Graduation                     (criterion + queryable)
-  * REVIEWS.md                                 (human-readable index)
+  * review_db.py --report                      (human-readable round index)
 
 """
 

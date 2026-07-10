@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Topology parsers for the DBC text format (Track B.3.c.3) — facade
--- module.  The original monolithic implementation was split during
--- B.3.d ε.2 to break a cyclic module dependency:
+-- Topology parsers for the DBC text format — facade
+-- module.  The original monolithic implementation was split to
+-- break a cyclic module dependency:
 --
 --   Topology → Format → Properties.Primitives → Attributes → Topology
 --
@@ -16,8 +16,8 @@
 -- Cycle-touching importers (`Properties.Primitives`, `Attributes`,
 -- `Comments`, `Properties.Comments.Comment`,
 -- `Properties.Attributes.Assign.{Message,Rel,Signal}`) import directly
--- from `Topology.Foundations` to avoid pulling in `SignalLine` (which,
--- post-ε.3, will import `Format.Receivers` and re-create the cycle).
+-- from `Topology.Foundations` to avoid pulling in `SignalLine` (which
+-- imports `Format.Receivers` and would re-create the cycle).
 --
 -- Grammar slice covered (BNF section B from `Aletheia.DBC.TextParser`):
 --   bu-section    ::= "BU_:" (ws identifier)* newline
@@ -45,16 +45,16 @@
 -- `Extended (raw − 2^31)`; raw < 2^31 decodes to `Standard raw` (must fit
 -- in 11 bits).  Mirrored by `TextFormatter.Topology.rawCanIdℕ`.
 --
--- Validation scope (B.3.c.3): range-checks on CAN ID, DLC byte count, and
+-- Validation scope: range-checks on CAN ID, DLC byte count, and
 -- mux reference resolution; the `physicalGate` predicate from
 -- `JSONParser.parseSignalFields` is NOT applied at text-parse time — it is
 -- a semantic-layer validator concern, and applying it here would couple
--- the parser to `ParseError` (out of scope for B.3.c.3, which stays on
--- `Maybe`-valued parsers throughout).
+-- the parser to `ParseError` (out of scope for this validation layer,
+-- which stays on `Maybe`-valued parsers throughout).
 --
 -- Deferred to later sub-commits:
 --   * Multi-value mux selectors (`SG_MUL_VAL_`) — the syntactic drop
---     parser lands in B.3.c.8 (see `TextParser.ExtendedMux`); the
+--     parser lands in `TextParser.ExtendedMux`; the
 --     cross-line coordination that turns those parsed-and-dropped
 --     ranges into actual multi-value `When` selectors is deferred to
 --     a later mux-integration sub-commit.  Single-value `m<N>`

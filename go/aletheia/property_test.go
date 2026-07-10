@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Property-based tests via testing/quick (R18 cluster 5 — Cat 33c).
+// Property-based tests via testing/quick.
 //
 // Round-trip pairs for every wire-format encode/decode that the Go binding
 // owns plus mock-vs-real parity invariants for the IBackend / Backend

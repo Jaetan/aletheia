@@ -40,9 +40,9 @@ import Aletheia.Protocol.Message as Msg
 
 private
   -- Try to parse and execute a command from JSON fields.  parseCommand
-  -- returns `Error ⊎ StreamCommand` (R20 cluster I — AGDA-D-32.3 lifted
-  -- the return type to accommodate the typed `InputBoundExceeded
-  -- FrameByteCount …` emit at `parseBytePayload`); the legacy RouteError
+  -- returns `Error ⊎ StreamCommand` (the return type accommodates the
+  -- typed `InputBoundExceeded FrameByteCount …` emit at
+  -- `parseBytePayload`); the legacy RouteError
   -- branches arrive pre-wrapped via `RouteErr`.
   tryParseCommand : StreamState → List (String × JSON) → StreamState × String
   tryParseCommand state obj with parseCommand obj
@@ -58,13 +58,13 @@ private
     then tryParseCommand state obj
     else wrapJSON (state , Msg.Response.Error (DispatchErr (UnknownMessageType msgType)))
 
-  -- Post-parse nesting-depth check (R19 AGDA-D-13.4 phase 2a — typed wire-
-  -- error refinement).  The JSON parser terminates structurally on `length
+  -- Post-parse nesting-depth check.  The JSON parser terminates
+  -- structurally on `length
   -- input`, so deep adversarial inputs parse cleanly; this guard measures
   -- the actual depth of the parsed tree and rejects above `max-nesting-
   -- depth` with `ParseErr (InputBoundExceeded NestingDepth observed limit)`,
   -- exposing the structured `bound_kind / observed / limit` triple via
-  -- `errorExtras`.  Pre-2a (R19 cluster 8 phase a) emitted the untyped
+  -- `errorExtras`.  Previously the code emitted the untyped
   -- `DispatchErr InvalidJSON` from inside `parseJSON`; moving the check
   -- here keeps `parseJSON` a pure inverse of `formatJSON`.
   -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
@@ -92,7 +92,7 @@ private
 -- bounds at parser surfaces".  Each binding additionally short-circuits at
 -- the FFI entry to avoid marshaling oversize payloads.  Nesting-depth bound
 -- enforced at `handleParsedJSON` on the parsed tree (typed `ParseError.
--- InputBoundExceeded NestingDepth …`, AGDA-D-13.4 phase 2a).
+-- InputBoundExceeded NestingDepth …`).
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine =

@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- A.2 — formatter-side `BO_TX_BU_` emitters (DSL-free, mirrors
+-- Formatter-side `BO_TX_BU_` emitters (DSL-free, mirrors
 -- `TextFormatter.ValueTables`'s VAL_ section emitters).
 --
 -- Standalone hand emitters (no `Format` DSL import) so `formatChars`'s
 -- runtime / MAlonzo closure stays free of the parser-side DSL machinery.
 -- The proof side bridges these to `emit MsgSenders-format` via
--- `emit-MsgSenders-format-eq-emitMsgSenders-line-chars` (the A.2 analogue of
+-- `emit-MsgSenders-format-eq-emitMsgSenders-line-chars` (the analogue of
 -- `emit-ValueDescription-format-eq-emitValueDescription-chars`); the
 -- comma-list tail uses `concatMap` so it matches `emit (many (withPrefix ","
 -- ident))` definitionally (eta), keeping that bridge essentially `refl`.

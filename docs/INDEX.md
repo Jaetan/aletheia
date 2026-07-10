@@ -91,7 +91,7 @@ Learn by example:
 
 ## Benchmarks
 
-- **[Benchmarks Guide](development/BENCHMARKS.md)** - Cross-language runner, per-binding scripts, and measurement methodology (canonical numbers in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics))
+- **[Benchmarks Guide](development/BENCHMARKS.md)** - Cross-language runner, per-binding scripts, and measurement methodology (with the canonical results table)
 
 ---
 
@@ -100,7 +100,7 @@ Learn by example:
 - **[LICENSE](../LICENSE.md)** - BSD 2-Clause License
 - **[Python Package README](../python/README.md)** - Installation via pip
 - **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Third-party runtime dependencies and their licenses
-- **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED` or `DO NOT RE-RAISE IN REVIEW`).
+- **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED`).
 - **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review)
 
 ---

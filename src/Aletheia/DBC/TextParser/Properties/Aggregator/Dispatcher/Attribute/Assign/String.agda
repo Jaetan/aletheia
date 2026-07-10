@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Universal-attribute roundtrip dispatcher for the
+-- Universal-attribute roundtrip dispatcher for the
 -- RawAssign × RavString shape (7 targets).
 --
 -- Per target:
@@ -61,8 +61,8 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Foundations using
   (IdentNameStop-of)
 
--- alt5 dispatchers moved to Line/Alt5 in R22 (R21 cluster 9 AGDA-D-15.1);
--- alt4 variants (NodeMsg/NodeSig) remain in Line.agda.
+-- alt5 dispatchers moved to Line/Alt5; alt4 variants (NodeMsg/NodeSig)
+-- remain in Line.agda.
 open import Aletheia.DBC.TextParser.Properties.Attributes.Line using
   ( parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString
   ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString

@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Topology emitters for the DBC text format (Track B.3.c.3; layer-1 form
--- 2026-04-24).
+-- Topology emitters for the DBC text format.
 --
 -- Grammar slice emitted (mirrors `TextParser.Topology`):
 --   bu-section    ::= "BU_:" (ws identifier)* newline
@@ -32,16 +31,15 @@
 --     nested multiplexors (`m<N>M`) are deferred to a later
 --     mux-integration sub-commit; this phase emits the head value of
 --     the `When _ values` list only, which matches single-value
---     cantools output.  B.3.c.8 has already wired the parse-side drop
---     parser for `SG_MUL_VAL_` (see `TextParser.ExtendedMux`); the
---     cross-line coordination needed to materialise multi-value
---     `When` selectors is what remains.
+--     cantools output.  The parse-side drop parser for `SG_MUL_VAL_` is
+--     already wired (see `TextParser.ExtendedMux`); the cross-line
+--     coordination needed to materialise multi-value `When` selectors is
+--     what remains.
 --
 -- Each BO_ block ends with the BO_ line + SG_ lines + one trailing blank
 -- line separating it from the next block.  `emitMessages-chars` concatenates.
 --
--- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
--- see `Emitter` module header).
+-- All emitters are `List Char`-valued (see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Topology where
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
@@ -122,7 +120,7 @@ emitReceivers-chars (r ∷ rs) =
 -- clause.  Returns `nothing` if no signal references a master (no mux in
 -- this message).  All well-formed `When` clauses in one message reference
 -- the same master (validator invariant), so the first hit is authoritative.
--- 3d.4: returns `Maybe (List Char)` — `Identifier.name : List Char` post
+-- Returns `Maybe (List Char)` — `Identifier.name : List Char` post
 -- de-tainting, so the result feeds straight into char-list comparison and
 -- emission with no String roundtrip.
 findMuxMaster : List DBCSignal → Maybe (List Char)
@@ -140,7 +138,7 @@ findMuxMaster (s ∷ rest) with DBCSignal.presence s
 --                                       emitted faithfully so the
 --                                       validator catches it on the next
 --                                       reparse).
--- 3d.4: thisName / master are `List Char` (the Identifier name field type).
+-- thisName / master are `List Char` (the Identifier name field type).
 -- Comparison uses stdlib's lifted list equality (`≡-dec _≟ᶜ_`).
 emitMuxMarker-chars : Maybe (List Char) → (thisName : List Char) → SignalPresence → List Char
 emitMuxMarker-chars nothing       _        Always         = []
@@ -156,7 +154,7 @@ emitMuxMarker-chars _             _        (When _ (v ∷ _)) =
 -- One SG_ line including its trailing newline.  The message's DLC byte
 -- count is needed by `unconvertStartBit` to de-normalize the start-bit for
 -- BigEndian signals.
--- 3d.4: master / signal name are `List Char` throughout; no String roundtrip.
+-- master / signal name are `List Char` throughout; no String roundtrip.
 emitSignalLine-chars : (master : Maybe (List Char)) (frameBytes : ℕ) → DBCSignal → List Char
 emitSignalLine-chars master frameBytes sig =
   let def = DBCSignal.signalDef sig

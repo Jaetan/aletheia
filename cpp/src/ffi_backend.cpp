@@ -3,7 +3,7 @@
 // FFI backend — loads libaletheia-ffi.so via dlopen.
 //
 // `aletheia_format_rational` is intentionally NOT loaded here: the
-// cross-binding Rational pretty-printer (R20 cluster Y stage 2) reaches
+// cross-binding Rational pretty-printer reaches
 // the Agda kernel via the lazy-load in `rational_renderer.cpp`,
 // independent of FfiBackend, so unit tests that never instantiate a
 // backend still route through the same kernel function.
@@ -35,7 +35,7 @@ namespace aletheia {
 namespace {
 
 // CAN-FD's largest payload, sourced from the public limits header (SSOT).
-// R19 cluster 12 — CPP-B-7.4: this anonymous-namespace constant used to
+// This anonymous-namespace constant used to
 // duplicate `aletheia::max_frame_byte_count` (also 64); now it is a thin
 // alias so a future bound change at the public surface automatically
 // propagates here.
@@ -153,7 +153,7 @@ class FfiBackend : public IBackend {
     // ran); a runtime null-return means the kernel was loaded but did
     // not produce a response, which mirrors Python's ProtocolError at
     // python/aletheia/client/_client.py:231/245.
-    // R19 cluster 14 / CPP-A-1.1 — replaces 8 hand-rolled copies of this
+    // Replaces 8 hand-rolled copies of this
     // pattern across process / send_frame_binary / send_error_binary /
     // send_remote_binary / start_stream_binary / end_stream_binary /
     // format_dbc_binary / extract_signals_binary.
@@ -197,7 +197,7 @@ public:
             free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
 
             // Initialize GHC RTS (once per process, never finalized).
-            // R23 — CPP-D-17.1: share the init state with the
+            // Share the init state with the
             // `rational_renderer.cpp` singleton via
             // `detail::rts_init_state()` so a renderer-first hs_init is
             // visible here.  Before this, each TU had a private
@@ -255,10 +255,10 @@ public:
         // C-side null-terminated copy only to be rejected on the other
         // side.  Returns the wire-format error JSON so the existing
         // `detail::parse_*` paths translate to AletheiaError with
-        // code == ErrorCode::InputBoundExceeded uniformly (post R19
-        // cluster 14 / AGDA-C-6.2 consolidation).
+        // code == ErrorCode::InputBoundExceeded uniformly after
+        // consolidation.
         if (input.size() > aletheia::max_json_bytes) {
-            // R19 cluster 8 — CPP-D-21.5: emit structured bound_kind /
+            // Emit structured bound_kind /
             // observed / limit fields alongside `code` and `message` so
             // downstream `parse_*` paths can lift them into the
             // AletheiaError's optional InputBoundExceededError, matching
@@ -444,10 +444,10 @@ public:
 
 auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
     -> std::unique_ptr<IBackend> {
-    // R21 cluster 2: register the user's lib_path so the lazy-loaded
+    // Register the user's lib_path so the lazy-loaded
     // Rational renderer (`rational_renderer.cpp`) prefers the same .so
-    // instead of falling back to its relative-path heuristic.  Closes
-    // CPP-SYS-17.1 — production users who pass an explicit lib_path
+    // instead of falling back to its relative-path heuristic:
+    // production users who pass an explicit lib_path
     // to make_ffi_backend now have their choice honored by the renderer.
     detail::register_default_lib_path(lib_path);
     return std::make_unique<FfiBackend>(lib_path, rts_cores);

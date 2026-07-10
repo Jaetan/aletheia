@@ -2,12 +2,12 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 — 3d.5.a — Format DSL framework core.
+-- Format DSL framework core.
 --
 -- An inductive `Format A` describes a bidirectional `emit`/`parse` pair.
 -- The universal `roundtrip` theorem (proven once, below) replaces the
--- 3a–3d.3 pattern of a hand-written ~500–2000 LOC roundtrip per construct.
--- Gate target for 3d.5.b was met (`Format/ValueTable.agda` is now 312 LOC,
+-- earlier pattern of a hand-written ~500–2000 LOC roundtrip per construct.
+-- The size goal was met (`Format/ValueTable.agda` is now 312 LOC,
 -- well under the original 790 LOC target).
 --
 -- Method (per advisor, examples-first): the initial three constructors —
@@ -29,9 +29,6 @@
 --     `withWSAfter`
 --   * refinement carriers: `decRat` / `intDecRat` / `natDecRat`
 --   * sugar: `discardFmt` / `nonNewlineRun` / `newlineFmt`
--- AGDA-A-4.1 closure: previous header listed three constructors and
--- "resist speculative growth"; both statements were accurate at 3d.5.a
--- but drifted as 3d.5.b–3d.5.d landed.  Updated to the current shape.
 module Aletheia.DBC.TextParser.Format where
 
 open import Data.Bool using (Bool; false; T)
@@ -407,7 +404,7 @@ private
   -- the local copies in `Properties/Topology/Receivers.agda` and
   -- `Properties/ValueTables/ValueTable.agda`; not factored upstream
   -- because both sites still depend on the layered import order from
-  -- the pre-DSL proofs.  3d.5.d migration may consolidate.
+  -- the pre-DSL proofs.  A later migration may consolidate them.
   sameLengthᵇ-lt : ∀ {A : Set} (xs ys : List A)
     → length ys < length xs
     → sameLengthᵇ xs ys ≡ false
@@ -712,10 +709,10 @@ mutual
 --
 -- The L1-L9 hand-written one-liner regressions that motivated and now
 -- guard the universal `roundtrip` theorem moved to
--- `Aletheia.DBC.TextParser.Format.RegressionTests` (R22 continuation of
--- R21 AGDA-D-15.1 closure).  The sibling submodule imports back into
--- `Format.agda` (one-way dependency); Shakefile.hs registers it as an
--- explicit walk root so `check-properties` still drift-checks the
+-- `Aletheia.DBC.TextParser.Format.RegressionTests`.  The sibling submodule
+-- imports back into `Format.agda` (one-way dependency); Shakefile.hs
+-- registers it as an explicit walk root so `check-properties` still
+-- drift-checks the
 -- universal theorem's shape against the nine concrete cases.
 
 -- ============================================================================

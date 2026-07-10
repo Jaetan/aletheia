@@ -65,7 +65,7 @@ errorJSON = newCString . mkErrorJson
 
 -- | Return a JSON error response from a typed FFIError.  Dispatches the
 -- legacy free-form `FFIStringError` to `mkErrorJson` and the structured
--- `FFIBoundExceeded` (R20 cluster I — AGDA-D-32.3) to the bound-payload
+-- `FFIBoundExceeded` to the bound-payload
 -- envelope produced by `formatFFIError`.
 errorJSONFor :: FFIError -> IO CString
 errorJSONFor = newCString . formatFFIError
@@ -119,8 +119,7 @@ aletheia_process statePtr inputCStr
 -- `*_present` (0 = Nothing, non-zero = Just) and `*_value` (0 = False,
 -- non-zero = True). Bindings send (0, 0) for CAN 2.0B frames where the
 -- bits do not exist. The kernel does not consume BRS/ESI; they are
--- pass-through metadata exposed to bindings via TimedFrame (R19 Phase 2
--- cluster 18 — AGDA-D-10.1 closure).
+-- pass-through metadata exposed to bindings via TimedFrame.
 foreign export ccall aletheia_send_frame
     :: StateHandle -> Word64 -> Word32 -> Word8 -> Word8
     -> Ptr Word8 -> Word8
@@ -312,7 +311,7 @@ aletheia_free_str :: CString -> IO ()
 aletheia_free_str = free
 
 -- ============================================================================
--- CROSS-BINDING-IDENTICAL RATIONAL PRETTY-PRINTER (R20 cluster Y stage 2)
+-- CROSS-BINDING-IDENTICAL RATIONAL PRETTY-PRINTER
 -- ============================================================================
 
 -- | Render `(numerator, denominator)` as a string identical across all

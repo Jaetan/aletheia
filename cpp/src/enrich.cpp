@@ -18,8 +18,8 @@
 namespace aletheia {
 
 // Cross-binding-identical Rational pretty-printer.  Every render flows
-// through the Agda kernel via `aletheia_format_rational` (R20 cluster
-// Y stage 2): the C++ binding calls the same function as Python and
+// through the Agda kernel via `aletheia_format_rational`: the C++ binding
+// calls the same function as Python and
 // Go, so the same Rational value renders to byte-identical output
 // everywhere.  The library is dlopened on first use via the lazy-load
 // in `rational_renderer.cpp`; no local C++ fallback exists.  A missing
@@ -65,7 +65,7 @@ static auto format_predicate(const Predicate& p) -> std::string {
                                    std::string_view{v.signal}, format_value(v.max.get()));
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
-                // R19 cluster 7 — CPP-D-19.2: Delta is now Rational; compare
+                // Delta is now Rational; compare
                 // against Rational{0, 1} via the Rational `<=>` operator.
                 return v.delta.get() >= Rational{0, 1}
                            ? std::format("{}{} >= {}", "\xce\x94", std::string_view{v.signal},

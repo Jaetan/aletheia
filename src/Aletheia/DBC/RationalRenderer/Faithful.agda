@@ -697,7 +697,7 @@ formatℚ-decimal-form q bd with fromℚ? q in eq
                        (cong (λ x → ↥ x) (toℚ-fromℚ?-sound q d eq))
 
 ------------------------------------------------------------------------
--- TRIMMED: decimal outputs carry no trailing zero (the cluster-Y shape).
+-- TRIMMED: decimal outputs carry no trailing zero.
 ------------------------------------------------------------------------
 -- Faithfulness + the branch theorems above leave one shape freedom: a decimal
 -- fractional part could carry a trailing `0` (`0.50` is value-faithful).  This

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TEV dispatcher under head-dispatched parseTopStmt.
+-- TEV dispatcher under head-dispatched parseTopStmt.
 --
 -- `emitEnvVar-chars ev ++ outer` starts with 'E'∷'V', so parseTopStmt
 -- reduces to its EV-bucket: `parseEnvVar >>= λ e → pure (TSEnvVar e)`.

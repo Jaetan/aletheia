@@ -1129,7 +1129,7 @@ func TestLoadExcelDBCLowIDExtended(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// R20 cluster N — adversarial-input hardening (cross-binding mirror)
+// Adversarial-input hardening (cross-binding mirror)
 // ---------------------------------------------------------------------------
 
 func TestLoadChecks_RejectsSymlink(t *testing.T) {

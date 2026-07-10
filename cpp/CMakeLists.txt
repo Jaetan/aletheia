@@ -65,10 +65,10 @@ if(ALETHEIA_CLANG_TIDY)
 endif()
 
 # ---------------------------------------------------------------------------
-# Sanitizer lanes (R18 cluster 5 — Cat 33a, advisor option (d))
+# Sanitizer lanes (Cat 33a)
 # ---------------------------------------------------------------------------
 #
-# Plan (d) per cluster 5 architectural choice: ASan against C++ unit tests
+# Architectural choice: ASan against C++ unit tests
 # that don't load libaletheia-ffi.so (MockBackend-only), plus UBSan against
 # every test target including those that DO load the .so.  ASan and the
 # GHC RTS conflict on signal handlers and shadow-memory layout — the gap is
@@ -128,7 +128,7 @@ if(ALETHEIA_SANITIZER_FLAGS)
 endif()
 
 # ---------------------------------------------------------------------------
-# Mutation testing (R18 cluster 7 / Cat 14(g))
+# Mutation testing (Cat 14(g))
 # ---------------------------------------------------------------------------
 # Opt-in via -DALETHEIA_MUTATION=ON.  When enabled, the Mull IR-pass plugin
 # is attached to the aletheia-cpp library + unit_tests target ONLY (NOT to
@@ -207,7 +207,7 @@ FetchContent_Declare(OpenXLSX
 # OpenXLSX use an old cmake_minimum_required that CMake 4.x rejects without
 # this nudge.
 #
-# TODO(R12-M3): Drop this block when yaml-cpp ≥ 0.8.1 (or whatever release
+# TODO: Drop this block when yaml-cpp ≥ 0.8.1 (or whatever release
 # follows 0.8.0) publishes the upstream-merged <cstdint> include fix and we
 # bump FetchContent_Declare above.
 block(SCOPE_FOR VARIABLES)
@@ -246,7 +246,7 @@ target_include_directories(aletheia-cpp
 
 target_compile_features(aletheia-cpp PUBLIC cxx_std_23)
 
-# R18 cluster 7 — apply Mull IR pass plugin to aletheia-cpp ONLY when
+# Apply Mull IR pass plugin to aletheia-cpp ONLY when
 # ALETHEIA_MUTATION=ON.  The plugin would crash clang on Catch2's heavy
 # templates if applied globally; per-target keeps it scoped to the code we
 # actually want to mutate.
@@ -368,12 +368,12 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     enable_testing()
 
-    # Layer 1: Compile-time tests (no framework — just needs to compile)
+    # Compile-time tests (no framework — just needs to compile)
     add_executable(static_tests tests/static_tests.cpp)
     target_link_libraries(static_tests PRIVATE aletheia-cpp)
     add_test(NAME static_tests COMMAND static_tests)
 
-    # Layer 2: Unit tests (mock backend, Catch2). Split across multiple
+    # Unit tests (mock backend, Catch2). Split across multiple
     # translation units by concern (see tests/test_helpers.hpp for the shared
     # fixture). Catch2::Catch2WithMain provides main(), so all sources link
     # into a single executable registered as one ctest name.
@@ -415,14 +415,14 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 
-    # Layer 3: Integration tests (real .so, Catch2, threads for concurrent test)
+    # Integration tests (real .so, Catch2, threads for concurrent test)
     find_package(Threads REQUIRED)
     add_executable(integration_tests tests/integration_tests.cpp)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
     add_test(NAME integration_tests COMMAND integration_tests)
 
-    # Layer 3b: B.3.j cross-binding parity gate (real .so, Catch2, nlohmann_json,
+    # Cross-binding parity gate (real .so, Catch2, nlohmann_json,
     # detail/json.hpp). Reads python/tests/fixtures/dbc_corpus/*.dbc through the
     # real-FFI parse_dbc_text and asserts byte-identical canonical output
     # against the committed parity snapshots. The Python and Go counterparts
@@ -434,13 +434,13 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
     add_test(NAME dbc_corpus_parity_tests COMMAND dbc_corpus_parity_tests)
 
-    # Layer 4: YAML loader tests (yaml-cpp, Catch2). rts_setup_listener.cpp:
+    # YAML loader tests (yaml-cpp, Catch2). rts_setup_listener.cpp:
     # numeric check fields are now parsed via the kernel decimal SSOT
     # (Rational::from_decimal), which is RTS-gated; the listener brings the GHC
     # RTS up once for the process (this binary creates no FfiBackend of its own,
     # so there is no rts.cores_mismatch race). ALETHEIA_LIB pins the .so for the
     # listener (a ctest runtime env var, not a compile-time define — the
-    # CPP-D-18.1 reproducible-build invariant does not apply).
+    # reproducible-build invariant does not apply).
     add_executable(yaml_tests tests/yaml_tests.cpp tests/rts_setup_listener.cpp)
     target_link_libraries(yaml_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
@@ -448,14 +448,14 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set_tests_properties(yaml_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
 
-    # Layer 5: Excel loader tests (OpenXLSX, Catch2). rts_setup_listener.cpp for
+    # Excel loader tests (OpenXLSX, Catch2). rts_setup_listener.cpp for
     # the same reason as yaml_tests — numeric cells are parsed via the kernel
     # decimal SSOT (RTS-gated).
     add_executable(excel_tests tests/excel_tests.cpp tests/rts_setup_listener.cpp)
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
-    # Repo root via env var (CPP-D-18.1) so the cross-binding portability test
+    # Repo root via env var so the cross-binding portability test
     # can load the shared examples/demo/demo_workbook.xlsx fixture; ALETHEIA_LIB
     # pins the .so for the RTS listener.
     set_tests_properties(excel_tests PROPERTIES
@@ -472,13 +472,13 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     add_test(NAME rts_init_renderer_uninitialized_tests
         COMMAND rts_init_renderer_uninitialized_tests)
-    # Pass repo root via env var per CPP-D-18.1 reproducible-build invariant (no
+    # Pass repo root via env var per the reproducible-build invariant (no
     # compile-time CMAKE_CURRENT_SOURCE_DIR defines); the local-dev fallback when
     # ALETHEIA_LIB is unset.
     set_tests_properties(rts_init_renderer_uninitialized_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
-    # Layer 6: Feature matrix parity test (yaml-cpp, Catch2). Reads
+    # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
     # ("<header>#<symbol>") resolves to an existing header containing the
     # symbol as a whole-word match. Parity source: docs/FEATURE_MATRIX.yaml.
@@ -486,7 +486,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(feature_matrix_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
-    # CPP-D-18.1 R23: pass repo root via env var, not compile-time define,
+    # Pass repo root via env var, not compile-time define,
     # so the binary is bit-identical regardless of build location
     # (reproducible-build invariant).
     set_tests_properties(feature_matrix_tests PROPERTIES
@@ -503,11 +503,11 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set_tests_properties(cli_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
 
-    # Layer 6b: Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
+    # Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
     # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend
     # workflow capturing LogRecord events, and asserts each emitted event is
     # a member of the canonical name set. The "missing mechanism" gate added
-    # alongside R18 cluster 10's surface fix (Go's rogue dbc.text_parsed event).
+    # alongside the surface fix for Go's rogue dbc.text_parsed event.
     # rts_setup_listener.cpp: set_properties renders the condition descriptions,
     # which (point 2) needs the GHC RTS up; this mock-backend test creates no real
     # FfiBackend, so the listener brings the runtime up for the process.
@@ -516,11 +516,11 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(log_events_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME log_events_tests COMMAND log_events_tests)
-    # CPP-D-18.1 R23: see feature_matrix_tests above.
+    # See feature_matrix_tests above.
     set_tests_properties(log_events_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
-    # R18 cluster 5 — Cat 33d cross-binding integration. Counterpart of
+    # Cat 33d cross-binding integration. Counterpart of
     # python/tests/test_cross_binding_integration.py and
     # go/aletheia/cross_binding_integration_test.go.  No shared corpus or
     # golden output — each binding asserts its own response against the
@@ -532,7 +532,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_test(NAME cross_binding_integration_tests
         COMMAND cross_binding_integration_tests)
 
-    # Layer 7: Track D.1 doc-example harness (R17-DEF-6).
+    # Doc-example harness.
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root
     # conftest.py and go/aletheia/doc_examples_test.go. Every ```cpp fence
@@ -563,12 +563,12 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     elseif(ALETHEIA_SANITIZER STREQUAL "thread")
         set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=thread")
     endif()
-    # CPP-D-18.1 R23: ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE moved
+    # ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE moved
     # to runtime env vars via set_tests_properties below; the remaining
     # defines (CXX / LIB_FILE / YAML_LIB / OPENXLSX_LIB / SANITIZER_FLAG)
     # come from CMake-resolved tool paths and TARGET_FILE generator
     # expressions, not from CMAKE_CURRENT_SOURCE_DIR.  Reproducibility of
-    # those is a separate concern tracked outside R23.
+    # those is a separate concern.
     target_compile_definitions(doc_example_tests
         PRIVATE
             ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
@@ -581,7 +581,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set_tests_properties(doc_example_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-    # R18 cluster 5 — Cat 33b libFuzzer harnesses.  Opt-in via
+    # Cat 33b libFuzzer harnesses.  Opt-in via
     # -DALETHEIA_FUZZ=ON because the harnesses require clang with
     # -fsanitize=fuzzer, which is incompatible with gcc-built artifacts in
     # the same build dir.  Build in a separate directory:
@@ -619,7 +619,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(benchmark benchmarks/benchmark.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
 
-    # Stability benchmark (R18 cluster 6 / C++ cat 26 long-run leak detection).
+    # Stability benchmark (C++ cat 26 long-run leak detection).
     # Same dlopen/.so requirement as `benchmark`.  Output is JSON to stdout.
     add_executable(stability_bench benchmarks/stability_bench.cpp)
     target_link_libraries(stability_bench PRIVATE aletheia-cpp)

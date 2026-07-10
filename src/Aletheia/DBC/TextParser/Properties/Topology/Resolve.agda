@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.7 — `resolveSignalList`-roundtrip.
+-- `resolveSignalList`-roundtrip.
 --
 -- Proves that on the formatter-emitted RawSignal list, `resolveSignalList`
 -- recovers the original `List DBCSignal` exactly.  The conversion has two
@@ -24,7 +24,7 @@
 -- top.  Each step calls `buildSignal-roundtrip` then recurses.  Empty
 -- list closes via `just []`.
 --
--- 3d.8 will combine this with `parseSignalLines-roundtrip` (3d.6) and a
+-- A later composer combines this with `parseSignalLines-roundtrip` and a
 -- BO_-header `messageHeaderFmt` to close `parseMessage-roundtrip`.
 module Aletheia.DBC.TextParser.Properties.Topology.Resolve where
 
@@ -198,10 +198,9 @@ startBit-recovers sig fb fb≤64 wf-sd pv
 -- ============================================================================
 
 -- Extract the `1 ≤ bitLength` witness from a `PhysicallyValid` certificate.
--- Both LE and BE constructors carry it (R5-B1 / R6-B7.1 closure 2026-05-15
--- extended LE pv-LE with the constraint that pv-BE already had; here we
--- collapse the dispatch back into a single accessor for the buildSignal
--- gate discharge below).
+-- Both LE and BE constructors carry it (pv-LE was extended with the
+-- constraint that pv-BE already had; here we collapse the dispatch back
+-- into a single accessor for the buildSignal gate discharge below).
 physicallyValid-len-pos : ∀ (sig : DBCSignal) (fb : ℕ)
   → PhysicallyValid fb sig
   → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef sig)
@@ -218,7 +217,7 @@ physicallyValid-len-pos _ _ (pv-BE _ lp _ _)   = lp
 --   3. `startBit-recovers` collapses the convertStartBit ∘ unconvertStartBit
 --      composition (uses startBit-bound + convert-unconvert-id internally).
 --   4. `presence-eq` substitutes presence-result for sig.presence.
--- E.9a: buildSignal hardcodes `valueDescriptions = []`, so the recovered
+-- buildSignal hardcodes `valueDescriptions = []`, so the recovered
 -- record matches `clearVds sig` (sig modulo the cleared VAL_ field).  The
 -- Universal at the top-level layer threads `attachValueDescs ∘
 -- collectFromMessages ≡ id` on the cleared form (Refine bridge)
@@ -278,7 +277,7 @@ buildSignal-fields-recover sig fb presence-result fb≤64 wf-sig pv presence-eq
 -- `just Always`).  Hence we case-split on (master, name-match) but
 -- collapse all branches to the same fields-recover application.
 --
--- E.9a: result is `just (clearVds sig)` (buildSignal hardcodes vds = []);
+-- The result is `just (clearVds sig)` (buildSignal hardcodes vds = []);
 -- the Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
 -- post-buildSignal to recover the original.
 buildSignal-roundtrip-Always :
@@ -304,7 +303,7 @@ buildSignal-roundtrip-Always master fb sig m presence-eq fb≤64 wf-sig pv
 -- ONLY when `m = just <Identifier with name = sig-master's name>` —
 -- otherwise resolvePresence fails (m=nothing) or builds the wrong
 -- presence (wrong identifier).  Take m = just sig-master directly via
--- the `m-eq` hypothesis (3d.7 caller derives this from MasterCoherent
+-- the `m-eq` hypothesis (the caller derives this from MasterCoherent
 -- + findMuxName-result).
 buildSignal-roundtrip-When :
     ∀ (master : Maybe (List Char)) (fb : ℕ) (sig : DBCSignal)
@@ -472,9 +471,9 @@ data SigOK (m : Maybe Identifier) (fb : ℕ) : DBCSignal → Set where
 -- roundtrip (Always or When branch per the SigOK constructor) and
 -- recurses on the tail.
 --
--- E.9a: result is `just (map clearVds sigs)` (not `just sigs`); the
--- per-message buildMessage-roundtrip then bridges via E.6's
--- attachValueDescs-on-collected at the Universal layer.
+-- The result is `just (map clearVds sigs)` (not `just sigs`); the
+-- per-message buildMessage-roundtrip then bridges via the
+-- attachValueDescs-on-collected lemma at the Universal layer.
 buildAllRaw-roundtrip :
     ∀ (master : Maybe (List Char)) (fb : ℕ) (m : Maybe Identifier)
       (sigs : List DBCSignal)
@@ -602,7 +601,7 @@ all-sigOK-mc-mux fb (sig ∷ rest) id masterName id-name-eq
 -- uses `master = findMuxMaster sigs`, so the parser-side roundtrip
 -- closes directly on this expression.
 --
--- E.9a: result is `just (map clearVds sigs)` (not `just sigs`); the
+-- The result is `just (map clearVds sigs)` (not `just sigs`); the
 -- per-message and Universal layers thread `attachValueDescs` to bridge
 -- the cleared form back to the original.
 resolveSignalList-roundtrip :

@@ -639,7 +639,7 @@ checks:
 }
 
 // ===========================================================================
-// R20 cluster N — adversarial-input hardening (cross-binding mirror)
+// Adversarial-input hardening (cross-binding mirror)
 // ===========================================================================
 
 func TestLoadChecksFromYAMLFile_RejectsSymlink(t *testing.T) {

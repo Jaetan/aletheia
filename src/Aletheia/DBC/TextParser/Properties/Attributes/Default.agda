@@ -2,11 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.2 — `parseRawAttrDefault` per-line construct
--- roundtrip.
+-- `parseRawAttrDefault` per-line construct roundtrip.
 --
--- B.3.d Layer 3 3d.5.d 3c-B migration: production parser is now η-style
--- over `attrDefaultFmt` (`Format/AttrLine.agda`):
+-- The production parser is now η-style over `attrDefaultFmt`
+-- (`Format/AttrLine.agda`):
 --
 --   parseRawAttrDefault =
 --     parse attrDefaultFmt >>= λ result →
@@ -29,7 +28,7 @@
 --      `SuffixStops isNewlineStart outer-suffix`).
 --   6. Lift wire→AST via `liftRavw` at the result.
 --
--- Pre-3d.5.d 3c-B: 582 file-LOC hand-written 9-step bind chain + per-shape
+-- Formerly: 582 file-LOC hand-written 9-step bind chain + per-shape
 -- value-roundtrip helpers + head-stop dispatchers (this file).
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Default where
@@ -194,9 +193,9 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tai
        (parseDecRat-bareInt-roundtrip-suffix z pos suffix ss-digit not-dot))
 
 -- ============================================================================
--- TRACE MODULE — public for Layer 3 Commit 3c.4 (`Properties/Attributes/
--- Line.agda`) to reference end positions in `parseAttrLine-roundtrip-
--- RawDefault-Rav*` result types.
+-- TRACE MODULE — public for `Properties/Attributes/Line.agda` to
+-- reference end positions in `parseAttrLine-roundtrip-RawDefault-Rav*`
+-- result types.
 -- ============================================================================
 
 -- The end position after parsing one BA_DEF_DEF_ line.  Equivalent to
@@ -209,7 +208,7 @@ module Trace (pos : Position) (name : List Char) (value-chars : List Char)
 
     -- Position after the full line emit, computed in the inline-char form
     -- mirror of `emit attrDefaultFmt (n, wire-val, tt)` for backward
-    -- compatibility with Layer 4's per-shape line dispatchers.
+    -- compatibility with the per-shape line dispatchers.
     pos8 : Position
     pos8 = advancePositions pos
              (toList "BA_DEF_DEF_ " ++ₗ cs-name ++ₗ

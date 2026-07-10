@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — AttrAssign value-bridge helpers.
+-- AttrAssign value-bridge helpers.
 --
--- Extracted from `Properties/Aggregator/Dispatcher/Attribute/Assign.agda`
--- (R22 continuation of R21 cluster 9 AGDA-D-15.1) — the file was 843 LOC
+-- Extracted from `Properties/Aggregator/Dispatcher/Attribute/Assign.agda`;
+-- the file was 843 LOC
 -- with a single ~650-LOC `private` block of 21 helpers (3 value types
 -- × 7 targets) consumed by the top-level dispatcher.  Moving them into
 -- a sibling brings the parent under the 800-LOC trigger.

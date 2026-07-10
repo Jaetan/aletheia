@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseValueTable-roundtrip` derived from
--- the universal Format DSL roundtrip.
+-- Slim `parseValueTable-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Pre-3d.5.d (3b): hand-written 790-line bind-chain proof through 9
+-- The earlier form was a hand-written 790-line bind-chain proof through 9
 -- parser primitives; total ~613 strict-code-LOC.
 --
--- Post-3d.5.d: `parseValueTable = parse ValueTable-format >>= many
+-- Now `parseValueTable = parse ValueTable-format >>= many
 -- parseNewline >>= pure` (in `TextParser.ValueTables`), and the
 -- roundtrip reduces to:
 --
@@ -22,8 +22,8 @@
 --
 -- The `ValueTableNameStop` precondition migrates upstream to
 -- `Format.ValueTable`; this module re-exports it for source compatibility
--- with the section facade and any Layer-4 composer that imported the
--- pre-3d.5.d location.
+-- with the section facade and any composer that imported the
+-- prior location.
 module Aletheia.DBC.TextParser.Properties.ValueTables.ValueTable where
 
 open import Data.Char using (Char)

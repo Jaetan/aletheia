@@ -6,7 +6,7 @@
 -- variants + bareInt-form roundtrip + refined-parser wrappers.
 -- Carved out of the historical
 -- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module
--- under the R21 cluster 9 split (closes AGDA-D-15.1 for this file).
+-- when it was split into submodules.
 --
 -- Phase organisation (preserved from the original section headers):
 --   * 6: Suffix-aware variant — per-sign branches (+ zero / + suc / neg)
@@ -76,7 +76,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase4Composition pub
 -- Phase 6: Suffix-aware variant
 -- ============================================================================
 --
--- Layer 3 line constructs (B.3.d Layer 3) consume `showDecRat-dec-chars d`
+-- Line constructs consume `showDecRat-dec-chars d`
 -- between non-empty boundaries (e.g. `EV_ … <initial> <minimum> <maximum> …`,
 -- where each value is followed by horizontal whitespace).  The closed-form
 -- `parseDecRatFrac-roundtrip` above only handles `suffix = []`; below we mirror

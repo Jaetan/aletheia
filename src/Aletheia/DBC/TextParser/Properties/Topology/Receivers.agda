@@ -2,18 +2,17 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- DSL-emit ↔ existing-formatter bridge for the receivers chunk
--- (B.3.d Layer 3 Commit 3d.5.c-η).
+-- DSL-emit ↔ existing-formatter bridge for the receivers chunk.
 --
--- Pre-ε.3 (3d.2): hosted a per-element induction (646 file-LOC /
+-- Originally: hosted a per-element induction (646 file-LOC /
 -- 417 strict-code-LOC) directly verifying the receiver-list bind chain.
 --
--- Post-ε.3 (3d.5.c-ε): `parseReceiverList` was a 3d.3-dispatcher-only
+-- Then: `parseReceiverList` became a dispatcher-only
 -- helper (`canonicalReceivers.list <$> parse canonicalReceiversFmt`)
 -- with a slim flat `parseReceiverList-roundtrip` deriving from the
 -- universal `Format.Receivers.Roundtrip.canonicalReceivers-roundtrip`.
 --
--- Post-η (3d.5.c-η): the SG_ line is itself derived from
+-- Now: the SG_ line is itself derived from
 -- `Format.SignalLine.signalLineFmt`, so the dispatcher proofs use the
 -- DSL emit directly.  `parseReceiverList` (and its roundtrip) are
 -- gone; this module survives as the formatter-equivalence bridge.
@@ -30,10 +29,10 @@
 --
 -- Private helpers (kept for the bridge):
 --   * `emit-many-eq-foldr` — pointwise `concatMap`/`foldr` reconcile.
---   * `emit-eq-emitReceivers` (3d.2 carrier) — kept as a stepping
---     stone in case future Layer-4 message-level proofs want the
+--   * `emit-eq-emitReceivers` — kept as a stepping
+--     stone in case future message-level proofs want the
 --     `mkCanonicalFromList rs` form.
---   * `mkCanonicalFromList-list-novecxxx` (3d.2 carrier) — same.
+--   * `mkCanonicalFromList-list-novecxxx` — same.
 module Aletheia.DBC.TextParser.Properties.Topology.Receivers where
 
 open import Data.Bool.Properties using (T?)

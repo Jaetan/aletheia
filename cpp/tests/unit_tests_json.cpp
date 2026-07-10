@@ -124,9 +124,9 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     CHECK(jsig["signed"] == true);
     CHECK(jsig["multiplexor"] == "MuxSelector");
     CHECK(jsig["multiplex_values"] == json::array({3}));
-    // R19 cluster 17 / PY-D-19.2: multiplexed signals now carry an
-    // explicit ``"presence": "multiplexed"`` discriminator (cross-binding
-    // parity with Agda Formatter, Go ``serializeDBC``, and Python).
+    // Multiplexed signals carry an explicit ``"presence": "multiplexed"``
+    // discriminator (cross-binding parity with Agda Formatter, Go
+    // ``serializeDBC``, and Python).
     CHECK(jsig["presence"] == "multiplexed");
 }
 
@@ -635,8 +635,8 @@ TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
 TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({"foo": "bar"})");
     CHECK_FALSE(result.has_value());
-    // R23 — AGDA-D-12.1: post-batch-shape error message reports both
-    // status= and type= since the discriminator moved.
+    // The post-batch-shape error message reports both status= and type= since
+    // the discriminator moved.
     CHECK_THAT(std::string{result.error().message()},
                ContainsSubstring("Unexpected frame response"));
 }
@@ -784,7 +784,7 @@ TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]")
 }
 
 // ===========================================================================
-// Tier 1 DBC metadata round-trip (Track B.1)
+// Tier 1 DBC metadata round-trip
 // ===========================================================================
 
 TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize][dbc]") {
@@ -941,7 +941,7 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
 }
 
 // ===========================================================================
-// Tier 2 DBC metadata round-trip (Track B.1.x) — nodes, comments, attributes
+// Tier 2 DBC metadata round-trip — nodes, comments, attributes
 // ===========================================================================
 
 TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
@@ -1190,7 +1190,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
 }
 
 TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc][tier2]") {
-    // Pre-B.1.x snapshots / hand-written JSON may omit `senders`; default to
+    // Older snapshots / hand-written JSON may omit `senders`; default to
     // an empty vector rather than rejecting.
     auto result = detail::parse_dbc_response(R"({
         "status": "success",
@@ -1228,14 +1228,14 @@ TEST_CASE("parse_dbc_response rejects unknown comment target kind",
 }
 
 // ===========================================================================
-// Track E.8 (Plan B) — `unresolvedValueDescs` parse / roundtrip
+// `unresolvedValueDescs` parse / roundtrip
 //
-// The serializer was already emitting `unresolvedValueDescs` (R18 cluster 12
-// originally caught the asymmetry: emit ✓ / parse ✗). These tests pin the
-// missing parse-arm so a future regression cannot silently re-drop the field.
+// The serializer was already emitting `unresolvedValueDescs` while the parse
+// arm was missing (emit ✓ / parse ✗). These tests pin the missing parse-arm
+// so a future regression cannot silently re-drop the field.
 // ===========================================================================
 
-TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc][trackE]") {
+TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]") {
     auto result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
@@ -1278,7 +1278,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
 }
 
 TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
-          "[json][serialize][parse][dbc][trackE][regression]") {
+          "[json][serialize][parse][dbc][regression]") {
     // Wire-roundtrip parity with Python (`_helpers.py::_normalize_raw_value_desc`)
     // and Go (`json.go::parseUnresolvedValueDescs`). Originally the C++ parser
     // dropped `unresolvedValueDescs` silently; this test pins the field through
@@ -1316,7 +1316,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     CHECK(rvd.entries[1].description == "On");
 }
 
-TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][parse][dbc][trackE]") {
+TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][parse][dbc]") {
     auto result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "1.0", "messages": []}
@@ -1392,9 +1392,9 @@ TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
 }
 
-// R23 — AGDA-D-12.1: pre-R23 a missing `timestamp` on a single-violation
-// frame was rejected; after the batch-shape migration `timestamp` is
-// optional at the parse layer (the EndStream Holds entries don't have
+// A missing `timestamp` on a single-violation frame was previously rejected;
+// after the batch-shape migration `timestamp` is optional at the parse layer
+// (the EndStream Holds entries don't have
 // one).  The Agda kernel still always emits `timestamp` on a streaming
 // Fails entry — that contract is enforced upstream, not at the parser.
 // The negative-timestamp / non-integer-timestamp validations remain.
@@ -1455,9 +1455,9 @@ TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][err
 }
 
 TEST_CASE("parse_frame_response rejects unrecognised top-level type", "[json][parse][error]") {
-    // R23 — AGDA-D-12.1: pre-R23 a top-level `status: "fails"` + `type:
-    // "property"` was the single-violation shape; that shape is now
-    // unrecognised at the top level (violations live inside
+    // A top-level `status: "fails"` + `type: "property"` was formerly the
+    // single-violation shape; that shape is now unrecognised at the top level
+    // (violations live inside
     // `property_batch.results`).  Any top-level shape that isn't ack /
     // error / property_batch is a protocol violation.
     auto result = detail::parse_frame_response(R"({

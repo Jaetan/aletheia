@@ -6,7 +6,7 @@
 -- branches + the suffix=[] top-level dispatcher
 -- (`parseDecRatFrac-roundtrip`).  Carved out of the historical
 -- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module
--- under the R21 cluster 9 split (closes AGDA-D-15.1 for this file).
+-- when it was split into submodules.
 --
 -- Phase organisation:
 --   * 4: Shared bind-chain helpers + per-sign branches (+ suc / neg / + zero).

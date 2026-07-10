@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Catch2 GENERATE-based property tests (R18 cluster 5 — Cat 33c).
+// Catch2 GENERATE-based property tests (Cat 33c).
 // Counterpart of go property_test.go and python tests/test_property_*.py.
 //
 // Round-trip + parity properties over generated input ranges.  Catch2's

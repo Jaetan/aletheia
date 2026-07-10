@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Loader-entry hardening helpers (R20 cluster N).
+// Loader-entry hardening helpers.
 //
 // Implementation of the path / size guards declared in `loader_utils.hpp`.
 // Kept out-of-line because the ZIP central-directory walker uses `<fstream>`

@@ -3,7 +3,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Per-line-construct roundtrips for the DBC environment-variable section
--- (B.3.d Layer 3 Commit 3b) — facade module.
+-- — facade module.
 --
 -- Re-exports `parseEnvVar-roundtrip` from `Properties/EnvVars/EnvVar.agda`.
 -- Mirrors the `Properties/Topology.agda` and `Properties/Preamble.agda`

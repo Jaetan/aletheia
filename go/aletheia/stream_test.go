@@ -808,7 +808,7 @@ func TestConsecutiveStartStream(t *testing.T) {
 	}
 }
 
-// --- Group R6-I: PropertyIndex out-of-bounds tests ---
+// --- PropertyIndex out-of-bounds tests ---
 
 func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 	mock := aletheia.NewMockBackend(
@@ -919,7 +919,7 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 }
 
 func TestEndStream_UncachedAtomWarning(t *testing.T) {
-	// R21 cluster 1 — AGDA-D-12.1: kernel emits one `uncached_atom`
+	// The kernel emits one `uncached_atom`
 	// warning per atom whose target signal never appeared in trace.
 	// Verifies the Go binding surfaces these on StreamResult.Warnings.
 	mock := aletheia.NewMockBackend(

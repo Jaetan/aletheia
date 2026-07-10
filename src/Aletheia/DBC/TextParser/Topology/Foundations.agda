@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Foundations subset of `Aletheia.DBC.TextParser.Topology` (B.3.d ε.2,
--- extended at η for the Format DSL `signalLineFmt` cycle break).
+-- Foundations subset of `Aletheia.DBC.TextParser.Topology`, extracted to
+-- break the Format DSL `signalLineFmt` import cycle.
 --
 -- Hosts the definitions that `Properties.Primitives`, `Attributes`,
 -- `Comments`, and the `Properties.{Attributes.Assign,Comments}` family
@@ -12,18 +12,17 @@
 -- `parseMuxMarker`, `parseByteOrderDigit`, `parseSignFlag`).
 --
 -- Splitting these out breaks the import cycle that previously forced the
--- entire DBC text-parser cluster to bottom out at the monolithic
+-- entire DBC text-parser subtree to bottom out at the monolithic
 -- `Topology` module:
 --
 --   Topology → Format → Properties.Primitives → Attributes → Topology
 --
--- After ε.2: `Properties.Primitives`/`Attributes`/etc. import from
+-- With this split, `Properties.Primitives`/`Attributes`/etc. import from
 -- `Topology.Foundations` directly, leaving `Topology.SignalLine` free to
--- import `Format.Receivers` (the ε.3 prerequisite) without resurrecting
--- the cycle.  Existing importers continue to use `Topology` as a
--- re-export facade.
+-- import `Format.Receivers` without resurrecting the cycle.  Existing
+-- importers continue to use `Topology` as a re-export facade.
 --
--- η extension (3d.5.c-η): hosts `RawSignal` + `mkRawSignal` so that
+-- This module also hosts `RawSignal` + `mkRawSignal` so that
 -- `Format.SignalLine` can build `signalLineFmt : Format RawSignal`
 -- without importing `Topology.SignalLine` (which would resurrect the
 -- cycle once `Topology.SignalLine` calls `parse signalLineFmt` for the
@@ -125,7 +124,7 @@ parseSignFlag =
 -- ============================================================================
 
 -- The 12 fields captured directly from the SG_ line, before mux
--- resolution and physical-bit clamping.  η: `receivers` is a
+-- resolution and physical-bit clamping.  `receivers` is a
 -- `CanonicalReceivers` (the canonical-form invariant is type-level so
 -- `Format.SignalLine.signalLineFmt`'s receivers field can use the iso
 -- `canonicalReceiversFmt : Format CanonicalReceivers` directly without

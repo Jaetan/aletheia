@@ -149,7 +149,7 @@ func TestProcess_RejectsOversizeJSON(t *testing.T) {
 	}
 }
 
-// R19 cluster A: per-loader bound checks for the YAML loader entry points,
+// Per-loader bound checks for the YAML loader entry points,
 // closing the cross-binding asymmetry where Python's yaml_loader caps but
 // Go's loadYAMLData / LoadChecksFromYAMLFile previously did not.
 //
@@ -239,7 +239,7 @@ func TestLoadYAMLData_InlineStringOversize(t *testing.T) {
 	}
 }
 
-// R19 cluster E1: defense-in-depth output bound on serializeDBC.
+// Defense-in-depth output bound on serializeDBC.
 // Constructs a DBCDefinition whose marshaled JSON exceeds MaxDBCTextBytes
 // and verifies serializeDBC returns *InputBoundExceededError before the
 // payload is handed to the FFI.  In normal flow the upstream parser cap
@@ -272,7 +272,7 @@ func TestSerializeDBC_RejectsOversizeOutput(t *testing.T) {
 	}
 }
 
-// R19 cluster 8 (CPP-D-21.3 cross-binding parity): ParseDBCText pre-checks
+// For cross-binding parity, ParseDBCText pre-checks
 // the inner text size against MaxDBCTextBytes before wrapping it in a JSON
 // command, so the rejection carries the precise dbc_text_input_bound_exceeded
 // wire code and a Limit field matching the inner cap.

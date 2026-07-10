@@ -45,9 +45,8 @@ func WithDefaultChecks(checks ...CheckResult) ClientOption {
 // docs/architecture/CANCELLATION.md for the cancellation contract.
 //
 // Create with [NewClient] and close with [Client.Close] (implements [io.Closer]).
-// DO NOT RE-RAISE IN REVIEW (R20-GO-A-3.7 — DROP).  Future style sweeps
-// may flag the lockCh + closeOnce pair as inconsistent sync primitives.
-// Closed DROP after re-audit: they're solving different problems.
+// The lockCh + closeOnce pair may look like inconsistent sync primitives but
+// intentionally solve different problems:
 //   - lockCh is a 1-deep channel semaphore.  Its purpose is context-aware
 //     mutual exclusion — every Client method's lock() helper does
 //     `select { case lockCh <- struct{}{}: ... case <-ctx.Done(): ... }`
@@ -160,8 +159,8 @@ func (c *Client) unlock() {
 // Behavior matches the previous open-coded `c.lock(ctx); defer
 // c.unlock(); ctx.Err()` triple — including the TOCTOU-tightening
 // recheck that catches ctx cancellation between lock acquisition and
-// the next FFI call (R19 cluster 14 / GO-A-6.1).  The name parameter
-// is the public method name used for error-wrap prefixing.
+// the next FFI call.  The name parameter is the public method name
+// used for error-wrap prefixing.
 func (c *Client) acquire(ctx context.Context, name string) (release func(), err error) {
 	if err := c.lock(ctx); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -176,8 +175,7 @@ func (c *Client) acquire(ctx context.Context, name string) (release func(), err 
 // IsClosed reports whether [Client.Close] has been called.  Acquires
 // the same internal lock as the data-path operations so the answer
 // reflects committed state (no torn reads).  Cross-binding parity
-// with Python's “AletheiaClient.is_closed“ property; R19 cluster 9
-// — GO-D-16.2.
+// with Python's “AletheiaClient.is_closed“ property.
 func (c *Client) IsClosed() bool {
 	c.lockCh <- struct{}{}
 	defer func() { <-c.lockCh }()
@@ -312,7 +310,7 @@ func (c *Client) ParseDBC(ctx context.Context, dbc DBCDefinition) (*ParsedDBC, e
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, error) {
-	// Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
+	// Defense-in-depth for cross-binding parity:
 	// reject DBC text inputs longer than MaxDBCTextBytes before wrapping
 	// them in a JSON command.  The outer MaxJSONBytes cap in processLocked
 	// covers the wrapped command separately; the additional inner cap
@@ -380,19 +378,15 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 	return parseValidationResponse(resp)
 }
 
-// DEFERRED — TRACKED (R19P2-CL10-3 — DEFER).
-// Finding: FormatDBC / FormatDBCText return-type rework (originally a String →
+// DEFERRED — TRACKED.
+// FormatDBC / FormatDBCText return-type rework (originally a String →
+// structured-result migration carrying e.g. rendering options) is deferred.
 //
-//	structured-result migration carrying e.g. rendering options) was deferred
-//	from cluster 10.
-//
-// Why DEFER: Structured-result wrapping changes the wire contract across all 3
-//
-//	bindings; benefits proper typing but unclear payoff vs migration cost.
+// Why: Structured-result wrapping changes the wire contract across all 3
+// bindings; benefits proper typing but unclear payoff vs migration cost.
 //
 // Revisit when: A consumer needs richer return metadata (e.g. structured
-//
-//	rendering options) — the migration becomes load-bearing then.
+// rendering options) — the migration becomes load-bearing then.
 //
 // FormatDBC returns the currently loaded DBC definition as parsed by the Agda core.
 // Call ParseDBC first.
@@ -417,7 +411,7 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 // FormatDBCText renders a DBCDefinition as .dbc file text via the verified
 // Agda formatter.  Inverse of [Client.ParseDBCText] at the wire level:
 // ParseDBCText(FormatDBCText(d)) returns d byte-identical for any well-formed
-// DBC (Track E.9a coverage).  Does not modify client state — pass any
+// DBC.  Does not modify client state — pass any
 // DBCDefinition value (typically from ParseDBCText, FormatDBC, or a JSON load).
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
@@ -663,7 +657,7 @@ func (c *Client) StartStream(ctx context.Context) error {
 // passed as *bool — pass nil for CAN 2.0B frames where the bits do
 // not exist on the wire.  The Aletheia kernel does not consume
 // BRS / ESI; they are pass-through metadata for binding consumers
-// and the JSON wire shape (R19P2 cluster 18).
+// and the JSON wire shape.
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) SendFrame(
@@ -879,13 +873,13 @@ func (c *Client) sendFrameLocked(
 		copy(dataCopy, data)
 		c.lastFrames[canIDKey(id)] = lastFrameData{id: id, dlc: dlc, data: dataCopy}
 	}
-	// R23 — AGDA-D-12.1: frame responses are now Ack | PropertyBatch.
+	// Frame responses are Ack | PropertyBatch.
 	// PropertyBatch carries mid-stream Satisfactions (Verdict==Holds)
 	// followed by an optional terminal Violation (Verdict==Fails);
 	// enrich every fails entry in source-order so the binding's user
 	// sees signal diagnostics on each violation in the batch.  Use the
 	// per-frame FFI extraction path (with extraction cache) — mirrors
-	// the pre-R23 enrichViolation behaviour, NOT enrichEndOfStream
+	// the enrichViolation behaviour, NOT enrichEndOfStream
 	// (which uses last-known frames and is the EndStream pattern).
 	if b, ok := fr.(PropertyBatch); ok && c.diags != nil {
 		for i := range b.Results {
@@ -968,7 +962,7 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 // enrichStreamingViolation adds a ViolationEnrichment to a streaming
 // violation entry (PropertyResult with Verdict == Fails inside a
 // PropertyBatch).  Uses the per-frame FFI extraction path via
-// extractSignalValues (cached), matching the pre-R23 enrichViolation
+// extractSignalValues (cached), matching the enrichViolation
 // behaviour.  Distinct from enrichEndOfStream, which is the
 // EndStream path and uses last-known frames rather than the current
 // frame's payload.  Caller must hold the client lock.

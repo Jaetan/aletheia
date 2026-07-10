@@ -35,6 +35,7 @@ from typing import NamedTuple, cast
 
 import pytest
 import yaml
+from _cli_check_helpers import run_captured
 from _yaml_shape import as_str_object_dict
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -163,15 +164,7 @@ def fixture_cli(request: pytest.FixtureRequest) -> CliUnderTest:
 
 def _run_cli(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     """Run one CLI invocation with the harness's fixed cwd/timeout."""
-    return subprocess.run(
-        argv,
-        cwd=_SUBPROCESS_CWD,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=_RUN_TIMEOUT_S,
-        check=False,
-    )
+    return run_captured(argv, env, cwd=_SUBPROCESS_CWD, timeout=_RUN_TIMEOUT_S)
 
 
 # ---------------------------------------------------------------------------

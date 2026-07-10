@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Top-level aggregator for the DBC text format (Track B.3.c.k).
+-- Top-level aggregator for the DBC text format.
 --
--- Wires the per-construct parsers from B.3.c.1–B.3.c.9 into a single
+-- Wires the per-construct parsers into a single
 -- `parseDBCText` combinator that consumes the whole file.  The entry
 -- point `Aletheia.DBC.TextParser.parseText` drives this combinator and
 -- folds the result into a `DBC` record; see that module for the error
@@ -24,7 +24,7 @@
 --
 -- `BO_TX_BU_` arrives here instead of in `TextParser.Topology` because it
 -- lives at the top level (sibling of `BO_`), not nested under a message.
--- It is captured as a `RawMsgSenders` (A.2, via the Format DSL `MsgSenders-
+-- It is captured as a `RawMsgSenders` (via the Format DSL `MsgSenders-
 -- format`), bucketed by `consTop (TSBOTxBu rms)` into `CollectedTop.
 -- rawMsgSenders`, and stitched back into `DBCMessage.senders` by
 -- `attachSenders` at `buildDBC` (keyed by CAN ID).  `parseMessage` leaves
@@ -53,7 +53,7 @@
 --
 -- `TopStmt` projection constraints (enforced by the drop-parsers):
 --   * Every parsed `BO_TX_BU_` line carries a `RawMsgSenders` via
---     `TSBOTxBu` (A.2); `partitionTopStmts` buckets it into `rawMsgSenders`
+--     `TSBOTxBu`; `partitionTopStmts` buckets it into `rawMsgSenders`
 --     and `buildDBC`'s `attachSenders` distributes it onto the owning
 --     message's `DBCMessage.senders` (keyed by CAN ID).
 --   * Every parsed `SG_MUL_VAL_` line collapses to `TSSigMulVal`; every
@@ -61,11 +61,11 @@
 --     `When _ (v ∷ [])` (single-value selector).
 --   * `SIG_VALTYPE_` collapses to `TSSigValType`; no float-width tags
 --     survive.
---   * `VAL_` carries a `RawValueDesc` payload via `TSValueDesc` (Phase
---     E.4); E.5's refine pass attaches it to the owning signal's
+--   * `VAL_` carries a `RawValueDesc` payload via `TSValueDesc`; a
+--     refine pass attaches it to the owning signal's
 --     `DBCSignal.valueDescriptions`.
 -- These match the existing Python pipeline's structural `DbcDefinition`
--- — the B.3.d roundtrip proof composes at that projection level.
+-- — the roundtrip proof composes at that projection level.
 module Aletheia.DBC.TextParser.TopLevel where
 
 open import Data.Char using (Char)
@@ -141,8 +141,8 @@ parseBOTxBu = do
 -- constructors (`TSSigValType` / `TSSigMulVal`) carry no payload — they mark
 -- presence of a syntactically-valid but structurally-dropped line so the
 -- refinement layer can skip them without re-parsing.  `TSValueDesc` carries
--- `RawValueDesc` post-E.4; E.5's refine pass routes it into `DBCSignal.
--- valueDescriptions`.  `TSBOTxBu` carries `RawMsgSenders` (A.2); its refine
+-- `RawValueDesc`; a refine pass routes it into `DBCSignal.
+-- valueDescriptions`.  `TSBOTxBu` carries `RawMsgSenders`; its refine
 -- pass (`attachSenders`) routes it into `DBCMessage.senders` once wired.
 data TopStmt : Set where
   TSValueTable  : ValueTable      → TopStmt
@@ -231,8 +231,8 @@ parseTopStmt pos _                    = pos , nothing
 -- record.  Wire order is preserved by right-cons insertion in
 -- `partitionTopStmts`; `rawAttributes` is fed to `refineAttributes` by
 -- the caller before becoming `DBC.attributes`; `rawValueDescs` is fed
--- to E.6's `attachValueDescs` to land on owning signals'
--- `DBCSignal.valueDescriptions` (Track E.5β).
+-- to `attachValueDescs` to land on owning signals'
+-- `DBCSignal.valueDescriptions`.
 record CollectedTop : Set where
   constructor mkCollectedTop
   field

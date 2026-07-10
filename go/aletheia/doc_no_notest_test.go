@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Cat 32 structural gate: every ```go fence in the published docs must run.
+// Structural gate: every ```go fence in the published docs must run.
 //
 // Mirror of python/tests/test_doc_examples_harness.py. The execution invariant
 // — that every runnable ```go fence actually compiles and runs end-to-end — is

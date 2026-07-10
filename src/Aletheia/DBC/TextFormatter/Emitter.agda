@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Lexical emitters for the DBC text format (Track B.3.c.1 — companion to
+-- Lexical emitters for the DBC text format (companion to
 -- `Aletheia.DBC.TextParser.Lexer`).
 --
 -- Purpose: Centralise the per-terminal canonical emission choices so every
--- higher-level emitter in B.3.c.2+ produces the same lexical image.
+-- higher-level emitter produces the same lexical image.
 --
--- Layer-1 form (B.3.d Option 3a, 2026-04-24):
+-- `List Char` substrate:
 --   Every emitter in this module is `List Char`-valued — the substrate
 --   the per-primitive roundtrip proofs reason about.  No `String` /
 --   `++ₛ` appears in the formatter; the only `String`-typed boundary
@@ -22,7 +22,7 @@
 --   * `showℕ-dec-chars` / `showℤ-dec-chars` — plain decimal digits via
 --     local structural-recursion implementations (`showNat-chars`,
 --     `showInt-chars`) so per-primitive roundtrip proofs in
---     `DecRatParse.Properties` and the upcoming layer-2 modules can
+--     `DecRatParse.Properties` and the upcoming proof modules can
 --     reason about them directly.  Stdlib's `Data.Nat.Show.show` and
 --     `Data.Integer.Show.show` use well-founded recursion via
 --     `<-wellFounded-fast` and are difficult to reason about
@@ -129,11 +129,10 @@ escapeChar-chars c = if ⌊ c ≟ᶜ '"' ⌋ then '"' ∷ '"' ∷ [] else c ∷ 
 
 -- Wrap a `List Char` in `"..."` and escape inner quotes per CSV-style DBC
 -- escape.  Matches `Lexer.parseStringLit` exactly so roundtrip proofs
--- in B.3.d compose cleanly.  The right fold accumulates the closing
--- `"` into the seed so the inner-character expansion sees its own
--- tail naturally.  Post 3d.4 + JSON-mirror takes `List Char` directly so
--- callers (`DBCSignal.unit`, `AVString` payload, attribute names) skip the
--- `toList` boundary.
+-- compose cleanly.  The right fold accumulates the closing `"` into the
+-- seed so the inner-character expansion sees its own tail naturally.
+-- Takes `List Char` directly so callers (`DBCSignal.unit`, `AVString`
+-- payload, attribute names) skip the `toList` boundary.
 quoteStringLit-chars : List Char → List Char
 quoteStringLit-chars cs =
   '"' ∷ foldr (λ c acc → escapeChar-chars c ++ₗ acc) ('"' ∷ []) cs

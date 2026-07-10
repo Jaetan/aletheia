@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Tier A single-char keyword roundtrips (B.3.d Layer 2).
+-- Tier A single-char keyword roundtrips.
 --
--- Extracted from Properties/Primitives.agda for AGDA-D-15.1 closure
--- companion to `Properties/Primitives/MuxMarker.agda`.  Both functions
+-- Extracted from Properties/Primitives.agda; companion to
+-- `Properties/Primitives/MuxMarker.agda`.  Both functions
 -- are pure single-char dispatchers — `parseByteOrderDigit` for `'0'` /
 -- `'1'` and `parseSignFlag` for `'+'` / `'-'` — and reduce
 -- definitionally on closed chars, hence the four-line `refl` proofs.

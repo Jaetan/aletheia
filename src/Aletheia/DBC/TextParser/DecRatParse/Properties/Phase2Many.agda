@@ -4,10 +4,10 @@
 
 -- Phase 2 of the `parseDecRat` roundtrip proof — `many (satisfy P)`
 -- prefix reader.  Carved out of the historical
--- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module under
--- the R21 cluster 9 split (closes AGDA-D-15.1 for this file).
+-- `Aletheia.DBC.TextParser.DecRatParse.Properties` mega-module when it
+-- was split into submodules.
 --
--- Reusable for future B.3.d layers 2–3: any primitive whose parser is
+-- Reusable for other primitives: any primitive whose parser is
 -- `some (satisfy P)` or `many (satisfy P)` over a `List Char` suffix
 -- that stops via `P c ≡ false` (or end-of-input) closes through this
 -- layer.  For DecRat specifically: `parseNatural` (integer part,

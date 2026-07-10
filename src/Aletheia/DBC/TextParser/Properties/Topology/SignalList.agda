@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.6 — `parseSignalLines-roundtrip` over the SG_ block.
+-- `parseSignalLines-roundtrip` over the SG_ block.
 --
 -- Lifts the per-MuxMarker dispatchers from `Properties.Topology.Signal`
--- (3d.5.c-η) to a list of DBCSignal under `WellFormedTextSignal` +
+-- to a list of DBCSignal under `WellFormedTextSignal` +
 -- `MasterCoherent` (only the `WellFormedTextPresence` slice of the
 -- former is needed here — the receiver-side `NoVectorXXXReceiver` and
--- master-coherence are 3d.7's concerns).
+-- master-coherence are the resolve step's concerns).
 --
 -- Composition strategy: apply the framework's universal
 -- `roundtrip (many signalLineFmt)` from `Format.agda`.  Two glue lemmas:
@@ -28,10 +28,10 @@
 --      `ParseFailsAt signalLineFmt outer-suffix` and the last-signal
 --      `SuffixStops isReceiverCont outer-suffix` are caller obligations.
 --
--- 3d.7 will compose this with `findMuxName ≡ findMuxMaster` and
+-- The resolve step composes this with `findMuxName ≡ findMuxMaster` and
 -- `buildSignal ∘ rawOf ≡ just` to recover the original `List DBCSignal`
--- from the parsed `List RawSignal`.  3d.8 ties everything together via
--- `messageHeaderFmt` + this lemma + the trailing `many parseNewline`.
+-- from the parsed `List RawSignal`.  The message composer ties everything
+-- together via `messageHeaderFmt` + this lemma + the trailing `many parseNewline`.
 module Aletheia.DBC.TextParser.Properties.Topology.SignalList where
 
 open import Data.Bool using (Bool; true; false)

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """FFI shared-library loader security tests.
 
-R19 cluster B / PY-B-26.11: ``ALETHEIA_LIB`` is implicitly trusted (anyone
-who can set the env var can already redirect us to a malicious .so), but
-the loader rejects paths that any non-owner can write to.  This catches
-the case where an unprivileged third party who cannot set the env var
-poisons an existing legitimate path.
+``ALETHEIA_LIB`` is implicitly trusted (anyone who can set the env var
+can already redirect us to a malicious .so), but the loader rejects paths
+that any non-owner can write to.  This catches the case where an
+unprivileged third party who cannot set the env var poisons an existing
+legitimate path.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class TestALETHEIALibPermissionHardening:
-    """``ALETHEIA_LIB`` permission check (R19-CARRY-6 / PY-B-26.11)."""
+    """``ALETHEIA_LIB`` permission check."""
 
     def test_world_writable_path_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

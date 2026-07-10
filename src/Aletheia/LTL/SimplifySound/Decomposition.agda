@@ -335,8 +335,6 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 -- cleanly. This pattern applies to all four -right-True/-False and two -cong-r
 -- wrappers so that each fully-reduces its empty-trace case.
 --
--- R6-B8.1 (finding A25) — DO NOT RE-RAISE IN REVIEW.
---
 -- The six empty-trace helpers below (3 for And, 3 for Or) were considered
 -- for extraction into a generic dispatcher parameterized by (And/Or,
 -- decomposition lemmas, target property). This was rejected because:
@@ -349,7 +347,7 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 --       the FinalVerdict case split — a generic dispatcher would still
 --       need the same case analysis, just with more parameters.
 -- Re-audited 2026-05-17 (per `feedback_nofix_rationale_incomplete_axis.md`,
--- asking "what's a different axis?"): the R6-B8.2 De Morgan trick that
+-- asking "what's a different axis?"): the De Morgan trick that
 -- collapsed sound-or via sound-and does NOT translate here because And and
 -- Or have asymmetric absorbers in FinalVerdict's three-valued logic
 -- (`Holds` is transparent on And but absorbing on Or; `Fails` is the

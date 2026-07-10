@@ -225,12 +225,12 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
 }
 
 // ===========================================================================
-// FFI error emission — R20 cluster K
+// FFI error emission
 // ===========================================================================
 //
 // `ErrorKind::Ffi` is declared in error.hpp ("Library load / RTS initialization
 // failure") and mirrors Python `FFIError` (python/aletheia/client/_types.py:36)
-// and Go `ErrFFI` (go/aletheia/error.go:27).  Before R20 it was never
+// and Go `ErrFFI` (go/aletheia/error.go:27).  It was previously never
 // constructed.  These tests assert the kind tag is emitted on the canonical
 // boundary-failure paths so a future regression (silent downgrade to
 // `std::runtime_error` or another kind) trips here.
@@ -263,7 +263,7 @@ TEST_CASE("make_ffi_backend with rts_cores < 1 throws Validation-kinded exceptio
 }
 
 TEST_CASE("AletheiaException is catchable as std::exception", "[error]") {
-    // Pre-R20 catch (const std::exception&) blocks must keep working after
+    // Existing catch (const std::exception&) blocks must keep working after
     // the AletheiaException migration — they catch the new exception via
     // its std::runtime_error base.
     try {

@@ -1,4 +1,4 @@
-# Sanitizer ignorelist for the C++ binding (R18 cluster 5 — Cat 33a).
+# Sanitizer ignorelist for the C++ binding (Cat 33a).
 #
 # Format: one entry per line, see
 # https://clang.llvm.org/docs/SanitizerSpecialCaseList.html.  This file is

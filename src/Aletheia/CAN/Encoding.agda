@@ -97,8 +97,8 @@ extractSignal frame sig byteOrder =
 -- Bool fast path: bounds-fits check uses `mkBoundedBitVec` (Bool dispatch
 -- via `<ᵇ-reflects-<` from stdlib), not the previous `_<?_` (Dec).
 -- MAlonzo allocation per frame-build drops from one `Dec` constructor
--- (yes/no + bound-witness slot, where the slot is `@0`-erased per R19
--- cluster D) to one `Maybe` constructor (just/nothing).  The bound proof
+-- (yes/no + bound-witness slot, where the slot is `@0`-erased) to one
+-- `Maybe` constructor (just/nothing).  The bound proof
 -- needed by `ℕToBitVec` is constructed in `mkBoundedBitVec`'s `ofʸ` arm
 -- from the `Reflects` payload and flows into ℕToBitVec's @0-erased slot —
 -- structurally cleaner than the prior `<?`-based form.
@@ -112,7 +112,7 @@ injectHelper {m} value signalDef byteOrder frame
 ... | nothing = nothing
 ... | just rawSigned
   with mkBoundedBitVec (fromSigned rawSigned (SignalDef.bitLength signalDef)) (SignalDef.bitLength signalDef)
--- AGDA-B-18.3 — STRUCTURAL DEAD BRANCH — DO NOT RE-RAISE IN REVIEW.
+-- STRUCTURAL DEAD BRANCH.
 -- The `nothing` arm below is structurally required by Agda's coverage
 -- checker (`mkBoundedBitVec`'s codomain is `Maybe (BitVec _)`, so both
 -- ctors must be handled) but is provably unreachable from any call site:

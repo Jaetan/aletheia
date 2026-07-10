@@ -106,8 +106,8 @@ data SignalPredicate : Set where
 -- Associate a SignalPredicate with its target signal name.  Lifted from
 -- `SignalPredicate.Evaluation.Properties` (where it was originally defined
 -- as a proof helper) to make it reachable from the runtime EndStream
--- warning walker (`Protocol.Handlers.handleEndStream` per R21
--- AGDA-D-12.1).  The Properties module re-uses this definition.
+-- warning walker (`Protocol.Handlers.handleEndStream`).  The Properties
+-- module re-uses this definition.
 signalOf : SignalPredicate → List Char
 signalOf (ValueP vp) = valuePredicateSignal vp
 signalOf (DeltaP dp) = deltaPredicateSignal dp

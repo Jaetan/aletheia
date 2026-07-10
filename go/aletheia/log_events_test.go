@@ -10,7 +10,7 @@
 //      YAML name set — catches a future binding-side emit-call that drifts
 //      from the cross-binding canonical set.
 //
-// This is the "missing mechanism" half of R18 cluster 10: the surface fix
+// This is the "missing mechanism" half of the fix: the surface change
 // in client.go (renaming dbc.text_parsed → dbc.parsed) closes the rogue
 // 16th event, and this test prevents the same class of drift from being
 // reintroduced silently.  Mirrors python/tests/test_log_events_parity.py
@@ -278,7 +278,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 // constructing a synthetic capture containing the rogue dbc.text_parsed
 // event and confirming the membership check flags it.  This is a unit test
 // of the gate itself — independent of any binding workflow — so we know
-// the assertion would have caught the original R18 drift even if the
+// the assertion would have caught the original drift even if the
 // workflow above were ever weakened.
 func TestLogEvents_RejectsKnownDrift(t *testing.T) {
 	canonicalEvents := loadLogEvents(t)

@@ -358,10 +358,10 @@ class TestFormatEnrichedReason:
     def test_observed_value_renders_exactly_via_kernel(self) -> None:
         """The observed value uses the kernel formatℚ (exact), not lossy %g.
 
-        Pins the r25 B5a fix (delegate rational rendering to the proven core): a
-        large integer that old `%g` mangled to scientific notation
-        (1234567 → "1.23457e+06") and a non-terminating fraction it rounded
-        ("0.333333") now render exactly.
+        Pins the exact-rendering fix (delegate rational rendering to the
+        proven core): a large integer that old `%g` mangled to scientific
+        notation (1234567 → "1.23457e+06") and a non-terminating fraction
+        it rounded ("0.333333") now render exactly.
         """
         diag = PropertyDiagnostic(signals=("Big", "Third"), formula_desc="f")
         values: dict[str, Fraction | None] = {"Big": Fraction(1234567), "Third": Fraction(1, 3)}

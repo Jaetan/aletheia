@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.c-γ.1 — Canonical receivers refinement type.
+-- Canonical receivers refinement type.
 --
 -- The DBC SG_ line carries a `receivers` field — a comma-separated list
 -- of identifiers naming the nodes that consume the signal.  Cantools
@@ -117,9 +117,9 @@ T-not-and-T {false} _ ()
 -- Build a `CanonicalReceivers` from any `List Identifier` by stripping
 -- the singleton-`Vector__XXX` placeholder and synthesising the canonical
 -- witness.  Total — every input list maps to exactly one canonical
--- output.  Subsumes the pre-γ.2 `stripVectorPlaceholder` in
+-- output.  Subsumes the former `stripVectorPlaceholder` in
 -- `TextParser.Topology` (which produced an unwitnessed `List Identifier`);
--- post-ε.3, the unwitnessed strip helper is gone entirely and the DSL
+-- the unwitnessed strip helper is now gone entirely and the DSL
 -- iso `fwd = mkCanonicalFromList` absorbs the strip into
 -- `parseReceiverList` directly.  Used by `parseSignalLine` and
 -- `parseSignalFields` to construct receivers from the parsed raw input.
@@ -136,7 +136,7 @@ mkCanonicalFromList (h ∷ s ∷ rest) = mkCanonical (h ∷ s ∷ rest) tt
 
 -- Wrapping a canonical AST's underlying list back into a CanonicalReceivers
 -- is the identity (up to witness irrelevance).  Used by JSON roundtrip
--- proofs and the γ.2 cascade — the JSON parser path strips the
+-- proofs — the JSON parser path strips the
 -- refinement (`receiverIds : List Identifier`), then `mkCanonicalFromList`
 -- re-wraps; this lemma closes the resulting `mkCanonicalFromList (.list r)
 -- ≡ r` obligation in roundtrip proofs.
@@ -156,7 +156,7 @@ mkCanonicalFromList-list (mkCanonical (r ∷ s ∷ rest) _) = refl
 -- Two `CanonicalReceivers` are propositionally equal iff their `list`
 -- char-list-of-identifiers fields are equal.  `T-irrelevant` collapses
 -- the canonical-witness slot.  Used by `Properties.Equality` for
--- DBCSignal DecEq under γ.2's retyping.
+-- DBCSignal DecEq.
 _≟ᶜʳ_ : (cr₁ cr₂ : CanonicalReceivers) → Dec (cr₁ ≡ cr₂)
 mkCanonical xs w₁ ≟ᶜʳ mkCanonical ys w₂ with ListProps.≡-dec _≟ᴵ_ xs ys
 ... | yes refl = yes (cong (mkCanonical xs) (T-irrelevant w₁ w₂))

@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtEnvVar per-line
--- construct roundtrips (3 emit shapes), η-style migration onto the
--- universal `parseAttrAssign-format-roundtrip` lemma.
+-- `parseRawAttrAssign` × ATgtEnvVar per-line construct roundtrips
+-- (3 emit shapes), η-style migration onto the universal
+-- `parseAttrAssign-format-roundtrip` lemma.
 --
 -- ATgtEnvVar is the `RatwEv ev` constructor of `RawAttrTargetWire`, routed
 -- through the `evArm` (`"EV_" ++ ws + ident + ws`) of `stdTargetWireFmt`'s
@@ -12,7 +12,7 @@
 -- msgArm) sigArm` (closed via build-EmitsOK-stdTargetWireFmt-RatwEv).  No
 -- buildCANId step (RatwEv has Identifier, not raw ℕ).
 --
--- Carries an `IdentNameStop` precondition for `ev` (Layer 4 owes it from
+-- Carries an `IdentNameStop` precondition for `ev` (owed from
 -- `validIdentifierᵇ`), used by `build-EmitsOK-stdTargetWireFmt-RatwEv`'s
 -- name-stop input.
 

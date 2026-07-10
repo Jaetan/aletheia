@@ -362,7 +362,7 @@ checkPrerequisites = do
 -- in one warm `agda --interaction-json` process (tools.warm_check_properties).
 -- Each is unreachable from Main.agda's runtime closure, so the main
 -- build walk does not cover it; each is an explicit walk root, and dropping one
--- silently stops type-checking its subtree (B.3.d Commit 4/6 shipped a latent
+-- silently stops type-checking its subtree (a former commit shipped a latent
 -- `RawSignal : ℚ`-vs-DecRat mismatch in TextParser/Topology precisely because a
 -- root was missing).  Rationale per `feedback_check_properties_aggregator_walks`;
 -- per-module history is in this file's git log (pre-refactor inline comments).
@@ -530,13 +530,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "check-invariants" $ do
         -- Enforce "postulates and Unsafe modules are limited to the
-        -- allowlisted B.3.d substrate" project-wide.
+        -- allowlisted substrate" project-wide.
         --
         -- Allowlist policy: exactly one Unsafe module is permitted —
         -- `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`,
         -- which carries the two `String ↔ List Char` bridging axioms
         -- (`toList∘fromList`, `fromList∘toList`) needed to compose the
-        -- B.3.d universal roundtrip theorem.  These mirror stdlib's
+        -- universal roundtrip theorem.  These mirror stdlib's
         -- `Data.String.Unsafe` (proven by `trustMe` under `--with-K`),
         -- which is structurally unprovable in `--safe --without-K`.
         -- Any other `Unsafe`-named module OR any other `^postulate`
@@ -576,7 +576,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                     ++ show unauthorisedUnsafe
             error "check-invariants failed"
         putInfo $ "Invariants OK: postulates and Unsafe modules limited "
-               ++ "to the allowlisted B.3.d substrate."
+               ++ "to the allowlisted substrate."
 
     phony "check-no-properties-in-runtime" $ do
         -- Runtime modules must not import Properties modules; a Properties
@@ -637,19 +637,18 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "check-erasure" $ do
         -- Guard the FFI marshaling assumptions about MAlonzo output shape.
-        -- After R18 cluster 17 (AGDA-B-22.1), CANId proof fields are
-        -- `.(…)`-irrelevant — MAlonzo erases the cell entirely, so the
-        -- constructors compile to single-Integer shape (no `AgdaAny`
-        -- proof slot). Marshal.hs `mkAgdaCanId` constructs without the
-        -- second arg. Timestamp comparisons rely on the newtype
-        -- compilation to avoid a hot-path allocation.
+        -- CANId proof fields are `.(…)`-irrelevant — MAlonzo erases the
+        -- cell entirely, so the constructors compile to single-Integer
+        -- shape (no `AgdaAny` proof slot). Marshal.hs `mkAgdaCanId`
+        -- constructs without the second arg. Timestamp comparisons rely
+        -- on the newtype compilation to avoid a hot-path allocation.
         -- If either assumption regresses we want a clear early failure
         -- before ConstructorTest runs.
         need ["build/libaletheia-ffi.so"]
         frame <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Frame.hs"
         time  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Trace/Time.hs"
-        -- Single-Integer ctor shape post-R18 cluster 17 — irrelevant proof
-        -- erased; reject any reintroduction of an `AgdaAny` proof slot.
+        -- Single-Integer ctor shape — irrelevant proof erased; reject any
+        -- reintroduction of an `AgdaAny` proof slot.
         -- Match by absence of the AgdaAny-shaped form rather than positive
         -- presence: MAlonzo formats the data declaration on one line
         -- (`data T_CANId_8 = C_Standard_12 Integer | C_Extended_16 Integer`),
@@ -661,9 +660,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
               not ("C_Extended_16 Integer AgdaAny" `isInfixOf` frame)
         unless canIdErasure $
           error $ "check-erasure failed: CAN ID constructor shape drifted "
-               ++ "from the post-R18-cluster-17 single-Integer form. "
+               ++ "from the single-Integer form. "
                ++ "Either MAlonzo regressed and re-emits the proof slot, or "
-               ++ "the AGDA-B-22.1 `.(…)` irrelevance was reverted. "
+               ++ "the `.(…)` irrelevance was reverted. "
                ++ "Marshal.hs mkAgdaCanId assumes single-arg constructors; "
                ++ "fix the source of drift before this regresses end-to-end."
         let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
@@ -692,10 +691,10 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
                ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
         -- Maybe / Sigma builtin constructor names used by Marshal.hs +
-        -- BinaryOutput.hs.  R19 cluster 13 — AGDA-D-30.1 / AGDA-D-GA23.2:
-        -- the FFI shim's `unsafeCoerce` sites assume specific MAlonzo
-        -- constructor shapes for Agda.Builtin.Maybe and Agda.Builtin.Sigma;
-        -- a stdlib bump or builtin-module rename can drift them silently.
+        -- BinaryOutput.hs.  The FFI shim's `unsafeCoerce` sites assume
+        -- specific MAlonzo constructor shapes for Agda.Builtin.Maybe and
+        -- Agda.Builtin.Sigma; a stdlib bump or builtin-module rename can
+        -- drift them silently.
         maybeBase <- liftIO $ readFile "build/MAlonzo/Code/Agda/Builtin/Maybe.hs"
         sigmaBase <- liftIO $ readFile "build/MAlonzo/Code/Agda/Builtin/Sigma.hs"
         let maybeCtors =
@@ -726,8 +725,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- during the Main.hs build rule), which keeps AletheiaFFI.hs in
         -- sync with the mangled names.
         --
-        -- R20 cluster I — AGDA-D-30.1.  Each non-blank, non-`#` snapshot
-        -- line carries one of three kind prefixes:
+        -- Each non-blank, non-`#` snapshot line carries one of three
+        -- kind prefixes:
         --   * `F: <module>:<name>` — function export (`d_*`).  Validated
         --     by `(name ++ " ::") isInfixOf module-source`.
         --   * `C: <module>:<name>` — data constructor tag (`C_*`).
@@ -735,7 +734,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         --   * `T: <module>:<name>` — type tag (`T_*`).  Validated against
         --     the `data` / `newtype` declaration header.
         -- Lines with no prefix are treated as `F:` for back-compat with
-        -- the pre-R20 snapshot format.
+        -- the earlier snapshot format.
         need ["build/MAlonzo/Code/Aletheia/Main.hs"]
         let snapshotFile = "haskell-shim/ffi-exports.snapshot"
         snapshotContent <- liftIO $ readFile snapshotFile
@@ -759,14 +758,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 | Just p <- map parseSnapshotLine (lines snapshotContent)
                 ]
         -- Load every module mentioned in the snapshot, not just those in
-        -- `ffiExports`.  R19 cluster 13 — AGDA-D-30.2 extended the snapshot
-        -- to cover indirect helper accessors (Sigma fst/snd, DLC, Rational
-        -- numerator/denominator, BatchExtraction values/errors/absent);
-        -- R20 cluster I — AGDA-D-30.1 added constructor / type tags for
-        -- the load-bearing MAlonzo types that AletheiaFFI.hs constructs
-        -- or unsafe-coerces through (StreamState, CANId, DLC, Sum, etc.)
-        -- — these are NOT in `ffiExports` because they are not `foreign
-        -- export` targets, only their constructor numbering is.
+        -- `ffiExports`.  The snapshot covers indirect helper accessors
+        -- (Sigma fst/snd, DLC, Rational numerator/denominator,
+        -- BatchExtraction values/errors/absent) plus constructor / type
+        -- tags for the load-bearing MAlonzo types that AletheiaFFI.hs
+        -- constructs or unsafe-coerces through (StreamState, CANId, DLC,
+        -- Sum, etc.) — these are NOT in `ffiExports` because they are not
+        -- `foreign export` targets, only their constructor numbering is.
         let snapshotModules = nub [m | (_, m, _) <- expected]
         moduleContents <- liftIO $ forM snapshotModules $ \m -> do
             let path = "build/MAlonzo/Code" </> m <.> "hs"
@@ -833,7 +831,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- in-place from the current MAlonzo output.  Run after an intentional
         -- Agda refactor that changes the mangled numbers.
         --
-        -- Preservation contract (R20 cluster I follow-up — the original regen
+        -- Preservation contract (the original regen
         -- iterated only `ffiExports` and overwrote the whole file, which would
         -- have silently dropped every C: constructor / T: type / indirect F:
         -- helper line on first re-run):
@@ -844,7 +842,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         --     `<funcName>` match an entry in `ffiExports` get their NN
         --     refreshed from MAlonzo.
         --   * `F: …` lines that do NOT match any `ffiExports` entry (the
-        --     R19 cluster 13 indirect-helper block) are preserved verbatim.
+        --     indirect-helper block) are preserved verbatim.
         --   * If an `ffiExports` entry has no matching `F:` line in the
         --     snapshot (newly added export), we error out with a placeholder
         --     suggestion rather than silently dropping it.
@@ -1004,7 +1002,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_spdx_headers"
 
     phony "check-gate-claim" $ do
-        -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
+        -- Gate-claim integrity enforcer.
         -- Mechanical enforcer for `memory/feedback_gate_claim_integrity.md`.
         -- When a commit message contains a gate-clean assertion ("all gates
         -- clean", "gates green", etc.), verify that build/libaletheia-ffi.so
@@ -1015,7 +1013,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_gate_claim" "HEAD"
 
     phony "check-runbook" $ do
-        -- Runbook coverage gate (R18 cluster 4).  AGENTS.md cat 22 mandates
+        -- Runbook coverage gate.  AGENTS.md cat 22 mandates
         -- that every structured log event the bindings emit has a matching
         -- entry in docs/operations/RUNBOOK.md.  This script parses
         -- docs/LOG_EVENTS.yaml and verifies every event name appears as a
@@ -1024,7 +1022,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_runbook_coverage"
 
     phony "check-limits-parity" $ do
-        -- Limits SSOT parity gate (post-R20 DEFERRALS sweep).  The Agda
+        -- Limits SSOT parity gate.  The Agda
         -- `Aletheia.Limits` module is the single source of truth for every
         -- adversarial-input bound (AGENTS.md universal rule).  The Go
         -- binding mirrors a subset at `go/aletheia/limits.go` for
@@ -1039,7 +1037,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do
-        -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
+        -- Stability-bench coverage gate.  AGENTS.md cat 16 /
         -- 25 / 26 / 27 mandate per-binding long-run leak detection harnesses
         -- (RSS, FD, threads/goroutines, malloc_info, StablePtr / ctypes /
         -- logger handlers).  This script parses docs/STABILITY_BENCH.yaml
@@ -1051,7 +1049,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_stability_bench"
 
     phony "check-mutation-setup" $ do
-        -- Mutation-setup coverage gate (R18 cluster 7).  AGENTS.md cat 14(g)
+        -- Mutation-setup coverage gate.  AGENTS.md cat 14(g)
         -- mandates per-binding mutation testing on hot-path modules.  This
         -- script parses docs/MUTATION_BENCH.yaml and verifies every declared
         -- hot-path source file exists on disk — catches silent removal /
@@ -1064,9 +1062,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_mutation_setup"
 
     phony "check-bound-enforcement" $ do
-        -- Adversarial-input bound enforcement gate (R20 cluster I /
-        -- AGDA-D-32.5).  AGENTS.md universal rule "Adversarial-input bounds
-        -- at parser surfaces" requires every `BoundKind` ctor in
+        -- Adversarial-input bound enforcement gate.  AGENTS.md universal
+        -- rule "Adversarial-input bounds at parser surfaces" requires
+        -- every `BoundKind` ctor in
         -- `Aletheia.Limits` to surface as a typed
         -- `Error.InputBoundExceeded <Ctor> observed limit` at some parser
         -- or handler boundary.  This script parses the `data BoundKind`
@@ -1105,7 +1103,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             ++ "[ \"$(basename \"$d\")\" = 'aletheia-" ++ distVer
             ++ "' ] || rm -rf \"$d\"; done"
 
-        -- CICD-5.2 (R23): dist must NOT ship a tarball that skipped the proof
+        -- CICD-5.2: dist must NOT ship a tarball that skipped the proof
         -- tree.  Pre-push hook is the canonical defense; bind the proof gates
         -- here too as defense-in-depth so direct `cabal run shake -- dist`
         -- invocations cannot side-step them.  Adds ~10 min to a release cut.
@@ -1375,7 +1373,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]
-        -- R19 cluster E2 (CICD-3.1 closure): strip secret env vars
+        -- CICD-3.1 closure: strip secret env vars
         -- before invoking pip3 so a future CI workflow that wires
         -- this target doesn't leak ambient credentials to the package
         -- index resolver.  Stripped: GitHub Actions auth tokens
@@ -1404,8 +1402,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             "-f" "Dockerfile.runtime" "."
         Stdout imageSize <- cmd Shell "docker images aletheia:latest --format '{{.Size}}'"
 
-        -- CICD-A-5.4 R23 closure: emit an OCI-image SBOM alongside the
-        -- existing dist tarball SBOM.  Three image-layer pins augment the
+        -- Emit an OCI-image SBOM alongside the existing dist tarball
+        -- SBOM.  Three image-layer pins augment the
         -- dist SBOM: the built image's content-addressed SHA-256, the
         -- digest-pinned base image (parsed from `FROM ...@sha256:...`),
         -- and the libgmp10 Debian version (parsed from the `apt-get
@@ -1560,7 +1558,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- only added to GHC in 9.10, and we pin 9.6.7 (see MANIFEST.txt).
         --
         -- Same-host reproducibility was verified empirically WITHOUT this flag
-        -- (R18 cluster 3: two clean builds → bit-identical libaletheia-ffi.so),
+        -- (two clean builds → bit-identical libaletheia-ffi.so),
         -- so the flag is defense-in-depth against future GHC C-side embeds /
         -- enabling debug info on a downstream rebuild.  C++ binding gets the
         -- equivalent flag in cpp/CMakeLists.txt.

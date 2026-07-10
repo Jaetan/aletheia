@@ -70,7 +70,7 @@ handleDataFrame-guard-readyToStream n dbc props cache tf = refl
 -- Agda's listToVec applies (x % 256), but the Haskell shim constructs
 -- Vec entries directly from Word8 values (which are already in [0,255]).
 -- Since Word8 ∈ [0,255] implies n < 256, the modulo is a no-op.
--- Direct re-export of stdlib `m<n⇒m%n≡m` (R19 cluster 15 — AGDA-C-27.5);
+-- Direct re-export of stdlib `m<n⇒m%n≡m`;
 -- kept exported under the documented name because the Haskell shim cites
 -- it in `haskell-shim/src/AletheiaFFI/Marshal.hs`'s rationale comment.
 mod-identity-byte : ∀ (n : ℕ) → n < 256 → n % 256 ≡ n
@@ -94,10 +94,9 @@ classifyStepResult-continue : ∀ {n} k newProc (prop : PropertyState n)
                                 (simplify newProc))
 classifyStepResult-continue k newProc prop = refl
 
--- Satisfied → complete (property dropped from active set; AGDA-B-9.2
--- closure).  R23 — AGDA-D-12.1: `complete` now carries the property
--- index so dispatchIterResult can emit a `PropertyResult.Satisfaction`
--- at the frame where the property completed.
+-- Satisfied → complete (property dropped from active set).  `complete`
+-- carries the property index so dispatchIterResult can emit a
+-- `PropertyResult.Satisfaction` at the frame where the property completed.
 classifyStepResult-satisfied : ∀ {n} (prop : PropertyState n)
   → classifyStepResult Satisfied prop ≡ complete (PropertyState.index prop)
 classifyStepResult-satisfied prop = refl
@@ -129,9 +128,7 @@ stepProperty-halt-implies-violated dbc cache tf prop idx ce eq
 -- ============================================================================
 
 -- When iterate finds no violation AND no completions, response is Ack.
--- R23 — AGDA-D-12.1: the empty-completion-list precondition is the new
--- constraint; pre-R23 there was no completion list and a no-violation
--- frame unconditionally returned Ack.  After the change, a frame with
+-- The empty-completion-list precondition is required: a frame with
 -- one-or-more completions returns PropertyResponse (carrying the
 -- satisfaction list) rather than Ack — see dispatchIterResult-completions
 -- below for that case.
@@ -139,10 +136,9 @@ dispatchIterResult-ack : ∀ {n} dbc (ps : List (PropertyState n)) tf cache
   → proj₂ (dispatchIterResult dbc (ps , nothing , []) tf cache) ≡ Response.Ack
 dispatchIterResult-ack dbc ps tf cache = refl
 
--- R23 — AGDA-D-12.1: when iterate finds no violation but one-or-more
--- completions, response is PropertyResponse carrying the satisfaction
--- list (no violation appended).  This is the mid-stream-Satisfaction
--- emission path that did not exist pre-R23.
+-- When iterate finds no violation but one-or-more completions, response
+-- is PropertyResponse carrying the satisfaction list (no violation
+-- appended).  This is the mid-stream-Satisfaction emission path.
 dispatchIterResult-completions : ∀ {n} dbc (ps : List (PropertyState n)) (c : Fin n) cs tf cache
   → proj₂ (dispatchIterResult dbc (ps , nothing , c ∷ cs) tf cache)
     ≡ Response.PropertyResponse
@@ -152,8 +148,8 @@ dispatchIterResult-completions dbc ps c cs tf cache = refl
 -- When iterate finds a violation (just), response is PropertyResponse
 -- carrying any preceding completions followed by the violation, in
 -- source-order.  `toℕ idx` reflects the `Fin n → ℕ` wire-boundary
--- conversion done by `dispatchIterResult` (R20 cluster R6-B7.4); the
--- internal pipeline carries `Fin n` until this emission point.
+-- conversion done by `dispatchIterResult`; the internal pipeline
+-- carries `Fin n` until this emission point.
 dispatchIterResult-violation : ∀ {n} dbc (ps : List (PropertyState n)) (idx : Fin n) ce completions tf cache
   → proj₂ (dispatchIterResult dbc (ps , just (idx , ce) , completions) tf cache)
     ≡ Response.PropertyResponse
@@ -189,8 +185,7 @@ handleDataFrame-streaming dbc props prev cache tf mono
 
 -- If handleDataFrame returns Ack, then the frame was monotonic, iterate
 -- found no halt evidence, AND no property completed (no completion
--- payloads).  R23 — AGDA-D-12.1: pre-R23 only the no-halt conclusion
--- existed; mid-stream completions are now lifted to the wire, so Ack
+-- payloads).  Because mid-stream completions are lifted to the wire, Ack
 -- additionally implies the completion list is empty.  The monotonicity
 -- precondition rules out the NonMonotonicTimestamp branch (which never
 -- returns Ack).
@@ -212,8 +207,7 @@ handleDataFrame-ack-sound dbc props prev cache tf mono resp-eq
 
 -- If handleDataFrame returns PropertyResponse, then the frame was
 -- monotonic and iterate produced at least one property event (either a
--- halt evidence, one or more completion payloads, or both).  R23 —
--- AGDA-D-12.1: pre-R23 PropertyResponse meant "violation"; after the
+-- halt evidence, one or more completion payloads, or both).  With the
 -- mid-stream-Satisfaction lift, PropertyResponse means "non-empty
 -- batch" which covers completions-only frames in addition to violations.
 handleDataFrame-events-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf pr
@@ -262,10 +256,9 @@ handleDataFrame-ack-complete dbc props prev cache tf mono spec-halt spec-comp
 
 -- If the frame is monotonic and some property's stepProperty halts,
 -- handleDataFrame returns PropertyResponse carrying the preceding
--- satisfactions followed by the violation in source-order.  R23 —
--- AGDA-D-12.1: pre-R23 the conclusion was a singleton-Violation
--- PropertyResponse; after the mid-stream-Satisfaction lift the
--- violation arrives at the tail of a (possibly empty) satisfaction list.
+-- satisfactions followed by the violation in source-order.  With the
+-- mid-stream-Satisfaction lift the violation arrives at the tail of a
+-- (possibly empty) satisfaction list.
 handleDataFrame-violation-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf (idx : Fin n) ce
   → checkMonotonic prev tf ≡ nothing
   → specHalt (stepProperty dbc cache tf) props ≡ just (idx , ce)

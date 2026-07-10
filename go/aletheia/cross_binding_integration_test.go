@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Cross-binding integration test (R18 cluster 5 — Cat 33d).
+// Cross-binding integration test.
 //
 // Counterpart of python/tests/test_cross_binding_integration.py and
 // cpp/tests/test_cross_binding_integration.cpp. All three tests construct
@@ -175,7 +175,7 @@ func TestCrossBinding_SendFrameAck(t *testing.T) {
 }
 
 // TestCrossBinding_SendFrameViolation asserts the PropertyBatchResponse
-// path (R23 — AGDA-D-12.1): a violating frame returns PropertyBatch
+// path: a violating frame returns PropertyBatch
 // carrying at least one PropertyResult with Verdict == Fails.
 func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	c := newCrossBindingClient(t)
@@ -214,7 +214,7 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_SendFrameMultiEvent asserts the R23 — AGDA-D-12.1
+// TestCrossBinding_SendFrameMultiEvent asserts the
 // multi-event batch: a single frame can produce both a mid-stream
 // Satisfaction AND a terminal Violation in source-order.  Setup: two
 // properties — index 0 is `eventually(TestSignal == 100)` (completes
@@ -300,8 +300,7 @@ func TestCrossBinding_SendFrameError(t *testing.T) {
 }
 
 // TestCrossBinding_SendFrameBrsEsiPassthrough mirrors Python's
-// test_canfd_brs_esi_passthrough.  R19 Phase 2 cluster 18
-// (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia kernel does not consume
+// test_canfd_brs_esi_passthrough: the Aletheia kernel does not consume
 // CAN-FD BRS / ESI metadata, but the binding must accept the bits as
 // *bool params and the FFI must accept the 4 trailing u8 args without
 // crashing.  Every combination of brs / esi ∈ {nil, &true, &false}
@@ -343,7 +342,7 @@ func TestCrossBinding_SendFrameBrsEsiPassthrough(t *testing.T) {
 	}
 }
 
-// R19 cluster 8 phase e.1 — Identifier validity record enforces
+// Identifier validity record enforces
 // MaxIdentifierLength. The Agda kernel's `validIdentifierᵇ` predicate
 // gained a third conjunct asserting `length name <ᵇ suc max-identifier-
 // length`. Identifiers at the limit (128 chars) still parse; anything
@@ -401,16 +400,16 @@ func TestCrossBinding_ErrorTypeShape(t *testing.T) {
 	}
 }
 
-// R19 AGDA-D-13.4 phase 2a — typed NestingDepth wire-error refinement.
+// Typed NestingDepth wire-error refinement.
 // A deeply-nested LTL formula triggers the kernel-side `jsonDepth`
 // check at `handleParsedJSON`, which emits
 // `ParseErr (InputBoundExceeded NestingDepth …)` instead of the
-// pre-phase-2a `DispatchErr InvalidJSON`.  The wire response now carries
+// former `DispatchErr InvalidJSON`.  The wire response now carries
 // `bound_kind / observed / limit`, lifted into `*InputBoundExceededError`
 // by `checkErrorStatus`.  Mirrors Python's
 // `TestNestingDepthBound::test_nested_at_depth_63_rejected`.
 //
-// Phase 2b (AtomCount) note: `inputBoundExceededFromResponse` is BoundKind-
+// AtomCount note: `inputBoundExceededFromResponse` is BoundKind-
 // generic — it dispatches on `bound_kind` string, not on `code`.  This
 // NestingDepth test exercises the same lifter that handles AtomCount
 // (>1024 atom-per-property) and IdentifierLength.  AtomCount over-bound

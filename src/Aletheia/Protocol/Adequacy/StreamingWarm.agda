@@ -94,17 +94,15 @@ open import Aletheia.Protocol.Adequacy.WarmCache using (AllCached; warm-cache-ag
 -- `nothing ≡ just v` is uninhabited. Local helper to avoid littering the
 -- proof with inline `λ ()` at each impossible branch.
 --
--- DO NOT RE-RAISE IN REVIEW (R20-AGDA-D-19.3 / R20-AGDA-D-GA20.1 — FP-VERIFIED).
---   Future Cat 27 "stdlib coverage" sweeps may flag this as re-inventing
---   `Data.Maybe.Properties.just≢nothing`.  Closed FP after re-audit: the
---   stdlib equivalent gives the OPPOSITE direction (`just v ≡ nothing → ⊥`),
---   so adoption requires `≢-sym` wrapping + an import.  Local 2-line
---   absurdity helper is shorter than the stdlib path AND reads more
---   directly at the call sites (`⊥-elim (nothing≢just eq)` matches the
---   shape of `eq : nothing ≡ just v` produced by the `with`-discrimination
---   on line 213/215).  Revisit only if stdlib gains a directly-signatured
---   `nothing≢just`, OR a project-wide audit standardises on stdlib
---   absurdity imports.
+-- This local helper is preferred over the stdlib
+-- `Data.Maybe.Properties.just≢nothing`: the stdlib equivalent gives the
+-- OPPOSITE direction (`just v ≡ nothing → ⊥`), so adoption requires
+-- `≢-sym` wrapping + an import.  The local 2-line absurdity helper is
+-- shorter than the stdlib path AND reads more directly at the call sites
+-- (`⊥-elim (nothing≢just eq)` matches the shape of `eq : nothing ≡ just v`
+-- produced by the `with`-discrimination on line 213/215).  Revisit only if
+-- stdlib gains a directly-signatured `nothing≢just`, or a project-wide
+-- audit standardises on stdlib absurdity imports.
 private
   nothing≢just : ∀ {A : Set} {v : A} → _≡_ {A = Maybe A} nothing (just v) → ⊥
   nothing≢just ()
@@ -356,7 +354,7 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- UNCONDITIONAL STREAMING ADEQUACY
 -- ============================================================================
 
--- R21 cluster 1 — AGDA-D-12.1 CLOSED (walker landed via `afd28f3`):
+-- UNCACHED-ATOM DIAGNOSTICS.
 --
 -- BACKGROUND.  The `AllObserved` premise on `streaming-adequacy` (line
 -- below) is a documented caller obligation.  When violated at runtime
@@ -365,22 +363,22 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- sound (three-valued Kleene Unknown) but indistinguishable from a
 -- genuinely undecided property without diagnostic context.
 --
--- LANDED:
---   * Scaffold (`85623b7`): `WarningKind` + `Warning` ADTs (UncachedAtom
---     kind), `Response.Complete : List PropertyResult → List Warning
---     → Response`, `formatResponse` adds `warnings:[...]` field to the
+-- Mechanism:
+--   * `WarningKind` + `Warning` ADTs (UncachedAtom kind),
+--     `Response.Complete : List PropertyResult → List Warning →
+--     Response`, `formatResponse` adds the `warnings:[...]` field to the
 --     JSON envelope.
---   * Walker (`afd28f3`): `collectUncachedWarnings` in
---     `Protocol.Handlers` walks each `PropertyState`'s `atoms` list,
---     looks up each atom's `signalOf` in the cache, emits
---     `mkWarning UncachedAtom (toℕ ps.index) (fromList sigName)` on
---     miss; `handleEndStream` populates the wire field via the walker.
+--   * `collectUncachedWarnings` in `Protocol.Handlers` walks each
+--     `PropertyState`'s `atoms` list, looks up each atom's `signalOf` in
+--     the cache, emits `mkWarning UncachedAtom (toℕ ps.index) (fromList
+--     sigName)` on miss; `handleEndStream` populates the wire field via
+--     the walker.
 --   * Three bindings decode + surface the warnings list:
 --       - Python: `CompleteWarning` TypedDict + `CompleteResponse.warnings`
 --       - Go:     `StreamWarning` struct + `StreamResult.Warnings`
 --       - C++:    `StreamWarning` struct + `StreamResult::warnings`
 --     Each binding's `stream.ended` log line records `numWarnings`.
---   * Test trio (Python + Go + C++) asserts that an atom referencing an
+--   * A test trio (Python + Go + C++) asserts that an atom referencing an
 --     unobserved signal produces exactly one `uncached_atom` warning at
 --     EndStream and that all-observed traces produce none.
 --   * Feature matrix row `end_stream_uncached_atom_warnings` declares
@@ -390,31 +388,28 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- emitted unchanged.  Warnings are additive diagnostic context — they
 -- ratify (do not replace or reinterpret) the verdict.
 --
--- REQUIRED follow-ups — ✅ CLOSED 2026-05-22 (R22 AGDA-D-12.1 closure):
---   * `LogEvent.endstream.uncached_atom` enumerant — added to
---     `docs/LOG_EVENTS.yaml` (warn, new "End-of-stream diagnostics"
+-- Logging + docs mirror:
+--   * `LogEvent.endstream.uncached_atom` enumerant — in
+--     `docs/LOG_EVENTS.yaml` (warn, "End-of-stream diagnostics"
 --     section), `python/aletheia/client/_log.py` (`LogEvent`),
 --     `go/aletheia/client.go` (slog.LevelWarn emit in `EndStream`),
 --     `cpp/src/client.cpp` (`logger_.warn` in
 --     `log_end_stream_summary` helper).  Cross-binding parity tests
 --     (`test_log_events_parity.{py,go,cpp}` + `test_logging.py
---     TestEndStreamWarnings`) bump the canonical event count 15 → 16
---     and exercise the uncached_atom scenario via mock backend.
---     Per-warning events carry `property_index` + `detail` so
---     operators can grep for specific properties.
+--     TestEndStreamWarnings`) exercise the uncached_atom scenario via
+--     mock backend.  Per-warning events carry `property_index` +
+--     `detail` so operators can grep for specific properties.
 --   * `check-runbook` entry — `#### `endstream.uncached_atom``
---     section added under "End-of-stream diagnostics" in
---     `docs/operations/RUNBOOK.md`; `tools/check_runbook_coverage.py`
---     now reports 16/16 covered.
---   * PROTOCOL.md section — `§ End-of-stream Warnings` added under
---     the Complete Response, documenting wire shape (kind /
---     property_index / detail), defined kinds (currently
---     `uncached_atom`), evolution rule (7-step coordinated change
---     when adding a new kind), and the logging mirror.
+--     section under "End-of-stream diagnostics" in
+--     `docs/operations/RUNBOOK.md`; covered by
+--     `tools/check_runbook_coverage.py`.
+--   * PROTOCOL.md `§ End-of-stream Warnings` under the Complete
+--     Response documents wire shape (kind / property_index / detail),
+--     defined kinds (currently `uncached_atom`), the evolution rule for
+--     adding a new kind, and the logging mirror.
 --
--- DO NOT RE-RAISE in review.  All four pieces (scaffold / walker /
--- bindings / log+runbook+protocol mirror) are durable; cross-binding
--- parity tests + check-runbook gate enforce non-regression.
+-- Cross-binding parity tests + the check-runbook gate enforce
+-- non-regression.
 
 -- One-shot closure of the streaming adequacy chain. Composes
 -- `streaming-warms-cache` (discharges AllCached) with `warm-cache-agreement`

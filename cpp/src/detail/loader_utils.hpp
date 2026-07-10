@@ -22,7 +22,7 @@
 namespace aletheia::detail {
 
 // ---------------------------------------------------------------------------
-// Loader-entry hardening helpers (R20 cluster N — CPP-B-29.1/2/3 / CPP-D-21.2)
+// Loader-entry hardening helpers
 // ---------------------------------------------------------------------------
 
 /// Validate a loader input path: must exist, be a regular file, and NOT
@@ -30,7 +30,7 @@ namespace aletheia::detail {
 /// canonicalisation would FOLLOW the link, defeating the check.  A
 /// caller passing a legitimate symlink must resolve it before invoking
 /// the loader.  Mirrors the Python `_ffi.py` lstat-then-reject pattern
-/// from R19 cluster 12 / PY-B-26.11 (extended cross-binding here).
+/// (extended cross-binding here).
 ///
 /// `kind` ("Excel" / "YAML") is interpolated into the error message so
 /// the existing test fixtures' `ContainsSubstring("not found")` /
@@ -68,14 +68,13 @@ auto check_input_size_bound(std::uint64_t observed) -> Result<void>;
 /// uncompressed entry sizes exceeds `max_dbc_text_bytes` — defense
 /// against ZIP bombs where a small archive (e.g. ~50 KiB) decompresses
 /// to multiple GiB of XML, exhausting heap inside OpenXLSX.  Mirrors
-/// Python `_check_xlsx_uncompressed_bound` from R19 cluster 12 /
-/// PY-B-23.4.
+/// Python `_check_xlsx_uncompressed_bound`.
 ///
 /// The implementation is a minimal, defensive central-directory parser
 /// (~80 LOC) — no third-party ZIP library is pulled in.  Rationale: we
 /// already require the file to fit in `max_dbc_text_bytes` (so ZIP64 is
 /// unnecessary), reject every multi-disk / unknown structure outright,
-/// and depend only on `<fstream>`.  If a future cluster needs richer
+/// and depend only on `<fstream>`.  If future work needs richer
 /// ZIP semantics, the natural swap is `miniz` (single-header,
 /// permissive) added via `FetchContent`.
 ///
@@ -87,7 +86,7 @@ auto check_input_size_bound(std::uint64_t observed) -> Result<void>;
 auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<void>;
 
 // ---------------------------------------------------------------------------
-// Output-path hardening (CPP-B-29.3 — `create_excel_template`)
+// Output-path hardening (`create_excel_template`)
 // ---------------------------------------------------------------------------
 
 /// Validate that the parent directory of `path` exists and is itself a

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.8 — DSL-side `messageHeaderFmt`.
+-- DSL-side `messageHeaderFmt`.
 --
 -- The BO_ header line as a single `Format (ℕ × Identifier × ℕ × Identifier)`.
 -- Captures the prefix that precedes the SG_ block in `emitMessage-chars`:
@@ -11,7 +11,7 @@
 --
 -- Production `parseMessage` (in `Topology.SignalLine`) is refactored
 -- alongside this commit to drive the header through `parse messageHeaderFmt`,
--- mirroring η's `parseSignalLine = parse signalLineFmt` migration.  The
+-- mirroring the `parseSignalLine = parse signalLineFmt` migration.  The
 -- universal `roundtrip` theorem in `Format.agda` discharges the header
 -- parse-after-emit pass in one structural sweep — the SG_ block + trailing
 -- newlines + `buildMessage` close compose around it (see
@@ -24,7 +24,7 @@
 --   * `wsOpt`  — optional zero-or-more (pre-`:`, pre-newline post-sender).
 --                Canonical emit `[]`.
 --
--- Newline: re-uses η's `newlineFmt = altSum "\r\n" "\n"` exposed at the
+-- Newline: re-uses `newlineFmt = altSum "\r\n" "\n"` exposed at the
 -- top level of `Format.SignalLine`.  Canonical emit picks the lone-`\n`
 -- branch.
 --

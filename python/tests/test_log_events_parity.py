@@ -11,8 +11,8 @@ SSOT, so a future enum edit cannot drift away from Go and C++.
 
 Companion gates: ``go/aletheia/log_events_test.go`` and
 ``cpp/tests/test_log_events_parity.cpp`` — together the three tests are the
-"missing mechanism" that R18 cluster 10 attached alongside the surface fix
-of Go's rogue 16th ``dbc.text_parsed`` event.
+"missing mechanism" attached alongside the surface fix of Go's rogue 16th
+``dbc.text_parsed`` event.
 """
 
 from __future__ import annotations

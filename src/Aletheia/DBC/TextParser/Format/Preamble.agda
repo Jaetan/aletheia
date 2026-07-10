@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — DSL-side preamble formats for the DBC text
+-- DSL-side preamble formats for the DBC text
 -- format: VERSION, BS_, NS_.
 --
 -- The three preamble constructs share the framework-extension theme of
@@ -471,7 +471,7 @@ parse-nsLineFmt-fail-on-stop pos (c ∷ cs) (∷-stop h)
 
 -- Each `mkIdent (toList "kw") tt` typechecks because every NS_ keyword
 -- reduces to `T (validIdentifierᵇ (toList "kw")) ≡ ⊤` on the closed
--- string (the same canary the pre-3d.5.d `_Scratch.agda` tracked).
+-- string (the same canary the earlier `_Scratch.agda` tracked).
 private
   mkKwId : (kw : String) → {valid : T (validIdentifierᵇ (toList kw))}
          → Identifier

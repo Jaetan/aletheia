@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-A — DSL-side Formats for the BA_DEF_ /
+-- DSL-side Formats for the BA_DEF_ /
 -- BA_DEF_REL_ attribute-definition lines.
 --
 -- Grammar slice (mirrors `TextParser.Attributes`):
@@ -17,7 +17,7 @@
 --                  | "ENUM" ws string-lit ("," ws? string-lit)*
 --                  | "HEX" ws nat ws nat                    (5-way)
 --
--- Raw-ADT-in-Format pattern (3d.8 messageHeaderFmt / CM_ precedent):
+-- Raw-ADT-in-Format pattern (messageHeaderFmt / CM_ precedent):
 -- the Format DSL produces a `Raw` intermediate keeping the ENUM cons split
 -- (`RatEnum h t`) and the scope-vs-rel-scope split (`RawStdScope` /
 -- `RawRelScope`); wrappers `liftStdAttrDef` / `liftRelAttrDef` lift to the
@@ -62,8 +62,8 @@ open import Aletheia.DBC.TextParser.Format
   using (Format; literal; stringLit; pair; iso; many;
          altSum; ws; wsOpt; wsCanonOne; decRat; intDecRat; natDecRat;
          withPrefix; emit; parse; EmitsOK; ParseFailsAt; roundtrip)
--- R22 continuation of R21 AGDA-D-15.1: the HEAD-NON-HSPACE HELPERS
--- section (10 helpers) moved to a sibling submodule.
+-- The HEAD-NON-HSPACE HELPERS section (10 helpers) moved to a sibling
+-- submodule.
 open import Aletheia.DBC.TextParser.Format.AttrDef.HeadHelpers
   using (showNat-chars-head-stop;
          showInt-chars-head-stop; showDecRat-chars-head-stop;
@@ -372,8 +372,8 @@ liftRelAttrDef (s , n , t , _) =
 -- `showNat-chars-head-stop`, `showInt-chars-head-stop`,
 -- `showDecRat-chars-head-stop`, `quoted-head-stop`,
 -- `not-dot-after-space`, `assoc-bridgeᴴ`, `assoc-bridgeᴰ`) moved to
--- the sibling submodule `Format.AttrDef.HeadHelpers` (R22 continuation
--- of R21 AGDA-D-15.1).  No dependency on AttrDef's own definitions —
+-- the sibling submodule `Format.AttrDef.HeadHelpers`.  No dependency on
+-- AttrDef's own definitions —
 -- they bridge `SuffixStops … preconditions` for the EMITS-OK builders
 -- below.  Imported back at the top of this module.
 
@@ -381,7 +381,7 @@ liftRelAttrDef (s , n , t , _) =
 -- EMITS-OK BUILDERS — concrete-shape preconditions baked into signatures
 -- ============================================================================
 --
--- Per advisor (3d.5.d 3c-A): the production use site has the suffix at
+-- Per advisor: the production use site has the suffix at
 -- `attrTypeFmt`'s slot as `' ' ∷ ';' ∷ '\n' ∷ outer-line-suffix` (from
 -- the trailing `withWSCanonOne (withPrefix ";" newlineFmt)`), and at
 -- `stdScopeFmt`/`relScopeFmt`'s slot as `quoteStringLit-chars name ++

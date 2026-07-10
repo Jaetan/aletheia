@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TopStmt-level dispatcher for the typed-shadow `TAT a`
+-- TopStmt-level dispatcher for the typed-shadow `TAT a`
 -- (DBCAttribute payload).
 --
 -- 3-way façade: dispatches `DBCAttribute` to per-section sub-dispatchers.

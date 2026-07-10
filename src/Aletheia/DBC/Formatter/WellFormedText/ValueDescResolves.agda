@@ -2,15 +2,15 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Track E.8 — `ValueDescResolves` predicate: per-`RawValueDesc` cross-DBC
+-- `ValueDescResolves` predicate: per-`RawValueDesc` cross-DBC
 -- existence check for the `(canId, signalName)` lookup target.
 --
 -- Bool-decidable primary `resolvesᵇ` (delegates to `resolvesᵇ-msgs` over
 -- `DBC.messages`) + `Set` lift `ValueDescResolves = T ∘ resolvesᵇ`.
--- E.11 (validator CHECK 23 `UnknownValueDescriptionTarget`) consumes the
+-- The validator CHECK 23 `UnknownValueDescriptionTarget` consumes the
 -- Bool form; structural well-formedness consumes the Set lift.
 --
--- Wiring (Plan B, 2026-05-07): `DBC.unresolvedValueDescs` carries entries
+-- Wiring: `DBC.unresolvedValueDescs` carries entries
 -- whose `(canId, signalName)` did not resolve against `messages`.
 -- `WellFormedTextDBCAgg.unresolved-empty` requires this list to be empty for the
 -- text-roundtrip universal in `Substrate/Unsafe.agda` to close.  CHECK 23
@@ -26,10 +26,10 @@
 --                  → IdentHeadNonHSpace (DBCSignal.name sig)
 --                  → RawValueDescNameStop rvd.signalName
 --
--- so E.9's `tvd-wf` arm derives `All RawValueDescStop (collectFromMessages
+-- so the `tvd-wf` arm derives `All RawValueDescStop (collectFromMessages
 -- msgs)` directly from existing `MessageWF` data — `ValueDescResolves` is
 -- NOT needed for the universal proof.  This module is purely for the
--- validator side (E.11 CHECK 23).
+-- validator side (CHECK 23).
 module Aletheia.DBC.Formatter.WellFormedText.ValueDescResolves where
 
 open import Data.Bool using (Bool; T)

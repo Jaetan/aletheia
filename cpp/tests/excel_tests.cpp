@@ -764,7 +764,7 @@ TEST_CASE("excel: template roundtrip — load checks from empty template", "[exc
 }
 
 // ===========================================================================
-// R20 cluster N — adversarial-input hardening (CPP-B-29.1/2/3 + CPP-D-21.2)
+// Adversarial-input hardening
 // ===========================================================================
 
 TEST_CASE("excel: symlink rejected", "[excel][hardening]") {

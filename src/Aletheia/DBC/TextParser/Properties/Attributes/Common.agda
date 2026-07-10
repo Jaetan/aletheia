@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Foundations for the B.3.d Layer 3 Commit 3c attribute roundtrip
--- proofs (`BA_DEF_` / `BA_DEF_REL_` / `BA_DEF_DEF_` / `BA_` / `BA_REL_`).
+-- Foundations for the attribute roundtrip proofs
+-- (`BA_DEF_` / `BA_DEF_REL_` / `BA_DEF_DEF_` / `BA_` / `BA_REL_`).
 --
--- After the 3c-pre refinement-type refactor, `AttrValue.AVInt` carries
+-- After the refinement-type refactor, `AttrValue.AVInt` carries
 -- `IntDecRat`, `AVHex`/`AVEnum` carry `NatDecRat`.  The DecRat path
 -- covers every numeric form via `parseDecRat` (extended to accept
 -- bare-integer wire shape — `BA_ "X" 50;`-style — by treating the
@@ -23,10 +23,10 @@
 --     assumption `ValueMatchesType ty v`.
 --
 -- The `ATEnum` × `AVEnum` default-context case requires the new
--- Layer-4 debt `findLabel-nthLabel-roundtrip` (label uniqueness +
+-- owed lemma `findLabel-nthLabel-roundtrip` (label uniqueness +
 -- index bound).  Per `memory/project_b3d_layer4_owed_lemmas.md`, the
--- precondition is stated here as a hypothesis and discharged at
--- Layer 4.
+-- precondition is stated here as a hypothesis and discharged
+-- elsewhere.
 module Aletheia.DBC.TextParser.Properties.Attributes.Common where
 
 open import Data.Integer using (+_; -[1+_])
@@ -64,7 +64,7 @@ open import Aletheia.DBC.TextFormatter.Attributes using
 -- The integer-projection roundtrip on `IntDecRat` is structural — the
 -- numerator extracted by `intDecRatToℤ` round-trips through `fromℤ` to
 -- the same canonical DecRat, modulo `T`-witness irrelevance.  Used by
--- the 3c per-line proofs whenever they project an `IntDecRat` to wire
+-- the per-line proofs whenever they project an `IntDecRat` to wire
 -- form (`showInt-chars (intDecRatToℤ v)`) and need to recover the
 -- typed value.
 
@@ -176,12 +176,12 @@ refineDefaultValue-rawOfDefault-roundtrip-AVHex mn mx n
   rewrite decRatToℕ?-NatDecRat-value n | mkNatDecRatFromℕ-natDecRatToℕ n = refl
 
 -- ============================================================================
--- DEFAULT VALUE — ENUM-DEFAULT BRIDGE LEMMA (Layer-4 debt)
+-- DEFAULT VALUE — ENUM-DEFAULT BRIDGE LEMMA (owed lemma)
 -- ============================================================================
 --
 -- ENUM defaults wire as label strings (`"Normal"`); semantic form is
 -- the 0-based label index (now wrapped in `NatDecRat`).  Roundtrip
--- closure requires the Layer-4 bridge `findLabel (nthLabel n ls) ls
+-- closure requires the bridge lemma `findLabel (nthLabel n ls) ls
 -- ≡ just n`, which depends on label uniqueness + index bound — see
 -- `memory/project_b3d_layer4_owed_lemmas.md` entries #4 / #5.
 

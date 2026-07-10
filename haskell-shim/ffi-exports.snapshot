@@ -5,11 +5,11 @@
 # ones. The build system (Shakefile phony `check-ffi-exports`) diffs the
 # fresh MAlonzo output against this file and fails on mismatch.
 #
-# Format (R20 cluster I — AGDA-D-30.1):
+# Format:
 #   F: <module>:<mangled-name>   -- function export (d_*)
 #   C: <module>:<mangled-name>   -- data constructor tag (C_*)
 #   T: <module>:<mangled-name>   -- type tag (T_*)
-# Lines without a prefix are parsed as F: (back-compat with pre-R20
+# Lines without a prefix are parsed as F: (back-compat with older
 # snapshots).  Modules are the MAlonzo output files under
 # `build/MAlonzo/Code/`.
 #
@@ -36,8 +36,7 @@ F: Aletheia/Main/Binary:d_processUpdateFrameBin_86
 F: Aletheia/Main/Binary:d_processExtractBin_102
 F: Aletheia/Protocol/StreamState/Types:d_initialState_50
 
-# Indirect helper accessors used by haskell-shim FFI marshalling
-# (R19 cluster 13 — AGDA-D-30.2 / AGDA-D-17.2):
+# Indirect helper accessors used by haskell-shim FFI marshalling.
 # Drift here means the proof or runtime modules were renumbered;
 # end-to-end check-fidelity catches it eventually but at much higher cost.
 F: Aletheia/CAN/DLC:d_dlcToBytes_6
@@ -51,7 +50,7 @@ F: Agda/Builtin/Sigma:d_fst_28
 F: Agda/Builtin/Sigma:d_snd_30
 
 # ============================================================================
-# Constructor tags (C_*) — R20 cluster I (AGDA-D-30.1)
+# Constructor tags (C_*)
 # ============================================================================
 # Every C_*_NN tag that the Haskell shim constructs or pattern-matches via
 # `unsafeCoerce` is pinned here so a MAlonzo renumber surfaces as a Shake
@@ -77,7 +76,7 @@ C: Data/Sum/Base:C_inj'8321'_38
 C: Data/Sum/Base:C_inj'8322'_42
 
 # ============================================================================
-# Type tags (T_*) — R20 cluster I (AGDA-D-30.1)
+# Type tags (T_*)
 # ============================================================================
 # Every T_*_NN tag the Haskell shim names directly (in type annotations,
 # `unsafeCoerce` casts, or qualified imports of MAlonzo-generated types).

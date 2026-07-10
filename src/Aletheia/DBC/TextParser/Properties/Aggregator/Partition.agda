@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c task C — `partitionTopStmts` categorical preservation.
+-- `partitionTopStmts` categorical preservation.
 --
--- Theorem (Track E.7, 7-chunk toTopStmtsTyped):
+-- Theorem (7-chunk toTopStmtsTyped):
 --   partitionTopStmts (map (liftTopStmt defs) (toTopStmtsTyped d))
 --     ≡ mkCollectedTop (DBC.messages        d)
 --                       (DBC.valueTables     d)
@@ -74,10 +74,10 @@ partition-onto-acc-TVT defs []         acc = refl
 partition-onto-acc-TVT defs (vt ∷ vts) acc =
   cong (consTop (TSValueTable vt)) (partition-onto-acc-TVT defs vts acc)
 
--- E.9a: liftTopStmt (TM m) = TSMessage (clearBothMsg m), so the
+-- liftTopStmt (TM m) = TSMessage (clearBothMsg m), so the
 -- partitioned messages field carries `map clearBothMsg msgs`.  The
 -- Universal layer threads `attachValueDescs ∘ collectFromMessages ≡ id`
--- (E.6 + E.9a bridge) post-buildDBC to recover the original messages.
+-- post-buildDBC to recover the original messages.
 partition-onto-acc-TM :
     ∀ (defs : List AttrDef) (msgs : List DBCMessage) (acc : CollectedTop)
   → foldr consTop acc (map (liftTopStmt defs) (map TM msgs))
@@ -120,8 +120,8 @@ partition-onto-acc-TSG defs []         acc = refl
 partition-onto-acc-TSG defs (sg ∷ sgs) acc =
   cong (consTop (TSSignalGroup sg)) (partition-onto-acc-TSG defs sgs acc)
 
--- Track E.5β / E.7: TVD per-section lemma.  Mirrors the 6 above; updates
--- the `rawValueDescs` field by prepending `rvds`.  E.7 wires this into
+-- TVD per-section lemma.  Mirrors the 6 above; updates
+-- the `rawValueDescs` field by prepending `rvds`.  It wires this into
 -- `partitionTopStmts-bridge` via `collectFromMessages (DBC.messages d)`.
 partition-onto-acc-TVD :
     ∀ (defs : List AttrDef) (rvds : List RawValueDesc) (acc : CollectedTop)
@@ -131,7 +131,7 @@ partition-onto-acc-TVD defs []           acc = refl
 partition-onto-acc-TVD defs (rvd ∷ rvds) acc =
   cong (consTop (TSValueDesc rvd)) (partition-onto-acc-TVD defs rvds acc)
 
--- A.2: TBO per-section lemma.  Mirrors the 7 above; updates the
+-- TBO per-section lemma.  Mirrors the 7 above; updates the
 -- `rawMsgSenders` field by prepending `rmss`.  Wired into
 -- `partitionTopStmts-bridge` via `collectSenders (DBC.messages d)`.
 partition-onto-acc-TBO :
@@ -161,11 +161,11 @@ partitionTopStmts-foldr (x ∷ xs) =
 -- TOP-LEVEL THEOREM — categorical preservation
 -- ============================================================================
 
--- E.9a: `messages` field carries `map clearBothMsg d.messages`, NOT
+-- `messages` field carries `map clearBothMsg d.messages`, NOT
 -- `d.messages` — `liftTopStmt (TM m) = TSMessage (clearBothMsg m)` so
 -- partition extracts the cleared form.  The Universal layer threads
 -- `attachValueDescs (collectFromMessages d.messages) (map clearBothMsg
--- d.messages) ≡ d.messages` (E.6 + E.9a bridge) at buildDBC time to
+-- d.messages) ≡ d.messages` at buildDBC time to
 -- recover the originals.  The TVD chunk still uses the original
 -- `DBC.messages d` (before clearing) because the typed shadow's TVD
 -- subterm was constructed at compile time from the original DBC.
@@ -280,7 +280,7 @@ partitionTopStmts-bridge defs d =
       trans (cong (λ z → foldr consTop z chunkEV) foldr-CM-eq)
             (partition-onto-acc-TEV defs evs acc-CM)
 
-    -- E.7: TVD step between acc-EV and acc-M (TVD sits between TM and
+    -- TVD step between acc-EV and acc-M (TVD sits between TM and
     -- TEV in toTopStmtsTyped, so inside-out it sits between EV and M).
     acc-TVD : CollectedTop
     acc-TVD = record acc-EV
@@ -299,7 +299,7 @@ partitionTopStmts-bridge defs d =
       trans (cong (λ z → foldr consTop z chunkTVD) foldr-EV-eq)
             (partition-onto-acc-TVD defs rvds acc-EV)
 
-    -- A.2: TBO step between acc-TVD and acc-M (TBO sits between TM and TVD
+    -- TBO step between acc-TVD and acc-M (TBO sits between TM and TVD
     -- in toTopStmtsTyped, so inside-out it sits between TVD and M).
     acc-BO : CollectedTop
     acc-BO = record acc-TVD
@@ -397,7 +397,7 @@ partitionTopStmts-bridge defs d =
                               (foldr-++ consTop emptyCollected chunkAT _))))))))))))
 
     -- 7-arity cong helper for cleaning up `xs ++ []` to `xs` in each
-    -- field via `++ₗ-identityʳ`.  At E.7 the 7th arg covers the new
+    -- field via `++ₗ-identityʳ`.  The 7th arg covers the new
     -- TVD-chunk contribution `acc-VT.rawValueDescs ≡ rvds ++ []`.
     cong-mkCollectedTop :
         ∀ {a a' b b' c c' dd dd' e e' f f' g g' h h'} →

@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Environment-variable emitters for the DBC text format (Track B.3.c.9 —
--- companion to `Aletheia.DBC.TextParser.EnvVars`; layer-1 form 2026-04-24).
+-- Environment-variable emitters for the DBC text format (companion to
+-- `Aletheia.DBC.TextParser.EnvVars`).
 --
 -- Grammar slice emitted (mirrors `TextParser.EnvVars`):
 --   env-var      ::= "EV_" ws identifier ws? ":" ws ("0" | "1" | "2") ws
@@ -31,7 +31,7 @@
 --
 -- All four placeholders are *reparseable* by `parseEnvVar`: `""` satisfies
 -- `parseStringLit`, `0` satisfies `parseNatural`, and the two WORD tokens
--- satisfy `parseIdentifier`.  The B.3.d roundtrip proof therefore
+-- satisfy `parseIdentifier`.  The roundtrip proof therefore
 -- composes — `parseText ∘ formatText ≡ id` holds on the retained 5-field
 -- projection.
 --
@@ -39,8 +39,7 @@
 -- between entries; `emitEnvVars-chars` concatenates via `foldr` without
 -- an inter-line combinator.
 --
--- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
--- see `Emitter` module header).
+-- All emitters are `List Char`-valued (see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.EnvVars where
 
 open import Data.Char using (Char)

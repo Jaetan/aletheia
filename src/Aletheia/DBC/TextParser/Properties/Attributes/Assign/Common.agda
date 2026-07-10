@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.3 — shared helpers for the per-target
--- `parseRawAttrAssign` / `parseRawAttrRel` roundtrip proofs.
+-- Shared helpers for the per-target `parseRawAttrAssign` /
+-- `parseRawAttrRel` roundtrip proofs.
 --
 -- The 21-case dispatcher (5 standard targets × 3 emit shapes + 2 rel
 -- targets × 3 emit shapes) shares head-classify witnesses and the
@@ -67,9 +67,9 @@ digitChar-not-isHSpace 8 = refl
 digitChar-not-isHSpace 9 = refl
 digitChar-not-isHSpace (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
 
--- B.3.d 3d.5.d 3c-B Path 1: keyword-first-char inequalities used by
--- ATgtNetwork dispatchers' head-class witness construction.  Each of
--- 'B', 'S', 'E' has codepoint distinct from any digitChar d (d < 10).
+-- Keyword-first-char inequalities used by ATgtNetwork dispatchers'
+-- head-class witness construction.  Each of 'B', 'S', 'E' has codepoint
+-- distinct from any digitChar d (d < 10).
 digitChar-not-B : ∀ d → d Data.Nat.< 10 → (digitChar d ≈ᵇ 'B') ≡ false
 digitChar-not-B 0 _ = refl
 digitChar-not-B 1 _ = refl

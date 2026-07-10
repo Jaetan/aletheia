@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c task E — Universal aggregator + finalizeParse closure.
+-- Universal aggregator + finalizeParse closure.
 --
 -- The universal target:
 --
@@ -43,8 +43,7 @@ open import Aletheia.DBC.Types using
   )
 
 -- DBC-level text-roundtrip precondition.  Definition lives in its own
--- module so the type-def is split from the universal theorem (R18
--- cluster 14, AGDA-D-GA20.4).
+-- module so the type-def is split from the universal theorem.
 open import Aletheia.DBC.TextParser.WellFormed using
   (WellFormedTextDBCAgg)
 
@@ -92,7 +91,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine using
   (refineAttributes-on-rawOf)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions using
   (collectFromMessages-stops)
--- A.2: messages-field + unresolved-field bridges compose the senders inverse
+-- Messages-field + unresolved-field bridges compose the senders inverse
 -- with the VAL_ inverse over the doubly-cleared (`clearBothMsg`) parse output.
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.SendersCompose using
   (attachSenders-attachValueDescs-on-clearBothMsgs-collected;
@@ -124,12 +123,8 @@ open import Aletheia.DBC.TextFormatter.Topology using
 --
 -- `toTopStmtsTyped d` is a 7-section `++` chain (`map TX xs` per section).
 -- `All P` distributes over `++` and `map`, so we can lift each section's
--- slim precondition through its `TX` constructor.  At E.7 the TVD chunk's
--- arm is discharged vacuously: `MessageWF.vds-empty` (an E.1 interim
--- clause) lets us prove `collectFromMessages msgs ≡ []`, so `map TVD
--- (collectFromMessages msgs) ≡ []` and the `All` becomes `[]`.  E.9
--- relaxes this and replaces the vacuous arm with a derivation of
--- `All RawValueDescStop` from signal-name validity.
+-- slim precondition through its `TX` constructor.  The TVD chunk's arm
+-- derives `All RawValueDescStop` from signal-name validity.
 
 toTopStmtsTyped-wf :
     ∀ (d : DBC) → WellFormedTextDBCAgg d
@@ -169,7 +164,7 @@ toTopStmtsTyped-wf d wf =
     lift-stops TX Wf (x ∷ xs) (sx ∷ srest) f =
       f x sx ∷ lift-stops TX Wf xs srest f
 
-    -- E.9a: non-vacuous TVD arm.  `collectFromMessages-stops` derives
+    -- Non-vacuous TVD arm.  `collectFromMessages-stops` derives
     -- `All RawValueDescStop (collectFromMessages msgs)` from the
     -- structural shape of `collectFromSignals` (every rvd's signalName
     -- comes from some `s.name : Identifier`, whose `valid` witness
@@ -182,7 +177,7 @@ toTopStmtsTyped-wf d wf =
                        (collectFromMessages-stops (DBC.messages d))
                        wfTVD)
 
-    -- A.2: TBO arm.  `collectSenders-stops` derives `All RawMsgSendersStop
+    -- TBO arm.  `collectSenders-stops` derives `All RawMsgSendersStop
     -- (collectSenders msgs)` from each sender `Identifier`'s validity (head
     -- non-isHSpace), mirroring `tvd-wf`.  `lift-stops` routes through `wfTBO`.
     tbo-wf : All (TopStmtTypedWF defs) (map TBO (collectSenders (DBC.messages d)))
@@ -502,20 +497,21 @@ parseDBCText-on-formatChars d wf =
 -- ============================================================================
 --
 -- Once `parseDBCText pos (formatChars d) ≡ just (mkResult (ver, nodes,
--- stmts) pos-end [])`, `finalizeParse` walks 5 `with` steps (post E.7):
+-- stmts) pos-end [])`, `finalizeParse` walks 5 `with` steps:
 --   1. `remaining res = []` — definitional from `mkResult … []`.
 --   2. `value res = (ver, nodes, stmts)` — definitional pattern unbox.
---   3. `partitionTopStmts stmts` — Layer 4c task C bridges to
+--   3. `partitionTopStmts stmts` — the partition bridge maps to
 --      `mkCollectedTop … (map (rawOf defs) attrs) … (collectFromMessages
---      d.messages)` (E.7 wired the 7th field into `toTopStmtsTyped`).
+--      d.messages)`.
 --   4. `refineAttributes (CollectedTop.rawAttributes collected)` —
---      Layer 4c task D bridges to `just attrs`.
+--      the refine-attributes bridge maps to `just attrs`.
 --   5. `attachValueDescs (CollectedTop.rawValueDescs collected) … `
---      inside `buildDBC` — discharged via E.9a's
+--      inside `buildDBC` — discharged via
 --      `map-attachToMessage-on-clearVdsMsgs-collected` consuming
---      `msg-ids-unique` + `msg-wfs` from the WF record (E.6 layer
---      composed with the E.9a `clearVds` bridge to handle the cleared
---      messages produced by `liftTopStmt (TM m) = TSMessage (clearVdsMsg m)`).
+--      `msg-ids-unique` + `msg-wfs` from the WF record (the base
+--      value-descriptions bridge composed with the `clearVds` bridge to
+--      handle the cleared messages produced by
+--      `liftTopStmt (TM m) = TSMessage (clearVdsMsg m)`).
 -- The final `inj₂ (buildDBC ver nodes collected attrs)` reconstructs
 -- `d` by record-η.
 --

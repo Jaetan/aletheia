@@ -7,14 +7,14 @@
 -- Purpose: Core JSON value representation used throughout the protocol layer.
 -- Numbers use rationals (ℚ) for exact decimal representation.
 --
--- Track B.3.d 3d.4 + JSON-mirror (2026-04-27): `JString : List Char → JSON`
--- (was `String → JSON`). Aligns the JSON internal string representation
--- with the JSON tokenizer's working representation (which already builds
--- chars in `Parse.agda:parseStringChar`) and with Identifier's post-3d.4
--- `name : List Char`. Identifier-typed JSON fields then roundtrip
--- axiom-free; the wire-level UTF-8 representation is unchanged because
--- `JString` always serialises as `fromList chars` for output. Object keys
--- stay `String` (used as map indices, not roundtripped through wire chars).
+-- `JString` carries `List Char` (not `String`). This aligns the JSON
+-- internal string representation with the JSON tokenizer's working
+-- representation (which already builds chars in `Parse.agda:parseStringChar`)
+-- and with Identifier's `name : List Char`. Identifier-typed JSON fields
+-- then roundtrip axiom-free; the wire-level UTF-8 representation is
+-- unchanged because `JString` always serialises as `fromList chars` for
+-- output. Object keys stay `String` (used as map indices, not roundtripped
+-- through wire chars).
 module Aletheia.Protocol.JSON.Types where
 
 open import Data.Char using (Char)
@@ -42,12 +42,11 @@ data JSON : Set where
 JStringS : String → JSON
 JStringS = JString ∘ toList
 
--- R19 cluster 8 phase e.2 (companion to e.1 / e.2 pattern): structural
--- nesting depth of a JSON value.  Mirrors nlohmann/json's
+-- Structural nesting depth of a JSON value.  Mirrors nlohmann/json's
 -- `parse_event_t::object_start` / `array_start` callback semantics —
 -- primitives are depth 0, each Array/Object nesting level increments by 1.
--- Used at the parseJSON surface for a post-parse depth check that mirrors
--- e.1's Identifier length bound and e.2's atom-count bound.  Direct
+-- Used at the parseJSON surface for a post-parse depth check alongside
+-- the Identifier length bound and the atom-count bound.  Direct
 -- measurement, NOT fuel — the bound `max-nesting-depth` is the
 -- canonical adversarial-input limit (`Aletheia.Limits`, 64).
 mutual

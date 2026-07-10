@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- E.8 / E.9a — `unresolvedRVDs ∘ collectFromMessages ≡ []` inverse-bridge,
+-- `unresolvedRVDs ∘ collectFromMessages ≡ []` inverse-bridge,
 -- on the raw and the cleared (`map clearVdsMsg`) forms.
 --
--- Extracted from `Properties/Aggregator/Refine/ValueDescriptions.agda`
--- (R22 continuation of R21 cluster 9 AGDA-D-15.1) — the parent was 976
--- LOC; lifting E.8 (lines 697-899, ~203 LOC) + E.9a (lines 900-976, ~77
--- LOC) brings it under the 800-LOC trigger.
+-- Extracted from `Properties/Aggregator/Refine/ValueDescriptions.agda`;
+-- the parent was 976 LOC, and lifting these proofs (lines 697-899,
+-- ~203 LOC, and lines 900-976, ~77 LOC) brings it under the 800-LOC
+-- trigger.
 --
 -- Dependency direction: this module imports `⌊≟-CANId⌋-refl` /
 -- `⌊≟ᴵ⌋-refl` etc. from the parent.  The parent does NOT import back —
@@ -214,10 +214,10 @@ unresolvedRVDs-on-collectFromMessages msgs =
     (collectFromMessages-resolvesAll msgs)
 
 -- ============================================================================
--- E.9a — `unresolvedRVDs ∘ collectFromMessages ≡ []` on the cleared form
+-- `unresolvedRVDs ∘ collectFromMessages ≡ []` on the cleared form
 -- ============================================================================
 --
--- The Universal layer (post-E.9a) sees `CollectedTop.messages = map
+-- The Universal layer sees `CollectedTop.messages = map
 -- clearVdsMsg d.messages`, so `buildDBC` computes `unresolvedRVDs
 -- (collectFromMessages d.messages) (map clearVdsMsg d.messages)`.
 -- `clearVdsMsg` preserves `DBCMessage.id` and per-signal `DBCSignal.name`

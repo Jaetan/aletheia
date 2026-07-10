@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --without-K #-}
 
--- B.3.d substrate: bridging axioms for `String ↔ List Char` (Track B.3.d
--- layer 1 — Option 3a per `memory/project_b3d_stdlib_audit.md`).
+-- Bridging axioms for `String ↔ List Char`
+-- (see `memory/project_b3d_stdlib_audit.md`).
 --
 -- This is the *one* non-`--safe` module in the project.  See
 -- `Shakefile.hs` `check-invariants` for the explicit allowlist entry
@@ -33,12 +33,12 @@
 --   bridges the opposite direction for proofs that go from a String s
 --   through `toList s` and back.
 --
--- Post-3d.4 status (2026-04-26): pre-3d.4 this module also hosted
+-- Status (2026-04-26): this module previously also hosted
 -- `mkIdentFromCharsUnsafe`, the helper Lexer.parseIdentifier used to
 -- bridge a char-level `T (validIdentifierᵇ cs)` witness into the
 -- String-internal `T (validIdentifierᵇ (toList name))` witness required
--- by the old `Identifier.name : String` shape.  After 3d.4 lifted
--- `Identifier.name : List Char`, that helper is gone; Lexer builds the
+-- by the old `Identifier.name : String` shape.  After `Identifier.name`
+-- was lifted to `List Char`, that helper is gone; Lexer builds the
 -- Identifier directly via `mkIdentFromChars` (axiom-free) in
 -- `Aletheia.DBC.Identifier`.  This module's surface shrinks to the two
 -- axioms only.
@@ -97,10 +97,10 @@ postulate
   fromList∘toList : ∀ (s  : String)    → fromList (toList s)  ≡ s
 
 -- ============================================================================
--- B.3.d UNIVERSAL ROUNDTRIP — parseText ∘ formatText ≡ inj₂ at WF DBC
+-- UNIVERSAL ROUNDTRIP — parseText ∘ formatText ≡ inj₂ at WF DBC
 -- ============================================================================
 --
--- Closes Track B.3.d.  Lives in this module (and not a separate
+-- Lives in this module (and not a separate
 -- `Aggregator/UniversalText.agda`) by deliberate policy: the `parseText`/
 -- `formatText` String-level wrap is the SOLE consumer of `toList∘fromList`
 -- in the project, and adding a second non-`--safe` module would expand

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Cross-binding integration test (R18 cluster 5 — Cat 33d).
+// Cross-binding integration test (Cat 33d).
 //
 // Counterpart of python/tests/test_cross_binding_integration.py and
 // go/aletheia/cross_binding_integration_test.go. All three tests construct
@@ -158,18 +158,18 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
     const auto& b = std::get<PropertyBatch>(resp.value());
-    // R23 — AGDA-D-12.1: documented PropertyBatch.results entry members
-    // (PropertyResult): property_index, verdict, optional<timestamp>,
-    // reason, optional<enrichment>; assert the timestamp survived round-
-    // trip through the batch envelope.
+    // Documented PropertyBatch.results entry members (PropertyResult):
+    // property_index, verdict, optional<timestamp>, reason,
+    // optional<enrichment>; assert the timestamp survived round-trip through
+    // the batch envelope.
     const auto* v = b.first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->timestamp.has_value());
     CHECK(v->timestamp->count() > 0);
 }
 
-// R23 — AGDA-D-12.1: a single frame can produce both a mid-stream
-// Satisfaction AND a terminal Violation in the same PropertyBatch.
+// A single frame can produce both a mid-stream Satisfaction AND a terminal
+// Violation in the same PropertyBatch.
 // Setup: two properties — index 0 is `eventually(TestSignal == 100)`
 // (completes on the first witness), index 1 is `always(TestSignal < 50)`
 // (violates at the same frame because 100 > 50).
@@ -211,10 +211,9 @@ TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_b
     CHECK(b.results[1].property_index == PropertyIndex{1});
 }
 
-TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd][cluster18]") {
-    // R19 Phase 2 cluster 18 (AGDA-D-10.1 / 13.1 / 17.1): the Aletheia
-    // kernel does not consume CAN-FD BRS / ESI metadata, but the binding
-    // must accept the bits as std::optional<bool> and the FFI must accept
+TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
+    // The Aletheia kernel does not consume CAN-FD BRS / ESI metadata, but the
+    // binding must accept the bits as std::optional<bool> and the FFI must accept
     // the 4 trailing u8 args without crashing.  Every combination of
     // brs / esi in {nullopt, true, false} must return Ack for an
     // otherwise-valid frame.  Mirror of Python's
@@ -262,8 +261,8 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     CHECK_FALSE(xid.has_value());
 }
 
-// R19 cluster 8 phase e.1 — Identifier validity record enforces
-// max_identifier_length.  The Agda kernel's `validIdentifierᵇ` predicate
+// The Identifier validity record enforces max_identifier_length.  The Agda
+// kernel's `validIdentifierᵇ` predicate
 // gained a third conjunct asserting `length name <ᵇ suc max-identifier-
 // length`.  Identifiers at the limit (128 chars) still parse; anything
 // longer is rejected at `mkIdentFromChars` and surfaces as a parse error
@@ -271,7 +270,7 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
 // position semantics; refining to typed `InputBoundExceeded
 // IdentifierLength` is downstream parser-monad plumbing).
 
-TEST_CASE("identifier at max length is accepted", "[cross_binding][cluster8][e1]") {
+TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -284,7 +283,7 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding][cluster8][e1]
     CHECK(result->dbc.messages[0].name.get() == name);
 }
 
-TEST_CASE("identifier over max length is rejected", "[cross_binding][cluster8][e1]") {
+TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -295,26 +294,25 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding][cluster8][e
     REQUIRE_FALSE(result.has_value());
 }
 
-// R19 AGDA-D-13.4 phase 2a — typed NestingDepth wire-error.  A
-// deeply-nested LTL formula triggers the kernel's `jsonDepth` check at
-// `handleParsedJSON`, emitting `ParseErr (InputBoundExceeded NestingDepth …)`
-// instead of the pre-phase-2a untyped `DispatchErr InvalidJSON`.  The wire
-// carries `bound_kind / observed / limit` which `make_json_error` lifts
-// into `AletheiaError::bound_info()`.  Mirrors Python's
+// Typed NestingDepth wire-error.  A deeply-nested LTL formula triggers the
+// kernel's `jsonDepth` check at `handleParsedJSON`, emitting
+// `ParseErr (InputBoundExceeded NestingDepth …)` instead of the previously
+// untyped `DispatchErr InvalidJSON`.  The wire carries
+// `bound_kind / observed / limit` which `make_json_error` lifts into
+// `AletheiaError::bound_info()`.  Mirrors Python's
 // `TestNestingDepthBound::test_nested_at_depth_63_rejected` and Go's
 // `TestCrossBinding_NestingDepthLiftsToInputBoundExceeded`.
 //
-// Phase 2b (AtomCount) note: `make_json_error` is BoundKind-generic — it
-// reads `bound_kind` from the wire and populates `bound_info()`
-// uniformly across NestingDepth / AtomCount / IdentifierLength.  This
+// AtomCount note: `make_json_error` is BoundKind-generic — it reads
+// `bound_kind` from the wire and populates `bound_info()` uniformly across
+// NestingDepth / AtomCount / IdentifierLength.  This
 // NestingDepth test exercises the same lifter that handles AtomCount
 // (>1024 atoms-per-property).  AtomCount over-bound rejection is
 // verified at the kernel + Python boundary by
 // `python/tests/test_input_bounds.py::TestAtomCountBound`; building a
 // 1025-atom And-tree across the C++ FFI takes ~109s which is
 // unsuitable for a unit-test budget.
-TEST_CASE("nesting depth over limit lifts to InputBoundExceeded",
-          "[cross_binding][cluster8][phase2a]") {
+TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_binding]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));

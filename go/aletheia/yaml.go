@@ -30,7 +30,7 @@ func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 // Python aletheia.yaml_loader._check_input_bound and AGENTS.md
 // universal rule "Adversarial-input bounds at parser surfaces".
 //
-// R20 cluster N — also rejects symbolic links outright (cross-binding
+// Also rejects symbolic links outright (cross-binding
 // parity with C++ aletheia::detail::validate_loader_path and Python
 // aletheia._loader_utils.reject_symlink_loader_path).  Callers passing
 // legitimate symlinks must resolve them first.
@@ -74,7 +74,7 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 // (64 MiB).  Mirrors Python aletheia.yaml_loader._check_input_bound per
 // AGENTS.md universal rule "Adversarial-input bounds at parser surfaces".
 //
-// R20 cluster N — when the file branch is taken, also reject symbolic
+// When the file branch is taken, also reject symbolic
 // links (cross-binding parity with C++/Python).  Inline-content
 // branch is unaffected.
 func loadYAMLData(source string) ([]byte, error) {

@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Foundations for the universal-attribute roundtrip.
+-- Foundations for the universal-attribute roundtrip.
 --
 -- Hosts the bridges the per-shape dispatchers (Assign/String,
 -- Assign/Frac, Assign/BareInt, Default, Def) need:

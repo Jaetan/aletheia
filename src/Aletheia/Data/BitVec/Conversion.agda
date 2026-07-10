@@ -194,8 +194,8 @@ private
 -- Core conversion function: takes parity as a witness parameter
 -- This is the key: parity is DATA, not COMPUTATION
 -- Mutual with public API so core can recurse via wrapper.
--- The `value < 2 ^ n` bound is `@0`-erased (R19 cluster D, AGDA-A-16.4
--- 2026-05-09): the proof slot is structurally needed for type-checking
+-- The `value < 2 ^ n` bound is `@0`-erased: the proof slot is
+-- structurally needed for type-checking
 -- but never inspected at runtime, so MAlonzo can erase it.  Two
 -- different proofs of `value < 2 ^ n` produce propositionally equal
 -- BitVecs (witness propositional equality of `ℕToBitVec`'s output is

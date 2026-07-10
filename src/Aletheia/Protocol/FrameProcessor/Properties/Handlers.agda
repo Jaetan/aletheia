@@ -66,10 +66,10 @@ processFrameDirect-response state tf with handleDataFrame state tf
 
 -- If the frame is monotonic and formatResponse maps the handler response to
 -- the Ack JSON tree, no property was violated.
--- R23 — AGDA-D-12.1: the conclusion now ALSO surfaces the empty-
--- completion-list witness, since after the mid-stream-Satisfaction lift
--- Ack additionally implies no property completed (a completion-only
--- frame returns PropertyResponse, not Ack).
+-- The conclusion ALSO surfaces the empty-completion-list witness, since
+-- after the mid-stream-Satisfaction lift Ack additionally implies no
+-- property completed (a completion-only frame returns PropertyResponse,
+-- not Ack).
 processFrameDirect-ack-sound-json : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → formatResponse (proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)) ≡ formatResponse Ack
@@ -100,7 +100,7 @@ handleFormatDBC-preserves-state state
 ... | nothing = refl
 ... | just _  = refl
 
--- FormatDBCText (Track E.10): pipeline JSON→DBC→text, never touches state.
+-- FormatDBCText: pipeline JSON→DBC→text, never touches state.
 -- Both JSON parse failure and success paths return the input state unchanged.
 handleFormatDBCText-preserves-state : ∀ (dbcJSON : JSON) state
   → proj₁ (handleFormatDBCText dbcJSON state) ≡ state

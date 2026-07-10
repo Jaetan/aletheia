@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- E.2 bounded slice — discharge the per-section name-stop fields of
+-- Discharge the per-section name-stop fields of
 -- `WellFormedTextDBCAgg` from `Identifier` validity, leaving only the two
 -- heavy fields (`MessageWF`, `WFAttribute`) and the two validator-backed
 -- fields (`msg-ids-unique`, `unresolved-empty`) as hypotheses.

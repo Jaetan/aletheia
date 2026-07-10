@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- A.2 — composition of the BO_TX_BU_ senders inverse-bridge with the VAL_
+-- Composition of the BO_TX_BU_ senders inverse-bridge with the VAL_
 -- value-descriptions inverse-bridge.
 --
 -- `parseMessage` produces messages with BOTH `vds = []` (per signal) AND
@@ -28,7 +28,7 @@
 --   attachValueDescs (cFM msgs) (map clearBothMsg msgs)
 --     ≡ map clearSendersMsg msgs                          -- (Step 1)
 --
--- via the existing E.9a VAL_ bridge at the original `msgs`; then the
+-- via the existing VAL_ bridge at the original `msgs`; then the
 -- existing senders lifted bridge closes
 --
 --   attachSenders (collectSenders msgs) (map clearSendersMsg msgs) ≡ msgs.
@@ -40,7 +40,7 @@
 --
 -- The `All MessageWF msgs` hypothesis is forwarded opaquely to the VAL_
 -- bridge — its internal field set is never destructured here, so this module
--- is stable across the A.2 atomic commit's removal of `MessageWF.senders-
+-- is stable across the removal of `MessageWF.senders-
 -- empty`.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.SendersCompose where
 
@@ -141,7 +141,7 @@ attachValueDescs-on-clearBothMsgs-collected msgs ids wfs =
         (map-attachToMessage-on-clearVdsMsgs-collected msgs ids wfs)))
 
 -- ============================================================================
--- COMPOSED BRIDGES — the forms `buildDBC` presents (A.2 atomic commit)
+-- COMPOSED BRIDGES — the forms `buildDBC` presents
 -- ============================================================================
 
 -- Messages field: nested senders ∘ value-descriptions attach over the

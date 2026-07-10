@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseVersion-roundtrip` derived from
--- the universal Format DSL roundtrip.
+-- Slim `parseVersion-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Pre-3d.5.d (3a): hand-written ~237-line bind-chain proof through
+-- The earlier form was a hand-written ~237-line bind-chain proof through
 -- 6 parser primitives.
 --
--- Post-3d.5.d-3a: `parseVersion = parse versionFmt >>= λ v → many
+-- Now `parseVersion = parse versionFmt >>= λ v → many
 -- parseNewline >>= λ _ → pure v` (in `TextParser.Preamble`), and the
 -- roundtrip reduces to:
 --
@@ -20,7 +20,7 @@
 --   3. The trailing `many parseNewline` consuming the formatter's
 --      section-blank `\n` (via `many-parseNewline-one-LF-stop`).
 --   4. Position alignment via one `advancePositions-++` application +
---      the bridge (the 2-stage `pos-eq` pattern from 3d.8 / BU_).
+--      the bridge (the 2-stage `pos-eq` pattern from the BU_ composer).
 module Aletheia.DBC.TextParser.Properties.Preamble.Version where
 
 open import Data.Char using (Char)

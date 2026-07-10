@@ -11,8 +11,8 @@
 //      future binding-side emit-call that drifts from the cross-binding
 //      canonical set.
 //
-// This is the "missing mechanism" half of R18 cluster 10: a structural
-// gate mirroring python/tests/test_log_events_parity.py and
+// This is the "missing mechanism" half of the log-events parity gate: a
+// structural gate mirroring python/tests/test_log_events_parity.py and
 // go/aletheia/log_events_test.go.  It was added alongside the surface fix
 // of Go's rogue 16th `dbc.text_parsed` event so the same class of drift
 // cannot recur silently in any binding.
@@ -55,7 +55,7 @@ namespace {
 
 constexpr std::array<std::string_view, 3> kValidLevels = {"debug", "info", "warn"};
 
-// CPP-D-18.1 R23: repo root via env var, see test_feature_matrix_parity.cpp.
+// Repo root via env var, see test_feature_matrix_parity.cpp.
 auto repo_root() -> std::filesystem::path {
     if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
         return std::filesystem::path{env};
@@ -257,9 +257,9 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
 // Unit test of the gate's rejection logic: confirms the canonical set
 // does NOT contain the rogue dbc.text_parsed event.  This is independent
 // of any binding workflow, so we know the membership check would have
-// caught the original R18 drift even if a future workflow change ever
+// caught the original drift even if a future workflow change ever
 // stopped exercising parse_dbc_text.
-TEST_CASE("LOG_EVENTS.yaml rejects the known R18 drift event", "[parity][log][regression]") {
+TEST_CASE("LOG_EVENTS.yaml rejects the known drift event", "[parity][log][regression]") {
     auto known = canonical_event_set();
     CHECK_FALSE(known.contains("dbc.text_parsed"));
     CHECK(known.contains("dbc.parsed"));

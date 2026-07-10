@@ -27,8 +27,8 @@ open import Aletheia.Protocol.JSON.Types using (JSON; JBool; JNumber; JString; J
 -- VALUE EXTRACTORS
 -- ============================================================================
 
--- Get string value from JSON.  Post-3d.4 + JSON-mirror (2026-04-27): JSON
--- carries `List Char` internally, so this conversion goes through `fromList`.
+-- Get string value from JSON.  JSON carries `List Char` internally, so
+-- this conversion goes through `fromList`.
 -- Use this for sites that compare against String literals (kind discriminators
 -- like "node", "int") where there's no roundtrip claim through the result.
 -- For sites that round-trip an Identifier or AST text field, prefer `getChars`

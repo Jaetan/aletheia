@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 — 3d.5.a — Format DSL framework — regression test bank.
+-- Format DSL framework — regression test bank.
 --
 -- L1-L9 below were hand-written first and used to derive the universal
 -- `roundtrip`.  Now reproved as one-liners delegating to `roundtrip`;
@@ -11,8 +11,8 @@
 -- regression.  Per advisor: "the strongest signal that the universal
 -- genuinely subsumes the concrete cases."
 --
--- Extracted from `Format.agda` (R22 continuation of R21 AGDA-D-15.1
--- closure) — 109 LOC pulled out to bring `Format.agda` under the
+-- Extracted from `Format.agda` — 109 LOC pulled out to bring `Format.agda`
+-- under the
 -- 800-LOC trigger.  Reachable from check-properties as an explicit
 -- walk root (registered in `Shakefile.hs`).  The dependency direction
 -- is one-way `RegressionTests → Format`; adding a re-export back into

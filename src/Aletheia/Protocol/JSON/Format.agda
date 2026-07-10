@@ -6,8 +6,8 @@
 --
 -- Purpose: Serialize JSON values to strings.
 -- Strings are escaped (", \, \n, \r, \t) to be inverse to JSON.Parse, which
--- has handled escapes from the start.  Track E.10 added the escape pass so
--- DBCTextResponse can carry literal quotes and newlines round-trip through
+-- has handled escapes from the start.  The escape pass lets
+-- DBCTextResponse carry literal quotes and newlines round-trip through
 -- the JSON envelope.
 module Aletheia.Protocol.JSON.Format where
 

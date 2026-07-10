@@ -2,14 +2,14 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseNamespace-roundtrip` derived from
--- the universal Format DSL roundtrip.
+-- Slim `parseNamespace-roundtrip` derived from the universal Format DSL
+-- roundtrip.
 --
--- Pre-3d.5.d (3a): hand-written ~864-line bind-chain proof through
+-- The earlier form was a hand-written ~864-line bind-chain proof through
 -- 25-keyword inductive `manyHelper-parseNSLine-body` + per-branch
 -- `parseNSLine-blank` / `parseNSLine-keyword` lemmas + length bounds.
 --
--- Post-3d.5.d-3a: `parseNamespace = parse nsFmt >>= λ _ → pure tt`
+-- Now `parseNamespace = parse nsFmt >>= λ _ → pure tt`
 -- (in `TextParser.Preamble`), and the roundtrip reduces to:
 --
 --   1. The universal `parseNamespace-format-roundtrip` (from

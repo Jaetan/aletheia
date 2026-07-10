@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Track E.6 — VAL_ inverse-bridge proof.
+-- VAL_ inverse-bridge proof.
 --
 -- Closes:
 --
@@ -18,7 +18,7 @@
 --   2. Layer A — `lookup-vd-on-collectFromSignals-found`: within one
 --      message's signal list (under name uniqueness).
 --   3. Layer 1 — `lookup-on-collected`: cross-message (under msg-id +
---      within-msg-name uniqueness).  The crux of E.6.
+--      within-msg-name uniqueness).  The crux.
 --   4. Layer 2-4 — per-signal / per-message / list-level (subsequent
 --      file additions).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions where
@@ -472,26 +472,26 @@ attachValueDescs-on-collectFromMessages msgs msg-uniq all-wfs =
     (λ m m∈ → attachToMessage-on-collected msgs m m∈ msg-uniq all-wfs)
 
 -- ============================================================================
--- E.9a — clearVds bridge for non-vacuous tvd-wf coverage
+-- clearVds bridge for non-vacuous tvd-wf coverage
 -- ============================================================================
 --
--- E.7's universal proof closed vacuously: `MessageWF.vds-empty` (an E.1
--- interim clause) forced `collectFromMessages msgs ≡ []`, so the TVD
+-- An earlier universal proof closed vacuously: `MessageWF.vds-empty`
+-- forced `collectFromMessages msgs ≡ []`, so the TVD
 -- chunk's `All RawValueDescStop` precondition was discharged via
 -- `subst (All P) (sym (cong (map TVD) (collectFromMessages-vds-empty …))) []`.
 --
--- E.9a lifts `vds-empty`.  Without it, `parseMessage`-produced messages
+-- This section lifts `vds-empty`.  Without it, `parseMessage`-produced messages
 -- carry `vds = []` (because `buildSignal` hardcodes `valueDescriptions =
 -- []` — VAL_ entries are scattered across the file and the parser only
 -- sees per-line context).  The universal proof must therefore bridge
 -- between the parsed shape (signals with `vds = []`) and `d.messages`
--- (signals with their original vds).  E.6 already proved
+-- (signals with their original vds).  The base bridge already proves
 -- `attachValueDescs (collectFromMessages msgs) msgs ≡ msgs`; this section
 -- proves the variant we need:
 --
 --   attachValueDescs (collectFromMessages msgs) (map clearVdsMsg msgs) ≡ msgs
 --
--- under the same WF preconditions.  Composes with E.6 by establishing
+-- under the same WF preconditions.  Composes with the base bridge by establishing
 -- per-signal: `attachToSignal (collectFromMessages msgs) m.id (clearVds s) ≡ s`
 -- (whenever `m ∈ msgs`, `s ∈ m.signals`).
 --
@@ -510,7 +510,7 @@ attachValueDescs-on-collectFromMessages msgs msg-uniq all-wfs =
 
 -- Per-signal: applying attachWithMaybe to (clearVds s) over the
 -- singletonFromVds output recovers the original `s` under `s.vds ≡ vds`.
--- Mirrors `attachWithMaybe-on-singletonFromVds` (used by E.6's per-signal
+-- Mirrors `attachWithMaybe-on-singletonFromVds` (used by the base bridge's per-signal
 -- proof), but with `clearVds s` substituted in attachWithMaybe's first
 -- argument.  Both branches use the same `cong (sym eq) ; refl` chain
 -- because the η-rule reduces both `record s { vds = [] }` (via eq : s.vds
@@ -536,7 +536,7 @@ attachWithMaybe-clearVds-on-singletonFromVds cid s (x ∷ vds) eq =
 -- Per-signal bridge: composes `lookup-on-collected` with
 -- `attachWithMaybe-clearVds-on-singletonFromVds` to prove that attaching
 -- a cleared signal against the cross-message collection recovers the
--- original.  Mirrors E.6's `attachToSignal-on-collected`, but the input
+-- original.  Mirrors `attachToSignal-on-collected`, but the input
 -- signal is `clearVds s` instead of `s`.
 attachToSignal-clearVds-on-collected :
     ∀ (msgs : List DBCMessage) (m : DBCMessage) (s : DBCSignal)
@@ -555,7 +555,7 @@ attachToSignal-clearVds-on-collected msgs m s m∈ s∈sigs msg-uniq all-wfs =
 
 -- Per-message bridge: applying attachToMessage to (clearVdsMsg m)
 -- against the cross-message collection recovers the original `m`.
--- Same shape as E.6's `attachToMessage-on-collected`, with the input
+-- Same shape as `attachToMessage-on-collected`, with the input
 -- message's signals cleared and `map-≡-id` operating over the cleared
 -- signal list under a per-element lemma that collapses `clearVds s` back
 -- to `s`.  Note: `clearVdsMsg m` only modifies the `signals` field, so
@@ -596,7 +596,7 @@ attachToMessage-clearVdsMsg-on-collected msgs m m∈ msg-uniq all-wfs =
 
 -- List-level bridge — the universal target that Universal.agda calls.
 -- Composes `attachToMessage-clearVdsMsg-on-collected` pointwise via
--- `map-≡-id`.  Mirrors E.6's `attachValueDescs-on-collectFromMessages`,
+-- `map-≡-id`.  Mirrors `attachValueDescs-on-collectFromMessages`,
 -- with the input messages-list cleared.
 attachValueDescs-on-clearVdsMsgs-collectFromMessages :
     ∀ (msgs : List DBCMessage)
@@ -621,7 +621,7 @@ attachValueDescs-on-clearVdsMsgs-collectFromMessages msgs msg-uniq all-wfs =
       cong (attachToMessage rvds (clearVdsMsg m) ∷_)
            (map-map-fusion-clearVdsMsg ms rvds)
 
--- Unfolded form mirroring `map-attachToMessage-on-collected` (E.6)
+-- Unfolded form mirroring `map-attachToMessage-on-collected`
 -- — the goal in `Universal.finalizeParse-on-mkResult-clean` is in
 -- this shape because `buildDBC` reduces `attachValueDescs` to `map`.
 map-attachToMessage-on-clearVdsMsgs-collected :
@@ -633,11 +633,11 @@ map-attachToMessage-on-clearVdsMsgs-collected =
   attachValueDescs-on-clearVdsMsgs-collectFromMessages
 
 -- ============================================================================
--- E.9a — All RawValueDescStop (collectFromMessages msgs)
+-- All RawValueDescStop (collectFromMessages msgs)
 -- ============================================================================
 --
 -- Discharges the TVD chunk's `All RawValueDescStop` precondition without
--- requiring `vds-empty` (E.7's interim clause).  Every rvd in
+-- requiring `vds-empty`.  Every rvd in
 -- `collectFromMessages msgs` has signalName equal to some `s.name` for
 -- `s ∈ m.signals`, `m ∈ msgs`.  `Identifier.valid` provides
 -- `T (validIdentifierᵇ name)` which decomposes via `T-∧→×` to a head
@@ -694,13 +694,13 @@ collectFromMessages-stops (m ∷ ms) =
 
 
 -- ============================================================================
--- E.8 / E.9a (extracted)
+-- unresolvedRVDs inverse-bridge proofs (extracted)
 -- ============================================================================
 --
 -- The `unresolvedRVDs ∘ collectFromMessages ≡ []` inverse-bridge proofs
--- (E.8 + E.9a, ~280 LOC) moved to
--- `Properties.Aggregator.Refine.ValueDescriptions.UnresolvedRVDs` (R22
--- continuation of R21 cluster 9 AGDA-D-15.1).  External consumer
+-- (~280 LOC) moved to
+-- `Properties.Aggregator.Refine.ValueDescriptions.UnresolvedRVDs`.
+-- External consumer
 -- (`Aggregator/Universal.agda`) imports
 -- `unresolvedRVDs-on-clearVdsMsgs-collectFromMessages` directly from
 -- the sibling.  No re-export here — that would close a cycle with the

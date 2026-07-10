@@ -91,8 +91,8 @@ struct PropertyResult {
 
 struct Ack {};
 
-// Per-frame batch of property events emitted during streaming.  R23 —
-// AGDA-D-12.1: pre-R23 each frame carried at most one Violation (or no
+// Per-frame batch of property events emitted during streaming.  Each frame
+// formerly carried at most one Violation (or no
 // event = Ack); after the mid-stream-Satisfaction lift each frame can
 // also produce one-or-more Holds entries that completed at this frame,
 // in source-order, optionally terminated by a Fails entry.  The inner
@@ -124,7 +124,7 @@ using FrameResponse = std::variant<Ack, PropertyBatch>;
 
 /// One EndStream diagnostic surfaced by the kernel.
 ///
-/// R21 cluster 1 — AGDA-D-12.1: kind == "uncached_atom" is emitted when
+/// kind == "uncached_atom" is emitted when
 /// a property's atom references a signal that never appeared in trace.
 /// The Unresolved verdict on that property is sound (three-valued Kleene
 /// Unknown) but indistinguishable from a genuine Kleene-undecidable

@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtSignal per-line
--- construct roundtrips (3 emit shapes), η-style migration onto the
--- universal `parseAttrAssign-format-roundtrip` lemma.
+-- `parseRawAttrAssign` × ATgtSignal per-line construct roundtrips
+-- (3 emit shapes), η-style migration onto the universal
+-- `parseAttrAssign-format-roundtrip` lemma.
 --
 -- ATgtSignal is the `RatwSig raw sig` constructor of `RawAttrTargetWire`,
 -- routed through the `sigArm` (`"SG_" ++ ws + nat + ws + ident + ws`) of
@@ -14,7 +14,7 @@
 -- buildCANId-rawCanIdℕ cid` on `raw = rawCanIdℕ cid` via
 -- `... | just .cid | refl = refl`.
 --
--- Carries an `IdentNameStop` precondition for `sig` (Layer 4 owes it from
+-- Carries an `IdentNameStop` precondition for `sig` (owed from
 -- `validIdentifierᵇ`), used by `build-EmitsOK-stdTargetWireFmt-RatwSig`'s
 -- sig-stop input.
 
@@ -87,7 +87,7 @@ open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
    build-EmitsOK-stdTargetWireFmt-RatwSig)
 
 -- ============================================================================
--- IDENT-NAME-STOP precondition (owed at Layer 4 universally from validIdentifierᵇ)
+-- IDENT-NAME-STOP precondition (owed universally from validIdentifierᵇ)
 -- ============================================================================
 
 IdentNameStop : Identifier → Set

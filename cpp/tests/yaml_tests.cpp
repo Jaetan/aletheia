@@ -486,7 +486,7 @@ checks:
 }
 
 // ===========================================================================
-// R20 cluster N — adversarial-input hardening (CPP-B-29.1/2 + CPP-D-21.2)
+// Adversarial-input hardening
 // ===========================================================================
 
 TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {

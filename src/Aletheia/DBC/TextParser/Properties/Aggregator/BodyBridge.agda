@@ -2,8 +2,8 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Body bridge: `formatChars-body d` (the 7-section
--- concatenation in `formatChars` order, post-E.7) equals
+-- Body bridge: `formatChars-body d` (the 7-section
+-- concatenation in `formatChars` order) equals
 -- `foldr (emitTopStmt-chars defs) [] (toTopStmtsTyped d)` where
 -- `defs = collectDefs (DBC.attributes d)`.
 --
@@ -110,7 +110,7 @@ emit-map-TM-eq :
 emit-map-TM-eq defs msgs =
   foldr-emit-map-iso defs TM emitMessage-chars msgs (λ _ → refl)
 
--- E.7: TVD per-section bridge.  Bridges the rvd list (the post-
+-- TVD per-section bridge.  Bridges the rvd list (the post-
 -- `collectFromMessages` form) directly; the wrapper
 -- `emitValueDescriptions-chars msgs = emitValueDescriptions-rvds-chars
 -- (collectFromMessages msgs)` collapses by `refl` at the call site.
@@ -121,7 +121,7 @@ emit-map-TVD-eq :
 emit-map-TVD-eq defs rvds =
   foldr-emit-map-iso defs TVD emitValueDescription-chars rvds (λ _ → refl)
 
--- A.2: TBO per-section bridge.  Bridges the `RawMsgSenders` list (the
+-- TBO per-section bridge.  Bridges the `RawMsgSenders` list (the
 -- post-`collectSenders` form); the wrapper `emitMessageSenders-chars msgs =
 -- emitMsgSenders-rmss-chars (collectSenders msgs)` collapses by `refl` at the
 -- call site.

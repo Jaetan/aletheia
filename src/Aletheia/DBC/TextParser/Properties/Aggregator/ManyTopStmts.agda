@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c task B — `many parseTopStmt` over a typed-shadow body
+-- `many parseTopStmt` over a typed-shadow body
 -- via `many-η-roundtrip-with-lift`.
 --
 -- Instantiation:

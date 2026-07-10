@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 / Track E.5β — DSL-side `ValueDescription-format`.
+-- DSL-side `ValueDescription-format`.
 --
 -- Production-permissive Format DSL Format for VAL_ lines:
 --   "VAL_" ws nat ws identifier (ws nat ws string-lit)* ws? ";" newline
@@ -112,7 +112,7 @@ ValueDescription-format =
 
 -- The signal `Identifier`'s first char must be non-`isHSpace`, so the
 -- `withWS ident` slot's `SuffixStops isHSpace (Identifier.name sigId ++
--- rest)` obligation reduces to `∷-stop c-non-hspace`.  Layer 4 will
+-- rest)` obligation reduces to `∷-stop c-non-hspace`.  A later step will
 -- discharge this universally from `validIdentifierᵇ` via the
 -- `isIdentStart→¬isHSpace` bridge — same pattern as
 -- `ValueTableNameStop`.
@@ -208,7 +208,7 @@ build-emits-ok-vd rawId sigId ((v , d) ∷ rest) outer-suffix
 -- THE GATE: parseValueDescription-format expressed via Format DSL.  Body
 -- is one `roundtrip` call + the EmitsOK construction.  Universal in
 -- `(rawId , sigId , entries)` and `outer-suffix`; the only domain
--- precondition is `RawValueDescNameStop sigId`.  Layer 4 will discharge
+-- precondition is `RawValueDescNameStop sigId`.  A later step will discharge
 -- this universally from `validIdentifierᵇ`.
 parseValueDescription-format-roundtrip :
     ∀ (pos : Position) (rawId : ℕ) (sigId : Identifier)

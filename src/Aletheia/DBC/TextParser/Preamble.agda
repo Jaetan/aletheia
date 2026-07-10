@@ -2,15 +2,14 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Preamble parsers for the DBC text format (Track B.3.c.2; B.3.d
--- Layer 3 3d.5.d migrated 2026-04-29).
+-- Preamble parsers for the DBC text format.
 --
 -- Grammar slice covered (BNF section A from `Aletheia.DBC.TextParser`):
 --   version      ::= "VERSION" ws string-lit newline
 --   ns           ::= "NS_" ws? ":" newline (blank-line | indent keyword newline)*
 --   bs           ::= "BS_" ws? ":" (ws baud-rate-expr)? newline
 --
--- Post-3d.5.d-3a: each parser is the η-style wrap `parse <fmt> >>=
+-- Each parser is the η-style wrap `parse <fmt> >>=
 -- many parseNewline >>= pure` over its DSL Format
 -- (`Aletheia.DBC.TextParser.Format.Preamble`).  The Format DSL captures
 -- the section's structural shape; the wrapper's `many parseNewline`
@@ -31,7 +30,7 @@
 -- breaking the equivalence.
 --
 -- NS_ body permissiveness: the Format's `many nsLineFmt` accepts any
--- mix of blank and indented-keyword lines, matching the pre-3d.5.d
+-- mix of blank and indented-keyword lines, matching the earlier
 -- `many parseNSLine` spec.  The formatter emits the cantools-canonical
 -- 25-keyword block followed by a blank line; the parser tolerates any
 -- subset / superset / vendor-extension keyword list.

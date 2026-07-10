@@ -4,7 +4,7 @@
 
 -- Correctness properties for `Aletheia.DBC.RationalRenderer`.
 --
--- The cluster-Y stage-2 design moves the renderer into the Agda kernel
+-- This design moves the renderer into the Agda kernel
 -- so that all three bindings (Python, Go, C++) share a single
 -- implementation through the FFI.  This module proves the property
 -- that justifies the architectural choice:

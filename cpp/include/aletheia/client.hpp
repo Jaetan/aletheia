@@ -107,7 +107,7 @@ public:
     [[nodiscard]] auto format_dbc(std::stop_token stop) -> Result<DbcDefinition>;
     // Render a DbcDefinition as .dbc file text via the verified Agda formatter.
     // Inverse of parse_dbc_text at the wire level: parse_dbc_text(format_dbc_text(d))
-    // returns d byte-identical for any well-formed DBC (Track E.9a coverage).
+    // returns d byte-identical for any well-formed DBC.
     // Does not modify client state — pass any DbcDefinition value (typically from
     // parse_dbc_text, format_dbc, or a JSON load).
     [[nodiscard]] auto format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
@@ -141,7 +141,7 @@ public:
     // as std::optional<bool> — std::nullopt for CAN 2.0B frames where the
     // bits do not exist on the wire.  The Aletheia kernel does not consume
     // BRS / ESI; they are pass-through metadata for binding consumers and
-    // the JSON wire shape (R19P2 cluster 18 — AGDA-D-10.1 closure).
+    // the JSON wire shape.
     // For batch operations, see send_frames().
     [[nodiscard]] auto send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
                                   std::span<const std::byte> data,
@@ -222,12 +222,12 @@ private:
     };
     auto resolve_signals(CanId id, std::span<const SignalValue> signals) -> Result<ResolvedSignals>;
 
-    // R23 — AGDA-D-12.1: takes a single PropertyResult (one entry from a
+    // Takes a single PropertyResult (one entry from a
     // PropertyBatch.results) rather than a top-level Violation struct.
     // The caller iterates the batch and invokes this per fails entry.
     void enrich_violation(PropertyResult& pr, CanId id, Dlc dlc, std::span<const std::byte> data,
                           std::uint32_t id_value, bool is_extended);
-    // R23 — AGDA-D-12.1: post-parse hook for streaming frame responses.
+    // Post-parse hook for streaming frame responses.
     // Iterates a PropertyBatch's results, enriches each fails entry, and
     // emits the standard `frame.processed` log event.  Extracted from
     // send_frame to keep that function under clang-tidy's cognitive-

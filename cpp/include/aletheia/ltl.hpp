@@ -57,7 +57,7 @@ using Predicate = std::variant<Equals, LessThan, GreaterThan, LessThanOrEqual, G
                                Between, ChangedBy, StableWithin>;
 
 // ---------------------------------------------------------------------------
-// LTL formula: recursive variant via composition (R20 CPP-D-15.4 / 17.3)
+// LTL formula: recursive variant via composition
 // ---------------------------------------------------------------------------
 //
 // Previously inherited from std::variant via `using variant::variant`.
@@ -70,13 +70,12 @@ using Predicate = std::variant<Equals, LessThan, GreaterThan, LessThanOrEqual, G
 // truth); the wrapper provides a constrained converting constructor + a
 // `visit` member so consumers don't reach into the variant by name.
 //
-// Note on CPP-D-17.3: the reviewer's "Visitor pattern for binary-compat
-// extension" framing is intentionally not pursued — LtlFormula is consumed
-// header-only with std::visit lambdas everywhere, and the LTL ADT mirrors
-// the Agda kernel's constructor set 1:1, so adding an alternative requires
-// kernel changes that recompile every consumer regardless of dispatch style.
-// Virtual-dispatch Visitor would lose constexpr and break the lambda
-// idiom for no architectural gain.
+// A "Visitor pattern for binary-compat extension" is intentionally not
+// pursued here — LtlFormula is consumed header-only with std::visit lambdas
+// everywhere, and the LTL ADT mirrors the Agda kernel's constructor set 1:1,
+// so adding an alternative requires kernel changes that recompile every
+// consumer regardless of dispatch style.  Virtual-dispatch Visitor would lose
+// constexpr and break the lambda idiom for no architectural gain.
 
 struct LtlFormula;
 

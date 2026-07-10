@@ -94,7 +94,7 @@ cd go && go test ./aletheia/ -tags=cross_binding -v               # cross-bindin
 cd go && CGO_CFLAGS="-fsanitize=address" CGO_LDFLAGS="-fsanitize=address" go test -tags=asan ./aletheia/
 ```
 
-The `go test ./aletheia/` battery includes the Track D.2 doc-example
+The `go test ./aletheia/` battery includes the doc-example
 harness (`TestDocExamples`) — every ```go fence across `README.md`,
 `docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
 `docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`

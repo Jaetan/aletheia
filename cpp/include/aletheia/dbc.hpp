@@ -338,7 +338,7 @@ struct DbcAttrAssign {
 using DbcAttribute = std::variant<DbcAttrDef, DbcAttrDefault, DbcAttrAssign>;
 
 // ---------------------------------------------------------------------------
-// Track E.8 (Plan B): unresolved VAL_ entries from the text-parse path.
+// Unresolved VAL_ entries from the text-parse path.
 //
 // Carries the owning message's CAN ID, the signal name, and the
 // (value, label) entries.  Populated only when the text-parse path
@@ -359,7 +359,7 @@ struct DbcRawValueDesc {
 // There are four supported ways to obtain a DbcDefinition:
 //   1. Construct it programmatically (messages/signals as aggregate init).
 //   2. `AletheiaClient::parse_dbc_text(...)` — verified Agda DBC text
-//      parser exposed via the FFI core (B.3.e/h).
+//      parser exposed via the FFI core.
 //   3. `load_dbc_from_excel()` from <aletheia/excel.hpp> — reads the
 //      project-native Excel layout.
 //   4. Hand-deserialize from JSON — the wire format used by the Python
@@ -379,7 +379,7 @@ struct DbcDefinition {
     std::vector<DbcNode> nodes;
     std::vector<DbcComment> comments;
     std::vector<DbcAttribute> attributes;
-    // Track E.8 (Plan B): VAL_ lines from the text-parse path that did
+    // VAL_ lines from the text-parse path that did
     // not resolve to any signal in `messages`.  Empty on the JSON-parse
     // path (JSON has no notion of unresolved RVDs structurally).
     std::vector<DbcRawValueDesc> unresolved_value_descriptions;

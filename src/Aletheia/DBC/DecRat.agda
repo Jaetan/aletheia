@@ -7,7 +7,7 @@
 -- Purpose: DBC scale/offset fields are stored as terminating decimals
 -- (e.g. 0.1, 25.375, 10.5).  Every terminating decimal is exactly
 -- representable as n / (2^a · 5^b) for some integer n and naturals a, b.
--- The round-trip proof in B.3.d hinges on an exact parse/emit pair for
+-- The round-trip proof hinges on an exact parse/emit pair for
 -- these numerics — a general ℚ would require an arbitrary prime-factor
 -- denominator that the DBC grammar cannot emit.
 --
@@ -34,7 +34,7 @@
 -- ℚ values by construction; the `canonicalize-value` lemma exposes this
 -- at the ℚ surface for callers that only see post-canonicalisation.
 --
--- Used by: DBC text-parser / formatter roundtrip (B.3.d) — signal
+-- Used by: DBC text-parser / formatter roundtrip — signal
 -- scale/offset/min/max (`SignalDef`), environment-variable initial /
 -- minimum / maximum (`EnvironmentVar`), attribute float bounds
 -- (`AttrType.ATFloat` / `AttrValue.AVFloat`), value-table keys.

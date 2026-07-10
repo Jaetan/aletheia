@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrRel` × {ATgtNodeMsg, ATgtNodeSig}
--- per-line construct roundtrips (6 dispatchers), η-style migration onto the
--- universal `parseAttrRel-format-roundtrip` lemma.
+-- `parseRawAttrRel` × {ATgtNodeMsg, ATgtNodeSig} per-line construct
+-- roundtrips (6 dispatchers), η-style migration onto the universal
+-- `parseAttrRel-format-roundtrip` lemma.
 --
 -- ATgtNodeMsg / ATgtNodeSig are the two arms of `RawRelTargetWire`, routed
 -- through the `nodeMsgArm` / `nodeSigArm` of `relTargetWireFmt`'s 2-way
@@ -12,8 +12,8 @@
 -- buildCANId-rawCanIdℕ cid` on `raw = rawCanIdℕ cid`.
 --
 -- Both targets carry an `IdentNameStop` precondition for the node identifier;
--- NodeSig additionally requires it for the signal identifier.  Layer 4 owes
--- both from `validIdentifierᵇ`.
+-- NodeSig additionally requires it for the signal identifier.  Both are
+-- owed from `validIdentifierᵇ`.
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel where
 

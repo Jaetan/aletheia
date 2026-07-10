@@ -92,8 +92,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # Rational-helper conversions — kept internal because the public
         # API takes ``Fraction`` directly; the helpers convert wire rationals
         # for the decode paths and don't need to be called from user code.
-        # PY-D-16.1 (R23): _helpers.py split into a package; the test paths
-        # below pin to the new submodule layout.
+        # _helpers.py was split into a package; the test paths below pin
+        # to the new submodule layout.
         (
             "test_property_hypothesis.py",
             "aletheia.client._helpers.rational",
@@ -139,8 +139,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "parse_event_response",
         ),
-        # ``dump_json`` was promoted to ``aletheia.types`` in R23 PY-D-16.2
-        # so it's no longer a private-import; whitelist entry removed.
+        # ``dump_json`` was promoted to ``aletheia.types``, so it's no
+        # longer a private-import; whitelist entry removed.
         # Strict-contract guard for the shared error-response builder —
         # exercised directly because the surface-level tests all go through
         # ``parse_frame_response`` / ``parse_event_response`` and only hit
@@ -154,7 +154,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # Strict-contract guard for the end-of-stream warning parser —
         # exercised directly because end_stream's real-FFI tests only ever
         # see well-formed kernel output; this catches the validate-not-cast
-        # of property_index (r25 R2 #6) on malformed/missing wire values.
+        # of property_index on malformed/missing wire values.
         (
             "test_response_parsers.py",
             "aletheia.client._response_parsers",
@@ -168,9 +168,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client",
             "send_frame_unbound",
         ),
-        # ``FractionJSONEncoder`` was promoted to ``aletheia.types`` in
-        # R23 PY-D-16.2 so it's no longer a private-import; whitelist entry
-        # removed.
+        # ``FractionJSONEncoder`` was promoted to ``aletheia.types``, so
+        # it's no longer a private-import; whitelist entry removed.
         # Enrichment helpers — pure functions used by the client to attach
         # ``enrichment`` metadata to violation results; kept internal because
         # they depend on ``_diags``/``_caches`` state that is client-owned.
@@ -196,8 +195,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._enrichment",
             "format_formula",
         ),
-        # FFI loader security test (R19 cluster B / PY-B-26.11) exercises the
-        # ALETHEIA_LIB world/group-writable rejection path directly.
+        # FFI loader security test exercises the ALETHEIA_LIB
+        # world/group-writable rejection path directly.
         # ``find_ffi_library`` is binding-internal — public callers go
         # through ``AletheiaClient`` which calls the loader transitively; the
         # security check needs to be tested in isolation with monkeypatched
@@ -213,12 +212,11 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # ALETHEIA_LIB — the public surface is ``AletheiaClient`` (which the demos
         # use); the gate itself needs the resolver to locate the freshly built .so.
         ("test_demo_scripts.py", "aletheia.client._ffi", "find_ffi_library"),
-        # CAN-FD BRS / ESI encoding helper (R19 Phase 2 cluster 18 —
-        # AGDA-D-10.1).  ``encode_maybe_bool`` mirrors the Haskell shim's
-        # ``mkMaybeBool`` and is exercised directly to lock the
-        # (present, value) byte pair convention against the C ABI; user
-        # code goes through ``send_frame(brs=…, esi=…)`` which calls this
-        # transitively.
+        # CAN-FD BRS / ESI encoding helper.  ``encode_maybe_bool`` mirrors
+        # the Haskell shim's ``mkMaybeBool`` and is exercised directly to
+        # lock the (present, value) byte pair convention against the C ABI;
+        # user code goes through ``send_frame(brs=…, esi=…)`` which calls
+        # this transitively.
         ("test_canfd_brs_esi.py", "aletheia.client._types", "encode_maybe_bool"),
         # Outbound float-principle wire-guard (the reject_inexact SSOT). A direct
         # contract test pins behaviour the public-API boundary tests cannot assert

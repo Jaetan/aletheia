@@ -54,8 +54,8 @@ record WellFormedMessage (m : DBCMessage) : Set where
 
 -- Additional constraints on a signal within a frame, needed for the BigEndian
 -- unconvert→convert roundtrip AND for parse-time bit-length-positivity
--- (R5-B1 / R6-B7.1 closure, 2026-05-15: LE bl=0 now rejected at the JSON
--- parse boundary, completing BE-LE parity).
+-- (LE bl=0 is rejected at the JSON parse boundary, completing BE-LE
+-- parity).
 --
 -- BE signals carry three constraints:
 --   • len-pos       — bitLength ≥ 1 (signals must occupy at least one bit).
@@ -98,16 +98,15 @@ record WellFormedMessageRT (m : DBCMessage) : Set where
 -- the type level.  Text emission is materially lossier (Vector__XXX
 -- placeholders, dropped `BO_TX_BU_`, multi-value mux selectors,
 -- unresolved VAL_ entries) and the text-side aggregator predicate
--- carries a per-section field for each lossy region.  Reviewers comparing
--- the two records: the difference reflects the wire-format gap, not a
+-- carries a per-section field for each lossy region.  The two records
+-- differ in shape: that difference reflects the wire-format gap, not a
 -- missing constraint here.  See `TextParser.WellFormed`'s header for
 -- the full contract.
 --
--- AGDA-D-11.2 (R18 cluster 14): the absence of `unresolved-empty`,
+-- The absence of `unresolved-empty`,
 -- `msg-ids-unique`, attribute-WF, and SG-WF on this record is the
 -- correct shape for JSON roundtrip; the FormatDBCText FFI handler's
--- mixed-discharge for `WellFormedTextDBCAgg` is tracked separately
--- as AGDA-D-19.6.
+-- mixed-discharge for `WellFormedTextDBCAgg` is handled separately.
 record WellFormedDBC (d : DBC) : Set where
   field
     messages-wf : All WellFormedMessage (DBC.messages d)

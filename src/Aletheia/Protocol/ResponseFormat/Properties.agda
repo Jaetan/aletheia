@@ -30,7 +30,7 @@ formatResponse-ack-unique : ∀ r → formatResponse r ≡ formatResponse Ack �
 formatResponse-ack-unique (Success _) ()
 formatResponse-ack-unique (Error _) ()
 formatResponse-ack-unique (ExtractionResultsResponse _ _ _) ()
--- R23 — AGDA-D-12.1: PropertyResponse now carries `List PropertyResult`.
+-- PropertyResponse carries `List PropertyResult`.
 -- The wire emit is `{"type": "property_batch", "results": [...]}` —
 -- always a 2-field JObject regardless of list length, so the inhabitant
 -- can never collapse to Ack's 1-field shape.  The single `_` covers the

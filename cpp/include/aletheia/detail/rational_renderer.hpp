@@ -3,7 +3,7 @@
 #pragma once
 
 // Internal interface for the cross-binding-identical Rational
-// pretty-printer (R20 cluster Y stage 2).
+// pretty-printer.
 //
 // `format_value(const Rational&)` (in `enrich.cpp`) calls
 // `format_rational_ffi` on every render.  The implementation
@@ -49,7 +49,6 @@ auto parse_decimal_ffi(std::string_view input) -> std::string;
 // after the renderer has loaded are no-ops (the renderer's state is
 // already pinned).  Pre-load registrations win over the heuristic;
 // `ALETHEIA_LIB` env var still wins over both.
-// Closes R21 CPP-SYS-17.1 / GO-S-17.2 / Python parallel.
 void register_default_lib_path(const std::filesystem::path& lib_path);
 
 } // namespace aletheia::detail

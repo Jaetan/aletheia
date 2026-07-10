@@ -2,23 +2,23 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.c-γ.3 — DSL-based receivers roundtrip.
+-- DSL-based receivers roundtrip.
 --
 -- The universal property `∀ pos cr suffix → SuffixStops isReceiverCont
 -- suffix → parse canonicalReceiversFmt pos (emit canonicalReceiversFmt
 -- cr ++ suffix) ≡ just (mkResult cr …)` discharged via the framework's
 -- `roundtrip canonicalReceiversFmt` plus an `EmitsOK` constructor.
 --
--- Gate measurement vs the pre-ε.3 per-construct proof in
+-- Gate measurement vs the earlier per-construct proof in
 -- `Properties/Topology/Receivers.agda` (646 file-LOC / 417
 -- strict-code-LOC).  The DSL proof collapses the strip lemmas into
--- the iso bijection (γ.1's `fwd-bwd`) and the per-iteration roundtrip
+-- the iso bijection (`fwd-bwd`) and the per-iteration roundtrip
 -- into the universal `manyHelper-roundtrip-list` (Format.agda).
 --
--- Post-ε.3, `Properties/Topology/Receivers.agda` is a slim bridge
+-- `Properties/Topology/Receivers.agda` is now a slim bridge
 -- (~70 strict-code-LOC) that derives a flat `parseReceiverList-
--- roundtrip` from this DSL theorem; the 3d.3 dispatcher's
--- receiver-list step uses the bridge directly.  See ε.3 commit notes
+-- roundtrip` from this DSL theorem; the dispatcher's
+-- receiver-list step uses the bridge directly.  See the commit history
 -- for the cycle resolution that enabled the migration.
 module Aletheia.DBC.TextParser.Format.Receivers.Roundtrip where
 
@@ -55,7 +55,7 @@ open import Aletheia.DBC.TextParser.Format.Receivers
 -- Combined inner-many stop condition (`isIdentCont` for
 -- parseIdentifier's inner satisfy-loop) and outer-many stop condition
 -- (`,` separator).  The single SuffixStops precondition discharges
--- both.  Re-exported by `Properties/Topology/Receivers` (the post-ε.3
+-- both.  Re-exported by `Properties/Topology/Receivers` (the
 -- slim bridge) for backwards-compatible facade exports.
 isReceiverCont : Char → Bool
 isReceiverCont c = isIdentCont c ∨ (c ≈ᵇ ',')

@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Preamble emitters for the DBC text format (Track B.3.c.2; layer-1 form
--- 2026-04-24).
+-- Preamble emitters for the DBC text format.
 --
 -- Grammar slice emitted (mirrors `TextParser.Preamble`):
 --   version      ::= "VERSION" ws string-lit newline
@@ -31,9 +30,9 @@
 -- parser's per-section `many parseNewline` so composition is symmetric.
 --
 -- All emitters are `List Char`-valued — the substrate the per-primitive
--- roundtrip proofs in B.3.d layer 2 reason about (see
+-- roundtrip proofs reason about (see the
 -- `Aletheia.DBC.TextFormatter.Emitter` module header for the
--- layer-1 layout decision).
+-- `List Char` layout decision).
 module Aletheia.DBC.TextFormatter.Preamble where
 
 open import Data.Char using (Char)
@@ -46,8 +45,8 @@ open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 -- VERSION
 -- ============================================================================
 
--- Post-3d.4 + JSON-mirror: `quoteStringLit-chars : List Char → List Char`
--- and `DBC.version : List Char`, so the emitter takes raw chars.
+-- `quoteStringLit-chars : List Char → List Char` and
+-- `DBC.version : List Char`, so the emitter takes raw chars.
 emitVersion-chars : List Char → List Char
 emitVersion-chars v =
   toList "VERSION " ++ₗ quoteStringLit-chars v ++ₗ toList "\n\n"

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 // Package-level lazy-load + FFI dispatch for the cross-binding-identical
-// Rational pretty-printer (R20 cluster Y stage 2).
+// Rational pretty-printer.
 //
 // Single source of truth: every render flows through
 // `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
@@ -48,14 +48,13 @@ var (
 	rendererFormatFn unsafe.Pointer
 	rendererFreeFn   unsafe.Pointer
 
-	// R21 cluster 2: package-static preferred library path, registered
+	// Package-static preferred library path, registered
 	// by NewFFIBackend before any Check builder triggers
 	// formatRationalFFI.  First-write-wins (sync.Once around
 	// rendererInitOnce means subsequent registrations after the renderer
 	// has loaded are no-ops; the renderer's state is pinned).  Pre-load
 	// registrations win over the relative-path heuristic; ALETHEIA_LIB
-	// env var still wins over both.  Closes R21 GO-S-17.2 / mirror of
-	// CPP-SYS-17.1.
+	// env var still wins over both.
 	defaultLibPathMu sync.Mutex
 	defaultLibPath   string
 )

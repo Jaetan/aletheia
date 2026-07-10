@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.c-γ.1 — DSL-side `canonicalReceiversFmt`.
+-- DSL-side `canonicalReceiversFmt`.
 --
 -- Companion to `Aletheia.DBC.CanonicalReceivers` (which hosts the
 -- refinement carrier upstream of `Types.agda`).  This module adds the

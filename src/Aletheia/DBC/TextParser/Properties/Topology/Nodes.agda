@@ -2,13 +2,12 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d — slim `parseBU-roundtrip` derived from the
--- universal Format DSL roundtrip.
+-- Slim `parseBU-roundtrip` derived from the universal Format DSL roundtrip.
 --
--- Pre-3d.5.d (3b): hand-written 611-line bind-chain proof through 8 parser
+-- Previously: a hand-written 611-line bind-chain proof through 8 parser
 -- primitives.
 --
--- Post-3d.5.d: `parseBU = parse nodeListFmt >>= many parseNewline >>= pure`
+-- Now: `parseBU = parse nodeListFmt >>= many parseNewline >>= pure`
 -- (in `TextParser.Topology.SignalLine`), and the roundtrip reduces to:
 --
 --   1. A bridge `emit-nodeListFmt-eq-emitBU-chars-prefix` proving DSL emit
@@ -17,7 +16,7 @@
 --   3. The trailing `many parseNewline` consuming the formatter's section-
 --      blank `\n` (via `many-parseNewline-one-LF-stop` + `nl-stop`).
 --   4. Position alignment via one `advancePositions-++` application + the
---      bridge (the 2-stage `pos-eq` pattern from 3d.8).
+--      bridge (the 2-stage `pos-eq` pattern).
 --
 -- The `NodeNameStop` precondition migrates upstream to `Format.Nodes`;
 -- this module re-exports it for source compatibility.
@@ -193,7 +192,7 @@ parseBU-roundtrip pos ns suffix node-stops nl-stop =
 
     -- Step 3: pure ns returns just (mkResult ns pos-after-nl suffix);
     -- collapse `pos-after-nl` to `advancePositions pos (emitBU-chars ns)`
-    -- via the 2-stage pos-eq pattern from 3d.8.
+    -- via the 2-stage pos-eq pattern.
     pos-eq : pos-after-nl ≡ advancePositions pos (emitBU-chars ns)
     pos-eq =
       trans

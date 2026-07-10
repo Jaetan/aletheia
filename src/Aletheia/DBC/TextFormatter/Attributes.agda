@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Attribute emitters for the DBC text format (Track B.3.c.5; layer-1 form
--- 2026-04-24).
+-- Attribute emitters for the DBC text format.
 --
 -- Grammar slice emitted (mirrors `TextParser.Attributes`):
 --   attr-def     ::= "BA_DEF_" (ws attr-scope)? ws string-lit ws attr-type
@@ -40,7 +39,7 @@
 --     `BA_DEF_DEF_`, after `BU_BO_REL_` / `BU_SG_REL_`, and after `ENUM`;
 --     the parser accepts both (via `parseWS = some (satisfy isHSpace)`),
 --     and this emitter canonicalises to single-space on output.  The
---     roundtrip `parseText ∘ formatText ≡ id` (B.3.d) composes either way.
+--     roundtrip `parseText ∘ formatText ≡ id` composes either way.
 --   * Trailing semicolon — cantools' historical convention prefixes `;`
 --     with a space on `BA_DEF_*` lines (`" ;\n"`) but not on `BA_DEF_DEF_`
 --     or `BA_` / `BA_REL_` lines (`";\n"`).  Mirrored here.
@@ -48,8 +47,7 @@
 --     matching AttrDef, or the index overflows the label list, emit
 --     `""` (empty string literal) as a clearly-wrong sentinel.
 --
--- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
--- see `Emitter` module header).
+-- All emitters are `List Char`-valued (see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ)
@@ -90,7 +88,7 @@ collectDefs (DBCAttrDefault _ ∷ rest) = collectDefs rest
 collectDefs (DBCAttrAssign _  ∷ rest) = collectDefs rest
 
 -- Linear scan (small def counts in practice — single digits in corpus).
--- Both name and AttrDef.name are `List Char` post-3d.4 + JSON-mirror.
+-- Both name and AttrDef.name are `List Char`.
 lookupDef : List Char → List AttrDef → Maybe AttrDef
 lookupDef _ [] = nothing
 lookupDef name (d ∷ rest) =

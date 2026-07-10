@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Lexical primitives for the DBC text format (Track B.3.c.1).
+-- Lexical primitives for the DBC text format.
 --
 -- Purpose: Share the character-class predicates plus identifier/string/ws/
--- newline lexers used by every DBC text parser in B.3.c.2+.
+-- newline lexers used by every DBC text parser.
 --
 -- Grammar slice covered (BNF from `Aletheia.DBC.TextParser`, section H):
 --   identifier   ::= (letter | "_") (letter | digit | "_")*
@@ -19,10 +19,10 @@
 -- grammar of the JSON parser's rationals, and `Aletheia.Protocol.JSON.Parse`
 -- is already exercised by its own corpus.  Hoisting to a neutral
 -- `Aletheia.Parser.Lexical` would broaden the blast radius of the code move
--- beyond B.3.c.1's scope; a future B.3.k cleanup can do that once the DBC
+-- beyond this code move's scope; a future cleanup can do that once the DBC
 -- text parser has its own test matrix.
 --
--- 3d.4 (2026-04-26): `Identifier.name : List Char` now, so this module no
+-- As of 2026-04-26, `Identifier.name : List Char`, so this module no
 -- longer needs `Substrate.Unsafe.mkIdentFromCharsUnsafe` to bridge between
 -- the consumed char list and the String-internal Identifier.  The lexer
 -- builds Identifiers directly via `mkIdentFromChars` (axiom-free), which
@@ -71,8 +71,8 @@ isNonNewline c = not (⌊ c ≟ᶜ '\n' ⌋ ∨ ⌊ c ≟ᶜ '\r' ⌋)
 -- ============================================================================
 
 -- Build an Identifier from chars after satisfy accepted the head and `many
--- (satisfy isIdentCont)` accepted every element of the tail.  After 3d.4,
--- this is axiom-free: `mkIdentFromChars` (in `Aletheia.DBC.Identifier`)
+-- (satisfy isIdentCont)` accepted every element of the tail.  This is
+-- axiom-free: `mkIdentFromChars` (in `Aletheia.DBC.Identifier`)
 -- stores the char list directly as the Identifier's `name` field, with the
 -- `T (validIdentifierᵇ (h ∷ t))` witness coming from the `T?` decision.
 --
@@ -105,14 +105,14 @@ parseIdentifier =
 
 -- DBC string escape uses CSV-style doubled quote (`""` → `"`), NOT JSON-style
 -- backslash escape.  Mirrors `TextFormatter.Emitter.quoteStringLit` exactly so
--- the B.3.d roundtrip proof composes cleanly.
+-- the roundtrip proof composes cleanly.
 parseStringChar : Parser Char
 parseStringChar =
   (string "\"\"" *> pure '"') <|>
   satisfy (λ c → not ⌊ c ≟ᶜ '"' ⌋)
 
--- Post 3d.4 + JSON-mirror returns the raw `List Char` body so the roundtrip
--- composes axiom-free against `quoteStringLit-chars` (also List-Char-valued).
+-- Returns the raw `List Char` body so the roundtrip composes axiom-free
+-- against `quoteStringLit-chars` (also List-Char-valued).
 parseStringLit : Parser (List Char)
 parseStringLit = do
   _ ← char '"'

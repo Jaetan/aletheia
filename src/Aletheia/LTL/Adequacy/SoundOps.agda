@@ -61,8 +61,6 @@ data Sound : TruthVal → TruthVal → Set where
 
 -- These let us compose Sound proofs through propositional connectives.
 --
--- R6-B8.2 (sound-and half) — DO NOT RE-RAISE IN REVIEW.
---
 -- Architecture: sound-and is defined directly (clean sound-ff short-circuit
 -- on the False absorber); sound-or is derived from sound-and via De Morgan
 -- (a ∨TV b ≡ notTV (notTV a ∧TV notTV b), bridged by sound-not + subst₂).

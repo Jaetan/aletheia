@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-# Mutation Testing — per-binding SSOT (R18 cluster 7).
+# Mutation Testing — per-binding SSOT.
 #
 # Single source of truth for the mutation lane.  AGENTS.md cat 14(g) gives the
 # tooling and the canonical hot-path module list per binding; this file pins
@@ -18,13 +18,12 @@
 #
 # Threshold model (advisor 2026-05-09): per-binding survivor BASELINE recorded
 # here.  AGENTS.md cat 14(g) says "an unjustified survivor is a test gap";
-# survivors above baseline are NEW findings, not cluster 7 deliverables.  The
+# survivors above baseline are NEW findings, not initial-setup deliverables.  The
 # initial population of this file is "infrastructure complete + baseline run".
-# Eliminating the baseline survivors is a separate follow-up backlog (per
-# advisor 2026-05-09: "cluster 7 scope is infrastructure, not survivor
-# elimination").
+# Eliminating the baseline survivors is a separate follow-up backlog (scope here
+# is infrastructure, not survivor elimination).
 #
-# Forward-revert verification protocol (cluster 5/6 pattern):
+# Forward-revert verification protocol:
 #   1. Static gate: rename a hot-path file in this YAML to a non-existent
 #      path → `tools/check_mutation_setup.py` fires with precise diagnostic.
 #   2. Drift gate: introduce a redundant assertion that mutmut/Mull can
@@ -43,7 +42,7 @@ bindings:
       - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
       - python/aletheia/dbc/_converter.py
       - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
-      - python/aletheia/codes/_issue.py      # NEW from Track E.11 (CHECK 23 IssueCode mirror)
+      - python/aletheia/codes/_issue.py      # CHECK 23 IssueCode mirror
       - python/aletheia/types.py
     config:
       # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
@@ -116,7 +115,7 @@ bindings:
       # gremlins writes mutation summary to stdout: total runnable mutants,
       # killed, lived (survived), not-covered.  Runner parses tail summary.
     baseline:
-      # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch).
+      # Established 2026-05-09.
       # Zero survivors — every runnable mutant is killed by the existing
       # test suite.  120 "Not covered" mutants are on lines without test
       # coverage (gremlins counts them separately from runnable; see

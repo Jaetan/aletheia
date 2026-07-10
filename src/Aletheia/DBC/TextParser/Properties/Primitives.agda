@@ -2,10 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Per-primitive roundtrip lemmas for the DBC text-format parser
--- (B.3.d Layer 2).
+-- Per-primitive roundtrip lemmas for the DBC text-format parser.
 --
--- Commit 2b landed `parseIdentifier-roundtrip`.  Commit 2c adds Tier A
+-- The module provides `parseIdentifier-roundtrip` plus Tier A
 -- (char / keyword dispatch — no `many`, no embedded sub-parser) and
 -- Tier B (internal `many` / one embedded sub-parser):
 --
@@ -18,12 +17,12 @@
 --     * `parseMuxMarker-roundtrip`              (inverse targets
 --       `MuxMarker`, NOT `SignalPresence` — see project memory)
 --
--- Post-3d.5.d 3c-A: the `parseOptionalStandardScope` / `parseRelScopeWS`
+-- The `parseOptionalStandardScope` / `parseRelScopeWS`
 -- / `parseStringType` per-tag roundtrips were dropped — the universal
 -- Format DSL roundtrip in `Format/AttrDef.agda` subsumes them, and the
 -- only consumers were the now-rewritten `Properties/Attributes/{Type,
 -- Def}.agda`.  `ATInt` / `ATFloat` / `ATHex` / `ATEnum` and
--- `SignalPresence` are reclassified to Layer 3: per-line-construct
+-- `SignalPresence` are reclassified as per-line-construct
 -- payloads with internal WS separation or post-parse context
 -- resolution, not primitives.  See `memory/project_b3d_universal_
 -- proof.md`.
@@ -64,7 +63,7 @@ open import Aletheia.DBC.TextParser.Lexer using
    parseStringLit; parseStringChar; parseWS; isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; escapeChar-chars)
--- Post-3d.4 + JSON-mirror: Substrate.Unsafe is no longer imported here.
+-- Substrate.Unsafe is no longer imported here.
 -- `mkIdentFromCharsUnsafe-on-valid` (which needed `fromList∘toList`)
 -- becomes `mkIdentFromChars-on-valid` (axiom-free, via `T?` decision).
 -- `parseStringLit-roundtrip` now takes `(cs : List Char)` and parses
@@ -100,7 +99,7 @@ private
     let (pc , pcs) = T-∧-split {p c} {allᵇ p cs} ab
     in pc ∷ T-allᵇ→All p cs pcs
 
--- R19 cluster 8 phase e.1: `validIdentifierᵇ (h ∷ t)` is now a 3-conjunct
+-- `validIdentifierᵇ (h ∷ t)` is now a 3-conjunct
 -- `isIdentStart h ∧ (allᵇ isIdentCont t ∧ length (h ∷ t) <ᵇ suc max-…)`.
 -- Two splits unpack the start-char and cont-list witnesses; the length
 -- bound is preserved by the Identifier record's `valid` field for callers
@@ -121,7 +120,7 @@ decompose-valid (h ∷ t) valid =
 --
 -- `mkIdentFromChars-on-valid` now lives in `Aletheia.DBC.Identifier` (its
 -- single home alongside `mkIdentFromChars` — cat 27 lemma dedup; also consumed
--- by `LTL.JSON.Properties` for the AGDA-D-10.1 predicate roundtrip) and is
+-- by `LTL.JSON.Properties` for the predicate roundtrip) and is
 -- imported above.  Axiom-free: matches the `with T? (validIdentifierᵇ name)`
 -- in the function definition; `yes` closes via `T-irrelevant`, `no` is absurd.
 
@@ -185,7 +184,7 @@ buildIdent-eq _ _ _ eq = cong fromMaybeIdent eq
 -- `bind-just-step`s + one final `buildIdent-eq`-applied step, chained
 -- via `trans`.  `subst` on `sym cs-eq` lifts the concrete-shape proof
 -- (`h ∷ t` form) back to the abstract `Identifier.name i` form the
--- public theorem advertises.  Post-3d.4 `Identifier.name : List Char`
+-- public theorem advertises.  `Identifier.name : List Char`
 -- means the public statement is in terms of the same `List Char`
 -- substrate the parser machinery operates on — no `toList` wrap needed.
 
@@ -269,8 +268,8 @@ parseIdentifier-roundtrip pos i suffix ss
 -- ============================================================================
 --
 -- `parseByteOrderDigit-roundtrip` and `parseSignFlag-roundtrip` were
--- moved to `Properties.Primitives.Bools` (R22 continuation of R21
--- AGDA-D-15.1 closure).  Pure value-only single-char dispatch with no
+-- moved to `Properties.Primitives.Bools`.  Pure value-only single-char
+-- dispatch with no
 -- helper dependencies — clean extraction.  Re-exported from
 -- `Properties.agda` to keep the public API stable.
 
@@ -441,7 +440,7 @@ parseWS-one-tab pos suffix ss
 -- `quoteStringLit-chars cs = '"' ∷ (body) ++ₗ '"' ∷ []` where the body
 -- is `foldr` expanding each `"` to `""`.  The parser consumes the
 -- opening quote, `many parseStringChar` expands back to the original
--- `cs`, then consumes the closing quote.  Post-3d.4 + JSON-mirror,
+-- `cs`, then consumes the closing quote.
 -- `parseStringLit : Parser (List Char)` returns `cs` directly (no
 -- `fromList`); the trailing `fromList∘toList` axiom step is gone.
 --
@@ -634,8 +633,8 @@ manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
 --
 -- Compose: opening `"` via `char-matches`, body via
 -- `manyHelper-parseStringChar-exhaust` specialised at `length input`
--- fuel, closing `"` via `char-matches`, final `pure cs` (post-3d.4 +
--- JSON-mirror, `parseStringLit : Parser (List Char)` returns the body
+-- fuel, closing `"` via `char-matches`, final `pure cs`
+-- (`parseStringLit : Parser (List Char)` returns the body
 -- chars directly — no `fromList`, no `fromList∘toList` axiom).
 
 -- Length bound: each char in `cs` contributes ≥ 1 char to
@@ -780,12 +779,12 @@ parseStringLit-roundtrip pos cs suffix ss =
 -- Tier B — mux marker roundtrip (extracted)
 -- ============================================================================
 --
--- R22 continuation of R21 cluster 9 AGDA-D-15.1 closure: the four
+-- The four
 -- `parseMuxMarker-*` roundtrips moved to
 -- `Properties.Primitives.MuxMarker` to bring this module under the
 -- 800-LOC trigger.  The submodule imports `alt-left-just`,
 -- `alt-right-nothing`, `bind-nothing`, and `parseWS-one-space` from
 -- this base module — `MuxMarker → Primitives` is the only allowed
 -- direction.  Re-export to consumers happens in
--- `Aletheia.DBC.TextParser.Properties` (the existing Layer 2 facade);
+-- `Aletheia.DBC.TextParser.Properties` (the existing primitive facade);
 -- adding a `public` re-export here would close a cycle.

@@ -33,10 +33,10 @@ _SKIP_REASON = (
 )
 
 # The seven per-ADT ``*ErrorCode`` functions plus the top-level
-# ``errorCode`` (which carries the post R19 cluster 14 / AGDA-C-6.2
-# consolidated ``input_bound_exceeded`` literal directly).  Each family
-# emits a string literal on the RHS of ``= "..."``; collecting those
-# literals across all functions yields the canonical wire-value set.
+# ``errorCode`` (which carries the consolidated ``input_bound_exceeded``
+# literal directly).  Each family emits a string literal on the RHS of
+# ``= "..."``; collecting those literals across all functions yields the
+# canonical wire-value set.
 _ERROR_CODE_FUNCTIONS: tuple[str, ...] = (
     "errorCode",
     "parseErrorCode",

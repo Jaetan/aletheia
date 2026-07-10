@@ -63,10 +63,10 @@ _DBC_FINE_MSG = (
 )
 
 # 16-byte CAN-FD message — payload byte count 16 (DLC code 10).  Exercises
-# the cli.py extract path that PY-D-19.4 latent-bug-fixed: pre-fix the code
+# the cli.py extract path where a latent bug was fixed: pre-fix the code
 # called ``dlc_to_bytes(msg["dlc"])`` where ``msg["dlc"]`` is the byte count
 # (cantools convention), so for any CAN-FD message the call raised
-# ``Invalid DLC code: 16`` (R20 cluster J migrated this to ``ValidationError``).
+# ``Invalid DLC code: 16`` (later migrated to ``ValidationError``).
 # This test regresses that fix.
 _DBC_CANFD_MSG = (
     "BO_ 768 FDPayload: 16 ECU3\n"
@@ -400,7 +400,7 @@ class TestExtractCommand:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Locks in R19 cluster 17 / PY-D-19.4 latent-bug fix.
+        """Locks in the CAN-FD extract latent-bug fix.
 
         Pre-fix, ``_cmd_extract`` called ``dlc_to_bytes(msg["dlc"])`` where
         ``msg["dlc"]`` is the payload byte count (cantools convention).

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// libFuzzer harness for binary extraction parser (R18 cluster 5 — Cat 33b).
+// libFuzzer harness for binary extraction parser (Cat 33b).
 // Counterpart of go FuzzDecodeBinaryFrame.
 //
 // The binary path is parse_extraction_bin in the Aletheia client; this

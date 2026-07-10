@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- A.2 — DSL-side `MsgSenders-format` for BO_TX_BU_ lines.
+-- DSL-side `MsgSenders-format` for BO_TX_BU_ lines.
 --
 -- Canonical-form Format DSL for the message-senders line:
 --   "BO_TX_BU_" ws nat ws ":" ws identifier ("," identifier)* ws? ";" newline

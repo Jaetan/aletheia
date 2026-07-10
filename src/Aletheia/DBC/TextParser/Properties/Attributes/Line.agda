@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.4 — `parseAttrLine` 5-way `<|>` dispatch
--- composer roundtrip.
+-- `parseAttrLine` 5-way `<|>` dispatch composer roundtrip.
 --
 -- `parseAttrLine` dispatches on a `BA_`-prefixed input via a 5-way
 -- `<|>` chain (longest-keyword-first by `infixl 3` left-assoc):
@@ -98,7 +97,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign using
 
 -- Trace modules for end-position references in dispatcher result types.
 -- Imported as aliased modules — `using (X)` doesn't work for parameterised
--- submodules.  Default-Trace was made public in 3c.4 to support this.
+-- submodules.  Default-Trace was made public to support this.
 import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel     as RelProofs
 
 -- ============================================================================
@@ -113,7 +112,7 @@ import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Rel     as RelProofs
 -- `infixl 3` left-assoc rule.  Definitionally equal modulo unfolding of
 -- the `Pk` aliases below.
 
--- P1-P5 lifted from private to public (R22 AGDA-D-15.1) so the
+-- P1-P5 lifted from private to public so the
 -- extracted alt-K dispatchers in `Line/AltN.agda` siblings can
 -- reference them in their `where`-clause type annotations
 -- (`alt5-eq : proj₂ (P5 pos input) ≡ just …`).
@@ -215,8 +214,8 @@ parseAttrLine-lift-alt5 pos input r p1-fail p2-fail p3-fail p4-fail alt5-eq =
 --
 -- The 15 alt5 dispatchers (RawAssign × {Network/Node/Message/Signal/
 -- EnvVar} × 3 emit shapes; ~383 LOC) moved to
--- `Properties/Attributes/Line/Alt5.agda` (R22 continuation of R21
--- cluster 9 AGDA-D-15.1).  Re-exported from `Properties/Attributes.agda`
+-- `Properties/Attributes/Line/Alt5.agda`.  Re-exported from
+-- `Properties/Attributes.agda`
 -- facade.  Sibling imports `parseAttrLine-lift-alt5` and the `P5` alias
 -- from this module (one-way; no cycle).
 

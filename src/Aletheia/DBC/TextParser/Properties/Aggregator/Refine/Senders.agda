@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- A.2 — BO_TX_BU_ inverse-bridge proof.
+-- BO_TX_BU_ inverse-bridge proof.
 --
 -- Closes the base inverse-bridge:
 --
@@ -32,7 +32,7 @@
 --   6. Lifted form — `attachSenders-on-clearSendersMsgs-collectSenders`: the
 --      bridge the universal aggregator actually needs (parsed messages carry
 --      `senders = []`, so the attach runs over `map clearSendersMsg msgs`).
---      The A.2 analogue of VAL_'s E.9a `clearVds` lifted form — simpler here
+--      The analogue of VAL_'s `clearVds` lifted form — simpler here
 --      (message-level, so no `map clearVds` over signals / map-map fusion of
 --      the inner signal list).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.Senders where
@@ -238,7 +238,7 @@ attachSenders-on-collectSenders msgs msg-uniq =
     (λ m m∈ → attachToMessageSenders-on-collected msgs m m∈ msg-uniq)
 
 -- ============================================================================
--- LIFTED FORM — attach onto cleared-senders messages (the A.2 E.9a analogue)
+-- LIFTED FORM — attach onto cleared-senders messages
 -- ============================================================================
 --
 -- `parseMessage` produces messages with `senders = []`; the BO_TX_BU_

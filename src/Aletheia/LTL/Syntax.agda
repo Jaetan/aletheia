@@ -39,9 +39,9 @@ data LTL (Atom : Set) : Set where
   --   startTime : suc-encoded ℕ timestamp of first frame to evaluate this op.
   --               0 = uninitialized, suc t = initialized with start time t.
   --
-  -- Window refinement to `Timestamp μs` closes R6-B7.2 (the original NO-FIX
-  -- claim that this is a "frame count" was factually wrong — it is microseconds
-  -- per the Coalgebra step rules and JSON wire shape).  startTime retains its
+  -- The window is `Timestamp μs`: it is microseconds
+  -- per the Coalgebra step rules and JSON wire shape, not a frame count.
+  -- startTime retains its
   -- suc-encoded ℕ form because the encoding is the load-bearing
   -- "uninitialized sentinel vs legitimate timestamp 0" distinction; refining
   -- it to `Maybe (Timestamp μs)` is a follow-up.
@@ -56,24 +56,21 @@ data LTL (Atom : Set) : Set where
   -- doesn't hold on the first frame. This is mathematically correct (the deadline
   -- expires before any time passes) and not rejected by the parser.
   --
-  -- R21-AGDA-D-13.2 closure (corrected from the finding's misread):
+  -- Signature note:
   --
-  -- The finding claimed `MetricEventually : ℕ → ℕ → ...` took "raw ℕ for
-  -- both window bounds".  The current signature is actually
-  -- `Timestamp μs → ℕ → ...` (R6-B7.2 already refined the first arg
-  -- 2026-05-15) and the second arg is NOT a window bound — it's the
-  -- suc-encoded `startTime` sentinel (`0 = uninitialised, suc t = start
-  -- at time t`), per the parameter description in lines 31-50 above.
+  -- `MetricEventually : Timestamp μs → ℕ → ...`.  The first argument is
+  -- the window bound (type-tagged `Timestamp μs`); the second argument is
+  -- NOT a window bound — it's the suc-encoded `startTime` sentinel
+  -- (`0 = uninitialised, suc t = start at time t`), per the parameter
+  -- description in lines 31-50 above.
   --
   -- There is exactly ONE window bound per metric operator (the first
-  -- `Timestamp μs` argument), and it is already type-tagged.  The
-  -- finding's "second window bound" does not exist.
+  -- `Timestamp μs` argument), and it is already type-tagged.
   --
   -- The actionable type-level refinement opportunity is the planned
   -- `startTime → Maybe (Timestamp μs)` follow-up noted at line 45 above,
   -- which replaces the suc-encoded sentinel with `nothing | just t`.  That
-  -- refactor was investigated under R21 cluster 5 (user-directed close of
-  -- the AGDA-D-13.2 DEFER) and is deliberately NOT taken here:
+  -- refactor was investigated and is deliberately NOT taken here:
   --   * Cost: cascades to `Coalgebra.stepL` per-metric-clause, JSON
   --     parsing in `Protocol/Handlers`, `decodeStart` helper, and
   --     ~374 sites in src/.
@@ -85,14 +82,12 @@ data LTL (Atom : Set) : Set where
   --     at construction sites, but those construction sites are exactly
   --     `decodeStart` (kernel-internal) + 4 callers in Coalgebra — small
   --     attack surface.
-  -- The net benefit of the refactor is real but small; the cluster-Y
-  -- precedent for "lifting a representation through every site" took
-  -- multiple sessions.  Keep the suc-encoded ℕ form and DO NOT
-  -- RE-RAISE IN REVIEW unless paired with explicit user approval for
-  -- the Maybe-Timestamp cascade.  Per
-  -- `feedback_no_silent_proof_reframing.md`: the finding's framing was
-  -- factually wrong; cluster 5's job was to surface that, not to ship a
-  -- refactor on a misread premise.
+  -- The net benefit of the refactor is real but small, and lifting a
+  -- representation through every site is a multi-session effort.  Keep
+  -- the suc-encoded ℕ form unless the Maybe-Timestamp cascade is
+  -- explicitly approved.  Per `feedback_no_silent_proof_reframing.md`:
+  -- surface a wrong premise rather than silently reframing the proof
+  -- around it.
   MetricEventually : Timestamp μs → ℕ → LTL Atom → LTL Atom
   MetricAlways : Timestamp μs → ℕ → LTL Atom → LTL Atom
   MetricUntil : Timestamp μs → ℕ → LTL Atom → LTL Atom → LTL Atom
@@ -123,7 +118,7 @@ decodeStart : ℕ → ℕ → ℕ
 decodeStart zero    currTime = currTime
 decodeStart (suc s) _        = s
 
--- R19 cluster 8 phase e.2: count atomic predicates in a formula.  Used to
+-- Count atomic predicates in a formula.  Used to
 -- bound adversarial-input property formulas at the parser surface (the
 -- canonical limit is `max-atom-count-per-property` in `Aletheia.Limits`,
 -- currently 1024).  Mirrors `Protocol.StreamState.Internals.collectAtoms`

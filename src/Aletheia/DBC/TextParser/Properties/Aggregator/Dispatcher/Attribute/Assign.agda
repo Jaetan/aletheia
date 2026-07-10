@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — AttrAssign-level dispatcher.
+-- AttrAssign-level dispatcher.
 --
 -- Composes the 3 emit-shape dispatchers (String / Frac / BareInt) into
 -- the universal AttrAssign roundtrip:
@@ -71,7 +71,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart)
 
 
--- R22 continuation of R21 cluster 9 AGDA-D-15.1: the 21 value-bridge
+-- The 21 value-bridge
 -- helpers (lines 122-771 in the pre-split file, ~650 LOC) moved to a
 -- sibling submodule.  Helpers are public there; this module imports
 -- them back for the TOP-LEVEL ASSIGN DISPATCHER below.  The parent's

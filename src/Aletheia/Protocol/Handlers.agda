@@ -92,11 +92,10 @@ private
   ... | inj₂ dbc = f dbc
 
   -- Parse DBC from JSON, wrapping parse errors with command context.
-  -- parseDBCWithErrors returns `Error ⊎ DBC` (R20 cluster I — AGDA-D-32.1
-  -- lifted the return type so `Error.InputBoundExceeded IdentifierLength
-  -- …` rejections at `validateIdent` surface alongside `ParseErr`
-  -- envelopes); the legacy ParseError envelopes arrive pre-wrapped via
-  -- `ParseErr`.
+  -- parseDBCWithErrors returns `Error ⊎ DBC`; the return type is lifted
+  -- so `Error.InputBoundExceeded IdentifierLength …` rejections at
+  -- `validateIdent` surface alongside `ParseErr` envelopes.  The legacy
+  -- ParseError envelopes arrive pre-wrapped via `ParseErr`.
   withParsedDBC : String → JSON → StreamState → (DBC → StreamState × Response) → StreamState × Response
   withParsedDBC ctx dbcJSON state f with parseDBCWithErrors dbcJSON
   ... | inj₁ err = (state , Response.Error (WithContext ctx err))
@@ -153,26 +152,25 @@ withIndices (x ∷ xs) = (fzero , x) ∷ map (λ p → fsuc (Data.Product.proj�
 --   * Shape OK but atom count > `max-atom-count-per-property` (1024):
 --     emit typed `ParseErr (InputBoundExceeded AtomCount observed limit)`
 --     (code `parse_input_bound_exceeded` + structured `bound_kind /
---     observed / limit`).  AGDA-D-13.4 phase 2b — closes R19 cluster 8
---     phase e.2 typed-error half.  Mirrors the handler-boundary
---     placement pattern from cluster 8 e.3 / phase 2a NestingDepth.
+--     observed / limit`).  This mirrors the handler-boundary placement
+--     pattern used for NestingDepth.
 --
 -- The `Fin n` index threaded through the JSON list is the static
 -- property identifier; `toℕ` lifts it to `ℕ` only for the wire-side
 -- `PropertyParseFailed` envelope (which still carries `ℕ` because the
 -- error message reaches the user regardless of `n`).
 
--- AGDA-D-10.1 (R23): signal names are `Identifier`-typed and validated on the
--- SINGLE parse path — `parseProperty` carries the typed reason out as
--- `ParseFail`, so there is no second raw-JSON walk to keep in sync.  Map the
--- verdict directly to the wire error:
+-- Signal names are `Identifier`-typed and validated on the SINGLE parse
+-- path — `parseProperty` carries the typed reason out as `ParseFail`, so
+-- there is no second raw-JSON walk to keep in sync.  Map the verdict
+-- directly to the wire error:
 --   * `Shape`                   — malformed JSON shape → untyped
 --                                 `HandlerErr (PropertyParseFailed idx)`.
 --   * `BadSignal (TooLong n)`   — name over `max-identifier-length` →
 --                                 `InputBoundExceeded IdentifierLength`
---                                 (preserves AGDA-D-32.1; the old post-parse
---                                 per-atom length check is now unreachable —
---                                 over-long names fail the single parse first).
+--                                 (the old post-parse per-atom length check
+--                                 is now unreachable — over-long names fail
+--                                 the single parse first).
 --   * `BadSignal (BadChars cs)` — bad charset / empty →
 --                                 `ParseErr (InvalidIdentifier …)`.
 parseFailResponse : StreamState → ℕ → ParseFail → StreamState × Response
@@ -247,8 +245,6 @@ finalizeProperties : ∀ {n} → List (PropertyState n) → List PR.PropertyResu
 finalizeProperties = map λ ps →
   verdictToResult (PropertyState.index ps) (finalizeL (PropertyState.proc ps))
 
--- R21 cluster 1 — AGDA-D-12.1 closure (walker landed):
---
 -- For one PropertyState, walk its atoms and emit a `UncachedAtom` warning
 -- for each atom whose target signal never appears in the cache at
 -- EndStream.  Each warning records the property index (so the binding
@@ -280,12 +276,10 @@ collectUncachedWarnings cache (ps ∷ rest) =
   collectUncachedWarnings-one cache ps ++ₗ collectUncachedWarnings cache rest
 
 -- End stream command: finalize all properties + emit cache-miss warnings,
--- then transition back to ready state.  R21 cluster 1 — AGDA-D-12.1
--- closure: the walker populates the warnings list via
--- `collectUncachedWarnings` (atom-level lookup against the EndStream
--- signal cache).  Wire shape is unchanged from the scaffold landing in
--- `85623b7`; binding-side parsers see the field they were already
--- decoding, just with concrete entries now.
+-- then transition back to ready state.  The walker populates the warnings
+-- list via `collectUncachedWarnings` (atom-level lookup against the
+-- EndStream signal cache).  Binding-side parsers see the field they were
+-- already decoding, just with concrete entries now.
 handleEndStream : StreamState → StreamState × Response
 handleEndStream (Streaming n dbc props _ cache) =
   let results  = finalizeProperties props

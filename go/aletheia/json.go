@@ -39,7 +39,7 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 // embed them verbatim, so each DBC-bearing operation marshals the DBC
 // exactly once.
 //
-// Defense-in-depth (R19 cluster E1, R19-CARRY-3 / GO-B-28.4 closure): a
+// Defense-in-depth: a
 // `MaxDBCTextBytes` size cap is applied to the marshaled DBC before it
 // leaves Go — the one marshal that produces the returned bytes doubles as
 // the bound probe.  In normal flow the upstream parser bound (per UR-2)
@@ -100,7 +100,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 			default:
 				return nil, validationError(fmt.Sprintf("invalid byte order %d", sig.ByteOrder))
 			}
-			// R19 cluster 17 / PY-D-19.2: emit explicit "presence"
+			// Emit explicit "presence"
 			// discriminator on multiplexed signals (mirrors Always
 			// signals' "presence": "always").  Cross-binding parity
 			// with the Agda Formatter and the Python TypedDict.
@@ -125,7 +125,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		// extended (29-bit). Agda omits the field for standard 11-bit frames;
 		// its parser accepts both forms but the omit-when-false shape is
 		// canonical (matches attachCANID used for comment / attribute targets,
-		// and the same convention enforced by the Python and C++ bindings — B.3.j).
+		// and the same convention enforced by the Python and C++ bindings).
 		m := map[string]any{
 			"name":    string(msg.Name),
 			"dlc":     msg.DLC.ToBytes(),
@@ -192,7 +192,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		attributes = append(attributes, obj)
 	}
 
-	// Track E.8 (Plan B): unresolved RawValueDescs from the text-parse path.
+	// Unresolved RawValueDescs from the text-parse path.
 	// Wire shape mirrors message_to_json's leading {id, extended} pair via
 	// attachCANID; the rest is signalName + entries (parallel to value tables).
 	unresolvedValueDescs := make([]map[string]any, 0, len(dbc.UnresolvedValueDescriptions))
@@ -410,9 +410,8 @@ func serializeAttribute(a DBCAttribute) (map[string]any, error) {
 
 // validateRational rejects rationals the wire format cannot represent
 // (zero or negative denominator).  Predicate values carry exact
-// [Rational] per the DecRat universal principle (cluster 17 / GO-D-19.1
-// mirror of PY-D-19.1); the NaN / ±Inf rejection that the float64 path
-// needed (R19 cluster 7 — GO-B-8.1) is structurally absent — Rational
+// [Rational] per the DecRat universal principle; the NaN / ±Inf
+// rejection that the float64 path needed is structurally absent — Rational
 // has no NaN / Inf representation — but denominator validation remains.
 func validateRational(name string, r Rational) error {
 	if r.Denominator <= 0 {
@@ -1050,8 +1049,8 @@ func parseEventAck(raw string) error {
 // shared by the validate-response and parsed-DBC-warnings decoders. The
 // result is initialized empty (not nil) so JSON marshaling produces "[]"
 // instead of "null"; matches Python's empty-list default per
-// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
-// caught the nil-vs-empty drift).
+// feedback_cross_language_parity.md (a cross-binding test caught the
+// nil-vs-empty drift).
 func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 	issues := []ValidationIssue{}
 	for _, item := range getArray(m, key) {
@@ -1304,8 +1303,8 @@ const (
 )
 
 // parseFrameResponse decodes the per-frame LTL response: Ack (no events),
-// PropertyBatch (one or more events), or a typed error.  R23 — AGDA-D-12.1:
-// the wire shape for property events was lifted from a singular violation
+// PropertyBatch (one or more events), or a typed error.  The
+// wire shape for property events was lifted from a singular violation
 // object to a `{"type": "property_batch", "results": [...]}` envelope so
 // mid-stream Satisfaction events (previously dropped silently) reach the
 // caller alongside any terminal violation.
@@ -1620,8 +1619,8 @@ func parseObjects[T any](
 	return out, nil
 }
 
-// parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array
-// (Track E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
+// parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array.
+// Each entry is `{id, [extended], signalName, entries}`.
 // Empty/absent on the JSON-parse path is the common case.
 func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {

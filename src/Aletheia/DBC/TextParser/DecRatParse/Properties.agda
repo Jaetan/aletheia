@@ -14,8 +14,8 @@
 -- `List Char` end-to-end, so no `String`-level append lemma is needed.
 --
 -- Proof structure (originally a single 2419 LOC mega-module; split into
--- five submodules under R21 cluster 9 — AGDA-D-15.1 closure — each well
--- under the 800-LOC `feedback_properties_facade_split.md` trigger):
+-- five submodules, each well under the 800-LOC
+-- `feedback_properties_facade_split.md` trigger):
 --
 --   * `Properties.Phase1Digits`     (Phase 1; ~300 LOC) — arithmetic /
 --     list-level lemmas, digit-converter-generic foldl.

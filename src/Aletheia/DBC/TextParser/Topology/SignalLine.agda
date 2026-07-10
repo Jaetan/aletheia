@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Signal-line subset of `Aletheia.DBC.TextParser.Topology` (B.3.d ε.2).
+-- Signal-line subset of `Aletheia.DBC.TextParser.Topology`.
 --
 -- Hosts everything Topology needs *except* the cycle-relevant primitives
 -- which live in `Topology.Foundations` (CANID encoding + mux-marker
@@ -58,7 +58,7 @@ open import Aletheia.CAN.Constants using
 -- ============================================================================
 
 -- `BU_:` + zero-or-more ` <name>` entries + line terminator + trailing
--- blanks.  Post 3d.5.d: derived from the Format DSL `nodeListFmt`, so
+-- blanks.  Derived from the Format DSL `nodeListFmt`, so
 -- the universal `roundtrip` theorem in `Format.agda` discharges the
 -- header-through-line-terminator parse-after-emit pass in one structural
 -- sweep (see `Properties.Topology.Nodes`).  Production permissiveness
@@ -76,12 +76,12 @@ parseBU = parse nodeListFmt >>= λ ns →
 -- SG_ RAW FIELDS (pre-mux-resolution)
 -- ============================================================================
 --
--- η: `RawSignal` + `mkRawSignal` live in `Topology.Foundations` so the
+-- `RawSignal` + `mkRawSignal` live in `Topology.Foundations` so the
 -- Format DSL `signalLineFmt : Format RawSignal` (under
 -- `Format.SignalLine`) can produce them without resurrecting the import
 -- cycle.  Re-exported above for source-compatibility.
 
--- Parse one SG_ line into a `RawSignal`.  Post 3d.5.c-η: derived from
+-- Parse one SG_ line into a `RawSignal`.  Derived from
 -- the Format DSL `signalLineFmt`, so the universal `roundtrip` theorem
 -- in `Format.agda` discharges the parse-after-emit law via a single
 -- `EmitsOK` certificate (see `Format.SignalLine.Roundtrip`).  Production
@@ -109,8 +109,8 @@ findMuxName (s ∷ rest) with RawSignal.muxMarker s
 -- (may be `nothing` if no master exists in the enclosing BO_ block).
 -- Single-value selectors only — `SG_MUL_VAL_` multi-value integration
 -- is deferred to a later mux-integration sub-commit (the syntactic
--- drop parser for the line already landed in B.3.c.8; see
--- `TextParser.ExtendedMux`).  `SelBy`/`BothMux` with no master yields
+-- drop parser for the line already landed in `TextParser.ExtendedMux`).
+-- `SelBy`/`BothMux` with no master yields
 -- `nothing` (the input is ill-formed — a mux-slave without a master in
 -- the same message).
 resolvePresence : Maybe Identifier → MuxMarker → Maybe SignalPresence
@@ -126,7 +126,7 @@ resolvePresence nothing  (BothMux _) = nothing
 -- `JSONParser.parseSignalFields` so both paths produce the same internal
 -- representation.
 --
--- Bitlength=0 rejection (R5-B1 / R6-B7.1 closure, 2026-05-15): both byte
+-- Bitlength=0 rejection (2026-05-15): both byte
 -- orders require `bitLength ≥ 1` at parse time, matching the JSON path's
 -- `physicalGate` LE branch.  Without this gate, the LE side of the text
 -- parser would still accept zero-length signals and defer to the validator
@@ -158,7 +158,7 @@ buildSignal frameBytes master raw
          ; unit      = RawSignal.unit raw
          ; presence  = presence
          ; receivers = RawSignal.receivers raw
-         ; valueDescriptions = []  -- VAL_ entries are scattered across the file; the partition+refine pass at the top level (E.5/E.6) fills this from RawValueDesc collection.  Empty default keeps `buildSignal` total when no VAL_ entries reference this signal.
+         ; valueDescriptions = []  -- VAL_ entries are scattered across the file; the partition+refine pass at the top level fills this from RawValueDesc collection.  Empty default keeps `buildSignal` total when no VAL_ entries reference this signal.
          })
        else nothing
 
@@ -167,7 +167,7 @@ buildSignal frameBytes master raw
 -- CAN ID + DLC are handled in `parseMessage` and the physical gate is
 -- deferred.
 --
--- Inner walker `buildAllRaw` exposed at top level so 3d.7's `resolveSignalList
+-- Inner walker `buildAllRaw` exposed at top level so the `resolveSignalList
 -- -roundtrip` proof can induct on it directly (`where`-bound names aren't
 -- accessible from outside the surrounding definition).
 buildAllRaw : (frameBytes : ℕ) → Maybe Identifier
@@ -187,7 +187,7 @@ resolveSignalList frameBytes raws =
 -- BO_ BLOCK PARSER
 -- ============================================================================
 
--- Inner builder (top-level so 3d.8's `parseMessage-roundtrip` proof can
+-- Inner builder (top-level so the `parseMessage-roundtrip` proof can
 -- reference it directly; was a `where`-bound helper of `parseMessage`).
 buildMessage : ℕ → Identifier → ℕ → Identifier
              → List RawSignal → Parser DBCMessage
@@ -214,7 +214,7 @@ buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
 -- On any of these the partial consumption is discarded by the outer
 -- `<|>` / `many` — see the module header for the error-semantics note.
 --
--- Post 3d.8: header chunk derived from the Format DSL `messageHeaderFmt`,
+-- Header chunk derived from the Format DSL `messageHeaderFmt`,
 -- so the universal `roundtrip` theorem in `Format.agda` discharges the
 -- header parse-after-emit pass in one structural sweep (see
 -- `Properties.Topology.Message`).  Production permissiveness (zero-or-more

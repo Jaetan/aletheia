@@ -291,8 +291,8 @@ type DBCValueTable struct {
 	Entries []DBCValueEntry
 }
 
-// DBCRawValueDesc is one unresolved VAL_ line from the DBC text-parse path
-// (Track E.8, Plan B).  Carries the owning message's CAN ID, the signal
+// DBCRawValueDesc is one unresolved VAL_ line from the DBC text-parse path.
+// Carries the owning message's CAN ID, the signal
 // name, and the value-label entries.  Populated only when the text-parse
 // path encounters a VAL_ line whose (canId, signalName) pair did not match
 // any signal in the parsed messages; the entries are preserved verbatim so
@@ -603,7 +603,7 @@ type DBCDefinition struct {
 	Nodes           []DBCNode
 	Comments        []DBCComment
 	Attributes      []DBCAttribute
-	// Track E.8 (Plan B): VAL_ entries from the text-parse path that did
+	// VAL_ entries from the text-parse path that did
 	// not resolve to any signal in Messages. Empty on the JSON-parse path.
 	UnresolvedValueDescriptions []DBCRawValueDesc
 	nameIndex                   map[string]int // maps message name -> index

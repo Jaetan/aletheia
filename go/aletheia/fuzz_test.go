@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Native Go fuzz harnesses (R18 cluster 5 — Cat 33b).
+// Native Go fuzz harnesses.
 //
 // One Fuzz target per binding-side parser.  All five names are pinned by
 // AGENTS.md cat 33b: FuzzParseResponse, FuzzMarshalCommand,

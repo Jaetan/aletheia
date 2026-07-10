@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.4 — alt5 dispatchers for `parseAttrLine`.
+-- alt5 dispatchers for `parseAttrLine`.
 --
--- Extracted from `Properties/Attributes/Line.agda` (R22 continuation
--- of R21 cluster 9 AGDA-D-15.1) to bring the parent under the 800-LOC
+-- Extracted from `Properties/Attributes/Line.agda` to bring the parent
+-- under the 800-LOC
 -- trigger.  15 dispatchers: RawAssign × {Network/Node/Message/Signal/
 -- EnvVar} × 3 emit shapes (RavString / RavDecRatFrac / RavDecRatBareInt).
 --

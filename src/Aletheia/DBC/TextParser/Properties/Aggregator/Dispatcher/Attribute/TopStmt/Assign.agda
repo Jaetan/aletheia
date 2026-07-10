@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — TAT TopStmt dispatcher: DBCAttrAssign arm.
+-- TAT TopStmt dispatcher: DBCAttrAssign arm.
 --
 -- ONE case, no target pattern-match.  Per-target work moved into the
 -- propositional `emitAttrAssign-chars-BA-head` lemma (Σ over `rest` with

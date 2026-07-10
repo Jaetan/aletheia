@@ -3,7 +3,7 @@
 """Structural roundtrip tests for Tier 2 DBC metadata.
 
 Tier 2 widens the DBC wire shape with the three tagged-union arrays introduced
-by the Agda core extension (B.1.x): ``nodes`` (BU_), ``comments`` (CM_) and
+by the Agda core extension: ``nodes`` (BU_), ``comments`` (CM_) and
 ``attributes`` (BA_DEF_ / BA_DEF_DEF_ / BA_ with their BA_REL_ siblings). Each
 tagged object uses ``"kind"`` as the first-field discriminator so the Agda
 parser can dispatch without separate arrays.
@@ -647,7 +647,7 @@ class TestDBCMessageSenders:
 
 
 # ---------------------------------------------------------------------------
-# Per-signal VAL_ value descriptions (Track E)
+# Per-signal VAL_ value descriptions
 # ---------------------------------------------------------------------------
 
 

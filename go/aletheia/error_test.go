@@ -127,10 +127,10 @@ func TestDoubleClose(t *testing.T) {
 // Parse error codes from the PhysicallyValid gate (2026-04-08, 2026-05-15)
 // ---------------------------------------------------------------------------
 // DBC/JSONParser.agda's physicalGate enforces parse-time constraints. Both
-// byte orders require bitLength ≥ 1 (R5-B1 / R6-B7.1 closure 2026-05-15:
-// LE was previously permissive on bl=0, deferring to the validator's
-// BitLengthZero warning — now uniformly rejected at the parse boundary,
-// completing BE-LE parity). BigEndian additionally enforces two
+// byte orders require bitLength ≥ 1 (LE was previously permissive on
+// bl=0, deferring to the validator's BitLengthZero warning — now
+// uniformly rejected at the parse boundary, completing BE-LE parity).
+// BigEndian additionally enforces two
 // roundtrip-shape constraints:
 //
 //   • bitLength ≥ 1                     → SignalBitLengthZero (BE + LE)
@@ -381,8 +381,8 @@ func TestMockBackend_ErrorsOnQueueExhaustion(t *testing.T) {
 }
 
 func TestParseError_NonIntegerMultiplexValue(t *testing.T) {
-	// R23 — AGDA-C-5.1: non-integer in `multiplex_values` JSON array.
-	// Pre-R23, the Agda parser emitted `parse_invalid_presence` with
+	// Non-integer in `multiplex_values` JSON array.
+	// Previously, the Agda parser emitted `parse_invalid_presence` with
 	// the literal `"non-integer in multiplex_values"`, conflating two
 	// failure modes on a single wire code.  This regression guard
 	// asserts the typed `parse_non_integer_multiplex_value` code reaches

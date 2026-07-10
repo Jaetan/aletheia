@@ -10,7 +10,7 @@
 -- PhysicallyValid), so the proofs are unconditional.
 -- Role: Middle layer — used by Properties.agda for the top-level roundtrip.
 --
--- Track B.3.d 3d.4 + JSON-mirror (2026-04-27): Identifier-typed JSON fields
+-- Identifier-typed JSON fields
 -- and AST text fields go through `JString : List Char → JSON` directly
 -- (formatter emits via `identJSON`/`JString field`, parser uses `lookupChars`
 -- + `validateIdent : List Char → …`).  These proofs are axiom-free —
@@ -86,13 +86,13 @@ private
   >>=ₑ-congʳ f refl = refl
 
 -- ============================================================================
--- LIST-ROUNDTRIP COMBINATOR (AGDA-C-6.5)
+-- LIST-ROUNDTRIP COMBINATOR
 -- ============================================================================
 
 -- Generic roundtrip for `parseObjectList` when each list element's
 -- formatter unfolds to `JObject ∘ fields`.  Replaces 4 identical
 -- per-entity `*-list-go` templates (signalGroup / environmentVar /
--- valueEntry / valueTable) — see R19 cluster 14 / AGDA-C-6.5.
+-- valueEntry / valueTable).
 --
 -- Constraint: caller supplies `formatter-eq` witnessing
 -- `formatter a ≡ JObject (fields a)`.  When the formatter is defined as
@@ -124,7 +124,7 @@ parseCharsList-roundtrip (s ∷ ss)
   rewrite parseCharsList-roundtrip ss = refl
 
 -- Identifier roundtrip: validating the `name` chars of a valid Identifier
--- returns the original Identifier.  Axiom-free post-3d.4: `mkIdentFromChars`
+-- returns the original Identifier.  Axiom-free: `mkIdentFromChars`
 -- runs the `T?` decision on `Identifier.name i : List Char` directly, so the
 -- `yes w` branch closes via `T-irrelevant` and the `no` branch is absurd.
 validateIdent-roundtrip : ∀ (i : Identifier) → validateIdent (Identifier.name i) ≡ inj₂ i
@@ -137,8 +137,7 @@ validateIdent-roundtrip (mkIdent name valid)
 -- receivers / senders roundtrips where the formatter emits
 -- `map (JString ∘ Identifier.name) xs`.  Exported for SignalRoundtrip /
 -- MessageRoundtrip which need the same lemma for their identifier fields.
--- Re-exports stdlib `map-∘` at the specialised arity callers want
--- (R19 cluster 15 — AGDA-C-27.1).
+-- Re-exports stdlib `map-∘` at the specialised arity callers want.
 map-∘-identifier : ∀ {A : Set} (f : List Char → A) (is : List Identifier)
   → map (λ i → f (Identifier.name i)) is ≡ map f (map Identifier.name is)
 map-∘-identifier _ is = map-∘ is
@@ -258,7 +257,7 @@ valueTable-list-roundtrip =
     valueTableFields (λ _ → refl) valueTable-roundtrip 0
 
 -- ============================================================================
--- RawValueDesc ROUNDTRIP (Track E.8 Plan B)
+-- RawValueDesc ROUNDTRIP
 -- ============================================================================
 --
 -- Mirrors `MessageRoundtrip/{Standard,Extended}` for the (id, extended) pair

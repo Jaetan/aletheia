@@ -30,8 +30,7 @@
 --
 -- Formerly defined inline in
 -- `Aletheia.DBC.TextParser.Properties.Aggregator.Universal` under the
--- name `WellFormedDBC`.  R18 cluster 14 (AGDA-D-11.1, AGDA-D-15.4,
--- AGDA-D-GA20.4) extracted it here:
+-- name `WellFormedDBC`.  It was extracted here:
 --   * naming collision with the JSON-side `WellFormedDBC` resolved by
 --     renaming this record to `WellFormedTextDBCAgg` (the suffix `Agg`
 --     marks it as the universal-aggregator predicate, distinct from
@@ -41,9 +40,9 @@
 --     (`Aggregator.Universal.parseTextChars-on-formatChars`) per the
 --     module-organisation guideline.
 --
--- Companion AGDA-D-11.2 / AGDA-D-19.6 (FormatDBCText FFI handler must
--- discharge `WellFormedTextDBCAgg` at runtime) is tracked separately
--- as an R18 cluster 14 deferral.
+-- A companion obligation (the FormatDBCText FFI handler must discharge
+-- `WellFormedTextDBCAgg` at runtime) is tracked separately as a
+-- deferral.
 module Aletheia.DBC.TextParser.WellFormed where
 
 open import Data.List using ([]; map)
@@ -92,7 +91,7 @@ record WellFormedTextDBCAgg (d : DBC) : Set where
     cm-stops   : All CommentTargetStop                              (DBC.comments        d)
     attr-wfs   : All (WFAttribute (collectDefs (DBC.attributes d))) (DBC.attributes      d)
     sg-wfs     : All SignalGroupWF                                  (DBC.signalGroups    d)
-    -- E.6: cross-message CAN-ID uniqueness.  Required by
+    -- Cross-message CAN-ID uniqueness.  Required by
     -- `attachValueDescs ∘ collectFromMessages ≡ id` (the inverse-bridge
     -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
     -- messages with the same CAN ID would have their per-signal VAL_
@@ -100,7 +99,7 @@ record WellFormedTextDBCAgg (d : DBC) : Set where
     -- breaking the round-trip.  Validator's CHECK 1 (`DuplicateMessageId`,
     -- an error-class check) enforces this at DBC-load time.
     msg-ids-unique : AllPairs _≢_ (map DBCMessage.id (DBC.messages d))
-    -- E.8 (Plan B, 2026-05-07): `formatText` does not emit lines for
+    -- `formatText` does not emit lines for
     -- `DBC.unresolvedValueDescs` entries (no canonical text representation
     -- — they could be re-emitted as VAL_ lines but those would be silently
     -- re-collected as unresolved on parse-back, leaving the round-trip

@@ -2,8 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Comment emitters for the DBC text format (Track B.3.c.6; layer-1 form
--- 2026-04-24).
+-- Comment emitters for the DBC text format.
 --
 -- Grammar slice emitted (mirrors `TextParser.Comments`):
 --   comment        ::= "CM_" (ws comment-target)? ws string-lit
@@ -16,7 +15,7 @@
 -- Canonical choices (cantools parity):
 --   * Single space between every token.  The parser accepts runs of
 --     whitespace (`parseWS = some (satisfy isHSpace)`), so the roundtrip
---     `parseText ∘ formatText ≡ id` (B.3.d) composes either way.
+--     `parseText ∘ formatText ≡ id` composes either way.
 --   * Trailing `;\n` (no space before `;`) — matches cantools' CM_
 --     convention, differs from the `BA_DEF_*` families which emit
 --     ` ;\n` (space before `;`).
@@ -25,8 +24,7 @@
 --     its DBC-standard keyword (BU_ / BO_ / SG_ / EV_) followed by a
 --     single space and its identifier(s).
 --
--- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
--- see `Emitter` module header).
+-- All emitters are `List Char`-valued (see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Comments where
 open import Aletheia.DBC.Identifier using (Identifier)
 

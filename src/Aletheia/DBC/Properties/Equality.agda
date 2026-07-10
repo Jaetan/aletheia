@@ -76,7 +76,7 @@ private
   ... | no n≢   | _        = no (λ { refl → n≢ refl })
   ... | _        | no cs≢  = no (λ { refl → cs≢ refl })
 
--- Decidable equality for DBCSignal (7 fields, post-E.1)
+-- Decidable equality for DBCSignal (7 fields)
 _≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)
 s₁ ≟-DBCSignal s₂
   with DBCSignal.name s₁ ≟ᴵ DBCSignal.name s₂

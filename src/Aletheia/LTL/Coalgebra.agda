@@ -178,9 +178,8 @@ stepL table (Release φ ψ) curr =
 --
 -- MetricEventually: Rosu prog(F[w]φ, e) = prog(φ,e) ∨ F[w]φ (within window)
 -- Past window: always Violated (φ-satisfaction outside window doesn't count).
--- R6-B7.2 closure: window is `Timestamp μs` (the original NO-FIX claim that
--- it was a "frame count" was factually wrong); `timestampℕ` extracts the
--- underlying ℕ for arithmetic comparison.
+-- The window is `Timestamp μs`, not a "frame count"; `timestampℕ` extracts
+-- the underlying ℕ for arithmetic comparison.
 stepL table (MetricEventually windowMicros startTime φ) curr
   with metricElapsed startTime curr ≤ᵇ tsValue windowMicros
 ... | false = Violated (mkCounterexample curr MetricEventuallyExpired)

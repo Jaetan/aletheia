@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 //
 // Self-contained lazy-load + FFI dispatch for the cross-binding-
-// identical Rational pretty-printer (R20 cluster Y stage 2).
+// identical Rational pretty-printer.
 //
 // Single source of truth: every render flows through
 // `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
@@ -93,7 +93,7 @@ static auto find_library_path() -> std::filesystem::path {
                 return p;
         }
     }
-    // R21 cluster 2: registered path from FfiBackend ctor.
+    // Registered path from FfiBackend ctor.
     {
         auto& d = default_path_state();
         const std::scoped_lock lk{d.mu};

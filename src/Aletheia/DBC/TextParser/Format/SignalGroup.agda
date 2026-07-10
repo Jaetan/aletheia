@@ -2,10 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4a — DSL-side `signalGroupFmt` for the DBC `SIG_GROUP_`
--- line.  Layer 3 carry-over: SignalGroup was the last per-line
+-- DSL-side `signalGroupFmt` for the DBC `SIG_GROUP_`
+-- line.  SignalGroup was the last per-line
 -- construct without a Format DSL form (BO_/BA_*/CM_/EV_/VAL_TABLE_/BU_
--- all migrated in 3d.5/3d.8/3c-A/3c-B).
+-- all migrated).
 --
 -- Wire grammar (BNF section F from `Aletheia.DBC.TextParser`):
 --   sig-group ::= "SIG_GROUP_" ws nat ws identifier ws nat ws? ":"
@@ -142,7 +142,7 @@ signalGroupFmt =
 -- ============================================================================
 
 -- Each SignalGroup's `name` decomposes as `c ∷ cs` with `isHSpace c
--- ≡ false`.  Layer 4 will discharge this universally from
+-- ≡ false`.  A later step will discharge this universally from
 -- `validIdentifierᵇ` via the `isIdentStart→¬isHSpace` bridge (in
 -- `Properties/CharClassDisjoint.agda`).
 SignalGroupNameStop : SignalGroup → Set
@@ -151,7 +151,7 @@ SignalGroupNameStop sg =
     (Identifier.name (SignalGroup.name sg) ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- Each signal-name's first char is non-hspace.  Like `NodeNameStop` over
--- the BU_ list; Layer 4 discharges via the same identifier bridge.
+-- the BU_ list; a later step discharges via the same identifier bridge.
 SigNameStop : Identifier → Set
 SigNameStop i =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
@@ -302,7 +302,7 @@ build-emits-ok sg outer-suffix nameStop sigs-stops =
 -- `roundtrip` call + the EmitsOK construction.  Universal in `sg` and
 -- `outer-suffix`; the two domain preconditions are
 -- `SignalGroupNameStop sg` and `All SigNameStop (signals sg)`, which
--- Layer 4 discharges universally from identifier validity.
+-- a later step discharges universally from identifier validity.
 parseSignalGroup-format-roundtrip : ∀ pos sg outer-suffix
   → SignalGroupNameStop sg
   → All SigNameStop (SignalGroup.signals sg)

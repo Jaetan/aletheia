@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// libFuzzer harness for Rational number parser (R18 cluster 5 — Cat 33b).
+// libFuzzer harness for Rational number parser (Cat 33b).
 // Counterpart of go FuzzParseRationalNumber and python
 // fuzz_parse_rational_number.
 //

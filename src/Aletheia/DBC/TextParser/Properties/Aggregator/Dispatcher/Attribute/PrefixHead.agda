@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — `emit*-chars` `'B'∷'A'∷` prefix lemmas + generalized
+-- `emit*-chars` `'B'∷'A'∷` prefix lemmas + generalized
 -- `parseTopStmt-on-BA-head` accepting an arbitrary input + propositional
 -- prefix witness.
 --

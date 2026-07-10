@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtMessage per-line
--- construct roundtrips (3 emit shapes), η-style migration onto the
--- universal `parseAttrAssign-format-roundtrip` lemma.
+-- `parseRawAttrAssign` × ATgtMessage per-line construct roundtrips
+-- (3 emit shapes), η-style migration onto the universal
+-- `parseAttrAssign-format-roundtrip` lemma.
 --
 -- ATgtMessage is the `RatwMsg raw : ℕ` constructor of `RawAttrTargetWire`,
 -- routed through the `msgArm` (`"BO_" ++ ws + nat + ws`) of `stdTarget-

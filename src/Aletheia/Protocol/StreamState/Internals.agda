@@ -98,7 +98,7 @@ lookupAtom xs n = listIndex n xs
 -- FrameProcessor/Properties.agda Property 27 (indexFormula-bound,
 -- simplify-bound, stepL-bound, mkPredTable-bounded).
 --
--- DEFERRED REFACTOR (system-review item 11.1): One could replace the ℕ index
+-- DEFERRED REFACTOR: One could replace the ℕ index
 -- with `Fin (length atoms)` and make the nothing-branch structurally
 -- impossible. This is a structural improvement, not a bug fix — Property 27
 -- already closes the soundness gap propositionally — but it has a real
@@ -138,7 +138,7 @@ lookupAtom xs n = listIndex n xs
 -- all three benchmarks BEFORE committing, and be ready to fall back to a
 -- Bool/ℕ fast path if Stream LTL regresses.
 -- ====================================================================
--- STALE-CACHE SOUNDNESS (finding A28)
+-- STALE-CACHE SOUNDNESS
 -- ====================================================================
 --
 -- The signal cache can become "stale": a signal observed N frames ago
@@ -183,7 +183,7 @@ lookupAtom xs n = listIndex n xs
 -- correct previous value (from cache) and current value (from frame),
 -- without the cache update interfering with the current frame's evaluation.
 --
--- A formal proof of this ordering invariant (R14 finding A9) is open: it
+-- A formal proof of this ordering invariant is open: it
 -- would require a foundational lemma `updateEntries-self-lookup :
 -- lookupEntries name (updateEntries name val ts es) ≡ just (mkCachedSignal
 -- val ts)` in `Cache/Properties.agda`, then show that for delta predicates
@@ -227,7 +227,7 @@ updateCacheFromFrame dbc cache ts frame =
 -- `complete` semantics), and the index flows out via `iterate`'s
 -- completion-list so `dispatchIterResult` can emit a
 -- `PropertyResult.Satisfaction` at the frame where the property
--- completed.  Pre-R23 (AGDA-D-12.1) `complete` was payload-less and the
+-- completed.  Previously `complete` was payload-less and the
 -- index was lost — the completion was wire-silent and the dropped
 -- property never reached EndStream's `finalizeL`, so users missed every
 -- mid-stream Satisfaction verdict.
@@ -280,8 +280,8 @@ stepProperty dbc cache tf prop =
   in classifyStepResult result prop
 
 -- Dispatch iteration result to StreamState × Response.  Iterator returns
--- `(survivors , Maybe halt , List Fin)` after R23 (AGDA-D-12.1):
--- completions carry property indices so this dispatcher can emit one
+-- `(survivors , Maybe halt , List Fin)`: completions carry property
+-- indices so this dispatcher can emit one
 -- `PropertyResult.Satisfaction` per completion in source-order,
 -- co-emitted with any violation that halted the iteration on the same
 -- frame.  `Fin n → ℕ` conversion via `toℕ` is at the wire boundary only;

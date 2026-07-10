@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4a — `SIG_GROUP_` section facade.
+-- `SIG_GROUP_` section facade.
 --
 -- Mirrors `Properties/Comments`, `Properties/EnvVars`,
 -- `Properties/ValueTables`: re-exports the per-construct slim

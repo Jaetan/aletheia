@@ -63,7 +63,7 @@ formatPropertyResult (PropertyResult.Unresolved idx reason) =
   mkPropertyResult "unresolved" idx
     (("reason" , JStringS (formatLTLReason reason)) ∷ [])
 
--- R21 cluster 1 — AGDA-D-12.1 scaffolding: per-warning JSON encoder.
+-- Per-warning JSON encoder.
 -- Wire shape `{kind: string, property_index: int, detail: string}`.
 formatWarningKind : WarningKind → String
 formatWarningKind UncachedAtom = "uncached_atom"
@@ -83,21 +83,19 @@ formatIssueSeverity : IssueSeverity → String
 formatIssueSeverity IsError   = "error"
 formatIssueSeverity IsWarning = "warning"
 
--- R5-C2 — DO NOT RE-RAISE IN REVIEW.
---
--- A reviewer may suggest prefixing every code below with `validation_`
--- (e.g. `validation_duplicate_message_id`) for parity with the project's
+-- Validation issue codes are deliberately NOT prefixed with `validation_`
+-- (e.g. `validation_duplicate_message_id`), even though the project's
 -- error-code naming convention (`parse_signal_bit_length_zero`,
--- `dbc_text_parse_failure`, etc.).  DO NOT do this.  Error codes share a
--- flat `("code", JStringS ...)` JSON field with the response envelope
--- (`formatResponse (Error err)` at this module's tail), so they need a
--- domain prefix to disambiguate per Cat 5 (error message consistency).
--- Validation issue codes live inside `issues[].code` — a STRUCTURALLY
--- NESTED field on `ValidationResponse` / `ParsedDBCResponse` only — and
--- are already namespaced by that container.  Adding a `validation_`
--- prefix would touch 21 codes here + 21 mirrors in each of the three
--- bindings (Python `IssueCode` enum, Go `IssueCode` constants, C++
--- `IssueCode` enum) for zero disambiguation benefit at the JSON wire.
+-- `dbc_text_parse_failure`, etc.) prefixes error codes with a domain tag.
+-- Error codes share a flat `("code", JStringS ...)` JSON field with the
+-- response envelope (`formatResponse (Error err)` at this module's tail),
+-- so they need a domain prefix to disambiguate per Cat 5 (error message
+-- consistency).  Validation issue codes live inside `issues[].code` — a
+-- STRUCTURALLY NESTED field on `ValidationResponse` / `ParsedDBCResponse`
+-- only — and are already namespaced by that container.  Adding a
+-- `validation_` prefix would touch 21 codes here + 21 mirrors in each of
+-- the three bindings (Python `IssueCode` enum, Go `IssueCode` constants,
+-- C++ `IssueCode` enum) for zero disambiguation benefit at the JSON wire.
 formatIssueCode : IssueCode → String
 formatIssueCode DuplicateMessageId          = "duplicate_message_id"
 formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
@@ -131,11 +129,10 @@ formatValidationIssue issue =
 
 -- Per-error structured fields appended to the Error JSON envelope:
 --   * `DBCTextParseErr (TrailingInput pos)` exposes `line` + `column`.
---   * `Error.InputBoundExceeded kind observed limit` (top-level after
---     R19 cluster 14 / AGDA-C-6.2 consolidation) exposes `bound_kind` +
---     `observed` + `limit` (AGDA-D-13.4 phase 2a/2b typed wire-error
---     refinement; the C++ / Go / Python bindings dispatch on `bound_kind`
---     from this structured payload).
+--   * `Error.InputBoundExceeded kind observed limit` (a top-level error
+--     consolidating the bound checks) exposes `bound_kind` + `observed` +
+--     `limit` (typed wire-error refinement; the C++ / Go / Python bindings
+--     dispatch on `bound_kind` from this structured payload).
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
 private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
@@ -213,7 +210,7 @@ formatResponse (ExtractionResultsResponse values errors absent) =
         formatError (name , msg) =
           JObject (("name" , JStringS name) ∷ ("error" , JStringS msg) ∷ [])
 formatResponse (PropertyResponse results) =
-  -- R23 — AGDA-D-12.1: per-frame batch of property events.  Carries one
+  -- Per-frame batch of property events.  Carries one
   -- top-level object that bindings parse as a single response, with the
   -- inner `results` array preserving source order (satisfactions that
   -- completed before a halting violation come first, then the violation).

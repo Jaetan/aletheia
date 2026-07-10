@@ -129,8 +129,8 @@ T→true = Equivalence.to T-≡
 -- the type of `Standard rawId pf` creates a rigid dependency on b.
 -- Uses η for ⊤: when b = true, pf : T true = ⊤ is definitionally tt.
 -- `pf` is irrelevant `.(…)` so the lemma composes with downstream
--- irrelevant proof flow (CANId Standard / Extended after AGDA-B-22.1 R18
--- cluster 17 migration).  The continuation `f` takes its T b argument
+-- irrelevant proof flow (CANId Standard / Extended).  The continuation `f`
+-- takes its T b argument
 -- irrelevantly so the conclusion `f pf` typechecks; callers pass either
 -- relevant lambdas (Agda promotes argument irrelevance contravariantly)
 -- or explicitly-irrelevant lambdas — both are accepted.

@@ -148,8 +148,8 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
     CHECK(std::get<std::int64_t>(events[0].fields[1].value) == 4);
 }
 
-// R20 cluster M — CPP-A-30.1: fast-path `enabled(LogLevel)` predicate lets
-// hot-path callers short-circuit before constructing `initializer_list<LogField>`.
+// The fast-path `enabled(LogLevel)` predicate lets hot-path callers
+// short-circuit before constructing `initializer_list<LogField>`.
 // Three cases guard against `>` vs `>=` direction regressions and silent
 // "debug-never-fires" / "debug-always-fires" failures.
 TEST_CASE("Logger::enabled() reflects sink + min-level state", "[log][enabled]") {

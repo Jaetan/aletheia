@@ -65,9 +65,9 @@ func (Ack) frameResponse() {}
 // PropertyBatch is the response to a frame that produced one or more
 // property events: mid-stream Satisfactions (properties that completed
 // at this frame) followed by an optional terminal Violation, in
-// source-order per the Agda dispatchIterResult invariant.  R23 —
-// AGDA-D-12.1: pre-R23 only single Violation frames were surfaced; the
-// silent drop of mid-stream Satisfactions has been lifted to the wire.
+// source-order per the Agda dispatchIterResult invariant.  Previously
+// only single Violation frames were surfaced; the silent drop of
+// mid-stream Satisfactions has been lifted to the wire.
 //
 // Empty Results is unreachable — frames with no events return Ack.
 type PropertyBatch struct {
@@ -136,7 +136,7 @@ type PropertyResult struct {
 
 // StreamWarning is one diagnostic surfaced by the kernel at EndStream.
 //
-// R21 cluster 1 — AGDA-D-12.1: Kind == "uncached_atom" is emitted when a
+// Kind == "uncached_atom" is emitted when a
 // property's atom references a signal that never appeared in trace.  The
 // Unresolved verdict on that property is sound (three-valued Kleene
 // Unknown) but indistinguishable from a genuine Kleene-undecidable

@@ -2,14 +2,14 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtNode per-line
--- construct roundtrips (3 emit shapes), η-style migration onto the
--- universal `parseAttrAssign-format-roundtrip` lemma.
+-- `parseRawAttrAssign` × ATgtNode per-line construct roundtrips
+-- (3 emit shapes), η-style migration onto the universal
+-- `parseAttrAssign-format-roundtrip` lemma.
 --
 -- ATgtNode's wire form is `RatwNode idn`, routed through `nodeArm` =
 -- `withPrefix "BU_" (withWS identTrailingWS)` of `stdTargetWireFmt`'s
 -- 5-way altSum.  No top-level disjointness obligation (RatwNode is the
--- 4-deep inj₁ position).  The L5 EmitsOK builder
+-- 4-deep inj₁ position).  The EmitsOK builder
 -- `build-EmitsOK-stdTargetWireFmt-RatwNode` (in Format/AttrLine.agda)
 -- takes `IdentNameStop`-derived head witness + value-stop and returns
 -- the structural EmitsOK.
@@ -76,7 +76,7 @@ open import Aletheia.DBC.TextParser.Format.AttrLine.Builders using
    build-EmitsOK-stdTargetWireFmt-RatwNode)
 
 -- ============================================================================
--- IDENT-NAME-STOP precondition (owed at Layer 4 universally from validIdentifierᵇ)
+-- IDENT-NAME-STOP precondition (owed universally from validIdentifierᵇ)
 -- ============================================================================
 
 IdentNameStop : Identifier → Set
@@ -129,7 +129,7 @@ private
 -- ============================================================================
 
 private
-  -- L4 obligation for RatwNode case: head of `emit stdTargetWireFmt
+  -- SuffixStops obligation for RatwNode case: head of `emit stdTargetWireFmt
   -- (RatwNode idn) ++ value-emit ++ ;\n+os` is `'B'` (from BU_), non-hspace.
   l4-Node : ∀ (idn : Identifier) (wireVal : RawAttrValueWire) (outer-suffix : List Char)
     → SuffixStops isHSpace
@@ -137,7 +137,7 @@ private
          emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
   l4-Node _ _ _ = ∷-stop refl
 
-  -- L5 obligation: `EmitsOK stdTargetWireFmt (RatwNode idn) (value-emit
+  -- EmitsOK obligation: `EmitsOK stdTargetWireFmt (RatwNode idn) (value-emit
   -- ++ ;\n+os)`.  Built via `build-EmitsOK-stdTargetWireFmt-RatwNode` from
   -- `IdentNameStop`-derived head witness + value-stop.
   l5-Node :

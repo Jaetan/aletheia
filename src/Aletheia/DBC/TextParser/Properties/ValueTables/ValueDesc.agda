@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 / Track E.5β — slim `parseValueDescription-roundtrip`
+-- Slim `parseValueDescription-roundtrip`
 -- derived from the universal Format DSL roundtrip + `buildCANId-
 -- rawCanIdℕ` inverse witness.
 --
@@ -24,7 +24,7 @@
 --
 -- The `RawValueDescStop` precondition migrates upstream to
 -- `Format.ValueDescription`; this module re-exports it for source
--- compatibility with the section facade and any Layer-4 composer.
+-- compatibility with the section facade and any composer.
 module Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc where
 
 open import Data.Char using (Char)
@@ -75,7 +75,7 @@ open import Aletheia.DBC.TextParser.Properties.Comments.Comment using
 -- ============================================================================
 
 -- Per-`RawValueDesc` precondition: the signal `Identifier`'s first char
--- is non-`isHSpace`.  Layer 4 will discharge this universally from
+-- is non-`isHSpace`.  The composer will discharge this universally from
 -- `validIdentifierᵇ` (mirrors `ValueTableNameStop`).  Defined as an alias
 -- so consumers can use a name keyed on the `RawValueDesc` record rather
 -- than a free `Identifier`.
