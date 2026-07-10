@@ -528,7 +528,7 @@ fires repeatedly, the kernel cache is doing its job.
 
 **Action:** Audit binding-side data structures for accumulation. The
 kernel is `O(1)` in trace length per
-[PROJECT_STATUS.md § Key Metrics](../../PROJECT_STATUS.md#key-metrics);
+[BENCHMARKS.md § Canonical Results](../development/BENCHMARKS.md#canonical-results);
 runaway memory is host-application-side. Re-run the throughput
 benchmarks (`benchmarks/run_all.sh --bench throughput`) and watch
 RSS — kernel allocations are bounded; host-application leaks are

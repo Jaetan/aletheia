@@ -11,16 +11,15 @@ SPDX-License-Identifier: BSD-2-Clause
 > would it cost, what blocks it, and the recommended next step.
 >
 > Provenance: compiled 2026-06-08 during the `ci-speed` pre-merge review. None
-> of these were introduced by `ci-speed`; all pre-date it on `main`. The
-> closed review record (r20–r23: 196/196 findings closed) holds **zero** open
-> findings — everything below is an *in-source* deferral, not a review carry-over.
+> of these were introduced by `ci-speed`; all pre-date it on `main`. Everything
+> below is an *in-source* deferral, not a carry-over from closed review work.
 
 ## How to read this
 
 Each item carries:
 
 - **Where** — `file:line` anchor(s) for the in-source note.
-- **Origin** — the round / system-review / category that introduced it.
+- **Origin** — what introduced the in-source note.
 - **Today** — the current behaviour (what the code does in lieu of the deferred work).
 - **Done looks like** — the end state if we close it.
 - **Cost / risk** — rough effort + the main hazard.
@@ -44,7 +43,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Where** — `src/Aletheia/DBC/TextParser/ExtendedMux.agda` (drop-parser);
   `src/Aletheia/DBC/TextParser/Topology.agda:55`;
   `src/Aletheia/DBC/TextFormatter/Topology.agda:32`.
-- **Origin** — Track B.3.c.8 (text-parser construct corpus).
+- **Origin** — text-parser construct corpus.
 - **Today** — `SG_MUL_VAL_` lines are syntactically parsed and **discarded**
   (`parseSigMulVal : Parser ⊤`). Single-value `m<N>` selectors map to a
   singleton `When _ (N ∷ [])`; multi-value ranges are not materialised.
@@ -65,10 +64,10 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 - **Where** — `src/Aletheia/DBC/TextFormatter/Topology.agda:188`;
   `src/Aletheia/DBC/TextParser/Topology.agda:59`.
-- **Origin** — Track B.3.c (text round-trip).
+- **Origin** — text round-trip.
 - **Was** — `senders = []` on the **text** round-trip; `BO_TX_BU_` lines were
   not emitted/parsed by the topology path. (Senders were already modelled on the
-  binary/JSON path — `FEATURE_MATRIX dbc_message_senders`, B.1.x commit-3 — so
+  binary/JSON path — `FEATURE_MATRIX dbc_message_senders` — so
   this was a text-surface gap, not a missing capability.)
 - **Done looks like** — formatter emits `BO_TX_BU_ <id> <node>,…;`, parser
   reads it back into `DBCMessage.senders`, round-trip proven.
@@ -91,7 +90,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 ### A.3 — Nested multiplexors `m<N>M`
 
 - **Where** — `src/Aletheia/DBC/TextFormatter/Topology.agda:32`.
-- **Origin** — Track B.3.c; flagged Phase-6-adjacent.
+- **Origin** — flagged Phase-6-adjacent.
 - **Today** — not emitted; the formatter emits the head value of `When _ values`
   only (matches single-value cantools output).
 - **Done looks like** — extended-mux marker `m<N>M` emitted/parsed for signals
@@ -124,13 +123,13 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ## C. Performance
 
-### C.1 — `lookupByKey` Bool fast path (AA-16.8)
+### C.1 — `lookupByKey` Bool fast path
 
 - **Where** — `src/Aletheia/Prelude.agda:72`.
-- **Origin** — review category AA-16 (Dec-allocation hot-path sweep).
+- **Origin** — Dec-allocation hot-path sweep.
 - **Today** — `lookupByKey` uses `⌊ _≟ₛ_ ⌋`, allocating a `Dec` cell per
-  comparison. Unlike its hot-path siblings (AA-16.2 `findSignalInList`,
-  AA-16.3 `lookupEntries`), this lookup is **cold** — its only callers are
+  comparison. Unlike its hot-path siblings (`findSignalInList`,
+  `lookupEntries`), this lookup is **cold** — its only callers are
   per-JSON-command parsing helpers, not per-frame.
 - **Done looks like** — a `Bool`-valued fast path + equivalence lemma, as done
   for the hot-path siblings.
@@ -145,12 +144,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ## D. Accepted constraints (documented exceptions, not pending work)
 
-### D.1 — Cat-29 `NonZero` instance args on stdlib `_÷_`
+### D.1 — `NonZero` instance args on stdlib `_÷_`
 
 - **Where** — `src/Aletheia/CAN/Encoding/Properties/Arithmetic/Rational.agda:31`;
   `src/Aletheia/Data/BitVec/Conversion.agda:14`;
   `src/Aletheia/CAN/Endianness.agda:28`.
-- **Origin** — review Cat 29 (stdlib-mandate) in-source exception path.
+- **Origin** — Agda cat 29 (stdlib-mandate) in-source exception path.
 - **Today** — these modules use `.{{_ : NonZero q}}` on stdlib ℚ `_÷_`; every
   call site supplies the witness explicitly, so there is **no instance-search
   ambiguity**.
@@ -168,7 +167,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Where** — bridge `src/Aletheia/DBC/TextParser/Properties/CharClassDisjoint.agda:76`;
   per-section discharges `src/Aletheia/DBC/TextParser/Properties/WellFormedFromValidity.agda`;
   precondition site `…/Properties/Topology/Signal.agda:88` (`SignalNameStop`).
-- **Origin** — B.3.d Layer-4 owed lemmas.
+- **Origin** — owed bridge lemmas.
 - **✅ Bridge already proven; per-section discharges added 2026-06-10.** On
   re-examination the bridge `isIdentStart→¬isHSpace` was found **already
   proven** in `CharClassDisjoint.agda` (with siblings `isIdentCont→¬isHSpace`,
@@ -275,10 +274,10 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ## F. Parked by prior user decision (re-confirm, don't re-open lightly)
 
-### F.1 — CL10-3: Go `FormatDBC` → structured result
+### F.1 — Go `FormatDBC` → structured result
 
 - **Where** — `go/aletheia/client.go:396` (in-source DEFERRED/TRACKED block).
-- **Origin** — R19P2 cluster 10.
+- **Origin** — in-source DEFERRED/TRACKED note on `FormatDBC`.
 - **Today** — `FormatDBC` returns `*DBCDefinition`; no structured wrapper.
 - **User decision (2026-06-06)** — "don't do anything yet, keep the note." It's
   a **speculative** feature (rendering-options metadata no consumer needs);
@@ -286,7 +285,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Verdict** — `HOLD` (anti-YAGNI). In-source gate stands: "revisit when a
   consumer needs richer return metadata."
 
-### F.2 — Agda atom-table `Fin` (system-review 11.1)
+### F.2 — Agda atom-table `Fin`
 
 - **Where** — `StreamState` internals.
 - **Today** — atom table indexed without `Fin n`.
@@ -494,7 +493,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Where** — `go/aletheia/types.go` (`FloatToRational` round-trip guard + its
   in-code amd64 `NB`); `cpp/src/types.cpp:27-29` (the `from_double` post-cast
   equality check it mirrors).
-- **Origin** — r25 B3 (P0 #5), 2026-06-24 — advisor-flagged while fixing the
+- **Origin** — 2026-06-24, advisor-flagged while fixing the
   amd64 silent-wrap.
 - **Today** — both guards reject an int64-overflowing integral float (e.g. 2^63)
   by casting to int64 and comparing the round-trip back to double. Correct on
@@ -502,7 +501,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   round-trip fails and 2^63 is rejected). On arm64 the same conversion
   **saturates** to MaxInt64, and `double(MaxInt64) == 2^63` is true, so the guard
   would **falsely accept** 2^63 — re-introducing the silent wrong-value-with-no-
-  error bug B3 fixed. Rust/Python use range/scaling checks that don't depend on
+  error bug the earlier fix closed. Rust/Python use range/scaling checks that don't depend on
   conversion semantics. CI builds + tests amd64 only.
 - **Done looks like** — Go + C++ switch to an arch-independent bound check
   (`v >= -2^63 && v < 2^63`, both exact float64 literals) that never performs an

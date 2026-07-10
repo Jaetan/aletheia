@@ -886,7 +886,7 @@ with AletheiaClient() as client:
 
 ### Current Performance
 
-See [BENCHMARKS.md](../development/BENCHMARKS.md) for the benchmark suite (cross-language runner + per-binding scripts) and [PROJECT_STATUS.md § Key Metrics](../../PROJECT_STATUS.md#key-metrics) for the canonical throughput numbers.
+See [BENCHMARKS.md](../development/BENCHMARKS.md) for the benchmark suite (cross-language runner + per-binding scripts) and [BENCHMARKS.md § Canonical Results](../development/BENCHMARKS.md#canonical-results) for the canonical throughput numbers.
 
 ---
 
@@ -1049,7 +1049,7 @@ events (`dbc.parsed`, `properties.set`, `stream.started`, `stream.ended`) appear
 per-frame events (`frame.processed`, `cache.hit` / `cache.miss`) are at DEBUG and
 stay silent unless the level is lowered.
 
-**Performance note**: `log_event` short-circuits on `logger.isEnabledFor(level)` before allocating the `extra` dict, so the default (no DEBUG handler attached) costs a single method call per frame. A missing guard here was the root cause of the R12 Stream LTL regression, fixed in commit `1e40b4d`.
+**Performance note**: `log_event` short-circuits on `logger.isEnabledFor(level)` before allocating the `extra` dict, so the default (no DEBUG handler attached) costs a single method call per frame. A missing guard here was the root cause of an earlier Stream LTL regression, fixed in commit `1e40b4d`.
 
 For the full event vocabulary and field list, see the `LogEvent` enum and its docstring in `aletheia/client/_log.py`.
 

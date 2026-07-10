@@ -1,12 +1,32 @@
 # Aletheia Performance Benchmarks
 
 Benchmarks across the Python, C++, and Go bindings (the Rust binding is not yet
-wired into the cross-language runner). The canonical
-per-binding / per-lane / per-property-shape throughput table — dated
-measurements on fixed hardware — lives in
-[PROJECT_STATUS.md § Key Metrics](../../PROJECT_STATUS.md#key-metrics). This
-document describes what the benchmarks measure and how to run them; it does
-not duplicate the numbers.
+wired into the cross-language runner). This document describes what the benchmarks
+measure, how to run them, and the canonical results.
+
+## Canonical Results
+
+Per-binding throughput (frames/sec), best of two clean back-to-back batches on the
+current host (Intel Core Ultra 9 285K), re-measured 2026-06-11 under Clang 22
+(per-lane intra-batch stdev ≤ 2.6%, one Python lane 6.3%):
+
+| Benchmark | C++ (fps) | Go (fps) | Python (fps) |
+|---|---:|---:|---:|
+| CAN 2.0B: Stream LTL (2 props) | **249,945** | 223,855 | 143,227 |
+| CAN 2.0B: Signal Extraction   | **401,897** | 337,441 | 138,843 |
+| CAN 2.0B: Frame Building       | **133,308** | 125,573 | 88,609 |
+| CAN-FD: Stream LTL (3 props)   | **108,679** | 106,670 | 79,078 |
+| CAN-FD: Signal Extraction      | **27,697**  | 26,477  | 19,498 |
+| CAN-FD: Frame Building         | **32,252**  | 31,836  | 27,147 |
+
+Per-frame latency is ~4 µs (CAN 2.0B streaming, C++); memory is O(1) (verified
+1.08× growth across a 100× longer trace); every hot-path operation uses the binary
+FFI (no JSON on the streaming path). Moving Clang 19 → 22 was performance-neutral
+(every lane within run-to-run noise). The slowest lane — Python CAN-FD extraction
+at 19,498 fps — still clears the ~6,000 fps a 5 Mbit/s CAN-FD bus needs by ~3×.
+Frame Building is the narrowest C++/Go margin (it does the least Agda work and the
+most binding-side allocation per call); Stream LTL and Signal Extraction are clearly
+C++-dominant.
 
 ---
 
@@ -36,7 +56,7 @@ cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 &
 
 The runner refuses to run against a Debug-mode C++ build (`CMAKE_BUILD_TYPE=Debug`
 in `cpp/build/CMakeCache.txt`) — an unoptimized tree silently looks like a
-20%+ regression, as the R15 investigation documented. Reconfigure with
+20%+ regression, as an earlier investigation documented. Reconfigure with
 `-DCMAKE_BUILD_TYPE=Release` if the guard trips.
 
 ---

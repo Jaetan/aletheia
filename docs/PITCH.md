@@ -79,7 +79,7 @@ Aletheia provides:
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
 
-3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase). Single-bus streaming throughput per binding / lane / property shape lives in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics) — the canonical table.
+3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase). Single-bus streaming throughput per binding / lane / property shape lives in [BENCHMARKS.md § Canonical Results](development/BENCHMARKS.md#canonical-results) — the canonical table.
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 
@@ -158,7 +158,7 @@ Agda (all logic + proofs, compiled via the MAlonzo backend)
 |------|--------|------------|------------|
 | **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, tested on Ubuntu/Debian/WSL2. One-time build-time toolchain; runtime is just the shared library + Python. |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Low | High-throughput streaming via binary FFI across all four bindings (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks). Sufficient for 1 Mbps CAN bus real-time analysis. |
+| **Performance** | Formal verification adds overhead | Low | High-throughput streaming via binary FFI across all four bindings (see [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current benchmarks). Sufficient for 1 Mbps CAN bus real-time analysis. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Binding APIs are stable. Core changes rare. Can contract experts if needed. |
 
 ### People Risks
@@ -295,7 +295,7 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current throughput benchmarks.
+A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current throughput benchmarks.
 
 **Q: Dependencies?**
 A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime is just `libaletheia-ffi.so` and Python 3.14+ (plus your binding's own runtime). There is no published wheel yet — install the Python binding editable from source after building. See [Building Guide § Prerequisites](development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
@@ -337,7 +337,7 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 
 **Yellow light if**:
 - Only non-critical applications (testing may suffice)
-- Extremely tight performance requirements beyond current throughput (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics))
+- Extremely tight performance requirements beyond current throughput (see [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results))
 - Team strongly resistant to new technologies
 
 **Red light if**:
@@ -351,7 +351,7 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 
 ## Current Status
 
-**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, Rust) at cross-language parity, plus post-R17 Tracks A–E (matrix gates, DBC text parser, cancellation, doc-example harness, VAL_ promotion) all complete. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
+**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, Rust) at cross-language parity, plus the matrix gates, DBC text parser, cancellation, doc-example harness, and VAL_ promotion all complete. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser in the verified Agda kernel)
 - LTL verification with streaming architecture
@@ -362,8 +362,8 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 - **CLI ships today** — the Python CLI has six subcommands (`python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query}`); the C++ and Go host CLIs ship five of those (`check` deferred — it needs a verified CAN-log reader); Rust has a typed client today, with a CLI planned for Phase 6.
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- Per-binding and total test counts tracked in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics)
-- High-throughput streaming via binary FFI across all four bindings (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks)
+- Comprehensive automated test suites across all four bindings (unit, property-based, cross-binding parity, and doc-example harnesses)
+- High-throughput streaming via binary FFI across all four bindings (see [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current benchmarks)
 
 **Phase 5**: CAN-FD, binary FFI (streaming + signal extraction + frame build/update), C++/Go/Rust bindings, cross-language benchmarks — all delivered. Phase 6 candidate goals: CLI parity for C++/Go (`check` subcommand) and a Rust CLI, python-can replacement (Agda+proof for ASC/BLF parsers), GHC `--bignum=native` rebuild (LGPL contingency for libgmp), SOME/IP. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
 

@@ -140,7 +140,7 @@ Requires the Rust 2021 edition toolchain.
 | **python-can** | **≥ 4.6.1** | **LGPL-3.0-only** |
 | pyyaml | ≥ 6.0.3 | MIT |
 
-(cantools was dropped 2026-05-03 in Track B.3.g `2daa2fb` — DBC parsing now goes through the verified Agda kernel via the FFI; no Python dep required.)
+(cantools was dropped 2026-05-03 in `2daa2fb` — DBC parsing now goes through the verified Agda kernel via the FFI; no Python dep required.)
 
 ### Transitive dependencies
 

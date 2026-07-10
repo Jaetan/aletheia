@@ -10,7 +10,7 @@
 #     id:          lowercase snake_case identifier used as test parametrization key
 #     name:        short human-readable title
 #     description: one-sentence summary of the capability
-#     related:     optional — tracking codes (R17-DEF-4, B.3, SFP-2, ...)
+#     related:     optional — cross-reference / roadmap pointer
 #     bindings:
 #       python / cpp / go / rust: all four required
 #         status:  implemented | not_applicable | planned
@@ -89,45 +89,42 @@ features:
   - id: dbc_text_parse
     name: Parse .dbc text
     description: Parse a raw .dbc text file into a DBCDefinition via the verified Agda parser.
-    related: R17-DEF-4, B.3, B.3.e, B.3.f, B.3.g
     bindings:
       python:
         status: implemented
         entry: aletheia.AletheiaClient.parse_dbc_text
-        notes: "B.3.e/B.3.f/B.3.g — verified Agda parseText composed with the runtime validator. ``aletheia.dbc.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped in B.3.g (no third-party Python dep required)."
+        notes: "Verified Agda parseText composed with the runtime validator. ``aletheia.dbc.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped (no third-party Python dep required)."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#parse_dbc_text"
-        notes: "B.3.e — same Agda core via FFI; returns ParsedDBC carrying body + warnings."
+        notes: "Same Agda core via FFI; returns ParsedDBC carrying body + warnings."
       go:
         status: implemented
         entry: Client.ParseDBCText
-        notes: "B.3.e — same Agda core via FFI; returns *ParsedDBC carrying DBC + Warnings."
+        notes: "Same Agda core via FFI; returns *ParsedDBC carrying DBC + Warnings."
       rust: { status: implemented, entry: "Client::parse_dbc_text" }
 
   - id: dbc_text_format
     name: Format DBCDefinition as .dbc text
     description: Render a DBCDefinition as .dbc file text via the verified Agda formatter. Inverse of ``parse_dbc_text`` at the wire level — ``parse_dbc_text(format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed DBC.
-    related: Track E, E.10
     bindings:
       python:
         status: implemented
         entry: aletheia.AletheiaClient.format_dbc_text
-        notes: "Track E.10 — routed through the ``formatDBCText`` JSON command; ``aletheia.dbc_to_text`` is a thin convenience wrapper over ``format_dbc_text`` (no parallel pure-Python emitter)."
+        notes: "Routed through the ``formatDBCText`` JSON command; ``aletheia.dbc_to_text`` is a thin convenience wrapper over ``format_dbc_text`` (no parallel pure-Python emitter)."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#format_dbc_text"
-        notes: "Track E.10 — same Agda core via FFI; returns the ``.dbc`` text image."
+        notes: "Same Agda core via FFI; returns the ``.dbc`` text image."
       go:
         status: implemented
         entry: Client.FormatDBCText
-        notes: "Track E.10 — same Agda core via FFI; returns the ``.dbc`` text image."
+        notes: "Same Agda core via FFI; returns the ``.dbc`` text image."
       rust: { status: implemented, entry: "Client::format_dbc_text" }
 
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)
     description: Expose the three top-level DBC metadata arrays — signal groups, environment variables, and value tables — that the Agda core already carries end-to-end through the wire.
-    related: R17-DEF-2, B.1
     bindings:
       python:
         status: implemented
@@ -145,8 +142,7 @@ features:
 
   - id: dbc_metadata_tier2
     name: DBC metadata Tier 2 (nodes, comments, attributes)
-    description: Expose DBC nodes (BU_), comments (CM_), and attributes (BA_DEF_/BA_DEF_DEF_/BA_ with their BA_REL_ siblings) — Agda-core fields introduced by B.1.x.
-    related: R17-DEF-2, B.1.x
+    description: Expose DBC nodes (BU_), comments (CM_), and attributes (BA_DEF_/BA_DEF_DEF_/BA_ with their BA_REL_ siblings) — all Agda-core fields.
     bindings:
       python:
         status: implemented
@@ -165,7 +161,6 @@ features:
   - id: dbc_signal_receivers
     name: DBC signal receivers (per-signal receiver nodes from SG_)
     description: Expose the ``receivers`` trailing-node list on DBCSignal (the tail of the ``SG_`` line). The ``Vector__XXX`` DBC placeholder is stripped on parse and re-emitted when the list is empty. New ``unknown_signal_receiver`` warning fires when a listed receiver is not declared in ``BU_``.
-    related: R17-DEF-2, B.1.x (commit 2)
     bindings:
       python:
         status: implemented
@@ -184,26 +179,24 @@ features:
   - id: dbc_signal_value_descriptions
     name: DBC signal value descriptions (per-signal VAL_ entries)
     description: Expose the ``valueDescriptions`` per-signal list on DBCSignal — the ``(value, description)`` entries from top-level ``VAL_`` lines, attached to the owning ``(message-id, signal-name)`` pair. Orphan ``VAL_`` entries (no matching signal) are preserved on ``DBCDefinition.unresolvedValueDescs`` so callers can introspect them and the validator can warn. The Agda formatter re-emits the ``VAL_`` block on ``format_dbc_text``. New ``unknown_value_description_target`` warning fires when a ``VAL_`` line points at a ``(message-id, signal-name)`` pair not declared in ``BO_`` / ``SG_``.
-    related: R17-DEF-2, Track E
     bindings:
       python:
         status: implemented
         entry: aletheia.types.DBCSignalAlways
-        notes: "Track E — DBCSignalAlways/Multiplexed gain a NotRequired valueDescriptions: list[DBCValueEntry]; populated by the Agda parser; round-tripped through format_dbc / format_dbc_text."
+        notes: "DBCSignalAlways/Multiplexed gain a NotRequired valueDescriptions: list[DBCValueEntry]; populated by the Agda parser; round-tripped through format_dbc / format_dbc_text."
       cpp:
         status: implemented
         entry: "aletheia/dbc.hpp#DbcSignal"
-        notes: "Track E — DbcSignal gains std::vector<DbcValueEntry> value_descriptions; reuses DbcValueEntry from value tables."
+        notes: "DbcSignal gains std::vector<DbcValueEntry> value_descriptions; reuses DbcValueEntry from value tables."
       go:
         status: implemented
         entry: DBCSignal
-        notes: "Track E — DBCSignal gains ValueDescriptions []DBCValueEntry; reuses DBCValueEntry from value tables."
+        notes: "DBCSignal gains ValueDescriptions []DBCValueEntry; reuses DBCValueEntry from value tables."
       rust: { status: implemented, entry: "DbcSignal::value_descriptions" }
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
-    description: Expose the ``BO_TX_BU_`` additional-transmitter list on DBCMessage. The primary transmitter stays in ``sender``; ``senders`` carries the extras declared on ``BO_TX_BU_`` lines. New ``unknown_message_sender`` warning (with "additional sender" disambiguation) fires when a listed sender is not declared in ``BU_``. A.2 (2026-06-11) added the **text** round-trip — ``format_dbc_text`` emits ``BO_TX_BU_`` lines and ``parse_dbc_text`` reads them back into ``senders`` (proven via the universal ``parseText (formatText d) ≡ inj₂ d``), so senders survive a text-format round-trip on all three bindings.
-    related: R17-DEF-2, B.1.x (commit 3), A.2 (text round-trip)
+    description: Expose the ``BO_TX_BU_`` additional-transmitter list on DBCMessage. The primary transmitter stays in ``sender``; ``senders`` carries the extras declared on ``BO_TX_BU_`` lines. New ``unknown_message_sender`` warning (with "additional sender" disambiguation) fires when a listed sender is not declared in ``BU_``. The **text** round-trip (2026-06-11) — ``format_dbc_text`` emits ``BO_TX_BU_`` lines and ``parse_dbc_text`` reads them back into ``senders`` (proven via the universal ``parseText (formatText d) ≡ inj₂ d``), so senders survive a text-format round-trip on all three bindings.
     bindings:
       python:
         status: implemented
@@ -222,7 +215,6 @@ features:
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
     description: "Query a loaded DBC for mux structure — is_multiplexed, always_present_signals, multiplexed_signals, multiplexor_names, multiplex_values (Python: mux_values), signals_for_mux_value."
-    related: R8, B.2
     bindings:
       python: { status: implemented, entry: aletheia.is_multiplexed }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#is_multiplexed" }
@@ -232,7 +224,6 @@ features:
   - id: dbc_lookup
     name: DBC entity lookup helpers
     description: Look up DBC entities by key — message_by_id, message_by_name (on DBCDefinition), signal_by_name (on DBCMessage).
-    related: R8, B.2
     bindings:
       python: { status: implemented, entry: aletheia.message_by_id }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#message_by_id" }
@@ -300,8 +291,7 @@ features:
       CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2) + Error State
       Indicator (§10.4.3) carried as optional booleans from the binding
       through the C FFI (`aletheia_send_frame` 11-arg ABI) into the
-      Agda `TimedFrame` record.  Cluster 18 (R19 Phase 2) closure of
-      AGDA-D-10.1 / 13.1 / 17.1.  The Aletheia kernel does NOT consume
+      Agda `TimedFrame` record.  The Aletheia kernel does NOT consume
       these bits — pass-through metadata for binding consumers + the
       JSON wire shape (`sendFrame` command's `brs` / `esi` fields).
       Each binding's representative entry below points at the public
@@ -356,7 +346,7 @@ features:
 
   - id: end_stream_uncached_atom_warnings
     name: EndStream uncached-atom diagnostics
-    description: end_stream surfaces one `uncached_atom` warning per property atom whose target signal never appeared on the trace. Disambiguates the Unresolved verdict (sound Kleene Unknown vs cache-miss). R21 cluster 1 — AGDA-D-12.1.
+    description: end_stream surfaces one `uncached_atom` warning per property atom whose target signal never appeared on the trace. Disambiguates the Unresolved verdict (sound Kleene Unknown vs cache-miss).
     bindings:
       python: { status: implemented, entry: aletheia.types.CompleteWarning }
       cpp:    { status: implemented, entry: "aletheia/response.hpp#StreamWarning" }
@@ -443,7 +433,6 @@ features:
   - id: decimal_input
     name: Decimal input (kernel SSOT)
     description: Parse a decimal string into the exact rational it denotes via the verified Agda kernel (aletheia_parse_decimal) — the float principle, where a decimal is an exact rational and a float appears only at print-out. The single source of truth all loaders/builders delegate to; RTS-gated (a backend must be live).
-    related: B6e
     bindings:
       python: { status: implemented, entry: aletheia.from_decimal }
       cpp:    { status: implemented, entry: "aletheia/types.hpp#from_decimal" }
@@ -559,34 +548,32 @@ features:
   - id: cancellation_contract
     name: Cooperative cancellation
     description: Behavioral parity for cancelling long-running ops — Python async cancel, Go context.Context, C++ std::stop_token.
-    related: C.0, C.1, C.3, C.4
     bindings:
       python:
         status: implemented
         entry: "aletheia.asyncio.AletheiaClient.send_frame"
-        notes: "C.1 (2026-05-03): aletheia.asyncio.AletheiaClient mirrors the sync surface as async def methods wrapping each FFI call through asyncio.to_thread; cancellation surfaces as asyncio.CancelledError at await boundaries. Sync AletheiaClient is uncancellable by design (Python has no native sync-method cancellation primitive); the only sync cancel surface is send_frames_iter via generator.close()/break. See docs/architecture/CANCELLATION.md §2.1."
+        notes: "2026-05-03: aletheia.asyncio.AletheiaClient mirrors the sync surface as async def methods wrapping each FFI call through asyncio.to_thread; cancellation surfaces as asyncio.CancelledError at await boundaries. Sync AletheiaClient is uncancellable by design (Python has no native sync-method cancellation primitive); the only sync cancel surface is send_frames_iter via generator.close()/break. See docs/architecture/CANCELLATION.md §2.1."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#send_frame"
-        notes: "C.4 (2026-05-03): every AletheiaClient operation method takes std::stop_token as its first parameter; new ErrorKind::Cancellation surfaces the cooperative-at-FFI-boundaries result. Default-constructed std::stop_token{} is the no-cancellation form (mirrors Go's context.Background()). See docs/architecture/CANCELLATION.md."
+        notes: "2026-05-03: every AletheiaClient operation method takes std::stop_token as its first parameter; new ErrorKind::Cancellation surfaces the cooperative-at-FFI-boundaries result. Default-constructed std::stop_token{} is the no-cancellation form (mirrors Go's context.Background()). See docs/architecture/CANCELLATION.md."
       go:
         status: implemented
         entry: Client.SendFrame
-        notes: "C.3 (2026-05-03): every Client operation method takes ctx context.Context as its first parameter; sync.Mutex replaced with 1-deep channel-based semaphore so a goroutine waiting on the lock can be cancelled by ctx. See docs/architecture/CANCELLATION.md."
+        notes: "2026-05-03: every Client operation method takes ctx context.Context as its first parameter; sync.Mutex replaced with 1-deep channel-based semaphore so a goroutine waiting on the lock can be cancelled by ctx. See docs/architecture/CANCELLATION.md."
       rust:
         status: implemented
         entry: "AsyncClient"
-        notes: "R4c: AsyncClient (feature `async`) is a runtime-agnostic async mirror of Client. The sync Client is !Send (thread-pinned StreamState), so AsyncClient owns it on a dedicated worker thread and dispatches jobs over a channel; cancellation = dropping a method's future. Honors the contract: a queued (not-yet-started) job is skipped (no frame committed); an in-flight FFI call completes and advances StreamState (commit-prefix). Runtime-agnostic via futures-channel oneshot (works under tokio / async-std / smol). See docs/architecture/CANCELLATION.md §2.4."
+        notes: "AsyncClient (feature `async`) is a runtime-agnostic async mirror of Client. The sync Client is !Send (thread-pinned StreamState), so AsyncClient owns it on a dedicated worker thread and dispatches jobs over a channel; cancellation = dropping a method's future. Honors the contract: a queued (not-yet-started) job is skipped (no frame committed); an in-flight FFI call completes and advances StreamState (commit-prefix). Runtime-agnostic via futures-channel oneshot (works under tokio / async-std / smol). See docs/architecture/CANCELLATION.md §2.4."
 
   - id: lazy_streaming_batch
     name: Lazy batch frame send
     description: Iterator-driven variant of batch frame send — consume input lazily without full materialization.
-    related: R17-DEF-3, C.2
     bindings:
       python:
         status: implemented
         entry: "aletheia.AletheiaClient.send_frames_iter"
-        notes: "C.2 (2026-05-03): sync AletheiaClient.send_frames_iter is a Generator[FrameResult] that yields one frame at a time; cancel via consumer break / generator.close(). Async aletheia.asyncio.AletheiaClient.send_frames_iter is the async-iter analog with asyncio.CancelledError at frame boundaries. See docs/architecture/CANCELLATION.md §3.1."
+        notes: "2026-05-03: sync AletheiaClient.send_frames_iter is a Generator[FrameResult] that yields one frame at a time; cancel via consumer break / generator.close(). Async aletheia.asyncio.AletheiaClient.send_frames_iter is the async-iter analog with asyncio.CancelledError at frame boundaries. See docs/architecture/CANCELLATION.md §3.1."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#send_frames_lazy"
@@ -639,18 +626,17 @@ features:
   - id: doc_example_gate_checks
     name: Executable doc examples
     description: Every fenced code block in README + docs/ runs as part of the default test battery.
-    related: R17-DEF-6, D.1, D.2
     bindings:
       python:
         status: implemented
         entry: "aletheia.AletheiaClient"
-        notes: "R17 C6 — pytest --markdown-docs with repo-root conftest.py; 103 fence runs."
+        notes: "pytest --markdown-docs with repo-root conftest.py; 103 fence runs."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#AletheiaClient"
-        notes: "D.1 (2026-05-04) — Catch2 harness in cpp/tests/doc_example_tests.cpp walks tracked markdown, wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates ban `<!-- cpp notest -->` escapes and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
+        notes: "2026-05-04 — Catch2 harness in cpp/tests/doc_example_tests.cpp walks tracked markdown, wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates ban `<!-- cpp notest -->` escapes and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
       go:
         status: implemented
         entry: Client
-        notes: "D.2 (2026-05-04) — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
+        notes: "2026-05-04 — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
       rust: { status: planned, notes: "Phase 6 — Rust doc-example gate, scheduled with the python-can replacement / host-surface work; a Phase 6 host-surface item, beyond the completed Rust parity work." }
