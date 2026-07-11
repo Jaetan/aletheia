@@ -1,7 +1,7 @@
 # Aletheia: Project Pitch
 
 **Check recorded CAN logs against plain-language rules — with a signal decoder that's mathematically proven correct, not just tested.**
-**Last Updated**: 2026-07-07
+**Last Updated**: 2026-07-10
 
 Aletheia checks recorded CAN logs against rules like *"Speed never exceeds 220"* or *"the brake light turns on within 100 ms of the pedal"* — and the code that decodes your signals is mathematically **proven** correct, not just tested. Point it at your `.dbc` and your `.blf` / `.asc` / `.mf4` / candump log; get pass/fail plus the exact timestamp of every violation.
 
@@ -27,7 +27,7 @@ Every item below is a bug class that has shipped in real CAN tooling. Aletheia t
 
 ## Why switch from cantools / python-can / hand-rolled scripts?
 
-All three decode CAN with **tested** code: correct on the cases someone thought to test, and still potentially wrong on an untried endianness, sign, or multiplexer case. Aletheia's decoder is **proven correct for all inputs** — the guarantee holds even for signals no test ever exercised.
+All three decode CAN with **tested** code: correct on the cases someone thought to test, and still potentially wrong on an untried endianness, sign, or multiplexer case. Aletheia's decoder is **proven correct across the whole input space** — for every signal a valid DBC admits and every value it can hold, decode is proven to invert the DBC's encoding, in both byte orders and both signednesses. The guarantee holds even for signals and values no test ever exercised.
 
 | If you use… | How it decodes signals | The gap Aletheia closes |
 |---|---|---|
@@ -68,7 +68,7 @@ Aletheia provides:
    checks.signal("Speed").never_exceeds(220)                   # Python
    ```
    ```cpp
-   check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});  // C++
+   check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));  // C++
    ```
    ```go
    aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))  // Go
@@ -83,7 +83,9 @@ Aletheia provides:
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 
-5. **Exact arithmetic**: Signal values are exact rationals end-to-end, never floats — a decoded value is never off by a rounding step.
+5. **Proven DBC validator**: 23 structural checks with a machine-checked **soundness + completeness** proof. It certifies your DBC is well-formed — which is exactly the precondition the decode proof assumes, so a validated DBC is one the correctness guarantee actually applies to.
+
+6. **Exact arithmetic**: Signal values are exact rationals end-to-end, never floats — a decoded value is never off by a rounding step.
 
 **Key insight**: You write Python, C++, Go, or Rust. The proof burden lives in Agda. If the code type-checks, it's correct by construction.
 
@@ -119,7 +121,7 @@ In other words: Aletheia eliminates the class of bugs where "the signal extracti
 
 **Example**:
 - Test: "Speed extraction works for 100 km/h" ✓
-- Proof: "Speed extraction is correct for all 64-bit integers in all byte orders" ✓✓✓
+- Proof: "Speed extraction is correct for every value the signal can represent, in both byte orders" ✓✓✓
 
 **Trade-off**: Higher upfront cost (writing proofs), lower long-term cost (no signal extraction bugs, ever).
 
@@ -158,7 +160,6 @@ Agda (all logic + proofs, compiled via the MAlonzo backend)
 |------|--------|------------|------------|
 | **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, tested on Ubuntu/Debian/WSL2. One-time build-time toolchain; runtime is just the shared library + Python. |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Low | High-throughput streaming via binary FFI across all four bindings (see [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current benchmarks). Sufficient for 1 Mbps CAN bus real-time analysis. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Binding APIs are stable. Core changes rare. Can contract experts if needed. |
 
 ### People Risks
@@ -198,11 +199,11 @@ Signal("Speed").less_than(220).always()             # Full DSL
 
 C++:
 ```cpp
-check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
 [[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
 [[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
 // LTL formulas via ltl:: namespace (compositional, not fluent DSL):
-auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue::of(220, 1))));
 ```
 
 Go:
@@ -223,7 +224,7 @@ let coolant = check::signal("Coolant").stays_between(80, 105)?;
 let f = Formula::Always(Box::new(Formula::Atomic(Predicate::less_than("Speed", 220))));
 ```
 
-**Streaming workflow** (Python shown; C++, Go, and Rust follow the same pattern):
+**Streaming workflow** (Python shown). The client pattern — parse the DBC, add checks, feed frames, read verdicts — is identical across all four bindings. The `iter_can_log` log-file reader, however, is currently Python-only: in C++, Go, and Rust you supply frames from your own source (a live bus, your own parser, or replayed capture) and feed them to `send_frame` the same way.
 
 ```python
 from aletheia import AletheiaClient, checks
@@ -295,7 +296,7 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current throughput benchmarks.
+A: Comfortably real-time — a 1 Mbps CAN bus needs ~8,000 fps and a 5 Mbit/s CAN-FD bus ~6,000 fps; every binding clears its bar with margin to spare. See [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for the throughput numbers and the real-time headroom.
 
 **Q: Dependencies?**
 A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime is just `libaletheia-ffi.so` and Python 3.14+ (plus your binding's own runtime). There is no published wheel yet — install the Python binding editable from source after building. See [Building Guide § Prerequisites](development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
@@ -325,7 +326,7 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 | **Technical** | Medium | Proven toolchain (Agda/GHC), comprehensive docs, AI-assisted maintenance |
 | **People** | Medium-High | Clear docs, external contractors available, gradual adoption |
 | **Legal** | Low | Permissive license (BSD 2-Clause), no known patent issues |
-| **Compliance** | Low (helps) | Formal methods strengthen ISO 26262 / DO-178C compliance story |
+| **Compliance** | Low (helps) | Formal methods strengthen the ISO 26262 (automotive functional safety) compliance story |
 
 **Decision framework**:
 
@@ -351,12 +352,12 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 
 ## Current Status
 
-**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, Rust) at cross-language parity, plus the matrix gates, DBC text parser, cancellation, doc-example harness, and VAL_ promotion all complete. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
+**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, Rust) at functional parity on the verified core (signal extraction, LTL checking, DBC handling, and the four-tier check interface), plus the matrix gates, DBC text parser, cancellation, doc-example harness, and VAL_ promotion all complete. Host-surface features (the CLI, log-file reading) remain Python-led — see the per-binding notes below. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser in the verified Agda kernel)
 - LTL verification with streaming architecture
 - Formal correctness proofs (parser, CAN encoding, LTL adequacy, DSL roundtrip)
-- DBC validator with formal proof (soundness + completeness; see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
+- DBC validator with formal proof — 23 structural checks, proven **sound and complete**; it certifies the DBC is well-formed, the precondition the decode proof relies on (see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
 - Python, C++, Go, and Rust APIs with signal operations (in-process shared library, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
 - **CLI ships today** — the Python CLI has six subcommands (`python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query}`); the C++ and Go host CLIs ship five of those (`check` deferred — it needs a verified CAN-log reader); Rust has a typed client today, with a CLI planned for Phase 6.
@@ -373,13 +374,14 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 
 **Strengths**:
 - Mathematical guarantees of correctness (unique in CAN tooling)
+- Exact rational arithmetic end-to-end — decoded values never drift by a floating-point rounding step
 - Proven technology stack (Agda/Haskell used in high-assurance systems)
 - Python, C++, Go, and Rust bindings hide the complexity
 - CAN-FD support (variable-length payloads up to 64 bytes, DLC 0-15)
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
+- High streaming throughput with real-time headroom — even the slowest binding on the slowest lane clears a live CAN-FD bus by ~3×, and the streaming lanes by far more ([benchmarks](development/BENCHMARKS.md#canonical-results))
 
 **Limitations**:
-- Performance: Sufficient for 1 Mbps CAN bus real-time analysis and multi-bus (see Technical Risks table for current throughput numbers)
 - Learning curve for Agda core maintenance (binding APIs and Check API are easy)
 - Small ecosystem (fewer community resources than mainstream-only tools)
 - No published package yet — install is build-from-source (no `pip install aletheia` wheel today)
@@ -399,16 +401,9 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 
 ## Try It
 
-**Fastest path — no code (the CLI):**
-```bash
-# A matched sample set ships in examples/demo/ (vehicle.dbc, vehicle_checks.yaml, drive.log),
-# so this runs as-is. The sample drive speeds past its limit, so it exits 1.
-cd examples/demo
-aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-# exit 0 = all checks passed · 1 = violations (with timestamps) · 2 = error
-```
+There is no published wheel yet, so start with a one-time build; after that, the lowest-effort way to *use* Aletheia needs no code at all.
 
-**From source (build once, then script it):**
+**Step 1 — build once (from source):**
 ```bash
 git clone <repository>
 cd aletheia
@@ -418,6 +413,18 @@ python3 -m venv .venv
 source .venv/bin/activate        # fish: source .venv/bin/activate.fish
 pip install -e '.[can]'          # editable from source — there is no published wheel yet
 cd ..
+```
+
+**Step 2 — no code to write (the CLI).** A matched sample set ships in `examples/demo/` (vehicle.dbc, vehicle_checks.yaml, drive.log), so this runs straight through:
+```bash
+cd examples/demo
+aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
+# The sample drive speeds past its limit, so it exits 1.
+# exit 0 = all checks passed · 1 = violations (with timestamps) · 2 = error
+```
+
+**Or script it in Python:**
+```bash
 python3 examples/simple_verification.py
 ```
 

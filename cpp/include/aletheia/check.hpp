@@ -7,9 +7,9 @@
 // automotive technicians can define signal checks without knowing
 // temporal logic.
 //
-//   check::signal("Speed").never_exceeds(PhysicalValue{220});
-//   check::when("Brake").exceeds(PhysicalValue{50})
-//       .then("BrakeLight").equals(PhysicalValue{1}).within(100ms);
+//   check::signal("Speed").never_exceeds(PhysicalValue::of(220, 1));
+//   check::when("Brake").exceeds(PhysicalValue::of(50, 1))
+//       .then("BrakeLight").equals(PhysicalValue::of(1, 1)).within(100ms);
 //
 // Every check compiles to the same LtlFormula used by the LTL layer.
 //
