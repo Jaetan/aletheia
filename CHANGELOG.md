@@ -17,6 +17,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   and the `curl` re-fetch recipe) into the `tools/_agda_opens.py` module docstring
   that grounds in that grammar.
 
+### Fixed
+
+- **Corrected the C++ Check-API usage example in the `check.hpp` header
+  comment.** The shown `never_exceeds(PhysicalValue{220})` form did not compile:
+  `PhysicalValue` wraps an exact `Rational`, which — by the float principle —
+  has no single-argument constructor, so the brace-init had no matching
+  `Rational` ctor. The comment now uses the idiomatic `PhysicalValue::of(220, 1)`
+  factory. Documentation-only; no API or behaviour change.
+
 ## [3.0.0] — 2026-07-09
 
 ### Fixed
