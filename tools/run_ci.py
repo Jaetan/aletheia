@@ -141,7 +141,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
-from tools._ci_steps import HEAVY_STEPS, register_all_steps
+from tools._ci_steps import FAST_STEPS, HEAVY_STEPS, register_all_steps
 from tools._common import emit, find_executable, git_toplevel
 from tools._resources import cpu_budget
 from tools._scheduler import Step, StepResult, run_lanes
@@ -220,6 +220,12 @@ class OptInOptions:
     # changed; "always" is the push:main backstop, "never" an escape hatch.
     # Not a lane — it picks the build COMMAND, not the step count.
     build_staleness: str = "auto"
+    # Pre-commit FAST tier: restrict the sweep to the compile-free static gates
+    # (tools._ci_steps.FAST_STEPS) and skip the `build` prereq.  Used by the
+    # pre-commit hook to block non-conforming commits in seconds; pre-push still
+    # runs the full sweep.  A no-op subset filter, so it never changes a step's
+    # command — no gate drift between commit-time and push-time definitions.
+    fast: bool = False
 
     @property
     def any_enabled(self) -> bool:
@@ -342,6 +348,17 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
     )
 
     parser.add_argument(
+        "--fast",
+        action="store_true",
+        default=False,
+        help=(
+            "Pre-commit FAST tier: run ONLY the compile-free static gates "
+            "(format checks, SPDX/review-mark/venv hygiene, ruff, pylint) and "
+            "skip the build prereq.  Seconds, not minutes; no build artifacts "
+            "needed.  Used by the pre-commit hook; pre-push runs the full sweep."
+        ),
+    )
+    parser.add_argument(
         "--parallel",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -391,6 +408,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
         heavy_limit=_resolve_heavy_limit(args.ci_heavy_limit),
         build_staleness=_resolve_build_staleness(args.build_staleness),
+        fast=args.fast or os.environ.get("ALETHEIA_CI_FAST") == "1",
     )
 
 
@@ -571,6 +589,22 @@ class Runner:
             _ = sys.stderr.write(line + "\n")
         sys.stderr.flush()
 
+    def restrict_to(self, names: frozenset[str]) -> list[str]:
+        """Keep only registered steps whose name is in *names*; drop the rest.
+
+        Used by the FAST tier (``--fast``): a pure subset filter that never
+        alters a step's command, so a commit-time gate can't drift from its
+        pre-push definition.  Returns the sorted list of *names* that did NOT
+        resolve to a registered step (rename drift) and leaves the registry
+        UNCHANGED in that case, so the caller can fail loud rather than silently
+        run a smaller sweep.
+        """
+        kept = [s for s in self._registry if s.name in names]
+        missing = sorted(names - {s.name for s in kept})
+        if not missing:
+            self._registry = kept
+        return missing
+
     def run(self) -> int:
         """Execute build first, then the lanes (serial or parallel); return exit code."""
         total = len(self._registry)
@@ -643,6 +677,19 @@ def main(argv: list[str] | None = None) -> int:
     # --parallel — with deterministic teeing and fail-loud aggregation.  The
     # step catalog lives in tools/_ci_steps.py (the part of the sweep that grows).
     register_all_steps(runner, cabal, opts)
+    if opts.fast:
+        # Restrict to the compile-free static allowlist and drop everything else
+        # (including the `build` prereq — no FAST step needs it).  A pure subset
+        # filter: no step's command changes, so the commit-time gate can never
+        # drift from the pre-push definition of the same check.
+        missing = runner.restrict_to(FAST_STEPS)
+        if missing:
+            # A FAST_STEPS name that no longer resolves to a registered step is a
+            # rename drift — fail loudly rather than silently skip a gate.
+            drift = ", ".join(missing)
+            msg = f"run_ci --fast: FAST_STEPS names not in the registry (rename drift?): {drift}\n"
+            sys.stderr.write(msg)
+            return 2
     return runner.run()
 
 
