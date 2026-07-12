@@ -244,3 +244,33 @@ def reject_symlink_loader_path(p: Path, kind: str) -> None:
             f"{kind} file is a symbolic link; refusing to load: {p}."
             + "  Resolve the link and pass the real path explicitly."
         )
+
+
+def require_present_file(p: Path, kind: str) -> None:
+    """Raise a clear ``FileNotFoundError`` if *p* is absent; else pass through.
+
+    A stat failure other than "absent" propagates with its real errno.
+    ``Path.exists()`` is unusable for this since Python 3.12: it swallows every
+    ``OSError`` (EACCES, ENAMETOOLONG, EMFILE/EIO under load, …) and returns
+    ``False``, which would mislabel a stat *failure* as "file not found" and
+    mask a resource/permission problem.  ``os.lstat`` instead raises the precise
+    errno — ENOENT / ENOTDIR (a missing leaf or a non-directory parent
+    component) mean genuinely absent and surface as ``FileNotFoundError``;
+    anything else propagates unchanged.  Mirrors the cross-binding
+    ec-vs-not-found split in C++ ``validate_loader_path`` and Go
+    ``validateLoaderPath`` (which key on ``os.ErrNotExist``, covering both
+    ENOENT and ENOTDIR).
+
+    *kind* ("Excel" / "YAML") is interpolated into the not-found message so
+    operators see which loader rejected the path.
+
+    Raises:
+        FileNotFoundError: *p* does not exist (ENOENT / ENOTDIR).
+        OSError: any other stat failure (surfaced with its errno).
+
+    """
+    try:
+        os.lstat(p)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        msg = f"{kind} file not found: {p}"
+        raise FileNotFoundError(msg) from e

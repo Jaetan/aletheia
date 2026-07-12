@@ -827,6 +827,22 @@ func TestLoadExcelDBCFileNotFound(t *testing.T) {
 	requireErrorContains(t, err, "excel file not found")
 }
 
+// TestLoadExcelStatFailureNotMislabeled locks the ec-vs-not-found split:
+// a path whose component exceeds NAME_MAX makes Lstat fail with ENAMETOOLONG —
+// a stat *failure*, distinct from an absent file. validateLoaderPath must
+// surface it (as the wrapped stat error) rather than mislabel it "file not
+// found", which would mask resource/permission failures under load. Mirrors
+// the C++ validate_loader_path ec branch and Rust's `cannot stat`.
+// ENAMETOOLONG is deterministic and root-safe (unlike an EACCES/chmod trigger).
+func TestLoadExcelStatFailureNotMislabeled(t *testing.T) {
+	long := "/tmp/" + strings.Repeat("a", 5000) + ".xlsx"
+	_, err := LoadChecks(long)
+	requireErrorContains(t, err, "stat excel file")
+	if strings.Contains(err.Error(), "not found") {
+		t.Errorf("stat failure mislabeled as 'not found': %v", err)
+	}
+}
+
 func TestLoadExcelNoChecksOrWhenThenSheet(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()

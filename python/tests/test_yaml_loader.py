@@ -11,6 +11,7 @@ Tests cover:
 - Equivalence: YAML-loaded checks produce same formula as Check API
 """
 
+import errno
 import textwrap
 from fractions import Fraction
 from typing import TYPE_CHECKING
@@ -347,6 +348,23 @@ class TestLoadFromFile:
         missing = tmp_path / "does_not_exist.yaml"
         with pytest.raises(FileNotFoundError):
             load_checks(missing)
+
+    def test_stat_failure_distinguished_from_missing(self, tmp_path: Path) -> None:
+        """A stat *failure* surfaces its errno, not a bogus FileNotFoundError.
+
+        A path component over NAME_MAX makes ``os.lstat`` raise ``OSError``
+        with ``ENAMETOOLONG`` — distinct from a missing file's
+        ``FileNotFoundError``. The loader must propagate the real errno so a
+        resource/permission failure under load is not mislabelled "not found"
+        (the cross-binding invariant behind the C++ ec-vs-not-found split).
+        ``FileNotFoundError`` subclasses ``OSError``, so we assert on the
+        concrete errno rather than the type alone.
+        """
+        too_long = tmp_path / ("a" * 5000 + ".yaml")
+        with pytest.raises(OSError) as exc_info:  # noqa: PT011 — errno checked below
+            load_checks(too_long)
+        assert exc_info.value.errno == errno.ENAMETOOLONG
+        assert not isinstance(exc_info.value, FileNotFoundError)
 
 
 # ============================================================================
