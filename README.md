@@ -300,7 +300,7 @@ You never need this section to *use* Aletheia — it's here for readers who want
 
 - Signal extraction and frame building are correct for every valid DBC and every input frame — all byte orders, widths, signs, and multiplexer cases.
 - The LTL checker's verdicts match the formal semantics of the properties, and do not drift over arbitrarily long traces.
-- The DBC round-trip is exact: `∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d` — parsing a formatted DBC returns the original definition, proven for all well-formed inputs.
+- The DBC text round-trip is exact: `∀ d → WellFormedTextDBCAgg d → parseText (formatText d) ≡ inj₂ d` — parsing a formatted DBC returns the original definition, proven for every DBC in the nine-condition text-side well-formedness class (`WellFormedTextDBCAgg`; note that passing `aletheia validate` is a different, weaker condition — see [well-formed DBC](docs/GLOSSARY.md#describing-signals-the-dbc) in the glossary). The JSON round-trip needs no precondition at all.
 
 **Not covered** (still your responsibility, as with any tool):
 

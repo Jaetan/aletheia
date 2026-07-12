@@ -125,7 +125,7 @@ commentTargetStop c with DBCComment.target c
 -- The five name-stop record fields auto-derive from Identifier-validity, so
 -- the `WellFormedTextDBCAgg` precondition collapses to the four fields that
 -- carry genuine content: the two heavy proofs (`MessageWF`, `WFAttribute`)
--- and the two validator-backed fields (`msg-ids-unique` ← CHECK 18,
+-- and the two validator-backed fields (`msg-ids-unique` ← CHECK 1,
 -- `unresolved-empty` ← CHECK 23).  Discharging those four is the
 -- reassessment point (DEFERRED_ITEMS.md E.2); they remain hypotheses here.
 wellFormedFromValidity : ∀ (d : DBC)

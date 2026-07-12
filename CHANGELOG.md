@@ -10,6 +10,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Pre-commit hook now blocks non-conforming commits in seconds** (dev-workflow
+  change). `tools/run_ci.py` gains a `--fast` tier that runs only the compile-free
+  static gates — per-binding format checks (`clang-format`, `gofmt`, `cargo fmt`,
+  `ruff format`), SPDX / review-mark / venv hygiene, and the Python linters (`ruff`,
+  `pylint`) — and the pre-commit hook runs it against the **staged content**
+  (unstaged/untracked changes are stashed for the duration, then restored) and
+  refuses the commit on failure. Compiling/artifact-dependent gates (clang-tidy,
+  clippy, cargo test, pytest) stay at pre-push, which still runs the full sweep.
+  Re-install with `python -m tools.install_hooks`; bypass with
+  `git commit --no-verify`. Internal: the `gofmt + go vet` and `cargo fmt + clippy`
+  steps were split into separate format/lint steps so the fast tier's allowlist
+  (`FAST_STEPS`) can include the format check without pulling in the compile.
+
 ### Changed
 
 - Internal (no behavior change): removed the unused `.agda-reference/README.md`
@@ -35,6 +50,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   has no single-argument constructor, so the brace-init had no matching
   `Rational` ctor. The comment now uses the idiomatic `PhysicalValue::of(220, 1)`
   factory. Documentation-only; no API or behaviour change.
+
+- **DBC text round-trip guarantee: corrected every stale or wrong statement of
+  its precondition (E.2 accuracy batch).** README cited the wrong predicate for
+  the text round-trip theorem (`WellFormedDBC`, the JSON-side one, instead of
+  `WellFormedTextDBCAgg`); all four bindings' `format_dbc_text` doc surfaces
+  now state the round-trip qualifier uniformly and name its sense —
+  "byte-identical for any text-round-trip well-formed DBC", with a pointer to
+  the glossary (Rust previously lacked the qualifier entirely — parity drift);
+  `docs/GLOSSARY.md` gains a "well-formed DBC" entry distinguishing
+  validator-clean from text-round-trip well-formed;
+  `docs/reference/INTERFACES.md` states the qualifier. Agda comment fixes
+  (no code change): two CHECK 1 / CHECK 18 mislabels, a stale "(8 fields)"
+  count, an over-broad "JSON always defaults `unresolvedValueDescs` to `[]`"
+  claim, and the format handler's caller contract no longer claims
+  `MessageWF`/`WFAttribute` "hold automatically" from identifier validity.
+  Documentation-only; no behaviour change.
 
 ## [3.0.0] — 2026-07-09
 

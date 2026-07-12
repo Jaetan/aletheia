@@ -28,6 +28,14 @@ from aletheia import (
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.types import DBCDefinition, DLCCode
 
+# Some tests here build predicates whose rational values are rendered through the
+# GHC RTS (e.g. the mock streaming session's ``Signal("Sig").less_than(255)``),
+# which the MockBackend does NOT initialise.  Without this, the test only passed
+# when ``pytest --random-order`` happened to run an RTS-initialising test first
+# (a latent order dependency; seed 629836 exposed it).  ``rts_up`` is idempotent /
+# refcounted, so it composes with any FFIBackend/AletheiaClient a test creates.
+pytestmark = pytest.mark.usefixtures("rts_up")
+
 # -----------------------------------------------------------------------------
 # Backend Protocol structural conformance
 # -----------------------------------------------------------------------------

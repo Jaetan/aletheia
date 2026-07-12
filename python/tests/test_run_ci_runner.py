@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from tools._ci_steps import (
     AGDA_GATES_STEP,
     AGDA_SHAKE_TARGETS,
+    FAST_STEPS,
     HEAVY_STEPS,
     build_prereq_cmd,
     register_all_steps,
@@ -145,6 +146,32 @@ def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     # AGDA_GATES_STEP (not the "agda gates" literal) so a label change can't go stale.
     assert {"build", AGDA_GATES_STEP, "pytest", "ruff", "ubsan ctest"} <= set(names)
     assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
+
+
+def test_fast_steps_all_resolve_to_registered_steps(tmp_path: Path) -> None:
+    """Every FAST_STEPS name resolves to a real registered step (no rename drift).
+
+    ``run_ci --fast`` filters the registry to FAST_STEPS; a name that no longer
+    resolves after a step rename (e.g. the gofmt/cargo-fmt split) would silently
+    drop that gate from the pre-commit hook.  ``main`` fails loud on this, but
+    that path only runs at commit time — pin the invariant here.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    registered = set(runner.registered_step_names)
+    missing = FAST_STEPS - registered
+    assert not missing, f"FAST_STEPS names not in the registry: {sorted(missing)}"
+
+
+def test_fast_steps_are_never_heavy() -> None:
+    """No FAST tier step may be a HEAVY (compile / build-artifact) step.
+
+    The whole point of the split (gofmt vs go vet, cargo fmt vs clippy) is that
+    the pre-commit tier is compile-free and needs no build artifacts.  A FAST
+    step that is also HEAVY would recompile under the pre-commit stash and/or
+    run against a stale ``.so``.
+    """
+    assert not (FAST_STEPS & HEAVY_STEPS), sorted(FAST_STEPS & HEAVY_STEPS)
 
 
 def test_all_pass_returns_zero(tmp_path: Path) -> None:

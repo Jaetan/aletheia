@@ -107,7 +107,9 @@ public:
     [[nodiscard]] auto format_dbc(std::stop_token stop) -> Result<DbcDefinition>;
     // Render a DbcDefinition as .dbc file text via the verified Agda formatter.
     // Inverse of parse_dbc_text at the wire level: parse_dbc_text(format_dbc_text(d))
-    // returns d byte-identical for any well-formed DBC.
+    // returns d byte-identical for any text-round-trip well-formed DBC (a stricter
+    // condition than validating clean — see the "well-formed DBC" entry in
+    // docs/GLOSSARY.md).
     // Does not modify client state — pass any DbcDefinition value (typically from
     // parse_dbc_text, format_dbc, or a JSON load).
     [[nodiscard]] auto format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)

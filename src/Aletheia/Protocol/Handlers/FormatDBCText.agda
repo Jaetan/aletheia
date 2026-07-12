@@ -98,12 +98,14 @@ deriveNodesIfEmpty d with DBC.nodes d
 --     `parseTextChars-on-formatChars` already establishes the witness.
 --
 --   * DBCs produced by `parseDBCWithErrors` followed by `validateDBC` —
---     cleanly (no CHECK 18 `DuplicateMessageId`, no CHECK 23
+--     cleanly (no CHECK 1 `DuplicateMessageId`, no CHECK 23
 --     `UnknownValueDescriptionTarget`) — discharge `msg-ids-unique` and
---     `unresolved-empty`.  The other fields (`*-stops`, `MessageWF`,
---     `WFAttribute`, `SignalGroupWF`) hold automatically when every
---     identifier in `d` is a valid `Identifier` (the refinement-types
---     pattern guarantees `*NameStop` predicates by construction).
+--     `unresolved-empty`.  The five name-stop fields (`*-stops`,
+--     `SignalGroupWF`) hold automatically for every DBC (Identifier
+--     validity is intrinsic; `Properties.WellFormedFromValidity`).
+--     `MessageWF` and `WFAttribute` are NOT discharged by any of the
+--     above: e.g. a multi-value mux selector fails `MessageWF.wfps`
+--     even on a validator-clean DBC (DEFERRED_ITEMS.md E.2).
 --
 --   * Hand-constructed DBCs (binding-side struct → JSON → handler) are
 --     the caller's responsibility.  Bindings that compose JSON DBCs

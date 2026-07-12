@@ -88,7 +88,7 @@ record WellFormedMessageRT (m : DBCMessage) : Set where
     signals-pv : All (PhysicallyValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)
 
 -- JSON-roundtrip well-formedness predicate.  Counterpart on the text
--- side is `Aletheia.DBC.TextParser.WellFormed.WellFormedTextDBCAgg` (8
+-- side is `Aletheia.DBC.TextParser.WellFormed.WellFormedTextDBCAgg` (9
 -- fields).  The asymmetry is by design, not under-specification: JSON
 -- emission preserves every metadata array unconditionally — signal
 -- groups, env vars, value tables, nodes, comments, attributes,
