@@ -404,10 +404,13 @@ def _run_lints(runner: Runner) -> None:
     # Split into a compile-free format check ("gofmt", eligible for the pre-commit
     # FAST tier) and the type-checking "go vet" (needs the Go toolchain to compile,
     # so it stays a pre-push-only step).  Both keep their original commands verbatim.
+    # Per-process temp file (mktemp), NOT a fixed /tmp path: the pre-commit hook
+    # runs this via `run_ci --fast` and a manual sweep could run concurrently — a
+    # shared path would let them clobber each other's output and mis-report.
     gofmt_cmd = (
-        "gofmt -l . > /tmp/aletheia-gofmt.out 2>&1; rc=$?; "
-        "cat /tmp/aletheia-gofmt.out; "
-        "test $rc -eq 0 && test ! -s /tmp/aletheia-gofmt.out"
+        'out=$(mktemp); gofmt -l . > "$out" 2>&1; rc=$?; '
+        'cat "$out"; n=$(wc -c < "$out"); rm -f "$out"; '
+        'test "$rc" -eq 0 && test "$n" -eq 0'
     )
     runner.step("gofmt", gofmt_cmd, cwd=runner.repo_root / "go")
     runner.step("go vet", "go vet ./... && (cd excel && go vet ./...)", cwd=runner.repo_root / "go")

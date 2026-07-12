@@ -175,6 +175,47 @@ def _iwyu_advisory(root):
         )
 
 
+def _create_stash(root):
+    # Park unstaged + untracked changes (keeping the index) and return the exact
+    # stash COMMIT sha we created — so restore targets THAT commit regardless of
+    # stack order or git's locale.  Called only when _has_worktree_changes() is
+    # True, so `git stash push` always produces a stash on success (no need to
+    # parse the human "No local changes to save" string, which a localized git
+    # would translate).
+    res = _run(
+        ["git", "stash", "push", "--keep-index", "--include-untracked", "-m", _STASH_MSG],
+        cwd=root,
+    )
+    if res.returncode != 0:
+        sys.stderr.write(
+            "pre-commit: could not stash unstaged changes; checking the "
+            "working tree as-is:\\n" + res.stderr
+        )
+        return None
+    sha = _run(["git", "rev-parse", "-q", "--verify", "stash@{{0}}"], cwd=root).stdout.strip()
+    return sha or None
+
+
+def _restore_stash(root, sha):
+    # Restore exactly the stash commit *sha* — NOT `git stash pop`, which pops the
+    # top of the stack (a stash created concurrently during the hook could shift
+    # it).  Apply by sha, then drop the matching entry by locating its ref.
+    app = _run(["git", "stash", "apply", sha], cwd=root)
+    if app.returncode != 0:
+        sys.stderr.write(
+            "\\npre-commit: FAILED to restore your unstaged changes!\\n"
+            "pre-commit: they are SAFE in stash commit " + sha + " — recover with:\\n"
+            "pre-commit:   git stash apply " + sha + "\\n" + app.stderr
+        )
+        return
+    listing = _run(["git", "stash", "list", "--format=%gd %H"], cwd=root).stdout
+    for line in listing.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == sha:
+            _run(["git", "stash", "drop", parts[0]], cwd=root)
+            break
+
+
 def main() -> int:
     root = _run(["git", "rev-parse", "--show-toplevel"]).stdout.strip()
     if not root:
@@ -184,18 +225,7 @@ def main() -> int:
         sys.stderr.write("pre-commit: tools/run_ci.py not found; skipping\\n")
         return 0
 
-    stashed = False
-    if _has_worktree_changes(root):
-        res = _run(
-            ["git", "stash", "push", "--keep-index", "--include-untracked", "-m", _STASH_MSG],
-            cwd=root,
-        )
-        stashed = res.returncode == 0 and "No local changes to save" not in res.stdout + res.stderr
-        if res.returncode != 0:
-            sys.stderr.write(
-                "pre-commit: could not stash unstaged changes; checking the "
-                "working tree as-is:\\n" + res.stderr
-            )
+    stash_sha = _create_stash(root) if _has_worktree_changes(root) else None
 
     rc = 1
     try:
@@ -209,15 +239,8 @@ def main() -> int:
         if rc == 0:
             _iwyu_advisory(root)
     finally:
-        if stashed:
-            pop = _run(["git", "stash", "pop"], cwd=root)
-            if pop.returncode != 0:
-                sys.stderr.write(
-                    "\\npre-commit: FAILED to restore your unstaged changes!\\n"
-                    "pre-commit: they are SAFE in a stash named '" + _STASH_MSG + "' — "
-                    "recover with `git stash list` then `git stash pop` "
-                    "(resolve any conflict).\\n" + pop.stderr
-                )
+        if stash_sha:
+            _restore_stash(root, stash_sha)
 
     if rc != 0:
         sys.stderr.write(
