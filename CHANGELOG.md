@@ -26,6 +26,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `Rational` ctor. The comment now uses the idiomatic `PhysicalValue::of(220, 1)`
   factory. Documentation-only; no API or behaviour change.
 
+- **DBC text round-trip guarantee: corrected every stale or wrong statement of
+  its precondition (E.2 accuracy batch).** README cited the wrong predicate for
+  the text round-trip theorem (`WellFormedDBC`, the JSON-side one, instead of
+  `WellFormedTextDBCAgg`); the Rust `format_dbc_text` rustdoc now carries the
+  same "byte-identical for any well-formed DBC" qualifier as Python/Go/C++
+  (parity drift); `docs/GLOSSARY.md` gains a "well-formed DBC" entry
+  distinguishing validator-clean from text-round-trip well-formed;
+  `docs/reference/INTERFACES.md` states the qualifier. Agda comment fixes
+  (no code change): two CHECK 1 / CHECK 18 mislabels, a stale "(8 fields)"
+  count, an over-broad "JSON always defaults `unresolvedValueDescs` to `[]`"
+  claim, and the format handler's caller contract no longer claims
+  `MessageWF`/`WFAttribute` "hold automatically" from identifier validity.
+  Documentation-only; no behaviour change.
+
 ## [3.0.0] — 2026-07-09
 
 ### Fixed
