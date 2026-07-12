@@ -108,8 +108,9 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
     """Render a DBC JSON dict to .dbc text format via the verified Agda formatter.
 
     Inverse of :func:`dbc_to_json` at the wire level: writing this text to a
-    file and running :func:`dbc_to_json` on it returns an equal ``d`` for
-    any well-formed DBC.
+    file and running :func:`dbc_to_json` on it returns an equal ``d`` for any
+    text-round-trip well-formed DBC (a stricter condition than validating
+    clean — see the "well-formed DBC" entry in ``docs/GLOSSARY.md``).
 
     Args:
         dbc: DBC definition dict (as returned by :func:`dbc_to_json` or

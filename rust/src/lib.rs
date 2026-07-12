@@ -643,7 +643,9 @@ impl Client {
     /// Render a typed [`Dbc`] back to `.dbc` file text via the verified Agda
     /// formatter (the inverse of [`Client::parse_dbc_text`] at the wire level):
     /// `parse_dbc_text(format_dbc_text(d))` returns `d` byte-identical for any
-    /// well-formed DBC. Does not modify this stream's loaded state.
+    /// text-round-trip well-formed DBC (a stricter condition than validating
+    /// clean — see the "well-formed DBC" entry in `docs/GLOSSARY.md`).
+    /// Does not modify this stream's loaded state.
     ///
     /// # Errors
     /// [`Error::Core`] if the document fails Agda-side parsing, or

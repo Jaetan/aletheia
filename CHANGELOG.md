@@ -29,10 +29,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 - **DBC text round-trip guarantee: corrected every stale or wrong statement of
   its precondition (E.2 accuracy batch).** README cited the wrong predicate for
   the text round-trip theorem (`WellFormedDBC`, the JSON-side one, instead of
-  `WellFormedTextDBCAgg`); the Rust `format_dbc_text` rustdoc now carries the
-  same "byte-identical for any well-formed DBC" qualifier as Python/Go/C++
-  (parity drift); `docs/GLOSSARY.md` gains a "well-formed DBC" entry
-  distinguishing validator-clean from text-round-trip well-formed;
+  `WellFormedTextDBCAgg`); all four bindings' `format_dbc_text` doc surfaces
+  now state the round-trip qualifier uniformly and name its sense —
+  "byte-identical for any text-round-trip well-formed DBC", with a pointer to
+  the glossary (Rust previously lacked the qualifier entirely — parity drift);
+  `docs/GLOSSARY.md` gains a "well-formed DBC" entry distinguishing
+  validator-clean from text-round-trip well-formed;
   `docs/reference/INTERFACES.md` states the qualifier. Agda comment fixes
   (no code change): two CHECK 1 / CHECK 18 mislabels, a stale "(8 fields)"
   count, an over-broad "JSON always defaults `unresolvedValueDescs` to `[]`"

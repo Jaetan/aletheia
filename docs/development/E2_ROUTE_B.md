@@ -7,7 +7,7 @@
 
 # E.2 Route (b) — Proof Strategy: Runtime Decision Procedure at the Format Handler (rev. 2, post-panel)
 
-**Goal.** `format_dbc_text` round-trips, or tells you exactly why it won't: a runtime checker evaluated in `Protocol/Handlers/FormatDBCText.agda`, surfaced as a #150-style issues envelope. Default = format-anyway + issues on the success response (non-breaking, wire-additive). Opt-in `strict` = typed refusal. All file paths relative to `/home/nicolas/dev/agda/aletheia/`.
+**Goal.** `format_dbc_text` round-trips, or tells you exactly why it won't: a runtime checker evaluated in `Protocol/Handlers/FormatDBCText.agda`, surfaced as a #150-style issues envelope. Default = format-anyway + issues on the success response (wire-additive; binding signatures change **in place — BREAKING**, ratified 2026-07-12 §7.4). Opt-in `strict` = typed refusal. All file paths relative to the repository root.
 
 **Recommendation: HYBRID — V2 is the verdict authority, V1 is the diagnostics layer, and the theorem stitches them.**
 
@@ -142,7 +142,7 @@ wfTextIssues : DBC → List ValidationIssue
 --   ++ₗ checkAttrs (DBC.attributes d) ++ₗ checkUnresolved (DBC.unresolvedValueDescs d)
 ```
 
-All emitted with `IsWarning` severity ("outside the proven round-trip envelope"); the single `IsError`-severity issue is V2's divergence verdict (§8). Detail strings built with the validator's existing helpers (`nameStr`, `showℕ` — precedent Checks.agda).
+All emitted with `IsWarning` severity ("outside the proven round-trip envelope") — as is V2's divergence issue on the default format-anyway path, per the ratified severity convention (success responses carry warnings only; §7.2). Inside a strict refusal the divergence issue is emitted with `IsError` severity (§8). Detail strings built with the validator's existing helpers (`nameStr`, `showℕ` — precedent Checks.agda).
 
 **Slice-1 kernel footprint (the re-slice).** The 8 new `IssueCode` constructors (Types.agda:355-376) and the matching 8 `formatIssueCode` arms (ResponseFormat.agda:99-120 — a total function; adding constructors without arms breaks the exhaustiveness check of a module in Main's runtime closure) land in Slice 1, in the same commit as the checker. This is **wire-inert**: no handler constructs an issue with the new codes until Slice 3, so nothing new can serialize, and the binding-side code mirrors can safely stay in Slice 3 (there is no kernel↔binding issue-code exhaustiveness gate; C++ has an `Unknown`+`code_raw` fallback and Rust an `Unknown(String)` fallback regardless).
 
@@ -394,18 +394,18 @@ tryFormatDBCText obj with lookupByKey "dbc" obj
 Default (always formats; `issues` always present, possibly `[]` — wire-additive; all four decoders read only `"text"` today and tolerate extra fields, verified table §7.4):
 ```json
 {"status":"success","text":"VERSION \"\"\n…","issues":[
-  {"severity":"error","code":"text_roundtrip_divergence","detail":"re-parsing the emitted text does not reproduce the input DBC"},
+  {"severity":"warning","code":"text_roundtrip_divergence","detail":"re-parsing the emitted text does not reproduce the input DBC"},
   {"severity":"warning","code":"multi_value_mux_selector","detail":"message 291 signal 'S3': multi-value mux selector — text form emits only the first selector value"}]}
 ```
 Strict refusal (only when `strict:true` AND `roundTripsWithᵇ d′ txt ≡ false` — exact, never over-refusing):
 ```json
 {"status":"error","code":"handler_text_roundtrip_failed","message":"FormatDBCText: …","has_errors":true,"issues":[ …same element shape… ]}
 ```
-Kernel: `DBCTextResponse : String → List ValidationIssue → Response` (Message.agda:110-112); ResponseFormat arm (:250) appends `("issues", JArray (map formatValidationIssue issues))`; `TextRoundTripFailed : List ValidationIssue → HandlerError` beside `ValidationFailed` (Error.agda:293) with `handlerErrorCode … = "handler_text_roundtrip_failed"` (:324 region) and an `errorExtras` arm mirroring the `ValidationFailed` arm (:169-172 — `has_errors` + `issues`; bindings reuse the one issue decoder). Severity vocabulary stays the closed 2-value set (ResponseFormat.agda:82-84): divergence = `"error"`, envelope diagnostics = `"warning"`.
+Kernel: `DBCTextResponse : String → List ValidationIssue → Response` (Message.agda:110-112); ResponseFormat arm (:250) appends `("issues", JArray (map formatValidationIssue issues))`; `TextRoundTripFailed : List ValidationIssue → HandlerError` beside `ValidationFailed` (Error.agda:293) with `handlerErrorCode … = "handler_text_roundtrip_failed"` (:324 region) and an `errorExtras` arm mirroring the `ValidationFailed` arm (:169-172 — `has_errors` + `issues`; bindings reuse the one issue decoder). Severity vocabulary stays the closed 2-value set (ResponseFormat.agda:82-84), and the ratified convention governs its use: on a `status:"success"` response every issue — including the divergence verdict — is `"warning"`; inside the strict `status:"error"` refusal the divergence issue is `"error"` (mirroring `handler_validation_failed`).
 
-**Two wire-convention deltas that MUST be documented in PROTOCOL.md (they change implicit rules binding authors may have encoded):**
-1. **A success response may now carry an error-severity issue.** Today's only success-with-issues surface is documented as carrying "non-error issues (warnings)" (ParsedDBCResponse, Message.agda:105-108). The new rule: `issues[].severity` classifies the *finding* (actual loss vs envelope warning), independently of the response envelope's status; `status:"success"` + `severity:"error"` is legal on `formatDBCText` in default mode. PROTOCOL.md states this explicitly so binding-side severity-driven rendering/tests don't encode the old convention. (Alternative — demote the on-success divergence issue to warning severity — flagged as a user-ratifiable choice in §13.)
-2. **Reused codes have context-dependent severity.** `SignalExceedsDLC`/`BitLengthZero` are error-class from the validator but `IsWarning` from the format envelope; CHECK 15/16's codes were already warning-class and stay so. PROTOCOL.md's issue-code table gains a per-context severity column for the reused rows.
+**Wire-convention items to document in PROTOCOL.md:**
+1. **RATIFIED (2026-07-12): the existing severity convention is preserved, and PROTOCOL.md now states it as a protocol-wide invariant.** Success responses carry warning-severity issues only (the `ParsedDBCResponse` rule, Message.agda:105-108); error-severity issues appear only inside `status:"error"` refusal envelopes; `validateDBC`'s both-severity report keeps its own `status:"validation"`. The divergence issue is therefore severity-context-dependent — `warning` on the default format-anyway success path, `error` inside a strict refusal — and its *fact* content lives in the code `text_roundtrip_divergence`, not in the severity. ("A good interface is one that does not surprise." The rejected alternative — severity-as-finding-class, `severity:"error"` inside `status:"success"` — is recorded here for history only.)
+2. **Reused codes have context-dependent severity.** `SignalExceedsDLC`/`BitLengthZero` are error-class from the validator but `IsWarning` from the format envelope; CHECK 15/16's codes were already warning-class and stay so; `text_roundtrip_divergence` follows the same context rule per item 1. PROTOCOL.md's issue-code table gains a per-context severity column for these rows.
 
 ### 7.3 Issue codes (IssueCode +8 in **Slice 1**; `formatIssueCode` +8 same slice; unprefixed per the ResponseFormat.agda:86-98 rationale)
 
@@ -431,13 +431,13 @@ Reused existing codes (no mirror cost): `StartBitOutOfRange`, `BitLengthExcessiv
 | C++ | `cpp/src/client.cpp:225-232` + `json_serialize.cpp:508-511` | `json_parse.cpp:1122-1139` | `validation.hpp` enum + `issue_code_table` (unknown→`Unknown`+`code_raw` keeps forward-compat) | `json_parse.cpp` `make_json_error` arm beside :262-264 |
 | Rust | `rust/src/lib.rs:645-656` + `async_client.rs:190-195` | `response.rs:595-608` | `response.rs:156-200` (+`Unknown(String)` fallback exists) | `response.rs:323-360` arm + `error.rs` variant beside :73-82 |
 
-Binding API shape (recommended, additive-only): existing `format_dbc_text` methods keep their exact signatures/returns (non-breaking); each binding gains one richer sibling (e.g. Python `format_dbc_text_result(dbc, *, strict=False) -> DBCTextResult(text, issues)`; Go `FormatDBCTextResult(dbc, opts…)`; C++ `format_dbc_text_result(...) -> std::expected<dbc_text_result, error>`; Rust `format_dbc_text_result(...)`), plus the strict-refusal typed error on all paths. Exact naming is an open question (§13).
+Binding API shape (**RATIFIED 2026-07-12: no sibling methods — in-place, BREAKING**): each binding's existing `format_dbc_text` changes signature to mirror its own parse-path shape (the #150/#152 precedent), returning text **plus** issues: Python `format_dbc_text(dbc, *, strict=False) -> DBCTextResponse | ErrorResponse` (TypedDict with `text` + `issues`, like `ParsedDBCResponse`; `dbc_to_text` follows suit), Go `FormatDBCText(ctx, dbc, opts…) (*DBCText, error)` (struct with `Text` + `Warnings`, like `*ParsedDBC`), C++ `format_dbc_text(...) -> Result<DbcText>` (struct with `text` + `issues`, like `Result<ParsedDbc>`), Rust `format_dbc_text(...) -> Result<(String, Vec<ValidationIssue>), Error>` (like `parse_dbc_text`) — plus the strict-refusal typed error on all paths. Labeled **BREAKING** in the CHANGELOG per the Go-#61 precedent. Rationale (user, 2026-07-12): pre-adoption window — no compatibility bridge, no deprecation cycle, no sibling ever created; the API's end state is its only state.
 
-**Legacy docstring obligation (same PR as the behavior change):** all four bindings' existing `format_dbc_text` docs assert "`parse_dbc_text(format_dbc_text(d))` returns `d` byte-identical for any well-formed DBC" — verified at `python/aletheia/client/_client.py:523-530`, `go/aletheia/client.go:413`, `cpp/include/aletheia/client.hpp:110`, `rust/src/lib.rs:643-646`. These are gated doc surfaces (doc examples run in CI). Each is rewritten to: state the round-trip contract precisely ("for any DBC inside the proven envelope; the richer sibling reports the verdict and diagnostics"), note that the legacy method ignores the new `issues` field, and cross-link the sibling.
+**Legacy docstring obligation (same PR as the behavior change):** all four bindings' existing `format_dbc_text` docs assert "`parse_dbc_text(format_dbc_text(d))` returns `d` byte-identical for any well-formed DBC" — verified at `python/aletheia/client/_client.py:523-530`, `go/aletheia/client.go:413`, `cpp/include/aletheia/client.hpp:110`, `rust/src/lib.rs:643-646`. These are gated doc surfaces (doc examples run in CI). Each is rewritten with the method's new signature to state the operational contract: "returns the text plus the round-trip verdict and diagnostics; with `strict`, refuses instead of emitting divergent text" — replacing the static qualifier with the checkable one.
 
 ### 7.5 Matrix / docs / CLI / CHANGELOG timing
 
-- **FEATURE_MATRIX.yaml**: new row `dbc_text_roundtrip_check` (4 cells, entries = the new sibling methods; structural gates ×4 verify entry-resolves + reason-non-empty only). Existing `dbc_text_format` row gets a `notes` update.
+- **FEATURE_MATRIX.yaml**: new row `dbc_text_roundtrip_check` (4 cells, entries = the enriched `format_dbc_text` methods; structural gates ×4 verify entry-resolves + reason-non-empty only). Existing `dbc_text_format` row gets a `notes` update.
 - **PROTOCOL.md**: new `formatDBCText` schema section (the numbered-commands gap :75-556 is real — write the section, don't patch a table); error-code table rows for `handler_text_roundtrip_failed` and `route_invalid_field` (:1329-1335 family); issue-code table +8 with the per-context severity column; the two wire-convention deltas from §7.2.
 - **Same-commit doc obligations** (feedback_findings_doc_disposition_sync): rewrite the handler contract comment (FormatDBCText.agda:81-123 — the "does NOT discharge at runtime" paragraph becomes "discharged observably at runtime; see WellFormedCheck/RoundTripCheck"), flip DEFERRED_ITEMS.md E.2 route (b) to shipped (full closure still gated on A.1/A.3 losslessness), WellFormedFromValidity.agda header comment, the four legacy binding docstrings (§7.4).
 - **CHANGELOG timing (corrected):** `check_changelog.py` watches `^Shakefile\.hs$` (INFRA_PATTERNS, tools/check_changelog.py:67-68), and Slices 1 AND 2 both edit Shakefile.hs (`proofModules` additions). **Each slice PR carries its own CHANGELOG bullet** — one line under the existing `[Unreleased]` header for the appropriate category, merged under the single existing `### Added`/`### Changed` header (feedback_changelog_one_header_per_category), not deferred to Slice 3. Slice 3 carries the full public-API + wire entry.
@@ -469,17 +469,19 @@ handleFormatDBCText dbcJSON strict state with parseDBCWithErrors dbcJSON
   -- ARGUMENT (one lazily-shared thunk in the compiled Haskell, evaluated at
   -- most once). The `(state , respond …)` pair stays at arm level so the
   -- preserves-state proof remains a 2-clause refl (feedback_whereblock_provability).
-  divergenceIssue : ValidationIssue
-  divergenceIssue = mkIssue IsError TextRoundTripDivergence
-                      "re-parsing the emitted text does not reproduce the input DBC"
+  -- Severity is context-dependent per the ratified convention (§7.2 item 1):
+  -- warning on the format-anyway success path, error inside the strict refusal.
+  divergenceIssue : Severity → ValidationIssue
+  divergenceIssue sev = mkIssue sev TextRoundTripDivergence
+                          "re-parsing the emitted text does not reproduce the input DBC"
 
   finish : String → Bool → List ValidationIssue → Response
   finish txt rt diags =
     if strict ∧ not rt
     then Response.Error (WithContext "FormatDBCText"
-           (HandlerErr (TextRoundTripFailed (divergenceIssue ∷ diags))))
+           (HandlerErr (TextRoundTripFailed (divergenceIssue IsError ∷ diags))))
     else Response.DBCTextResponse txt
-           (if rt then diags else (divergenceIssue ∷ diags))
+           (if rt then diags else (divergenceIssue IsWarning ∷ diags))
 
   respond : DBC → Response
   respond d′ = withText (formatText d′)
@@ -538,7 +540,7 @@ Heap discipline: proof modules `-M4G` first, escalate to `-M8G`/`-M16G` only if 
 | R4 | MAlonzo mangled-name / snapshot drift | **low — expect all gates CLEAN** (was mis-stated "high (expected)") | The shim references no MAlonzo names from Protocol.Message or DBC.Types (verified import lists: AletheiaFFI.hs:29-41 — Main.JSON/Main.Binary/StreamState.Types/CAN/Trace/RationalRenderer/DecimalEntry; Marshal.hs:21-26 — CAN.*; BinaryOutput.hs:23-27 — stdlib codes; ConstructorTest.hs:41-52 — Main.JSON/Binary + CAN), and Main.agda is untouched, so `check-ffi-exports` should pass unchanged. The ONE real vector: Marshal.hs and ConstructorTest.hs import `MAlonzo.Code.Aletheia.CAN.DLC` (`T_DLC_18`/`C_mkDLC_28`) — mitigated by APPENDING `dlc-code-inj`/`_≟-DLC_` at the end of CAN/DLC.agda (declaration-order numbering stays stable). Any snapshot/`sed` prompt that appears anyway = stop and investigate; never normalize drift-gate churn. |
 | R5 | `wfTextIssues-complete` (esp. mc-complete) heavier than budgeted | medium | Completeness is what guarantees warnings never fire on WF DBCs. If it balloons, DO NOT silently drop — surface scope options to the user (feedback_no_silent_proof_reframing). |
 | R6 | Copilot/panel objection to a Properties-named module (`Equality.Full`) in runtime closure | low | Precedent chain documented (§1); alternative non-Properties name `Aletheia.DBC.Equality` costs nothing — decide at review (§13). |
-| R7 | Binding decoder strictness on the new success field | low | Verified: all four tolerate extra success fields; severity stays in the closed 2-value vocabulary; unknown-code fallbacks exist (C++ `Unknown`+`code_raw`, Rust `Unknown(String)`); the success-carries-error-severity delta is documented in PROTOCOL.md (§7.2). |
+| R7 | Binding decoder strictness on the new success field | low | Verified: all four tolerate extra success fields; severity stays in the closed 2-value vocabulary AND the success-carries-warnings-only convention is unchanged (§7.2 item 1), so no decoder semantics shift; unknown-code fallbacks exist (C++ `Unknown`+`code_raw`, Rust `Unknown(String)`). |
 | R8 | `allPairs?` O(n²) on adversarial cardinality | low | Cold path; cardinality already bounded upstream (cat 32); mirrors validator CHECK 1's existing triangular cost. |
 
 ---
@@ -564,9 +566,9 @@ Under the V1-only fallback, criteria (a)/(b)/(e)/(f) are replaced by (a′)/(b�
 
 ---
 
-## 13. Open questions / user decisions
+## 13. Decisions (three of four ratified by the user, 2026-07-12)
 
-1. **Module naming**: `Aletheia.DBC.Properties.Equality.Full` (precedented) vs `Aletheia.DBC.Equality` (avoids a Properties name in the runtime closure) — decide at review; zero content difference.
-2. **Binding sibling-method naming** (`format_dbc_text_result` et al., §7.4).
-3. **Success-envelope severity**: keep `severity:"error"` on the on-success divergence issue (severity = finding class; recommended, documented in PROTOCOL.md) vs demote to warning on the success path (error only in strict refusal). Recommend the former; user ratification requested since it sets a wire-convention precedent.
-4. **If S2.1 fails** (low likelihood): F1 vs F2 vs V1-only — user decision, with F2's corrected cost model (§6.2).
+1. **Module naming — RATIFIED**: `Aletheia.DBC.Properties.Equality.Full`.
+2. **Binding API shape — RATIFIED**: no sibling methods; `format_dbc_text` is enriched in place, labeled BREAKING (§7.4). The sibling-naming question is moot.
+3. **Success-envelope severity — RATIFIED**: the existing convention is preserved — success responses carry warning-severity issues only; error severity appears only inside strict refusal envelopes (§7.2 item 1).
+4. **OPEN — if S2.1 fails** (low likelihood): F1 vs F2 vs V1-only — user decision, with F2's corrected cost model (§6.2).

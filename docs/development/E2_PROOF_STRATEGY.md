@@ -21,7 +21,7 @@ agent fleet.
 
 | Route | Document | Strategy in one line | Status |
 |---|---|---|---|
-| **(b)** decision procedure at the format handler | [E2_ROUTE_B.md](E2_ROUTE_B.md) | **Hybrid**: V2 exact check (`roundTripsᵇ` = evaluate `parseText (formatText d)`, deep-compare with `_≟-DBC_`) is the verdict authority — its soundness lemma is **axiom-free**; V1 per-field checker (`wfTextIssues`) is the diagnostics layer; a stitching theorem `wfTextIssues d ≡ [] → roundTripsᵇ d ≡ true` (Substrate trust base) guarantees every divergence ships ≥ 1 diagnostic. Default = format-anyway + issues envelope (non-breaking); opt-in `strict` refusal gates on V2 only, so the sufficient-not-necessary over-refusal caveat dissolves. 3 slices, ~3,000–4,500 LOC. | **Scheduled first** — prerequisite of any text-export-bearing product surface |
+| **(b)** decision procedure at the format handler | [E2_ROUTE_B.md](E2_ROUTE_B.md) | **Hybrid**: V2 exact check (`roundTripsᵇ` = evaluate `parseText (formatText d)`, deep-compare with `_≟-DBC_`) is the verdict authority — its soundness lemma is **axiom-free**; V1 per-field checker (`wfTextIssues`) is the diagnostics layer; a stitching theorem `wfTextIssues d ≡ [] → roundTripsᵇ d ≡ true` (Substrate trust base) guarantees every divergence ships ≥ 1 diagnostic. Default = format-anyway + issues envelope (wire-additive; binding signatures enriched **in place — BREAKING**, ratified 2026-07-12: no siblings, pre-adoption window); opt-in `strict` refusal gates on V2 only, so the sufficient-not-necessary over-refusal caveat dissolves. 3 slices, ~3,000–4,500 LOC. | **Scheduled first** — prerequisite of any text-export-bearing product surface |
 | **(a)** lossless extended-mux emission (A.1 → A.3) | [E2_ROUTE_A.md](E2_ROUTE_A.md) | Emit `SG_MUL_VAL_` as a ninth synthesized section on the A.2 `BO_TX_BU_` template (payload parser + `TSMulVal` + `attachMulVal` inverse + Refine compose bridge), with a raw-range carry + finalize gate + typed `input_bound_exceeded` for the range/materialization bound. Removes the `wfps` wall — the one Agg field no other route can touch. Slice A.1 ≈ 2,050–2,750 new + 750–950 restated lines (~1.7–2.1× the A.2 arc); A.3 (nested mux) a separate later slice that rewrites the `MasterCoherent` projection layer. | **Demand-gated design-ahead** — gate fires on *external* `SG_MUL_VAL_` demand only (the in-tree fixture corpus is a coverage instrument, explicitly carved out) |
 | **(c)** stronger validator | [E2_ROUTE_C.md](E2_ROUTE_C.md) | **Never standalone** (confirmed: the `wfps` construct is model-legal, wire-legal, engine-honored — an error-class rejection would be wrong; and error-class additions break the load path). Salvage sharpened by the panel round: the repo's sound-lemma shape `check … ≡ [] → P` is severity-independent, so the missing checks ship as **warning-class advisories** whose emptiness carries proof content, yielding **full conditional closure**: `errorIssues (validateDBCFull d) ≡ [] → textRoundTripAdvisories d ≡ [] → WellFormedTextDBCAgg d`, composed in `Substrate/Unsafe.agda` to the round-trip — with zero acceptance change. | **Folded into (b)** — the advisories *are* (b)'s V1 diagnostics |
 
@@ -37,16 +37,19 @@ agent fleet.
 - **E.2's "full closure" remains a composition**: (b) for observability now,
   (a) when external demand fires, never (c) standalone.
 
-## Decisions the user must make
+## Decisions
 
-**Route (b) — blocking, decide before slice 1:**
-1. Success-envelope severity convention: keep `severity:"error"` on the divergence
-   issue inside a `status:"success"` response (severity = finding class), or demote
-   to warning on the success path (E2_ROUTE_B.md § 13-3).
-2. Naming of the runtime-reachable Dec-equality module:
-   `Aletheia.DBC.Properties.Equality.Full` (precedented) vs `Aletheia.DBC.Equality`
-   (avoids a Properties name in the runtime closure). Zero content difference.
-3. Binding sibling-method naming (`format_dbc_text_result` et al., § 13-2).
+**Route (b) — ratified by the user 2026-07-12:**
+1. **Severity convention: preserved.** Success responses carry warning-severity
+   issues only; error severity appears only inside strict refusal envelopes
+   ("a good interface is one that does not surprise") — E2_ROUTE_B.md § 7.2.
+2. **Module naming: `Aletheia.DBC.Properties.Equality.Full`.**
+3. **No sibling methods.** `format_dbc_text` is enriched in place across all four
+   bindings (each mirroring its own parse-path shape), labeled BREAKING —
+   pre-adoption window, no compatibility bridge, no deprecation cycle
+   (E2_ROUTE_B.md § 7.4).
+
+**Route (b) — still open:**
 4. *(Conditional, low likelihood)* if the S2.1 `dlc-code-inj` spike fails:
    F1 observational setoid vs F2 `.()` migration vs V1-only fallback (§ 7.6).
 

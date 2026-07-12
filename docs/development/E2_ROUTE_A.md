@@ -654,7 +654,7 @@ unresolvedRVDs-on-clearAllMsgs-collectFromMessages :
 
 ## 6. Proof order (what unblocks what) + per-step verification
 
-`AGDA="/home/nicolas/.cabal/bin/agda +RTS -N32 -M16G -RTS"` from `src/`. The `-M16G` cap is the runaway-elaboration tripwire — if a step OOMs, fix the proof shape (cong-only/helper), never raise the cap first.
+`AGDA="agda +RTS -N32 -M16G -RTS"` from `src/`. The `-M16G` cap is the runaway-elaboration tripwire — if a step OOMs, fix the proof shape (cong-only/helper), never raise the cap first.
 
 | # | Step | Depends on | Verify |
 |---|---|---|---|

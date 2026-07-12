@@ -212,9 +212,10 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   - **(b) first** — a runtime checker for the predicate at the format handler,
     surfaced as a #150-style issues envelope (format-anyway default, opt-in
     strict refusal): the only route that makes the guarantee observable
-    ("round-trips, or tells you it can't"), non-breaking by default, medium and
-    self-contained. Pinned as a prerequisite of any text-export-bearing product
-    surface.
+    ("round-trips, or tells you it can't"), wire-additive (binding returns
+    enriched in place — BREAKING, ratified 2026-07-12: no sibling methods),
+    medium and self-contained. Pinned as a prerequisite of any
+    text-export-bearing product surface.
   - **(a) second** — lossless emission (A.1 multi-value `SG_MUL_VAL_`, then
     A.3 nested mux): the only route that removes the `wfps` wall; stays
     corpus-gated per A.1's own gate; design-ahead plan maintained.

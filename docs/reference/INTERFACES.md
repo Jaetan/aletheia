@@ -124,7 +124,7 @@ response, err := client.SendFrame(ctx, ts, canID, dlc, data, nil, nil)
 _, _ = response, err
 ```
 
-**DBC text formatting** — render a `DBCDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level — `parse_dbc_text(format_dbc_text(d))` returns `d` byte-identical for any well-formed DBC):
+**DBC text formatting** — render a `DBCDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level — `parse_dbc_text(format_dbc_text(d))` returns `d` byte-identical for any text-round-trip well-formed DBC, a stricter condition than validating clean; see [well-formed DBC](../GLOSSARY.md#describing-signals-the-dbc)):
 ```python
 text = client.format_dbc_text(dbc)
 ```
