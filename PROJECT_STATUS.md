@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-07-10.
+**Last Updated**: 2026-07-13.
 
 Aletheia is a formally verified CAN-frame analysis system: a core written in Agda
 with machine-checked correctness proofs, compiled to Haskell and exposed through
@@ -47,6 +47,14 @@ cannot honestly advertise capabilities it does not yet have.
 needs no FFI); a python-can replacement (verified CAN-log readers for
 ASC / BLF / MF4); a GHC `--bignum=native` rebuild to drop the libgmp LGPL
 dependency; and SOME/IP support for automotive Ethernet.
+
+**DBC text round-trip observability (deferred item E.2, re-examined 2026-07-12).**
+The proven `parseText ∘ formatText ≡ id` guarantee holds only for a nine-condition
+well-formedness class that no user surface can evaluate. Closure routes are
+scheduled **(b) ≫ (a) ≫ (c)** with adversarially-reviewed proof strategies in
+[`docs/development/E2_PROOF_STRATEGY.md`](docs/development/E2_PROOF_STRATEGY.md);
+route (b) (a runtime "round-trips, or tells you it can't" checker) is pinned as a
+prerequisite of any future text-export product surface.
 
 Living detail and rationale for the above live in
 [`docs/development/DEFERRED_ITEMS.md`](docs/development/DEFERRED_ITEMS.md) and the
