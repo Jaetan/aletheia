@@ -269,6 +269,22 @@ TEST_CASE("yaml: file not found", "[yaml][file]") {
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("not found"));
 }
 
+TEST_CASE("yaml: stat failure is distinguished from a missing file", "[yaml][hardening]") {
+    // A path whose total length exceeds PATH_MAX makes the underlying lstat
+    // fail with ENAMETOOLONG — a stat *failure*, not a genuinely absent file.
+    // The loader must report it as such (surfacing the errno) rather than
+    // mislabelling it "file not found", which would mask resource/permission
+    // failures under load (the pre-push flake that motivated this: EMFILE on a
+    // present file was reported as "not found").  ENAMETOOLONG is deterministic
+    // and root-safe, unlike an EACCES/chmod trigger.
+    const auto tmp = std::filesystem::temp_directory_path() / (std::string(5000, 'a') + ".yaml");
+    auto result = load_checks_from_yaml(tmp);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Could not stat"));
+    CHECK_THAT(std::string(result.error().message()), !ContainsSubstring("not found"));
+}
+
 // ===========================================================================
 // Multiple checks
 // ===========================================================================

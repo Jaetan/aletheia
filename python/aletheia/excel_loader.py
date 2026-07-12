@@ -80,6 +80,7 @@ from aletheia._loader_utils import (
     get_str,
     is_str,
     reject_symlink_loader_path,
+    require_present_file,
 )
 from aletheia.client._types import AletheiaError, ValidationError, check_dbc_text_size_bound
 from aletheia.types import (
@@ -269,9 +270,7 @@ def load_checks_from_excel(
 
     """
     p = Path(path)
-    if not p.exists():
-        msg = f"Excel file not found: {path}"
-        raise FileNotFoundError(msg)
+    require_present_file(p, "Excel")
     reject_symlink_loader_path(p, "Excel")
     check_dbc_text_size_bound(p.stat().st_size)
     _check_xlsx_uncompressed_bound(p)
@@ -322,9 +321,7 @@ def load_dbc_from_excel(
 
     """
     p = Path(path)
-    if not p.exists():
-        msg = f"Excel file not found: {path}"
-        raise FileNotFoundError(msg)
+    require_present_file(p, "Excel")
     reject_symlink_loader_path(p, "Excel")
     check_dbc_text_size_bound(p.stat().st_size)
     _check_xlsx_uncompressed_bound(p)

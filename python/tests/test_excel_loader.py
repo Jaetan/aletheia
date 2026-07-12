@@ -15,6 +15,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import errno
 from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -506,6 +507,22 @@ class TestLoadErrors:
         """Verify dbc file not found."""
         with pytest.raises(FileNotFoundError, match="Excel file not found"):
             load_dbc_from_excel("/nonexistent/path/dbc.xlsx")
+
+    def test_stat_failure_distinguished_from_missing(self, tmp_path: Path) -> None:
+        """A stat *failure* surfaces its errno, not a bogus FileNotFoundError.
+
+        A path component over NAME_MAX makes ``os.lstat`` raise ``OSError`` with
+        ``ENAMETOOLONG``, distinct from a missing file's ``FileNotFoundError``.
+        The excel loader used to gate on ``Path.exists()``, which since Python
+        3.12 swallows every ``OSError`` and returns ``False`` — mislabelling a
+        stat failure "file not found".  It now uses ``require_present_file``
+        (``os.lstat``), mirroring the C++/Go ec-vs-not-found split.
+        """
+        too_long = tmp_path / ("a" * 5000 + ".xlsx")
+        with pytest.raises(OSError) as exc_info:  # noqa: PT011 — errno checked below
+            load_dbc_from_excel(too_long)
+        assert exc_info.value.errno == errno.ENAMETOOLONG
+        assert not isinstance(exc_info.value, FileNotFoundError)
 
     def test_no_checks_or_when_then_sheet(self, tmp_path: Path) -> None:
         """Workbook with neither Checks nor When-Then raises ValidationError."""

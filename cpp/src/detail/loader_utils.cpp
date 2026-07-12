@@ -188,7 +188,25 @@ auto validate_loader_path(const std::filesystem::path& path, std::string_view ki
     -> Result<void> {
     std::error_code ec;
     auto status = std::filesystem::symlink_status(path, ec);
-    if (ec || !std::filesystem::exists(status))
+    // A stat *failure* (EACCES on an unsearchable parent, ELOOP, ENAMETOOLONG,
+    // or EMFILE/ENFILE/EIO under load) is NOT the same as a genuinely absent
+    // file.  Reporting the former as "file not found" masks the real cause
+    // (e.g. resource exhaustion during a heavily parallel run).  Key on the
+    // errno VALUE, not merely on `ec` being set: libstdc++'s symlink_status
+    // sets `ec` to ENOENT/ENOTDIR for a missing leaf or non-directory parent
+    // component (it does NOT reliably clear `ec` for absence), so those two
+    // codes still mean "not found".  Mirrors Go's errors.Is(err,
+    // os.ErrNotExist), which likewise covers both ENOENT and ENOTDIR; matches
+    // the sibling check_file_size_bound below (which surfaces ec.message()).
+    if (ec) {
+        if (ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory)
+            return std::unexpected(AletheiaError{
+                ErrorKind::Validation, std::string(kind) + " file not found: " + path.string()});
+        return std::unexpected(AletheiaError{ErrorKind::Validation,
+                                             "Could not stat " + std::string(kind) +
+                                                 " file: " + path.string() + ": " + ec.message()});
+    }
+    if (!std::filesystem::exists(status))
         return std::unexpected(AletheiaError{
             ErrorKind::Validation, std::string(kind) + " file not found: " + path.string()});
     if (std::filesystem::is_symlink(status))

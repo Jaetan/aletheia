@@ -497,4 +497,23 @@ mod tests {
         let err = load_checks_from_yaml_file(&link).unwrap_err();
         assert!(format!("{err}").contains("symbolic link"), "got: {err}");
     }
+
+    #[test]
+    fn stat_failure_surfaces_errno_not_missing() {
+        // A path component over NAME_MAX makes symlink_metadata (lstat) fail
+        // with ENAMETOOLONG — a stat *failure*, not an absent file. The loader
+        // embeds the raw io::Error ("cannot stat …: <errno>"), so a
+        // resource/permission failure under load can never be mislabelled a
+        // missing file (the cross-binding ec-vs-not-found invariant; cf. the
+        // C++ validate_loader_path split and Go's os.ErrNotExist branch).
+        // ENAMETOOLONG is deterministic and root-safe.
+        let long = temp_path(&"a".repeat(5000));
+        let err = load_checks_from_yaml_file(&long).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("cannot stat"), "got: {msg}");
+        assert!(
+            !msg.contains("No such file"),
+            "stat failure mislabelled as a missing file: {msg}"
+        );
+    }
 }

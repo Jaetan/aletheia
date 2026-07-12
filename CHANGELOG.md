@@ -34,6 +34,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **File loaders no longer mislabel a stat *failure* as "file not found".** A
+  transient `stat`/`lstat` failure (EACCES, ELOOP, ENAMETOOLONG, or EMFILE/EIO
+  under heavily parallel load) was reported as a missing file by the C++ loader
+  (`validate_loader_path` conflated any `std::error_code` with absence) and the
+  Python Excel loader (`Path.exists()` swallows every `OSError` since Python
+  3.12). Both now key on the errno: ENOENT/ENOTDIR still mean "not found", any
+  other errno is surfaced as a distinct stat error — matching the Go and Rust
+  loaders, which already distinguished them (`os.ErrNotExist` / raw `io::Error`).
+  All four bindings gain a regression test (deterministic ENAMETOOLONG trigger).
+  No change to the not-found or success paths.
 - **Corrected the C++ Check-API usage example in the `check.hpp` header
   comment.** The shown `never_exceeds(PhysicalValue{220})` form did not compile:
   `PhysicalValue` wraps an exact `Rational`, which — by the float principle —
