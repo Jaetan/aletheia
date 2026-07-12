@@ -10,6 +10,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Pre-commit hook now blocks non-conforming commits in seconds** (dev-workflow
+  change). `tools/run_ci.py` gains a `--fast` tier that runs only the compile-free
+  static gates — per-binding format checks (`clang-format`, `gofmt`, `cargo fmt`,
+  `ruff format`), SPDX / review-mark / venv hygiene, and the Python linters (`ruff`,
+  `pylint`) — and the pre-commit hook runs it against the **staged content**
+  (unstaged/untracked changes are stashed for the duration, then restored) and
+  refuses the commit on failure. Compiling/artifact-dependent gates (clang-tidy,
+  clippy, cargo test, pytest) stay at pre-push, which still runs the full sweep.
+  Re-install with `python -m tools.install_hooks`; bypass with
+  `git commit --no-verify`. Internal: the `gofmt + go vet` and `cargo fmt + clippy`
+  steps were split into separate format/lint steps so the fast tier's allowlist
+  (`FAST_STEPS`) can include the format check without pulling in the compile.
+
 ### Changed
 
 - Internal (no behavior change): removed the unused `.agda-reference/README.md`

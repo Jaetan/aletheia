@@ -77,6 +77,31 @@ HEAVY_STEPS: frozenset[str] = frozenset(
     }
 )
 
+# The pre-commit FAST tier (``run_ci.py --fast``): the subset that is compile-free,
+# needs no build artifact (no ``.so`` / compile DB / cargo target), and runs
+# per-file in ~seconds — so it is cheap to run against staged content on every
+# commit.  Deliberately an explicit ALLOWLIST, NOT "everything not in
+# HEAVY_STEPS": the non-heavy set still contains cargo test/clippy/doc, clang-tidy,
+# and pytest-cli-parity, which compile or need artifacts and would (a) trigger
+# recompiles under the pre-commit stash and (b) run against a stale ``.so``.  Those
+# stay pre-push.  Membership scope chosen 2026-07-12: format checks (every binding)
+# + SPDX/review-mark/venv hygiene + the two Python linters (ruff, pylint — both
+# interpreted, no compile).  The split of ``gofmt``/``cargo fmt`` out of their
+# ``go vet``/``clippy`` partners exists to make this allowlist expressible.
+FAST_STEPS: frozenset[str] = frozenset(
+    {
+        "check-spdx-headers",
+        "check-no-review-marks",
+        "check-venv-convention",
+        "clang-format",
+        "gofmt",
+        "cargo fmt",
+        "cargo fmt (excel crate)",
+        "ruff",
+        "pylint",
+    }
+)
+
 
 def build_prereq_cmd(python: str) -> list[str]:
     """Return the staleness-gate command (``tools.check_build_incremental``).
@@ -376,13 +401,19 @@ def _run_lints(runner: Runner) -> None:
     # walks every .go file under go/ (it ignores module boundaries, so the excel
     # submodule is covered too); `go vet` does respect them, so excel needs its own
     # invocation alongside the core module's `./...`.
+    # Split into a compile-free format check ("gofmt", eligible for the pre-commit
+    # FAST tier) and the type-checking "go vet" (needs the Go toolchain to compile,
+    # so it stays a pre-push-only step).  Both keep their original commands verbatim.
+    # Per-process temp file (mktemp), NOT a fixed /tmp path: the pre-commit hook
+    # runs this via `run_ci --fast` and a manual sweep could run concurrently — a
+    # shared path would let them clobber each other's output and mis-report.
     gofmt_cmd = (
-        "gofmt -l . > /tmp/aletheia-gofmt.out 2>&1; rc=$?; "
-        "cat /tmp/aletheia-gofmt.out; "
-        "test $rc -eq 0 && test ! -s /tmp/aletheia-gofmt.out "
-        "&& go vet ./... && (cd excel && go vet ./...)"
+        'out=$(mktemp); gofmt -l . > "$out" 2>&1; rc=$?; '
+        'cat "$out"; n=$(wc -c < "$out"); rm -f "$out"; '
+        'test "$rc" -eq 0 && test "$n" -eq 0'
     )
-    runner.step("gofmt + go vet", gofmt_cmd, cwd=runner.repo_root / "go")
+    runner.step("gofmt", gofmt_cmd, cwd=runner.repo_root / "go")
+    runner.step("go vet", "go vet ./... && (cd excel && go vet ./...)", cwd=runner.repo_root / "go")
 
     # clang-format: exclude generated / third-party trees + sanitizer/mutation
     # build trees.
@@ -433,9 +464,12 @@ def _run_lints(runner: Runner) -> None:
     # so internal docs are checked too; --all-features so the `async` items the docs
     # link to resolve). It needs no .so — `--no-deps` documents only this crate and
     # does not run doctests.
+    # Split rustfmt (compile-free — pre-commit FAST tier) from clippy (compiles the
+    # crate — pre-push only).  Commands are the two conjuncts of the original step.
+    runner.step("cargo fmt", "cargo fmt --check", cwd=runner.repo_root / "rust")
     runner.step(
-        "cargo fmt + clippy",
-        "cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings",
+        "cargo clippy",
+        "cargo clippy --all-targets --all-features -- -D warnings",
         cwd=runner.repo_root / "rust",
     )
     runner.step(
@@ -444,8 +478,11 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root / "rust",
     )
     runner.step(
-        "cargo fmt + clippy (excel crate)",
-        "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+        "cargo fmt (excel crate)", "cargo fmt --check", cwd=runner.repo_root / "rust" / "excel"
+    )
+    runner.step(
+        "cargo clippy (excel crate)",
+        "cargo clippy --all-targets -- -D warnings",
         cwd=runner.repo_root / "rust" / "excel",
     )
     runner.step(
