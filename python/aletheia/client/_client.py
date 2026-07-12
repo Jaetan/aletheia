@@ -524,8 +524,10 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         """Render a DBC JSON dict back to .dbc file text via the verified Agda formatter.
 
         Inverse of :meth:`parse_dbc_text` at the wire level: ``parse_dbc_text(
-        format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed
-        DBC. Does not modify client state — pass any
+        format_dbc_text(d))`` returns ``d`` byte-identical for any
+        text-round-trip well-formed DBC (a stricter condition than validating
+        clean — see the "well-formed DBC" entry in ``docs/GLOSSARY.md``).
+        Does not modify client state — pass any
         ``DBCDefinition`` value (typically from :meth:`parse_dbc_text`,
         :meth:`format_dbc`, or :func:`aletheia.dbc_to_json`).
 

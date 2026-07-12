@@ -137,8 +137,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### E.2 — `WellFormedTextDBCAgg` runtime discharge
 
-- **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:46`; handler
-  `src/Aletheia/Protocol/Handlers/FormatDBCText.agda`.
+- **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:85` (the record);
+  handler `src/Aletheia/Protocol/Handlers/FormatDBCText.agda`.
 - **Origin** — text round-trip proof obligation (`WellFormedTextDBCAgg` precondition).
 - **Today** — the `FormatDBCText` handler emits
   `formatText (deriveNodesIfEmpty dbc)` unconditionally; `formatText : DBC →
@@ -162,11 +162,15 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **`validateDBC`-clean does not discharge the remaining four.** The precondition
   `errorIssues (validateDBCFull d) ≡ []` is built from **only the 8 error-class
   checks** (`Validity/Theorem.agda`); warning-class checks contribute nothing. Of
-  the four residual fields it discharges **only `msg-ids-unique`** (CHECK 1, error).
+  the four residual fields it discharges **only `msg-ids-unique`** (CHECK 1, error;
+  via `checkAllDuplicateMessageIds-sound`, one routine `AllPairs`-map step from the
+  field's mapped form — that bridge lemma is currently unwritten).
   The other three are walls:
   - `unresolved-empty` (`DBC.unresolvedValueDescs d ≡ []`) — CHECK 23 is
-    **warn-only** and fires only on an unknown target; it never asserts `≡ []`.
-    No validateDBC-clean route to this field.
+    **warn-only** (one warning per unresolved entry, `Checks.agda:604-613`;
+    warnings never enter `errorIssues`), so validateDBC-clean asserts nothing
+    about this field. (CHECK-23 *silence* does imply `≡ []` — but that is a
+    caller-side warning inspection, not the theorem's error-clean hypothesis.)
   - `attr-wfs` (`WFAttribute`) — BA_DEF_ value↔type matching, enum-label
     uniqueness, and name resolution are checked **nowhere** (CHECK 18 is only a
     warn-only duplicate-name check). A fully-unchecked wall.
@@ -192,11 +196,36 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   or (c) new validator **error**-class checks for attribute-typing / presence /
   master-coherence / physical-validity that strengthen the hypothesis. All three are
   materially larger, separate decisions — not incremental proof work.
-- **Verdict** — `HOLD`. Correctness question **resolved (no gap)**; the bounded
-  slice is done (five of nine fields). Full closure is a multi-front program per
-  the above. (The `BO_TX_BU_` message-senders text round-trip, once tracked
-  alongside this, shipped standalone for its own text-surface value and removed the
-  former `MessageWF.senders-empty` restriction — but it did not close E.2.)
+- **Verdict** — `HOLD` for full closure. Correctness question **resolved (no
+  gap)**; the bounded slice is done (five of nine fields). Full closure is a
+  multi-front program per the above. (The `BO_TX_BU_` message-senders text
+  round-trip, once tracked alongside this, shipped standalone for its own
+  text-surface value and removed the former `MessageWF.senders-empty`
+  restriction — but it did not close E.2.)
+- **Re-examined 2026-07-12** — every claim above adversarially verified against
+  source and upheld (plus one the entry missed: the Rust rustdoc lacked the
+  round-trip qualifier the other three bindings carry — fixed in the same
+  accuracy batch as this update). Key re-framing: the theorem's precondition is
+  **unobservable** — no user-facing surface can evaluate `WellFormedTextDBCAgg`,
+  so a user cannot distinguish "my export is proven-faithful" from "my export
+  silently dropped multi-value mux". Routes **scheduled (b) ≫ (a) ≫ (c)**:
+  - **(b) first** — a runtime checker for the predicate at the format handler,
+    surfaced as a #150-style issues envelope (format-anyway default, opt-in
+    strict refusal): the only route that makes the guarantee observable
+    ("round-trips, or tells you it can't"), wire-additive (binding returns
+    enriched in place — BREAKING, ratified 2026-07-12: no sibling methods),
+    medium and self-contained. Pinned as a prerequisite of any
+    text-export-bearing product surface.
+  - **(a) second** — lossless emission (A.1 multi-value `SG_MUL_VAL_`, then
+    A.3 nested mux): the only route that removes the `wfps` wall; stays
+    corpus-gated per A.1's own gate; design-ahead plan maintained.
+  - **(c) last** — stronger validator: **rejected standalone** (cannot close
+    `wfps` while emission is lossy; every new error-class check breaks the load
+    path); its useful checks fold into (b)'s diagnostics or an opt-in strict
+    profile.
+
+  Adversarially-reviewed proof strategies for all three routes:
+  [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md).
 
 ---
 
@@ -296,7 +325,10 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
-1. **E.2** (`WellFormedTextDBCAgg`) — investigate correctness relevance first.
+1. **E.2** (`WellFormedTextDBCAgg`) — ✅ re-examined 2026-07-12: no correctness
+   gap (confirmed); closure routes scheduled (b) ≫ (a) ≫ (c) with
+   adversarially-reviewed proof strategies in
+   [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md).
 2. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
 3. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
 4. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.

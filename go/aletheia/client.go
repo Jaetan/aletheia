@@ -410,8 +410,10 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 
 // FormatDBCText renders a DBCDefinition as .dbc file text via the verified
 // Agda formatter.  Inverse of [Client.ParseDBCText] at the wire level:
-// ParseDBCText(FormatDBCText(d)) returns d byte-identical for any well-formed
-// DBC.  Does not modify client state — pass any
+// ParseDBCText(FormatDBCText(d)) returns d byte-identical for any
+// text-round-trip well-formed DBC (a stricter condition than validating
+// clean — see the "well-formed DBC" entry in docs/GLOSSARY.md).  Does not
+// modify client state — pass any
 // DBCDefinition value (typically from ParseDBCText, FormatDBC, or a JSON load).
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].

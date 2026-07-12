@@ -106,8 +106,9 @@ record WellFormedTextDBCAgg (d : DBC) : Set where
     -- closed but lossy).  The text round-trip therefore closes only for
     -- DBCs whose unresolved list is already `[]`; this includes every
     -- DBC built from `parseText` (because `unresolvedRVDs ∘ collectFrom
-    -- Messages ≡ []` under any `msgs`) and every DBC built from JSON
-    -- (the JSON path always defaults the field to `[]`).  CHECK 23
+    -- Messages ≡ []` under any `msgs`) and every JSON-built DBC whose
+    -- wire omits the `unresolvedValueDescs` key (absent-key default
+    -- `[]`; a supplied non-empty array is preserved).  CHECK 23
     -- `UnknownValueDescriptionTarget` warns at validation time when
     -- this field is non-empty (E.11).
     unresolved-empty : DBC.unresolvedValueDescs d ≡ []
