@@ -285,6 +285,78 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ---
 
+## G. Tooling / gate reliability
+
+### G.1 — `iwyu` false-negative: a reduction-leaked QName is reported as a used import
+
+> **This entry is the SINGLE SOURCE OF TRUTH for this bug. Do not describe it anywhere else —
+> link here (`DEFERRED_ITEMS.md §G.1`). If a new facet is found, add it to THIS entry.**
+
+- **Where** — `tools/agda-iwyu-reader/Main.hs` (the reader's `used` signals — `usedOf` /
+  `resolveQuery`); driver `tools/_iwyu.py`; gate `tools/iwyu.py`. First observed as a missed
+  dead import at `src/Aletheia/DBC/TextParser/Properties/WellFormedCheck/Sound/Attr.agda:41`
+  (that symptom was fixed in PR #181; the reader gap remains).
+- **Origin** — 2026-07-13, PR #181 review: Copilot flagged two dead `using` imports
+  (`resolveDefIssues` / `enumDefaultIssue`) that `iwyu` reported clean; root-caused to the
+  reader's canonical-QName `used` set.
+- **The mechanism (full).** The reader judges a `using (n)` import USED if ANY of its signals
+  fire; two matter here:
+  - *syntactic* — `n` occurs in source beyond its import, via Agda **highlighting** occurrence
+    counts (`resolveQuery`); comments are comment-tokens (not name refs), so a comment mention
+    scores 0.
+  - *semantic* — `n`'s QName ∈ `namesIn(defsOf)` (the module's **elaborated** definitions;
+    `usedOf iface = namesIn (toList (defsOf iface))`).
+
+  The **semantic signal over-fires**: a genuinely-dead import whose QName reaches `defsOf`
+  **only by reduction of another imported def** is reported USED. Here `attrIssues-sound`'s
+  `DBCAttrAssign` / `DBCAttrDefault` arms do `with (lookupDef …) in eq`, forcing `attrIssues`
+  to reduce to `resolveDefIssues … ++ enumDefaultIssue …`, which bakes those QNames into the
+  elaborated with-function's type → they land in `namesIn(defsOf)` → USED, though no source
+  token ever goes through the `using` alias. This is a **false-negative**; the recompile oracle
+  the reader replaced (2026-06-06) would call it DEAD. The tool has itself flagged
+  "FN-completeness" as open R&D since that switch — this is a concrete, reproduced instance.
+  - *Why removal isn't then flagged MISSING:* the baked-in reference is fully-qualified to the
+    origin (`WellFormedCheck.resolveDefIssues`), resolvable via the **transitive** `WellFormedCheck`
+    import — the direct alias was never required for it.
+  - *Contrast the reader got RIGHT (`AttrDef`, correctly DEAD):* `AttrDef` reaches `Sound.agda`
+    only as an *inferred* type argument (`collectDefs`'s result `List AttrDef`), which does NOT
+    land in `namesIn(defsOf)` → neither signal fired. So the discriminator is exactly "does the
+    QName land in `defsOf`?", and reduction-under-`with` is one way a redundant import's name gets there.
+- **Verification (how we know it's the semantic signal, not comment-counting).** Keep the imports
+  but mangle ONLY the comment mentions (`resolveDefZZZ`): iwyu STILL reports 0 findings → comments
+  are irrelevant; the elaborated-term leak is the sole cause. Ground truth: removing the imports
+  type-checks clean AND iwyu-clean, so the import is genuinely dead.
+- **Scope — likely SYSTEMIC.** Any `Properties`/proof module that (i) redundantly imports a helper
+  by name AND (ii) forces that helper to reduce (`with f x in eq` unfolding `f`) can trip the same
+  false-USED. The fix must include a tree audit for other instances.
+- **Done looks like** — `iwyu` is **100% exact** = matches the recompile oracle on every case (no
+  false-DEAD, no false-USED). A new `--self-test` fixture (`tools/agda-iwyu-reader/test/`)
+  reproduces the reduction-leak shape (a `using` name only reduction-introduced into `defsOf` must
+  classify DEAD), every existing fixture stays green, and the tree audit is clean.
+- **Cost / risk** — Medium R&D. **Risk:** any fix must NOT re-introduce false-DEAD — the semantic
+  signal exists to catch the renamed / copy uses the syntactic signal legitimately misses, so
+  narrowing it could regress those. Candidate approaches to evaluate:
+  1. **Require the alias, not just the QName** — count semantic-USED only when the reference could
+     NOT resolve without THIS `using` entry (not already reachable via a transitive module import).
+     Uses scope reachability the reader already loads (`scopes` / `moduleResolve`).
+  2. **Gate by import kind** — for a plain (non-renamed, non-copy) `using (n)`, trust the syntactic
+     signal; let semantic rescue only the renamed/copy cases it exists for. Risk: a plain name
+     genuinely used with no highlight token would need care.
+  3. **Targeted recompile-confirm** — re-introduce the retired oracle ONLY for the borderline class
+     (semantic-USED but syntactic-0). Cheap (few candidates), exact by construction.
+  4. **Detect reduction-leaked QNames** — distinguish a QName that entered `defsOf` only via
+     another Def's normal form from one the module wrote. Hard in general.
+- **Notes.** (a) A tool validated against a synthetic fixture matrix is exact only up to the
+  fixtures' COVERAGE — this shape wasn't in the matrix, so the reader passed `--self-test` (31/31)
+  with the gap; the fix's fixture closes that hole. (b) Discovery discipline: when a reviewer
+  (Copilot) and a gate (iwyu) conflict, the COMPILER (recompile) is the tiebreaker — here the gate
+  was the one that was wrong.
+- **Blockers / deps** — none; independent of the Agda / proof work.
+- **Verdict (first pass)** — `DO` (user directive 2026-07-13: "we need to fix iwyu to be a 100%
+  reliable tool").
+
+---
+
 ## H. Binding ergonomics
 
 ### H.1 — Public, configurable C++ test mock (`aletheia/testing.hpp`)
