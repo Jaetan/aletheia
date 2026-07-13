@@ -227,6 +227,38 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   Adversarially-reviewed proof strategies for all three routes:
   [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md).
 
+### E.3 — V1 diagnostic tightness classification (round-trip-necessary vs merely-bundled)
+
+- **Where** — the `wfTextIssues` checker (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda`)
+  and the round-trip proof `parseText-on-formatText`
+  (`src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda:119`).
+- **Origin** — the 2026-07-13 adversarial review of E.2 route (b) slice 1. Slice 1
+  proves `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`, and `WellFormedTextDBCAgg`
+  is **sufficient-not-necessary** for round-tripping (it is the antecedent of
+  `parseText-on-formatText`; no converse). So a non-empty `wfTextIssues` (a flag)
+  does **not** prove the DBC fails to round-trip — some flagged DBCs may survive.
+- **The task** — trace `parseText-on-formatText` and classify **each**
+  `WellFormedTextDBCAgg` conjunct (hence each `wfTextIssues` diagnostic) as either
+  **round-trip-NECESSARY** (tight — a flag always means a genuine loss) or
+  **MERELY-BUNDLED** (can false-alarm — the DBC round-trips despite the flag).
+  Deliverable: a per-condition table turning today's *reasoned* examples into
+  *proven* statements.
+- **Grounded hypotheses to confirm/refute** (from the review): the uniqueness
+  conjuncts `sig-names-unique`/`msg-ids-unique` read as `VAL_`-collapse-specific
+  (their field comments) ⇒ likely merely-bundled for a DBC with no value
+  descriptions (`messages`/`signals` are order-preserving lists); the
+  physical-validity bounds (`wf-sigs`/`pvs`) look text-irrelevant (the formatter
+  prints raw numbers) ⇒ likely merely-bundled; `wfps` (multi-value mux) and
+  `unresolved-empty` look **tight** (genuine formatter loss — A.1). Verify each.
+- **Optional downstream** — tighten or condition the merely-bundled checks to cut
+  false alarms, or mark those diagnostics "conditional" in the wire/docs.
+- **NOT blocking E.2.** V2 (route-b slice 2) dissolves the over-approximation for
+  the only decision that needs exactness (strict-mode refusal gates on the V2 exact
+  check, never on `WellFormedTextDBCAgg` necessity); V1 diagnostics are already
+  worded "round-trip not proven", never "will not" (E2_ROUTE_B.md §7.6). Land
+  anytime after slice 1 — a good fit for a multi-agent proof-trace workflow.
+- **Verdict** — `SCHEDULED` (quality/tightening analysis, non-blocking).
+
 ---
 
 ## F. Parked by prior user decision (re-confirm, don't re-open lightly)

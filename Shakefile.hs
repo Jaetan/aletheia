@@ -435,6 +435,14 @@ proofModules =
     -- heavy fields (MessageWF / WFAttribute) — so an explicit root keeps it
     -- from bit-rotting.
     , "Aletheia/DBC/TextParser/Properties/WellFormedFromValidity.agda"
+    -- E.2 route (b) checker soundness facade: proves the runtime decision
+    -- procedure `wfTextIssues` decides `WellFormedTextDBCAgg` — `wfTextIssues d
+    -- ≡ [] ⟺ WellFormedTextDBCAgg d` (E2_ROUTE_B.md §5.4).  One root here covers
+    -- the whole route-b subtree transitively: the checker (`WellFormedCheck`) and
+    -- the three soundness leaves (`Sound/{Signal,Master,Attr}`).  Unimported by
+    -- Main until the FormatDBCText handler lands in slice 3 — explicit root keeps
+    -- it (and the checker) from bit-rotting meanwhile.
+    , "Aletheia/DBC/TextParser/Properties/WellFormedCheck/Sound.agda"
     -- A.2 BO_TX_BU_ inverse-bridge: `attachSenders (collectSenders msgs) msgs
     -- ≡ msgs` under msg-id uniqueness (DEFERRED_ITEMS.md A.2).  Unimported
     -- until the formatter/parser integration lands the senders section on the

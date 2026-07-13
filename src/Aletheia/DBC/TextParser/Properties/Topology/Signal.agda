@@ -32,7 +32,7 @@
 -- callers (the composers are still pending).
 module Aletheia.DBC.TextParser.Properties.Topology.Signal where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (Bool; true; false; T; _∧_)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
@@ -41,6 +41,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (Σ-syntax; _×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Data.Empty using (⊥-elim)
+open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
@@ -75,6 +76,8 @@ open import Aletheia.DBC.TextParser.Format.SignalLine.Roundtrip using
   (NameStop; RecvHeadStop; signalLine-roundtrip)
 open import Aletheia.DBC.TextParser.Properties.Topology.Receivers using
   (isReceiverCont; emit-canonicalReceiversFmt-eq-emitReceivers)
+open import Aletheia.DBC.TextParser.Properties.CharClassDisjoint using
+  (isIdentStart→¬isHSpace)
 
 
 -- ============================================================================
@@ -277,6 +280,35 @@ private
   build-RecvHeadStop
       (mkCanonical (mkIdent (c ∷ cs) _ ∷ s ∷ rest) _) _ (∷-stop hsp) =
     c , _ , refl , hsp
+
+
+-- ============================================================================
+-- UNIVERSAL RECEIVER-HEAD STOP  (no SuffixStops premise — importable)
+-- ============================================================================
+--
+-- `RecvHeadStop cr` for EVERY canonical receiver list.  Unlike the private
+-- `build-RecvHeadStop`, this takes NO parser `SuffixStops` premise: the
+-- head-non-hspace fact comes from the receiver identifier's OWN validity witness
+-- (`isIdentStart→¬isHSpace c (T-∧₁ v)`, the identNameStop move —
+-- WellFormedFromValidity.agda:72-83, CharClassDisjoint.agda:76).  This makes the
+-- `SignalLineWF.recv-head-stop` field free for the E.2 route (b) checker (§3), so
+-- the soundness tree can discharge it with no per-DBC decision.  Four clauses
+-- mirror `build-RecvHeadStop` exactly; the emit-equation `refl`s and the `cs`
+-- component are premise-independent (they reduce from the AST alone).
+
+private
+  -- First-conjunct projection of a `T`-valued conjunction (local mirror of the
+  -- private helper in WellFormedFromValidity.agda; kept local to avoid a cycle).
+  T-∧₁ : ∀ {a b : Bool} → T (a ∧ b) → T a
+  T-∧₁ {true} {true} _ = tt
+
+recvHeadStop : ∀ (cr : CanonicalReceivers) → RecvHeadStop cr
+recvHeadStop (mkCanonical [] _)                             = 'V' , _ , refl , refl
+recvHeadStop (mkCanonical (mkIdent [] vp ∷ _) _)            = ⊥-elim vp
+recvHeadStop (mkCanonical (mkIdent (c ∷ cs) v ∷ []) _)      =
+  c , (cs ++ₗ []) , refl , isIdentStart→¬isHSpace c (T-∧₁ v)
+recvHeadStop (mkCanonical (mkIdent (c ∷ cs) v ∷ s ∷ rest) _) =
+  c , _ , refl , isIdentStart→¬isHSpace c (T-∧₁ v)
 
 
 -- ============================================================================
