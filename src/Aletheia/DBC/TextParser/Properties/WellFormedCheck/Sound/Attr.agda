@@ -38,7 +38,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   (DefaultEnumOK; WFAttribute; wfDef; wfDefault; wfAssign)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine)
 open import Aletheia.DBC.TextParser.WellFormedCheck using
-  (vmtᵇ; enumOkᵇ; wfAttrTypeIssues; resolveDefIssues; enumDefaultIssue; attrIssues)
+  (vmtᵇ; enumOkᵇ; wfAttrTypeIssues; attrIssues)
 
 -- ── value/type match (WFAttribute conjunct `ValueMatchesType`) ────────────────
 --
