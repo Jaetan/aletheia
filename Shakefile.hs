@@ -443,6 +443,13 @@ proofModules =
     -- Main until the FormatDBCText handler lands in slice 3 — explicit root keeps
     -- it (and the checker) from bit-rotting meanwhile.
     , "Aletheia/DBC/TextParser/Properties/WellFormedCheck/Sound.agda"
+    -- E.2 route (b) slice 2 — the V2 exact-check soundness (axiom-free):
+    -- `roundTripsᵇ d ≡ true → parseText (formatText d) ≡ inj₂ d` (§6.3).  Its own
+    -- root because nothing else imports it (the V2 check `RoundTripCheck` and the
+    -- equality tower `Properties.Equality.Full` are reached via the Substrate.Unsafe
+    -- root, which imports them for the V1↔V2 stitching theorems, §6.4).  Unimported
+    -- by Main until the FormatDBCText handler lands in slice 3.
+    , "Aletheia/DBC/TextParser/Properties/RoundTripCheck/Sound.agda"
     -- A.2 BO_TX_BU_ inverse-bridge: `attachSenders (collectSenders msgs) msgs
     -- ≡ msgs` under msg-id uniqueness (DEFERRED_ITEMS.md A.2).  Unimported
     -- until the formatter/parser integration lands the senders section on the

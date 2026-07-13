@@ -69,12 +69,13 @@ s₁ ≟-SignalDef s₂
 ... | yes refl = yes refl
 
 -- Decidable equality for one (value, description) pair from `valueDescriptions`.
-private
-  _≟-vd_ : (e₁ e₂ : ℕ × List Char) → Dec (e₁ ≡ e₂)
-  (n₁ , cs₁) ≟-vd (n₂ , cs₂) with n₁ ≟ n₂ | ≡-dec _≟ᶜ_ cs₁ cs₂
-  ... | yes refl | yes refl = yes refl
-  ... | no n≢   | _        = no (λ { refl → n≢ refl })
-  ... | _        | no cs≢  = no (λ { refl → cs≢ refl })
+-- PUBLIC (de-privatized): consumed by `Properties.Equality.Full` for
+-- `_≟-ValueTable_` / `_≟-RawValueDesc_` (both carry `entries : List (ℕ × List Char)`).
+_≟-vd_ : (e₁ e₂ : ℕ × List Char) → Dec (e₁ ≡ e₂)
+(n₁ , cs₁) ≟-vd (n₂ , cs₂) with n₁ ≟ n₂ | ≡-dec _≟ᶜ_ cs₁ cs₂
+... | yes refl | yes refl = yes refl
+... | no n≢   | _        = no (λ { refl → n≢ refl })
+... | _        | no cs≢  = no (λ { refl → cs≢ refl })
 
 -- Decidable equality for DBCSignal (7 fields)
 _≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)

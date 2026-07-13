@@ -25,6 +25,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the `check-properties` proof gate as a walk root (`Shakefile.hs`); the
   wire/envelope/handler surfacing and the exact-equality verdict land in later
   slices.
+- **Verified exact round-trip check + V1↔V2 coherence** (internal; second slice of
+  the E.2 route (b) work — still no user-facing change). Adds `roundTripsᵇ : DBC →
+  Bool`, a decision procedure that *evaluates* `parseText (formatText d)` and
+  deep-compares the parse-back with `d` (via a new full `DBC` decidable-equality
+  tower), giving the exact round-trip verdict with zero over-refusal. Its soundness
+  is **axiom-free** — `roundTripsᵇ d ≡ true → parseText (formatText d) ≡ inj₂ d`, so
+  V2's YES is ground truth by construction — and it composes with slice 1's checker
+  into the coherence theorem `wfTextIssues d ≡ [] → roundTripsᵇ d ≡ true` (no V1
+  diagnostic ⟹ the DBC round-trips, carrying the same trust base as the headline
+  round-trip theorem). Proof-only; the handler/wire surfacing lands in the final
+  slice. Wired into the `check-properties` gate (`Shakefile.hs`).
 - **Pre-commit hook now blocks non-conforming commits in seconds** (dev-workflow
   change). `tools/run_ci.py` gains a `--fast` tier that runs only the compile-free
   static gates — per-binding format checks (`clang-format`, `gofmt`, `cargo fmt`,
