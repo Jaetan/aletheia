@@ -72,12 +72,16 @@
 --   Aletheia inherits the same soundness assumption.
 module Aletheia.DBC.TextParser.Properties.Substrate.Unsafe where
 
+open import Data.Bool using (true)
 open import Data.Char using (Char)
-open import Data.List using (List)
+open import Data.Empty using (⊥-elim)
+open import Data.List using (List; [])
 open import Data.String using (String; toList; fromList)
 open import Data.Sum using (inj₂)
+open import Relation.Nullary using (yes; no)
+open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; trans; cong)
+  using (_≡_; refl; trans; cong)
 
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.TextParser using (parseText; parseTextChars)
@@ -87,6 +91,11 @@ open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Universal using
   (parseTextChars-on-formatChars)
+-- S2.5 (stitching V1↔V2): the equality tower, the V2 check, and slice-1's checker soundness.
+open import Aletheia.DBC.Properties.Equality.Full using (_≟-DBC_)
+open import Aletheia.DBC.TextParser.RoundTripCheck using (rtGo; roundTripsᵇ)
+open import Aletheia.DBC.TextParser.WellFormedCheck using (wfTextIssues)
+open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound using (wfTextIssues-sound)
 
 -- ============================================================================
 -- BRIDGING AXIOMS
@@ -122,3 +131,32 @@ parseText-on-formatText :
 parseText-on-formatText d wf =
   trans (cong parseTextChars (toList∘fromList (formatChars d)))
         (parseTextChars-on-formatChars d wf)
+
+-- ============================================================================
+-- V1 ↔ V2 STITCHING (E.2 route (b), slice 2 — §6.4)
+-- ============================================================================
+--
+-- The coherence theorem: no V1 diagnostics ⟹ V2 round-trips.  These CONSUME the
+-- bridging axioms (they route through `parseText-on-formatText`), so they are
+-- co-located here per the "1 allowlisted Unsafe module" policy above — unlike the
+-- V2 SOUNDNESS (`RoundTripCheck/Sound.agda`), which is genuinely axiom-free.
+
+-- Reflexive decidable equality never answers `no` on `d , d`, so `⌊ d ≟-DBC d ⌋`
+-- (= `rtGo (inj₂ d) d`) is `true`.  `⌊_⌋` is written explicitly so the `with`
+-- abstracts the scrutinee cleanly.
+dec-refl : ∀ (d : DBC) → ⌊ d ≟-DBC d ⌋ ≡ true
+dec-refl d with d ≟-DBC d
+... | yes _  = refl
+... | no ¬p  = ⊥-elim (¬p refl)
+
+-- WellFormed ⟹ V2 says YES: transport `parseText-on-formatText` through `rtGo`,
+-- then close `rtGo (inj₂ d) d ≡ true` by `dec-refl` (definitional: it is `⌊ d ≟-DBC d ⌋`).
+wf→roundTripsᵇ : ∀ (d : DBC) → WellFormedTextDBCAgg d → roundTripsᵇ d ≡ true
+wf→roundTripsᵇ d wf =
+  trans (cong (λ r → rtGo r d) (parseText-on-formatText d wf)) (dec-refl d)
+
+-- The coherence theorem itself: an empty V1 diagnostic set implies V2 round-trips
+-- (modulo the Substrate axioms).  Contrapositive: every V2 divergence ships ≥1 V1
+-- diagnostic.  Composes slice-1's `wfTextIssues-sound` with the above.
+issues-empty→roundTrips : ∀ (d : DBC) → wfTextIssues d ≡ [] → roundTripsᵇ d ≡ true
+issues-empty→roundTrips d eq = wf→roundTripsᵇ d (wfTextIssues-sound d eq)
