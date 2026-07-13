@@ -374,6 +374,17 @@ data IssueCode : Set where
   UnknownMessageSender        : IssueCode
   UnknownSignalReceiver       : IssueCode
   UnknownValueDescriptionTarget : IssueCode
+  -- E.2 route (b) slice 1 (S1.0): text-round-trip checker diagnostics.  Wire-inert
+  -- until the FormatDBCText handler emits them (slice 3).  Appended AFTER the 21
+  -- validator codes so MAlonzo constructor numbering stays stable (E2_ROUTE_B.md §11 R4).
+  TextRoundTripDivergence       : IssueCode
+  MultiValueMuxSelector         : IssueCode
+  MuxMasterIncoherent           : IssueCode
+  BigEndianMSBLayout            : IssueCode
+  UnknownAttributeName          : IssueCode
+  AttributeValueTypeMismatch    : IssueCode
+  AttributeEnumEmpty            : IssueCode
+  AttributeEnumDefaultUnstable  : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

@@ -12,6 +12,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Verified runtime checker for DBC-text round-trip well-formedness** (internal;
+  first slice of the E.2 route (b) work — no user-facing change yet). New Agda
+  modules add `wfTextIssues : DBC → List ValidationIssue`, a decision procedure
+  proven **sound and complete** against `WellFormedTextDBCAgg` (`wfTextIssues d ≡
+  [] ⟺ WellFormedTextDBCAgg d`), so a future `format_dbc_text` can report at least
+  one reason a DBC falls outside the *proven* round-trip envelope, instead of
+  silently emitting lossy output. (`WellFormedTextDBCAgg` is sufficient-not-necessary
+  for round-tripping, so a non-empty result means "round-trip not proven", never
+  "will not round-trip".) Eight new `IssueCode` constructors (with `formatIssueCode`
+  wire arms) carry the per-field diagnostics. The soundness facade is wired into
+  the `check-properties` proof gate as a walk root (`Shakefile.hs`); the
+  wire/envelope/handler surfacing and the exact-equality verdict land in later
+  slices.
 - **Pre-commit hook now blocks non-conforming commits in seconds** (dev-workflow
   change). `tools/run_ci.py` gains a `--fast` tier that runs only the compile-free
   static gates — per-binding format checks (`clang-format`, `gofmt`, `cargo fmt`,

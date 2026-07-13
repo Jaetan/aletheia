@@ -36,6 +36,9 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling;
   DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender;
   UnknownSignalReceiver; UnknownValueDescriptionTarget;
+  TextRoundTripDivergence; MultiValueMuxSelector; MuxMasterIncoherent;
+  BigEndianMSBLayout; UnknownAttributeName; AttributeValueTypeMismatch;
+  AttributeEnumEmpty; AttributeEnumDefaultUnstable;
   ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
@@ -118,6 +121,17 @@ formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
 formatIssueCode UnknownMessageSender        = "unknown_message_sender"
 formatIssueCode UnknownSignalReceiver       = "unknown_signal_receiver"
 formatIssueCode UnknownValueDescriptionTarget = "unknown_value_description_target"
+-- E.2 route (b) slice 1 (S1.0): wire codes for the text-round-trip checker
+-- diagnostics.  Total-function arms kept in lock-step with the IssueCode
+-- constructors (Types.agda); wire-inert until slice 3 emits them.
+formatIssueCode TextRoundTripDivergence       = "text_roundtrip_divergence"
+formatIssueCode MultiValueMuxSelector         = "multi_value_mux_selector"
+formatIssueCode MuxMasterIncoherent           = "mux_master_incoherent"
+formatIssueCode BigEndianMSBLayout            = "big_endian_msb_layout"
+formatIssueCode UnknownAttributeName          = "unknown_attribute_name"
+formatIssueCode AttributeValueTypeMismatch    = "attribute_value_type_mismatch"
+formatIssueCode AttributeEnumEmpty            = "attribute_enum_empty"
+formatIssueCode AttributeEnumDefaultUnstable  = "attribute_enum_default_unstable"
 
 formatValidationIssue : ValidationIssue → JSON
 formatValidationIssue issue =

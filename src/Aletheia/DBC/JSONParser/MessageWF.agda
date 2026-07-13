@@ -38,33 +38,35 @@ open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf; parseSig
 -- HELPERS
 -- ============================================================================
 
+-- dlcBytes of any DLC value is ≤ 64.  PUBLIC (de-privatized 2026-07-13): the E.2
+-- route (b) soundness tree discharges `MessageWF.fb-bound` (`dlcBytes (dlc msg) ≤
+-- 64`) with `dlcBytes-bounded (DBCMessage.dlc msg)`.
+-- Mirrors dlcToBytes-bounded from DLC/Properties.agda but operates on the
+-- DLC newtype (whose @0 erased bound cannot be extracted to delegate).
+-- Exhaustive match on the 16 valid DLC codes; ≥16 is absurd by erased bound.
+dlcBytes-bounded : ∀ (d : DLC) → dlcBytes d ≤ 64
+dlcBytes-bounded (mkDLC 0  _) = z≤n
+dlcBytes-bounded (mkDLC 1  _) = m≤m+n 1 63
+dlcBytes-bounded (mkDLC 2  _) = m≤m+n 2 62
+dlcBytes-bounded (mkDLC 3  _) = m≤m+n 3 61
+dlcBytes-bounded (mkDLC 4  _) = m≤m+n 4 60
+dlcBytes-bounded (mkDLC 5  _) = m≤m+n 5 59
+dlcBytes-bounded (mkDLC 6  _) = m≤m+n 6 58
+dlcBytes-bounded (mkDLC 7  _) = m≤m+n 7 57
+dlcBytes-bounded (mkDLC 8  _) = m≤m+n 8 56
+dlcBytes-bounded (mkDLC 9  _) = m≤m+n 12 52
+dlcBytes-bounded (mkDLC 10 _) = m≤m+n 16 48
+dlcBytes-bounded (mkDLC 11 _) = m≤m+n 20 44
+dlcBytes-bounded (mkDLC 12 _) = m≤m+n 24 40
+dlcBytes-bounded (mkDLC 13 _) = m≤m+n 32 32
+dlcBytes-bounded (mkDLC 14 _) = m≤m+n 48 16
+dlcBytes-bounded (mkDLC 15 _) = ≤-refl
+dlcBytes-bounded (mkDLC (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))))))))) ())
+
 private
   -- Convert ≡ᵇ-true to ≤ 64 bound: if m ≡ᵇ k = true then m ≤ 64 (given k ≤ 64)
   ≡ᵇ-true→≤64 : ∀ m k → (m ≡ᵇ k) ≡ true → k ≤ 64 → m ≤ 64
   ≡ᵇ-true→≤64 m k eq bound = subst (_≤ 64) (sym (≡ᵇ⇒≡ m k (subst T (sym eq) tt))) bound
-
-  -- dlcBytes of any DLC value is ≤ 64.
-  -- Mirrors dlcToBytes-bounded from DLC/Properties.agda but operates on the
-  -- DLC newtype (whose @0 erased bound cannot be extracted to delegate).
-  -- Exhaustive match on the 16 valid DLC codes; ≥16 is absurd by erased bound.
-  dlcBytes-bounded : ∀ (d : DLC) → dlcBytes d ≤ 64
-  dlcBytes-bounded (mkDLC 0  _) = z≤n
-  dlcBytes-bounded (mkDLC 1  _) = m≤m+n 1 63
-  dlcBytes-bounded (mkDLC 2  _) = m≤m+n 2 62
-  dlcBytes-bounded (mkDLC 3  _) = m≤m+n 3 61
-  dlcBytes-bounded (mkDLC 4  _) = m≤m+n 4 60
-  dlcBytes-bounded (mkDLC 5  _) = m≤m+n 5 59
-  dlcBytes-bounded (mkDLC 6  _) = m≤m+n 6 58
-  dlcBytes-bounded (mkDLC 7  _) = m≤m+n 7 57
-  dlcBytes-bounded (mkDLC 8  _) = m≤m+n 8 56
-  dlcBytes-bounded (mkDLC 9  _) = m≤m+n 12 52
-  dlcBytes-bounded (mkDLC 10 _) = m≤m+n 16 48
-  dlcBytes-bounded (mkDLC 11 _) = m≤m+n 20 44
-  dlcBytes-bounded (mkDLC 12 _) = m≤m+n 24 40
-  dlcBytes-bounded (mkDLC 13 _) = m≤m+n 32 32
-  dlcBytes-bounded (mkDLC 14 _) = m≤m+n 48 16
-  dlcBytes-bounded (mkDLC 15 _) = ≤-refl
-  dlcBytes-bounded (mkDLC (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))))))))) ())
 
   -- When bytesToValidDLC succeeds, the raw byte count ≤ 64.
   -- Literals 0–16 cover bytesToValidDLC's literal patterns.
