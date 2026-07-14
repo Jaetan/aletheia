@@ -93,8 +93,8 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
 		t.Fatalf("FormatDBCText: %v", err)
 	}
 	const wantLine = `VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;`
-	if !strings.Contains(out, wantLine) {
-		t.Errorf("expected VAL_ block in formatted output, got:\n%s", out)
+	if !strings.Contains(out.Text, wantLine) {
+		t.Errorf("expected VAL_ block in formatted output, got:\n%s", out.Text)
 	}
 }
 

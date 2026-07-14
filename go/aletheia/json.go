@@ -969,6 +969,30 @@ func validationFailedFromResponse(code, msg string, m map[string]any) *Validatio
 	return newValidationFailedError(issues, hasErrors, code, msg)
 }
 
+// textRoundtripFailedFromResponse lifts a “handler_text_roundtrip_failed“ wire
+// response carrying the structured “has_errors“ / “issues“ payload into a typed
+// [TextRoundTripFailedError].  Same degrade-to-generic rule as
+// “validationFailedFromResponse“ (returns nil when either field is missing or
+// ill-typed); the “issues“ array uses the exact validation-response element
+// shape, so decoding is shared with “parseIssueArray“.
+func textRoundtripFailedFromResponse(code, msg string, m map[string]any) *TextRoundTripFailedError {
+	if code != CodeHandlerTextRoundtripFailed {
+		return nil
+	}
+	hasErrors, ok := m["has_errors"].(bool)
+	if !ok {
+		return nil
+	}
+	if _, ok := m["issues"].([]any); !ok {
+		return nil
+	}
+	issues, err := parseIssueArray(m, "issues")
+	if err != nil {
+		return nil
+	}
+	return newTextRoundTripFailedError(issues, hasErrors, code, msg)
+}
+
 // checkErrorStatus converts a parsed response with status="error" into
 // a typed error carrying the Agda-side code and message. Both “code“
 // and “message“ must be non-null strings — a missing or non-string
@@ -1000,6 +1024,9 @@ func checkErrorStatus(m map[string]any) error {
 	}
 	if vfe := validationFailedFromResponse(code, msg, m); vfe != nil {
 		return vfe
+	}
+	if trte := textRoundtripFailedFromResponse(code, msg, m); trte != nil {
+		return trte
 	}
 	return newCodedError(ErrProtocol, code, msg)
 }
@@ -1471,26 +1498,33 @@ func parseDBCResponse(raw string) (*DBCDefinition, error) {
 	return parseDBCDefinition(dbcRaw)
 }
 
-// parseDBCTextResponse decodes a formatDBCText response into the .dbc text
-// image.  Errors (Agda-side JSON parse failure on the input or unexpected
-// status) short-circuit to the (string, error) tuple's error half.
-func parseDBCTextResponse(raw string) (string, error) {
+// parseDBCTextResponse decodes a formatDBCText response into the .dbc text image
+// plus its wfTextIssues diagnostics.  A round-trip refusal
+// (handler_text_roundtrip_failed) is lifted by checkErrorStatus into a typed
+// [TextRoundTripFailedError]; that and other errors (Agda-side JSON parse
+// failure on the input, unexpected status) short-circuit to the (*DBCText,
+// error) tuple's error half.
+func parseDBCTextResponse(raw string) (*DBCText, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := checkErrorStatus(m); err != nil {
-		return "", err
+		return nil, err
 	}
 	status := getString(m, "status")
 	if status != "success" {
-		return "", protocolError(fmt.Sprintf("expected success response, got status: %q", status))
+		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
 	}
 	text, ok := m["text"].(string)
 	if !ok {
-		return "", protocolError("missing or non-string 'text' field in formatDBCText response")
+		return nil, protocolError("missing or non-string 'text' field in formatDBCText response")
 	}
-	return text, nil
+	issues, err := parseIssueArray(m, "issues")
+	if err != nil {
+		return nil, err
+	}
+	return &DBCText{Text: text, Issues: issues}, nil
 }
 
 // parseParsedDBCResponse decodes a parseDBC / parseDBCText success response

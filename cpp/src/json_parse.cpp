@@ -83,6 +83,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
     {"handler_invalid_dlc_code", ErrorCode::HandlerInvalidDlcCode},
     {"handler_validation_failed", ErrorCode::HandlerValidationFailed},
+    {"handler_text_roundtrip_failed", ErrorCode::HandlerTextRoundtripFailed},
     {"handler_non_monotonic_timestamp", ErrorCode::HandlerNonMonotonicTimestamp},
     // Dispatch errors
     {"dispatch_missing_type_field", ErrorCode::DispatchMissingTypeField},
@@ -234,6 +235,10 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
                           "Error response missing or non-string 'message' field");
     auto code = error_code_from_string(j.at("code").get<std::string>());
     auto effective_kind = is_input_bound_exceeded_code(code) ? ErrorKind::InputBoundExceeded : kind;
+    // A round-trip refusal gets its own kind regardless of the caller's default,
+    // so a caller discriminates it from a structural validation failure by kind().
+    if (code == ErrorCode::HandlerTextRoundtripFailed)
+        effective_kind = ErrorKind::TextRoundtrip;
     // Lift the structured `bound_kind / observed / limit` triple into the
     // AletheiaError when the response carries it.  All three must be
     // present and well-typed for `bound_info` to be populated; partial
@@ -252,7 +257,7 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
         };
     }
     std::optional<std::vector<ValidationIssue>> issues;
-    if (code == ErrorCode::HandlerValidationFailed)
+    if (code == ErrorCode::HandlerValidationFailed || code == ErrorCode::HandlerTextRoundtripFailed)
         issues = lift_validation_issues(j);
     return AletheiaError{effective_kind, j.at("message").get<std::string>(), code,
                          std::move(bound_info), std::move(issues)};
@@ -345,6 +350,14 @@ constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
     {"unknown_message_sender", IssueCode::UnknownMessageSender},
     {"unknown_signal_receiver", IssueCode::UnknownSignalReceiver},
     {"unknown_value_description_target", IssueCode::UnknownValueDescriptionTarget},
+    {"text_roundtrip_divergence", IssueCode::TextRoundtripDivergence},
+    {"multi_value_mux_selector", IssueCode::MultiValueMuxSelector},
+    {"mux_master_incoherent", IssueCode::MuxMasterIncoherent},
+    {"big_endian_msb_layout", IssueCode::BigEndianMsbLayout},
+    {"unknown_attribute_name", IssueCode::UnknownAttributeName},
+    {"attribute_value_type_mismatch", IssueCode::AttributeValueTypeMismatch},
+    {"attribute_enum_empty", IssueCode::AttributeEnumEmpty},
+    {"attribute_enum_default_unstable", IssueCode::AttributeEnumDefaultUnstable},
 });
 
 static auto parse_issue_code(std::string_view s) -> IssueCode {
@@ -1119,7 +1132,7 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
     }
 }
 
-auto parse_dbc_text_response(std::string_view input) -> Result<std::string> {
+auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
     try {
         auto j = parse_bounded(input);
         auto status = j.value("status", "");
@@ -1132,7 +1145,16 @@ auto parse_dbc_text_response(std::string_view input) -> Result<std::string> {
             return std::unexpected(
                 make_error(ErrorKind::Protocol,
                            "Missing or non-string 'text' field in formatDBCText response"));
-        return j.at("text").get<std::string>();
+        std::vector<ValidationIssue> issues;
+        if (j.contains("issues")) {
+            for (const auto& issue : j.at("issues")) {
+                auto entry = parse_issue_entry(issue);
+                if (!entry)
+                    return std::unexpected(entry.error());
+                issues.push_back(std::move(*entry));
+            }
+        }
+        return DbcText{.text = j.at("text").get<std::string>(), .issues = std::move(issues)};
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
     }

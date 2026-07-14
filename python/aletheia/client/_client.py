@@ -23,6 +23,7 @@ from aletheia.client._response_parsers import (
     parse_parsed_dbc_response,
     parse_success_or_error,
     raise_if_dbc_validation_failed,
+    raise_if_text_roundtrip_failed,
     validate_issue_severities,
 )
 from aletheia.client._signal_ops import SignalOpsMixin
@@ -41,6 +42,7 @@ from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES, M
 from aletheia.types import (
     Command,
     DBCDefinition,
+    DBCTextResponse,
     ErrorResponse,
     FormatDBCTextCommand,
     LTLFormula,
@@ -520,26 +522,34 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         msg = f"Unexpected response status: {status!r} (expected 'success' or 'error')"
         raise ProtocolError(msg)
 
-    def format_dbc_text(self, dbc: DBCDefinition) -> str:
+    def format_dbc_text(self, dbc: DBCDefinition) -> DBCTextResponse:
         """Render a DBC JSON dict back to .dbc file text via the verified Agda formatter.
 
-        Inverse of :meth:`parse_dbc_text` at the wire level: ``parse_dbc_text(
-        format_dbc_text(d))`` returns ``d`` byte-identical for any
-        text-round-trip well-formed DBC (a stricter condition than validating
-        clean — see the "well-formed DBC" entry in ``docs/GLOSSARY.md``).
-        Does not modify client state — pass any
-        ``DBCDefinition`` value (typically from :meth:`parse_dbc_text`,
-        :meth:`format_dbc`, or :func:`aletheia.dbc_to_json`).
+        Always strict: returns text ONLY when that text provably re-parses to the
+        input DBC — ``parse_dbc_text(format_dbc_text(d)["text"])`` reproduces ``d``
+        byte-identical (a stricter condition than validating clean — see the
+        "well-formed DBC" entry in ``docs/GLOSSARY.md``).  The returned
+        :class:`~aletheia.types.DBCTextResponse` carries the ``.dbc`` ``text`` plus
+        ``issues`` (``wfTextIssues`` diagnostics — warning-severity, advisory; MAY
+        be non-empty even on a proven round-trip).  A DBC whose text does NOT
+        round-trip is refused — no text is returned; a
+        :class:`TextRoundTripFailedError` is raised instead.  Does not modify
+        client state — pass any ``DBCDefinition`` value (typically from
+        :meth:`parse_dbc_text`, :meth:`format_dbc`, or :func:`aletheia.dbc_to_json`).
 
         Args:
             dbc: DBC definition dict in canonical Agda wire shape.
 
         Returns:
-            String containing the .dbc file content.
+            :class:`~aletheia.types.DBCTextResponse` with the ``.dbc`` file
+            ``text`` and the ``issues`` warning list.
 
         Raises:
-            ProtocolError: If the JSON DBC fails Agda-side parsing or the
-                response shape is unexpected.
+            TextRoundTripFailedError: If the emitted text does not re-parse to the
+                input DBC (the exact round-trip check failed); ``issues`` carries
+                the diagnostics led by ``text_roundtrip_divergence``.
+            ProtocolError: If the JSON DBC fails Agda-side parsing or the response
+                shape is unexpected.
 
         """
         cmd: FormatDBCTextCommand = {
@@ -555,12 +565,24 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if not isinstance(text, str):
                 msg = "Expected 'text' field in formatDBCText response"
                 raise ProtocolError(msg)
-            return text
+            # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
+            dresp = cast("DBCTextResponse", response)  # pragma: no mutate
+            return {
+                "status": "success",
+                "text": text,
+                "issues": validate_issue_severities(list(dresp["issues"])),
+            }
 
         if status == "error":
             message = response.get("message", "Unknown error")
             code = response.get("code")
             msg = f"formatDBCText failed: {message}"
+            # raise_if_text_roundtrip_failed is the SSOT lift (mirrors
+            # raise_if_dbc_validation_failed): it gates on the
+            # handler_text_roundtrip_failed wire code and raises the typed
+            # TextRoundTripFailedError, else returns so we fall through to the
+            # generic ProtocolError below.
+            raise_if_text_roundtrip_failed(response, msg)
             raise ProtocolError(
                 msg,
                 code=code if isinstance(code, str) else None,

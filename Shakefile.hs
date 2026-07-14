@@ -391,6 +391,13 @@ proofModules =
     , "Aletheia/Protocol/ResponseFormat/Properties.agda"
     , "Aletheia/Protocol/FrameProcessor/Properties.agda"
     , "Aletheia/Protocol/Handlers/Properties.agda"
+    -- The FormatDBCText handler emits a DBCTextResponse ONLY when its text
+    -- provably re-parses to the input DBC.  This root machine-checks that
+    -- promise (`formatDBCTextResult-sound`), so the "provably round-trips, or
+    -- refuse" guarantee is a verified theorem, not merely definitional.  Its own
+    -- root (mirrors the RoundTripCheck/Sound + WellFormedCheck/Sound roots): the
+    -- narrow Handlers/Properties.agda covers only SetProperties routing.
+    , "Aletheia/Protocol/Handlers/Properties/FormatDBCText.agda"
     , "Aletheia/Protocol/Adequacy/WarmCache.agda"
     -- Discharges WarmCache's `AllCached` premise (streaming-warms-cache);
     -- unreachable from Main's runtime closure and unimported by other proofs,
@@ -594,8 +601,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "to the allowlisted substrate."
 
     phony "check-no-properties-in-runtime" $ do
-        -- Runtime modules must not import Properties modules; a Properties
-        -- import would transitively pull every lemma into MAlonzo output.
+        -- HYGIENE gate on the four handwritten runtime ROOTS: none of them may
+        -- DIRECTLY `open import` a `.Properties` module.  Casually importing a
+        -- proof module into one of these top-level files is the easy mistake
+        -- (reach for a lemma to satisfy a goal, drag its whole tree along), and
+        -- this catches it at the source.
+        --
+        -- SCOPE (do not over-read): this is a direct-import check on these four
+        -- files, NOT a whole-closure guard.  Properties-namespaced modules DO
+        -- legitimately appear in the MAlonzo `.so` closure — the equality tower
+        -- (`DBC.Properties.Equality.Full`, the `_≟-DBC_` decision procedure) and
+        -- the Format-DSL proof-carrying `iso`/`roundtrip` values imported by the
+        -- runtime `Format/*` formatter modules (their proof content is `@0`-erased,
+        -- so zero runtime cost).  This narrow direct-import check is an interim:
+        -- the real fix — reserving the `DBC.Properties.*` namespace for proofs and
+        -- moving the decision procedures to `DBC.Decidable.*`, so an exact "no
+        -- `DBC.Properties.*` in the `.so` closure" gate becomes possible — is
+        -- planned in DEFERRED_ITEMS.md §G.2 (the Format-DSL proofs above stay a
+        -- documented, by-design exception).
         let runtime = [ "src/Aletheia/Main.agda"
                       , "src/Aletheia/Main/JSON.agda"
                       , "src/Aletheia/Main/Binary.agda"

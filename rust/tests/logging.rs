@@ -39,7 +39,7 @@ fn lifecycle_events_fire_and_are_all_known() {
         .build()
         .expect("init client — is ALETHEIA_LIB set to a built libaletheia-ffi.so?");
 
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");

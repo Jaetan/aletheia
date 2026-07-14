@@ -58,7 +58,7 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition>;
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC>;
 // Parse the response from formatDBCText: `"success"` carrying `text`
 // (the .dbc text image), or `"error"` with a typed code.
-auto parse_dbc_text_response(std::string_view input) -> Result<std::string>;
+auto parse_dbc_text_response(std::string_view input) -> Result<DbcText>;
 
 // Decode the `aletheia_parse_decimal` wire envelope (raw JSON from
 // `detail::parse_decimal_ffi`) into an exact Rational. The kernel is the

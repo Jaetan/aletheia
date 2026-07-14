@@ -15,7 +15,7 @@ const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minim
 #[test]
 fn streaming_violation_carries_enrichment() {
     let c = Client::new().expect("init client — is ALETHEIA_LIB set?");
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -74,7 +74,7 @@ fn streaming_violation_carries_enrichment() {
 #[test]
 fn no_enrichment_without_a_violation() {
     let c = Client::new().expect("init client");
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -113,7 +113,7 @@ fn end_of_stream_violation_carries_enrichment() {
     // Fails at end_stream — exercising the enrich_eos path (re-extraction from
     // the last frame seen per CAN id), not the per-frame streaming path.
     let c = Client::new().expect("init client");
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");

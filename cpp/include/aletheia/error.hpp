@@ -16,22 +16,28 @@
 namespace aletheia {
 
 enum class ErrorKind {
-    Protocol,          // JSON protocol error from Agda core
-    Validation,        // DBC structural issues
-    State,             // Wrong state (e.g., send_frame when not streaming)
-    Ffi,               // Library load / RTS initialization failure
-    BinaryUnsupported, // Backend cannot service the binary-path call (use JSON
-                       // fallback); mirrors Go's ErrBinaryPathUnsupported sentinel.
-    Cancellation,      // std::stop_token requested cancellation; cooperative-at-
-                       // FFI-boundaries per docs/architecture/CANCELLATION.md §1.1
-                       // — the next FFI call honors the request, an in-flight call
-                       // runs to completion. Mirrors Go's wrapped context.Canceled.
-    InputBoundExceeded // Adversarial-input bound crossed at a parser surface;
-                       // mirrors Python's `InputBoundExceededError` and Go's
-                       // `*InputBoundExceededError` for cross-binding parity.
-                       // After consolidation, the wire code is the single
-                       // `ErrorCode::InputBoundExceeded`; `bound_kind` from
-                       // the structured payload discriminates which bound.
+    Protocol,           // JSON protocol error from Agda core
+    Validation,         // DBC structural issues
+    State,              // Wrong state (e.g., send_frame when not streaming)
+    Ffi,                // Library load / RTS initialization failure
+    BinaryUnsupported,  // Backend cannot service the binary-path call (use JSON
+                        // fallback); mirrors Go's ErrBinaryPathUnsupported sentinel.
+    Cancellation,       // std::stop_token requested cancellation; cooperative-at-
+                        // FFI-boundaries per docs/architecture/CANCELLATION.md §1.1
+                        // — the next FFI call honors the request, an in-flight call
+                        // runs to completion. Mirrors Go's wrapped context.Canceled.
+    InputBoundExceeded, // Adversarial-input bound crossed at a parser surface;
+                        // mirrors Python's `InputBoundExceededError` and Go's
+                        // `*InputBoundExceededError` for cross-binding parity.
+                        // After consolidation, the wire code is the single
+                        // `ErrorCode::InputBoundExceeded`; `bound_kind` from
+                        // the structured payload discriminates which bound.
+    TextRoundtrip       // FormatDBCText refused: the emitted .dbc text does not
+                        // re-parse to the input DBC.  A distinct kind (not
+                        // Validation) so a caller discriminates a round-trip
+                        // refusal from a structural validation failure — mirrors
+                        // the distinct typed errors in the Python / Go / Rust
+                        // bindings.
 };
 
 /// Machine-readable error codes mirroring the Agda `Error` ADT.
@@ -104,6 +110,7 @@ enum class ErrorCode {
     HandlerPropertyParseFailed,
     HandlerInvalidDlcCode,
     HandlerValidationFailed,
+    HandlerTextRoundtripFailed,
     HandlerNonMonotonicTimestamp,
     // Dispatch errors
     DispatchMissingTypeField,
@@ -131,12 +138,12 @@ class AletheiaError {
     // for cross-binding parity.  Errors of any
     // other kind have `std::nullopt`.
     std::optional<InputBoundExceededError> bound_info_;
-    // Populated only when `code_ == ErrorCode::HandlerValidationFailed` and
-    // the error envelope carried well-typed `has_errors` + `issues` fields
-    // (parseDBC / parseDBCText rejects); the elements use the same
-    // {severity, code, detail} shape as a validation response.  Any other
-    // error — including a validation-failed envelope without the structured
-    // fields — has `std::nullopt`.
+    // Populated when `code_` is `HandlerValidationFailed` (parseDBC /
+    // parseDBCText rejects) or `HandlerTextRoundtripFailed` (formatDBCText
+    // round-trip refusal) and the envelope carried well-typed `has_errors` +
+    // `issues` fields; the elements use the same {severity, code, detail} shape
+    // as a validation response.  Any other error — including one of those
+    // envelopes without the structured fields — has `std::nullopt`.
     std::optional<std::vector<ValidationIssue>> issues_;
 
 public:

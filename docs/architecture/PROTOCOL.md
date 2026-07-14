@@ -322,7 +322,7 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 
 ### 4. FormatDBC
 
-> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_format_dbc` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `formatDBC` command. (Note: the distinct `formatDBCText` JSON command — DBC struct → `.dbc` text — is retained.) The shapes below are retained as a reference to the operation's semantics.
+> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_format_dbc` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `formatDBC` command. (Note: the distinct [`formatDBCText`](#formatdbctext) JSON command — DBC struct → `.dbc` text — is retained.) The shapes below are retained as a reference to the operation's semantics.
 
 Export the currently-loaded DBC as JSON.
 
@@ -358,6 +358,73 @@ Export the currently-loaded DBC as JSON.
 - Response `dbc`: Complete DBC definition in JSON format (same schema as the `parseDBC` input)
 
 **State Requirements**: Must have called `parseDBC`. Does NOT modify client state (read-only).
+
+---
+
+### FormatDBCText
+
+Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verified Agda formatter — the text-level inverse of `parseDBCText`.
+
+**Always strict.** `formatDBCText` returns text **only** when that text provably re-parses to the exact input DBC — `parseDBCText(formatDBCText(d).text)` reproduces `d`. There is no lenient/best-effort mode and no `strict` flag: a flag would imply you might sometimes want text that does *not* round-trip, which contradicts the command's whole purpose (never emit silently-lossy output). A DBC that cannot be expressed as round-tripping `.dbc` text — for example a signal multiplexed on **multiple** selector values, which the JSON model admits but the `.dbc` grammar cannot encode — is **refused** with a typed error rather than emitting text that would quietly lose information. The emitted-text round-trip guarantee is machine-checked (`formatDBCTextResult-sound` in `Aletheia.Protocol.Handlers.Properties.FormatDBCText`), not merely asserted.
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "formatDBCText",
+  "dbc": { ... }
+}
+```
+
+**Response** (Success — the DBC round-trips):
+```json
+{
+  "status": "success",
+  "text": "VERSION \"\"\n\nBO_ 256 Engine: 8 ECU\n ...",
+  "issues": [
+    {"severity": "warning", "code": "big_endian_msb_layout", "detail": "..."}
+  ]
+}
+```
+
+**Response** (Refusal — the DBC does not round-trip):
+```json
+{
+  "status": "error",
+  "code": "handler_text_roundtrip_failed",
+  "message": "FormatDBCText: text round-trip failed: ...",
+  "has_errors": true,
+  "issues": [
+    {"severity": "error", "code": "text_roundtrip_divergence", "detail": "re-parsing the emitted text does not reproduce the input DBC"},
+    {"severity": "warning", "code": "multi_value_mux_selector", "detail": "..."}
+  ]
+}
+```
+
+**Fields**:
+- `dbc`: Complete DBC definition (same schema as `parseDBC` input); absent → `route_missing_dbc_field`.
+- Success `text`: the `.dbc` file image (a string).
+- Success `issues`: **warning-severity** round-trip diagnostics (`wfTextIssues`). This list MAY be non-empty even on a successful round-trip — a warning flags a construct *outside the proven well-formed-text envelope* that nonetheless round-tripped; it is advisory, never a failure.
+- Refusal `issues`: led by the error-severity `text_roundtrip_divergence` (the handler prepends it on every refusal), followed by the same warning diagnostics. `has_errors` is `true`.
+
+The refusal envelope shares the `{severity, code, detail}` element shape, the `has_errors` flag, and the one-issue-decoder contract with the `handler_validation_failed` envelope (see [§ Wire shape](#wire-shape)) — a binding decodes both with the same issue decoder.
+
+**Round-trip issue codes** (the eight codes this command's checker introduces; all severity **warning** except `text_roundtrip_divergence`). These are distinct from the 21 structural-validation codes under [ValidateDBC](#3-validatedbc) — `validateDBC` never emits them, and `formatDBCText` is the only command that does:
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `text_roundtrip_divergence` | error | The emitted `.dbc` text does not re-parse to the input DBC — the refusal marker, prepended on every refusal |
+| `multi_value_mux_selector` | warning | A signal is multiplexed on more than one selector value — expressible in JSON, not in the `.dbc` `SG_` grammar |
+| `mux_master_incoherent` | warning | A multiplexed message's multiplexor master signal is missing or inconsistent |
+| `big_endian_msb_layout` | warning | A big-endian signal's MSB-first bit layout falls outside the round-trip-provable envelope |
+| `unknown_attribute_name` | warning | A `BA_` attribute value references a name never declared via `BA_DEF_` |
+| `attribute_value_type_mismatch` | warning | An attribute value does not fit its declared `BA_DEF_` type |
+| `attribute_enum_empty` | warning | An `ENUM` attribute type declares no labels |
+| `attribute_enum_default_unstable` | warning | An `ENUM` attribute's `BA_DEF_DEF_` default does not resolve to a stable label |
+
+**State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only) — pass any DBC value (typically from `parseDBCText`, `formatDBC`, or the JSON converters).
+
+Every binding surfaces this as `format_dbc_text(dbc)`: `text` + `issues` on success, and a typed round-trip-refusal error (Python `TextRoundTripFailedError`, Go `*TextRoundTripFailedError`, C++ `AletheiaError` with `ErrorKind::TextRoundtrip`, Rust `Error::TextRoundtripFailed`) carrying the diverging issue list — see the `dbc_text_roundtrip_check` row in [FEATURE_MATRIX.yaml](../FEATURE_MATRIX.yaml).
 
 ---
 
@@ -1315,6 +1382,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `handler_property_parse_failed` | LTL property at the indicated index failed to parse | Check the failing property against the LTL Property Format section |
 | `handler_invalid_dlc_code` | DLC not in the CAN/CAN-FD table | See `parse_invalid_dlc_bytes` |
 | `handler_validation_failed` | DBC validation surfaced an error when loading | The envelope's structured `issues` array carries the full list (errors and warnings) — see § Wire shape above |
+| `handler_text_roundtrip_failed` | `formatDBCText` refused: the emitted `.dbc` text does not re-parse to the input DBC | The DBC cannot be expressed as round-tripping `.dbc` text (e.g. a multi-value multiplexed signal). The envelope's `issues` array is led by the error-severity `text_roundtrip_divergence` — see [FormatDBCText](#formatdbctext) |
 | `handler_non_monotonic_timestamp` | Current frame's timestamp is below the previous frame's | Sort frames by timestamp before streaming — metric LTL operators require monotonicity |
 
 #### Dispatch errors — top-level request routing

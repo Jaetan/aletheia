@@ -678,12 +678,18 @@ class DBCTextResponse(TypedDict):
     """Response from formatDBCText command.
 
     Carries the .dbc text image produced by ``formatText`` over a JSON DBC
-    input.  Errors (JSON parse failure on the input) short-circuit to
-    ``ErrorResponse``.
+    input, plus ``issues`` — the ``wfTextIssues`` diagnostics (warning-severity
+    only).  ``formatDBCText`` is always strict: it emits this success response
+    ONLY when the text provably re-parses to the input DBC, so ``issues`` are
+    advisory and MAY be non-empty even on a proven round-trip.  A DBC whose text
+    does not round-trip yields the error-severity ``handler_text_roundtrip_failed``
+    envelope instead (JSON parse failure on the input short-circuits to a generic
+    ``ErrorResponse``).  Field shape mirrors ``ParsedDBCResponse`` (body + issues).
     """
 
     status: Literal["success"]
     text: str
+    issues: list[ValidationIssue]
 
 
 # Union type for all responses

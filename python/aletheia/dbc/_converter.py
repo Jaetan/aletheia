@@ -128,7 +128,10 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
 
     """
     with AletheiaClient() as client:
-        return client.format_dbc_text(dbc)
+        # This convenience returns the .dbc text only; the ``issues`` warnings
+        # are available on the structured ``AletheiaClient.format_dbc_text``
+        # result.  A round-trip refusal still propagates as TextRoundTripFailedError.
+        return client.format_dbc_text(dbc)["text"]
 
 
 def convert_dbc_file(

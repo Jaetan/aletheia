@@ -721,7 +721,7 @@ class TestDBCSignalValueDescriptions:
         with AletheiaClient() as client:
             result = client.parse_dbc(original)
             assert result["status"] == "success", result
-            text = client.format_dbc_text(original)
+            text = client.format_dbc_text(original)["text"]
 
         assert f'VAL_ {_MSG_ID} {_SIG_NAME} 0 "Off" 1 "On" ;' in text
 

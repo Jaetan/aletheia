@@ -90,6 +90,25 @@ pub enum Error {
         /// report order.
         issues: Vec<ValidationIssue>,
     },
+    /// `format_dbc_text` refused: the emitted `.dbc` text does not re-parse to
+    /// the input DBC. `format_dbc_text` is always strict — it returns text only
+    /// when it provably round-trips — so a divergent DBC (e.g. a multi-value
+    /// mux) surfaces this typed lift of a `code == "handler_text_roundtrip_failed"`
+    /// error response carrying the structured `has_errors` / `issues` payload
+    /// (led by the error-severity `text_roundtrip_divergence` issue). Distinct
+    /// from [`Error::ValidationFailed`] (a validation failure, not a round-trip
+    /// failure) though the wire shape matches. A missing or malformed payload
+    /// degrades to [`Error::Core`], the same rule as the peer bindings.
+    TextRoundtripFailed {
+        /// Machine-readable wire code (always `handler_text_roundtrip_failed`).
+        code: String,
+        /// The unchanged legacy human-readable message from the core.
+        message: String,
+        /// `true` if at least one issue is error-severity (decoded from the wire).
+        has_errors: bool,
+        /// The round-trip diagnostics, led by `text_roundtrip_divergence`.
+        issues: Vec<ValidationIssue>,
+    },
     /// A per-frame error from a batch send (`send_frames` / `send_frames_iter` /
     /// `send_frames_stream`), tagged with the **0-based index** of the offending
     /// frame so the caller can locate which frame in the batch failed. `source`
@@ -141,6 +160,16 @@ impl fmt::Display for Error {
             } => write!(
                 f,
                 "core error [{code}]: {message} ({} validation issues)",
+                issues.len()
+            ),
+            Error::TextRoundtripFailed {
+                code,
+                message,
+                issues,
+                ..
+            } => write!(
+                f,
+                "core error [{code}]: {message} ({} round-trip issues)",
                 issues.len()
             ),
             Error::Frame { index, source } => write!(f, "frame {index}: {source}"),

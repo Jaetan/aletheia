@@ -2,13 +2,13 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- V2 exact round-trip check (E.2 route (b), slice 2 — E2_ROUTE_B.md §6.3).
+-- Exact round-trip check for the DBC text formatter.
 --
 -- Answers "does this DBC survive the text round-trip?" with ZERO over-refusal, by
 -- EVALUATING `parseText (formatText d)` and deep-comparing the parse-back value
 -- with `d` via `_≟-DBC_` (the decidable-equality tower, `Properties.Equality.Full`).
 -- Its YES is ground truth by construction, and — unlike the universal WF theorem —
--- its soundness (`RoundTripCheck/Sound.agda`, S2.4) is AXIOM-FREE, because the
+-- its soundness (`RoundTripCheck/Sound.agda`) is AXIOM-FREE, because the
 -- check is conditioned on the evaluation: the `Dec`'s yes-branch IS the proof
 -- object for THIS `d`.  Runtime-side: no proofs here.  (A `Properties.Equality.*`
 -- import is fine — `check-no-properties-in-runtime` guards only Main/Handlers'
@@ -34,7 +34,7 @@ rtGo (inj₁ _)  _ = false
 rtGo (inj₂ d″) d = ⌊ d ≟-DBC d″ ⌋
 
 -- The handler passes the already-computed text (argument-passing, not `let`, so the
--- §8 "one extra parseText, one formatText" cost accounting holds).
+-- "one extra parseText, one formatText" cost accounting holds).
 roundTripsWithᵇ : DBC → String → Bool
 roundTripsWithᵇ d txt = rtGo (parseText txt) d
 

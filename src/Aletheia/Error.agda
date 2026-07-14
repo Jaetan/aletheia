@@ -291,6 +291,13 @@ data HandlerError : Set where
   -- same element shape as the `validation` response), which the bindings
   -- decode into their typed validation errors.
   ValidationFailed       : List ValidationIssue → HandlerError
+  -- FormatDBCText round-trip refusal: the emitted text does not re-parse to
+  -- the input DBC (the V2 exact round-trip verdict is false).  Carries the
+  -- diagnostic list, led by the error-severity `text_roundtrip_divergence`
+  -- issue the handler prepends.  Mirrors ValidationFailed's wire shape:
+  -- flattened error text in the `message`, full list in structured `issues`
+  -- (via ResponseFormat.errorExtras).
+  TextRoundTripFailed    : List ValidationIssue → HandlerError
   -- Non-monotonic timestamp: current < previous (carries both for diagnostics).
   -- Metric LTL operators (MetricEventually, MetricAlways) compute elapsed time
   -- via natural subtraction (∸), which clamps at 0 on backward timestamps and
@@ -314,6 +321,8 @@ formatHandlerError InvalidDLCCode        = "invalid DLC code"
 -- field appended by ResponseFormat.errorExtras.
 formatHandlerError (ValidationFailed issues) =
   "validation failed: " ++ₛ formatIssuesText (errorIssues issues)
+formatHandlerError (TextRoundTripFailed issues) =
+  "text round-trip failed: " ++ₛ formatIssuesText (errorIssues issues)
 formatHandlerError (NonMonotonicTimestamp curr prev) =
   "non-monotonic timestamp: " ++ₛ showℕ curr ++ₛ " μs < previous " ++ₛ showℕ prev ++ₛ
   " μs (metric LTL operators require monotonic timestamps)"
@@ -330,6 +339,7 @@ handlerErrorCode StreamActive          = "handler_stream_active"
 handlerErrorCode (PropertyParseFailed _) = "handler_property_parse_failed"
 handlerErrorCode InvalidDLCCode        = "handler_invalid_dlc_code"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
+handlerErrorCode (TextRoundTripFailed _) = "handler_text_roundtrip_failed"
 handlerErrorCode (NonMonotonicTimestamp _ _) = "handler_non_monotonic_timestamp"
 handlerErrorCode (WrappedParse pe)     = parseErrorCode pe
 handlerErrorCode (WrappedFrame fe)     = frameErrorCode fe

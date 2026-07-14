@@ -17,7 +17,7 @@ fn client() -> Client {
 #[test]
 fn add_checks_binds_a_dsl_check_and_detects_a_violation() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -62,7 +62,7 @@ fn add_checks_binds_a_dsl_check_and_detects_a_violation() {
 #[test]
 fn add_checks_holds_for_a_conforming_frame() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");

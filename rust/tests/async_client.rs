@@ -26,10 +26,11 @@ const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minim
 fn async_streaming_flow_carries_enrichment() {
     block_on(async {
         let c = AsyncClient::new().await.expect("init async client");
-        let (dbc, _) = c
+        let dbc = c
             .parse_dbc_text(MINIMAL.to_string())
             .await
-            .expect("parse DBC text");
+            .expect("parse DBC text")
+            .dbc;
         let id = CanId::standard(256).expect("id");
         let msg = dbc.message_by_id(id).expect("EngineStatus").clone();
         let dlc = Dlc::new(8).expect("dlc");
@@ -100,10 +101,11 @@ fn async_send_frames_stream_yields_per_frame() {
     use futures::StreamExt;
     block_on(async {
         let c = AsyncClient::new().await.expect("init async client");
-        let (dbc, _) = c
+        let dbc = c
             .parse_dbc_text(MINIMAL.to_string())
             .await
-            .expect("parse DBC text");
+            .expect("parse DBC text")
+            .dbc;
         let id = CanId::standard(256).expect("id");
         let msg = dbc.message_by_id(id).expect("EngineStatus").clone();
         let dlc = Dlc::new(8).expect("dlc");

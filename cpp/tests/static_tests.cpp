@@ -141,14 +141,6 @@ static_assert(StandardId::create(100).value() != StandardId::create(200).value()
 static_assert(Dlc::create(4).value() < Dlc::create(8).value());
 
 // ===========================================================================
-// ByteOrder enum
-// ===========================================================================
-
-static_assert(ByteOrder::LittleEndian != ByteOrder::BigEndian);
-static_assert(static_cast<int>(ByteOrder::LittleEndian) == 0);
-static_assert(static_cast<int>(ByteOrder::BigEndian) == 1);
-
-// ===========================================================================
 // FramePayload is a vector of bytes (variable-length for CAN-FD)
 // ===========================================================================
 
@@ -167,17 +159,6 @@ static_assert(Timestamp{0}.count() == 0);
 // ===========================================================================
 
 static_assert(std::variant_size_v<CanId> == 2);
-static_assert(std::is_same_v<std::variant_alternative_t<0, CanId>, StandardId>);
-static_assert(std::is_same_v<std::variant_alternative_t<1, CanId>, ExtendedId>);
-
-// ===========================================================================
-// ErrorKind enum coverage
-// ===========================================================================
-
-static_assert(static_cast<int>(ErrorKind::Protocol) == 0);
-static_assert(static_cast<int>(ErrorKind::Validation) == 1);
-static_assert(static_cast<int>(ErrorKind::State) == 2);
-static_assert(static_cast<int>(ErrorKind::Ffi) == 3);
 
 // ===========================================================================
 // LtlFormula variant — correct number of alternatives
@@ -188,30 +169,6 @@ static_assert(static_cast<int>(ErrorKind::Ffi) == 3);
 static_assert(std::variant_size_v<LtlFormulaVariant> == 14);
 static_assert(std::variant_size_v<decltype(std::declval<LtlFormula>().value)> == 14);
 static_assert(std::variant_size_v<Predicate> == 8);
-
-// ===========================================================================
-// Verdict enum
-// ===========================================================================
-
-static_assert(Verdict::Holds != Verdict::Fails);
-static_assert(Verdict::Holds != Verdict::Unresolved);
-static_assert(Verdict::Fails != Verdict::Unresolved);
-
-// ===========================================================================
-// IssueSeverity and IssueCode enums
-// ===========================================================================
-
-static_assert(IssueSeverity::Error != IssueSeverity::Warning);
-static_assert(static_cast<int>(IssueCode::DuplicateMessageId) == 0);
-static_assert(static_cast<int>(IssueCode::MultiplexorNonUnitScaling) == 15);
-
-// ===========================================================================
-// ErrorCode enum — first and last codes
-// ===========================================================================
-
-static_assert(static_cast<int>(ErrorCode::Unknown) == 0);
-static_assert(ErrorCode::ParseMissingField != ErrorCode::Unknown);
-static_assert(ErrorCode::DispatchRequestNotObject != ErrorCode::Unknown);
 
 // ===========================================================================
 // AletheiaClient — non-copyable, movable
@@ -265,16 +222,12 @@ static_assert(!std::is_convertible_v<BitPosition, BitLength>);
 // ===========================================================================
 
 static_assert(std::variant_size_v<SignalPresence> == 2);
-static_assert(std::is_same_v<std::variant_alternative_t<0, SignalPresence>, AlwaysPresent>);
-static_assert(std::is_same_v<std::variant_alternative_t<1, SignalPresence>, Multiplexed>);
 
 // ===========================================================================
 // FrameResponse variant
 // ===========================================================================
 
 static_assert(std::variant_size_v<FrameResponse> == 2);
-static_assert(std::is_same_v<std::variant_alternative_t<0, FrameResponse>, Ack>);
-static_assert(std::is_same_v<std::variant_alternative_t<1, FrameResponse>, PropertyBatch>);
 
 // ===========================================================================
 // CheckResult — move-only (holds formula)

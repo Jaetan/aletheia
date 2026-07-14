@@ -408,34 +408,37 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 	return parseDBCResponse(resp)
 }
 
-// FormatDBCText renders a DBCDefinition as .dbc file text via the verified
-// Agda formatter.  Inverse of [Client.ParseDBCText] at the wire level:
-// ParseDBCText(FormatDBCText(d)) returns d byte-identical for any
-// text-round-trip well-formed DBC (a stricter condition than validating
-// clean — see the "well-formed DBC" entry in docs/GLOSSARY.md).  Does not
-// modify client state — pass any
-// DBCDefinition value (typically from ParseDBCText, FormatDBC, or a JSON load).
+// FormatDBCText renders a DBCDefinition as .dbc file text via the verified Agda
+// formatter, returning the text image plus its wfTextIssues diagnostics
+// (warning-severity, advisory).  Always strict: it returns a [DBCText] only when
+// the emitted text provably re-parses to the input DBC — ParseDBCText(
+// FormatDBCText(d).Text) returns d byte-identical (a stricter condition than
+// validating clean — see the "well-formed DBC" entry in docs/GLOSSARY.md).  A
+// DBC whose text does not round-trip is refused with a typed
+// [TextRoundTripFailedError] rather than lossy text.  Does not modify client
+// state — pass any DBCDefinition value (typically from ParseDBCText, FormatDBC,
+// or a JSON load).
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
-func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (string, error) {
+func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (*DBCText, error) {
 	dbcJSON, err := serializeDBC(dbc)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	cmd, err := serializeCommand("formatDBCText", map[string]any{
 		"dbc": dbcJSON,
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	release, err := c.acquire(ctx, "FormatDBCText")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return parseDBCTextResponse(resp)
 }

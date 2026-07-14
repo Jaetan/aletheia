@@ -196,6 +196,22 @@ pub enum IssueCode {
     UnknownSignalReceiver,
     /// A `VAL_` line references a `(canId, signalName)` with no matching signal.
     UnknownValueDescriptionTarget,
+    /// `format_dbc_text`: re-parsing the emitted text does not reproduce the input DBC.
+    TextRoundtripDivergence,
+    /// A mux signal is present for multiple selector values (not expressible in `.dbc` text).
+    MultiValueMuxSelector,
+    /// The mux master signal's presence is inconsistent with its slaves.
+    MuxMasterIncoherent,
+    /// A big-endian signal's MSB-first bit layout does not round-trip through `.dbc` text.
+    BigEndianMsbLayout,
+    /// A `BA_` assignment/default references an attribute with no `BA_DEF_` declaration.
+    UnknownAttributeName,
+    /// An attribute value's type does not match its `BA_DEF_` declaration.
+    AttributeValueTypeMismatch,
+    /// An enum attribute (`BA_DEF_ ENUM`) declares no values.
+    AttributeEnumEmpty,
+    /// An enum attribute's default index does not resolve back to itself.
+    AttributeEnumDefaultUnstable,
     /// A code outside the known vocabulary (forward-compatible).
     Unknown(String),
 }
@@ -227,6 +243,14 @@ impl IssueCode {
             "unknown_message_sender" => IssueCode::UnknownMessageSender,
             "unknown_signal_receiver" => IssueCode::UnknownSignalReceiver,
             "unknown_value_description_target" => IssueCode::UnknownValueDescriptionTarget,
+            "text_roundtrip_divergence" => IssueCode::TextRoundtripDivergence,
+            "multi_value_mux_selector" => IssueCode::MultiValueMuxSelector,
+            "mux_master_incoherent" => IssueCode::MuxMasterIncoherent,
+            "big_endian_msb_layout" => IssueCode::BigEndianMsbLayout,
+            "unknown_attribute_name" => IssueCode::UnknownAttributeName,
+            "attribute_value_type_mismatch" => IssueCode::AttributeValueTypeMismatch,
+            "attribute_enum_empty" => IssueCode::AttributeEnumEmpty,
+            "attribute_enum_default_unstable" => IssueCode::AttributeEnumDefaultUnstable,
             other => IssueCode::Unknown(other.to_string()),
         }
     }
@@ -256,6 +280,14 @@ impl IssueCode {
             IssueCode::UnknownMessageSender => "unknown_message_sender",
             IssueCode::UnknownSignalReceiver => "unknown_signal_receiver",
             IssueCode::UnknownValueDescriptionTarget => "unknown_value_description_target",
+            IssueCode::TextRoundtripDivergence => "text_roundtrip_divergence",
+            IssueCode::MultiValueMuxSelector => "multi_value_mux_selector",
+            IssueCode::MuxMasterIncoherent => "mux_master_incoherent",
+            IssueCode::BigEndianMsbLayout => "big_endian_msb_layout",
+            IssueCode::UnknownAttributeName => "unknown_attribute_name",
+            IssueCode::AttributeValueTypeMismatch => "attribute_value_type_mismatch",
+            IssueCode::AttributeEnumEmpty => "attribute_enum_empty",
+            IssueCode::AttributeEnumDefaultUnstable => "attribute_enum_default_unstable",
             IssueCode::Unknown(s) => s,
         }
     }
@@ -298,6 +330,22 @@ pub struct ValidationResult {
     /// `true` if at least one issue is error-severity.
     pub has_errors: bool,
     /// All issues found (errors and warnings), in report order.
+    pub issues: Vec<ValidationIssue>,
+}
+
+/// The success result of [`Client::format_dbc_text`](crate::Client::format_dbc_text):
+/// the `.dbc` text image plus its `wfTextIssues` diagnostics (warning-severity,
+/// advisory). `format_dbc_text` is always strict — it returns this only when the
+/// emitted text provably re-parses to the input DBC — so `issues` may be non-empty
+/// even on a proven round-trip. A divergent DBC yields [`Error::TextRoundtripFailed`]
+/// instead.
+///
+/// [`Error::TextRoundtripFailed`]: crate::Error::TextRoundtripFailed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbcText {
+    /// The `.dbc` file text.
+    pub text: String,
+    /// The advisory `wfTextIssues` diagnostics (warning-severity).
     pub issues: Vec<ValidationIssue>,
 }
 
@@ -353,6 +401,25 @@ pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
             ) {
                 if let Ok(issues) = arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>() {
                     return Err(Error::ValidationFailed {
+                        code,
+                        message,
+                        has_errors,
+                        issues,
+                    });
+                }
+            }
+        }
+        // Lift the structured handler_text_roundtrip_failed envelope into the
+        // typed Error::TextRoundtripFailed (format_dbc_text round-trip refusal),
+        // same shape and degrade rule as the handler_validation_failed lift
+        // above.
+        if code == "handler_text_roundtrip_failed" {
+            if let (Some(has_errors), Some(arr)) = (
+                value.get("has_errors").and_then(Value::as_bool),
+                value.get("issues").and_then(Value::as_array),
+            ) {
+                if let Ok(issues) = arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>() {
+                    return Err(Error::TextRoundtripFailed {
                         code,
                         message,
                         has_errors,
@@ -593,14 +660,25 @@ pub(crate) fn decode_validation(raw: &str) -> Result<ValidationResult, Error> {
 }
 
 /// Decode a `formatDBCText` (`status:"success"`) response into the `.dbc` text.
-pub(crate) fn decode_format_text(raw: &str) -> Result<String, Error> {
+pub(crate) fn decode_format_text(raw: &str) -> Result<DbcText, Error> {
     let obj = parse_object(raw)?;
     match obj.get("status").and_then(Value::as_str) {
-        Some("success") => obj
-            .get("text")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .ok_or_else(|| protocol("formatDBCText response missing 'text'")),
+        Some("success") => {
+            let text = obj
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| protocol("formatDBCText response missing 'text'"))?
+                .to_string();
+            // The wfTextIssues diagnostics (warning-severity, advisory).  Absent
+            // → empty; a present-but-ill-typed element is a protocol error.
+            let issues = obj
+                .get("issues")
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>())
+                .transpose()?
+                .unwrap_or_default();
+            Ok(DbcText { text, issues })
+        }
         other => Err(protocol(format!(
             "expected status \"success\", got {other:?}"
         ))),
@@ -733,6 +811,47 @@ mod tests {
     fn decode_format_text_rejects_unexpected_status() {
         let err = decode_format_text(r#"{"status":"weird"}"#).unwrap_err();
         assert!(err.to_string().contains("expected status"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_format_text_carries_text_and_issues() {
+        // A formatDBCText success response yields the text image plus its
+        // wfTextIssues diagnostics (warning-severity, advisory).
+        let dt = decode_format_text(
+            r#"{"status":"success","text":"VERSION \"\"\n","issues":[{"severity":"warning","code":"unknown_value_description_target","detail":"VAL_ for an undeclared signal"}]}"#,
+        )
+        .expect("decode success");
+        assert_eq!(dt.text, "VERSION \"\"\n");
+        assert_eq!(dt.issues.len(), 1);
+        assert_eq!(dt.issues[0].severity, IssueSeverity::Warning);
+        assert_eq!(dt.issues[0].code, IssueCode::UnknownValueDescriptionTarget);
+    }
+
+    #[test]
+    fn format_text_refusal_lifts_to_text_roundtrip_failed() {
+        // format_dbc_text is always strict: a handler_text_roundtrip_failed
+        // envelope lifts into the typed Error::TextRoundtripFailed (led by the
+        // error-severity text_roundtrip_divergence issue, plus the mux diagnostic)
+        // rather than a generic Error::Core.
+        let err = decode_format_text(
+            r#"{"status":"error","code":"handler_text_roundtrip_failed","message":"text round-trip failed","has_errors":true,"issues":[{"severity":"error","code":"text_roundtrip_divergence","detail":"does not reproduce the input DBC"},{"severity":"warning","code":"multi_value_mux_selector","detail":"multi-value mux selector"}]}"#,
+        )
+        .unwrap_err();
+        match err {
+            Error::TextRoundtripFailed {
+                code,
+                has_errors,
+                issues,
+                ..
+            } => {
+                assert_eq!(code, "handler_text_roundtrip_failed");
+                assert!(has_errors);
+                assert_eq!(issues.len(), 2);
+                assert_eq!(issues[0].code, IssueCode::TextRoundtripDivergence);
+                assert_eq!(issues[1].code, IssueCode::MultiValueMuxSelector);
+            }
+            other => panic!("expected TextRoundtripFailed, got {other:?}"),
+        }
     }
 
     #[test]

@@ -103,6 +103,51 @@ static auto make_integration_dbc() -> DbcDefinition {
     };
 }
 
+// A DBC with a mux signal present for MULTIPLE selector values.  The JSON side
+// admits it, but the .dbc text form cannot express it, so re-parsing the emitted
+// text does not reproduce the input DBC — format_dbc_text refuses it.
+static auto make_multi_value_mux_dbc() -> DbcDefinition {
+    auto id = StandardId::create(0x123).value();
+    auto dlc = Dlc::create(8).value();
+
+    DbcSignal selector{
+        .name = SignalName{"Selector"},
+        .start_bit = BitPosition{0},
+        .bit_length = BitLength{8},
+        .byte_order = ByteOrder::LittleEndian,
+        .is_signed = false,
+        .factor = RationalFactor{Rational{1, 1}},
+        .offset = RationalOffset{Rational{0, 1}},
+        .minimum = RationalBound{Rational{0, 1}},
+        .maximum = RationalBound{Rational{255, 1}},
+        .unit = Unit{""},
+        .presence = AlwaysPresent{},
+    };
+    DbcSignal payload{
+        .name = SignalName{"Payload"},
+        .start_bit = BitPosition{8},
+        .bit_length = BitLength{8},
+        .byte_order = ByteOrder::LittleEndian,
+        .is_signed = false,
+        .factor = RationalFactor{Rational{1, 1}},
+        .offset = RationalOffset{Rational{0, 1}},
+        .minimum = RationalBound{Rational{0, 1}},
+        .maximum = RationalBound{Rational{255, 1}},
+        .unit = Unit{""},
+        .presence = Multiplexed{SignalName{"Selector"}, {MultiplexValue{1}, MultiplexValue{2}}},
+    };
+    return DbcDefinition{
+        .version = "",
+        .messages = {DbcMessage{
+            .id = CanId{id},
+            .name = MessageName{"MultiMux"},
+            .dlc = dlc,
+            .sender = NodeName{"ECU"},
+            .signals = {selector, payload},
+        }},
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Integration tests
 // ---------------------------------------------------------------------------
@@ -640,7 +685,40 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
     REQUIRE(formatted.has_value());
     constexpr std::string_view want_line =
         R"(VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;)";
-    CHECK(formatted->find(want_line) != std::string::npos);
+    CHECK(formatted->text.find(want_line) != std::string::npos);
+    // format_dbc_text is always strict: this DBC round-trips, so it yields a
+    // DbcText carrying the (advisory, here empty) wfTextIssues diagnostics.
+    CHECK(formatted->issues.empty());
+}
+
+TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
+          "[integration][dbc][format][roundtrip]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // A multi-value mux selector does not round-trip through .dbc text, so the
+    // always-strict formatter refuses it with a typed round-trip error rather
+    // than emitting lossy text.
+    auto result = client.format_dbc_text(std::stop_token{}, make_multi_value_mux_dbc());
+    REQUIRE_FALSE(result.has_value());
+    const auto& err = result.error();
+    CHECK(err.kind() == ErrorKind::TextRoundtrip);
+    CHECK(err.code() == ErrorCode::HandlerTextRoundtripFailed);
+    REQUIRE(err.issues().has_value());
+
+    // Led by the error-severity text_roundtrip_divergence issue the handler
+    // prepends, plus the multi_value_mux_selector diagnostic.
+    bool has_divergence = false;
+    bool has_mux = false;
+    for (const auto& issue : *err.issues()) {
+        if (issue.code == IssueCode::TextRoundtripDivergence)
+            has_divergence = true;
+        if (issue.code == IssueCode::MultiValueMuxSelector)
+            has_mux = true;
+    }
+    CHECK(has_divergence);
+    CHECK(has_mux);
 }
 
 TEST_CASE("CHECK 23 unknown_value_description_target warning via real FFI",

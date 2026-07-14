@@ -59,6 +59,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Properties
                       MAlonzo.Code.Aletheia.DBC.Properties.Disjointness
                       MAlonzo.Code.Aletheia.DBC.Properties.Equality
+                      MAlonzo.Code.Aletheia.DBC.Properties.Equality.Full
                       MAlonzo.Code.Aletheia.DBC.Properties.WellFormedness
                       MAlonzo.Code.Aletheia.DBC.RationalRenderer
                       MAlonzo.Code.Aletheia.DBC.TextFormatter
@@ -107,6 +108,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
                       MAlonzo.Code.Aletheia.DBC.TextParser.Properties.Preamble.Newline
                       MAlonzo.Code.Aletheia.DBC.TextParser.Properties.Primitives
+                      MAlonzo.Code.Aletheia.DBC.TextParser.RoundTripCheck
                       MAlonzo.Code.Aletheia.DBC.TextParser.Senders
                       MAlonzo.Code.Aletheia.DBC.TextParser.SignalGroups
                       MAlonzo.Code.Aletheia.DBC.TextParser.TopLevel
@@ -116,6 +118,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueDescriptions
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueTables
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueTypes
+                      MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedCheck
                       MAlonzo.Code.Aletheia.DBC.Types
                       MAlonzo.Code.Aletheia.DBC.Validator
                       MAlonzo.Code.Aletheia.DBC.Validator.Checks
@@ -290,6 +293,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Data.Maybe
                       MAlonzo.Code.Data.Maybe.Base
                       MAlonzo.Code.Data.Maybe.Effectful
+                      MAlonzo.Code.Data.Maybe.Properties
                       MAlonzo.Code.Data.Maybe.Relation.Unary.All
                       MAlonzo.Code.Data.Maybe.Relation.Unary.Any
                       MAlonzo.Code.Data.Nat

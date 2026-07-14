@@ -174,6 +174,8 @@ const (
 	CodeHandlerInvalidDLCCode = "handler_invalid_dlc_code"
 	// CodeHandlerValidationFailed — handler-level validation rejected the request.
 	CodeHandlerValidationFailed = "handler_validation_failed"
+	// CodeHandlerTextRoundtripFailed — FormatDBCText refused: emitted text does not re-parse to the input DBC.
+	CodeHandlerTextRoundtripFailed = "handler_text_roundtrip_failed"
 	// CodeHandlerNonMonotonicTimestamp — frame timestamp regressed relative to the previous frame.
 	CodeHandlerNonMonotonicTimestamp = "handler_non_monotonic_timestamp"
 
@@ -337,6 +339,57 @@ func (e *ValidationFailedError) Error() string {
 // handler_validation_failed envelope (see validationFailedFromResponse).
 func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *ValidationFailedError {
 	return &ValidationFailedError{
+		Issues:    issues,
+		HasErrors: hasErrors,
+		Code:      code,
+		Message:   msg,
+	}
+}
+
+// TextRoundTripFailedError reports that FormatDBCText refused: the emitted .dbc
+// text does not re-parse to the input DBC.  FormatDBCText is always strict — it
+// returns text only when it provably round-trips — so a divergent DBC yields
+// this typed error instead of lossy text.  Lifted from the
+// `handler_text_roundtrip_failed` envelope, whose `issues` array (led by the
+// error-severity `text_roundtrip_divergence` issue) uses the exact element shape
+// of the validation response.  Distinct from [ValidationFailedError] (a
+// validation failure, not a round-trip failure) though the wire shape matches;
+// the equivalent typed errors exist in the peer bindings — keep these surfaces
+// in sync per `feedback_cross_language_parity.md`.
+//
+// Use [errors.As] to inspect:
+//
+//	var trte *aletheia.TextRoundTripFailedError
+//	if errors.As(err, &trte) {
+//		for _, issue := range trte.Issues {
+//			log.Printf("[%s] %s: %s", issue.Severity, issue.Code, issue.Detail)
+//		}
+//	}
+type TextRoundTripFailedError struct {
+	// Issues are the round-trip diagnostics in wire order, led by the
+	// error-severity text_roundtrip_divergence issue the handler prepends.
+	Issues []ValidationIssue
+	// HasErrors reports whether any issue has error severity.  Decoded
+	// from the wire, never assumed (the Agda core always sets it true here).
+	HasErrors bool
+	// Code is the Agda wire error code, always
+	// [CodeHandlerTextRoundtripFailed] ("handler_text_roundtrip_failed").
+	Code string
+	// Message is the envelope's legacy human-readable diagnostic,
+	// unchanged from the generic coded error this type lifts.
+	Message string
+}
+
+// Error implements the error interface.  The rendered string stays byte-
+// identical to the generic coded *Error this type lifts from.
+func (e *TextRoundTripFailedError) Error() string {
+	return fmt.Sprintf("aletheia %s error: %s", ErrProtocol, e.Message)
+}
+
+// newTextRoundTripFailedError constructs a TextRoundTripFailedError from a
+// decoded handler_text_roundtrip_failed envelope (see textRoundtripFailedFromResponse).
+func newTextRoundTripFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *TextRoundTripFailedError {
+	return &TextRoundTripFailedError{
 		Issues:    issues,
 		HasErrors: hasErrors,
 		Code:      code,
