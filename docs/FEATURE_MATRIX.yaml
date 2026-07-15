@@ -132,7 +132,7 @@ features:
       multiplexed signal, which the JSON model admits but the ``.dbc`` grammar
       cannot encode) it refuses with a typed error carrying the diverging issue
       list rather than emitting text that would silently not round-trip. The Agda
-      handler gates the emission on ``roundTripsWith`` and the soundness of that
+      handler gates the emission on ``roundTripsWithᵇ`` and the soundness of that
       gate is proven (``formatDBCTextResult-sound``); the ``handler_text_roundtrip_failed``
       wire code lifts to each binding's idiomatic refusal type.
     related: dbc_text_format

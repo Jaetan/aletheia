@@ -171,6 +171,28 @@ class TestFormatDbcTextErrorPaths:
             result = client.format_dbc_text(_sample_dbc())
         assert result == {"status": "success", "text": 'VERSION ""\n', "issues": issues}
 
+    def test_success_absent_issues_defaults_empty(self) -> None:
+        """A success response with no ``issues`` field defaults to an empty list."""
+        backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n'})])
+        with AletheiaClient(backend=backend) as client:
+            result = client.format_dbc_text(_sample_dbc())
+        assert result == {"status": "success", "text": 'VERSION ""\n', "issues": []}
+
+    def test_success_non_list_issues_field_raises(self) -> None:
+        """Reject a success response whose ``issues`` field is present but not a list of objects.
+
+        Absent issues default to empty; a present-but-ill-typed field is a
+        ProtocolError (not a KeyError/TypeError crash) — the malformed-response
+        contract mirrors ``parse_parsed_dbc_response``'s ``warnings`` validation.
+        """
+        backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n', "issues": {}})])
+        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
+            client.format_dbc_text(_sample_dbc())
+        assert (
+            str(excinfo.value)
+            == "formatDBCText success response 'issues' must be a list of objects"
+        )
+
     def test_roundtrip_failed_envelope_lifts_to_typed_error(self) -> None:
         """A ``handler_text_roundtrip_failed`` envelope lifts to the typed error.
 

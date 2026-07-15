@@ -5,6 +5,7 @@ package aletheia
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,31 @@ func TestFormatDBCText_SuccessCarriesTextAndIssues(t *testing.T) {
 	if out.Issues[0].Severity != SeverityWarning ||
 		out.Issues[0].Code != IssueUnknownValueDescriptionTarget {
 		t.Errorf("Issues[0] = %+v, want warning / unknown_value_description_target", out.Issues[0])
+	}
+}
+
+// TestFormatDBCText_AbsentIssuesDefaultsEmpty confirms a success response with no
+// issues field decodes to an empty Issues slice.
+func TestFormatDBCText_AbsentIssuesDefaultsEmpty(t *testing.T) {
+	out, err := parseDBCTextResponse(`{"status":"success","text":"x"}`)
+	if err != nil {
+		t.Fatalf("parseDBCTextResponse: %v", err)
+	}
+	if len(out.Issues) != 0 {
+		t.Errorf("len(Issues) = %d, want 0 for an absent issues field", len(out.Issues))
+	}
+}
+
+// TestFormatDBCText_NonArrayIssuesRejected confirms a present-but-non-array issues
+// field is a protocol error, not silently dropped to empty (parity with
+// Python/Rust; getArray alone would treat the wrong-type field as missing).
+func TestFormatDBCText_NonArrayIssuesRejected(t *testing.T) {
+	_, err := parseDBCTextResponse(`{"status":"success","text":"x","issues":{}}`)
+	if err == nil {
+		t.Fatal("expected a protocol error for a non-array issues field, got nil")
+	}
+	if !strings.Contains(err.Error(), "'issues' must be an array") {
+		t.Errorf("Error() = %q, want it to mention 'issues' must be an array", err.Error())
 	}
 }
 

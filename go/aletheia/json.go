@@ -1520,6 +1520,14 @@ func parseDBCTextResponse(raw string) (*DBCText, error) {
 	if !ok {
 		return nil, protocolError("missing or non-string 'text' field in formatDBCText response")
 	}
+	// Absent issues → empty; a present-but-non-array issues field is a protocol
+	// error, not silently dropped to empty (parseIssueArray/getArray treat a
+	// wrong-type field as missing). Parity with the Python/Rust decoders.
+	if raw, present := m["issues"]; present {
+		if _, isArray := raw.([]any); !isArray {
+			return nil, protocolError("'issues' must be an array in formatDBCText response")
+		}
+	}
 	issues, err := parseIssueArray(m, "issues")
 	if err != nil {
 		return nil, err

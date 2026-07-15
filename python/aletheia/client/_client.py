@@ -55,6 +55,7 @@ from aletheia.types import (
     ValidateDBCCommand,
     ValidationResponse,
     dump_json,
+    is_object_list,
     is_str_dict,
 )
 
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from aletheia.checks import CheckResult
+    from aletheia.codes import ValidationIssue
 
 _logger = logging.getLogger("aletheia")
 
@@ -565,12 +567,21 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             if not isinstance(text, str):
                 msg = "Expected 'text' field in formatDBCText response"
                 raise ProtocolError(msg)
-            # cast's type-arg is a runtime no-op; mutating it cannot change behaviour.
-            dresp = cast("DBCTextResponse", response)  # pragma: no mutate
+            # Absent issues → empty; a present-but-ill-typed issues field is a
+            # protocol error, not a crash (mirrors parse_parsed_dbc_response's
+            # warnings validation — keeps the malformed-response contract uniform).
+            issues_field = response.get("issues", [])
+            if not is_object_list(issues_field):
+                msg = "formatDBCText success response 'issues' must be a list of objects"
+                raise ProtocolError(msg)
+            # cast's type-arg is a runtime no-op (typing.cast returns its 2nd arg
+            # unchanged), and list() copies an already-list value — mutating either
+            # cannot change behaviour, so this line is a genuine-equivalent surface.
+            issues = cast("list[ValidationIssue]", list(issues_field))  # pragma: no mutate
             return {
                 "status": "success",
                 "text": text,
-                "issues": validate_issue_severities(list(dresp["issues"])),
+                "issues": validate_issue_severities(issues),
             }
 
         if status == "error":

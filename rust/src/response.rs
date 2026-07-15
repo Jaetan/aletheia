@@ -670,13 +670,18 @@ pub(crate) fn decode_format_text(raw: &str) -> Result<DbcText, Error> {
                 .ok_or_else(|| protocol("formatDBCText response missing 'text'"))?
                 .to_string();
             // The wfTextIssues diagnostics (warning-severity, advisory).  Absent
-            // → empty; a present-but-ill-typed element is a protocol error.
-            let issues = obj
-                .get("issues")
-                .and_then(Value::as_array)
-                .map(|arr| arr.iter().map(decode_issue).collect::<Result<Vec<_>, _>>())
-                .transpose()?
-                .unwrap_or_default();
+            // → empty; a present-but-non-array `issues`, or a non-object element,
+            // is a protocol error (not silently dropped to empty).
+            let issues = match obj.get("issues") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(arr)) => arr
+                    .iter()
+                    .map(decode_issue)
+                    .collect::<Result<Vec<_>, _>>()?,
+                Some(_) => {
+                    return Err(protocol("formatDBCText response 'issues' must be an array"))
+                }
+            };
             Ok(DbcText { text, issues })
         }
         other => Err(protocol(format!(
@@ -825,6 +830,24 @@ mod tests {
         assert_eq!(dt.issues.len(), 1);
         assert_eq!(dt.issues[0].severity, IssueSeverity::Warning);
         assert_eq!(dt.issues[0].code, IssueCode::UnknownValueDescriptionTarget);
+    }
+
+    #[test]
+    fn decode_format_text_absent_issues_defaults_empty() {
+        // No `issues` field on a success response → empty advisory list.
+        let dt = decode_format_text(r#"{"status":"success","text":"x"}"#).expect("decode success");
+        assert!(dt.issues.is_empty());
+    }
+
+    #[test]
+    fn decode_format_text_rejects_non_array_issues() {
+        // A present-but-non-array `issues` on a success response is a protocol
+        // error, not silently dropped to empty (parity with Python/Go).
+        let err = decode_format_text(r#"{"status":"success","text":"","issues":{}}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("'issues' must be an array"),
+            "got: {err}"
+        );
     }
 
     #[test]
