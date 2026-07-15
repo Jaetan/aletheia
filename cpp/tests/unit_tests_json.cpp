@@ -1997,6 +1997,9 @@ TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[js
     CHECK(r->text == "VERSION \"\"\n");
     REQUIRE(r->issues.size() == 1);
     CHECK(r->issues[0].severity == IssueSeverity::Warning);
+    CHECK(r->issues[0].code == IssueCode::BigEndianMsbLayout);
+    CHECK(r->issues[0].code_raw == "big_endian_msb_layout");
+    CHECK(r->issues[0].detail == "be");
 }
 
 TEST_CASE("parse_dbc_text_response defaults an absent issues field to empty", "[json][parse]") {
