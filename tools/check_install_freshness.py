@@ -179,12 +179,20 @@ def _default_prefix_problems(prefix: Path, build_so: Path) -> list[str]:
 
 
 def _deployed_artifacts(repo_root: Path, prefix: Path) -> list[Path]:
-    """Every kernel copy made out of ``build/`` — i.e. everything that can go stale.
+    """Return every sign that a copy was made out of ``build/``.
+
+    These are the deployment states this gate owes a verdict on.
 
     Computed WITHOUT reference to ``build/`` on purpose: the gate must be able to
     say "something is deployed" even when the artifact it should be compared
     against is missing.  Otherwise "I cannot verify" is indistinguishable from
     "nothing to verify".
+
+    A receipt counts as deployment state even when the library it names is gone
+    or its contents are unreadable.  Those are findings in their own right when
+    ``build/`` is present (``_receipt_problems`` reports both), so skipping them
+    here would make the missing-build path silently disagree with the
+    build-present path about the very same tree.
     """
     found: list[Path] = []
     dist_so = repo_root / DIST_SO
@@ -192,9 +200,7 @@ def _deployed_artifacts(repo_root: Path, prefix: Path) -> list[Path]:
         found.append(dist_so)
     receipt = repo_root / INSTALL_RECEIPT
     if receipt.is_file():
-        lines = [line.strip() for line in receipt.read_text().splitlines() if line.strip()]
-        if len(lines) >= _RECEIPT_FIELDS and Path(lines[1]).is_file():
-            found.append(Path(lines[1]))
+        found.append(receipt)
     else:
         deploy_so = prefix / "lib" / "aletheia" / "libaletheia-ffi.so"
         if deploy_so.is_file():

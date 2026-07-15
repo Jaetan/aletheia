@@ -18,9 +18,13 @@ Runs as both:
   * Push-time (GHA workflow ``.github/workflows/gha-checks.yml``).
 
 Exit codes:
-  0 — all ``uses:`` references comply with the pin policy.
+  0 — every ``uses:`` reference was read and complies with the pin policy.
   1 — at least one ``uses:`` reference violates the policy.
-  2 — no ``.github/workflows/`` directory (skips silently with exit 0).
+  2 — the gate could not check: no ``.github/workflows/`` directory, no git
+      repo, or zero ``uses:`` references matched.  Compliance is reported by
+      finding no violations, so an empty read would otherwise be
+      indistinguishable from a clean repo; the gate must never certify a policy
+      it did not apply.
 """
 
 from __future__ import annotations

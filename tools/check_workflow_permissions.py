@@ -23,9 +23,12 @@ Runs as both:
   * Push-time (GHA workflow ``.github/workflows/gha-checks.yml``).
 
 Exit codes:
-  0 — all workflows declare minimal permissions.
+  0 — every workflow was read and declares minimal permissions.
   1 — at least one workflow lacks ``permissions:`` or uses a permissive default.
-  2 — no ``.github/workflows/`` directory (skips silently with exit 0).
+  2 — the gate could not check: no ``.github/workflows/`` directory, no git
+      repo, or zero workflow files read.  Compliance is reported by finding no
+      violations, so an empty read would otherwise be indistinguishable from a
+      compliant repo; the gate must never certify a policy it did not apply.
 """
 
 from __future__ import annotations

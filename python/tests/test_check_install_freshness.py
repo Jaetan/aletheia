@@ -94,6 +94,21 @@ def test_no_build_but_dist_present_is_unverifiable(tmp_path: Path) -> None:
     assert _run(repo, tmp_path / "prefix") == 1
 
 
+def test_no_build_but_broken_receipt_is_reported(tmp_path: Path) -> None:
+    """A receipt is install state even when the library it names is gone.
+
+    With ``build/`` present this already reports "receipt points at a missing
+    library"; the missing-build path must reach the same verdict about the same
+    tree rather than pass silently.  The two paths disagreeing is how the gate
+    would certify a broken install it never examined.
+    """
+    repo = _make_repo(tmp_path, with_build=False)
+    prefix = tmp_path / "prefix"
+    receipt = f"{prefix}\n{prefix}/lib/aletheia/libaletheia-ffi.so\n{prefix}/cfg.py\n"
+    _write(repo / ".install-receipt", receipt.encode())
+    assert _run(repo, prefix) == 1
+
+
 def test_no_deployed_artifacts_pass(tmp_path: Path) -> None:
     """Build output alone (never ran dist/install) is fresh by definition."""
     repo = _make_repo(tmp_path)
