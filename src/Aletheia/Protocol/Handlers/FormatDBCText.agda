@@ -16,7 +16,7 @@
 --
 -- Pipeline: JSON DBC → parseDBCWithErrors → DBC value → deriveNodesIfEmpty
 -- → formatText → String.  `deriveNodesIfEmpty` runs at the protocol layer
--- so every binding's `format_dbc_text` (Python / C++ / Go) gets uniform
+-- so every binding's `format_dbc_text` (Python / C++ / Go / Rust) gets uniform
 -- sender→nodes derivation; pushing it here avoided a Python-only shim.
 -- Both proof halves (JSONParser roundtrip + universal text-roundtrip)
 -- still apply — `deriveNodesIfEmpty` is upstream of `formatText`, so the
@@ -24,20 +24,25 @@
 -- *normalized* `d`.
 module Aletheia.Protocol.Handlers.FormatDBCText where
 
-open import Data.Bool using (Bool; true; false; _∨_)
+open import Data.Bool using (Bool; true; false; _∨_; if_then_else_)
 open import Data.List using (List; []; _∷_; map; concatMap)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (inj₁; inj₂)
+open import Data.String using (String)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
-open import Aletheia.DBC.Types using (DBC; DBCMessage; Node; mkNode)
+open import Aletheia.DBC.Types using
+  ( DBC; DBCMessage; Node; mkNode
+  ; IsError; ValidationIssue; mkIssue; TextRoundTripDivergence )
 open import Aletheia.DBC.Identifier using (Identifier; _≟ᴵ_)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.TextFormatter using (formatText)
+open import Aletheia.DBC.TextParser.RoundTripCheck using (roundTripsWithᵇ)
+open import Aletheia.DBC.TextParser.WellFormedCheck using (wfTextIssues)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState)
-open import Aletheia.Error using (WithContext)
+open import Aletheia.Error using (WithContext; HandlerErr; TextRoundTripFailed)
 
 private
   -- True if `i` is structurally equal to any element of `xs`.
@@ -74,54 +79,68 @@ deriveNodesIfEmpty d with DBC.nodes d
 ... | _ ∷ _ = d
 ... | []    = record d { nodes = uniqueSenderNodes (DBC.messages d) }
 
--- Format DBC JSON dict back to .dbc text using the verified Agda formatter.
--- State is never mutated — read-only operation on the JSON argument; the
--- currently-loaded DBC (if any) is untouched.
+-- Format a DBC (given as a JSON dict) back to `.dbc` text using the verified
+-- Agda formatter.  State is never mutated — a read-only operation on the JSON
+-- argument; the currently-loaded DBC (if any) is untouched.
 --
--- ROUND-TRIP CONTRACT (caller obligation, G-A7(c)):
+-- ROUND-TRIP CONTRACT (always strict):
 --
--- The universal text-roundtrip theorem
--- `Aletheia.DBC.TextParser.Properties.Substrate.Unsafe.parseText-on-formatText`
--- has shape `∀ d → WellFormedTextDBCAgg d → parseText (formatText d) ≡ inj₂ d`.
--- This handler does NOT discharge `WellFormedTextDBCAgg d` at runtime —
--- `parseDBCWithErrors` produces a `WellFormedDBCRT` witness (the JSON-side
--- predicate), which is structurally distinct from the text-side aggregator
--- (`WellFormedTextDBCAgg`) and does not imply it (e.g. JSON-side admits
--- non-empty `unresolvedValueDescs` and CAN-ID collisions, both of which
--- the text round-trip rejects).
+-- `FormatDBCText` emits text ONLY when that text provably re-parses to the input
+-- DBC; otherwise it refuses with a typed `TextRoundTripFailed` error.  There is
+-- no lenient mode — emitting text we KNOW will not round-trip is exactly the
+-- silent lossy output this command exists to prevent.
 --
--- Discharge happens at the input-source boundary, not in this handler:
+-- The runtime discharge is the exact round-trip check `roundTripsWithᵇ d′ (formatText d′)`
+-- (`RoundTripCheck.agda`): it decides `parseText (formatText d′) ≡ inj₂ d′` by
+-- executable decidable equality on the whole DBC — no well-formedness
+-- precondition, no caller obligation.  On `true` the response carries the text
+-- plus `wfTextIssues d′` (diagnostic warnings only, see below); on `false` the
+-- handler refuses.  `formatDBCTextResult-sound`
+-- (`Handlers.Properties.FormatDBCText`) machine-checks that every emitted
+-- `DBCTextResponse txt` satisfies `parseText txt ≡ inj₂ d′` — the guarantee is
+-- verified, not merely definitional.
 --
---   * DBCs produced by `parseDBCText` (text → DBC) are roundtrippable by
---     construction — the text parser only accepts inputs that came from
---     a well-formed text DBC, so the parser-side closure
---     `parseTextChars-on-formatChars` already establishes the witness.
+-- `wfTextIssues` (the per-field well-formedness checker) is SUFFICIENT-but-not-
+-- necessary for the round-trip: it flags text-DBC shapes known to diverge, but
+-- does NOT discharge the text-side aggregator `WellFormedTextDBCAgg d′` at runtime
+-- (the per-field checker is weaker than the exact check) and appears here for
+-- diagnostics only — the actual guarantee is the exact round-trip verdict.
 --
---   * DBCs produced by `parseDBCWithErrors` followed by `validateDBC` —
---     cleanly (no CHECK 1 `DuplicateMessageId`, no CHECK 23
---     `UnknownValueDescriptionTarget`) — discharge `msg-ids-unique` and
---     `unresolved-empty`.  The five name-stop fields (`*-stops`,
---     `SignalGroupWF`) hold automatically for every DBC (Identifier
---     validity is intrinsic; `Properties.WellFormedFromValidity`).
---     `MessageWF` and `WFAttribute` are NOT discharged by any of the
---     above: e.g. a multi-value mux selector fails `MessageWF.wfps`
---     even on a validator-clean DBC (DEFERRED_ITEMS.md E.2).
+-- Node derivation: `deriveNodesIfEmpty` populates an empty `nodes` list from the
+-- union of message senders BEFORE the check, so the verdict (and the emitted
+-- text) are against the normalized `d′`, not the caller's raw JSON.
 --
---   * Hand-constructed DBCs (binding-side struct → JSON → handler) are
---     the caller's responsibility.  Bindings that compose JSON DBCs
---     should validate via `validateDBC` before calling `formatDBCText`
---     if a round-trip guarantee is required.
---
--- The handler emits text unconditionally (the formatter is total).  A
--- caller who supplies a DBC violating `WellFormedTextDBCAgg` will still
--- receive valid text — just not a round-trip-equivalent one.  This is
--- a documented best-effort contract, not a silent bug; see
--- `Aletheia.DBC.TextParser.WellFormed` module header for the asymmetry
--- with the JSON-side `WellFormedDBC`.
---
--- Wire-level: text → JSON → text closes byte-identical modulo
--- `WellFormedTextDBCAgg d` (modulo other WF fields only).
+-- SHARING: `formatText d′` is threaded as an ARGUMENT (via
+-- `withText`, not re-`let`), so it is one shared thunk feeding BOTH the wire
+-- output and `roundTripsWithᵇ` — this is what lets `formatDBCTextResult-sound`
+-- transfer to the emitted text verbatim (same `txt` decided and shipped).
+
+-- FormatDBCText is ALWAYS strict: when the exact round-trip verdict is false,
+-- divergence is an error, never a warning.
+divergenceIssue : ValidationIssue
+divergenceIssue =
+  mkIssue IsError TextRoundTripDivergence
+    "re-parsing the emitted text does not reproduce the input DBC"
+
+finish : String → Bool → List ValidationIssue → Response
+finish txt rt diags =
+  if rt
+  then Response.DBCTextResponse txt diags
+  else Response.Error (WithContext "FormatDBCText"
+         (HandlerErr (TextRoundTripFailed (divergenceIssue ∷ diags))))
+
+-- Response for a node-normalized DBC `d′`: emit text with `wfTextIssues`
+-- diagnostics iff it provably round-trips (the exact round-trip check —
+-- evaluate `parseText (formatText d′)` and deep-compare), else refuse.
+-- Top-level (not a `where` of the handler) so `Handlers.Properties.FormatDBCText`
+-- can name it and machine-check the emitted-text round-trip guarantee.
+formatDBCTextResult : DBC → Response
+formatDBCTextResult d′ = withText (formatText d′)
+  where
+  withText : String → Response
+  withText txt = finish txt (roundTripsWithᵇ d′ txt) (wfTextIssues d′)
+
 handleFormatDBCText : JSON → StreamState → StreamState × Response
 handleFormatDBCText dbcJSON state with parseDBCWithErrors dbcJSON
 ... | inj₁ err = (state , Response.Error (WithContext "FormatDBCText" err))
-... | inj₂ dbc = (state , Response.DBCTextResponse (formatText (deriveNodesIfEmpty dbc)))
+... | inj₂ dbc = (state , formatDBCTextResult (deriveNodesIfEmpty dbc))

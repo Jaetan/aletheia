@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         AckResponse,
         CompleteResponse,
         DBCDefinition,
+        DBCTextResponse,
         DLCCode,
         ErrorResponse,
         LTLFormula,
@@ -177,7 +178,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         """Async mirror of :meth:`aletheia.AletheiaClient.format_dbc`."""
         return await asyncio.to_thread(self._sync.format_dbc)
 
-    async def format_dbc_text(self, dbc: DBCDefinition) -> str:
+    async def format_dbc_text(self, dbc: DBCDefinition) -> DBCTextResponse:
         """Async mirror of :meth:`aletheia.AletheiaClient.format_dbc_text`."""
         return await asyncio.to_thread(self._sync.format_dbc_text, dbc)
 

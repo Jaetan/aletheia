@@ -16,7 +16,11 @@ from typing import TYPE_CHECKING, cast
 from aletheia.client._helpers.dbc_normalize import normalize_dbc
 from aletheia.client._helpers.rational import validate_integer_field
 from aletheia.client._log import LogEvent, log_event
-from aletheia.client._types import DBCValidationFailedError, ProtocolError
+from aletheia.client._types import (
+    DBCValidationFailedError,
+    ProtocolError,
+    TextRoundTripFailedError,
+)
 from aletheia.types import (
     AckResponse,
     CompleteWarning,
@@ -95,25 +99,24 @@ def lift_input_bound_exceeded(response: Response) -> tuple[str, int, int] | None
     return _extract_bound_triple(response)
 
 
-def lift_validation_issues(
+# The error envelopes that carry a structured issues / has_errors payload
+# (appended by ``Protocol/ResponseFormat.errorExtras``): ``handler_validation_failed``
+# from parseDBC / parseDBCText, ``handler_text_roundtrip_failed`` from formatDBCText.
+# build_error_response attaches the payload for ANY of these; each typed-error lift
+# gates on a single one.
+ISSUES_CARRYING_CODES = frozenset({"handler_validation_failed", "handler_text_roundtrip_failed"})
+
+
+def _extract_issues_payload(
     response: Response,
 ) -> tuple[list[ValidationIssue], bool] | None:
-    """Extract the ``issues`` / ``has_errors`` pair from an error envelope.
+    """Extract the ``issues`` / ``has_errors`` pair from an envelope, without gating on code.
 
-    Validation-failure errors (``code == "handler_validation_failed"`` from
-    ``parseDBC`` / ``parseDBCText``) append the ``validation``-response
-    issue list plus ``has_errors`` via ``Protocol/ResponseFormat.
-    errorExtras``.  Both fields must be present and well-typed — every
-    issue an object with string ``code`` / ``detail`` and a canonical
-    severity — else the payload is treated as missing rather than partial
-    (the degrade rule of the ``bound_kind`` / ``observed`` / ``limit``
-    triple in :func:`build_error_response`).
+    Both fields must be present and well-typed — every issue an object with
+    string ``code`` / ``detail`` and a canonical severity — else the payload is
+    treated as missing rather than partial (the degrade rule of the
+    ``bound_kind`` / ``observed`` / ``limit`` triple in :func:`build_error_response`).
     """
-    # Gate on the wire code, like the Go / C++ / Rust decoders: another
-    # error envelope that happens to carry has_errors/issues-shaped keys
-    # must not be mis-lifted into validation issues.
-    if response.get("code") != "handler_validation_failed":
-        return None
     has_errors = response.get("has_errors")
     raw_issues = response.get("issues")
     if not isinstance(has_errors, bool) or not is_object_list(raw_issues):
@@ -132,6 +135,21 @@ def lift_validation_issues(
         return None
 
 
+def lift_issues_envelope(
+    response: Response,
+    code: str,
+) -> tuple[list[ValidationIssue], bool] | None:
+    """Extract the ``issues`` / ``has_errors`` pair from an error envelope gated on ``code``.
+
+    Gating on the wire code, like the Go / C++ / Rust decoders, keeps another
+    error envelope that happens to carry has_errors/issues-shaped keys from being
+    mis-lifted into the wrong typed error.
+    """
+    if response.get("code") != code:
+        return None
+    return _extract_issues_payload(response)
+
+
 def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
     """Raise :class:`DBCValidationFailedError` for a structured DBC validation failure.
 
@@ -141,11 +159,27 @@ def raise_if_dbc_validation_failed(response: Response, msg: str) -> None:
     client's DBC routes and the ``dbc`` converter — one wire-code gate, no
     per-caller re-implementation.
     """
-    lifted = lift_validation_issues(response)
+    lifted = lift_issues_envelope(response, "handler_validation_failed")
     if lifted is not None:
         issues, has_errors = lifted
         raise DBCValidationFailedError(
             msg, issues, has_errors=has_errors, code="handler_validation_failed"
+        )
+
+
+def raise_if_text_roundtrip_failed(response: Response, msg: str) -> None:
+    """Raise :class:`TextRoundTripFailedError` for a ``format_dbc_text`` round-trip refusal.
+
+    Returns normally when ``response`` is not a structured round-trip failure, so
+    the caller raises its own generic fallback.  Mirrors
+    :func:`raise_if_dbc_validation_failed` for the ``handler_text_roundtrip_failed``
+    wire code — same lift, distinct typed error.
+    """
+    lifted = lift_issues_envelope(response, "handler_text_roundtrip_failed")
+    if lifted is not None:
+        issues, has_errors = lifted
+        raise TextRoundTripFailedError(
+            msg, issues, has_errors=has_errors, code="handler_text_roundtrip_failed"
         )
 
 
@@ -187,9 +221,10 @@ def build_error_response(response: Response) -> ErrorResponse:
     triple = _extract_bound_triple(response)
     if triple is not None:
         out["bound_kind"], out["observed"], out["limit"] = triple
-    lifted = lift_validation_issues(response)
-    if lifted is not None:
-        out["issues"], out["has_errors"] = lifted
+    if response.get("code") in ISSUES_CARRYING_CODES:
+        lifted = _extract_issues_payload(response)
+        if lifted is not None:
+            out["issues"], out["has_errors"] = lifted
     return out
 
 

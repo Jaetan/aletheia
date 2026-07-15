@@ -79,6 +79,7 @@ class ErrorCode(StrEnum):
     HANDLER_PROPERTY_PARSE_FAILED = "handler_property_parse_failed"
     HANDLER_INVALID_DLC_CODE = "handler_invalid_dlc_code"
     HANDLER_VALIDATION_FAILED = "handler_validation_failed"
+    HANDLER_TEXT_ROUNDTRIP_FAILED = "handler_text_roundtrip_failed"
     HANDLER_NON_MONOTONIC_TIMESTAMP = "handler_non_monotonic_timestamp"
     # Dispatch errors
     DISPATCH_MISSING_TYPE_FIELD = "dispatch_missing_type_field"

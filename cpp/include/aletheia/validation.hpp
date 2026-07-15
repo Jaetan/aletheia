@@ -28,4 +28,15 @@ struct ParsedDBC {
     std::vector<ValidationIssue> warnings;
 };
 
+// DbcText bundles the .dbc text image produced by format_dbc_text with its
+// wfTextIssues diagnostics (warning-severity, advisory).  format_dbc_text is
+// always strict — it yields this struct only when the emitted text provably
+// re-parses to the input DBC, so `issues` may be non-empty even on a proven
+// round-trip.  A DBC whose text does not round-trip short-circuits to the
+// Result<>::error() path as an AletheiaError of kind ErrorKind::TextRoundtrip.
+struct DbcText {
+    std::string text;
+    std::vector<ValidationIssue> issues;
+};
+
 } // namespace aletheia

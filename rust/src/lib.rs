@@ -60,15 +60,15 @@ pub use backend::{Backend, SignalInjection};
 pub use check::Check;
 pub use dbc::{
     AttrScope, AttrTarget, AttrType, AttrValue, Attribute, ByteOrder, Comment, CommentTarget, Dbc,
-    DbcMessage, DbcSignal, EnvironmentVar, Node, Presence, SignalGroup, ValueDescription,
-    ValueTable,
+    DbcMessage, DbcSignal, EnvironmentVar, Node, ParsedDbc, Presence, SignalGroup,
+    ValueDescription, ValueTable,
 };
 pub use error::Error;
 pub use log::{LogField, LogLevel, LogRecord, LogValue, Logger};
 pub use ltl::{Formula, Predicate, MAX_FORMULA_DEPTH};
 pub use mock::MockBackend;
 pub use response::{
-    Enrichment, ExtractionResult, FrameResponse, IssueCode, IssueSeverity, PropertyResult,
+    DbcText, Enrichment, ExtractionResult, FrameResponse, IssueCode, IssueSeverity, PropertyResult,
     SignalError, SignalValue, StreamResult, StreamWarning, ValidationIssue, ValidationResult,
     Verdict,
 };
@@ -573,19 +573,19 @@ impl Client {
     /// [`Error::InputBoundExceeded`] if it trips an adversarial-input bound such
     /// as identifier length or message count), or [`Error::Protocol`] on an
     /// unexpected response.
-    pub fn parse_dbc_text(&self, text: &str) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
+    pub fn parse_dbc_text(&self, text: &str) -> Result<ParsedDbc, Error> {
         let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
         let raw = self.process(&cmd.to_string())?;
-        let (dbc, warnings) = dbc::decode_parsed_dbc(&raw)?;
+        let parsed = dbc::decode_parsed_dbc(&raw)?;
         self.emit(
             LogLevel::Info,
             events::DBC_PARSED,
             &[LogField::new(
                 "messages",
-                LogValue::U64(dbc.messages.len() as u64),
+                LogValue::U64(parsed.dbc.messages.len() as u64),
             )],
         );
-        Ok((dbc, warnings))
+        Ok(parsed)
     }
 
     /// Export the currently-loaded DBC as a typed [`Dbc`] document (the core's
@@ -608,23 +608,23 @@ impl Client {
     /// [`Error::ValidationFailed`] if the DBC fails validation, [`Error::Core`]
     /// on any other core rejection, or [`Error::Protocol`] on an unexpected
     /// response.
-    pub fn parse_dbc(&self, dbc: &Dbc) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
+    pub fn parse_dbc(&self, dbc: &Dbc) -> Result<ParsedDbc, Error> {
         // Build the envelope then move the serialized DBC in: `json!({…: expr})`
         // deep-copies a `Value` operand (via `to_value(&expr)`), which would
         // double-allocate a large document.
         let mut cmd = json!({ "type": "command", "command": "parseDBC" });
         cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;
-        let (parsed, warnings) = dbc::decode_parsed_dbc(&raw)?;
+        let parsed = dbc::decode_parsed_dbc(&raw)?;
         self.emit(
             LogLevel::Info,
             events::DBC_PARSED,
             &[LogField::new(
                 "messages",
-                LogValue::U64(parsed.messages.len() as u64),
+                LogValue::U64(parsed.dbc.messages.len() as u64),
             )],
         );
-        Ok((parsed, warnings))
+        Ok(parsed)
     }
 
     /// Run the structural validator over a typed [`Dbc`] without modifying this
@@ -641,16 +641,21 @@ impl Client {
     }
 
     /// Render a typed [`Dbc`] back to `.dbc` file text via the verified Agda
-    /// formatter (the inverse of [`Client::parse_dbc_text`] at the wire level):
-    /// `parse_dbc_text(format_dbc_text(d))` returns `d` byte-identical for any
-    /// text-round-trip well-formed DBC (a stricter condition than validating
-    /// clean — see the "well-formed DBC" entry in `docs/GLOSSARY.md`).
-    /// Does not modify this stream's loaded state.
+    /// formatter, returning a [`DbcText`] — the text image plus its `wfTextIssues`
+    /// diagnostics (warning-severity, advisory). Always strict: it returns text
+    /// only when the emitted text provably re-parses to the input DBC —
+    /// `parse_dbc_text(&format_dbc_text(d)?.text)` returns `d` byte-identical (a
+    /// stricter condition than validating clean — see the "well-formed DBC" entry
+    /// in `docs/GLOSSARY.md`). The returned `issues` may be non-empty even on a
+    /// proven round-trip. Does not modify this stream's loaded state.
     ///
     /// # Errors
-    /// [`Error::Core`] if the document fails Agda-side parsing, or
+    /// [`Error::TextRoundtripFailed`] if the emitted text does not re-parse to the
+    /// input DBC (a divergent DBC, e.g. a multi-value mux) — carrying the
+    /// diagnostics led by `text_roundtrip_divergence` — rather than lossy text;
+    /// [`Error::Core`] if the document fails Agda-side parsing; or
     /// [`Error::Protocol`] on an unexpected response.
-    pub fn format_dbc_text(&self, dbc: &Dbc) -> Result<String, Error> {
+    pub fn format_dbc_text(&self, dbc: &Dbc) -> Result<DbcText, Error> {
         let mut cmd = json!({ "type": "command", "command": "formatDBCText" });
         cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;

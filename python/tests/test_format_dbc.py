@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from _dbc_helpers import message, mux_signal, signal
 
-from aletheia import AletheiaClient, ProtocolError, dbc_to_text
+from aletheia import AletheiaClient, ProtocolError, TextRoundTripFailedError, dbc_to_text
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DBCDefinition, DLCByteCount
@@ -71,12 +71,18 @@ class TestDBCToText:
         assert '"A"' in text
 
     def test_multiplexed_signals(self) -> None:
-        """Multiplexed signals get m<value> indicator."""
-        mux_sig = mux_signal("MuxSig", "Selector", [3])
+        """Multiplexed signals get m<value> indicator.
+
+        A well-formed single-value mux (the ``Selector`` master plus one muxed
+        signal on non-overlapping bits) so the DBC round-trips — ``dbc_to_text``
+        is always strict and refuses a DBC whose text would not re-parse.
+        """
+        selector = signal("Selector", start_bit=0, length=8, maximum=255)
+        mux_sig = mux_signal("MuxSig", "Selector", [3], start_bit=8, length=8, maximum=255)
         dbc: DBCDefinition = {
             **empty_dbc_tier2(),
             "version": "",
-            "messages": [message(1, "Msg", [mux_sig])],
+            "messages": [message(1, "Msg", [selector, mux_sig])],
         }
         text = dbc_to_text(dbc)
         assert "SG_ MuxSig m3 :" in text
@@ -269,3 +275,58 @@ class TestFormatDBC:
 
             assert "BO_ 256 TestMessage:" in text
             assert "SG_ TestSignal" in text
+
+
+class TestFormatDBCTextRoundTrip:
+    """format_dbc_text is always strict: structured success, or a typed refusal."""
+
+    def test_success_returns_structured_text_and_issues(self, sample_dbc: DBCDefinition) -> None:
+        """A round-tripping DBC yields the structured {status, text, issues} response.
+
+        ``issues`` are the advisory ``wfTextIssues`` warnings — a list (empty for
+        this clean fixture); the point is that the caller now sees the structure.
+        """
+        with AletheiaClient() as client:
+            result = client.format_dbc_text(sample_dbc)
+
+        assert result["status"] == "success"
+        assert isinstance(result["text"], str)
+        assert "BO_ 256 TestMessage:" in result["text"]
+        assert isinstance(result["issues"], list)
+
+    def test_multi_value_mux_refuses(self) -> None:
+        """A multi-value mux selector does not round-trip → strict refusal.
+
+        The JSON side admits a mux signal present for MULTIPLE selector values,
+        but the ``.dbc`` text form cannot express it, so re-parsing the emitted
+        text does not reproduce the input DBC.  ``format_dbc_text`` therefore
+        refuses with :class:`TextRoundTripFailedError` rather than emit lossy
+        text; the ``issues`` list is led by ``text_roundtrip_divergence`` and
+        additionally carries the ``multi_value_mux_selector`` diagnostic.
+        """
+        multi_mux: DBCDefinition = {
+            **empty_dbc_tier2(),
+            "version": "",
+            "messages": [
+                message(
+                    0x123,
+                    "MultiMux",
+                    [
+                        signal("Selector", start_bit=0, length=8, maximum=255),
+                        mux_signal(
+                            "Payload", "Selector", [1, 2], start_bit=8, length=8, maximum=255
+                        ),
+                    ],
+                ),
+            ],
+        }
+        with (
+            AletheiaClient() as client,
+            pytest.raises(TextRoundTripFailedError) as excinfo,
+        ):
+            client.format_dbc_text(multi_mux)
+
+        assert excinfo.value.has_errors
+        codes = {issue["code"] for issue in excinfo.value.issues}
+        assert "text_roundtrip_divergence" in codes
+        assert "multi_value_mux_selector" in codes

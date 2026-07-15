@@ -2,21 +2,19 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Runtime decision procedure for `WellFormedTextDBCAgg` (E.2 route (b), slice 1).
+-- Runtime decision procedure for `WellFormedTextDBCAgg`.
 --
 -- Emits one `ValidationIssue` per violated text-round-trip well-formedness
 -- condition, so the `FormatDBCText` handler can report "round-trips, or here's at
--- least one reason it falls outside the proven round-trip envelope" (wired in
--- slice 3).  (`WellFormedTextDBCAgg` is SUFFICIENT-not-necessary for round-trip —
--- a non-empty result means "not proven to round-trip", never "will not"; the
--- ratified wording discipline is E2_ROUTE_B.md §7.6.)  Runtime-side — NO proofs; the
--- soundness/completeness tree lives in
+-- least one reason it falls outside the proven round-trip envelope".
+-- (`WellFormedTextDBCAgg` is SUFFICIENT-not-necessary for round-trip — a non-empty
+-- result means "not proven to round-trip", never "will not".)  Runtime-side — NO
+-- proofs; the soundness/completeness tree lives in
 -- `Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound`.
 --
 -- All functions are cold-path (format path, not the per-frame streaming hot
--- path), so `Dec` allocation is acceptable here (the CLAUDE.md hot-path rule is
--- streaming-only).  Built incrementally per E2_ROUTE_B.md §4 (see its progress
--- log): S1.1 lands the checker in chunks, each type-checked standalone.
+-- path), so `Dec` allocation is acceptable here (the hot-path performance rule
+-- applies to streaming only).
 module Aletheia.DBC.TextParser.WellFormedCheck where
 
 open import Data.Bool using (Bool; true; false; _∧_; if_then_else_)
@@ -85,7 +83,7 @@ checkUnresolved = concatMap unresolvedIssue
 --
 -- Decide the record fields' EXACT mapped forms — `AllPairs _≢_ (map …)` — directly
 -- with stdlib `allPairs?`, so `requireDec-sound` lands the field with no bridge
--- from the validator's string/list form (§4).  `allPairs?` decides the whole
+-- from the validator's string/list form.  `allPairs?` decides the whole
 -- list, so the detail is generic (it does not single out the offending pair).
 
 checkSigNamesUnique : List DBCSignal → List ValidationIssue
@@ -106,7 +104,7 @@ checkMsgIdsUnique msgs =
 -- EXPOSED SCRUTINEE (feedback_expose_scrutinee_for_external_rewrite): `pvGo`
 -- takes the `ByteOrder` and `pGo` the `SignalPresence` as explicit arguments and
 -- pattern-match structurally — deliberately NO `with` here.  The checker is then
--- a plain function of the scrutinee, so the soundness proof (S1.3) can
+-- a plain function of the scrutinee, so the soundness proof can
 -- `with … in eq` the scrutinee EXTERNALLY and this application reduces cleanly
 -- (past `with`-reduction failures came from `with`-abstracting internally).  Each
 -- `requireDec` decides the EXACT proposition its WF record field carries
@@ -158,8 +156,8 @@ presenceIssue s = pGo (DBCSignal.presence s) (nameStr (DBCSignal.name s))
 -- ── master coherence (WF field `mc` = MasterCoherent), Bool leaves ──────────
 --
 -- Exposed on the `findMuxMaster` result: `mcGo` takes the `Maybe (List Char)`
--- master name as an argument, so the soundness proof (S1.4 `mcGo-sound`, the
--- flagged schedule-risk lemma) controls the case-split externally.  Bool-valued,
+-- master name as an argument, so the soundness proof (`mcGo-sound`) controls the
+-- case-split externally.  Bool-valued,
 -- no `with`.  `MasterCoherent` = single Always master, and every `When` selector
 -- names it.
 
@@ -219,7 +217,7 @@ vmtᵇ _             _            = false
 -- labels ≡ just n` (label uniqueness + index-in-bounds).  Vacuously `⊤` for every
 -- non-(ATEnum × AVEnum) pair.  `enumOkᵇ` is its Bool image, decided by `Maybe ℕ`
 -- decidable equality; the catch-all keeps it `with`-free (the soundness proof
--- S1.3 re-matches these concrete patterns, where `DefaultEnumOK` reduces).  Only
+-- re-matches these concrete patterns, where `DefaultEnumOK` reduces).  Only
 -- the DEFAULT path consults it (assign values emit the index directly, no bridge).
 enumOkᵇ : AttrType → AttrValue → Bool
 enumOkᵇ (ATEnum labels) (AVEnum n) =
@@ -237,7 +235,7 @@ enumOkᵇ _ _ = true
 --
 -- EXPOSED SCRUTINEE (feedback_expose_scrutinee_for_external_rewrite): `attrIssues`
 -- passes `lookupDef … : Maybe AttrDef` to `resolveDefIssues`/`enumDefaultIssue`,
--- which pattern-match it — so the S1.3 soundness proof can `with (lookupDef …) in
+-- which pattern-match it — so the soundness proof can `with (lookupDef …) in
 -- eq` externally and both leaves reduce.  The `lookupDef` call is repeated (not
 -- `let`-bound) on the default arm so the `with` abstracts both occurrences alike.
 
@@ -282,7 +280,7 @@ checkAttrs attrs = concatMap (attrIssues (collectDefs attrs)) attrs
 --
 -- `MessageWF` (Properties/Topology/Message.agda:559-578) bundles 9 fields; 4 are
 -- FREE: `fb-bound` (vacuous — `dlcBytes … ≤ 64` always), `name-pre`/`send-pre`
--- (identNameStop), `item-pres` (the universal `recvHeadStop`, S1.2).
+-- (identNameStop), `item-pres` (the universal `recvHeadStop`).
 -- `checkTextMessage` decides the remaining 5:
 --   • wf-sigs          → per-signal `checkSignalBounds`
 --   • pvs              → per-signal `pvIssues (dlcBytes (dlc m))`  (frame-byte width)
@@ -301,7 +299,7 @@ checkTextMessage m =
 --
 -- Emits for exactly the 4 DECIDED Agg fields (WellFormed.agda:85-105); the other
 -- 5 (`node-stops`, `vt-stops`, `ev-stops`, `cm-stops`, `sg-wfs`) are name-stop
--- predicates discharged unconditionally by `wellFormedFromValidity` (§3), so no
+-- predicates discharged unconditionally by `wellFormedFromValidity`, so no
 -- line here.
 --   • msg-wfs          → `concatMap checkTextMessage (messages d)`
 --   • msg-ids-unique   → `checkMsgIdsUnique (messages d)`

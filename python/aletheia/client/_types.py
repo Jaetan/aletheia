@@ -177,6 +177,40 @@ class DBCValidationFailedError(AletheiaError):
         self.has_errors = has_errors
 
 
+class TextRoundTripFailedError(AletheiaError):
+    """Raised when ``format_dbc_text`` refuses because its emitted text does not round-trip.
+
+    ``format_dbc_text`` is always strict: it returns a ``DBCTextResponse`` ONLY
+    when re-parsing the emitted text reproduces the input DBC.  When the exact
+    round-trip check fails, the kernel emits the ``handler_text_roundtrip_failed``
+    envelope instead; this typed error carries the full ``issues`` list (led by
+    the error-severity ``text_roundtrip_divergence`` issue the handler prepends)
+    and ``has_errors`` echoes the decoded wire flag rather than being recomputed.
+    Distinct from :class:`DBCValidationFailedError` (a validation failure, not a
+    round-trip failure) though the wire shape is identical.  Envelopes whose
+    ``issues`` / ``has_errors`` payload is absent or ill-typed degrade to the
+    pre-existing generic errors instead of this type.
+
+    The Go, C++, and Rust bindings expose the equivalent typed error; keep the
+    surfaces in sync.
+    """
+
+    issues: list[ValidationIssue]
+    has_errors: bool
+
+    def __init__(
+        self,
+        message: str,
+        issues: list[ValidationIssue],
+        *,
+        has_errors: bool,
+        code: str | None = None,
+    ) -> None:
+        super().__init__(message, code=code)
+        self.issues = issues
+        self.has_errors = has_errors
+
+
 class BatchError(AletheiaError):
     """Raised by send_frames / send_frames_iter when a frame fails or is cancelled mid-batch.
 

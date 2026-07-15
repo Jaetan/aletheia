@@ -223,7 +223,7 @@ auto AletheiaClient::format_dbc(std::stop_token stop) -> Result<DbcDefinition> {
 }
 
 auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
-    -> Result<std::string> {
+    -> Result<DbcText> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("format_dbc_text"));
     auto cmd = detail::serialize_format_dbc_text(dbc);

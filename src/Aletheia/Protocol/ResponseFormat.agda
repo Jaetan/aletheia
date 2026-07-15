@@ -121,9 +121,9 @@ formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
 formatIssueCode UnknownMessageSender        = "unknown_message_sender"
 formatIssueCode UnknownSignalReceiver       = "unknown_signal_receiver"
 formatIssueCode UnknownValueDescriptionTarget = "unknown_value_description_target"
--- E.2 route (b) slice 1 (S1.0): wire codes for the text-round-trip checker
--- diagnostics.  Total-function arms kept in lock-step with the IssueCode
--- constructors (Types.agda); wire-inert until slice 3 emits them.
+-- Wire codes for the text-round-trip checker diagnostics (emitted by
+-- formatDBCText).  Total-function arms kept in lock-step with the IssueCode
+-- constructors (Types.agda).
 formatIssueCode TextRoundTripDivergence       = "text_roundtrip_divergence"
 formatIssueCode MultiValueMuxSelector         = "multi_value_mux_selector"
 formatIssueCode MuxMasterIncoherent           = "mux_master_incoherent"
@@ -181,6 +181,13 @@ errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
 -- bindings reuse one issue decoder. `has_errors` is trivially true on this
 -- path but included so the payload is shape-compatible with that response.
 errorExtras (Err.HandlerErr (Err.ValidationFailed issues)) =
+  ("has_errors" , JBool (hasAnyError issues)) ∷
+  ("issues"     , JArray (map formatValidationIssue issues)) ∷
+  []
+-- Strict FormatDBCText refusal: same structural payload as ValidationFailed —
+-- the issue list (led by the error-severity text_roundtrip_divergence issue)
+-- travels in `issues`, so bindings reuse the one validation-issue decoder.
+errorExtras (Err.HandlerErr (Err.TextRoundTripFailed issues)) =
   ("has_errors" , JBool (hasAnyError issues)) ∷
   ("issues"     , JArray (map formatValidationIssue issues)) ∷
   []
@@ -261,8 +268,9 @@ formatResponse (ParsedDBCResponse dbcJSON warnings) =
     ("dbc"      , dbcJSON) ∷
     ("warnings" , JArray (map formatValidationIssue warnings)) ∷
     [])
-formatResponse (DBCTextResponse text) =
+formatResponse (DBCTextResponse text issues) =
   JObject (
     ("status" , JStringS "success") ∷
     ("text"   , JStringS text) ∷
+    ("issues" , JArray (map formatValidationIssue issues)) ∷
     [])

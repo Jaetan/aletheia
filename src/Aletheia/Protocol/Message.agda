@@ -52,7 +52,9 @@ data StreamCommand : Set where
   ParseDBCText : String → StreamCommand
 
   -- Format DBC JSON dict back to .dbc text.
-  -- Args: DBC JSON structure (same wire shape ParseDBCText returns)
+  -- Args: DBC JSON structure (same wire shape ParseDBCText returns).
+  --       Always strict: refuses with a typed error rather than emit text that
+  --       does not re-parse to the input DBC (the exact round-trip verdict).
   FormatDBCText : JSON → StreamCommand
 
 -- ============================================================================
@@ -107,6 +109,11 @@ data Response : Set where
   -- (option 6b: warnings are NOT silently dropped on success).
   ParsedDBCResponse : JSON → List ValidationIssue → Response
 
-  -- DBC text image (for FormatDBCText command).
-  -- Carries `formatText dbc : String` produced from a JSON DBC input.
-  DBCTextResponse : String → Response
+  -- DBC text image (for FormatDBCText command): the formatted text plus its
+  -- `wfTextIssues` diagnostics (warning-severity only).  Emitted ONLY when the
+  -- text provably round-trips (the exact round-trip check said `true`), so these issues
+  -- are advisory — the list MAY be non-empty even on a proven round-trip.
+  -- Divergence is NEVER reported through this constructor: a DBC whose text does
+  -- not round-trip yields the error-severity `TextRoundTripFailed` instead.
+  -- Field shape mirrors ParsedDBCResponse (body + issues).
+  DBCTextResponse : String → List ValidationIssue → Response

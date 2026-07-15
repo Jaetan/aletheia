@@ -105,15 +105,19 @@ public:
     [[nodiscard]] auto validate_dbc(std::stop_token stop, const DbcDefinition& dbc)
         -> Result<ValidationResult>;
     [[nodiscard]] auto format_dbc(std::stop_token stop) -> Result<DbcDefinition>;
-    // Render a DbcDefinition as .dbc file text via the verified Agda formatter.
-    // Inverse of parse_dbc_text at the wire level: parse_dbc_text(format_dbc_text(d))
-    // returns d byte-identical for any text-round-trip well-formed DBC (a stricter
-    // condition than validating clean — see the "well-formed DBC" entry in
-    // docs/GLOSSARY.md).
-    // Does not modify client state — pass any DbcDefinition value (typically from
-    // parse_dbc_text, format_dbc, or a JSON load).
+    // Render a DbcDefinition as .dbc file text via the verified Agda formatter,
+    // returning the text image plus its wfTextIssues diagnostics (warning-
+    // severity, advisory) as a DbcText.  Always strict: it yields a DbcText only
+    // when the emitted text provably re-parses to the input DBC —
+    // parse_dbc_text(format_dbc_text(d)->text) returns d byte-identical (a
+    // stricter condition than validating clean — see the "well-formed DBC" entry
+    // in docs/GLOSSARY.md).  A DBC whose text does not round-trip is refused with
+    // an AletheiaError of kind ErrorKind::TextRoundtrip (code
+    // HandlerTextRoundtripFailed, carrying the diagnostics via issues()) rather
+    // than lossy text.  Does not modify client state — pass any DbcDefinition
+    // value (typically from parse_dbc_text, format_dbc, or a JSON load).
     [[nodiscard]] auto format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
-        -> Result<std::string>;
+        -> Result<DbcText>;
 
     // --- Signals ---
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.

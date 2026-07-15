@@ -743,9 +743,23 @@ impl Dbc {
     }
 }
 
+/// The success result of the parse methods
+/// ([`Client::parse_dbc_text`](crate::Client::parse_dbc_text) /
+/// [`Client::parse_dbc`](crate::Client::parse_dbc)): the canonical typed document
+/// plus any non-error validation issues (warnings). Errors short-circuit to the
+/// `Result<>::Err` path; this is only produced when the parse + structural
+/// validation pass has zero error-severity issues.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedDbc {
+    /// The parsed, canonical typed DBC document.
+    pub dbc: Dbc,
+    /// Non-error validation issues (warnings), in report order.
+    pub warnings: Vec<ValidationIssue>,
+}
+
 /// Decode a `parseDBCText` response into the typed document plus any validation
 /// warnings the core reported.
-pub(crate) fn decode_parsed_dbc(raw: &str) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
+pub(crate) fn decode_parsed_dbc(raw: &str) -> Result<ParsedDbc, Error> {
     let obj = parse_object(raw)?;
     let dbc = obj
         .get("dbc")
@@ -755,7 +769,7 @@ pub(crate) fn decode_parsed_dbc(raw: &str) -> Result<(Dbc, Vec<ValidationIssue>)
         .iter()
         .map(crate::response::decode_issue)
         .collect::<Result<Vec<_>, Error>>()?;
-    Ok((dbc, warnings))
+    Ok(ParsedDbc { dbc, warnings })
 }
 
 /// Decode a `formatDBC` response (`{"dbc": …}`) into the typed document.

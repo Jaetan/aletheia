@@ -217,6 +217,22 @@ const (
 	IssueUnknownSignalReceiver IssueCode = "unknown_signal_receiver"
 	// IssueUnknownValueDescriptionTarget — VAL_ line references (canID, signalName) with no matching signal in any message.
 	IssueUnknownValueDescriptionTarget IssueCode = "unknown_value_description_target"
+	// IssueTextRoundtripDivergence — FormatDBCText: re-parsing the emitted text does not reproduce the input DBC.
+	IssueTextRoundtripDivergence IssueCode = "text_roundtrip_divergence"
+	// IssueMultiValueMuxSelector — a mux signal is present for multiple selector values (not expressible in .dbc text).
+	IssueMultiValueMuxSelector IssueCode = "multi_value_mux_selector"
+	// IssueMuxMasterIncoherent — the mux master signal's presence is inconsistent with its slaves.
+	IssueMuxMasterIncoherent IssueCode = "mux_master_incoherent"
+	// IssueBigEndianMSBLayout — a big-endian signal's MSB-first bit layout does not round-trip through .dbc text.
+	IssueBigEndianMSBLayout IssueCode = "big_endian_msb_layout"
+	// IssueUnknownAttributeName — a BA_ assignment/default references an attribute with no BA_DEF_ declaration.
+	IssueUnknownAttributeName IssueCode = "unknown_attribute_name"
+	// IssueAttributeValueTypeMismatch — an attribute value's type does not match its BA_DEF_ declaration.
+	IssueAttributeValueTypeMismatch IssueCode = "attribute_value_type_mismatch"
+	// IssueAttributeEnumEmpty — an enum attribute (BA_DEF_ ENUM) declares no values.
+	IssueAttributeEnumEmpty IssueCode = "attribute_enum_empty"
+	// IssueAttributeEnumDefaultUnstable — an enum attribute's default index does not resolve back to itself.
+	IssueAttributeEnumDefaultUnstable IssueCode = "attribute_enum_default_unstable"
 	// IssueUnknown — unrecognized issue code from the Agda core.
 	IssueUnknown IssueCode = "unknown"
 )
@@ -244,4 +260,16 @@ type ValidationResult struct {
 type ParsedDBC struct {
 	DBC      DBCDefinition
 	Warnings []ValidationIssue
+}
+
+// DBCText is the success-path result of FormatDBCText: the .dbc text image plus
+// its wfTextIssues diagnostics (warning-severity, advisory).
+//
+// FormatDBCText is always strict — it returns this shape only when the emitted
+// text provably re-parses to the input DBC, so Issues may be non-empty even on
+// a proven round-trip.  A DBC whose text does not round-trip short-circuits to
+// the (*DBCText, error) tuple's error half as a [TextRoundTripFailedError].
+type DBCText struct {
+	Text   string
+	Issues []ValidationIssue
 }

@@ -35,6 +35,15 @@ enum class IssueCode {
     UnknownMessageSender,
     UnknownSignalReceiver,
     UnknownValueDescriptionTarget,
+    // Text-round-trip checker diagnostics (formatDBCText / round-trip refusal).
+    TextRoundtripDivergence,
+    MultiValueMuxSelector,
+    MuxMasterIncoherent,
+    BigEndianMsbLayout,
+    UnknownAttributeName,
+    AttributeValueTypeMismatch,
+    AttributeEnumEmpty,
+    AttributeEnumDefaultUnstable,
     Unknown
 };
 

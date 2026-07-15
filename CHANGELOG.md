@@ -51,6 +51,34 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **`format_dbc_text` is now always-strict and returns structured text + issues
+  (BREAKING — all four bindings).** Completes the E.2 route (b) work (the two
+  internal verified-checker slices under _Added_ above). `format_dbc_text(dbc)`
+  now returns the `.dbc` text together with a warning-severity `issues` list
+  **only** when that text provably re-parses to the input DBC; a DBC that cannot
+  be expressed as round-tripping `.dbc` text — e.g. a signal multiplexed on
+  multiple selector values, which the JSON model admits but the `.dbc` grammar
+  cannot encode — is **refused** with a typed round-trip error carrying the
+  diverging issues, instead of emitting silently-lossy text. There is no `strict`
+  flag: a flag would imply you might sometimes want non-round-tripping text, which
+  contradicts the command's purpose. The emitted-text guarantee is machine-checked
+  (`formatDBCTextResult-sound`).
+  - **Wire**: the `formatDBCText` success response gains an `issues` field
+    (`{status, text, issues}`); a non-round-tripping DBC returns the new
+    `handler_text_roundtrip_failed` error code with an `issues` array led by the
+    error-severity `text_roundtrip_divergence`. The eight new round-trip
+    `IssueCode`s are documented in `docs/architecture/PROTOCOL.md` § FormatDBCText.
+  - **Bindings** (return type changed in place — no `strict` parameter, no sibling
+    methods): Python returns a `DBCTextResponse` and raises
+    `TextRoundTripFailedError` on refusal; Go `FormatDBCText` returns
+    `(*DBCText, error)` with a typed `*TextRoundTripFailedError`; C++
+    `format_dbc_text` returns `Result<DbcText>`, refusal surfacing on
+    `AletheiaError` as `ErrorKind::TextRoundtrip` /
+    `ErrorCode::HandlerTextRoundtripFailed`; Rust `format_dbc_text` returns
+    `Result<DbcText, Error>` with `Error::TextRoundtripFailed`. Rust additionally
+    migrated its `format_dbc_text` / `parse_dbc_text` / `parse_dbc` tuple returns
+    to named structs (`DbcText`, `ParsedDbc`). New `FEATURE_MATRIX.yaml` row
+    `dbc_text_roundtrip_check` + per-binding parity gates.
 - Internal (no behavior change): removed the unused `.agda-reference/README.md`
   stub and moved its provenance (the Agda `Parser.y` source URL, the `v2.8.0` pin,
   and the `curl` re-fetch recipe) into the `tools/_agda_opens.py` module docstring

@@ -27,6 +27,7 @@ from aletheia import (
     MockBackend,
     ProtocolError,
     StateError,
+    TextRoundTripFailedError,
 )
 from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES
 
@@ -148,6 +149,85 @@ class TestFormatDbcTextErrorPaths:
         with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
             client.format_dbc_text(_sample_dbc())
         assert str(excinfo.value) == "Expected 'text' field in formatDBCText response"
+
+    def test_success_returns_text_and_issues_structure(self) -> None:
+        """The success arm returns the exact ``{status, text, issues}`` dict.
+
+        Real-FFI success coverage lives in ``test_format_dbc.py``, which the
+        mutation lane ignores (it reaches the ``.so``); this mock-driven test
+        runs inside mutmut and pins the success arm.  A NON-EMPTY issues list
+        stops a mutant that drops or rewires the ``issues`` pass-through from
+        hiding behind an empty fixture, and the full-dict equality pins the
+        ``status`` / ``text`` / ``issues`` keys and the ``"success"`` literal.
+        """
+        issues: list[JSONValue] = [
+            {"severity": "warning", "code": "big_endian_msb_layout", "detail": "be"},
+            {"severity": "warning", "code": "attribute_enum_empty", "detail": "no labels"},
+        ]
+        backend = MockBackend(
+            [_resp({"status": "success", "text": 'VERSION ""\n', "issues": issues})]
+        )
+        with AletheiaClient(backend=backend) as client:
+            result = client.format_dbc_text(_sample_dbc())
+        assert result == {"status": "success", "text": 'VERSION ""\n', "issues": issues}
+
+    def test_success_absent_issues_defaults_empty(self) -> None:
+        """A success response with no ``issues`` field defaults to an empty list."""
+        backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n'})])
+        with AletheiaClient(backend=backend) as client:
+            result = client.format_dbc_text(_sample_dbc())
+        assert result == {"status": "success", "text": 'VERSION ""\n', "issues": []}
+
+    def test_success_non_list_issues_field_raises(self) -> None:
+        """Reject a success response whose ``issues`` field is present but not a list of objects.
+
+        Absent issues default to empty; a present-but-ill-typed field is a
+        ProtocolError (not a KeyError/TypeError crash) — the malformed-response
+        contract mirrors ``parse_parsed_dbc_response``'s ``warnings`` validation.
+        """
+        backend = MockBackend([_resp({"status": "success", "text": 'VERSION ""\n', "issues": {}})])
+        with AletheiaClient(backend=backend) as client, pytest.raises(ProtocolError) as excinfo:
+            client.format_dbc_text(_sample_dbc())
+        assert (
+            str(excinfo.value)
+            == "formatDBCText success response 'issues' must be a list of objects"
+        )
+
+    def test_roundtrip_failed_envelope_lifts_to_typed_error(self) -> None:
+        """A ``handler_text_roundtrip_failed`` envelope lifts to the typed error.
+
+        Mirrors the ``validate_dbc`` ``handler_validation_failed`` lift test;
+        pins the exact message, the gated wire code, the decoded ``has_errors``,
+        and the issues in wire order — the mutant-killing contract of the
+        ``raise_if_text_roundtrip_failed`` arm (its real-FFI coverage lives in the
+        mutation-ignored ``test_format_dbc.py``).
+        """
+        issues: list[JSONValue] = [
+            {"severity": "error", "code": "text_roundtrip_divergence", "detail": "diverges"},
+            {"severity": "warning", "code": "multi_value_mux_selector", "detail": "mux"},
+        ]
+        backend = MockBackend(
+            [
+                _resp(
+                    {
+                        "status": "error",
+                        "message": "boom",
+                        "code": "handler_text_roundtrip_failed",
+                        "has_errors": True,
+                        "issues": issues,
+                    }
+                )
+            ]
+        )
+        with (
+            AletheiaClient(backend=backend) as client,
+            pytest.raises(TextRoundTripFailedError) as excinfo,
+        ):
+            client.format_dbc_text(_sample_dbc())
+        assert str(excinfo.value) == "formatDBCText failed: boom"
+        assert excinfo.value.code == "handler_text_roundtrip_failed"
+        assert excinfo.value.has_errors is True
+        assert excinfo.value.issues == issues
 
 
 class TestValidateDbcErrorPaths:

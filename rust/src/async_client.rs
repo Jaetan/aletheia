@@ -37,8 +37,9 @@ use futures_channel::oneshot;
 use futures_util::stream::{unfold, Stream};
 
 use crate::{
-    CanId, Check, Client, ClientBuilder, Dbc, DbcMessage, Dlc, Error, ExtractionResult, Formula,
-    Frame, FrameResponse, SignalValue, StreamResult, Timestamp, ValidationIssue, ValidationResult,
+    CanId, Check, Client, ClientBuilder, Dbc, DbcMessage, DbcText, Dlc, Error, ExtractionResult,
+    Formula, Frame, FrameResponse, ParsedDbc, SignalValue, StreamResult, Timestamp,
+    ValidationResult,
 };
 
 /// A unit of work run on the worker thread against the owned sync [`Client`].
@@ -159,7 +160,7 @@ impl AsyncClient {
     ///
     /// # Errors
     /// As the sync method, plus a closed/stopped async worker.
-    pub async fn parse_dbc_text(&self, text: String) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
+    pub async fn parse_dbc_text(&self, text: String) -> Result<ParsedDbc, Error> {
         self.run(move |c| c.parse_dbc_text(&text)).await
     }
 
@@ -167,7 +168,7 @@ impl AsyncClient {
     ///
     /// # Errors
     /// As the sync method, plus a closed/stopped async worker.
-    pub async fn parse_dbc(&self, dbc: Dbc) -> Result<(Dbc, Vec<ValidationIssue>), Error> {
+    pub async fn parse_dbc(&self, dbc: Dbc) -> Result<ParsedDbc, Error> {
         self.run(move |c| c.parse_dbc(&dbc)).await
     }
 
@@ -191,7 +192,7 @@ impl AsyncClient {
     ///
     /// # Errors
     /// As the sync method, plus a closed/stopped async worker.
-    pub async fn format_dbc_text(&self, dbc: Dbc) -> Result<String, Error> {
+    pub async fn format_dbc_text(&self, dbc: Dbc) -> Result<DbcText, Error> {
         self.run(move |c| c.format_dbc_text(&dbc)).await
     }
 

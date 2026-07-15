@@ -36,7 +36,7 @@ fn value_is(ex: &ExtractionResult, name: &str, num: i64, den: i64) -> bool {
 #[test]
 fn build_frame_encodes_signals_to_exact_bytes() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let msg = dbc
         .message_by_id(CanId::standard(256).expect("id"))
         .expect("EngineStatus");
@@ -58,7 +58,7 @@ fn build_frame_encodes_signals_to_exact_bytes() {
 #[test]
 fn build_then_extract_round_trips_representable_values() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -78,7 +78,7 @@ fn build_then_extract_round_trips_representable_values() {
 fn build_extract_round_trips_extended_id() {
     // The extended branch: message.extended → ext=1 to the build/extract FFI.
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(EXTENDED).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(EXTENDED).expect("parse DBC text").dbc;
     let id = CanId::extended(256).expect("ext id");
     let msg = dbc.message_by_id(id).expect("Ext message");
     assert!(msg.extended, "id 256 extended message");
@@ -93,7 +93,7 @@ fn build_extract_round_trips_extended_id() {
 #[test]
 fn update_frame_splices_one_signal_and_preserves_the_rest() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -137,7 +137,7 @@ fn update_frame_splices_one_signal_and_preserves_the_rest() {
 #[test]
 fn extract_signals_selects_by_mux_value() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MUX).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MUX).expect("parse DBC text").dbc;
     let id = CanId::standard(100).expect("id");
     let msg = dbc.message_by_id(id).expect("BasicMux");
     let dlc = Dlc::new(8).expect("dlc");
@@ -172,7 +172,7 @@ fn extract_signals_selects_by_mux_value() {
 #[test]
 fn send_frames_batches_and_returns_per_frame_responses() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -221,7 +221,7 @@ fn send_frames_iter_matches_eager_responses_and_state() {
     // per-frame responses AND leave the stream in the identical final state.
     // This is what guarantees the eager and lazy loop wrappers cannot drift.
     let setup = client();
-    let (dbc, _) = setup.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = setup.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");
@@ -271,7 +271,7 @@ fn send_frames_iter_matches_eager_responses_and_state() {
 fn build_frame_with_no_signals_is_zero_filled() {
     // Exercises the empty-array path (numSignals=0 → null array pointers).
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let msg = dbc
         .message_by_id(CanId::standard(256).expect("id"))
         .expect("EngineStatus");
@@ -285,7 +285,7 @@ fn build_frame_with_no_signals_is_zero_filled() {
 fn payload_length_must_match_dlc() {
     // The data-length-vs-DLC invariant is enforced before the FFI (Copilot review).
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(MINIMAL).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
     let id = CanId::standard(256).expect("id");
     let msg = dbc.message_by_id(id).expect("EngineStatus");
     let dlc = Dlc::new(8).expect("dlc");

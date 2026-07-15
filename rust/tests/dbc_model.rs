@@ -19,7 +19,7 @@ fn client() -> Client {
 #[test]
 fn parse_dbc_text_returns_typed_document() {
     let c = client();
-    let (dbc, _warnings) = c.parse_dbc_text(DBC).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(DBC).expect("parse DBC text").dbc;
 
     let m = dbc
         .message_by_id(CanId::standard(100).expect("valid id"))
@@ -46,7 +46,7 @@ fn parse_dbc_text_returns_typed_document() {
 #[test]
 fn format_dbc_round_trips_the_loaded_document() {
     let c = client();
-    let (parsed, _warnings) = c.parse_dbc_text(DBC).expect("parse DBC text");
+    let parsed = c.parse_dbc_text(DBC).expect("parse DBC text").dbc;
     let exported = c.format_dbc().expect("format_dbc export");
     assert_eq!(
         parsed, exported,
@@ -61,7 +61,10 @@ const ATTRS_DBC: &str = include_str!("../../python/tests/fixtures/dbc_corpus/att
 #[test]
 fn format_dbc_round_trips_typed_attributes() {
     let c = client();
-    let (parsed, _warnings) = c.parse_dbc_text(ATTRS_DBC).expect("parse attributes DBC");
+    let parsed = c
+        .parse_dbc_text(ATTRS_DBC)
+        .expect("parse attributes DBC")
+        .dbc;
     assert!(
         !parsed.attributes.is_empty(),
         "attributes.dbc must carry attributes to exercise the typed model"
@@ -81,10 +84,10 @@ const KITCHEN: &str = include_str!("../../python/tests/fixtures/dbc_corpus/kitch
 #[test]
 fn parse_dbc_round_trips_the_serialized_document() {
     let c = client();
-    let (from_text, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    let from_text = c.parse_dbc_text(KITCHEN).expect("parse DBC text").dbc;
     // parse_dbc serializes the typed document and feeds it back through the core
     // (the JSON path); a correct serialize re-parses to the same document.
-    let (from_json, _) = c.parse_dbc(&from_text).expect("parse_dbc (JSON path)");
+    let from_json = c.parse_dbc(&from_text).expect("parse_dbc (JSON path)").dbc;
     assert_eq!(
         from_text, from_json,
         "parse_dbc_text → parse_dbc must round-trip the typed document"
@@ -94,10 +97,13 @@ fn parse_dbc_round_trips_the_serialized_document() {
 #[test]
 fn format_dbc_text_round_trips_through_the_formatter() {
     let c = client();
-    let (from_text, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    let from_text = c.parse_dbc_text(KITCHEN).expect("parse DBC text").dbc;
     // serialize → core .dbc formatter → re-parse must be the identity.
-    let text = c.format_dbc_text(&from_text).expect("format_dbc_text");
-    let (reparsed, _) = c.parse_dbc_text(&text).expect("re-parse formatted text");
+    let text = c.format_dbc_text(&from_text).expect("format_dbc_text").text;
+    let reparsed = c
+        .parse_dbc_text(&text)
+        .expect("re-parse formatted text")
+        .dbc;
     assert_eq!(
         from_text, reparsed,
         "format_dbc_text output must re-parse to the same typed document"
@@ -107,7 +113,7 @@ fn format_dbc_text_round_trips_through_the_formatter() {
 #[test]
 fn validate_dbc_reports_no_errors_for_the_valid_corpus() {
     let c = client();
-    let (dbc, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    let dbc = c.parse_dbc_text(KITCHEN).expect("parse DBC text").dbc;
     let result = c.validate_dbc(&dbc).expect("validate_dbc");
     assert!(
         !result.has_errors,
@@ -119,7 +125,7 @@ fn validate_dbc_reports_no_errors_for_the_valid_corpus() {
 #[test]
 fn validate_dbc_flags_an_invalid_document() {
     let c = client();
-    let (mut dbc, _) = c.parse_dbc_text(KITCHEN).expect("parse DBC text");
+    let mut dbc = c.parse_dbc_text(KITCHEN).expect("parse DBC text").dbc;
     // Shrink a populated message to 0 bytes: every signal's bit range now
     // exceeds the DLC — a structural error the validator must report (pins the
     // has_errors == true branch the valid-corpus test never reaches).

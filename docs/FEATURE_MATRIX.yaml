@@ -122,6 +122,38 @@ features:
         notes: "Same Agda core via FFI; returns the ``.dbc`` text image."
       rust: { status: implemented, entry: "Client::format_dbc_text" }
 
+  - id: dbc_text_roundtrip_check
+    name: DBC text round-trip guarantee (format_dbc_text is always-strict)
+    description: >-
+      ``format_dbc_text`` is contractually strict — the ``.dbc`` text it returns
+      always re-parses to the same DBC document. On success it surfaces the text
+      plus any non-fatal round-trip warnings (``issues``); when the DBC provably
+      cannot be expressed as round-tripping ``.dbc`` text (e.g. a multi-value
+      multiplexed signal, which the JSON model admits but the ``.dbc`` grammar
+      cannot encode) it refuses with a typed error carrying the diverging issue
+      list rather than emitting text that would silently not round-trip. The Agda
+      handler gates the emission on ``roundTripsWithᵇ`` and the soundness of that
+      gate is proven (``formatDBCTextResult-sound``); the ``handler_text_roundtrip_failed``
+      wire code lifts to each binding's idiomatic refusal type.
+    related: dbc_text_format
+    bindings:
+      python:
+        status: implemented
+        entry: aletheia.TextRoundTripFailedError
+        notes: "format_dbc_text returns a DBCTextResponse ({status, text, issues}); on the handler_text_roundtrip_failed envelope it raises TextRoundTripFailedError(issues, has_errors) — a sibling of DBCValidationFailedError, lifted via the shared raise_if_text_roundtrip_failed helper."
+      cpp:
+        status: implemented
+        entry: "aletheia/error.hpp#HandlerTextRoundtripFailed"
+        notes: "format_dbc_text returns Result<DbcText> ({text, issues}); refusal surfaces on AletheiaError as ErrorKind::TextRoundtrip + ErrorCode::HandlerTextRoundtripFailed carrying the issues() payload (no new exception type — C++ errors are a single value type, matching validation_rejection_issues)."
+      go:
+        status: implemented
+        entry: TextRoundTripFailedError
+        notes: "FormatDBCText returns (*DBCText, error) where DBCText carries {Text, Issues}; refusal is a typed *TextRoundTripFailedError (Issues + HasErrors), lifted from the handler_text_roundtrip_failed envelope in checkErrorStatus."
+      rust:
+        status: implemented
+        entry: "Error::TextRoundtripFailed"
+        notes: "format_dbc_text returns Result<DbcText, Error> where DbcText carries {text, issues}; refusal is Error::TextRoundtripFailed { code, message, has_errors, issues }, lifted by parse_object on the handler_text_roundtrip_failed wire code (a malformed payload degrades to Error::Core, matching the peers)."
+
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)
     description: Expose the three top-level DBC metadata arrays — signal groups, environment variables, and value tables — that the Agda core already carries end-to-end through the wire.

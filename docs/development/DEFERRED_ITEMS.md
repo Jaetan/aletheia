@@ -137,6 +137,24 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### E.2 — `WellFormedTextDBCAgg` runtime discharge
 
+- **STATUS 2026-07-15 — route (b) SHIPPED; the user-facing concern is RESOLVED.**
+  The reject-path redesign (route (b) below) is implemented across E.2 route (b)
+  slices 1–3: `format_dbc_text` is now **always strict**. It evaluates the exact
+  round-trip check `roundTripsWithᵇ` (axiom-free soundness, `RoundTripCheck/Sound.agda`)
+  and returns the `.dbc` text plus advisory `wfTextIssues` warnings when the DBC
+  provably round-trips, or a typed `handler_text_roundtrip_failed` refusal — led by
+  the error-severity `text_roundtrip_divergence` — when it does not. The emitted-text
+  guarantee is machine-checked (`formatDBCTextResult-sound`), and the handler needs
+  **no** `WellFormedTextDBCAgg` discharge: the exact check carries no such
+  precondition, so the four undischarged fields analysed below no longer gate the
+  guarantee. The shipped design is always-strict with **no `strict` flag** (it
+  evolved from the plan's format-anyway-default + opt-in-strict — a flag would imply
+  wanting non-round-tripping text). All four bindings surface the enriched return +
+  typed refusal (in-place BREAKING); FEATURE_MATRIX row `dbc_text_roundtrip_check`.
+  **Routes (a)/(c) remain HOLD** — they would make emission lossless and let
+  `WellFormedTextDBCAgg` itself be discharged, but are off the critical path now that
+  the guarantee is observable. The analysis below is retained as the rationale for
+  choosing route (b).
 - **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:85` (the record);
   handler `src/Aletheia/Protocol/Handlers/FormatDBCText.agda`.
 - **Origin** — text round-trip proof obligation (`WellFormedTextDBCAgg` precondition).
@@ -259,6 +277,32 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   anytime after slice 1 — a good fit for a multi-agent proof-trace workflow.
 - **Verdict** — `SCHEDULED` (quality/tightening analysis, non-blocking).
 
+### E.4 — Comment-quality pass over the E.2-arc modules
+
+- **Where** — the E.2 route-(b) modules: `FormatDBCText.agda`,
+  `Protocol/Message.agda`, `Protocol/ResponseFormat.agda`, `WellFormedCheck.agda`,
+  `RoundTripCheck.agda`, their `Sound`/`Properties` siblings, and
+  `TextParser/Properties/Substrate/Unsafe.agda`.
+- **Origin** — user directive 2026-07-15. The slice-3 plan-label scrub was narrow
+  (removed "slice N" / "§N" / "V1/V2" only); it left the dense explanatory comments
+  otherwise untouched, and the modules accreted their narrative incrementally across
+  three slices.
+- **Guiding principle** (user 2026-07-15): every comment must be useful to a
+  *reader* of the file — it describes the code's **goals** (why it is shaped this
+  way) and **rules / invariants** (what a maintainer must preserve). **Nothing
+  about the past** (how it evolved, what it used to be, which slice added it, why a
+  prior approach failed) and **nothing redundant** with what the code already says.
+  History lives in git.
+- **Do** — a dedicated pass to (a) fix **incorrect** comments — stale claims that
+  drifted from the code (arities, field counts, behaviour that changed across the
+  slices, references to a design shape that was later unwound, e.g. the `strict`
+  flag); and (b) delete **unnecessary** comments — redundant with the code,
+  over-verbose, or historical/plan-scaffolding narrative that outlived its purpose.
+  Keep only build-validated code cross-refs (module / function names); comments must
+  be self-contained (no CI gate scans `.agda` comment cross-refs).
+- **Sequencing** — AFTER the whole E.2 arc lands (slice 3 merged). Own PR.
+- **Verdict** — `SCHEDULED` (code hygiene, non-blocking).
+
 ---
 
 ## F. Parked by prior user decision (re-confirm, don't re-open lightly)
@@ -354,6 +398,60 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Blockers / deps** — none; independent of the Agda / proof work.
 - **Verdict (first pass)** — `DO` (user directive 2026-07-13: "we need to fix iwyu to be a 100%
   reliable tool").
+
+### G.2 — Reserve the `.Properties` namespace for proofs; move decision procedures to `.Decidable`; make `check-no-properties-in-runtime` an exact closure gate
+
+> **This entry is the SINGLE SOURCE OF TRUTH for this refactor. Do not describe it elsewhere —
+> link here (`DEFERRED_ITEMS.md §G.2`).**
+
+- **Origin** — the E.2 route-(b) slice-3 adversarial review, finding D: `check-no-properties-in-runtime`'s
+  comment claimed it keeps proofs out of the runtime `.so`, but the gate only greps the 4 handwritten
+  runtime ROOTS (Main / Main.JSON / Main.Binary / Handlers.agda) for DIRECT `.Properties` imports — a
+  narrow, mis-targeted proxy. Re-examination (2026-07-15) rejected two dead ends before landing here:
+  a closure-level ALLOWLIST (name-matching can't classify lemma-vs-Dec; duplicates cabal `other-modules`;
+  fires on every legit new Format module), and papering over via a comment. The user chose to fix the
+  underlying **failure F3**: *a computational decision procedure is misfiled under a proof namespace.*
+- **What we want** — the `Aletheia.DBC.Properties.*` namespace RESERVED for proofs (standalone lemmas),
+  so "no `Aletheia.DBC.Properties.*` module in the `.so` closure" is an invariant that is both TRUE and
+  exactly enforceable. Runtime consumes decision procedures from a new computational namespace `DBC.Decidable.*`.
+- **Out of scope (documented exception, NOT a leak)** — the Format-DSL proofs under
+  `TextParser.*.Properties.*` (`Primitives`, `Preamble.Newline`, `Attributes.Assign.Common`,
+  `DecRatParse.Properties`) are genuine proofs that ride in the runtime `.so` closure BY DESIGN: the
+  proof-carrying Format DSL (`iso`/`refined`) bundles a printer+parser with its round-trip proof
+  (`@0`-erased in the binary, but the module is in the import graph via `Format.agda`, which Main reaches
+  through `parseText`). No naming scheme removes these without gutting the verified-by-construction DSL.
+  So the gate is scoped to `DBC.Properties.*` — the namespace we actually disambiguate — NOT all `.Properties`.
+- **Plan (scoped; advisor-reviewed 2026-07-15).** Naming: computational modules → `DBC.Decidable.*`.
+  - **Pure renames** (all-computational): `DBC.Properties.Equality` → `DBC.Decidable.Equality`;
+    `DBC.Properties.Equality.Full` → `DBC.Decidable.Equality.Full` (`dlc-code-inj` is an internal helper
+    for `_≟-DLC_`, travels with the tower). Preserve `Equality`'s `private` block and keep `_≟-vd_` **public**.
+  - **Splits** (mixed → Dec part + residual proof part): `Disjointness` and `WellFormedness` each split
+    into `DBC.Decidable.X` (data + `Dec`s + Bool helpers) and residual `DBC.Properties.X` (the
+    `-sym`/`-false-absent` lemmas — confirmed imported ONLY by `CAN/Batch/Properties/{Capstone,Roundtrip}`
+    proofs, never by runtime, so they genuinely leave the closure).
+  - **Facade split**: `DBC.Properties` (today re-exports both, and is BOTH a runtime import AND a
+    proofModules root) → `DBC.Decidable` (re-exports Decs, runtime) + residual `DBC.Properties`
+    (re-exports lemmas, proof root).
+  - **Route ~12 importers by `using`-clause name** (grep each up front; dual-users get both imports):
+    runtime (`RoundTripCheck`, `Validator/Checks`, `BatchFrameBuilding`, `Validity/*`) → `.Decidable`;
+    proof (`Capstone`, `Roundtrip`, `Substrate/Unsafe`) → `.Properties` for lemmas.
+  - **`proofModules`** (Shakefile.hs): `.Decidable.*` leave (build-checked in Main's closure); residual
+    `.Properties.*` + the `.Properties` facade become/stay proof roots; keep `check-proof-coverage` green.
+  - **`gen-ffi-modules` + `aletheia.cabal`** regenerated; **gate rewrite**: `check-no-properties-in-runtime`
+    → assert cabal `other-modules` contains zero `MAlonzo.Code.Aletheia.DBC.Properties.*`; document in the
+    gate WHY it is scoped to `DBC.Properties.*` (the Format-DSL exception above).
+- **Acceptance test (done ≠ type-checks)** — after `gen-ffi-modules`, `aletheia.cabal` `other-modules`
+  lists **zero** `Aletheia.DBC.Properties.*`, and the new gate passes against it. Any residual `.Properties.*`
+  still in the closure = a runtime path still reaches it = the split is incomplete (this is also the honest
+  self-test that it was a real split, not relabeling).
+- **Watch** — renamed modules get new MAlonzo mangled names (build's drift detector prints `sed` fixes; run
+  them); `check-fidelity` stays green; `check-ffi-exports` holds at 47 (export SET unchanged — verify).
+- **Blockers / deps / SEQUENCING** — **must land AFTER E.2 route (b) (slice 3), as its own PR off `main`
+  (user decision 2026-07-15, "Option 1").** F3 and the uncommitted slice-3 work both edit `Shakefile.hs`
+  (`proofModules`) and `aletheia.cabal` (`other-modules`), which this env can only stage per-file → they
+  cannot be un-bundled after interleaving; and F3 renames `Equality.Full`, which slice-3's `RoundTripCheck`
+  imports. So finish slice-3, land it, then F3 rebases cleanly on top.
+- **Verdict** — `DO` (user directive 2026-07-15), sequenced after slice 3.
 
 ---
 
