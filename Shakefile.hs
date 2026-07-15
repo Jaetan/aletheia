@@ -17,7 +17,7 @@ import System.Exit (ExitCode(..))
 import System.IO.Error (catchIOError)
 import Data.List (isInfixOf, isPrefixOf, stripPrefix, nub, intercalate, sort)
 import Data.Maybe (listToMaybe)
-import Data.Char (isSpace, isDigit)
+import Data.Char (isSpace, isDigit, isAlphaNum)
 import Control.Monad (when, unless, forM, forM_)
 import Control.Exception (evaluate)
 import GHC.Conc (getNumProcessors)
@@ -573,8 +573,27 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- ignore the exit code.
         let allowedUnsafe =
                 ["Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda"]
-        (Exit _, Stdout postulateOut) <-
+        -- The scan must be able to say "I could not look" out loud.  grep exits
+        -- 0 (matched), 1 (no match) or >=2 (ERROR: unreadable path, bad regex) —
+        -- and an error prints nothing.  Empty output is exactly how this gate
+        -- spells "no unauthorised postulates", so discarding the exit code would
+        -- let a scan that never ran certify the tree clean.
+        (Exit postulateRc, Stdout postulateOut) <-
             cmd "grep" "-rln" "--include=*.agda" "-E" "^postulate" "src/"
+        case postulateRc of
+            ExitFailure n | n >= 2 ->
+                error $ "check-invariants failed: grep could not scan src/ for "
+                     ++ "postulates (exit " ++ show n ++ "). The scan did not run, "
+                     ++ "so its empty result says nothing about the tree."
+            _ -> return ()
+        -- Assert the input exists, not that postulates do: a tree with ZERO
+        -- postulates is the goal state and must pass, but a scan over ZERO Agda
+        -- sources has lost its input rather than proved anything.
+        agdaSourceCount <- length <$> getDirectoryFiles "src" ["//*.agda"]
+        when (agdaSourceCount == 0) $
+            error $ "check-invariants failed: no .agda sources found under src/. "
+                 ++ "The postulate/Unsafe scan would pass vacuously over an empty "
+                 ++ "tree; fix the checkout before trusting this gate."
         let postulateFiles = lines (postulateOut :: String)
             stripSrc f = case stripPrefix "src/" f of
                            Just rest -> rest
@@ -617,20 +636,45 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- gutting the verified-by-construction DSL, and this pattern does not match
         -- them (their `.Properties` sits deeper than `DBC.Properties`).
         let cabalFile = "haskell-shim/aletheia.cabal"
-        -- The trailing class is a word boundary spelled in POSIX ERE: `Properties`
-        -- must end the module name or be followed by a separator, so a sibling like
-        -- `DBC.PropertiesFoo` never trips the gate.  It must stay POSIX — `\b` is a
-        -- GNU/PCRE extension, and a grep lacking it matches nothing, which reads
-        -- here as "clean" and silently turns the gate into a no-op.
-        -- Singleton list so Shake's `cmd` passes the regex as one argv entry.
-        let pat = ["MAlonzo\\.Code\\.Aletheia\\.DBC\\.Properties([^A-Za-z0-9_']|$)"]
-        (Exit _, Stdout offending) <-
-            cmd "grep" ["-nE"] pat [cabalFile]
-        unless (null (offending :: String)) $ do
+        -- Read and match here rather than shelling out to grep: the comparison is
+        -- exact (no regex dialect whose portability must be reasoned about), a
+        -- missing file throws instead of yielding the empty output this gate reads
+        -- as "clean", and there is no subprocess exit code to discard.
+        cabalText <- liftIO $ readFile cabalFile
+        let numbered = zip [(1 :: Int) ..] (lines cabalText)
+            -- The boundary is whatever follows `…DBC.Properties`: end-of-name is a
+            -- hit (the facade module itself), and so is any character that cannot
+            -- continue a module name.  A sibling such as `DBC.PropertiesFoo` is a
+            -- different module and must not trip the gate.
+            isModuleChar c = isAlphaNum c || c == '_' || c == '\''
+            offending =
+                [ (n, l)
+                | (n, l) <- numbered
+                , Just rest <- [stripPrefix "MAlonzo.Code.Aletheia.DBC.Properties"
+                                            (strip l)]
+                , case rest of
+                    []      -> True
+                    (c : _) -> not (isModuleChar c)
+                ]
+            malonzoCount =
+                length [ () | (_, l) <- numbered, "MAlonzo.Code." `isPrefixOf` strip l ]
+        -- Assert the input: the foreign library's closure always lists MAlonzo
+        -- modules, so finding none means this read lost the file's shape rather
+        -- than that the closure is free of DBC.Properties.*.
+        -- The count is the `MAlonzo.Code.*` subset: the closure also carries
+        -- MAlonzo's own runtime modules (MAlonzo.RTE, MAlonzo.RTE.Float), which
+        -- are not compiled Agda and cannot be a DBC.Properties.* leak.
+        when (malonzoCount == 0) $
+            error $ "check-no-properties-in-runtime failed: " ++ cabalFile
+                 ++ " lists no MAlonzo.Code.* modules, so there was nothing to "
+                 ++ "check and a pass here would be vacuous."
+        unless (null offending) $ do
             putError $ "A DBC.Properties.* module is in the runtime .so closure "
-                    ++ "(it must live in DBC.Decidable.*):\n" ++ offending
+                    ++ "(it must live in DBC.Decidable.*):\n"
+                    ++ unlines [ show n ++ ": " ++ strip l | (n, l) <- offending ]
             error "check-no-properties-in-runtime failed"
-        putInfo "No DBC.Properties.* modules in the runtime .so closure."
+        putInfo $ "No DBC.Properties.* modules in the runtime .so closure ("
+               ++ show malonzoCount ++ " MAlonzo.Code.* modules checked)."
 
     phony "check-proof-coverage" $ do
         -- Exhaustiveness gate for the proof checker.  Every module under src/
@@ -792,6 +836,15 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 [ p
                 | Just p <- map parseSnapshotLine (lines snapshotContent)
                 ]
+        -- Assert the input: an emptied snapshot — or one whose line format drifted
+        -- so every line parses to Nothing — yields zero entries, hence zero
+        -- failures, hence a green "0 entries" report.  The gate would certify a
+        -- drift check it never performed.  `regen-ffi-exports` rewrites this file,
+        -- so an accidental truncation is a live risk, not a hypothetical one.
+        when (null expected) $
+            error $ "check-ffi-exports failed: " ++ snapshotFile ++ " parsed to zero "
+                 ++ "entries. Either it was emptied, or its line format changed and "
+                 ++ "no line is recognised any more; either way nothing was checked."
         -- Load every module mentioned in the snapshot, not just those in
         -- `ffiExports`.  The snapshot covers indirect helper accessors
         -- (Sigma fst/snd, DLC, Rational numerator/denominator,

@@ -80,6 +80,16 @@ def main(repo: Path | None = None) -> int:
     src_files = {
         p.resolve().relative_to(repo).as_posix() for p in (repo / "cpp" / "src").rglob("*.cpp")
     }
+    if not src_files:
+        emit(
+            f"check-clang-tidy-coverage: FAIL — no .cpp sources found under {repo / 'cpp' / 'src'}."
+        )
+        emit(
+            "This gate reports 'every source is covered' by finding none uncovered, so an\n"
+            + "empty source set passes vacuously.  Zero sources means the tree moved out\n"
+            + "from under the glob, not that coverage is complete."
+        )
+        return 2
 
     missing = uncovered_sources(src_files, db_files)
     if missing:

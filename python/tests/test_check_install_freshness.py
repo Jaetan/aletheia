@@ -63,10 +63,50 @@ def _run(repo: Path, prefix: Path) -> int:
     return main(["--repo-root", str(repo), "--prefix", str(prefix)])
 
 
-def test_no_build_artifact_is_skip_pass(tmp_path: Path) -> None:
-    """A tree without build output (fresh clone, CI) has nothing to rot."""
+def test_no_build_and_nothing_deployed_passes(tmp_path: Path) -> None:
+    """Nothing built AND nothing deployed: no copy exists, so none can rot.
+
+    The pass is earned by the DEPLOYED side being empty, not by the build
+    being absent — see the two cases below, where a missing build with
+    something deployed is a finding rather than a skip.
+    """
     repo = _make_repo(tmp_path, with_build=False)
     assert _run(repo, tmp_path / "prefix") == 0
+
+
+def test_no_build_but_install_deployed_is_unverifiable(tmp_path: Path) -> None:
+    """A deployed install with no build to compare against cannot be certified.
+
+    Guards the regression where any missing ``build/`` short-circuited to
+    "nothing to compare (OK)" — reporting freshness for a kernel the gate never
+    looked at.  The gate must stand alone rather than rely on the build gate
+    failing first.
+    """
+    repo = _make_repo(tmp_path, with_build=False)
+    prefix = _make_prefix(tmp_path, FRESH_BYTES)
+    assert _run(repo, prefix) == 1
+
+
+def test_no_build_but_dist_present_is_unverifiable(tmp_path: Path) -> None:
+    """Same for a dist/ copy: deployed, unverifiable, therefore reported."""
+    repo = _make_repo(tmp_path, with_build=False)
+    _write(repo / "dist" / "aletheia" / "lib" / "libaletheia-ffi.so", FRESH_BYTES)
+    assert _run(repo, tmp_path / "prefix") == 1
+
+
+def test_no_build_but_broken_receipt_is_reported(tmp_path: Path) -> None:
+    """A receipt is install state even when the library it names is gone.
+
+    With ``build/`` present this already reports "receipt points at a missing
+    library"; the missing-build path must reach the same verdict about the same
+    tree rather than pass silently.  The two paths disagreeing is how the gate
+    would certify a broken install it never examined.
+    """
+    repo = _make_repo(tmp_path, with_build=False)
+    prefix = tmp_path / "prefix"
+    receipt = f"{prefix}\n{prefix}/lib/aletheia/libaletheia-ffi.so\n{prefix}/cfg.py\n"
+    _write(repo / ".install-receipt", receipt.encode())
+    assert _run(repo, prefix) == 1
 
 
 def test_no_deployed_artifacts_pass(tmp_path: Path) -> None:

@@ -23,9 +23,12 @@ Runs as both:
   * Push-time (GHA workflow ``.github/workflows/gha-checks.yml``).
 
 Exit codes:
-  0 — all workflows declare minimal permissions.
+  0 — every workflow was read and declares minimal permissions.
   1 — at least one workflow lacks ``permissions:`` or uses a permissive default.
-  2 — no ``.github/workflows/`` directory (skips silently with exit 0).
+  2 — the gate could not check: no ``.github/workflows/`` directory, no git
+      repo, or zero workflow files read.  Compliance is reported by finding no
+      violations, so an empty read would otherwise be indistinguishable from a
+      compliant repo; the gate must never certify a policy it did not apply.
 """
 
 from __future__ import annotations
@@ -111,8 +114,13 @@ def main() -> int:
 
     workflows_dir = repo_root / ".github" / "workflows"
     if not workflows_dir.is_dir():
-        emit(f"check-workflow-permissions: {workflows_dir} does not exist; skipping")
-        return 0
+        _ = sys.stderr.write(
+            f"check-workflow-permissions: FAIL — {workflows_dir} does not exist.\n"
+            + "This gate certifies least-privilege permissions; with no workflows to read\n"
+            + "it cannot certify anything, and passing here would report a policy that was\n"
+            + "never applied.  Restore the directory, or drop this gate deliberately.\n",
+        )
+        return 2
 
     violations: list[str] = []
     checked = 0
@@ -146,6 +154,17 @@ def main() -> int:
             + '"Use the least privilege principle".\n',
         )
         return 1
+
+    if checked == 0:
+        _ = sys.stderr.write(
+            "check-workflow-permissions: FAIL — zero workflow files read from "
+            + f"{workflows_dir}.\n\n"
+            + "An empty result is how this gate spells 'clean', so it cannot tell a\n"
+            + "compliant repo from one whose workflows moved out from under the glob\n"
+            + "(`*.y*ml`).  A repo with CI has workflows; zero means the gate lost its\n"
+            + "input, not that every workflow complies.\n",
+        )
+        return 2
 
     emit(
         f"check-workflow-permissions: ok ({checked} workflows checked, "
