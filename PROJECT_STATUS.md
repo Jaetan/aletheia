@@ -48,13 +48,14 @@ needs no FFI); a python-can replacement (verified CAN-log readers for
 ASC / BLF / MF4); a GHC `--bignum=native` rebuild to drop the libgmp LGPL
 dependency; and SOME/IP support for automotive Ethernet.
 
-**DBC text round-trip observability (deferred item E.2, re-examined 2026-07-12).**
-The proven `parseText ∘ formatText ≡ id` guarantee holds only for a nine-condition
-well-formedness class that no user surface can evaluate. Closure routes are
-scheduled **(b) ≫ (a) ≫ (c)** with adversarially-reviewed proof strategies in
-[`docs/development/E2_PROOF_STRATEGY.md`](docs/development/E2_PROOF_STRATEGY.md);
-route (b) (a runtime "round-trips, or tells you it can't" checker) is pinned as a
-prerequisite of any future text-export product surface.
+**DBC text round-trip guarantee.**
+`format_dbc_text` is always-strict: it returns `.dbc` text that provably
+re-parses to the input DBC, or a typed `handler_text_roundtrip_failed` refusal —
+machine-checked (`formatDBCTextResult-sound`), across all four bindings. Every
+caller sees a result that is either provably faithful or explicitly refused,
+never silently lossy. Two heavier capabilities remain deferred, off the critical
+path: emitting the currently-lossy constructs (e.g. multi-value multiplexing)
+without loss, and a stronger validator.
 
 Living detail and rationale for the above live in
 [`docs/development/DEFERRED_ITEMS.md`](docs/development/DEFERRED_ITEMS.md) and the
