@@ -404,6 +404,13 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 > **This entry is the SINGLE SOURCE OF TRUTH for this refactor. Do not describe it elsewhere —
 > link here (`DEFERRED_ITEMS.md §G.2`).**
 
+- **STATUS ✅ DONE (2026-07-15)** — shipped as its own PR off `main`. `DBC.Decidable.*`
+  holds the deciders (the equality tower, the disjointness/well-formedness data + `?`
+  procedures, the Bool overlap check); `DBC.Properties.*` holds only the proofs
+  (symmetry, soundness/completeness, proof extraction). The cabal `other-modules`
+  closure lists 441 MAlonzo modules with **zero** `DBC.Properties.*`; the rewritten
+  `check-no-properties-in-runtime` gate asserts exactly that against the closure.
+  Module count 287→290. The plan below is retained for reference.
 - **Origin** — the E.2 route-(b) slice-3 adversarial review, finding D: `check-no-properties-in-runtime`'s
   comment claimed it keeps proofs out of the runtime `.so`, but the gate only greps the 4 handwritten
   runtime ROOTS (Main / Main.JSON / Main.Binary / Handlers.agda) for DIRECT `.Properties` imports — a
@@ -451,7 +458,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   (`proofModules`) and `aletheia.cabal` (`other-modules`), which this env can only stage per-file → they
   cannot be un-bundled after interleaving; and F3 renames `Equality.Full`, which slice-3's `RoundTripCheck`
   imports. So finish slice-3, land it, then F3 rebases cleanly on top.
-- **Verdict** — `DO` (user directive 2026-07-15), sequenced after slice 3.
+- **Verdict** — ✅ **DONE** (2026-07-15); see STATUS above.
 
 ---
 

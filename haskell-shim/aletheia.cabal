@@ -53,14 +53,14 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.DecRat
                       MAlonzo.Code.Aletheia.DBC.DecRat.Refinement
                       MAlonzo.Code.Aletheia.DBC.DecRat.ScaleLemmas
+                      MAlonzo.Code.Aletheia.DBC.Decidable
+                      MAlonzo.Code.Aletheia.DBC.Decidable.Disjointness
+                      MAlonzo.Code.Aletheia.DBC.Decidable.Equality
+                      MAlonzo.Code.Aletheia.DBC.Decidable.Equality.Full
+                      MAlonzo.Code.Aletheia.DBC.Decidable.WellFormedness
                       MAlonzo.Code.Aletheia.DBC.Formatter
                       MAlonzo.Code.Aletheia.DBC.Identifier
                       MAlonzo.Code.Aletheia.DBC.JSONParser
-                      MAlonzo.Code.Aletheia.DBC.Properties
-                      MAlonzo.Code.Aletheia.DBC.Properties.Disjointness
-                      MAlonzo.Code.Aletheia.DBC.Properties.Equality
-                      MAlonzo.Code.Aletheia.DBC.Properties.Equality.Full
-                      MAlonzo.Code.Aletheia.DBC.Properties.WellFormedness
                       MAlonzo.Code.Aletheia.DBC.RationalRenderer
                       MAlonzo.Code.Aletheia.DBC.TextFormatter
                       MAlonzo.Code.Aletheia.DBC.TextFormatter.Attributes

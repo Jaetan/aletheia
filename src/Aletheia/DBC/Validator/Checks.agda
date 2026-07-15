@@ -44,7 +44,7 @@ open import Aletheia.DBC.Types using
   )
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Constants using (max-physical-bits)
-open import Aletheia.DBC.Properties using (signalPairValid?)
+open import Aletheia.DBC.Decidable using (signalPairValid?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)

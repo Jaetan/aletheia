@@ -30,7 +30,7 @@ open import Aletheia.DBC.Validity.Combinators using
   ; requireDec-sound; requireDec-complete
   ; rejectDec-sound; rejectDec-complete
   ; liftTriangular-sound; liftTriangular-complete )
-open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
+open import Aletheia.DBC.Decidable using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using ([]; length)
 open import Data.List.Relation.Unary.All using (All)

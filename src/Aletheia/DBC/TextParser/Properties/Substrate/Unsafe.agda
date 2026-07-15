@@ -92,7 +92,7 @@ open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Universal using
   (parseTextChars-on-formatChars)
 -- S2.5 (stitching V1↔V2): the equality tower, the V2 check, and slice-1's checker soundness.
-open import Aletheia.DBC.Properties.Equality.Full using (_≟-DBC_)
+open import Aletheia.DBC.Decidable.Equality.Full using (_≟-DBC_)
 open import Aletheia.DBC.TextParser.RoundTripCheck using (rtGo; roundTripsᵇ)
 open import Aletheia.DBC.TextParser.WellFormedCheck using (wfTextIssues)
 open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound using (wfTextIssues-sound)

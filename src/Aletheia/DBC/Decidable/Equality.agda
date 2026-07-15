@@ -6,7 +6,7 @@
 --
 -- Purpose: Provide decidable equality instances for SignalPresence,
 --   SignalDef, and DBCSignal, used by membership checks and pair validity.
-module Aletheia.DBC.Properties.Equality where
+module Aletheia.DBC.Decidable.Equality where
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Identifier using (_≟ᴵ_)
