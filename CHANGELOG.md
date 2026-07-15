@@ -12,6 +12,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- Python's public `IssueCode` enum (`aletheia.codes.IssueCode`) gains the eight
+  text-round-trip diagnostic codes (`text_roundtrip_divergence`,
+  `multi_value_mux_selector`, `mux_master_incoherent`, `big_endian_msb_layout`,
+  `unknown_attribute_name`, `attribute_value_type_mismatch`, `attribute_enum_empty`,
+  `attribute_enum_default_unstable`) — parity with the Go / C++ / Rust bindings,
+  which already exposed them as typed members (E.2 review follow-up).
 - **Verified runtime checker for DBC-text round-trip well-formedness** (internal;
   first slice of the E.2 route (b) work — no user-facing change yet). New Agda
   modules add `wfTextIssues : DBC → List ValidationIssue`, a decision procedure
@@ -86,6 +92,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **C++ `format_dbc_text` now rejects a non-array `issues` field on a success
+  response** (E.2 review follow-up). The decoder's success path iterated `issues`
+  with no array check, so an object-typed `issues` was silently harvested from its
+  values — diverging from Python / Go / Rust, which all raise a protocol error on a
+  present-but-non-array `issues` (an absent `issues` still defaults to empty). Added
+  the `is_array()` guard (mirroring `lift_validation_issues`) plus five decode-level
+  tests for `parse_dbc_text_response` (C++ was the only binding without them).
 - **File loaders no longer mislabel a stat *failure* as "file not found".** A
   transient `stat`/`lstat` failure (EACCES, ELOOP, ENAMETOOLONG, or EMFILE/EIO
   under heavily parallel load) was reported as a missing file by the C++ loader

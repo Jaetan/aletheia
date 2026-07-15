@@ -1145,8 +1145,15 @@ auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
             return std::unexpected(
                 make_error(ErrorKind::Protocol,
                            "Missing or non-string 'text' field in formatDBCText response"));
+        // Absent issues → empty; a present-but-non-array issues field is a
+        // protocol error, not silently harvested (nlohmann range-for over an
+        // object would iterate its values).  Parity with the Python/Go/Rust
+        // decoders; mirrors the is_array() guard in lift_validation_issues.
         std::vector<ValidationIssue> issues;
         if (j.contains("issues")) {
+            if (!j.at("issues").is_array())
+                return std::unexpected(make_error(
+                    ErrorKind::Protocol, "'issues' must be an array in formatDBCText response"));
             for (const auto& issue : j.at("issues")) {
                 auto entry = parse_issue_entry(issue);
                 if (!entry)

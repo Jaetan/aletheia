@@ -1987,3 +1987,45 @@ TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][err
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("boom"));
 }
+
+// format_dbc_text response decoder — decode-level coverage of the success arm and
+// its malformed branches (the real-FFI integration tests never emit these).
+TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[json][parse]") {
+    auto r = detail::parse_dbc_text_response(
+        R"({"status":"success","text":"VERSION \"\"\n","issues":[{"severity":"warning","code":"big_endian_msb_layout","detail":"be"}]})");
+    REQUIRE(r.has_value());
+    CHECK(r->text == "VERSION \"\"\n");
+    REQUIRE(r->issues.size() == 1);
+    CHECK(r->issues[0].severity == IssueSeverity::Warning);
+    CHECK(r->issues[0].code == IssueCode::BigEndianMsbLayout);
+    CHECK(r->issues[0].code_raw == "big_endian_msb_layout");
+    CHECK(r->issues[0].detail == "be");
+}
+
+TEST_CASE("parse_dbc_text_response defaults an absent issues field to empty", "[json][parse]") {
+    auto r = detail::parse_dbc_text_response(R"({"status":"success","text":"x"})");
+    REQUIRE(r.has_value());
+    CHECK(r->text == "x");
+    CHECK(r->issues.empty());
+}
+
+TEST_CASE("parse_dbc_text_response rejects a non-array issues field", "[json][parse][error]") {
+    // Parity with Python/Go/Rust: a present-but-non-array issues on a success
+    // response is a protocol error, not silently harvested from an object's values.
+    auto r = detail::parse_dbc_text_response(R"({"status":"success","text":"x","issues":{}})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("'issues' must be an array"));
+}
+
+TEST_CASE("parse_dbc_text_response rejects an unexpected status", "[json][parse][error]") {
+    auto r = detail::parse_dbc_text_response(R"({"status":"weird"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()},
+               ContainsSubstring("Unexpected formatDBCText response status"));
+}
+
+TEST_CASE("parse_dbc_text_response rejects a missing text field", "[json][parse][error]") {
+    auto r = detail::parse_dbc_text_response(R"({"status":"success"})");
+    CHECK_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Missing or non-string 'text'"));
+}
