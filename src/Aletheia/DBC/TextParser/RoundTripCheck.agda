@@ -24,7 +24,7 @@ open import Aletheia.Error using (DBCTextParseError)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.DBC.TextFormatter using (formatText)
-open import Aletheia.DBC.Properties.Equality.Full using (_≟-DBC_)
+open import Aletheia.DBC.Decidable.Equality.Full using (_≟-DBC_)
 
 -- Exposed on the parse-back result (per feedback_expose_scrutinee_for_external_rewrite):
 -- a parse-back FAILURE counts as divergence (honest — e.g. an `AVFloat` under an

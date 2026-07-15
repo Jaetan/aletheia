@@ -3,13 +3,13 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Slice 2 (V2 exact check) decidable-equality tower — the `_≟-*_` instances
--- missing from `Aletheia.DBC.Properties.Equality`, built up to `_≟-DBC_`
+-- missing from `Aletheia.DBC.Decidable.Equality`, built up to `_≟-DBC_`
 -- (E2_ROUTE_B.md §6.1), so the round-trip check can deep-compare `parseText
 -- (formatText d)` with `d`.
 --
 -- S2.1 (this first chunk): `_≟-DLC_` over the `@0`-witness `DLC` record (§6.2),
 -- the one step with any residual novelty — spiked first as cheap insurance.
-module Aletheia.DBC.Properties.Equality.Full where
+module Aletheia.DBC.Decidable.Equality.Full where
 
 open import Data.Nat using (ℕ; suc)
 open import Data.Nat.Properties using (_≟_)
@@ -34,7 +34,7 @@ open import Aletheia.DBC.Types using
   ; AttrDef; AttrDefault; AttrAssign
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   ; DBCMessage; DBC )
-open import Aletheia.DBC.Properties.Equality using (_≟-DBCSignal_; _≟-vd_)
+open import Aletheia.DBC.Decidable.Equality using (_≟-DBCSignal_; _≟-vd_)
 
 -- ── _≟-DLC_ (§6.2) ───────────────────────────────────────────────────────────
 --

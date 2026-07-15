@@ -28,7 +28,7 @@ open import Aletheia.DBC.Validator using
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Validity.Combinators using (requireDec-allE; rejectDec-allE)
-open import Aletheia.DBC.Properties using (signalPairValid?)
+open import Aletheia.DBC.Decidable using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using ([]; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)

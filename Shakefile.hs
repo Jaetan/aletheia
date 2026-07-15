@@ -601,39 +601,31 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "to the allowlisted substrate."
 
     phony "check-no-properties-in-runtime" $ do
-        -- HYGIENE gate on the four handwritten runtime ROOTS: none of them may
-        -- DIRECTLY `open import` a `.Properties` module.  Casually importing a
-        -- proof module into one of these top-level files is the easy mistake
-        -- (reach for a lemma to satisfy a goal, drag its whole tree along), and
-        -- this catches it at the source.
+        -- EXACT runtime-closure gate: the compiled foreign library
+        -- `libaletheia-ffi.so` must contain NO `Aletheia.DBC.Properties.*` module.
+        -- That namespace is RESERVED for proofs (standalone lemmas); the decision
+        -- procedures the runtime needs live in `Aletheia.DBC.Decidable.*`.  The
+        -- foreign-library `other-modules` in aletheia.cabal is the honest closure
+        -- (its `-Werror=missing-home-modules` drift gate keeps it exact), so a
+        -- `DBC.Properties.*` line there means a runtime path reached a proof module.
         --
-        -- SCOPE (do not over-read): this is a direct-import check on these four
-        -- files, NOT a whole-closure guard.  Properties-namespaced modules DO
-        -- legitimately appear in the MAlonzo `.so` closure — the equality tower
-        -- (`DBC.Properties.Equality.Full`, the `_≟-DBC_` decision procedure) and
-        -- the Format-DSL proof-carrying `iso`/`roundtrip` values imported by the
-        -- runtime `Format/*` formatter modules (their proof content is `@0`-erased,
-        -- so zero runtime cost).  This narrow direct-import check is an interim:
-        -- the real fix — reserving the `DBC.Properties.*` namespace for proofs and
-        -- moving the decision procedures to `DBC.Decidable.*`, so an exact "no
-        -- `DBC.Properties.*` in the `.so` closure" gate becomes possible — is
-        -- planned in DEFERRED_ITEMS.md §G.2 (the Format-DSL proofs above stay a
-        -- documented, by-design exception).
-        let runtime = [ "src/Aletheia/Main.agda"
-                      , "src/Aletheia/Main/JSON.agda"
-                      , "src/Aletheia/Main/Binary.agda"
-                      , "src/Aletheia/Protocol/Handlers.agda"
-                      ]
-        -- Wrap the regex in a singleton list so Shake's `cmd` does not split
-        -- it on whitespace (the pattern contains a space between "open" and
-        -- "import" and would otherwise become multiple argv entries).
-        let pat = ["^open import .*\\.Properties\\b|^import .*\\.Properties\\b"]
-        (Exit _, Stdout violations) <-
-            cmd "grep" ["-nE"] pat runtime
-        unless (null (violations :: String)) $ do
-            putError $ "Runtime module imports a Properties module:\n" ++ violations
+        -- SCOPE: `DBC.Properties.*` ONLY, not every `.Properties`.  The Format-DSL
+        -- proofs under `DBC.TextParser.*.Properties.*` ride in the closure BY
+        -- DESIGN — the proof-carrying `iso`/`refined` DSL bundles a printer+parser
+        -- with its round-trip proof (`@0`-erased in the binary, so zero runtime
+        -- cost), reached via `Format.agda`.  No naming scheme removes them without
+        -- gutting the verified-by-construction DSL, and this pattern does not match
+        -- them (their `.Properties` sits deeper than `DBC.Properties`).
+        let cabalFile = "haskell-shim/aletheia.cabal"
+        -- Singleton list so Shake's `cmd` passes the regex as one argv entry.
+        let pat = ["MAlonzo\\.Code\\.Aletheia\\.DBC\\.Properties\\b"]
+        (Exit _, Stdout offending) <-
+            cmd "grep" ["-nE"] pat [cabalFile]
+        unless (null (offending :: String)) $ do
+            putError $ "A DBC.Properties.* module is in the runtime .so closure "
+                    ++ "(it must live in DBC.Decidable.*):\n" ++ offending
             error "check-no-properties-in-runtime failed"
-        putInfo "No Properties imports in runtime modules."
+        putInfo "No DBC.Properties.* modules in the runtime .so closure."
 
     phony "check-proof-coverage" $ do
         -- Exhaustiveness gate for the proof checker.  Every module under src/

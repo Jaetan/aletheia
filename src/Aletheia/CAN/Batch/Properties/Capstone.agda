@@ -32,10 +32,8 @@ open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; removeScaling)
 open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Properties using (
-  SignalPairValid; signalPairValid-sym;
-  extractDisjointness; both-always;
-  _≟-DBCSignal_)
+open import Aletheia.DBC.Decidable using (SignalPairValid; both-always; _≟-DBCSignal_)
+open import Aletheia.DBC.Properties using (signalPairValid-sym; extractDisjointness)
 open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factorℚ≢0; BitsInFrame)
 
 open import Data.List using (List; []; _∷_)
