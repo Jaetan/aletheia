@@ -249,7 +249,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 - **Where** — the `wfTextIssues` checker (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda`)
   and the round-trip proof `parseText-on-formatText`
-  (`src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda:119`).
+  (`src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda:128`).
 - **Origin** — the 2026-07-13 adversarial review of E.2 route (b) slice 1. Slice 1
   proves `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`, and `WellFormedTextDBCAgg`
   is **sufficient-not-necessary** for round-tripping (it is the antecedent of

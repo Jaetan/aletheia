@@ -44,6 +44,16 @@ class IssueCode(StrEnum):
     UNKNOWN_MESSAGE_SENDER = "unknown_message_sender"
     UNKNOWN_SIGNAL_RECEIVER = "unknown_signal_receiver"
     UNKNOWN_VALUE_DESCRIPTION_TARGET = "unknown_value_description_target"
+    # Text round-trip diagnostics, emitted by format_dbc_text (error-severity for
+    # divergence, warning-severity for the rest).
+    TEXT_ROUNDTRIP_DIVERGENCE = "text_roundtrip_divergence"
+    MULTI_VALUE_MUX_SELECTOR = "multi_value_mux_selector"
+    MUX_MASTER_INCOHERENT = "mux_master_incoherent"
+    BIG_ENDIAN_MSB_LAYOUT = "big_endian_msb_layout"
+    UNKNOWN_ATTRIBUTE_NAME = "unknown_attribute_name"
+    ATTRIBUTE_VALUE_TYPE_MISMATCH = "attribute_value_type_mismatch"
+    ATTRIBUTE_ENUM_EMPTY = "attribute_enum_empty"
+    ATTRIBUTE_ENUM_DEFAULT_UNSTABLE = "attribute_enum_default_unstable"
 
 
 class ValidationIssue(TypedDict):
