@@ -617,8 +617,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- gutting the verified-by-construction DSL, and this pattern does not match
         -- them (their `.Properties` sits deeper than `DBC.Properties`).
         let cabalFile = "haskell-shim/aletheia.cabal"
+        -- The trailing class is a word boundary spelled in POSIX ERE: `Properties`
+        -- must end the module name or be followed by a separator, so a sibling like
+        -- `DBC.PropertiesFoo` never trips the gate.  It must stay POSIX — `\b` is a
+        -- GNU/PCRE extension, and a grep lacking it matches nothing, which reads
+        -- here as "clean" and silently turns the gate into a no-op.
         -- Singleton list so Shake's `cmd` passes the regex as one argv entry.
-        let pat = ["MAlonzo\\.Code\\.Aletheia\\.DBC\\.Properties\\b"]
+        let pat = ["MAlonzo\\.Code\\.Aletheia\\.DBC\\.Properties([^A-Za-z0-9_']|$)"]
         (Exit _, Stdout offending) <-
             cmd "grep" ["-nE"] pat [cabalFile]
         unless (null (offending :: String)) $ do
