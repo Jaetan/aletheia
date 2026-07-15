@@ -28,12 +28,19 @@ and an installed library must be accompanied by a completed install (the
 GNU build-id (both ``dist`` and ``install`` post-process their copies
 with strip/patchelf, so raw bytes legitimately differ; the build-id note
 survives both), with a SHA-256 fallback when either file carries no
-build-id.  Absent artifacts are fine — CI runners have neither, and a
-dev box that never ran ``dist``/``install`` has nothing to rot.  No
-build output at all is also fine (fresh clone).
+build-id.  Absent *deployed* artifacts are fine — CI runners have neither,
+and a dev box that never ran ``dist``/``install`` has nothing to rot.
 
-Exit codes: 0 = fresh (or nothing to compare), 1 = at least one stale or
-partial artifact, with a per-artifact remedy on stdout.
+A missing ``build/`` library is NOT automatically fine, and the two
+absences must not be conflated.  The gate decides deployed-or-not first,
+from the deployed side alone: with nothing deployed there is nothing to
+rot (pass), but a deployed artifact whose ``build/`` counterpart is gone
+cannot be certified fresh and is reported.  This gate must never rely on
+the build gate failing first — it has to stand on its own, so that a green
+here means something on its own terms.
+
+Exit codes: 0 = fresh (or genuinely nothing deployed), 1 = at least one
+stale, partial, or unverifiable artifact, with a per-artifact remedy.
 """
 
 from __future__ import annotations
@@ -171,11 +178,48 @@ def _default_prefix_problems(prefix: Path, build_so: Path) -> list[str]:
     return problems
 
 
+def _deployed_artifacts(repo_root: Path, prefix: Path) -> list[Path]:
+    """Every kernel copy made out of ``build/`` — i.e. everything that can go stale.
+
+    Computed WITHOUT reference to ``build/`` on purpose: the gate must be able to
+    say "something is deployed" even when the artifact it should be compared
+    against is missing.  Otherwise "I cannot verify" is indistinguishable from
+    "nothing to verify".
+    """
+    found: list[Path] = []
+    dist_so = repo_root / DIST_SO
+    if dist_so.is_file():
+        found.append(dist_so)
+    receipt = repo_root / INSTALL_RECEIPT
+    if receipt.is_file():
+        lines = [line.strip() for line in receipt.read_text().splitlines() if line.strip()]
+        if len(lines) >= _RECEIPT_FIELDS and Path(lines[1]).is_file():
+            found.append(Path(lines[1]))
+    else:
+        deploy_so = prefix / "lib" / "aletheia" / "libaletheia-ffi.so"
+        if deploy_so.is_file():
+            found.append(deploy_so)
+    return found
+
+
 def find_problems(repo_root: Path, prefix: Path) -> list[str]:
     """Return one remedy line per stale/partial deployed artifact (empty = fresh)."""
     build_so = repo_root / BUILD_SO
     if not build_so.is_file():
-        return []
+        # Decide DEPLOYED-or-not first, so this gate stands on its own rather than
+        # leaning on the build gate having run before it.  Nothing deployed =>
+        # nothing can be stale (an honest pass).  Something deployed but no build
+        # to compare it against is a FINDING, not an OK — that is precisely the
+        # unverifiable-kernel state this gate exists to catch.
+        deployed = _deployed_artifacts(repo_root, prefix)
+        if not deployed:
+            return []
+        listed = ", ".join(str(p) for p in deployed)
+        return [
+            f"cannot verify {len(deployed)} deployed artifact(s) — {build_so} is absent: "
+            + f"{listed} — run `cabal run shake -- build` (a deployed kernel with no build "
+            + "to compare against cannot be certified fresh)"
+        ]
 
     problems: list[str] = []
 
@@ -216,10 +260,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     prefix = args.prefix if args.prefix is not None else _default_prefix()
-
-    if not (args.repo_root / BUILD_SO).is_file():
-        emit("[check-install-freshness] no build/libaletheia-ffi.so — nothing to compare (OK)")
-        return 0
 
     problems = find_problems(args.repo_root, prefix)
     if problems:

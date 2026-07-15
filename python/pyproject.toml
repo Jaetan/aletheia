@@ -317,6 +317,11 @@ pytest_add_cli_args = [
     # collection in the relocated mutants/ tree, like the grammar tests above.
     # Infra coverage, not hot-path, so excluding it removes no mutation signal.
     "--ignore=tests/test_check_no_review_marks.py",
+    # Same shape: these cover the action-pin / workflow-permissions gates and
+    # import the repo-root `tools` package, so they abort collection in the
+    # relocated mutants/ tree.  Infra coverage, not hot-path.
+    "--ignore=tests/test_check_action_pins.py",
+    "--ignore=tests/test_check_workflow_permissions.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the

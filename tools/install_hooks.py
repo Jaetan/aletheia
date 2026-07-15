@@ -67,14 +67,22 @@ def main() -> int:
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True, text=True, check=False,
     ).stdout.strip()
+    # A hook that cannot run the sweep must BLOCK, not wave the push through:
+    # letting it pass would enforce nothing while looking like it had.
+    # `git push --no-verify` remains the deliberate, visible escape.
     if not repo_root:
-        sys.stderr.write("pre-push: not in a git work tree\\n")
-        return 0
+        sys.stderr.write("pre-push: FAIL — not in a git work tree; cannot run the CI sweep\\n")
+        return 1
 
     runner = Path(repo_root) / "tools" / "run_ci.py"
     if not runner.is_file():
-        sys.stderr.write(f"pre-push: {{runner}} not found; skipping\\n")
-        return 0
+        sys.stderr.write(
+            f"pre-push: FAIL — {{runner}} not found, so the CI sweep did not run.\\n"
+            "Push refused: this hook exists to gate pushes on that sweep, and it\\n"
+            "cannot vouch for a sweep it never ran.  Restore the runner, or use\\n"
+            "`git push --no-verify` if you intend to bypass it.\\n"
+        )
+        return 1
 
     sys.stderr.write("pre-push: running offline CI sweep (parallel lanes; ~5-8 min)...\\n")
     sys.stderr.write("pre-push: skip with `git push --no-verify` if needed\\n\\n")
@@ -217,13 +225,21 @@ def _restore_stash(root, sha):
 
 
 def main() -> int:
+    # A hook that cannot run the FAST tier must BLOCK, not wave the commit
+    # through: passing would enforce nothing while looking like it had.
+    # `git commit --no-verify` remains the deliberate, visible escape.
     root = _run(["git", "rev-parse", "--show-toplevel"]).stdout.strip()
     if not root:
-        return 0
+        sys.stderr.write("pre-commit: FAIL — not in a git work tree; FAST gates did not run\\n")
+        return 1
     root = Path(root)
     if not (root / "tools" / "run_ci.py").is_file():
-        sys.stderr.write("pre-commit: tools/run_ci.py not found; skipping\\n")
-        return 0
+        sys.stderr.write(
+            "pre-commit: FAIL — tools/run_ci.py not found, so the FAST gates did not run.\\n"
+            "Commit refused: this hook cannot vouch for gates it never ran.  Restore\\n"
+            "the runner, or use `git commit --no-verify` to bypass deliberately.\\n"
+        )
+        return 1
 
     stash_sha = _create_stash(root) if _has_worktree_changes(root) else None
 

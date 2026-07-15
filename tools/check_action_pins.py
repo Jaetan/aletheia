@@ -74,8 +74,13 @@ def main() -> int:
 
     workflows_dir = repo_root / ".github" / "workflows"
     if not workflows_dir.is_dir():
-        emit(f"check-action-pins: {workflows_dir} does not exist; skipping")
-        return 0
+        _ = sys.stderr.write(
+            f"check-action-pins: FAIL — {workflows_dir} does not exist.\n"
+            + "This gate certifies the action-pin policy; with no workflows to read it\n"
+            + "cannot certify anything, and passing here would report a policy that was\n"
+            + "never applied.  Restore the directory, or drop this gate deliberately.\n",
+        )
+        return 2
 
     violations: list[str] = []
     checked = 0
@@ -110,6 +115,18 @@ def main() -> int:
             + "Reference: GitHub Security Hardening for GitHub Actions.\n",
         )
         return 1
+
+    if checked == 0:
+        _ = sys.stderr.write(
+            "check-action-pins: FAIL — no `uses:` reference matched in any workflow.\n"
+            + f"Read {len(list(workflows_dir.glob('*.y*ml')))} workflow file(s) under "
+            + f"{workflows_dir.name}/ and matched zero action refs.\n\n"
+            + "An empty result is how this gate spells 'clean', so it cannot tell a\n"
+            + "compliant repo from a matcher that lost its grip on the input.  Either\n"
+            + "the workflows genuinely reference no actions (then this gate is obsolete)\n"
+            + "or USES_RE no longer matches the `uses:` syntax being used.\n",
+        )
+        return 2
 
     emit(f"check-action-pins: ok ({checked} refs checked, all comply with pin policy)")
     return 0

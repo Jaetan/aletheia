@@ -99,6 +99,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Build gates can no longer report success while checking nothing** (internal;
+  no user-facing behaviour change). Several gates spelled "clean" as an empty
+  result, which made "I found no violations" indistinguishable from "I could not
+  look" — so a missing input or a matcher that lost its grip read as compliance:
+  the action-pin and workflow-permissions gates certified the supply-chain policy
+  with no workflows directory present, or with zero refs matched; the invariants
+  gate discarded grep's exit code, so a failed scan of `src/` reported "no
+  postulates"; the runtime-closure gate did the same, and now matches the module
+  closure directly instead of shelling out to grep with a regex; the FFI-export
+  gate accepted an emptied snapshot as "0 entries" verified; the clang-tidy
+  coverage gate passed when it found no sources. Each now asserts its own input
+  and fails loudly, with regression tests pinning both polarities.
+- **The install-freshness gate no longer certifies a kernel it cannot verify.** A
+  deployed library with no `build/` counterpart reported "nothing to compare (OK)"
+  — precisely the unverifiable state the gate exists to catch. It now decides
+  deployed-or-not from the deployed side alone: nothing deployed still passes,
+  but a deployed artifact with no build to compare against is reported. The gate
+  no longer depends on the build step failing first.
+- **The pre-commit and pre-push hooks no longer allow the operation when their
+  gates did not run.** Both returned success when the CI runner was missing,
+  enforcing nothing while appearing to. They now refuse; `--no-verify` remains the
+  deliberate, visible bypass.
 - **C++ `format_dbc_text` now rejects a non-array `issues` field on a success
   response** (E.2 review follow-up). The decoder's success path iterated `issues`
   with no array check, so an object-typed `issues` was silently harvested from its

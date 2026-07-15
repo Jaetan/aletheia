@@ -11,7 +11,7 @@ state.
 
 Usage::
 
-    tools/check_gate_claim.py                # pre-commit mode (read .git/COMMIT_EDITMSG)
+    tools/check_gate_claim.py                # default: HEAD (read HEAD's message)
     tools/check_gate_claim.py HEAD           # post-commit mode (read HEAD's message)
     tools/check_gate_claim.py <commit-hash>  # audit mode (read named commit's message)
 
@@ -85,19 +85,15 @@ def _git(*args: str) -> tuple[int, str]:
 
 
 def _resolve_mode(mode: str) -> tuple[str, list[str]]:
-    """Return (commit message, diffed files) for the given mode."""
-    if mode == "pre-commit":
-        msg_file = Path(".git/COMMIT_EDITMSG")
-        if not msg_file.is_file():
-            # Pre-commit hook not active; nothing to enforce.
-            sys.exit(0)
-        msg = msg_file.read_text(encoding="utf-8")
-        rc, files = _git("diff", "--name-only", "--cached")
-        if rc != 0:
-            _ = sys.stderr.write("check-gate-claim: failed to read staged diff\n")
-            sys.exit(2)
-        return msg, [line for line in files.splitlines() if line]
+    """Return (commit message, diffed files) for the given mode.
 
+    Modes read an ALREADY-WRITTEN commit, which is what makes them checkable:
+    a message only exists once the commit does.  There is deliberately no
+    ``pre-commit`` mode — ``pre-commit`` runs before the message is composed, so
+    it could only ever read the PREVIOUS commit's ``.git/COMMIT_EDITMSG`` and
+    would validate the wrong message.  Commit-time enforcement, if wanted, must
+    hang off ``commit-msg``, which receives the real message path as an argument.
+    """
     if mode in ("HEAD", "post-commit"):
         rc, msg = _git("log", "-1", "--format=%B", "HEAD")
         if rc != 0:
@@ -114,7 +110,7 @@ def _resolve_mode(mode: str) -> tuple[str, list[str]]:
     if rc != 0:
         _ = sys.stderr.write(
             "check-gate-claim: usage: check_gate_claim.py "
-            + f"[pre-commit|HEAD|<commit-hash>]  (got {mode!r})\n"
+            + f"[HEAD|<commit-hash>]  (got {mode!r})\n"
         )
         sys.exit(2)
     rc, msg = _git("log", "-1", "--format=%B", mode)
@@ -134,8 +130,8 @@ def main() -> int:
     ap.add_argument(
         "mode",
         nargs="?",
-        default="pre-commit",
-        help="pre-commit | HEAD | <commit-hash>",
+        default="HEAD",
+        help="HEAD (default) | <commit-hash>",
     )
     args = ap.parse_args()
 
