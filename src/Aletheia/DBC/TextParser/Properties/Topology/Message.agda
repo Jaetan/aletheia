@@ -43,7 +43,7 @@ open import Aletheia.Parser.Combinators using
    _>>=_; _*>_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
-  (DBCMessage; DBCSignal; clearVds; clearBothMsg)
+  (DBCMessage; DBCSignal; clearBothMsg)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
 

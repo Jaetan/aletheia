@@ -28,3 +28,8 @@ ConsumerRenamePatUsed	PatLib	two	USED
 ConsumerRecMemberUsed	RecExpLib	Box	USED
 ConsumerModMemberUsed	ModExpLib	Reasoning	USED
 ConsumerLocalAliasUsed	Helper	idh	USED
+ConsumerLeak	LeakLib	inner	DEAD
+ConsumerLeak	LeakLib	outer	USED
+ConsumerAmbigTerm	AmbigMid	nilA	USED
+ConsumerAmbigDead	AmbigMid	nilA	DEAD
+ConsumerAmbigPat	AmbigMid	nilA	USED

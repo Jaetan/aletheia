@@ -99,6 +99,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The `iwyu` import gate no longer misses dead imports that elaboration
+  mentions** (internal; no user-facing behaviour change). An import could be
+  reported USED purely because Agda had baked its name into the module's
+  elaborated terms — reducing an imported definition freezes its callees' names
+  into the reducing module, and a `with` forces exactly that on its scrutinee —
+  even though no source token ever went through the import, which is why the gate
+  read a tree holding 20 dead imports as clean. Those references are fully
+  qualified and resolve through the transitive import, so they keep no import
+  alive; a name in the elaborated terms but not in the source now counts only when
+  elaboration had to search the scope to find it (an instance) or when it is
+  reached by module-copy delegation. Names with more than one resolution in scope
+  (`[]`, which is both the list constructor and `Data.List.Base.InitLast`'s) are
+  exempt: Agda's highlighting attributes a token to the single name it resolved
+  to, so an overloaded name's occurrences scatter and the source becomes
+  unreadable to the gate — there the elaborated terms are still trusted, which
+  errs toward keeping an import. The 20 dead imports this uncovered are removed
+  (7 modules); new `--self-test` fixtures pin both directions.
 - **Build gates can no longer report success while checking nothing** (internal;
   no user-facing behaviour change). Several gates spelled "clean" as an empty
   result, which made "I found no violations" indistinguishable from "I could not

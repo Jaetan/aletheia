@@ -72,7 +72,6 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Data.Unit using (⊤)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; _<|>_; _*>_;

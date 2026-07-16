@@ -336,6 +336,43 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 > **This entry is the SINGLE SOURCE OF TRUTH for this bug. Do not describe it anywhere else —
 > link here (`DEFERRED_ITEMS.md §G.1`). If a new facet is found, add it to THIS entry.**
 
+- **STATUS ✅ DONE (2026-07-16)** — fixed in the reader, validated against the recompile oracle
+  on every case, and the tree audit found **20 dead imports** (across 7 modules) that the gate had
+  been reporting clean; all 20 are removed. `--self-test` is 39/39 including two new guard pairs.
+  The fix is two rules in `Main.hs`:
+  1. *Ambiguity decides how far the semantic signal may be overruled.* Highlighting attributes a
+     token to the one QName it resolved to, so the per-QName counts only add up for a name with a
+     SINGLE value resolution. Measured on `Data.List`'s `[]` (ambiguous with
+     `Data.List.Base.InitLast.[]`): `Aletheia/DBC/Validity/ErrorChecks.agda` uses `[]` 3× in term
+     position and its highlight map holds **no `Agda.Builtin.List` entry at all**, while `length`
+     in the same file counts a clean 3. So for an ambiguous name a 0 count means "unreadable", not
+     "unused", and the semantic signal is taken at face value.
+  2. *For a legible name, a hit in the used-set counts only if elaboration had to SEARCH THE SCOPE
+     for it* — i.e. the name is an **instance** (`defInstance`), or it is reached by copy
+     delegation. Every other token-less occurrence is reduction debris: fully qualified, resolvable
+     through the transitive import, keeping no scope entry alive.
+- **Findings that correct the diagnosis below** (kept because they cost real measurement):
+  - The leak is **not confined to with-function TYPES**. Restricting the semantic set to clause
+    bodies/patterns found only 9 of the 19 known-dead; the other 10 (e.g. `clearVds`, named
+    nowhere but in comments) reach clause **bodies** too. Where the QName lands is not the
+    discriminator; *why* it is there is.
+  - **Candidate 2 as written is wrong**: "for a plain `using (n)`, trust the syntactic signal"
+    regresses INSTANCE uses to false-DEAD (`ConsumerInstUsed` catches it immediately) — an
+    instance never has a source token yet always needs its import.
+  - **Candidate 3 buys nothing here**: every genuinely-dead import in the tree is unambiguous, so
+    recompile-confirm would spend ~8 s/module covering a class with no instances. No oracle exists
+    in the driver to reuse either (the header comment claiming one was stale; corrected).
+  - **The recompile oracle is unsound as stated** ("removing the imports type-checks clean … so
+    the import is genuinely dead"). Dropping a constructor from a `using` list turns its PATTERN
+    occurrences into fresh pattern VARIABLES: it type-checks clean and silently changes semantics.
+    Proven on `Parser/Position.agda` — removing `[]` made `advancePositions pos [] = pos` match
+    every list and orphaned the `_∷_` clause, exit 0, betrayed only by an `UnreachableClauses`
+    warning. **A sound oracle must treat any new warning as USED.**
+- **Residual (accepted, safe direction)** — an AMBIGUOUS name whose QName reached the signature
+  only by reduction still reads USED: the syntactic signal cannot see it and the semantic one
+  cannot tell it from a real use. That errs toward KEEPING an import (a missed cleanup, never a
+  bad removal). Zero instances in the tree today. Closing it needs the recompile-confirm of
+  candidate 3, scoped to ambiguous borderline names only.
 - **Where** — `tools/agda-iwyu-reader/Main.hs` (the reader's `used` signals — `usedOf` /
   `resolveQuery`); driver `tools/_iwyu.py`; gate `tools/iwyu.py`. First observed as a missed
   dead import at `src/Aletheia/DBC/TextParser/Properties/WellFormedCheck/Sound/Attr.agda:41`
@@ -396,8 +433,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   (Copilot) and a gate (iwyu) conflict, the COMPILER (recompile) is the tiebreaker — here the gate
   was the one that was wrong.
 - **Blockers / deps** — none; independent of the Agda / proof work.
-- **Verdict (first pass)** — `DO` (user directive 2026-07-13: "we need to fix iwyu to be a 100%
-  reliable tool").
+- **Verdict** — ✅ **DONE** (2026-07-16); see STATUS above. Raised by the user directive
+  2026-07-13: "we need to fix iwyu to be a 100% reliable tool".
 
 ### G.2 — Reserve the `.Properties` namespace for proofs; move decision procedures to `.Decidable`; make `check-no-properties-in-runtime` an exact closure gate
 

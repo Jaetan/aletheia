@@ -39,8 +39,7 @@ open import Aletheia.DBC.TextFormatter.Attributes using (collectDefs)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using (WFAttribute)
 open import Aletheia.DBC.TextParser.WellFormedCheck using
-  (mcIssue; masterCoherentᵇ; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved;
-   checkSignalBounds; pvIssues; presenceIssue; checkTextMessage; checkAttrs; wfTextIssues)
+  (mcIssue; masterCoherentᵇ; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved; checkTextMessage; checkAttrs; wfTextIssues)
 open import Aletheia.DBC.TextParser.Properties.Topology.Message using (MessageWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList using (SignalLineWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.Signal using (recvHeadStop)

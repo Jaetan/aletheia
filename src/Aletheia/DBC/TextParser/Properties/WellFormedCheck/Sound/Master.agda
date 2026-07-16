@@ -16,15 +16,13 @@
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Master where
 
 open import Data.Bool using (T; true)
-open import Data.Bool.ListAction using (any; all)
 open import Data.Bool.Properties using (T-∧; T-≡)
 open import Data.Char using (Char)
 open import Data.List using (List)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.List.Membership.Propositional using (find; lose)
-open import Data.List.Relation.Unary.Any using (Any)
 open import Data.List.Relation.Unary.Any.Properties using (any⁻; any⁺)
-open import Data.List.Relation.Unary.All using (All; map)
+open import Data.List.Relation.Unary.All using (map)
 open import Data.List.Relation.Unary.All.Properties using (all⁺; all⁻)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Nat using (ℕ)
