@@ -338,7 +338,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 - **STATUS ✅ DONE (2026-07-16)** — fixed in the reader, validated against the recompile oracle
   on every case, and the tree audit found **20 dead imports** (across 7 modules) that the gate had
-  been reporting clean; all 20 are removed. `--self-test` is 39/39 including two new guard pairs.
+  been reporting clean; all 20 are removed. `--self-test` passes (`tools/iwyu.py --self-test`
+  reports the tally; it totals `manifest.tsv` + `wildcard_manifest.tsv`). The rows added are two
+  GUARDS, each verified to fail when the rule it pins is removed — `ConsumerLeak`'s `inner` (DEAD;
+  read USED before this fix) and `ConsumerAmbigTerm` (USED; DEAD without the overloaded-name rule)
+  — plus the controls `ConsumerLeak`'s `outer`, `ConsumerAmbigPat` and `ConsumerAmbigDead`, which
+  pass either way and pin surrounding behaviour rather than guard a rule.
   The fix is two rules in `Main.hs`:
   1. *Ambiguity decides how far the semantic signal may be overruled.* Highlighting attributes a
      token to the one QName it resolved to, so the per-QName counts only add up for a name with a
