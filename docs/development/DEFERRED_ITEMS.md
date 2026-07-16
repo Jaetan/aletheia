@@ -313,7 +313,9 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   over-verbose, or historical/plan-scaffolding narrative that outlived its purpose.
   Keep only build-validated code cross-refs (module / function names); comments must
   be self-contained (no CI gate scans `.agda` comment cross-refs).
-- **Sequencing** — AFTER the whole E.2 arc lands (slice 3 merged). Own PR.
+- **Sequencing** — was gated on the whole E.2 arc landing (slice 3 merged); once it had,
+  the pass shipped folded into the tree-wide comment-quality PR #193 (same close, broader
+  scope) rather than as the originally-planned standalone PR.
 - **Verdict** — ✅ **DONE** (2026-07-16, #193); see STATUS above.
 
 ---
