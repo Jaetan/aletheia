@@ -607,7 +607,7 @@ cd ..
 
 ### Incremental Builds
 
-Since the build graph was made honest (PR #37), `cabal run shake -- build`
+Since the build graph was made honest, `cabal run shake -- build`
 rebuilds exactly what changed and nothing else:
 
 | Scenario | Time | What happens |
