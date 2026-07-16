@@ -1337,6 +1337,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         Exit cosignPresent <- cmd Shell "command -v cosign >/dev/null 2>&1"
         keylessEnv <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEYLESS"
         cosignKey  <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEY"
+        tlogEnv    <- liftIO $ lookupEnv "ALETHEIA_COSIGN_TLOG"
         let signMode :: String
             signMode
               | ExitFailure _ <- cosignPresent = "none"
@@ -1344,11 +1345,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
               | Just _ <- cosignKey            = "keyed"
               | otherwise                      = "none"
 
-        -- Mode-specific verify recipe embedded in MANIFEST.txt.  The identity
-        -- regexp pins the release workflow + a v-prefixed tag ref.
+        -- The key-based verify command must match how THIS tarball was signed:
+        -- cosign checks the Rekor tlog by default, so a build signed WITHOUT
+        -- tlog (ALETHEIA_COSIGN_TLOG≠1 — the dev default) must be verified with
+        -- --insecure-ignore-tlog.  Keyless always uploads to tlog (no flag).
+        let keyedTlog = case tlogEnv of
+              Just "1" -> ""
+              _        -> "--insecure-ignore-tlog "
+
+        -- Mode-specific verify recipe embedded in MANIFEST.txt.  The keyless
+        -- identity regexp pins the release workflow + a v-prefixed TAG ref: only
+        -- tag-published releases are trusted (a workflow_dispatch dry-run signs
+        -- under refs/heads/… and is deliberately NOT accepted by this recipe).
         let verifyLines = case signMode of
               "keyless" ->
-                [ "  Tarball signature (keyless / Sigstore — GitHub Actions OIDC):"
+                [ "  Tarball signature (keyless release, v* tag — Sigstore / GitHub Actions OIDC):"
                 , "    cosign verify-blob \\"
                 , "      --certificate aletheia.tar.gz.crt \\"
                 , "      --signature aletheia.tar.gz.sig \\"
@@ -1359,9 +1370,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 ]
               "keyed" ->
                 [ "  Tarball signature (key-based — keys/cosign.pub from the source tree):"
-                , "    cosign verify-blob --key keys/cosign.pub \\"
+                , "    cosign verify-blob " ++ keyedTlog ++ "--key keys/cosign.pub \\"
                 , "      --signature aletheia.tar.gz.sig aletheia.tar.gz"
-                , "    (local dev builds omit the Rekor tlog entry — add --insecure-ignore-tlog)"
                 ]
               _ ->
                 [ "  Tarball signature: UNSIGNED (no cosign on PATH, or neither"
@@ -1452,8 +1462,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             ("keyed", Just keyPath) -> do
                 -- Default --tlog-upload=false: per-dev-run signing should not
                 -- push every artifact hash to the public Sigstore Rekor log.
-                -- Release signing opts back in via ALETHEIA_COSIGN_TLOG=1.
-                tlogEnv <- liftIO $ lookupEnv "ALETHEIA_COSIGN_TLOG"
+                -- Release signing opts back in via ALETHEIA_COSIGN_TLOG=1
+                -- (tlogEnv resolved up front, shared with the MANIFEST recipe).
                 let tlogFlag = case tlogEnv of
                         Just "1" -> "--tlog-upload=true"
                         _        -> "--tlog-upload=false"

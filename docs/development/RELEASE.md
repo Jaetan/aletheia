@@ -252,21 +252,28 @@ BASE=https://github.com/Jaetan/aletheia/releases/download/vX.Y.Z
 curl -fsSLO "$BASE/aletheia.tar.gz"
 curl -fsSLO "$BASE/aletheia.tar.gz.sha256"
 curl -fsSLO "$BASE/aletheia.tar.gz.sig"
-curl -fsSLO "$BASE/aletheia.tar.gz.crt"
 
 # 2. Verify integrity
 sha256sum -c aletheia.tar.gz.sha256
 
-# 3. Verify provenance.  A GitHub Release is keyless-signed (Sigstore); verify
-#    against the workflow identity.  (MANIFEST.txt inside the tarball carries the
-#    exact command for THIS artifact — a locally-cut release is key-based and
-#    verifies with --key keys/cosign.pub instead; see "Keyless signing".)
+# 3. Verify provenance.  The tarball's MANIFEST.txt carries the exact command
+#    matching how THIS artifact was signed — use the block for your release:
+#
+#    (a) CI release (default) — keyless (Sigstore), with a .crt sidecar:
+curl -fsSLO "$BASE/aletheia.tar.gz.crt"
 cosign verify-blob \
   --certificate aletheia.tar.gz.crt \
   --signature aletheia.tar.gz.sig \
   --certificate-identity-regexp \
     '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  aletheia.tar.gz
+#
+#    (b) Locally-cut release — key-based, no .crt.  Verify against the project's
+#        published key (keys/cosign.pub from the source tree):
+cosign verify-blob \
+  --key keys/cosign.pub \
+  --signature aletheia.tar.gz.sig \
   aletheia.tar.gz
 
 # 4. Inspect the SBOM
@@ -320,8 +327,8 @@ A failure in any of these is a stop-the-world event for the consumer.
 - [ ] Cosign keypair is the current key (`keys/cosign.pub` matches
       `~/.config/aletheia/cosign.key`).
 - [ ] `ALETHEIA_COSIGN_TLOG=1` exported (release flow uses Rekor).
-- [ ] `cabal run shake -- dist` produces the four artifact files (`.tar.gz`,
-      `.sha256`, `.sig`, in-tarball MANIFEST + SBOM).
+- [ ] `cabal run shake -- dist` produces the tarball + `.sha256` + `.sig`
+      (plus MANIFEST + SBOM inside the tarball; no `.crt` — that is keyless-only).
 - [ ] Manual verify (sha256, cosign `--key keys/cosign.pub`, SBOM look-OK).
 - [ ] Create the GitHub Release and upload the tarball + sidecars:
       `gh release create vX.Y.Z dist/aletheia.tar.gz dist/aletheia.tar.gz.sha256 dist/aletheia.tar.gz.sig`.
