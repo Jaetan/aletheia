@@ -646,7 +646,7 @@ features:
       python:
         status: implemented
         entry: aletheia.iter_can_log
-        notes: "Via python-can (LGPL); LGPL contingency tracked in project_lgpl_contingency.md."
+        notes: "Via python-can (LGPL); the LGPL dependency is a tracked Phase 6 contingency."
       cpp:
         status: planned
         notes: "Not yet in backlog; pending user decision — may move to not_applicable if judged a host-application concern."

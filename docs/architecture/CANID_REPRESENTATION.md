@@ -85,8 +85,8 @@ Until then the current shape is documented divergence, not drift.
 
 - `docs/FEATURE_MATRIX.yaml` rows `canfd_brs_esi_fields` / `mock_backend` /
   `backend_di_seam` for cross-binding feature parity tracking.
-- `feedback_cross_binding_consistency_as_fp.md` for the project's
-  convention on when cross-binding divergence is acceptable.
-- `feedback_no_backward_compat.md` for the project's stance on
-  breaking changes — the path-b promotion would be permitted but is
-  not motivated today.
+- On when cross-binding divergence is acceptable: consistency across bindings is
+  a goal, but not at the cost of each language's idioms — a divergence is not
+  automatically a defect.
+- On breaking changes: the project keeps no backward-compatibility guarantee, so
+  the path-b promotion would be permitted, but it is not motivated today.

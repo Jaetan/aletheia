@@ -206,9 +206,8 @@ same YAML edit pattern; the new lower count becomes the floor.
 
 ## Forward-revert verification protocol
 
-Per `feedback_orchestrator_end_to_end_validation.md`, every gate's
-shape is verified by injecting a violation and confirming the gate fires
-with a precise diagnostic.
+Every gate's shape is verified by injecting a violation and confirming the gate
+fires with a precise diagnostic.
 
 ### Static gate (`tools/check_mutation_setup.py`)
 
@@ -249,8 +248,7 @@ ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 | Dynamic gate (`mutation testing`) | Per PR | ~30 min - 2 hrs | Opt-in via `--mutation` / `ALETHEIA_MUTATION_CHECK=1` |
 
 The static gate guards against silent rename / removal of a hot-path file
-without YAML update — catches the same drift class as
-`feedback_module_count_prose_audit.md` but for hot-path file paths.  The
+without YAML update — a config-vs-reality drift class, but for hot-path file paths.  The
 dynamic gate is the actual mutation pass; per AGENTS.md "once per PR is
 sufficient; per-commit is overkill".
 
@@ -276,4 +274,3 @@ needed.
 - `tools/mutation_run.py` — dynamic runner (opt-in)
 - `docs/operations/STABILITY.md` — sibling opt-in lane
 - `docs/development/CI_LOCAL.md` — three-layer CI architecture
-- `memory/feedback_orchestrator_end_to_end_validation.md` — forward-revert protocol
