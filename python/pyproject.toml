@@ -113,7 +113,7 @@ dev = [
     # select (often NOT the version apt installs).  Pinning the pip binary makes
     # the gate byte-identical on every contributor + CI; run_ci routes the gate
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
-    "clang-format>=22.1.5,<22.2",
+    "clang-format>=22.1.8,<22.2",
 ]
 # AGENTS.md Python cat 34(c) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
