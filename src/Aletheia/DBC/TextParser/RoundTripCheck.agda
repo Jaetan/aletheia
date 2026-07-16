@@ -6,7 +6,8 @@
 --
 -- Answers "does this DBC survive the text round-trip?" with ZERO over-refusal, by
 -- EVALUATING `parseText (formatText d)` and deep-comparing the parse-back value
--- with `d` via `_≟-DBC_` (the decidable-equality tower, `Decidable.Equality.Full`).
+-- with `d` via `_≟-DBC_` (the decidable-equality tower,
+-- `Aletheia.DBC.Decidable.Equality.Full`).
 -- Its YES is ground truth by construction, and — unlike the universal WF theorem —
 -- its soundness (`RoundTripCheck/Sound.agda`) is AXIOM-FREE, because the
 -- check is conditioned on the evaluation: the `Dec`'s yes-branch IS the proof

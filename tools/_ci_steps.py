@@ -384,7 +384,7 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root / "python",
     )
 
-    # pylint SCORE-based gate per AGENTS.md L611 — a 10.00 score is mandatory.
+    # pylint SCORE-based gate — a 10.00 score is mandatory (AGENTS.md, Python lint).
     # Covers aletheia/ tests/ benchmarks/ + ../tools/ (the repo-root gate scripts,
     # held to the same 10.00 bar as the package); ``..`` is on
     # the path via python/pyproject's pylint init-hook so tools' imports resolve.
