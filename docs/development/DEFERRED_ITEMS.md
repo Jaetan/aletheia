@@ -287,6 +287,11 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### E.4 — Comment-quality pass over the E.2-arc modules
 
+- **STATUS ✅ DONE (2026-07-16)** — shipped in the tree-wide comment-quality pass
+  #193 (`2597d04c`), whose scope was expanded (user directive) to cover EVERY source
+  language, including these E.2-arc modules: incorrect comments fixed (incl. the
+  round-trip-theorem claim that dropped its `WellFormedTextDBCAgg` hypothesis) and
+  plan-scaffolding + memory-store citations stripped.
 - **Where** — the E.2 route-(b) modules: `FormatDBCText.agda`,
   `Protocol/Message.agda`, `Protocol/ResponseFormat.agda`, `WellFormedCheck.agda`,
   `RoundTripCheck.agda`, their `Sound`/`Properties` siblings, and
@@ -309,7 +314,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   Keep only build-validated code cross-refs (module / function names); comments must
   be self-contained (no CI gate scans `.agda` comment cross-refs).
 - **Sequencing** — AFTER the whole E.2 arc lands (slice 3 merged). Own PR.
-- **Verdict** — `SCHEDULED` (code hygiene, non-blocking).
+- **Verdict** — ✅ **DONE** (2026-07-16, #193); see STATUS above.
 
 ---
 
