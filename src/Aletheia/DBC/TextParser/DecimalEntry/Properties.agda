@@ -26,7 +26,6 @@
 -- theorem *about* the String roundtrip needs the axiom.
 module Aletheia.DBC.TextParser.DecimalEntry.Properties where
 
-open import Data.Integer using (ℤ)
 open import Data.List using ([])
 open import Data.List.Properties using (++-identityʳ)
 open import Data.Maybe using (just; map)
@@ -40,7 +39,7 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase2Many using ([]-
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase6Suffix using
   (parseDecRat-roundtrip-suffix; parseDecRat-bareInt-roundtrip-suffix)
 open import Aletheia.DBC.TextFormatter.Emitter using (showDecRat-dec-chars; showInt-chars)
-open import Aletheia.DBC.DecRat using (DecRat; toℚ; fromℤ)
+open import Aletheia.DBC.DecRat using (toℚ; fromℤ)
 open import Aletheia.DBC.TextParser.DecimalEntry using (fromResult; parseDecimal-chars)
 
 -- The parser recovers every DecRat from its canonical decimal text.

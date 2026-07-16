@@ -16,13 +16,25 @@
 -- all read from the .agdai, fires for a QName it resolves to in scope:
 --   (1) SEMANTIC -- the QName is in `namesIn (iSignature)` (the elaborated
 --       terms): direct defs, re-exports, datatype/constructor copies, and the
---       instance / implicit / literal-backed uses source highlighting misses.
+--       INSTANCE uses source highlighting misses.  Being in the signature is not
+--       by itself a use: elaboration also bakes in QNames no source token names
+--       (reducing an imported definition freezes its callees' QNames into the
+--       reducing module -- a `with` forces exactly that on its scrutinee), and
+--       such a reference is fully qualified, resolves through the transitive
+--       import, and keeps no scope entry alive.  So where (2) can read the source
+--       faithfully, a hit here counts only when the name is an INSTANCE (scope
+--       search found it) or is reached by copy delegation (3).
 --   (2) SYNTACTIC -- its definition site is referenced by a source token, by
 --       OCCURRENCE COUNT from `iHighlighting`.  An import-listed name always
 --       contributes one occurrence (the `using (...)` token), so a VALUE needs
 --       count >= 2 to be a body use; a MODULE MEMBER is not import-listed, so any
 --       occurrence (>= 1) is a use.  This catches PATTERN SYNONYMS, which expand
 --       to constructors and so never reach the signature.
+--       Each token is attributed to the ONE QName it resolved to, so these counts
+--       read the source faithfully only for a name with a SINGLE value resolution.
+--       An AMBIGUOUS name defeats them: the import token lands on one arbitrary
+--       candidate and a constructor in TERM position on none, so a count of 0
+--       means "unreadable", not "unused", and (1) alone decides.
 --   (3) DELEGATED -- a module-application Function COPY whose delegated origin
 --       reaches the used-set.  A copy's body is `Def origin <section-args>`; we
 --       take the clause-body HEAD (dropping the type and args, which would leak
@@ -38,10 +50,12 @@
 --       NOT contribute one -- is a use.  Without this, a renamed name used only
 --       in such an erased position is a FALSE POSITIVE (`_≟ᶜ_` in a `with ⌊…⌋`).
 -- DEAD means none of the four fired (every real use mechanism is covered, so
--- this is the no-false-negative guarantee).  UNRESOLVED is reserved for a
--- candidate that cannot be resolved in scope at all (should not happen for a
--- real candidate); the driver routes it to the recompile-confirm oracle, never
--- to DEAD.
+-- this is the no-false-negative guarantee), EXCEPT that an ambiguous name whose
+-- QName reached the signature only by reduction reads as USED: (2) cannot see it
+-- and (1) cannot tell it from a real use.  That errs toward keeping an import.
+-- UNRESOLVED is reserved for a candidate that cannot be resolved in scope at all
+-- (should not happen for a real candidate); the driver reports it as "could not
+-- judge", never as DEAD.
 --
 -- Include paths (project src + stdlib src) come from $AGDA_IWYU_INCLUDE_PATHS
 -- (colon-separated); they MUST match what wrote the interfaces.
@@ -55,7 +69,7 @@ import           Data.IORef
 import           Data.List (intercalate)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isJust)
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           System.Environment (lookupEnv)
@@ -75,7 +89,7 @@ import           Agda.Syntax.Scope.Base
                    (AbstractModule (..), AbstractName (..), Scope, allNamesInScope, scopeModules)
 import           Agda.Syntax.TopLevelModuleName (rawTopLevelModuleNameForModuleName)
 import           Agda.TypeChecking.Monad.Base
-                   (Definition, Interface, TCM, defCopy, funClauses, iHighlighting, iInsideScope,
+                   (Definition, Interface, TCM, defCopy, defInstance, funClauses, iHighlighting, iInsideScope,
                     iSignature, iTopLevelModuleName, pattern Function, runTCMTop, sigDefinitions,
                     theDef)
 import           Agda.TypeChecking.Monad.Options (setCommandLineOptions)
@@ -227,17 +241,32 @@ defOf cache q = go (length parts)
 
 -- Semantic + delegated-copy verdict for one scope QName.  The syntactic signal
 -- is added by the caller; here defOf failure (pattern synonym / not in any
--- signature) or a non-copy not in `used` means no semantic use => Dead.
-semDeep :: Cache -> Set QName -> QName -> Set QName -> TCM V
-semDeep cache used q visited
-  | q `Set.member` used    = pure Used
+-- signature) or a non-copy with no qualifying hit in `used` means no semantic
+-- use => Dead.
+--
+-- `scopeSearched` says the caller's syntactic count already read the source and
+-- found no token naming this candidate.  A hit in `used` must then be explained by
+-- something other than the source, and only two explanations keep the import alive:
+--   * INSTANCE resolution, which SEARCHES THE SCOPE for the name -- drop the import
+--     and the search fails, so the hit is a real use;
+--   * COPY DELEGATION, chased below (a non-empty `visited`) -- a copy's use leaves
+--     no token at the origin's def-site by construction, so `used` is the only
+--     witness there.
+-- Anything else is elaboration debris: reducing an imported definition freezes its
+-- callees' QNames into the reducing module, and those references are fully
+-- qualified, resolve through the transitive import, and keep nothing alive.
+semDeep :: Bool -> Cache -> Set QName -> QName -> Set QName -> TCM V
+semDeep scopeSearched cache used q visited
+  | q `Set.member` used
+  , not scopeSearched || not (Set.null visited) = pure Used
   | q `Set.member` visited = pure Dead
   | otherwise = do
       mdef <- defOf cache q
       case mdef of
         Nothing -> pure Dead
         Just d
-          | isFunctionCopy d -> combine <$> mapM (\h -> semDeep cache used h (Set.insert q visited)) (delegatedHeads d)
+          | q `Set.member` used, isJust (defInstance d) -> pure Used
+          | isFunctionCopy d -> combine <$> mapM (\h -> semDeep scopeSearched cache used h (Set.insert q visited)) (delegatedHeads d)
           | otherwise        -> pure Dead
 
 -- ASSUMPTION (load-bearing for FN-safety): a value candidate is listed in
@@ -275,9 +304,20 @@ resolveQuery cache used hc scopes consumerMod modS name aliasPos = do
       synUsed = aliasUsed
              || any (\q -> occurrences hc q >= 2) valQs
              || any (\q -> occurrences hc q >= 1) modQs
+      -- Whether `synUsed` above is a FAITHFUL reading of the source for this name,
+      -- which decides how much the semantic signal is allowed to overrule.
+      -- Highlighting attributes each token to the ONE QName it resolved to, so the
+      -- per-QName counts only add up for a name with a single value resolution.  An
+      -- AMBIGUOUS name (`[]` is both the list constructor and
+      -- `Data.List.Base.InitLast`'s) scatters them: the import token lands on one
+      -- arbitrary candidate and a constructor in TERM position on none, so a count of
+      -- 0 means "unreadable", not "unused", and the semantic signal must be taken at
+      -- face value -- reduction-baked QNames and all -- since nothing else can
+      -- witness the use.
+      scopeSearched = length valQs <= 1
   if null qs        then pure Unresolved  -- not in scope at all (should not happen for a real candidate)
   else if synUsed   then pure Used        -- syntactic: referenced in the source beyond its import
-  else combine <$> mapM (\q -> semDeep cache used q Set.empty) qs
+  else combine <$> mapM (\q -> semDeep scopeSearched cache used q Set.empty) qs
 
 
 anyM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
@@ -295,9 +335,11 @@ resolveWildcard cache used hc scopes modS = case Map.lookup modS scopes of
   Nothing -> pure []
   Just sc -> map fst <$> filterM memberUsed (Map.toList (exportsOf sc))
   where
+    -- Same rule as a name query: an export name with one resolution is legible to
+    -- the syntactic count, an ambiguous one is not.
     memberUsed (_, qs)
       | any (\q -> occurrences hc q >= 1) qs = pure True
-      | otherwise = anyM (\q -> (== Used) <$> semDeep cache used q Set.empty) qs
+      | otherwise = anyM (\q -> (== Used) <$> semDeep (length qs <= 1) cache used q Set.empty) qs
 
 -- ---- driver -----------------------------------------------------------------
 

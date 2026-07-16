@@ -32,7 +32,7 @@ open import Data.Nat.Properties
   renaming (_≟_ to _≟ₙ_)
 open import Data.Nat.DivMod using (m/n*n≡m)
 open import Data.Nat.Divisibility using (m%n≡0⇒n∣m)
-open import Data.Integer.Base using (ℤ; +_; ∣_∣; sign; _◃_)
+open import Data.Integer.Base using (ℤ; +_)
 import Data.Integer.Base as ℤ
 open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.Maybe.Base using (Maybe; just; nothing)
@@ -46,9 +46,7 @@ open import Relation.Nullary using (yes; no)
 open import Function.Base using (_∋_)
 
 open import Aletheia.DBC.DecRat using
-  (DecRat; mkDecRat; toℚ; fromℚ?;
-   canonicalize; canonicalizeDecRat; canonicalize-value-ℚᵘ;
-   stripFactor-fuel; 2^a·5^b-NonZero)
+  (toℚ; fromℚ?; canonicalize; canonicalizeDecRat; canonicalize-value-ℚᵘ; stripFactor-fuel; 2^a·5^b-NonZero)
 
 ------------------------------------------------------------------------
 -- Local helper

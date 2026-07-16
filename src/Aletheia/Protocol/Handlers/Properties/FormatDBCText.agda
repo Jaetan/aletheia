@@ -21,12 +21,9 @@
 module Aletheia.Protocol.Handlers.Properties.FormatDBCText where
 
 open import Data.Bool using (Bool; true; false)
-open import Data.List using (List)
 open import Data.Sum using (inj₂)
-open import Data.String using (String)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
-open import Aletheia.DBC.Types using (DBC; ValidationIssue)
 open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.TextParser.RoundTripCheck using (roundTripsWithᵇ)
