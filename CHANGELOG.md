@@ -12,6 +12,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Agent-memory-citation gate** (`tools/check_no_memory_citations.py`, wired into
+  `run_ci` and the pre-commit fast tier). The agent-memory store (`feedback_*.md`,
+  `project_*.md`, `[[wikilink]]` notes) lives outside the repository, so a pointer
+  to it in a tracked file resolves for nobody who cloned the repo. This gate fails
+  when such a pointer — a `[[slug]]` wikilink, a `memory/<name>.md` path, or a
+  `<slug>.md` note filename — appears in any tracked file expected to read as a
+  product: source of every binding language AND the user-facing docs (product
+  Markdown, the CHANGELOG, PROJECT_STATUS). Exempt are the AI-process-infra docs
+  whose purpose includes citing the store (`CLAUDE.md`, `AGENTS.md`,
+  `DEFERRED_ITEMS.md`) and the `E2_*` proof-strategy backlog docs. It complements
+  `check_docs` (Markdown links) and `check_no_review_marks` (review-process marks),
+  and on its first run caught eleven pointers earlier strips had missed (source
+  `.yaml`/`.gitignore` plus product docs). Catches only these unambiguous
+  structured shapes, not bare prose.
+
 - Python's public `IssueCode` enum (`aletheia.codes.IssueCode`) gains the eight
   text-round-trip diagnostic codes (`text_roundtrip_divergence`,
   `multi_value_mux_selector`, `mux_master_incoherent`, `big_endian_msb_layout`,
@@ -2128,7 +2143,7 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   Shake binary. Branch-level granularity for v0; gate-shape verified
   by forward-revert test in a detached worktree.
 - `tools/check_gate_claim.py` offline enforcer for the gate-claim
-  integrity rule (`memory/feedback_gate_claim_integrity.md`). Detects
+  integrity rule. Detects
   commits whose message asserts "all gates clean" / "gates green" /
   similar and verifies that `build/libaletheia-ffi.so` mtime postdates
   every build-relevant staged source file's mtime — i.e., the gates
@@ -2205,8 +2220,8 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   the same surface as the GHA workflow.
 - `tools/run_ci.py` extended from 20 to 21 steps with the addition of
   `clang-tidy -p build src/*.cpp` (canonical invocation per AGENTS.md
-  L580) — mandatory correctness gate per AGENTS.md L494 +
-  `feedback_clang_tidy_mandatory.md`, was missing from phase 3 / phase 6
+  L580) — mandatory correctness gate per AGENTS.md L494,
+  was missing from phase 3 / phase 6
   ships and revealed by the first end-to-end run.
 - `docs/operations/RUNBOOK.md` — operations runbook keyed on operator
   symptoms.  Per AGENTS.md cat 22, every one of the 15 structured log
@@ -2938,14 +2953,12 @@ Agda's `with ... in eq` elaboration mechanism") is empirically correct
 the exact `[UnequalTerms]` "ill-typed with-abstraction" error in a
 17-line minimal reproduction.  But the conclusion ("workaround: keep
 `Dec`") was over-strong: the `Reflects` two-with pattern is the
-structural escape hatch the four-approach probe didn't try.  The
-updated guidance lives in `memory/feedback_with_in_eq_outer_abstraction_barrier.md`.
+structural escape hatch the four-approach probe didn't try.
 
 **Perf:** no measurable Frame Building gain over the post-`@0` baseline
 (an earlier `@0`-erasure of `ℕToBitVec`'s bound slot already
 captured the throughput win).  Benchmark deltas across all three
-bindings are within WSL2 session-distant ±10% jitter per
-`feedback_wsl2_variance_stance.md`.  Reason: MAlonzo emits
+bindings are within WSL2 session-distant ±10% jitter.  Reason: MAlonzo emits
 `Reflects.fromEquivalence` for `mkBoundedBitVec`, which allocates a
 Reflects wrapper via `du_of_30` + two closures per call — one heap
 cell, structurally similar to post-`@0` Dec.  The architectural win is
@@ -3482,8 +3495,7 @@ callers that consumed a bare success acknowledgement need to access
   `python/tests/test_classify_satisfied_complete.py` exercises the
   witnesses through the JSON wire end-to-end.
 - **CI orchestrator** (`tools/run_ci.py`): fixed three defects surfaced
-  by the first end-to-end run per
-  `feedback_orchestrator_end_to_end_validation.md`.  (1) `total_steps`
+  by the first end-to-end run.  (1) `total_steps`
   default bumped from 25 to 26 to reflect the addition of
   `check-stability-bench` at step 12 (and opt-in bumps shifted +1 to
   preserve relative offsets).  (2) pylint command switched from bare

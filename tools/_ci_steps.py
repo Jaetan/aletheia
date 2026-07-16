@@ -92,6 +92,7 @@ FAST_STEPS: frozenset[str] = frozenset(
     {
         "check-spdx-headers",
         "check-no-review-marks",
+        "check-no-memory-citations",
         "check-venv-convention",
         "clang-format",
         "gofmt",
@@ -528,6 +529,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-no-review-marks",
         [runner.python, "-m", "tools.check_no_review_marks"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-no-memory-citations",
+        [runner.python, "-m", "tools.check_no_memory_citations"],
         cwd=runner.repo_root,
     )
     runner.step(

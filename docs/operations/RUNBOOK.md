@@ -469,8 +469,7 @@ splits by bound-kind family:
   `max_value_descriptions_per_file` — most commonly hit by very large
   commercial DBCs; the per-section caps have ~6× headroom but a single
   oversize ECU bundle can exceed them.  Raising the bound requires
-  benchmarking the parser's O(N²) sub-paths (see
-  `feedback_parsedbc_quadratic_scaling.md`) before flipping the
+  benchmarking the parser's O(N²) sub-paths before flipping the
   constant.
 - **`identifier_length`** / **`string_length`** — legitimate DBCs do
   not have 128-char identifiers; this is almost always input

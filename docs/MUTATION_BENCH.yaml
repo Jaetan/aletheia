@@ -149,7 +149,7 @@ bindings:
       #   cp bazel-bin/mull-ir-frontend-22           ~/.local/bin/
       # mull-runner / mull-reporter are Rust binaries; ir-frontend is a C++
       # clang plugin .so.  Full recipe + cache keys: pr-heavy-lanes.yml mutation
-      # lane and memory/feedback_support_latest_toolchain.md.
+      # lane and docs/operations/MUTATION.md § C++.
     hot_path:
       # AGENTS.md cat 14(g) C++ list: `cpp/src/*.cpp` — Mull mutates all of
       # them via the `-fpass-plugin` clang option in the dedicated build tree.

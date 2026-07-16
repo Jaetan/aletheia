@@ -358,6 +358,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_clang_tidy_coverage.py",
     "--ignore=tests/test_check_docs.py",
     "--ignore=tests/test_check_no_review_marks.py",
+    "--ignore=tests/test_check_no_memory_citations.py",
     "--ignore=tests/test_mutation_run_scope.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /

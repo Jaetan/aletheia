@@ -1,6 +1,6 @@
 # CI run logs from tools/run-ci.sh.  Kept locally as falsifiable evidence
-# behind "all gates clean" / "gates green" assertions in commit messages
-# (see memory/feedback_gate_claim_integrity.md), but never tracked in git
-# — logs are dev-machine artifacts, not source of truth.
+# behind "all gates clean" / "gates green" assertions in commit messages,
+# but never tracked in git — logs are dev-machine artifacts, not source of
+# truth.
 *
 !.gitignore
