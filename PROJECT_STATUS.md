@@ -33,10 +33,20 @@ proven. Phase 6 is planned (a few of its binding items already delivered).
 **Adoption prerequisites — do first.** These gate the rest of Phase 6: the tool
 cannot honestly advertise capabilities it does not yet have.
 
-1. **Prebuilt / installable distribution.** Today the only way to obtain Aletheia
-   is a full from-source `Agda → Haskell → libaletheia-ffi.so` build — the leading
-   adoption blocker. Ship a prebuilt artifact: a manylinux Python wheel bundling
-   the shared library (and PyPI publication), and/or an OS package / container.
+1. **Prebuilt / installable distribution** — the leading adoption blocker, now in
+   progress. Today the only way to obtain Aletheia is a full from-source
+   `Agda → Haskell → libaletheia-ffi.so` build. The chosen delivery is a **GitHub
+   Release carrying a self-contained, cosign-signed bundle** — not a pip wheel; a
+   `.tar.gz` / `.deb` / `.rpm` the user downloads and is productive with in minutes.
+   Progress:
+   - **✅ Release automation (done).** A tag-triggered workflow builds the
+     reproducible tarball, **keyless-signs** it (Sigstore via the GitHub Actions
+     OIDC identity — no signing key in CI), self-verifies the signature (publish
+     is gated on that check), and publishes a draft Release.
+   - **Next — multi-binding payload.** Expand the bundle from C-ABI-only to carry
+     all four language bindings (Python / C++ / Go / Rust source over the one
+     prebuilt `.so`) plus an `install.sh`, so one download makes every binding
+     usable; then native OS packages (`.deb` / `.rpm`) and multi-binding Docker.
 2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
    the Excel template (today it needs a Python one-liner), so the non-programmer
    on-ramp is real.
