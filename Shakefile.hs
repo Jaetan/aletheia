@@ -1208,12 +1208,16 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         let sbomFile = distDir </> "aletheia-sbom.cdx.json"
         let tarHashFile = tarball ++ ".sha256"
         let tarSigFile = tarball ++ ".sig"
+        -- Keyless (Sigstore) signing emits a short-lived Fulcio certificate
+        -- alongside the signature; the key-based path does not.
+        let tarCrtFile = tarball ++ ".crt"
 
         -- Clean previous dist
         liftIO $ removePathForcibly distDir
         liftIO $ removePathForcibly tarball
         liftIO $ removePathForcibly tarHashFile
         liftIO $ removePathForcibly tarSigFile
+        liftIO $ removePathForcibly tarCrtFile
         liftIO $ createDirectoryIfMissing True distLib
         liftIO $ createDirectoryIfMissing True distInclude
 
@@ -1306,7 +1310,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 , "  gcc -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
                 , ""
                 , "Verification (verify-then-trust order):"
-                , "  1. Tarball signature (cosign + keys/cosign.pub from the source tree)"
+                , "  1. Tarball signature — see MANIFEST.txt Verification for the exact cosign"
+                , "     command (key-based or keyless, matching how this build was signed)"
                 , "  2. sha256sum -c aletheia.tar.gz.sha256"
                 , "  3. After unpacking: hashes inside MANIFEST.txt vs find lib -name '*.so*'"
                 , ""
@@ -1322,6 +1327,47 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 , "  Build date:  " ++ strip buildDate ++ "  (commit time, NOT wall-clock)"
                 ]
         liftIO $ writeFile readmeFile readmeText
+
+        -- Resolve the signing mode ONCE, up front, so the verify command
+        -- embedded in MANIFEST.txt matches the signature the tarball actually
+        -- carries.  A keyless tarball must NOT tell its consumer to run
+        -- `--key cosign.pub` (wrong material for that artifact), and vice versa.
+        -- Precedence: keyless (CI, ambient OIDC) wins over the keyring key;
+        -- absent cosign or neither selector set → unsigned.
+        Exit cosignPresent <- cmd Shell "command -v cosign >/dev/null 2>&1"
+        keylessEnv <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEYLESS"
+        cosignKey  <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEY"
+        let signMode :: String
+            signMode
+              | ExitFailure _ <- cosignPresent = "none"
+              | keylessEnv == Just "1"         = "keyless"
+              | Just _ <- cosignKey            = "keyed"
+              | otherwise                      = "none"
+
+        -- Mode-specific verify recipe embedded in MANIFEST.txt.  The identity
+        -- regexp pins the release workflow + a v-prefixed tag ref.
+        let verifyLines = case signMode of
+              "keyless" ->
+                [ "  Tarball signature (keyless / Sigstore — GitHub Actions OIDC):"
+                , "    cosign verify-blob \\"
+                , "      --certificate aletheia.tar.gz.crt \\"
+                , "      --signature aletheia.tar.gz.sig \\"
+                , "      --certificate-identity-regexp \\"
+                , "        '^https://github\\.com/Jaetan/aletheia/\\.github/workflows/release\\.yml@refs/tags/v' \\"
+                , "      --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+                , "      aletheia.tar.gz"
+                ]
+              "keyed" ->
+                [ "  Tarball signature (key-based — keys/cosign.pub from the source tree):"
+                , "    cosign verify-blob --key keys/cosign.pub \\"
+                , "      --signature aletheia.tar.gz.sig aletheia.tar.gz"
+                , "    (local dev builds omit the Rekor tlog entry — add --insecure-ignore-tlog)"
+                ]
+              _ ->
+                [ "  Tarball signature: UNSIGNED (no cosign on PATH, or neither"
+                , "    ALETHEIA_COSIGN_KEYLESS=1 nor ALETHEIA_COSIGN_KEY set at build time)."
+                , "    A release build MUST be signed — treat an unsigned tarball as untrusted."
+                ]
 
         let manifestText = unlines $
                 [ "Aletheia distribution manifest"
@@ -1346,14 +1392,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 , "Verification:"
                 , "  Distribution integrity (compare against this manifest):"
                 , "    find lib/ -name '*.so*' -exec sha256sum {} \\;"
-                , "  Tarball signature (local dev, signed without tlog):"
-                , "    cosign verify-blob --insecure-ignore-tlog \\"
-                , "      --key keys/cosign.pub \\"
-                , "      --signature aletheia.tar.gz.sig aletheia.tar.gz"
-                , "  Tarball signature (release, signed with ALETHEIA_COSIGN_TLOG=1):"
-                , "    cosign verify-blob --key keys/cosign.pub \\"
-                , "      --signature aletheia.tar.gz.sig aletheia.tar.gz"
-                , ""
+                ] ++ verifyLines ++
+                [ ""
                 , "Reference:"
                 , "  AGENTS.md § Universal Rules → Reproducible build verification"
                 , "  docs/development/RELEASE.md § Verifying release artifacts"
@@ -1392,13 +1432,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         tarballHash <- sha256file tarball
         liftIO $ writeFile tarHashFile (tarballHash ++ "  " ++ takeFileName tarball ++ "\n")
 
-        -- CICD-5.4: sign the tarball if cosign + key are available.  Skip-with-
-        -- warning when either is missing — release verification fails closed
+        -- CICD-5.4: sign the tarball per the signing mode resolved above.
+        -- Skip-with-warning when unsigned — release verification fails closed
         -- on the consumer side via cosign verify-blob, not here.
-        cosignKey <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEY"
-        Exit cosignCode <- cmd Shell "command -v cosign >/dev/null 2>&1"
-        sigPresent <- case (cosignCode, cosignKey) of
-            (ExitSuccess, Just keyPath) -> do
+        sigPresent <- case (signMode, cosignKey) of
+            ("keyless", _) -> do
+                -- Keyless / Sigstore: the ephemeral signing key is minted from
+                -- the ambient GitHub Actions OIDC token (needs id-token: write)
+                -- and discarded after use.  tlog upload stays ON (cosign's
+                -- keyless default) — the short-lived Fulcio cert is verifiable
+                -- only via its Rekor transparency-log entry.  Emits .sig + .crt.
+                putInfo "Signing tarball with cosign (keyless / ambient OIDC, tlog on)..."
+                cmd_ Shell $
+                    "cosign sign-blob --yes" ++
+                    " --output-signature '" ++ tarSigFile ++ "'" ++
+                    " --output-certificate '" ++ tarCrtFile ++ "'" ++
+                    " '" ++ tarball ++ "'"
+                return True
+            ("keyed", Just keyPath) -> do
                 -- Default --tlog-upload=false: per-dev-run signing should not
                 -- push every artifact hash to the public Sigstore Rekor log.
                 -- Release signing opts back in via ALETHEIA_COSIGN_TLOG=1.
@@ -1406,7 +1457,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 let tlogFlag = case tlogEnv of
                         Just "1" -> "--tlog-upload=true"
                         _        -> "--tlog-upload=false"
-                putInfo $ "Signing tarball with cosign (" ++ tlogFlag ++ ")..."
+                putInfo $ "Signing tarball with cosign (key-based, " ++ tlogFlag ++ ")..."
                 cmd_ Shell $
                     "COSIGN_PASSWORD=\"${COSIGN_PASSWORD:-}\" cosign sign-blob --yes " ++
                     tlogFlag ++
@@ -1414,12 +1465,10 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                     " --output-signature '" ++ tarSigFile ++ "'" ++
                     " '" ++ tarball ++ "'"
                 return True
-            (ExitSuccess, Nothing) -> do
-                putWarn $ "ALETHEIA_COSIGN_KEY env var not set — skipping artifact signing.\n" ++
-                    "  See docs/development/RELEASE.md § Signing for the canonical key path."
-                return False
-            (ExitFailure _, _) -> do
-                putWarn "cosign not found — skipping artifact signing. Install: see docs/development/RELEASE.md."
+            _ -> do
+                putWarn $ "Tarball NOT signed — cosign missing, or neither " ++
+                    "ALETHEIA_COSIGN_KEYLESS=1 nor ALETHEIA_COSIGN_KEY set.\n" ++
+                    "  See docs/development/RELEASE.md § Signing."
                 return False
 
         -- Report

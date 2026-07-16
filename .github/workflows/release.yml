@@ -1,0 +1,189 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Tag-triggered release automation.  Builds the reproducible distribution
+# tarball via `cabal run shake -- dist` and publishes it to a GitHub Release.
+#
+# Signing is KEYLESS (Sigstore / GitHub Actions ambient OIDC → short-lived
+# Fulcio certificate + Rekor transparency log): no signing key or passphrase
+# ever lives in CI.  The signing key stays in the maintainer's local keyring
+# for local/out-of-band releases (docs/development/RELEASE.md).
+#
+# Triggers:
+#   * push of a `v*` tag  → build + keyless-sign + self-verify + publish a DRAFT
+#     release (the maintainer flips it public after a look).
+#   * workflow_dispatch   → build + keyless-sign + self-verify as a DRY-RUN,
+#     WITHOUT publishing — the acceptance test for this pipeline.
+#
+# The self-verify step gates publish: a tarball that does not verify against
+# this workflow's own OIDC identity is never released (matches the repo rule
+# that a gate which cannot fail has a bug).
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build + keyless-sign + publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write   # create the Release + upload assets (tag pushes only)
+      id-token: write   # mint the ambient OIDC token for keyless Sigstore signing
+    env:
+      GHC_VERSION: '9.6.7'
+      AGDA_VERSION: '2.8.0'
+      STDLIB_VERSION: 'v2.3'
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v7
+        with:
+          # `shake dist` derives the reproducible tarball mtime + SBOM epoch from
+          # `git log -1 --format=%ct HEAD`, so the commit must be reachable.
+          fetch-depth: 0
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          # Pin the legacy ~/.cabal layout so the cache path + PATH agree (see
+          # pr-full-ci.yml for the full rationale).
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (persists the Agda build even if a later step fails)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          # `shake dist` runs tools.sbom_generate under this venv.
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Install cosign (SHA-pinned)
+        env:
+          # Keep in sync with docs/development/RELEASE.md + keys/README.md.
+          COSIGN_VERSION: '2.4.1'
+          COSIGN_SHA256: '8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/cosign \
+            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+          sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
+          rm /tmp/cosign
+          cosign version
+
+      - name: Build + keyless-sign the distribution tarball
+        env:
+          # Selects the Shakefile's keyless sign branch; cosign auto-detects the
+          # ambient GitHub Actions OIDC token (id-token: write above).  No key.
+          ALETHEIA_COSIGN_KEYLESS: '1'
+        run: cabal run shake -- dist
+
+      - name: Self-verify the signed tarball (gates publish)
+        run: |
+          set -euo pipefail
+          # GITHUB_WORKFLOW_REF is the exact identity Fulcio put in the cert:
+          #   tag push → Jaetan/aletheia/.github/workflows/release.yml@refs/tags/vX.Y.Z
+          #   dispatch → Jaetan/aletheia/.github/workflows/release.yml@refs/heads/main
+          # The signature must verify against THAT identity or we do not publish.
+          cosign verify-blob \
+            --certificate dist/aletheia.tar.gz.crt \
+            --signature dist/aletheia.tar.gz.sig \
+            --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/aletheia.tar.gz
+          echo "Self-verify OK — signature matches this workflow's OIDC identity."
+
+      - name: Publish the GitHub Release (draft; tag pushes only)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Idempotent: a re-run of the same tag re-uploads the assets rather
+          # than failing on an already-existing release.  Published as a DRAFT —
+          # the maintainer reviews, then flips it public.
+          #
+          # A keyless release is verified against the workflow's OIDC IDENTITY
+          # (the .crt + the identity in RELEASE.md), NOT keys/cosign.pub — so
+          # cosign.pub is deliberately NOT a release asset here (shipping it
+          # would invite a --key verify that cannot succeed on a keyless sig).
+          assets=(
+            dist/aletheia.tar.gz
+            dist/aletheia.tar.gz.sha256
+            dist/aletheia.tar.gz.sig
+            dist/aletheia.tar.gz.crt
+          )
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
+              --draft \
+              --title "Aletheia ${GITHUB_REF_NAME}" \
+              --notes "Keyless-signed (Sigstore) distribution tarball. Verify per docs/development/RELEASE.md § Verifying release artifacts."
+          fi
