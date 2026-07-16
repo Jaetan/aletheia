@@ -1,8 +1,9 @@
 # RELEASE.md
 
 The release pipeline for Aletheia.  Cuts a tagged distribution tarball,
-records a CycloneDX SBOM, signs the tarball with cosign, and produces
-the verifiable artifact set consumers should rely on.
+records a CycloneDX SBOM, signs the tarball with cosign (keyless in CI,
+key-based for local cuts), and produces the verifiable artifact set
+consumers should rely on.
 
 Cross-references:
 
@@ -12,12 +13,49 @@ Cross-references:
   — the rule this document operationalises.
 - [`AGENTS.md` § CI/CD § cat 5](../../AGENTS.md) — artifact / release surface.
 
+## Release paths
+
+There are two ways to cut a release.  Both produce the same reproducible
+tarball + SBOM signed with cosign; they differ only in **where signing happens
+and what trust anchor verifies it**:
+
+| Path | Trigger | Signing | Consumer verifies with |
+|---|---|---|---|
+| **CI (default)** | Push a `v*` tag | **Keyless** — Sigstore via the GitHub Actions OIDC identity; no key in CI | the workflow identity (`--certificate` + `--certificate-identity-regexp …`) |
+| **Local (fallback)** | Run `shake dist` by hand | The maintainer's cosign key from the local keyring | `keys/cosign.pub` (`--key …`) |
+
+The **CI path is the default.**  Pushing a `v*` tag runs
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml), which
+builds via `shake dist`, keyless-signs the tarball, **self-verifies it against
+its own OIDC identity — publish is gated on that check** — and publishes a
+**draft** GitHub Release for the maintainer to review and flip public.  Keyless
+means no signing key or passphrase ever lives in CI; the key stays in the local
+keyring, used only by the fallback path.
+
+Use the **local path** for releases cut off CI (a hotfix from the maintainer's
+machine, or CI unavailable).
+
 ## Quick reference
+
+### CI release (default) — push a tag
+
+```bash
+# After bumping versions + CHANGELOG (see the checklist), tag and push:
+git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
+git push origin vX.Y.Z
+# release.yml builds, keyless-signs, self-verifies, and publishes a DRAFT
+# Release.  Review it on GitHub, then flip it from draft to published.
+#
+# Dry-run the whole pipeline WITHOUT publishing (build + sign + self-verify):
+#   gh workflow run release.yml     # or the Actions tab → Release → Run workflow
+```
+
+### Local release (fallback) — cut by hand
 
 ```bash
 # Cut a signed release distribution (~2 min cold):
 export ALETHEIA_COSIGN_KEY=$HOME/.config/aletheia/cosign.key
-export COSIGN_PASSWORD=...                       # the passphrase for the key
+export COSIGN_PASSWORD=...                       # from your keyring / secret-manager
 export ALETHEIA_COSIGN_TLOG=1                    # release: push entry to Sigstore Rekor
 cabal run shake -- dist
 
@@ -28,7 +66,7 @@ cabal run shake -- dist
 #   dist/aletheia/MANIFEST.txt      — toolchain pin + per-file hashes (in-tarball)
 #   dist/aletheia/aletheia-sbom.cdx.json — CycloneDX 1.5 SBOM (in-tarball)
 
-# Verify (consumer side):
+# Verify (local path, key-based):
 sha256sum -c dist/aletheia.tar.gz.sha256
 cosign verify-blob \
   --key keys/cosign.pub \
@@ -76,7 +114,40 @@ The flags below harden against regressions.
 
 ## Signing
 
+### Keyless signing (CI — the default)
+
+The CI release path signs **keyless** via Sigstore: cosign mints an ephemeral
+key from the GitHub Actions ambient OIDC token (the `id-token: write` permission
+in `release.yml`), obtains a short-lived Fulcio certificate bound to the
+workflow identity, signs, records the entry in the Rekor transparency log, and
+discards the key.  **No signing key or passphrase exists in CI.**
+
+`shake dist` selects this mode when `ALETHEIA_COSIGN_KEYLESS=1` is set (the
+workflow sets it).  It emits two sidecars — `aletheia.tar.gz.sig` and
+`aletheia.tar.gz.crt` (the certificate) — and always uploads to Rekor (the
+short-lived cert is only verifiable via its log entry).
+
+Consumers verify against the **workflow identity**, not a public key:
+
+```bash
+cosign verify-blob \
+  --certificate aletheia.tar.gz.crt \
+  --signature aletheia.tar.gz.sig \
+  --certificate-identity-regexp \
+    '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  aletheia.tar.gz
+```
+
+The exact command for any given artifact is embedded in its `MANIFEST.txt`
+(the `shake dist` mode-aware verify block), so it always matches how that
+tarball was actually signed.
+
 ### One-time key generation
+
+The key-based path below is the **local fallback** (see "Release paths").
+
+
 
 The cosign keypair lives outside the repo.  Canonical paths:
 
@@ -175,15 +246,33 @@ Output path inside the tarball: `aletheia/aletheia-sbom.cdx.json`.
 ## Verifying release artifacts (consumer side)
 
 ```bash
-# 1. Fetch tarball + sidecar files
-curl -fsSLO https://aletheia-releases.example/aletheia.tar.gz{,.sha256,.sig}
+# 1. Fetch the tarball + sidecars from the GitHub Release.  Replace vX.Y.Z with
+#    the tag (or use .../releases/latest/download/<file> for the newest).
+BASE=https://github.com/Jaetan/aletheia/releases/download/vX.Y.Z
+curl -fsSLO "$BASE/aletheia.tar.gz"
+curl -fsSLO "$BASE/aletheia.tar.gz.sha256"
+curl -fsSLO "$BASE/aletheia.tar.gz.sig"
 
 # 2. Verify integrity
 sha256sum -c aletheia.tar.gz.sha256
 
-# 3. Verify provenance (release builds include Rekor tlog entry)
+# 3. Verify provenance.  The tarball's MANIFEST.txt carries the exact command
+#    matching how THIS artifact was signed — use the block for your release:
+#
+#    (a) CI release (default) — keyless (Sigstore), with a .crt sidecar:
+curl -fsSLO "$BASE/aletheia.tar.gz.crt"
 cosign verify-blob \
-  --key https://aletheia-releases.example/cosign.pub \
+  --certificate aletheia.tar.gz.crt \
+  --signature aletheia.tar.gz.sig \
+  --certificate-identity-regexp \
+    '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  aletheia.tar.gz
+#
+#    (b) Locally-cut release — key-based, no .crt.  Verify against the project's
+#        published key (keys/cosign.pub from the source tree):
+cosign verify-blob \
+  --key keys/cosign.pub \
   --signature aletheia.tar.gz.sig \
   aletheia.tar.gz
 
@@ -198,7 +287,7 @@ A failure in any of these is a stop-the-world event for the consumer.
 
 ## Release checklist
 
-Before tagging a release:
+### Before cutting a release (both paths)
 
 - [ ] Working tree clean (`git status --porcelain` empty).  A dirty
       tree shows up as `Git tree: dirty` in the MANIFEST and signals
@@ -222,28 +311,45 @@ Before tagging a release:
       and `shake.cabal` (`version: X.Y.Z.0` — the build orchestrator, bumped in
       lockstep at every prior release).
       (Go derives its version from the git tag — no in-file semver to bump.)
+### CI release (default)
+
+- [ ] Tag the release commit and push: `git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"`
+      then `git push origin vX.Y.Z`.
+- [ ] `release.yml` goes green — it builds, keyless-signs, and **self-verifies**
+      the tarball against the workflow OIDC identity (publish is gated on that
+      check, so a green run means the artifact is verifiable).
+- [ ] Review the resulting **draft** GitHub Release, then flip it from draft to
+      published.  (Smoke-test beforehand with `gh workflow run release.yml` — the
+      full build + sign + self-verify as a dry-run, no publish.)
+
+### Local release (fallback — cut off CI)
+
 - [ ] Cosign keypair is the current key (`keys/cosign.pub` matches
       `~/.config/aletheia/cosign.key`).
 - [ ] `ALETHEIA_COSIGN_TLOG=1` exported (release flow uses Rekor).
-- [ ] `cabal run shake -- dist` produces all four artifact files.
-- [ ] Manual verify of all three checks (sha256, cosign, SBOM look-OK).
-- [ ] Tag the release commit + push tarball + signature + sha256 +
-      `keys/cosign.pub` to the release host.
+- [ ] `cabal run shake -- dist` produces the tarball + `.sha256` + `.sig`
+      (plus MANIFEST + SBOM inside the tarball; no `.crt` — that is keyless-only).
+- [ ] Manual verify (sha256, cosign `--key keys/cosign.pub`, SBOM look-OK).
+- [ ] Create the GitHub Release and upload the tarball + sidecars:
+      `gh release create vX.Y.Z dist/aletheia.tar.gz dist/aletheia.tar.gz.sha256 dist/aletheia.tar.gz.sig`.
+
+### After publishing (both paths)
+
 - [ ] Edit `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
       and add a fresh empty `## [Unreleased]` header above it for the next cycle.
 
 ## Troubleshooting
 
-### "cosign not found" warning at dist
+### "Tarball NOT signed" warning at dist
 
-Install cosign per "Installing cosign" above.  Skip-with-warning is
-deliberate so that dev builds don't fail when cosign is absent — but
-a release build without cosign produces no signature.
+`shake dist` skips signing (with a warning, so dev builds don't fail) when
+cosign is absent, or when neither `ALETHEIA_COSIGN_KEYLESS=1` (CI keyless) nor
+`ALETHEIA_COSIGN_KEY` (local key) is set.  A **release** build must be signed:
 
-### "ALETHEIA_COSIGN_KEY env var not set"
-
-Set the env var to your private key path.  See "One-time key
-generation".
+- **CI:** the `release.yml` job sets `ALETHEIA_COSIGN_KEYLESS=1` and installs
+  cosign (SHA-pinned) on PATH — no action needed.
+- **Local:** set `ALETHEIA_COSIGN_KEY` to your private key path (see "One-time
+  key generation") and install cosign per "Installing cosign".
 
 ### Verify warns about `--insecure-ignore-tlog`
 

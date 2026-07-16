@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Keyless-signed GitHub Release automation** (`.github/workflows/release.yml`).
+  Pushing a `v*` tag builds the reproducible distribution tarball via `shake dist`,
+  signs it, self-verifies the signature, and publishes a draft GitHub Release.
+  Signing is **keyless** (Sigstore): cosign mints an ephemeral key from the
+  workflow's GitHub Actions OIDC identity, so no signing key or passphrase ever
+  lives in CI — consumers verify against the workflow identity (`cosign verify-blob
+  --certificate … --certificate-identity-regexp …`) rather than a public key.
+  Publishing is gated on the self-verify step, so an unverifiable artifact is never
+  released. `shake dist` gains a keyless signing mode (`ALETHEIA_COSIGN_KEYLESS=1`,
+  emitting a `.crt` certificate alongside the `.sig`); the maintainer's local cosign
+  key remains the fallback for releases cut off CI, and the embedded `MANIFEST.txt`
+  carries the exact verify command matching how each tarball was signed. See
+  `docs/development/RELEASE.md`.
+
 - **Agent-memory-citation gate** (`tools/check_no_memory_citations.py`, wired into
   `run_ci` and the pre-commit fast tier). The agent-memory store (`feedback_*.md`,
   `project_*.md`, `[[wikilink]]` notes) lives outside the repository, so a pointer
