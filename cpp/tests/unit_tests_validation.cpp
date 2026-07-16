@@ -14,7 +14,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -259,6 +261,65 @@ TEST_CASE("make_ffi_backend with rts_cores < 1 throws Validation-kinded exceptio
     } catch (const AletheiaException& e) {
         CHECK(e.kind() == ErrorKind::Validation);
         CHECK_THAT(std::string{e.what()}, ContainsSubstring("rts_cores must be >= 1"));
+    }
+}
+
+namespace {
+// Save/restore ALETHEIA_LIB around a test. Catch2 runs test cases sequentially,
+// so mutating the process environment is safe as long as it is restored.
+class ScopedAletheiaLib {
+public:
+    explicit ScopedAletheiaLib(const char* value) {
+        if (const char* cur = std::getenv("ALETHEIA_LIB"))
+            saved_ = cur;
+        if (value != nullptr)
+            ::setenv("ALETHEIA_LIB", value, /*overwrite=*/1);
+        else
+            ::unsetenv("ALETHEIA_LIB");
+    }
+    ScopedAletheiaLib(const ScopedAletheiaLib&) = delete;
+    ScopedAletheiaLib& operator=(const ScopedAletheiaLib&) = delete;
+    ScopedAletheiaLib(ScopedAletheiaLib&&) = delete;
+    ScopedAletheiaLib& operator=(ScopedAletheiaLib&&) = delete;
+    ~ScopedAletheiaLib() {
+        if (saved_)
+            ::setenv("ALETHEIA_LIB", saved_->c_str(), /*overwrite=*/1);
+        else
+            ::unsetenv("ALETHEIA_LIB");
+    }
+
+private:
+    std::optional<std::string> saved_;
+};
+} // namespace
+
+TEST_CASE("make_ffi_backend_from_env with ALETHEIA_LIB unset throws Validation-kinded exception",
+          "[ffi][validation]") {
+    // Unset is a caller-usage error, not an FFI failure. The distinct kind (vs
+    // the dlopen Ffi case below) is what gives the empty-check mutation coverage
+    // WITHOUT needing a real .so.
+    const ScopedAletheiaLib guard{nullptr};
+    try {
+        static_cast<void>(make_ffi_backend_from_env(1));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::Validation);
+        CHECK_THAT(std::string{e.what()}, ContainsSubstring("ALETHEIA_LIB is not set"));
+    }
+}
+
+TEST_CASE(
+    "make_ffi_backend_from_env with a nonexistent ALETHEIA_LIB path throws Ffi-kinded exception",
+    "[ffi][error]") {
+    // A set-but-missing path must reach dlopen (Ffi), NOT the unset guard —
+    // dropping/inverting the empty-check would collapse this into the case above.
+    const ScopedAletheiaLib guard{"/nonexistent/aletheia/libaletheia-ffi.so"};
+    try {
+        static_cast<void>(make_ffi_backend_from_env(1));
+        FAIL("expected AletheiaException");
+    } catch (const AletheiaException& e) {
+        CHECK(e.kind() == ErrorKind::Ffi);
+        CHECK_THAT(std::string{e.what()}, ContainsSubstring("dlopen failed"));
     }
 }
 

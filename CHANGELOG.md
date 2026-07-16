@@ -12,6 +12,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **`ALETHEIA_LIB` env-based library location for the Go and C++ bindings.** New
+  `NewFFIBackendFromEnv()` (Go) and `make_ffi_backend_from_env()` (C++) load
+  `libaletheia-ffi.so` from the path named by the `ALETHEIA_LIB` environment
+  variable, mirroring the Python and Rust bindings — so all four bindings can be
+  pointed at a shared library by the environment alone (the zero-config path for a
+  bundled install). An unset or empty `ALETHEIA_LIB` yields a typed validation
+  error; the explicit-path constructors (`NewFFIBackend(path)` /
+  `make_ffi_backend(path)`) are unchanged.
+
 - **Keyless-signed GitHub Release automation** (`.github/workflows/release.yml`).
   Pushing a `v*` tag builds the reproducible distribution tarball via `shake dist`,
   signs it, self-verifies the signature, and publishes a draft GitHub Release.

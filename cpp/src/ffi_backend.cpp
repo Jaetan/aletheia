@@ -19,6 +19,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <memory>
@@ -451,6 +452,18 @@ auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
     // to make_ffi_backend now have their choice honored by the renderer.
     detail::register_default_lib_path(lib_path);
     return std::make_unique<FfiBackend>(lib_path, rts_cores);
+}
+
+auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend> {
+    // std::getenv returns nullptr when unset, but a valid pointer to "" when
+    // set-but-empty (ALETHEIA_LIB=) — guard BOTH, or we would dlopen("").
+    const char* env = std::getenv("ALETHEIA_LIB");
+    if (env == nullptr || *env == '\0')
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Validation,
+                          "ALETHEIA_LIB is not set — set it to the path of libaletheia-ffi.so, "
+                          "or call make_ffi_backend(path)"});
+    return make_ffi_backend(std::filesystem::path{env}, rts_cores);
 }
 
 } // namespace aletheia
