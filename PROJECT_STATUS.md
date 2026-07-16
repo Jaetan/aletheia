@@ -36,9 +36,9 @@ cannot honestly advertise capabilities it does not yet have.
 1. **Prebuilt / installable distribution** — the leading adoption blocker, now in
    progress. Today the only way to obtain Aletheia is a full from-source
    `Agda → Haskell → libaletheia-ffi.so` build. The chosen delivery is a **GitHub
-   Release carrying a self-contained, cosign-signed bundle** — not a pip wheel; a
-   `.tar.gz` / `.deb` / `.rpm` the user downloads and is productive with in minutes.
-   Progress:
+   Release carrying a self-contained, cosign-signed `.tar.gz` bundle** the user
+   downloads and is productive with in minutes — not a pip wheel (native `.deb` /
+   `.rpm` packages follow as a later step below). Progress:
    - **✅ Release automation (done).** A tag-triggered workflow builds the
      reproducible tarball, **keyless-signs** it (Sigstore via the GitHub Actions
      OIDC identity — no signing key in CI), self-verifies the signature (publish
