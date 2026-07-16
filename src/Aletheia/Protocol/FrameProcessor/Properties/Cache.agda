@@ -207,11 +207,10 @@ updateCacheFromFrame-timestamps≤ dbc cache ts frame h
 ... | just msg = updateSignals-timestamps≤ dbc frame ts (DBCMessage.signals msg) cache h
 
 -- ============================================================================
--- PROPERTY 30: Signal cache coherence with frame extraction (Gap 12.3)
+-- PROPERTY 30: Signal cache coherence with frame extraction
 -- ============================================================================
 --
--- Closes deferred non-blocker 12.3 from project_system_review_deferred.md:
--- after `updateCacheFromFrame`, the cache value for a signal name agrees
+-- After `updateCacheFromFrame`, the cache value for a signal name agrees
 -- with what would be extracted by `extractTruthValue` on the same frame.
 -- This is the "no staleness" property — combined with the existing
 -- monotonicity / timestamp-bound properties (P23–P26), it shows that the

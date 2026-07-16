@@ -2,13 +2,11 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Slice 2 (V2 exact check) decidable-equality tower — the `_≟-*_` instances
--- missing from `Aletheia.DBC.Decidable.Equality`, built up to `_≟-DBC_`
--- (E2_ROUTE_B.md §6.1), so the round-trip check can deep-compare `parseText
--- (formatText d)` with `d`.
+-- Decidable-equality tower — the `_≟-*_` instances missing from
+-- `Aletheia.DBC.Decidable.Equality`, built up to `_≟-DBC_`, so the round-trip
+-- check can deep-compare `parseText (formatText d)` with `d`.
 --
--- S2.1 (this first chunk): `_≟-DLC_` over the `@0`-witness `DLC` record (§6.2),
--- the one step with any residual novelty — spiked first as cheap insurance.
+-- The one non-routine step is `_≟-DLC_` over the `@0`-witness `DLC` record.
 module Aletheia.DBC.Decidable.Equality.Full where
 
 open import Data.Nat using (ℕ; suc)
@@ -36,7 +34,7 @@ open import Aletheia.DBC.Types using
   ; DBCMessage; DBC )
 open import Aletheia.DBC.Decidable.Equality using (_≟-DBCSignal_; _≟-vd_)
 
--- ── _≟-DLC_ (§6.2) ───────────────────────────────────────────────────────────
+-- ── _≟-DLC_ ─────────────────────────────────────────────────────────────────
 --
 -- `DLC` carries `@0 bounded : T (code <ᵇ 16)`.  A generic Dec-≡ over the record
 -- is blocked: `@0` fields are runtime-erased but NOT definitionally irrelevant,
@@ -72,7 +70,7 @@ d₁ ≟-DLC d₂ with DLC.code d₁ ≟ DLC.code d₂
 ... | yes eq = yes (dlc-code-inj d₁ d₂ eq)
 ... | no ¬p  = no (λ eq → ¬p (cong DLC.code eq))
 
--- ── S2.2a: a nullary enum + the refinement records ──────────────────────────
+-- ── a nullary enum + the refinement records ─────────────────────────────────
 
 -- VarType (3 nullary ctors): diagonal `refl`, off-diagonal `λ ()` (concrete
 -- ctors make the mismatch syntactically empty; no catch-all is possible).
@@ -89,9 +87,9 @@ StringVar ≟-VarType FloatVar  = no (λ ())
 
 -- IntDecRat / NatDecRat — refinement records `{ value : DecRat ; .witness }`.
 -- The witness is `.`-IRRELEVANT, so two records with equal `value` are
--- definitionally equal by proof-irrelevance: `refl` closes it directly.  (§6.1's
--- note to use `T-irrelevant` applies to the RELEVANT-witness `_≟ᴵ_`; here the
--- field is irrelevant, so `T-irrelevant` is neither needed nor usable.)
+-- definitionally equal by proof-irrelevance: `refl` closes it directly.
+-- (`T-irrelevant` is for the RELEVANT-witness `_≟ᴵ_`; here the field is
+-- irrelevant, so it is neither needed nor usable.)
 _≟-IntDecRat_ : (x y : IntDecRat) → Dec (x ≡ y)
 mkIntDecRat v₁ _ ≟-IntDecRat mkIntDecRat v₂ _ with v₁ ≟ᵈ v₂
 ... | yes refl = yes refl
@@ -102,7 +100,7 @@ mkNatDecRat v₁ _ ≟-NatDecRat mkNatDecRat v₂ _ with v₁ ≟ᵈ v₂
 ... | yes refl = yes refl
 ... | no ¬eq  = no (λ { refl → ¬eq refl })
 
--- ── S2.2b: the enums ────────────────────────────────────────────────────────
+-- ── the enums ──────────────────────────────────────────────────────────────
 
 -- AttrScope (7 nullary ctors): retraction encoding (`asᴺ`/`asⁱ` round-trip ⇒
 -- injective) — O(N) clauses instead of the 49 explicit ones.
@@ -323,7 +321,7 @@ ATgtNodeSig _ _ _ ≟-AttrTarget ATgtSignal _ _   = no (λ ())
 ATgtNodeSig _ _ _ ≟-AttrTarget ATgtEnvVar _     = no (λ ())
 ATgtNodeSig _ _ _ ≟-AttrTarget ATgtNodeMsg _ _  = no (λ ())
 
--- ── S2.2c: the records (accessor-style chain-`with`, like the ceiling) ───────
+-- ── the records (accessor-style chain-`with`, like the ceiling) ─────────────
 
 _≟-Node_ : (x y : Node) → Dec (x ≡ y)
 x ≟-Node y with Node.name x ≟ᴵ Node.name y
@@ -437,7 +435,7 @@ x ≟-RawValueDesc y
 ... | no ¬p = no (λ eq → ¬p (cong RawValueDesc.entries eq))
 ... | yes refl = yes refl
 
--- ── S2.2d: the top — DBCMessage (6 fields) and DBC (9 fields) ────────────────
+-- ── the top — DBCMessage (6 fields) and DBC (9 fields) ──────────────────────
 
 _≟-DBCMessage_ : (x y : DBCMessage) → Dec (x ≡ y)
 x ≟-DBCMessage y

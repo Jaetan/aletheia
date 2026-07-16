@@ -223,8 +223,7 @@ def reject_symlink_loader_path(p: Path, kind: str) -> None:
     """Reject *p* if it is a symbolic link.
 
     Mirrors the C++ ``aletheia::detail::validate_loader_path`` symlink
-    rejection.  Cross-binding parity per
-    ``feedback_cross_language_parity.md``: if the C++ binding refuses a
+    rejection.  Cross-binding parity: if the C++ binding refuses a
     symlinked .xlsx / .yaml, the Python binding does too.
 
     *kind* is interpolated into the error message ("Excel" / "YAML") so

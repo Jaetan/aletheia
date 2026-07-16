@@ -2,17 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Master-coherence soundness + completeness for the E.2 route (b) runtime
--- checker (`Aletheia.DBC.TextParser.WellFormedCheck`).  This is the hard leaf of
--- slice 1's soundness tree (E2_ROUTE_B.md §5.2): `mcGo` folds Bool `any`/`all`
+-- Master-coherence soundness + completeness for the runtime checker
+-- (`Aletheia.DBC.TextParser.WellFormedCheck`).  `mcGo` folds Bool `any`/`all`
 -- over the signal list against `findMuxMaster`, so `mcGo-sound`/`-complete` need
 -- Bool-`any`/`all` ⇔ `Any`/`All` reflection + a `findMuxMaster` characterization.
---
--- Built in sub-chunks, each type-checked standalone:
---   S1.4a  presence leaves — `isAlwaysᵇ-sound/-complete`, `wGo-sound/-complete`
---   S1.4b  `mcGo-sound`      (the reflection chain, soundness)
---   S1.4c  `mcGo-complete`   (the reverse chain, completeness)
---   S1.4d  `masterCoherentᵇ-sound/-complete`  (the `findMuxMaster`-instantiating wrappers)
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Master where
 
 open import Data.Bool using (T; true)
@@ -43,7 +36,7 @@ open import Aletheia.DBC.TextParser.WellFormedCheck using
 -- `isAlwaysᵇ` / `wGo` are exposed on the `SignalPresence` scrutinee (no `with`),
 -- so each bridge is a direct match.  `wGo-sound` returns the master-reference
 -- fact in the SAME ∀-shape `MasterCoherent.mc-mux`'s slaves field carries
--- (WellFormedText.agda:150-153), so the fold-level lemma (S1.4b) can `All.map`
+-- (Formatter/WellFormedText.agda, `mc-mux`), so the fold-level lemma can `All.map`
 -- it per element; `wGo-complete` is its dual, feeding the completeness `all`.
 
 isAlwaysᵇ-sound : ∀ (p : SignalPresence) → T (isAlwaysᵇ p) → p ≡ Always
@@ -64,14 +57,15 @@ wGo-complete : ∀ (n : List Char) (p : SignalPresence)
 wGo-complete n Always      _ = tt
 wGo-complete n (When m vs) f = ≡csᵇ-complete (Identifier.name m) n (f m vs refl)
 
--- ── the master fold (WF field `mc` = MasterCoherent) — the schedule-risk core ─
+-- ── the master fold (WF field `mc` = MasterCoherent) ────────────────────────
 --
 -- `mcGo` is exposed on `findMuxMaster`'s `Maybe (List Char)` result, so `mcGo-sound`
 -- takes it as `mm` + the equation and matches structurally (no `with` anywhere in
--- this module — the S1.4d wrapper instantiates `mm := findMuxMaster sigs` with a
+-- this module — the top wrapper instantiates `mm := findMuxMaster sigs` with a
 -- `refl` equation, dodging the `with`-abstraction hazard entirely).  The `just n`
 -- case is the reflection chain: `≡ true → T` (`T-≡`), split the ∧ (`T-∧`), reflect
--- the Bool `any`/`all` into `Any`/`All` (`any⁻`/`all⁺`, Data.Bool.ListAction), pull
+-- the Bool `any`/`all` (the `Data.Bool.ListAction` folds) into `Any`/`All` via
+-- `any⁻`/`all⁺`, pull
 -- the master out with `find` (keeps the `∈` witness `mc-mux` needs), split its
 -- `masterOkᵇ` conjunct, then `≡csᵇ-sound`/`isAlwaysᵇ-sound`; `All.map wGo-sound`
 -- lands the slaves field verbatim.
@@ -119,8 +113,8 @@ mcGo-complete mm sigs eq (mc-mux masterName eq-just ms ms∈sigs nameEq presEq s
 -- `masterCoherentᵇ sigs = mcGo (findMuxMaster sigs) sigs` DEFINITIONALLY, so the
 -- wrapper just instantiates `mm := findMuxMaster sigs` and hands `mcGo-sound/-complete`
 -- a `refl` for the `findMuxMaster sigs ≡ mm` equation — no `with` (the equation is
--- an explicit lemma argument precisely to enable this).  These are what the S1.6
--- facade consumes (through the `mcIssue` `if`-elim, added there).
+-- an explicit lemma argument precisely to enable this).  `Sound.agda` consumes
+-- these through the `mcIssue` `if`-elim.
 
 masterCoherentᵇ-sound : ∀ (sigs : List DBCSignal)
   → masterCoherentᵇ sigs ≡ true → MasterCoherent sigs

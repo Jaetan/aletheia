@@ -2,17 +2,10 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Attribute-leaf soundness + completeness for the E.2 route (b) runtime checker
+-- Attribute-leaf soundness + completeness for the runtime checker
 -- (`Aletheia.DBC.TextParser.WellFormedCheck`).  Bridges the checker's attribute
 -- leaves (`vmtᵇ`, `enumOkᵇ`, `wfAttrTypeIssues`, and the `attrIssues` dispatch)
--- to the `WFAttribute` predicate tree (E2_ROUTE_B.md §5.3); reached by the
--- `Sound.agda` facade (added to `proofModules` at S1.6).
---
--- Built in sub-chunks, each type-checked standalone:
---   S1.5a  `vmtᵇ-sound` / `-complete`            (value ↔ type match)  (this file, first)
---   S1.5b  `enumOkᵇ-sound` / `-complete`         (enum-default stability)
---   S1.5c  `wfAttrTypeIssues-sound` / `-complete`(attr-type well-formedness)
---   S1.5d  `attrIssues-sound` / `-complete`      (the 3-ctor WFAttribute dispatch)
+-- to the `WFAttribute` predicate tree; reached by the `Sound.agda` facade.
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Attr where
 
 open import Data.Bool using (T; Bool; true; false; if_then_else_)

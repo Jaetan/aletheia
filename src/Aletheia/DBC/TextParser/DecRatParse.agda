@@ -142,9 +142,9 @@ parseDecRat = parseDecRatFrac <|> parseDecRatBareInt
 -- refinement predicate (`isIntegerᵇ` or `isNonNegIntegerᵇ`); on success
 -- carry the witness through to the refined record, on failure abort the
 -- parser via `fail`.  The runtime check happens once at the parser
--- boundary; downstream code carries the proof at the type level (per
--- `memory/project_decrat_universal_principle.md`'s "all numbers are
--- DecRat except on the frame hot-path" with refinement types).
+-- boundary; downstream code carries the proof at the type level, per the
+-- project-wide convention "all numbers are DecRat except on the frame
+-- hot-path" with refinement types.
 --
 -- Wire grammar: cantools always emits integer/natural attribute bounds
 -- without a fractional part (`BA_DEF_ "X" INT 0 100;`, not

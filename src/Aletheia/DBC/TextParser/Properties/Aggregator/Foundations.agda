@@ -27,7 +27,7 @@
 -- The WF predicate is structural: each `DBCAttribute` constructor has
 -- its own WF rule, and AVEnum default carries the Layer-4 bridge
 -- `findLabel ∘ nthLabel ≡ just n` as a precondition (label uniqueness +
--- index bound — see `memory/project_b3d_layer4_owed_lemmas.md`).
+-- index bound).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Foundations where
 
 open import Data.Char  using (Char)

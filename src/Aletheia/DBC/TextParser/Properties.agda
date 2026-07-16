@@ -7,9 +7,9 @@
 --
 -- Purpose: Top-level theorem module for `Aletheia.DBC.TextParser`.  The
 -- split-from-day-one structure follows the `DBC/Formatter/` facade
--- pattern (see feedback_properties_facade_split.md): each sub-file
--- type-checks independently, which keeps incremental rebuild cost low
--- once the proof burden grows past the ~600–800 line soft cap.
+-- pattern: each sub-file type-checks independently, which keeps
+-- incremental rebuild cost low once the proof burden grows past the
+-- ~600–800 line soft cap.
 --
 -- Planned sub-files (populated as each proof layer
 -- lands):
@@ -51,19 +51,16 @@
 -- `primStringFromList`) only reduce on closed terms, so a direct
 -- in-project proof is also blocked.
 --
--- Consequence: layer 1 is **not** import-and-re-export.  Four options
--- are enumerated in `project_b3d_stdlib_audit.md`; selecting one
--- requires explicit user approval — do NOT silently introduce an
--- Unsafe module (`feedback_no_suppression_without_approval.md`) or
--- silently weaken the target (`feedback_no_silent_proof_reframing.md`).
+-- Consequence: layer 1 is **not** import-and-re-export.  Selecting a
+-- way forward requires explicit user approval — do NOT silently
+-- introduce an Unsafe module, and do NOT silently weaken the target.
 module Aletheia.DBC.TextParser.Properties where
 
 -- Layer 2 — per-primitive roundtrips.  Identifier +
 -- Tier A (byte-order / sign) + Tier B (string-literal escape body, mux
 -- marker with embedded parseNatural).  `ATInt`/`ATFloat`/`ATHex`/
 -- `ATEnum` and `SignalPresence` reclassified to Layer 3 (per-line-
--- construct payloads, not primitives — see `memory/project_b3d_
--- universal_proof.md`).  The scope-tag / rel-scope /
+-- construct payloads, not primitives).  The scope-tag / rel-scope /
 -- ATString roundtrips were dropped — subsumed by the universal Format
 -- DSL roundtrip in `Format/AttrDef.agda`.
 open import Aletheia.DBC.TextParser.Properties.Primitives public
@@ -89,8 +86,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives.MuxMarker public
 
 -- Layer 3 — per-line-construct roundtrips.  Preamble first; simple-
 -- line, attribute, and message constructs follow.  See
--- `memory/project_b3d_universal_proof.md` for the partition
--- and `Properties/Preamble.agda` for the intra-section split.
+-- `Properties/Preamble.agda` for the intra-section split.
 open import Aletheia.DBC.TextParser.Properties.Preamble public
   using ()
 

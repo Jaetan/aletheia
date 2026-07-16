@@ -15,8 +15,7 @@
 // rejection over a bound is a typed `InputBoundExceededError` carrying the
 // offending kind, the observed value, and the limit it crossed.  The Python
 // (`aletheia.InputBoundExceededError`) and Go (`*aletheia.InputBoundExceededError`)
-// bindings expose the equivalent type; keep the three surfaces in sync per
-// `feedback_cross_language_parity.md`.
+// bindings expose the equivalent type; keep the three surfaces in sync.
 //
 // Direct production consumers: `max_json_bytes` (ffi_backend.cpp pre-check),
 // `bound_kind_nesting_depth` / `max_nesting_depth` (cross-binding integration

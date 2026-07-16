@@ -385,7 +385,7 @@ class TestAsyncBatchCancellation:
                     await close_task
                 # The shielded close runs in the asyncio default executor; wait
                 # for it to land via a deterministic poll on the observable
-                # ``is_closed`` flag.  Per feedback_no_physical_time_in_tests, we
+                # ``is_closed`` flag.  Tests never wait on physical time, so we
                 # use ``asyncio.sleep(0)`` (single-tick yield) rather than a
                 # wall-clock wait; pytest's session timeout catches genuine hangs.
                 for _ in range(10_000):  # bounded so a real bug surfaces

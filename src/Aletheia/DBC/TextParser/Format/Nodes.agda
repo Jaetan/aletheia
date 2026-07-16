@@ -125,8 +125,7 @@ nodeListFmt =
 -- (Identifier.name (Node.name n) ++ rest)` obligation via `∷-stop
 -- c-non-hspace`.  Mirrors `ValueTableNameStop`; a later step will discharge
 -- this universally from `validIdentifierᵇ` via the
--- `isIdentStart→¬isHSpace` bridge (see
--- `project_b3d_layer4_owed_lemmas.md`).
+-- `isIdentStart→¬isHSpace` bridge.
 NodeNameStop : Node → Set
 NodeNameStop n =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]

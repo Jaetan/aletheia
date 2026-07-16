@@ -41,9 +41,9 @@ def active_sheet(wb: Workbook) -> Worksheet:
     openpyxl types ``Workbook.active`` as ``Worksheet | None`` for the
     edge case of a workbook with zero sheets — but a freshly-constructed
     ``Workbook()`` always has its default sheet present.  Asserting that
-    invariant here drops 21 ``# type: ignore[union-attr]`` suppressions
-    (per ``feedback_no_suppression_without_approval.md``) at every fixture
-    site.
+    invariant here drops 21 ``# type: ignore[union-attr]`` suppressions at
+    every fixture site — asserting the invariant beats suppressing the
+    checker that reports it.
     """
     ws: Worksheet | None = wb.active
     if ws is None:

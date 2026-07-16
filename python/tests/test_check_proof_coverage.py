@@ -13,7 +13,7 @@ The 0/1 polarities also prove the two pieces of internal logic Copilot flagged:
 the Haskell-list ``proofModules`` parser (a wrong parse drops the only root →
 exit 1, or yields no roots → exit 2) and the import-closure walk (an orphan proof
 module is reported only if reachability is computed correctly).  This is the
-[[feedback_orchestrator_end_to_end_validation]] check at the gate level.
+orchestrator end-to-end validation check at the gate level.
 """
 
 from __future__ import annotations

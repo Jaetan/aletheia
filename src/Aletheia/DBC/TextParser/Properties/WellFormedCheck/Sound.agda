@@ -2,18 +2,12 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Facade for the E.2 route (b) checker soundness/completeness tree: assembles the
+-- Facade for the checker soundness/completeness tree: assembles the
 -- signal/master/attribute leaf lemmas (`Sound.Signal`/`.Master`/`.Attr`) into the
 -- per-message `MessageWF` reconstruction and the top theorem
 -- `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`, composing through
 -- `wellFormedFromValidity` (which discharges the five name-stop Agg fields).
--- The proof-tree ROOT for slice 1 (added to `proofModules` at S1.6 wiring).
---
--- Built in sub-chunks, each type-checked standalone:
---   S1.6a  issue-list → predicate bridges (mcIssue / sig-names / msg-ids / unresolved)  (this file, first)
---   S1.6b  `checkTextMessage-sound` (the full MessageWF record) + `signalLineWF-of`
---   S1.6c  `wfTextIssues-sound`   (top, via wellFormedFromValidity)
---   S1.6d  the completeness duals
+-- The root of this proof tree — reached by `check-properties` via `proofModules`.
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound where
 
 open import Data.List using (List; []; _∷_; map)
@@ -58,7 +52,7 @@ open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Attr using
 -- The per-message/per-DBC checker parts each emit a single issue kind; these
 -- flat named lemmas turn "that part ≡ []" into the matching WF predicate,
 -- internalising the `if`-elim / `requireDec-sound` / empty-list reasoning so the
--- `MessageWF` / `WellFormedTextDBCAgg` assembly (S1.6b/c) reads as a flat record.
+-- `MessageWF` / `WellFormedTextDBCAgg` assembly reads as a flat record.
 
 -- `mcIssue sigs = if masterCoherentᵇ sigs then [] else (…∷[])`; peel the `if`
 -- (`if-[]-sound`, reused from Sound.Attr), turn `T b` into `b ≡ true` (`T-≡`),
@@ -86,7 +80,7 @@ checkUnresolved-sound : ∀ (rvds : List RawValueDesc) → checkUnresolved rvds 
 checkUnresolved-sound []       _  = refl
 checkUnresolved-sound (_ ∷ _)  ()
 
--- ── per-message reconstruction: checkTextMessage m ≡ [] → MessageWF m (S1.6b) ─
+-- ── per-message reconstruction: checkTextMessage m ≡ [] → MessageWF m ──────
 
 -- One `SignalLineWF` per signal: the presence witness comes from the shared
 -- `wfps` (never re-derived), the name-stop / receiver-head-stop from the
@@ -99,11 +93,12 @@ signalLineWF-of s wp = record
   ; presence-wf    = wp
   }
 
--- `checkTextMessage m` is the 5-part `++ₗ` chain (WellFormedCheck.agda:290);
+-- `checkTextMessage m` is the 5-part `++ₗ` chain (WellFormedCheck.agda);
 -- split it left-to-right into the five decided parts, then rebuild each
--- `MessageWF` field.  The four free fields (`fb-bound`, both name-pres,
--- `item-pres`) come from always-total helpers; `item-pres` reads the
--- where-bound `wfps-all`, NOT the sibling `wfps` field.
+-- `MessageWF` field.  Three fields need no decided input: `fb-bound`
+-- (`dlcBytes-bounded`) and both name-pres (`identNameStop`).  `item-pres` is NOT
+-- free — `signalLineWF-of` needs a presence witness, so it reads the where-bound
+-- `wfps-all`, NOT the sibling `wfps` field.
 checkTextMessage-sound : ∀ (m : DBCMessage) → checkTextMessage m ≡ [] → MessageWF m
 checkTextMessage-sound m premise = record
   { fb-bound         = dlcBytes-bounded (DBCMessage.dlc m)
@@ -135,7 +130,7 @@ checkTextMessage-sound m premise = record
     wfps-all = All.map (λ {s} p → pGo-sound (DBCSignal.presence s) _ p)
                  (concatMap-≡[]-sound e-eq)
 
--- ── the top theorem: wfTextIssues d ≡ [] → WellFormedTextDBCAgg d (S1.6c) ─────
+-- ── the top theorem: wfTextIssues d ≡ [] → WellFormedTextDBCAgg d ─────
 
 -- `checkAttrs attrs = concatMap (attrIssues (collectDefs attrs)) attrs`; every
 -- attribute is checked against the SAME `collectDefs attrs`, so the per-attr
@@ -145,7 +140,7 @@ checkAttrs-sound : ∀ (attrs : List DBCAttribute)
 checkAttrs-sound attrs eq =
   All.map (λ {a} → attrIssues-sound (collectDefs attrs) a) (concatMap-≡[]-sound eq)
 
--- `wfTextIssues d` is the 4-part `++ₗ` chain (WellFormedCheck.agda:308) emitting
+-- `wfTextIssues d` is the 4-part `++ₗ` chain (WellFormedCheck.agda) emitting
 -- for exactly the 4 DECIDED Agg fields; split it, rebuild those four, and hand
 -- them to `wellFormedFromValidity`, which discharges the 5 free name-stop fields.
 wfTextIssues-sound : ∀ (d : DBC) → wfTextIssues d ≡ [] → WellFormedTextDBCAgg d
@@ -164,7 +159,7 @@ wfTextIssues-sound d premise =
     r-eq   = proj₁ split3                    -- checkAttrs (attributes d) ≡ []
     s-eq   = proj₂ split3                    -- checkUnresolved (unresolvedValueDescs d) ≡ []
 
--- ── completeness: the well-formed side emits no issues (S1.6d) ────────────────
+-- ── completeness: the well-formed side emits no issues ────────────────
 --
 -- The exact duals of the sound bridges: each `-complete` leaf turns the matching
 -- WF predicate back into "that checker part ≡ []", and the fixed `++ₗ` chains are

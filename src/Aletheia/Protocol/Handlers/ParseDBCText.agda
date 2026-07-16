@@ -48,7 +48,6 @@ open import Aletheia.Limits using (InputLengthBytes; max-dbc-text-bytes)
 -- `handleParseDBCTextResult` (rather than `with parseTextChars chars`) so the
 -- elaborator does not abstract the parse result in the goal type during
 -- type-checking — inlining the `with` form here exhausts the 16 GiB heap cap.
--- See feedback_expose_scrutinee_for_external_rewrite.
 
 handleParseDBCTextResult : DBCTextParseError ⊎ DBC → StreamState → StreamState × Response
 handleParseDBCTextResult (inj₁ err)  state =

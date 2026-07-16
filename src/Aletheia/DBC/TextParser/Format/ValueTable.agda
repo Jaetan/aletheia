@@ -121,8 +121,7 @@ ValueTable-format =
 -- so the `withWS ident` slot's `SuffixStops isHSpace (Identifier.name name
 -- ++ rest)` obligation reduces to `∷-stop c-non-hspace`.  A later step will
 -- discharge this universally from `validIdentifierᵇ` via the
--- `isIdentStart→¬isHSpace` bridge (see
--- `project_b3d_layer4_owed_lemmas.md`).
+-- `isIdentStart→¬isHSpace` bridge.
 ValueTableNameStop : ValueTable → Set
 ValueTableNameStop vt =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]

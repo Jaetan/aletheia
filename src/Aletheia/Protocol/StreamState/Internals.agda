@@ -116,9 +116,9 @@ lookupAtom xs n = listIndex n xs
 --     returned closure is invoked by `stepL` for every Atomic cell reached
 --     in the step. Any constant-factor slowdown to atom lookup lands
 --     squarely on Stream LTL throughput.
---   * This is the same failure mode recorded in memory as the "Dec-vs-Bool"
---     regression (commit 5aa345e): replacing a Bool-valued predicate with a
---     Dec-valued one looked free at the type level but allocated proof
+--   * Same failure mode as the "Dec-vs-Bool" regression: replacing a
+--     Bool-valued predicate with a Dec-valued one looks free at the type
+--     level but allocates proof
 --     terms per call and cost 30–65% throughput until reverted with an
 --     equivalence-proven Bool fast path. Type-level strengthening in a
 --     MAlonzo hot path warrants a benchmark before commit, not after.
@@ -227,10 +227,9 @@ updateCacheFromFrame dbc cache ts frame =
 -- `complete` semantics), and the index flows out via `iterate`'s
 -- completion-list so `dispatchIterResult` can emit a
 -- `PropertyResult.Satisfaction` at the frame where the property
--- completed.  Previously `complete` was payload-less and the
--- index was lost — the completion was wire-silent and the dropped
--- property never reached EndStream's `finalizeL`, so users missed every
--- mid-stream Satisfaction verdict.
+-- completed.  The index MUST flow out here: a completed property leaves the
+-- active set, and EndStream's `finalizeL` walks only the survivors — so a
+-- mid-stream Satisfaction not emitted here never reaches the wire at all.
 classifyStepResult : ∀ {n} → StepResult LTLProc → PropertyState n
                    → StepOutcome (PropertyState n) (Fin n × Counterexample) (Fin n)
 classifyStepResult (Continue _ newProc) prop =

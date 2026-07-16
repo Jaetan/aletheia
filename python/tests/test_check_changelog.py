@@ -12,8 +12,8 @@ Two layers:
   filter, not merely the repo-root-doc non-match.
 * ``main`` — a hermetic end-to-end run in a throwaway git repo, both polarities:
   a watched change WITHOUT a CHANGELOG edit fails; the same change WITH one
-  passes; a doc-only change passes.  This is the
-  [[feedback_orchestrator_end_to_end_validation]] check at the gate level.
+  passes; a doc-only change passes.  This is the orchestrator end-to-end
+  validation check at the gate level.
 """
 
 from __future__ import annotations

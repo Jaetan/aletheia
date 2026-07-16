@@ -586,8 +586,8 @@ def _run_enabled_bindings(artifact_dir: Path, in_scope: set[str] | None) -> list
 
     A binding is skipped when its explicit skip env var is set, or when diff
     scoping is active (``in_scope is not None``) and the binding is out of scope.
-    Each skip is logged so a scoped run is never silent about what it did not run
-    (per ``feedback_gate_claim_integrity``).
+    Each skip is logged so a scoped run is never silent about what it did not
+    run — a gate's claim is only as good as its record of what it covered.
     """
     reports: list[MutationReport] = []
     for name, skip_var, runner in RUNNERS:

@@ -17,8 +17,7 @@
 -- composers + the many-recursion principle.
 --
 -- Split into per-construct submodules under `Properties/Topology/` to
--- keep each file near the ~500-line soft cap (see
--- `feedback_properties_facade_split.md`).
+-- keep each file near the ~500-line soft cap.
 module Aletheia.DBC.TextParser.Properties.Topology where
 
 open import Aletheia.DBC.TextParser.Properties.Topology.Nodes public

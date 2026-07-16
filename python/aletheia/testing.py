@@ -9,9 +9,9 @@ presentation layer.  Stability guarantees match ``aletheia.checks_runner``
 itself (implementation surface, not a long-term public API) — minor
 releases may adjust signatures with documented migration notes.
 
-Per ``feedback_test_interface_via_di.md``: when a harness needs to call a
-``_`` -prefixed helper, the answer is interface-promotion through a stable
-alias module, never ``# pylint: disable=protected-access``.
+When a harness needs to call a ``_``-prefixed helper, the answer is
+interface-promotion through a stable alias module like this one, never
+``# pylint: disable=protected-access``.
 
 Note: ``MockBackend`` was promoted to a public class (commit
 ``4dd3c05``) and is exported at :class:`aletheia.MockBackend`;

@@ -75,7 +75,6 @@ shell, hook, CI step.  Carry-over (AGENTS.md Step 0) reads the YAML
 directly; review_db.py is for analytics, not workflow state.
 
 References:
-  * memory/feedback_review_branch_workflow.md  (archive lifecycle)
   * AGENTS.md § Graduation                     (criterion + queryable)
   * review_db.py --report                      (human-readable round index)
 

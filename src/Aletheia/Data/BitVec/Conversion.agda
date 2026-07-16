@@ -230,10 +230,8 @@ mutual
 -- the consumer's `with`-abstraction.  When a consumer (e.g. a proof of the
 -- form `mkBoundedBitVec-just`) tries to `with`-abstract over the same
 -- scrutinee, Agda's elaborator generates an ill-typed with-function because
--- the inner `eq` binding doesn't propagate (cf.
--- `feedback_with_in_eq_outer_abstraction_barrier.md` + the empirically-
--- confirmed `n <ᵇ 2 ^ bl != w of type Bool` error this commit reproduces in
--- a 5-line minimal case).
+-- the inner `eq` binding doesn't propagate — reporting
+-- `n <ᵇ 2 ^ bl != w of type Bool`.
 --
 -- `Reflects` carries the witness AS DATA inside the constructor (`ofʸ p`
 -- when `b = true`).  Pattern-matching on the constructor automatically

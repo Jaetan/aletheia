@@ -22,12 +22,10 @@
 -- beyond this code move's scope; a future cleanup can do that once the DBC
 -- text parser has its own test matrix.
 --
--- As of 2026-04-26, `Identifier.name : List Char`, so this module no
--- longer needs `Substrate.Unsafe.mkIdentFromCharsUnsafe` to bridge between
--- the consumed char list and the String-internal Identifier.  The lexer
--- builds Identifiers directly via `mkIdentFromChars` (axiom-free), which
--- lets this module — and the 47 modules under `DBC/TextParser/` that
--- transitively import it — drop back to `--safe`.
+-- `Identifier.name` is `List Char`, so the lexer builds Identifiers directly via
+-- `mkIdentFromChars` (axiom-free) with no String bridge.  RULE: keep it that way —
+-- an axiom-consuming bridge here would drop this module, and everything under
+-- `DBC/TextParser/` that transitively imports it, out of `--safe`.
 module Aletheia.DBC.TextParser.Lexer where
 
 open import Data.Bool using (Bool; _∨_; not)

@@ -161,8 +161,7 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 -- O(|xs| + |ys|) two-pass walk with two intermediate ℕ values built in
 -- MAlonzo.  This function is `manyHelper`'s per-iteration termination
 -- check on the `parseDBCText` runtime path (FFI-exposed via
--- `client.parse_dbc_text`, already O(N²) per
--- `feedback_parsedbc_quadratic_scaling.md`).  Empirical measurement
+-- `client.parse_dbc_text`, already O(N²)).  Empirical measurement
 -- 2026-05-17 on a 200-msg × 4-sig synthetic DBC (44 KB), 5 runs:
 --   Structural form (this code): median 10.21s, stddev 0.11s
 --   Wrapper form    (rejected) : median 58.07s, stddev 0.31s

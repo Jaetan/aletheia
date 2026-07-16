@@ -291,7 +291,7 @@ private
 -- head-non-hspace fact comes from the receiver identifier's OWN validity witness
 -- (`isIdentStart→¬isHSpace c (T-∧₁ v)`, the identNameStop move —
 -- WellFormedFromValidity.agda:72-83, CharClassDisjoint.agda:76).  This makes the
--- `SignalLineWF.recv-head-stop` field free for the E.2 route (b) checker (§3), so
+-- `SignalLineWF.recv-head-stop` field free for the text round-trip checker, so
 -- the soundness tree can discharge it with no per-DBC decision.  Four clauses
 -- mirror `build-RecvHeadStop` exactly; the emit-equation `refl`s and the `cs`
 -- component are premise-independent (they reduce from the AST alone).

@@ -188,11 +188,9 @@ extraPaths = ["."]
 max-line-length = 100
 # Parallelise across all cores — pylint walks 20+ modules on every run.
 jobs = 0
-# ``tests/`` was promoted into the gate per ``feedback_pylint_10_mandatory.md``;
-# ``benchmarks/`` was promoted 2026-05-09 per ``feedback_no_subsumption_asymmetry.md``
-# (it shipped with the original 2026-04-12 ``ignore`` for "lint-checked separately"
-# rationale that was dropped for ``tests/`` but never re-litigated for ``benchmarks/``).
-# Stubs / .venv / build remain ignored because they are vendored or generated.
+# ``tests/`` and ``benchmarks/`` are both held to the same 10.00 bar as the
+# package — a lint standard that exempts the tests is an asymmetry, not a
+# standard.  Stubs / .venv / build remain ignored: they are vendored or generated.
 ignore = ["stubs", ".venv", "build"]
 # ``.`` is the source root so pylint resolves ``aletheia.*`` without the
 # package being pip-installed (canonical flow is ``pip install -e .[dev]``
@@ -285,8 +283,8 @@ also_copy = [
 # missing expression-internal positions (param defaults, call kwargs,
 # comprehension elements).  This regex pattern catches those too, so a
 # documented genuine-equivalent on any line is excluded uniformly.  Every use
-# carries a one-line equivalence/defensive rationale at the site (see
-# memory/feedback_mutation_no_defense_removal — never delete a guard).
+# carries a one-line equivalence/defensive rationale at the site — a surviving
+# mutant is answered by a test or a documented pragma, never by deleting a guard.
 do_not_mutate_patterns = ["# pragma: no mutate"]
 pytest_add_cli_args_test_selection = ["tests/"]
 # pytest invocation used to verify each mutant: keep cheap by skipping the

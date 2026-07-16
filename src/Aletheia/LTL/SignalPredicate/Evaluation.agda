@@ -33,8 +33,8 @@ open import Aletheia.LTL.SignalPredicate.Cache using (CachedSignal; SignalCache;
 -- comparison without allocating a `Dec` proof term per call. Replacing the
 -- previous `⌊ _≟ _ ⌋` / `⌊ _≤? _ ⌋` / `⌊ _<? _ ⌋` forms is a MAlonzo hot-path
 -- win of the same class as the 2026-04-07 `signalsPhysicallyOverlapᵇ` fix.
--- See `feedback_hot_path_refactor_benchmark.md` and the equivalence proofs in
--- `DBC/Properties/Disjointness.agda` for the template.
+-- See the equivalence proofs in `DBC/Properties/Disjointness.agda` for the
+-- template.
 
 _==ℚ_ : ℚ → ℚ → Bool
 x ==ℚ y = (x ≤ᵇ y) ∧ (y ≤ᵇ x)

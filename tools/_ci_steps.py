@@ -174,7 +174,7 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     # change — so re-verifying it on every code PR's 2 relinks was pure cost.  Both
     # commands mutate only the shared .so, so this stays the single isolated
     # pre-lane step (no race with the .so-consuming test lanes).
-    # Detail: tools/check_build_incremental.py, memory/project_build_so_idempotency.md.
+    # Detail: tools/check_build_incremental.py.
     mode = runner.opts.build_staleness
     graph_changed = mode == "auto" and _build_graph_changed(runner.repo_root)
     if should_run_staleness(mode, build_graph_changed=graph_changed):
@@ -200,7 +200,7 @@ def _run_agda_gates(runner: Runner, cabal: list[str]) -> None:
     # `--iwyu-all` / ALETHEIA_IWYU_ALL=1 — airtight against cross-file deadness,
     # which is what the server-side PR merge gate runs.  iwyu-self-test
     # (`iwyu --self-test`) validates that reader against the synthetic fixture
-    # matrix (its correctness gate).  Reference: memory/project_agda_iwyu.md.
+    # matrix (its correctness gate).
     iwyu_scope = "--all" if runner.opts.iwyu_all else "--diff"
     runner.step(
         "iwyu",
@@ -361,8 +361,7 @@ def _run_lints(runner: Runner) -> None:
     # cached run silently passes file-mode rules like EXE001 ("shebang present
     # but file not executable") that a fresh CI run catches — making the local
     # sweep / pre-push hook give a false green.  ruff is sub-second, so running
-    # cache-free here costs nothing and keeps local == CI.  See
-    # memory/feedback_no_shebang_in_tools.md.
+    # cache-free here costs nothing and keeps local == CI.
     ruff_cmd = (
         f"{shlex.quote(runner.python)} -m ruff check --no-cache tools examples python conftest.py "
         f"&& {shlex.quote(runner.python)} -m ruff format --check tools examples python conftest.py"
@@ -372,7 +371,7 @@ def _run_lints(runner: Runner) -> None:
     # ``benchmarks/`` joined the basedpyright gate 2026-05-09, ``tests/`` on
     # 2026-05-31, and ``../tools/`` on 2026-06-06 (pyproject has a strict
     # executionEnvironment for ../tools); pylint covers the same set, so the
-    # two stay symmetric (feedback_no_subsumption_asymmetry.md).
+    # two stay symmetric — one gate must not cover less than its peer.
     #
     # Invoke via ``runner.python -m basedpyright`` (not the bare ``basedpyright``
     # console script) for the same reason as ruff/pylint — CI launches this sweep
@@ -385,9 +384,9 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root / "python",
     )
 
-    # pylint SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
+    # pylint SCORE-based gate — a 10.00 score is mandatory (AGENTS.md, Python lint).
     # Covers aletheia/ tests/ benchmarks/ + ../tools/ (the repo-root gate scripts,
-    # held to the same 10.00 bar per feedback_tools_lint_standard.md); ``..`` is on
+    # held to the same 10.00 bar as the package); ``..`` is on
     # the path via python/pyproject's pylint init-hook so tools' imports resolve.
     pylint_cmd = (
         f"{shlex.quote(runner.python)} -m pylint aletheia/ tests/ benchmarks/ ../tools/ "

@@ -56,9 +56,8 @@ private
 
   -- Parse FormatDBCText command (DBC JSON structure → DBC text)
   tryFormatDBCText : List (String × JSON) → Error ⊎ StreamCommand
-  -- FormatDBCText is always strict (there is no `strict` flag): the handler
-  -- refuses with a typed error rather than emit text that does not round-trip,
-  -- so routing only needs the DBC structure.
+  -- The handler refuses with a typed error rather than emit text that does not
+  -- round-trip, so routing only needs the DBC structure.
   tryFormatDBCText obj with lookupByKey "dbc" obj
   ... | nothing  = inj₁ (RouteErr (InContext "FormatDBCText" MissingDBCField))
   ... | just dbc = inj₂ (FormatDBCText dbc)

@@ -5,14 +5,13 @@
 -- L5 disjointness helpers and
 -- KEYWORD-TARGET emit equations / L5 builders extracted from
 -- `Format/AttrLine.agda` to keep the parent module below the 800-LOC
--- `feedback_properties_facade_split.md` trigger.
+-- trigger.
 --
 -- Pattern: external-consumer-redirect (mirrors the
--- `Properties/Aggregator/Refine/ValueDescriptions` split via `627ad25`).
--- This sibling imports from the parent for public types / Formats /
--- universal-roundtrip lemmas, plus the two names lifted private→public
--- in the same commit (`parseStdTgtL1-fails-on-non-keyword-head` and
--- `bridge-emit-tail`).  The 6 consumer Properties files
+-- `Properties/Aggregator/Refine/ValueDescriptions` split).  This sibling
+-- imports from the parent for public types / Formats / universal-roundtrip
+-- lemmas, plus `parseStdTgtL1-fails-on-non-keyword-head` and
+-- `bridge-emit-tail`.  The 6 consumer Properties files
 -- (Properties/Attributes/Assign/{Network,Node,Message,Signal,EnvVar,Rel}.agda)
 -- split their `using` clause across both modules.
 
@@ -133,8 +132,8 @@ emit-stdTargetWireFmt-RatwNet-on-non-keyword-head _ x rest refl x≢B x≢S x≢
 
 -- Specialized RatwNet roundtrip — takes a head-class witness instead of
 -- the wide `EmitsOK stdTargetWireFmt RatwNet …` obligation that the
--- universal lemma wants for L5.  See `feedback_emitsok_inj2_deep_pattern.md`
--- for why the universal-lemma path OOMs for RatwNet.  Internally builds
+-- universal lemma wants for L5 — the universal-lemma path OOMs for
+-- RatwNet.  Internally builds
 -- the L5 via `emit-stdTargetWireFmt-RatwNet-on-non-keyword-head` and
 -- delegates to the universal lemma.  Network.agda's per-shape dispatchers
 -- consume this with head-class witnesses derived from `showXxx-chars-

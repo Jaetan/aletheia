@@ -197,8 +197,7 @@ def main() -> int:
         action="store_true",
         help=(
             "skip the two real builds and synthesise a mismatch — used by "
-            "gate-shape verification per "
-            "memory/feedback_orchestrator_end_to_end_validation.md.  Real "
+            "gate-shape verification to prove this gate actually fails.  Real "
             "non-reproducibility is hard to provoke artificially, so this flag "
             "exists to exercise the failure path in seconds."
         ),

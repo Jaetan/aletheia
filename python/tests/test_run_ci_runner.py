@@ -5,7 +5,7 @@
 A failing step MUST make ``run()`` return 1 (never a silent green), a ``build``
 failure MUST short-circuit the sweep, and serial and parallel modes must agree
 on pass/fail.  Synthetic exit-code steps only — no real gates, no timing asserts.
-This is the [[feedback_orchestrator_end_to_end_validation]] check at the run()
+This is the orchestrator end-to-end validation check at the run()
 level (the lane scheduler itself is covered by test_scheduler.py).
 """
 

@@ -364,15 +364,14 @@ checkPrerequisites = do
 -- build walk does not cover it; each is an explicit walk root, and dropping one
 -- silently stops type-checking its subtree (a former commit shipped a latent
 -- `RawSignal : ℚ`-vs-DecRat mismatch in TextParser/Topology precisely because a
--- root was missing).  Rationale per `feedback_check_properties_aggregator_walks`;
--- per-module history is in this file's git log (pre-refactor inline comments).
+-- root was missing).
 -- | Interpreters for build tooling.  The project requires Python 3.14 (PEP 758
 -- `except A, B` syntax lives in tools/, plus requires-python>=3.14), so bare
 -- `python3` -- often still 3.12/3.13 -- would `SyntaxError` on the 3.14-only
 -- tools.  Build-tooling invocations therefore run in the dev venv
 -- (`python/.venv`), which is 3.14 AND carries the project's runtime deps: some
--- meta-checks `import yaml` (PyYAML), absent from a bare interpreter (cf.
--- feedback_use_venv_for_gates).  Shake runs with cwd = repo root, so the
+-- meta-checks `import yaml` (PyYAML), absent from a bare interpreter.  Shake
+-- runs with cwd = repo root, so the
 -- relative venv path resolves.  `bootstrapPython` is the system 3.14 used only
 -- to create venvs and as the version-gate target.
 pythonBin :: String
@@ -442,20 +441,19 @@ proofModules =
     -- heavy fields (MessageWF / WFAttribute) — so an explicit root keeps it
     -- from bit-rotting.
     , "Aletheia/DBC/TextParser/Properties/WellFormedFromValidity.agda"
-    -- E.2 route (b) checker soundness facade: proves the runtime decision
+    -- Text round-trip checker soundness facade: proves the runtime decision
     -- procedure `wfTextIssues` decides `WellFormedTextDBCAgg` — `wfTextIssues d
-    -- ≡ [] ⟺ WellFormedTextDBCAgg d` (E2_ROUTE_B.md §5.4).  One root here covers
-    -- the whole route-b subtree transitively: the checker (`WellFormedCheck`) and
-    -- the three soundness leaves (`Sound/{Signal,Master,Attr}`).  Unimported by
-    -- Main until the FormatDBCText handler lands in slice 3 — explicit root keeps
-    -- it (and the checker) from bit-rotting meanwhile.
+    -- ≡ [] ⟺ WellFormedTextDBCAgg d`.  One root here covers
+    -- the whole subtree transitively: the checker (`WellFormedCheck`) and the
+    -- three soundness leaves (`Sound/{Signal,Master,Attr}`).  Needs an explicit
+    -- root: proof modules are never in Main's closure (`check-no-properties-in-
+    -- runtime` enforces that), so nothing else would type-check them.
     , "Aletheia/DBC/TextParser/Properties/WellFormedCheck/Sound.agda"
-    -- E.2 route (b) slice 2 — the V2 exact-check soundness (axiom-free):
-    -- `roundTripsᵇ d ≡ true → parseText (formatText d) ≡ inj₂ d` (§6.3).  Its own
-    -- root because nothing else imports it (the V2 check `RoundTripCheck` and the
-    -- equality tower `Properties.Equality.Full` are reached via the Substrate.Unsafe
-    -- root, which imports them for the V1↔V2 stitching theorems, §6.4).  Unimported
-    -- by Main until the FormatDBCText handler lands in slice 3.
+    -- The exact-check soundness (axiom-free):
+    -- `roundTripsᵇ d ≡ true → parseText (formatText d) ≡ inj₂ d`.  Its own root
+    -- because nothing else imports it — `RoundTripCheck` and the equality tower
+    -- `Decidable.Equality.Full` are reached via the Substrate.Unsafe root, which
+    -- imports them for the coherence theorems.
     , "Aletheia/DBC/TextParser/Properties/RoundTripCheck/Sound.agda"
     -- A.2 BO_TX_BU_ inverse-bridge: `attachSenders (collectSenders msgs) msgs
     -- ≡ msgs` under msg-id uniqueness (DEFERRED_ITEMS.md A.2).  Unimported
@@ -563,8 +561,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- which is structurally unprovable in `--safe --without-K`.
         -- Any other `Unsafe`-named module OR any other `^postulate`
         -- line is rejected — adding one requires a paired Shakefile
-        -- update and explicit user approval (see
-        -- `feedback_no_suppression_without_approval.md`).
+        -- update and explicit user approval.
         --
         -- The grep below uses -l (filenames only) so we can compare
         -- paths against the allowlist; -r recurses; --include limits
@@ -1090,8 +1087,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_spdx_headers"
 
     phony "check-gate-claim" $ do
-        -- Gate-claim integrity enforcer.
-        -- Mechanical enforcer for `memory/feedback_gate_claim_integrity.md`.
+        -- Gate-claim integrity enforcer: a commit may not assert that gates are
+        -- clean unless they were actually run at its own SHA.
         -- When a commit message contains a gate-clean assertion ("all gates
         -- clean", "gates green", etc.), verify that build/libaletheia-ffi.so
         -- mtime postdates every build-relevant staged source file's mtime.
@@ -1601,7 +1598,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                         ++ show (length modules) ++ " MAlonzo modules listed)."
 
     "build/libaletheia-ffi.so" %> \out -> do
-        -- HONEST DEPENDENCY GRAPH (see memory/project_build_so_idempotency.md).
+        -- HONEST DEPENDENCY GRAPH.
         -- The .so's TRUE inputs are the Agda SOURCES (the MAlonzo .hs are a pure
         -- function of them), the FFI shim, and the cabal config — NOT the
         -- generated MAlonzo .hs.  `need`ing the generated .hs as inputs was the

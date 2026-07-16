@@ -6,13 +6,12 @@
 --
 -- Answers "does this DBC survive the text round-trip?" with ZERO over-refusal, by
 -- EVALUATING `parseText (formatText d)` and deep-comparing the parse-back value
--- with `d` via `_≟-DBC_` (the decidable-equality tower, `Properties.Equality.Full`).
+-- with `d` via `_≟-DBC_` (the decidable-equality tower,
+-- `Aletheia.DBC.Decidable.Equality.Full`).
 -- Its YES is ground truth by construction, and — unlike the universal WF theorem —
 -- its soundness (`RoundTripCheck/Sound.agda`) is AXIOM-FREE, because the
 -- check is conditioned on the evaluation: the `Dec`'s yes-branch IS the proof
--- object for THIS `d`.  Runtime-side: no proofs here.  (A `Properties.Equality.*`
--- import is fine — `check-no-properties-in-runtime` guards only Main/Handlers'
--- direct imports, and the tower is all runtime decidable-equality, no lemmas.)
+-- object for THIS `d`.  Runtime-side: no proofs here.
 module Aletheia.DBC.TextParser.RoundTripCheck where
 
 open import Data.Bool using (Bool; false)
@@ -26,7 +25,7 @@ open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.Decidable.Equality.Full using (_≟-DBC_)
 
--- Exposed on the parse-back result (per feedback_expose_scrutinee_for_external_rewrite):
+-- Exposed on the parse-back result:
 -- a parse-back FAILURE counts as divergence (honest — e.g. an `AVFloat` under an
 -- `ATInt` def emits a line the parser rejects); a parse-back value is compared to `d`.
 rtGo : DBCTextParseError ⊎ DBC → DBC → Bool

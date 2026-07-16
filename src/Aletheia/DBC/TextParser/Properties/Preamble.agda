@@ -15,8 +15,7 @@
 --     keyword lines + trailing blank line.
 --
 -- Split into per-construct submodules under `Properties/Preamble/` to
--- keep each file near the ~500-line soft cap (see
--- `feedback_properties_facade_split.md`).  `Newline.agda` hosts
+-- keep each file near the ~500-line soft cap.  `Newline.agda` hosts
 -- infrastructure reused across every subsequent per-line construct, not
 -- just Preamble — kept here because that is where it first arose.
 module Aletheia.DBC.TextParser.Properties.Preamble where
@@ -39,6 +38,5 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Namespace public
 -- Load-bearing reduction canary for `Namespace.agda`'s `nsKeywords-valid`
 -- discharge.  Imported (not re-exported) only to make the canary reachable
 -- from the `check-properties` Shake walk; without an in-edge it would
--- silently bit-rot — the failure mode warned about in
--- `feedback_check_properties_aggregator_walks.md`.
+-- silently bit-rot.
 import Aletheia.DBC.TextParser.Properties.Preamble._Scratch

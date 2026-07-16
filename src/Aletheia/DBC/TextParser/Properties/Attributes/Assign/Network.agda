@@ -146,8 +146,7 @@ private
 
 -- RatwNet helper now uses the specialized
 -- `parseAttrAssign-format-roundtrip-RatwNet` (head-class witness) rather
--- than the universal lemma + EmitsOK obligation.  See
--- `feedback_emitsok_inj2_deep_pattern.md` for the rationale: the
+-- than the universal lemma + EmitsOK obligation.  Rationale: the
 -- universal-lemma path's `EmitsOK stdTargetWireFmt RatwNet …` obligation blows
 -- -M16G at the inj₂-deep altSum position with abstract input.  The head
 -- witness (head Char + 3 inequalities `(x ≈ᵇ 'B') ≡ false`, `'S'`, `'E'`)
@@ -289,12 +288,10 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavString pos name s outer-suffix ss-NL
 -- deriving the 3 keyword inequalities (x ≢ 'B' / 'S' / 'E') for each
 -- head class.  Calls the head-witness-aware helper.
 
--- Hoisted per-shape helpers.  See
--- `feedback_with_abstraction_traps.md` rule #2 + advisor diagnosis
--- 2026-05-01: when each `with`-arm of the Frac/BareInt dispatchers had
--- its own where-block defining `l4`/`l6`/`result-eq`/etc., Agda type-
--- checked each duplicate separately, forcing per-arm reduction of
--- `EmitsOK attrValueWireFmt (Ravw{Frac,BareInt} _) ...` over abstract
+-- Hoisted per-shape helpers: when each `with`-arm of the Frac/BareInt
+-- dispatchers had its own where-block defining `l4`/`l6`/`result-eq`/
+-- etc., Agda type-checked each duplicate separately, forcing per-arm
+-- reduction of `EmitsOK attrValueWireFmt (Ravw{Frac,BareInt} _) ...` over abstract
 -- d/z (inj₂-position altSum element → 9-deep `Σ × Π` chain).  Doubling
 -- the work blew -M16G.  Module-level helpers type-check once.
 
@@ -328,8 +325,7 @@ private
                (emit-attrAssignFmt-RatwNet name (RavwFrac d)))
 
 -- Frac dispatcher refactored to constructor
--- pattern-match + projection-based head-witness extraction.  See
--- `feedback_with_abstraction_traps.md` rule #2 + advisor diagnosis 2026-05-01.
+-- pattern-match + projection-based head-witness extraction.
 -- The original `with showDecRat-chars-head-classify d` over abstract DecRat
 -- triggered goal-rebuild thrashing on the wide ∃₂ × _⊎_ result type at
 -- inj₂-deep value position of attrValueWireFmt's altSum, blowing -M16G.

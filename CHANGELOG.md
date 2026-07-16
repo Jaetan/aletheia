@@ -57,6 +57,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Source comments now describe what the code guarantees, not how it got there**
+  (internal — no behavior change; comments only, no code was modified). Several
+  comments stated things that were no longer true and that a reader would have
+  acted on: the DBC-text handler described its well-formedness diagnostics as
+  flagging shapes "known to diverge", when a non-empty diagnostic list means only
+  "outside the proven envelope" — such a DBC may still round-trip, and its text is
+  emitted with those diagnostics attached; the same header stated the universal
+  round-trip theorem without its well-formedness hypothesis, which is not a
+  theorem this codebase has; an error constructor's arity and emitted field set
+  had drifted; and a count of issue codes and of bindings had both rotted. The
+  plan-tracking labels, dated status notes, git SHAs and superseded-design stories
+  are gone. Cross-file line-number citations became symbolic references — one had
+  already rotted past the definition it named. No source file points into the
+  agent-memory store any more: those paths lie outside the repository and resolve
+  for nobody reading a checkout.
 - **`format_dbc_text` is now always-strict and returns structured text + issues
   (BREAKING — all four bindings).** Completes the E.2 route (b) work (the two
   internal verified-checker slices under _Added_ above). `format_dbc_text(dbc)`

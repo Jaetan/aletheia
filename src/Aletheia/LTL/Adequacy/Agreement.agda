@@ -49,7 +49,7 @@
 -- Key technique: `rewrite sym ih-*` + Kleene identity lemmas (`∨TV-false-l`,
 -- `∧TV-true-l`, …) bridge stuck `⟦_⟧ ∧TV ⟦_⟧` terms; `cong₂` applications use
 -- real equalities on both arms (never `cong₂ f refl _`, which leaves
--- metavariables Agda cannot solve — see `feedback_overlapping_kleene_rewrite`).
+-- metavariables Agda cannot solve).
 module Aletheia.LTL.Adequacy.Agreement where
 
 open import Aletheia.Prelude using (List; []; _∷_; _≡_; _⊎_; cong; false; inj₁; inj₂; refl; suc; sym; trans; true; ℕ)
@@ -115,7 +115,7 @@ met-re-go-denot w φ ψ start (_ ∷ _) = refl
 -- Composes equalities via `rewrite sym ih-*` + Kleene identity lemmas
 -- (`∨TV-false-l`, `∧TV-true-l`, …); every `cong₂` takes real equalities on
 -- both arms (never `cong₂ f refl _`, which leaves metavariables Agda cannot
--- solve — see `feedback_overlapping_kleene_rewrite`).
+-- solve).
 -- This avoids lambdas with captured variables that block ∧TV/∨TV reduction.
 --
 -- Non-private so that the bounded-agreement variant in

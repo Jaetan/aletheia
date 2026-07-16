@@ -14,7 +14,7 @@ The budgets are **CI-aware** and **WSL2-safe**:
 * Locally, reserve headroom: a couple of cores so the host stays responsive
   (sustained 100 %-all-cores can freeze WSL2), and a memory ceiling well under
   the host RAM so WSL2 never balloons into the OOM crash-and-restart that kills
-  the session.  See ``memory/feedback_wsl2_crash_resource_discipline.md``.
+  the session.
 
 ``detect_cpus`` uses ``sched_getaffinity`` where available, so a host-side
 ``.wslconfig`` ``processors=`` cap is honoured automatically.

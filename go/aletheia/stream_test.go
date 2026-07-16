@@ -1030,9 +1030,10 @@ func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 //   - Enrichment populated for Unresolved results when diagnostics exist
 //
 // Go uses MockBackend (not real FFI) because the Go binding's surface is JSON
-// marshaling — feedback_cross_binding_test_placement.md records this as valid
-// parity. These tests verify the JSON → Verdict → PropertyResult pipeline and
-// the enrichment branch in Client.EndStream.
+// marshaling — exercising that surface against mocks is valid parity coverage
+// (Python and C++ carry the real-FFI side). These tests verify the JSON →
+// Verdict → PropertyResult pipeline and the enrichment branch in
+// Client.EndStream.
 
 func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
 	mock := aletheia.NewMockBackend(

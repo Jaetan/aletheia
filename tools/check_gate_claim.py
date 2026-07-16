@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """tools/check_gate_claim.py — Enforce gate-claim integrity.
 
-Mechanical enforcer for ``memory/feedback_gate_claim_integrity.md``.  When
-a commit message contains a gate-clean assertion ("all gates clean",
-"gates green", etc.), verify that ``build/libaletheia-ffi.so`` mtime
+A gate-clean claim must be backed by gate runs that observed the committed
+state.  When a commit message contains a gate-clean assertion ("all gates
+clean", "gates green", etc.), verify that ``build/libaletheia-ffi.so`` mtime
 postdates every build-relevant staged source file's mtime — i.e., the
 gates the commit claims to have run on actually observed the post-edit
 state.
@@ -152,8 +152,7 @@ def main() -> int:
             + f"{SO_PATH} does not exist.\n\n"
             + "The gate runs in the commit message must have produced the .so artifact.\n"
             + "Run `cabal run shake -- build` to produce it, then re-run the gates\n"
-            + "the message asserts.\n\n"
-            + "Reference: memory/feedback_gate_claim_integrity.md\n"
+            + "the message asserts.\n"
         )
         return 1
 
@@ -188,8 +187,7 @@ def main() -> int:
             + "  cabal run shake -- check-erasure\n"
             + "  cabal run shake -- check-fidelity\n"
             + "  cabal run shake -- check-ffi-exports\n"
-            + "  cabal run shake -- count-modules\n\n"
-            + "Reference: memory/feedback_gate_claim_integrity.md\n"
+            + "  cabal run shake -- count-modules\n"
         )
         return 1
 

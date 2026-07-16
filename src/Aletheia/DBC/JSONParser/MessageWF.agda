@@ -39,7 +39,7 @@ open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf; parseSig
 -- ============================================================================
 
 -- dlcBytes of any DLC value is ≤ 64.  PUBLIC (de-privatized 2026-07-13): the E.2
--- route (b) soundness tree discharges `MessageWF.fb-bound` (`dlcBytes (dlc msg) ≤
+-- text round-trip soundness tree discharges `MessageWF.fb-bound` (`dlcBytes (dlc msg) ≤
 -- 64`) with `dlcBytes-bounded (DBCMessage.dlc msg)`.
 -- Mirrors dlcToBytes-bounded from DLC/Properties.agda but operates on the
 -- DLC newtype (whose @0 erased bound cannot be extracted to delegate).

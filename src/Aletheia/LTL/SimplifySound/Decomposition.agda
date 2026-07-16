@@ -346,8 +346,7 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 --   (c) The purpose of these helpers is to force Agda's reduction through
 --       the FinalVerdict case split — a generic dispatcher would still
 --       need the same case analysis, just with more parameters.
--- Re-audited 2026-05-17 (per `feedback_nofix_rationale_incomplete_axis.md`,
--- asking "what's a different axis?"): the De Morgan trick that
+-- Re-audited 2026-05-17 (asking "what's a different axis?"): the De Morgan trick that
 -- collapsed sound-or via sound-and does NOT translate here because And and
 -- Or have asymmetric absorbers in FinalVerdict's three-valued logic
 -- (`Holds` is transparent on And but absorbing on Or; `Fails` is the

@@ -30,8 +30,8 @@
 --   * `Assign/Rel.agda`     — ATgtNodeMsg + ATgtNodeSig × 3 (BA_REL_
 --     plus per-target rel-keyword chain).
 --
--- Splitting follows `feedback_properties_facade_split.md` and
--- pre-empts the soft-cap line growth.
+-- Splitting follows the facade pattern and pre-empts the soft-cap line
+-- growth.
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign where
 

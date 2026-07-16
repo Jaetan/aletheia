@@ -371,9 +371,9 @@ class TestListCardinalityBound:
     Tests only exercise the acceptance path (well under bound).  The
     over-bound case is verified by code inspection — `requireArrayBound`
     is invoked at the three call sites above with the canonical limits
-    — plus a manual one-off run at the canonical limit (memory note:
-    `feedback_parsedbc_quadratic_scaling.md`); reproducing in CI is
-    impractical until the pre-existing O(N²) parseDBC scaling is fixed.
+    — plus a manual one-off run at the canonical limit; reproducing in
+    CI is impractical until the pre-existing O(N²) parseDBC scaling is
+    fixed.
     Formal bound-soundness `parseDBC-arrays-bounded` is proven kernel-side.
     """
 
@@ -469,10 +469,9 @@ class TestPythonLoaderBoundChecks:
     """Per-loader bound checks fire and raise ``InputBoundExceededError``.
 
     Covers all four parser-surface loader entry points (yaml_loader,
-    dbc, excel_loader x2).  Per
-    ``feedback_cross_binding_wire_symmetry.md`` these tests close the
-    binding-side observation gap left implicit when the cap was wired
-    but not tested to fire.
+    dbc, excel_loader x2).  These tests close the binding-side
+    observation gap left implicit when the cap was wired but not tested
+    to fire.
 
     Tests patch ``MAX_DBC_TEXT_BYTES`` on the consuming module to a
     small value so a 2 KiB temp file exceeds the patched cap; this

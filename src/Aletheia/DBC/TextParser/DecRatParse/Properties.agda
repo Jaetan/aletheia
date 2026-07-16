@@ -7,15 +7,14 @@
 --   parseDecRatFrac-roundtrip : ∀ d → runParser parseDecRat
 --                              (showDecRat-dec-chars d) ≡ just (d , _)
 --
--- stated over `List Char` (not `String`) per the Option-1-scoped-to-
--- per-primitive decision captured in `memory/project_b3d_stdlib_audit.md`.
+-- stated over `List Char` (not `String`), per-primitive rather than at the
+-- `String` boundary.
 -- Sidesteps the `toList-++ₛ` substrate gap: the emitter primitive
 -- `showDecRat-dec-chars` and the parser's input list stream stay in
 -- `List Char` end-to-end, so no `String`-level append lemma is needed.
 --
--- Proof structure (originally a single 2419 LOC mega-module; split into
--- five submodules, each well under the 800-LOC
--- `feedback_properties_facade_split.md` trigger):
+-- Proof structure — five submodules, each well under the 800-LOC
+-- trigger:
 --
 --   * `Properties.Phase1Digits`     (Phase 1; ~300 LOC) — arithmetic /
 --     list-level lemmas, digit-converter-generic foldl.

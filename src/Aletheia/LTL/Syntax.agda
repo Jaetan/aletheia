@@ -85,9 +85,8 @@ data LTL (Atom : Set) : Set where
   -- The net benefit of the refactor is real but small, and lifting a
   -- representation through every site is a multi-session effort.  Keep
   -- the suc-encoded ℕ form unless the Maybe-Timestamp cascade is
-  -- explicitly approved.  Per `feedback_no_silent_proof_reframing.md`:
-  -- surface a wrong premise rather than silently reframing the proof
-  -- around it.
+  -- explicitly approved.  Surface a wrong premise rather than silently
+  -- reframing the proof around it.
   MetricEventually : Timestamp μs → ℕ → LTL Atom → LTL Atom
   MetricAlways : Timestamp μs → ℕ → LTL Atom → LTL Atom
   MetricUntil : Timestamp μs → ℕ → LTL Atom → LTL Atom → LTL Atom
