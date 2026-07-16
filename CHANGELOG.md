@@ -57,6 +57,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Provenance PR-numbers removed from the workflow docs** (internal — no
+  behavior change; docs only). `BRANCH_PR_HYGIENE.md` and `BUILDING.md` cited
+  specific PR numbers as historical provenance, which mean nothing to a reader
+  without access to this project's tracking; the sentences now state the fact
+  without the number. The proof-strategy backlog docs keep their internal IDs by
+  design; `DEFERRED_ITEMS.md` records that those files are to be deleted once the
+  proof they track lands.
 - **Source comments now describe what the code guarantees, not how it got there**
   (internal — no behavior change; comments only, no code was modified). Several
   comments stated things that were no longer true and that a reader would have

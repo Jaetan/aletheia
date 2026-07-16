@@ -8,7 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause
 > **Status: ENFORCED (2026-06-10).** `main` branch protection requires the
 > `tools/run_ci.py (all gates)` check (`.github/workflows/pr-full-ci.yml`);
 > merges are squash/rebase only with linear history, and the ruleset has run
-> green on real PRs (#7 / #13 / #16 merged through it). Required approving
+> green on real PRs. Required approving
 > reviews are set to **0** — the green CI sweep is the gate.
 
 ## Goal
@@ -56,7 +56,7 @@ falsifiable, server-side evidence the gates ran.
 ## Rollout order (important)
 
 **Completed (2026-06-10).** `ci-speed` was merged first via an *advisory-green*
-PR run (PR #7, 2026-06-09); enforcement was then enabled so it gates all
+PR run; enforcement was then enabled so it gates all
 *future* PRs. The steps below are retained as a record of the rollout that was
 followed.
 

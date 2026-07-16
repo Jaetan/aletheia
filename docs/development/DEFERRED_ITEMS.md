@@ -245,6 +245,14 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   Adversarially-reviewed proof strategies for all three routes:
   [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md).
 
+  > **On completion — delete the proof-strategy docs (user directive 2026-07-16).**
+  > `E2_PROOF_STRATEGY.md` and `E2_ROUTE_{A,B,C}.md` exist only to track this proof
+  > while it is in flight; they carry internal IDs (`E.2`, `route (b)`, `slice N`,
+  > `§6.4`) that are deliberately exempt from the no-tracking-IDs-in-docs rule
+  > *because* they are backlog, not product docs. Once the whole E.2 proof lands,
+  > **delete those four files and remove their references from this file** — the
+  > proof then lives in the source, and the strategy docs have no further purpose.
+
 ### E.3 — V1 diagnostic tightness classification (round-trip-necessary vs merely-bundled)
 
 - **Where** — the `wfTextIssues` checker (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda`)
