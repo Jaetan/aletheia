@@ -117,13 +117,12 @@ extractSignalDirect-mux msg frame sig reason eq
 ... | just r = cong SignalNotPresent (just-injective eq)
 
 -- ============================================================================
--- PROPERTY 5: walkMux blocks the cycle branch in checkPresenceP (Gap 12.2)
+-- PROPERTY 5: walkMux blocks the cycle branch in checkPresenceP
 -- ============================================================================
 --
--- Closes deferred non-blocker 12.2 from project_system_review_deferred.md:
--- formal agreement between the static validator's `walkMux` and the runtime
--- presence walker `checkPresenceP`. The two walkers operate in different
--- namespaces:
+-- Establishes formal agreement between the static validator's `walkMux` and
+-- the runtime presence walker `checkPresenceP`. The two walkers operate in
+-- different namespaces:
 --
 --   * walkMux  : ℕ → List DBCSignal → SignalPresence → Bool
 --                (true = "no cycle within fuel"); discriminator

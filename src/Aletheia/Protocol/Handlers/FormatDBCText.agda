@@ -2,26 +2,23 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- FormatDBCText command handler — split from Handlers.agda.
+-- FormatDBCText command handler.
 --
 -- Purpose: Isolate the DBC text formatter's transitive import closure
 -- (TextFormatter → TopLevel → Attributes/EnvVars/Comments/SignalGroups/
 --  ValueTables/Emitter → ~30 modules) from the main Handlers module.
--- Mirrors `Handlers/ParseDBCText.agda`'s split rationale: pre-split,
--- importing `formatText` directly into `Handlers.agda` would push the
--- StreamCommand → Handlers → Main compile chain past the 16 GiB heap cap.
+-- RULE: keep `formatText` out of `Handlers.agda` — importing it there puts this
+-- closure on the StreamCommand → Handlers → Main compile chain, past the 16 GiB
+-- heap cap.  `Handlers/ParseDBCText.agda` is split for the same reason.
 --
 -- Role: Imported by `Aletheia.Protocol.Handlers` for the
 -- `processStreamCommand (FormatDBCText _) _` dispatch case.
 --
 -- Pipeline: JSON DBC → parseDBCWithErrors → DBC value → deriveNodesIfEmpty
--- → formatText → String.  `deriveNodesIfEmpty` runs at the protocol layer
--- so every binding's `format_dbc_text` (Python / C++ / Go / Rust) gets uniform
--- sender→nodes derivation; pushing it here avoided a Python-only shim.
--- Both proof halves (JSONParser roundtrip + universal text-roundtrip)
--- still apply — `deriveNodesIfEmpty` is upstream of `formatText`, so the
--- universal `parseText (formatText d) ≡ inj₂ d` holds for the
--- *normalized* `d`.
+-- → formatText → exact round-trip check → text Response or typed refusal.
+-- `deriveNodesIfEmpty` runs at the protocol layer so every binding's
+-- `format_dbc_text` (Python / C++ / Go / Rust) gets uniform sender→nodes
+-- derivation.
 module Aletheia.Protocol.Handlers.FormatDBCText where
 
 open import Data.Bool using (Bool; true; false; _∨_; if_then_else_)
@@ -100,11 +97,11 @@ deriveNodesIfEmpty d with DBC.nodes d
 -- `DBCTextResponse txt` satisfies `parseText txt ≡ inj₂ d′` — the guarantee is
 -- verified, not merely definitional.
 --
--- `wfTextIssues` (the per-field well-formedness checker) is SUFFICIENT-but-not-
--- necessary for the round-trip: it flags text-DBC shapes known to diverge, but
--- does NOT discharge the text-side aggregator `WellFormedTextDBCAgg d′` at runtime
--- (the per-field checker is weaker than the exact check) and appears here for
--- diagnostics only — the actual guarantee is the exact round-trip verdict.
+-- `wfTextIssues` decides `WellFormedTextDBCAgg d′`, which is SUFFICIENT-but-not-
+-- necessary for the round-trip: an empty list implies the text round-trips, but a
+-- non-empty one means only "outside the PROVEN envelope" — such a DBC may still
+-- round-trip, and when it does its text IS emitted with these issues attached.
+-- They are diagnostics; the guarantee is the exact round-trip verdict alone.
 --
 -- Node derivation: `deriveNodesIfEmpty` populates an empty `nodes` list from the
 -- union of message senders BEFORE the check, so the verdict (and the emitted

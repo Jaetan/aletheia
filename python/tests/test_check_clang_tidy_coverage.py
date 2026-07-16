@@ -9,9 +9,9 @@ Two layers, mirroring the gate's own discipline:
   guard checks sources-are-covered, not the converse.
 * ``main`` — a hermetic end-to-end run in a throwaway git repo, both polarities:
   a source present in the compile DB passes; the same source absent from the DB
-  fails. This is the [[feedback_orchestrator_end_to_end_validation]] check —
-  proving the guard actually *bites* (and that path normalization works), so it
-  can't silently always-pass.
+  fails. This is the orchestrator end-to-end validation check — proving the
+  guard actually *bites* (and that path normalization works), so it can't
+  silently always-pass.
 """
 
 from __future__ import annotations

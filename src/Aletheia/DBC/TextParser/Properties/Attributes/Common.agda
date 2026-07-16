@@ -24,9 +24,8 @@
 --
 -- The `ATEnum` × `AVEnum` default-context case requires the new
 -- owed lemma `findLabel-nthLabel-roundtrip` (label uniqueness +
--- index bound).  Per `memory/project_b3d_layer4_owed_lemmas.md`, the
--- precondition is stated here as a hypothesis and discharged
--- elsewhere.
+-- index bound).  The precondition is stated here as a hypothesis and
+-- discharged elsewhere.
 module Aletheia.DBC.TextParser.Properties.Attributes.Common where
 
 open import Data.Integer using (+_; -[1+_])
@@ -182,8 +181,7 @@ refineDefaultValue-rawOfDefault-roundtrip-AVHex mn mx n
 -- ENUM defaults wire as label strings (`"Normal"`); semantic form is
 -- the 0-based label index (now wrapped in `NatDecRat`).  Roundtrip
 -- closure requires the bridge lemma `findLabel (nthLabel n ls) ls
--- ≡ just n`, which depends on label uniqueness + index bound — see
--- `memory/project_b3d_layer4_owed_lemmas.md` entries #4 / #5.
+-- ≡ just n`, which depends on label uniqueness + index bound.
 
 refineDefaultValue-rawOfDefault-roundtrip-AVEnum :
   ∀ ls n

@@ -5,8 +5,8 @@
 -- DecRat refinement types — `IntDecRat` (integer-valued) and
 -- `NatDecRat` (non-negative integer-valued).
 --
--- Project-wide convention (per `memory/project_decrat_universal_principle.md`):
--- "all numbers are `DecRat` except on the frame hot path".  This module
+-- Project-wide convention: "all numbers are `DecRat` except on the frame
+-- hot path".  This module
 -- packages the type-level refinements that distinguish integer-bounded
 -- DBC slots (e.g. `ATInt` min/max bounds, `AVInt` values) from
 -- general-rational slots (`ATFloat` bounds, `AVFloat` values).  The
@@ -16,10 +16,8 @@
 --
 -- Pattern mirrors `Aletheia.DBC.Identifier`'s `Identifier` record
 -- (validity field as `T predicateᵇ`).  The validity field is kept
--- relevant (no `.` modality) to match the Identifier post-T3-fix
--- discipline — irrelevant `.canonical`-style fields broke `_≟_` under
--- `--without-K` for Identifier (see `project_identifier_eq_revisit.md`),
--- so we apply the same caution here.
+-- relevant (no `.` modality), matching `Identifier`: an irrelevant
+-- `.canonical`-style field breaks `_≟_` under `--without-K`.
 --
 -- Underlying invariant on `DecRat = mkDecRat num twoExp fiveExp _`:
 --   * `twoExp = 0 ∧ fiveExp = 0`  ⟺  denominator `2^0 · 5^0 = 1`

@@ -26,7 +26,8 @@ Skip via::
     git commit --no-verify  # bypass pre-commit
     git push --no-verify    # bypass pre-push
 
-Reference: memory/feedback_gate_claim_integrity.md.
+These hooks exist so a gate-clean claim is backed by gate runs that observed
+the committed state; bypassing them forfeits that guarantee.
 """
 
 from __future__ import annotations

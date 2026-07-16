@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Soundness of the V2 exact round-trip check (E.2 route (b), slice 2 — §6.3).
+-- Soundness of the exact round-trip check `roundTripsᵇ`.
 --
 -- `roundTripsᵇ d ≡ true → parseText (formatText d) ≡ inj₂ d`.  This is the precise
 -- sense in which V2's YES is ground truth BY CONSTRUCTION, and — crucially — it is

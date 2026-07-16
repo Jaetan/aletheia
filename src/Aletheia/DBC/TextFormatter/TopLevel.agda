@@ -44,8 +44,7 @@
 --   roundtrip proof reasons about.  The `String`-typed boundary lives
 --   in `Aletheia.DBC.TextFormatter.formatText = fromList ∘ formatChars`,
 --   which is the single load-bearing site for the
---   `Substrate/Unsafe.toList∘fromList` axiom (see
---   `memory/project_b3d_stdlib_audit.md` and
+--   `Substrate/Unsafe.toList∘fromList` axiom (see the
 --   `Substrate/Unsafe.agda` module header).
 module Aletheia.DBC.TextFormatter.TopLevel where
 

@@ -15,11 +15,11 @@
   everything);
 * a docs-only diff scopes to the empty set (run nothing) — and the public
   ``main`` must still exit 0 there so the REQUIRED ``mutation testing`` check
-  stays green ([[feedback_orchestrator_end_to_end_validation]]).
+  stays green (the orchestrator's own end-to-end validation).
 
 Mirrors ``test_check_changelog``: the pure decision function is unit-tested, the
 orchestration is covered through a ``main`` end-to-end with monkeypatched runners
-(no private-member access — see [[feedback_test_interface_via_di]]).
+(no private-member access — test access goes through the interface or a DI seam).
 """
 
 from __future__ import annotations

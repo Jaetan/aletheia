@@ -15,7 +15,7 @@
 --   Tier B:
 --     * `parseStringLit-roundtrip`              (escape body)
 --     * `parseMuxMarker-roundtrip`              (inverse targets
---       `MuxMarker`, NOT `SignalPresence` — see project memory)
+--       `MuxMarker`, NOT `SignalPresence`)
 --
 -- The `parseOptionalStandardScope` / `parseRelScopeWS`
 -- / `parseStringType` per-tag roundtrips were dropped — the universal
@@ -24,8 +24,7 @@
 -- Def}.agda`.  `ATInt` / `ATFloat` / `ATHex` / `ATEnum` and
 -- `SignalPresence` are reclassified as per-line-construct
 -- payloads with internal WS separation or post-parse context
--- resolution, not primitives.  See `memory/project_b3d_universal_
--- proof.md`.
+-- resolution, not primitives.
 module Aletheia.DBC.TextParser.Properties.Primitives where
 
 open import Data.Bool using (Bool; true; false; T; _∧_)
@@ -63,12 +62,10 @@ open import Aletheia.DBC.TextParser.Lexer using
    parseStringLit; parseStringChar; parseWS; isHSpace)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; escapeChar-chars)
--- Substrate.Unsafe is no longer imported here.
--- `mkIdentFromCharsUnsafe-on-valid` (which needed `fromList∘toList`)
--- becomes `mkIdentFromChars-on-valid` (axiom-free, via `T?` decision).
--- `parseStringLit-roundtrip` now takes `(cs : List Char)` and parses
--- back to the same `cs`, so the trailing `fromList∘toList s` cong step
--- is gone.  This module becomes axiom-free and lifts to `--safe`.
+-- RULE: no `Substrate.Unsafe` import here.  `mkIdentFromChars-on-valid` is
+-- axiom-free (via a `T?` decision), and `parseStringLit-roundtrip` takes
+-- `(cs : List Char)` and parses back to the same `cs` — so no `fromList∘toList`
+-- step is needed anywhere, and this module stays `--safe`.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; bind-just-step;
    manyHelper-satisfy-exhaust-many; sameLengthᵇ-cons;

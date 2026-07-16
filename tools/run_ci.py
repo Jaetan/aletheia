@@ -46,7 +46,7 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
       merge-gate scope) on .agda files.  The single `.agdai`-reader tool judges
       BOTH named imports (`using`/`renaming` → USED/DEAD/UNRESOLVED) and wildcard
       `open import M` (DEAD/REDUNDANT/NARROWABLE) in one warm process; fails on
-      any finding.  Empty diff ⇒ no-op.  Reference: memory/project_agda_iwyu.md.
+      any finding.  Empty diff ⇒ no-op.
     - iwyu-self-test — `tools/iwyu.py --self-test` validates the reader against
       the synthetic fixture matrix (it replaced the retired recompile oracle).
   Binding tests:
@@ -124,8 +124,6 @@ rather than silently skipping.
   - docs/development/CI_LOCAL.md       — three-layer CI architecture
   - docs/operations/STABILITY.md       — opt-in stability lane
   - docs/operations/MUTATION.md        — opt-in mutation lane
-  - memory/feedback_gate_claim_integrity.md
-  - memory/feedback_orchestrator_end_to_end_validation.md
 """
 
 from __future__ import annotations
@@ -649,7 +647,7 @@ class Runner:
                         f"Duration: {elapsed}s ({elapsed // 60}m{elapsed % 60:02d}s)",
                         f"Log:      {self.ctx.log_path}",
                         "Use this log as the falsifiable evidence behind any 'all "
-                        + "gates' claim (see memory/feedback_gate_claim_integrity.md).",
+                        + "gates' claim.",
                     ]
                 ),
             )

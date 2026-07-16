@@ -233,8 +233,7 @@ envVarFmt =
 
 -- Each EV_ entry's `name` decomposes as `c ∷ cs` with `isHSpace c ≡
 -- false`.  A later step will discharge this universally from
--- `validIdentifierᵇ` via the `isIdentStart→¬isHSpace` bridge (see
--- `project_b3d_layer4_owed_lemmas.md`).
+-- `validIdentifierᵇ` via the `isIdentStart→¬isHSpace` bridge.
 EnvVarNameStop : EnvironmentVar → Set
 EnvVarNameStop ev =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]

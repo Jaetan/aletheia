@@ -113,7 +113,7 @@ fn empty_input_yields_nothing_and_sends_nothing() {
 fn cancelling_early_commits_only_the_consumed_prefix() {
     // Stop pulling after 2 of 5 frames (drop the iterator): the remaining 3 are
     // never sent — the commit-prefix contract, observed deterministically via the
-    // recorded call count (no sleeps; see feedback_no_physical_time_in_tests).
+    // recorded call count (no sleeps; never wait on physical time).
     let m = MockBackend::new();
     for _ in 0..5 {
         m.respond_json(r#"{"status":"ack"}"#);

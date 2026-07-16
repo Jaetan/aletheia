@@ -499,8 +499,8 @@ peel-5-suc D a b eq =
 -- fromℚ?-raw-suc : dispatching mirror of the three withs in fromℚ?-raw.
 -- Uses the `with x | eq` pattern (bind-just-step style) so the generated
 -- with-function's equation type is a fresh variable, not a term containing
--- with-abstractions — avoiding the K-axiom issue documented in
--- `feedback_rewrite_k_bind_chain.md`.
+-- with-abstractions — avoiding a K-axiom dependency that `--without-K`
+-- rejects.
 fromℚ?-raw-suc :
   ∀ num D a b → suc D ≡ 2 ^ a * 5 ^ b →
     fromℚ?-raw num (suc D) ≡ just (canonicalizeDecRat num a b)

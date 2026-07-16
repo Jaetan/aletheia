@@ -30,7 +30,7 @@ futures-util = { version = "0.3", optional = true, default-features = false, fea
 yaml-rust2 = "0.10"
 # Drives the async-client tests without committing the crate to a runtime:
 # `executor::block_on` (runtime-agnostic) + `future::select`/`ready` to cancel a
-# pending call deterministically (no sleeps — see feedback_no_physical_time_in_tests).
+# pending call deterministically (no sleeps — tests never wait on physical time).
 futures = "0.3"
 
 [features]

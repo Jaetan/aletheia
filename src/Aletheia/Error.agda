@@ -292,7 +292,7 @@ data HandlerError : Set where
   -- decode into their typed validation errors.
   ValidationFailed       : List ValidationIssue → HandlerError
   -- FormatDBCText round-trip refusal: the emitted text does not re-parse to
-  -- the input DBC (the V2 exact round-trip verdict is false).  Carries the
+  -- the input DBC (the exact round-trip verdict is false).  Carries the
   -- diagnostic list, led by the error-severity `text_roundtrip_divergence`
   -- issue the handler prepends.  Mirrors ValidationFailed's wire shape:
   -- flattened error text in the `message`, full list in structured `issues`

@@ -42,8 +42,7 @@
 -- API design discipline: `lookup-senders`'s match predicate and the
 -- `prependSenders` collector case-split the sender list at function level
 -- (not inline `with`) so external proofs reduce past them without triggering
--- the with-abstraction trap (per `feedback_expose_scrutinee_for_external_
--- rewrite` + `feedback_with_abstraction_traps`).
+-- the with-abstraction trap.
 module Aletheia.DBC.TextParser.Senders where
 
 open import Data.List using (List; []; _∷_; map)

@@ -2,16 +2,14 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --without-K #-}
 
--- Bridging axioms for `String ↔ List Char`
--- (see `memory/project_b3d_stdlib_audit.md`).
+-- Bridging axioms for `String ↔ List Char`.
 --
 -- This is the *one* non-`--safe` module in the project.  See
 -- `Shakefile.hs` `check-invariants` for the explicit allowlist entry
 -- and the corresponding postulate-allowlist exception.  Adding any
--- other `*Unsafe*.agda` module requires user approval (see
--- `feedback_no_suppression_without_approval.md`).
+-- other `*Unsafe*.agda` module requires user approval.
 --
--- Origin and rationale:
+-- Rationale:
 --   The Aletheia DBC text parser/formatter pair operates on `List Char`
 --   internally; the public boundary is `parseText : String → ⊎ DBC` and
 --   `formatText : DBC → String`.  Composing the universal
@@ -32,16 +30,7 @@
 --   and the parser-side proof needs to recover `cs`.  `fromList∘toList`
 --   bridges the opposite direction for proofs that go from a String s
 --   through `toList s` and back.
---
--- Status (2026-04-26): this module previously also hosted
--- `mkIdentFromCharsUnsafe`, the helper Lexer.parseIdentifier used to
--- bridge a char-level `T (validIdentifierᵇ cs)` witness into the
--- String-internal `T (validIdentifierᵇ (toList name))` witness required
--- by the old `Identifier.name : String` shape.  After `Identifier.name`
--- was lifted to `List Char`, that helper is gone; Lexer builds the
--- Identifier directly via `mkIdentFromChars` (axiom-free) in
--- `Aletheia.DBC.Identifier`.  This module's surface shrinks to the two
--- axioms only.
+
 --
 -- Stdlib reference:
 --   `agda-stdlib v2.3 Data.String.Unsafe` exports the same two lemmas as
@@ -49,7 +38,7 @@
 --   under `{-# OPTIONS --with-K #-}`.  Direct `postulate` here is
 --   semantically identical to stdlib's `trustMe`-backed proofs and
 --   avoids the `--with-K` requirement (this module declares
---   `--without-K`).  Pre-audit confirmed `Data.String.Properties` (the
+--   `--without-K`).  `Data.String.Properties` (the
 --   `--safe` counterpart) carries `toList-injective` but no inverse
 --   equation, and `Agda.Builtin.String.Properties` exposes only
 --   `primStringToListInjective` / `primStringFromListInjective` — no
@@ -60,9 +49,7 @@
 --   Agda built-ins that reduce only on closed-term arguments.
 --   Universally-quantified `s : String` and `cs : List Char` arguments
 --   stay abstract through these primitives, so neither structural
---   induction nor primitive reduction is available.  See
---   `memory/project_b3d_stdlib_audit.md` (2026-04-22) for the full
---   substrate-audit trail.
+--   induction nor primitive reduction is available.
 --
 -- Soundness:
 --   Both equations are operationally true (the Agda runtime's `String`
@@ -91,7 +78,6 @@ open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Universal using
   (parseTextChars-on-formatChars)
--- S2.5 (stitching V1↔V2): the equality tower, the V2 check, and slice-1's checker soundness.
 open import Aletheia.DBC.Decidable.Equality.Full using (_≟-DBC_)
 open import Aletheia.DBC.TextParser.RoundTripCheck using (rtGo; roundTripsᵇ)
 open import Aletheia.DBC.TextParser.WellFormedCheck using (wfTextIssues)
@@ -133,13 +119,13 @@ parseText-on-formatText d wf =
         (parseTextChars-on-formatChars d wf)
 
 -- ============================================================================
--- V1 ↔ V2 STITCHING (E.2 route (b), slice 2 — §6.4)
+-- COHERENCE: wfTextIssues ⟹ roundTripsᵇ
 -- ============================================================================
 --
--- The coherence theorem: no V1 diagnostics ⟹ V2 round-trips.  These CONSUME the
+-- No `wfTextIssues` diagnostics ⟹ `roundTripsᵇ` says YES.  These CONSUME the
 -- bridging axioms (they route through `parseText-on-formatText`), so they are
 -- co-located here per the "1 allowlisted Unsafe module" policy above — unlike the
--- V2 SOUNDNESS (`RoundTripCheck/Sound.agda`), which is genuinely axiom-free.
+-- `RoundTripCheck/Sound.agda`, which is genuinely axiom-free.
 
 -- Reflexive decidable equality never answers `no` on `d , d`, so `⌊ d ≟-DBC d ⌋`
 -- (= `rtGo (inj₂ d) d`) is `true`.  `⌊_⌋` is written explicitly so the `with`
@@ -149,14 +135,15 @@ dec-refl d with d ≟-DBC d
 ... | yes _  = refl
 ... | no ¬p  = ⊥-elim (¬p refl)
 
--- WellFormed ⟹ V2 says YES: transport `parseText-on-formatText` through `rtGo`,
+-- WellFormed ⟹ `roundTripsᵇ` says YES: transport `parseText-on-formatText`
+-- through `rtGo`,
 -- then close `rtGo (inj₂ d) d ≡ true` by `dec-refl` (definitional: it is `⌊ d ≟-DBC d ⌋`).
 wf→roundTripsᵇ : ∀ (d : DBC) → WellFormedTextDBCAgg d → roundTripsᵇ d ≡ true
 wf→roundTripsᵇ d wf =
   trans (cong (λ r → rtGo r d) (parseText-on-formatText d wf)) (dec-refl d)
 
--- The coherence theorem itself: an empty V1 diagnostic set implies V2 round-trips
--- (modulo the Substrate axioms).  Contrapositive: every V2 divergence ships ≥1 V1
--- diagnostic.  Composes slice-1's `wfTextIssues-sound` with the above.
+-- An empty `wfTextIssues` set implies `roundTripsᵇ` (modulo the Substrate axioms).
+-- Contrapositive — the product guarantee: every round-trip divergence ships at
+-- least one diagnostic.
 issues-empty→roundTrips : ∀ (d : DBC) → wfTextIssues d ≡ [] → roundTripsᵇ d ≡ true
 issues-empty→roundTrips d eq = wf→roundTripsᵇ d (wfTextIssues-sound d eq)

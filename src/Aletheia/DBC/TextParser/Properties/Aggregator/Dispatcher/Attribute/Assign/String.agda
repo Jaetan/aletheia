@@ -332,9 +332,9 @@ private
 -- 7-TARGET DISPATCHER — typed (target × AVString s) → universal lemma
 -- ============================================================================
 --
--- Constructor pattern-match on `target` directly (per
--- `feedback_with_abstraction_traps.md`).  IdentNameStop preconditions
--- are owed: discharged universally at the outer Universal layer from
+-- Constructor pattern-match on `target` directly, never `with`-abstraction.
+-- IdentNameStop preconditions are owed: discharged universally at the outer
+-- Universal layer from
 -- `Identifier.valid`.
 
 parseAttrLine-on-emit-RawAssign-AVString :

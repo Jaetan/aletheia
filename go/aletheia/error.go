@@ -256,7 +256,7 @@ func WrapValidationError(msg string, cause error) *Error {
 // Python (aletheia.InputBoundExceededError), C++
 // (aletheia::InputBoundExceededError), and Rust
 // (aletheia::Error::InputBoundExceeded) bindings — keep these surfaces
-// in sync per `feedback_cross_language_parity.md`.
+// in sync.
 //
 // Use [errors.As] to inspect:
 //
@@ -301,8 +301,7 @@ func newInputBoundExceededError(kind string, observed, limit uint64, code string
 // issue.  Lifted from the `handler_validation_failed` error envelope
 // emitted by parseDBC / parseDBCText, whose `issues` array uses the
 // exact element shape of the validation response — the equivalent typed
-// errors exist in the peer bindings; keep these surfaces in sync per
-// `feedback_cross_language_parity.md`.
+// errors exist in the peer bindings; keep these surfaces in sync.
 //
 // Use [errors.As] to inspect:
 //
@@ -355,7 +354,7 @@ func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, ms
 // of the validation response.  Distinct from [ValidationFailedError] (a
 // validation failure, not a round-trip failure) though the wire shape matches;
 // the equivalent typed errors exist in the peer bindings — keep these surfaces
-// in sync per `feedback_cross_language_parity.md`.
+// in sync.
 //
 // Use [errors.As] to inspect:
 //

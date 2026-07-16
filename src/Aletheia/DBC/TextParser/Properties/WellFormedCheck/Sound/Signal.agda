@@ -2,17 +2,11 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Signal-leaf soundness + completeness for the E.2 route (b) runtime checker
+-- Signal-leaf soundness + completeness for the runtime checker
 -- (`Aletheia.DBC.TextParser.WellFormedCheck`).  Each lemma bridges a checker
 -- leaf's "issues ≡ []" verdict to the matching `Formatter.WellFormed` /
--- `.WellFormedText` predicate (soundness), and back (completeness).  Part of
--- slice 1's soundness tree (E2_ROUTE_B.md §5.1); reached by the `Sound.agda`
--- facade, which is added to `proofModules` at S1.6.
---
--- Built in sub-chunks, each type-checked standalone:
---   S1.3a  bounds     — `signalBounds-sound` / `-complete`  (this file, first)
---   S1.3b  presence   — `pGo-sound` / `-complete`
---   S1.3c  phys-valid — `pvGo-sound` / `-complete`
+-- `.WellFormedText` predicate (soundness), and back (completeness).  Reached by
+-- the `Sound.agda` facade.
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Signal where
 
 open import Data.List using (List; []; _∷_)
@@ -41,7 +35,7 @@ open import Aletheia.DBC.TextParser.WellFormedCheck using (checkSignalBounds; pG
 --
 -- `checkSignalBounds s = requireDec (startBit <? max-physical-bits) …  ++ₗ
 --  requireDec (bitLength <? suc max-physical-bits) …`, and `WellFormedSignalDef`
--- carries EXACTLY those two propositions (WellFormed.agda:41-44; `< suc n` is the
+-- carries EXACTLY those two propositions (Formatter/WellFormed.agda; `< suc n` is the
 -- record's bitLength-bound form directly — no ≤/< conversion).  So the bridge is
 -- a single `++-≡[]-split` + two `requireDec-sound`, assembling the nested record.
 
@@ -69,7 +63,8 @@ signalBounds-complete s wf = ++-≡[]-combine
 -- form emits at most the FIRST mux-selector value, so a multi-value `When`
 -- selector is lossy — `pGo` emits `MultiValueMuxSelector` there, which the
 -- soundness `≡ []` premise refutes by `()`.  `WellFormedTextPresence`
--- (WellFormedText.agda:88-90) has exactly the two round-tripping shapes.
+-- (Formatter/WellFormedText.agda, `WellFormedTextPresence`) has exactly the two
+-- round-tripping shapes.
 
 pGo-sound : ∀ (p : SignalPresence) (nm : String) → pGo p nm ≡ [] → WellFormedTextPresence p
 pGo-sound Always                  _ _  = wftp-always
@@ -83,10 +78,11 @@ pGo-complete (When _ (_ ∷⁺ [])) _ wftp-when-single = refl
 -- ── physical validity (WF field `pvs` = PhysicallyValid) — byteOrder-split ───
 --
 -- EXPOSED SCRUTINEE: `pvGo` takes the `ByteOrder` as an explicit arg, so this
--- lemma is proven over an ABSTRACT `bo`, and the Sound.agda caller (S1.6) does
--- `with DBCSignal.byteOrder s in eq` EXTERNALLY (proof-side with-in-eq is fine;
--- the checker side is already exposed).  The `bo-eq` reflection feeds `pv-{LE,BE}`'s
--- first arg directly; each requireDec fact (stated over `sd`) is `subst`-transported
+-- lemma is proven over an ABSTRACT `bo` with `bo-eq : DBCSignal.byteOrder s ≡ bo`
+-- as an explicit premise, so the caller instantiates `bo := DBCSignal.byteOrder s`
+-- and discharges it with `refl` — no `with`-abstraction on either side.  The
+-- `bo-eq` reflection feeds `pv-{LE,BE}`'s first arg directly; each requireDec
+-- fact (stated over `sd`) is `subst`-transported
 -- through `sd-eq : signalDef s ≡ sd` into the `signalDef s` form the ctor needs.
 -- NO `rewrite` over a parser goal (there is none — pvGo is pure arithmetic).
 

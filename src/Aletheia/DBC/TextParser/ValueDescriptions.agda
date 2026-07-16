@@ -42,10 +42,8 @@
 --
 -- API design discipline:
 --   * `lookup-vd` and `attachWithMaybe` use Maybe-elim direct pattern
---     matching (per `feedback_expose_scrutinee_for_external_rewrite` +
---     `feedback_with_abstraction_traps`); the "set vds when matching"
---     branch destructures `mkRawValueDesc` at outer level
---     (per `feedback_k_elim_constructor_records`).
+--     matching; the "set vds when matching"
+--     branch destructures `mkRawValueDesc` at outer level.
 --   * Functions are total — no `Maybe` wrap.  CHECK 23 catches the
 --     "missing target" case at validation, not here.
 module Aletheia.DBC.TextParser.ValueDescriptions where
@@ -91,8 +89,7 @@ lookup-vd cid name (rvd ∷ rs) =
 --
 -- `attachWithMaybe` is the Maybe-elim helper used inside `attachToSignal`.
 -- Top-level (not where-bound) so proof-side `cong (attachWithMaybe s) eq`
--- finds the same identity (per `feedback_expose_scrutinee_for_external_
--- rewrite`).
+-- finds the same identity.
 
 attachWithMaybe : DBCSignal → Maybe RawValueDesc → DBCSignal
 attachWithMaybe s nothing                          = s
@@ -122,9 +119,7 @@ attachValueDescs rvds = map (attachToMessage rvds)
 -- The `prependVdsRvd` helper case-splits on the vds list explicitly (not
 -- inline `with` inside `collectFromSignals`) so external proofs can
 -- rewrite via `cong (prependVdsRvd cid name) (vds-eq : s.vds ≡ ...)`
--- without triggering the `with`-abstraction trap (per
--- `feedback_expose_scrutinee_for_external_rewrite.md` +
--- `feedback_with_abstraction_traps.md`).
+-- without triggering the `with`-abstraction trap.
 
 prependVdsRvd : CANId → Identifier → List (ℕ × List Char)
               → List RawValueDesc → List RawValueDesc
@@ -159,9 +154,7 @@ collectFromMessages (m ∷ ms) = collectFromMessage m ++ₗ collectFromMessages 
 --
 -- `matchesMsgᵇ` and `matchesSigᵇ` are top-level (not where-bound) so the
 -- proof side in `Properties.Aggregator.Refine.ValueDescriptions` can name
--- them and reason about reduction directly per
--- `feedback_with_abstraction_traps.md` and
--- `feedback_expose_scrutinee_for_external_rewrite.md`.  `resolvesᵇ-msgs`
+-- them and reason about reduction directly.  `resolvesᵇ-msgs`
 -- is a direct list recursion (not `any`-based) so the cons clause
 -- reduces to `matchesMsgᵇ rvd m ∨ resolvesᵇ-msgs rvd ms` definitionally.
 

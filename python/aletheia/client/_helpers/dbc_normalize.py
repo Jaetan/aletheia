@@ -61,8 +61,7 @@ _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
 # structs hold non-optional list fields), while Python's TypedDict uses
 # ``NotRequired`` so callers may omit them.  Filling in `[]` defaults
 # before serialization aligns Python's wire shape with C++/Go — every
-# binding's FFI dispatcher sees the same JSON envelope.  Per
-# `feedback_cross_binding_wire_symmetry`.
+# binding's FFI dispatcher sees the same JSON envelope.
 _DBC_TIER2_LIST_KEYS = (
     "signalGroups",
     "environmentVars",

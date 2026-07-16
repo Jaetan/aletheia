@@ -90,15 +90,14 @@ formatIssueSeverity IsWarning = "warning"
 -- (e.g. `validation_duplicate_message_id`), even though the project's
 -- error-code naming convention (`parse_signal_bit_length_zero`,
 -- `dbc_text_parse_failure`, etc.) prefixes error codes with a domain tag.
--- Error codes share a flat `("code", JStringS ...)` JSON field with the
--- response envelope (`formatResponse (Error err)` at this module's tail),
--- so they need a domain prefix to disambiguate per Cat 5 (error message
--- consistency).  Validation issue codes live inside `issues[].code` — a
--- STRUCTURALLY NESTED field on `ValidationResponse` / `ParsedDBCResponse`
--- only — and are already namespaced by that container.  Adding a
--- `validation_` prefix would touch 21 codes here + 21 mirrors in each of
--- the three bindings (Python `IssueCode` enum, Go `IssueCode` constants,
--- C++ `IssueCode` enum) for zero disambiguation benefit at the JSON wire.
+-- RULE — the distinction is structural, not stylistic.  Error codes share a flat
+-- `("code", JStringS ...)` JSON field with the response envelope
+-- (`formatResponse (Error err)` at this module's tail), so they carry a domain
+-- tag to disambiguate.  Validation issue codes only ever appear nested under
+-- `issues[].code` on `ValidationResponse` / `ParsedDBCResponse` /
+-- `DBCTextResponse`, already namespaced by that container.  A prefix would buy
+-- no wire disambiguation and would have to be mirrored in every binding's
+-- `IssueCode` (Python enum, Go constants, C++ enum, Rust enum).
 formatIssueCode : IssueCode → String
 formatIssueCode DuplicateMessageId          = "duplicate_message_id"
 formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
@@ -141,12 +140,15 @@ formatValidationIssue issue =
     ("detail"   , JStringS (ValidationIssue.detail issue)) ∷
     [])
 
--- Per-error structured fields appended to the Error JSON envelope:
---   * `DBCTextParseErr (TrailingInput pos)` exposes `line` + `column`.
+-- Per-error structured fields appended to the Error JSON envelope, so bindings
+-- dispatch on a typed payload instead of parsing `message`:
+--   * parse / dispatch failures expose `line` + `column`; `TrailingInput`
+--     additionally exposes `statement_line` + `statement_column`.
 --   * `Error.InputBoundExceeded kind observed limit` (a top-level error
 --     consolidating the bound checks) exposes `bound_kind` + `observed` +
 --     `limit` (typed wire-error refinement; the C++ / Go / Python bindings
 --     dispatch on `bound_kind` from this structured payload).
+--   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
 private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)

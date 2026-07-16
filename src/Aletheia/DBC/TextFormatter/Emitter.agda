@@ -14,8 +14,8 @@
 --   `++ₛ` appears in the formatter; the only `String`-typed boundary
 --   in the entire formatter pipeline is `Aletheia.DBC.TextFormatter.
 --   formatText : DBC → String`, which is `fromList ∘ formatChars`.
---   See `memory/project_b3d_stdlib_audit.md` for why this layout
---   reduces the universal-roundtrip axiom budget to exactly two
+--   Keeping the `String` boundary at that single site is what reduces
+--   the universal-roundtrip axiom budget to exactly two
 --   (`toList∘fromList`, `fromList∘toList`).
 --
 -- Canonical emission policy:

@@ -11,6 +11,6 @@ Split into three sub-modules by concern:
 * ``json_codec`` — protocol-level list parsers (signal values / errors /
   absent names) used by the streaming response shape.
 
-No backward-compat re-export shim per ``feedback_no_backward_compat`` —
-callers import directly from the relevant submodule.
+No backward-compat re-export shim — callers import directly from the
+relevant submodule.
 """

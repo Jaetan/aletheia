@@ -87,8 +87,7 @@ data SuffixStops (P : Char → Bool) : List Char → Set where
 
 -- Same pattern as `digitToNat-digitChar` / `charToDigit-digitChar`:
 -- ten refl branches (primitive evaluation of `primIsDigit '0'..'9'`)
--- plus a suc-chain absurd on the catch-all (per
--- `feedback_literaltoobig_suc_chain.md`).
+-- plus a suc-chain absurd on the catch-all.
 digitChar-isDigit : ∀ d → d Data.Nat.< 10 → isDigit (digitChar d) ≡ true
 digitChar-isDigit 0 _ = refl
 digitChar-isDigit 1 _ = refl

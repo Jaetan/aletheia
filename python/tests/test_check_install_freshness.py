@@ -4,9 +4,9 @@
 
 Hermetic tmp-tree runs of ``main`` in both polarities per artifact class,
 parameterized over the single differentiator (matching vs diverged library
-bytes; present vs absent install config), per
-[[feedback_test_guard_parameterise_over_diff]].  The DI seam is the tool's
-own ``--repo-root`` / ``--prefix`` flags — no monkeypatching.
+bytes; present vs absent install config) so the pass and fail cases share one
+template.  The DI seam is the tool's own ``--repo-root`` / ``--prefix`` flags —
+no monkeypatching.
 """
 
 from __future__ import annotations

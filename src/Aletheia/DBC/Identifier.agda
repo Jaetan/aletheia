@@ -197,8 +197,7 @@ mkIdent cs₁ v₁ ≟ᴵ mkIdent cs₂ v₂ with ListProps.≡-dec _≟ᶜ_ cs�
 -- Used as a Bool fast path in cache lookup
 -- (`LTL.SignalPredicate.Cache.{lookupEntries,updateEntries}`) and signal
 -- lookup (`CAN.DBCHelpers.findSignalInList`) where the per-call Dec heap cell
--- allocated by `≡-dec _≟ᶜ_` shows up as Signal-Extraction throughput cost
--- after the Path-A retype (see `feedback_hot_path_refactor_benchmark.md`).
+-- allocated by `≡-dec _≟ᶜ_` shows up as Signal-Extraction throughput cost.
 --
 -- Soundness/completeness chain stays `--safe`:
 --   * `_≈ᵇ_` reduces to `toℕ c ≡ᵇ toℕ d` (a Bool primitive on ℕ);

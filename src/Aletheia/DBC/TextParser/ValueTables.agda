@@ -107,9 +107,7 @@ parseValueTable = do
 open import Aletheia.DBC.Types using (RawValueDesc; mkRawValueDesc) public
 
 -- `buildResultP` dispatches the `Maybe CANId` directly via constructor
--- pattern match (NOT `with`-on-Maybe).  Per
--- `feedback_expose_scrutinee_for_external_rewrite.md` and
--- `feedback_with_abstraction_traps.md`, this lets the slim roundtrip
+-- pattern match (NOT `with`-on-Maybe).  This lets the slim roundtrip
 -- proof reduce externally via `cong (buildResultP _)
 -- (buildCANId-rawCanIdℕ canId)` without a proof-side `with` — top-level
 -- `with` hides the scrutinee inside the elaborated aux.

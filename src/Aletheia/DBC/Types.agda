@@ -374,9 +374,10 @@ data IssueCode : Set where
   UnknownMessageSender        : IssueCode
   UnknownSignalReceiver       : IssueCode
   UnknownValueDescriptionTarget : IssueCode
-  -- E.2 route (b) slice 1 (S1.0): text-round-trip checker diagnostics.  Wire-inert
-  -- until the FormatDBCText handler emits them (slice 3).  Appended AFTER the 21
-  -- validator codes so MAlonzo constructor numbering stays stable (E2_ROUTE_B.md §11 R4).
+  -- Text-round-trip checker diagnostics, emitted by the FormatDBCText handler.
+  -- RULE: append new codes AFTER the validator codes above.  MAlonzo numbers
+  -- constructors in declaration order, so inserting one renumbers every code that
+  -- follows and silently breaks the bindings' decoders.
   TextRoundTripDivergence       : IssueCode
   MultiValueMuxSelector         : IssueCode
   MuxMasterIncoherent           : IssueCode

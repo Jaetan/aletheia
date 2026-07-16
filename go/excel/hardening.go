@@ -7,9 +7,9 @@
 // check_file_size_bound / check_xlsx_uncompressed_bound /
 // validate_output_parent_dir set in cpp/src/detail/loader_utils.{hpp,cpp},
 // and the Python aletheia._loader_utils.reject_symlink_loader_path +
-// excel_loader._check_xlsx_uncompressed_bound pair.  See
-// AGENTS.md universal rule "Adversarial-input bounds at parser surfaces"
-// and feedback_cross_language_parity.md.
+// excel_loader._check_xlsx_uncompressed_bound pair — keep these surfaces in
+// sync.  See AGENTS.md universal rule "Adversarial-input bounds at parser
+// surfaces".
 package excel
 
 import (

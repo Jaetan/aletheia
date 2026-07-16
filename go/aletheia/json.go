@@ -1075,9 +1075,8 @@ func parseEventAck(raw string) error {
 // parseIssueArray decodes the array of validation-issue objects under key,
 // shared by the validate-response and parsed-DBC-warnings decoders. The
 // result is initialized empty (not nil) so JSON marshaling produces "[]"
-// instead of "null"; matches Python's empty-list default per
-// feedback_cross_language_parity.md (a cross-binding test caught the
-// nil-vs-empty drift).
+// instead of "null"; matches Python's empty-list default (a cross-binding
+// test caught the nil-vs-empty drift).
 func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 	issues := []ValidationIssue{}
 	for _, item := range getArray(m, key) {

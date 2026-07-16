@@ -98,10 +98,11 @@ checkMsgIdsUnique msgs =
     (mkIssue IsWarning DuplicateMessageId
       "duplicate message CAN ID (text round-trip needs unique message IDs)")
 
--- ── signal arithmetic (WF `wf-sigs` = WellFormedSignalDef; `pvs` =
+-- ── signal arithmetic (WF `wf-sigs` = All WellFormedSignal, whose payload is
+-- WellFormedSignalDef — the two bounds decided here; `pvs` =
 -- PhysicallyValid; `wfps` = single-value presence) ──────────────────────────
 --
--- EXPOSED SCRUTINEE (feedback_expose_scrutinee_for_external_rewrite): `pvGo`
+-- EXPOSED SCRUTINEE: `pvGo`
 -- takes the `ByteOrder` and `pGo` the `SignalPresence` as explicit arguments and
 -- pattern-match structurally — deliberately NO `with` here.  The checker is then
 -- a plain function of the scrutinee, so the soundness proof can
@@ -211,7 +212,7 @@ vmtᵇ (ATEnum _)    (AVEnum _)   = true
 vmtᵇ (ATHex _ _)   (AVHex _)    = true
 vmtᵇ _             _            = false
 
--- DefaultEnumOK (Properties/Aggregator/Foundations.agda:143-146): an ATEnum
+-- DefaultEnumOK (Properties/Aggregator/Foundations.agda): an ATEnum
 -- default whose value is `AVEnum n` emits the label STRING `nthLabel n labels`,
 -- which must resolve back to the SAME index — `findLabel (nthLabel n labels)
 -- labels ≡ just n` (label uniqueness + index-in-bounds).  Vacuously `⊤` for every
@@ -228,12 +229,12 @@ enumOkᵇ _ _ = true
 -- ── attribute dispatch (WF field `attr-wfs` = WFAttribute, 3 arms) ───────────
 --
 -- `attrIssues` maps each `DBCAttribute` constructor to the matching `WFAttribute`
--- arm (Aggregator/Foundations.agda:148-160):
+-- arm (Aggregator/Foundations.agda, `WFAttribute`):
 --   • `DBCAttrDef d`     → `wfDef`     : `WfAttrType (attrType d)`   (`wfAttrTypeIssues`)
 --   • `DBCAttrDefault d` → `wfDefault` : name resolves + value matches + enum stable
 --   • `DBCAttrAssign a`  → `wfAssign`  : name resolves + value matches (NO enum bridge)
 --
--- EXPOSED SCRUTINEE (feedback_expose_scrutinee_for_external_rewrite): `attrIssues`
+-- EXPOSED SCRUTINEE: `attrIssues`
 -- passes `lookupDef … : Maybe AttrDef` to `resolveDefIssues`/`enumDefaultIssue`,
 -- which pattern-match it — so the soundness proof can `with (lookupDef …) in
 -- eq` externally and both leaves reduce.  The `lookupDef` call is repeated (not
@@ -278,7 +279,7 @@ checkAttrs attrs = concatMap (attrIssues (collectDefs attrs)) attrs
 
 -- ── per-message aggregate (WF field `msg-wfs` = MessageWF) ───────────────────
 --
--- `MessageWF` (Properties/Topology/Message.agda:559-578) bundles 9 fields; 4 are
+-- `MessageWF` (Properties/Topology/Message.agda) bundles 9 fields; 4 are
 -- FREE: `fb-bound` (vacuous — `dlcBytes … ≤ 64` always), `name-pre`/`send-pre`
 -- (identNameStop), `item-pres` (the universal `recvHeadStop`).
 -- `checkTextMessage` decides the remaining 5:
@@ -297,7 +298,8 @@ checkTextMessage m =
 
 -- ── top-level checker: the runtime image of `WellFormedTextDBCAgg` ───────────
 --
--- Emits for exactly the 4 DECIDED Agg fields (WellFormed.agda:85-105); the other
+-- Emits for exactly the 4 DECIDED `WellFormedTextDBCAgg` fields
+-- (TextParser/WellFormed.agda); the other
 -- 5 (`node-stops`, `vt-stops`, `ev-stops`, `cm-stops`, `sg-wfs`) are name-stop
 -- predicates discharged unconditionally by `wellFormedFromValidity`, so no
 -- line here.
