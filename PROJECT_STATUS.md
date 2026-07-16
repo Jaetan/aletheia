@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-07-13.
+**Last Updated**: 2026-07-16.
 
 Aletheia is a formally verified CAN-frame analysis system: a core written in Agda
 with machine-checked correctness proofs, compiled to Haskell and exposed through
