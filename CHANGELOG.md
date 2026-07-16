@@ -2221,8 +2221,8 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 - `tools/run_ci.py` extended from 20 to 21 steps with the addition of
   `clang-tidy -p build src/*.cpp` (canonical invocation per AGENTS.md
   L580) — mandatory correctness gate per AGENTS.md L494,
-  was missing from phase 3 / phase 6
-  ships and revealed by the first end-to-end run.
+  missing from Phase 3 / Phase 6 ships and revealed by the
+  first end-to-end run.
 - `docs/operations/RUNBOOK.md` — operations runbook keyed on operator
   symptoms.  Per AGENTS.md cat 22, every one of the 15 structured log
   events from `docs/LOG_EVENTS.yaml` has a `symptom / cause / action`

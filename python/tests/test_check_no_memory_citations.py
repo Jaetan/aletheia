@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.check_no_memory_citations import in_scope, is_exempt, scan_text
+from tools.check_no_memory_citations import exit_code, in_scope, is_exempt, scan_text
 
 _SRC = "src/Aletheia/Foo.agda"  # a representative in-scope file
 
@@ -62,10 +62,38 @@ def test_keeps_are_not_flagged(keep: str) -> None:
 
 
 def test_memory_path_reports_once() -> None:
-    """A ``memory/`` path reports once — the lookbehind blocks a double report."""
+    """A ``memory/`` path reports once — the ``memory/`` lookbehind blocks a double report."""
     findings = scan_text(_SRC, "-- see memory/project_x.md here")
     assert len(findings) == 1
     assert "agent-store path" in findings[0]
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "docs/project_x.md",  # a NON-memory path — the filename shape must still fire
+        "~/.claude/projects/x/feedback_y.md",  # full store path, no bare ``memory/`` token
+    ],
+)
+def test_non_memory_path_slug_is_flagged(citation: str) -> None:
+    """A slug filename after any path other than ``memory/`` is still flagged.
+
+    The ``memory/`` lookbehind suppresses ONLY the double-report of a ``memory/`` path.
+    """
+    assert scan_text(_SRC, f"-- see {citation}")
+
+
+def test_subword_slug_is_not_flagged() -> None:
+    """The word-char lookbehind keeps a slug inside a larger identifier from firing."""
+    assert not scan_text(_SRC, "-- the subproject_x.md helper")
+
+
+def test_exit_code_contract() -> None:
+    """The 0/1/2 contract: exit 2 (could-not-check) dominates exit 1 (violation)."""
+    assert exit_code([], could_not_check=False) == 0  # clean
+    assert exit_code(["x"], could_not_check=False) == 1  # citations found, scan complete
+    assert exit_code([], could_not_check=True) == 2  # scan incomplete
+    assert exit_code(["x"], could_not_check=True) == 2  # both — could-not-check dominates
 
 
 def test_citation_in_non_excluded_file_still_trips() -> None:

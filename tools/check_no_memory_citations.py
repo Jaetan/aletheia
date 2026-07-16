@@ -86,9 +86,11 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(rf"\[\[{_PREFIX}_[A-Za-z0-9_]+\]\]"), "memory wikilink"),
     (re.compile(r"\bmemory/[A-Za-z0-9_./-]+\.(?:md|markdown)\b"), "agent-store path"),
     (
-        # A <prefix>_<name>.md filename NOT already part of a ``memory/`` path
-        # (the lookbehind stops double-reporting ``memory/project_x.md``).
-        re.compile(rf"(?<![A-Za-z0-9_/.-]){_PREFIX}_[A-Za-z0-9_]+\.(?:md|markdown)\b"),
+        # A <prefix>_<name>.md filename. The word-char lookbehind prevents matching
+        # inside a larger identifier (``subproject_x.md``); the ``memory/`` lookbehind
+        # avoids double-reporting a ``memory/<name>.md`` path (already caught by the
+        # path shape) while STILL flagging any other path (``docs/project_x.md``).
+        re.compile(rf"(?<![A-Za-z0-9_])(?<!memory/){_PREFIX}_[A-Za-z0-9_]+\.(?:md|markdown)\b"),
         "memory-note filename",
     ),
 ]
@@ -115,9 +117,10 @@ _BINARY_SUFFIXES = {
     ".wasm",
 }
 
-# Files that carry citation-shaped strings by construction (detectors + fixtures),
-# legitimately cite the store (AI-process-infra docs), or are frozen history
-# (CHANGELOG) — scanned-around, never flagged.
+# Files that carry citation-shaped strings by construction (detectors + fixtures)
+# or legitimately cite the store (AI-process-infra docs) — scanned-around, never
+# flagged. The user-facing logs (CHANGELOG, PROJECT_STATUS) are NOT here: they are
+# gated (see the module docstring).
 _EXEMPT_FILES = {
     # detectors + their fixtures
     "tools/check_docs.py",
@@ -193,22 +196,33 @@ def check_tree() -> tuple[list[str], bool]:
     return findings, could_not_check
 
 
+def exit_code(findings: list[str], *, could_not_check: bool) -> int:
+    """Resolve the gate's exit status (pure, so the 0/1/2 contract is unit-testable).
+
+    2 (could-not-check) DOMINATES 1 (citations found): an unreadable file means the
+    scan is INCOMPLETE, so the findings list cannot be trusted as exhaustive — the
+    stronger signal wins. 1 if citations found on a complete scan, else 0.
+    """
+    if could_not_check:
+        return 2
+    return 1 if findings else 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Scan the gated tree; 1 if citations found, 2 if a file was unreadable, else 0."""
+    """Scan the gated tree; 2 if a file was unreadable, 1 if citations found, else 0."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args(argv)  # no options; --help only
 
     findings, could_not_check = check_tree()
-    if findings:
+    if findings:  # always report what was found, even alongside an incomplete scan
         emit(f"check_no_memory_citations: {len(findings)} agent-store citation(s):")
         for f in findings:
             emit(f"  {f}")
-        return 1
     if could_not_check:
-        emit("check_no_memory_citations: COULD NOT CHECK — a tracked file was unreadable.")
-        return 2
-    emit("check_no_memory_citations: no agent-store citations in the gated tree.")
-    return 0
+        emit("check_no_memory_citations: COULD NOT CHECK — a file was unreadable.")
+    elif not findings:
+        emit("check_no_memory_citations: no agent-store citations in the gated tree.")
+    return exit_code(findings, could_not_check=could_not_check)
 
 
 if __name__ == "__main__":
