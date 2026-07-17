@@ -296,7 +296,10 @@ A failure in any of these is a stop-the-world event for the consumer.
 - [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
 - [ ] `CHANGELOG.md` has the release's notes accumulated under `## [Unreleased]`
       (Keep-a-Changelog shape — one `### Added/Changed/Fixed/…` header per
-      category).
+      category), and **rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`** with a
+      fresh empty `## [Unreleased]` above it — in THIS prepare-release commit, not
+      after publishing. The version bump touches watched `.cabal` files, so
+      `check_changelog` requires the CHANGELOG edit here (this is how v3.0.0 was cut).
 - [ ] Version bumped to `X.Y.Z` in every package-metadata file:
       `python/pyproject.toml` (`version = "X.Y.Z"`),
       `haskell-shim/aletheia.cabal` (`version: X.Y.Z.0` — 4-part form; this is
@@ -311,6 +314,14 @@ A failure in any of these is a stop-the-world event for the consumer.
       and `shake.cabal` (`version: X.Y.Z.0` — the build orchestrator, bumped in
       lockstep at every prior release).
       (Go derives its version from the git tag — no in-file semver to bump.)
+- [ ] **Redeploy the freshly-built kernel before pushing.** The version bump
+      rebuilds `libaletheia-ffi.so` with the new version string, which stales any
+      prior deployment — a `~/.local/lib/aletheia/` install and a `dist/` tree —
+      so the pre-push `check-install-freshness` gate fails until they are
+      refreshed. Run `cabal run shake -- install` **and** `cabal run shake -- dist`
+      after the bump. (A fresh CI checkout has neither, so this is a local-only
+      pre-push concern; it does not affect the GitHub checks.)
+
 ### CI release (default)
 
 - [ ] Tag the release commit and push: `git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"`
@@ -335,8 +346,9 @@ A failure in any of these is a stop-the-world event for the consumer.
 
 ### After publishing (both paths)
 
-- [ ] Edit `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
-      and add a fresh empty `## [Unreleased]` header above it for the next cycle.
+- [ ] The `CHANGELOG.md` `[Unreleased]` → `[X.Y.Z]` rename + fresh `[Unreleased]`
+      are already done in the prepare-release commit above (forced there by
+      `check_changelog`); no post-publish CHANGELOG edit is needed.
 
 ## Troubleshooting
 

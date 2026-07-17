@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "aletheia"
-version = "3.0.0"
+version = "4.0.0"
 dependencies = [
  "libloading",
  "serde_json",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "aletheia-excel"
-version = "3.0.0"
+version = "4.0.0"
 dependencies = [
  "aletheia",
  "calamine",
