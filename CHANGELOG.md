@@ -10,6 +10,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+## [4.0.0] — 2026-07-17
+
 ### Added
 
 - **Self-contained multi-binding release bundle.** `shake dist` now stages all

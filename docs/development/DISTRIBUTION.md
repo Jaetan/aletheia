@@ -1,7 +1,7 @@
 # Distributing Aletheia
 
 ---
-**Version**: 3.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
+**Version**: 4.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
 **Last Updated**: 2026-07-17
 **Platform**: Linux x86-64 only
 ---
