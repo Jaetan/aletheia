@@ -106,7 +106,7 @@ dev = [
     # surfaces in dev environments.
     "psutil>=7.2.2,<8",
     # clang-format drives the C++ ``clang-format --dry-run --Werror`` gate.
-    # Pinned TIGHTER than the major-level bounds above (>=22.1.5,<22.2, not <23):
+    # Pinned TIGHTER than the major-level bounds above (>=22.1.8,<22.2, not <23):
     # clang-format output is version-specific — trailing-return signatures
     # (``auto f(params) -> T``) wrap differently across versions, and the *system*
     # clang-format on CI runners is whatever update-alternatives happens to
