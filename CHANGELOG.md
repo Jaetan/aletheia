@@ -12,6 +12,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Self-contained multi-binding release bundle.** `shake dist` now stages all
+  four language wrappers into the tarball (`bindings/{python,cpp,go,rust}` — each
+  binding's library files only, via `git archive` from `HEAD`: tracked files, no
+  tests/benchmarks, no `go.work`) alongside the verified `libaletheia-ffi.so` and C
+  header, plus `env.sh`/`env.fish` (source to export an absolute `ALETHEIA_LIB`) and
+  `install.sh`/`install.fish` (print the shell + per-language wiring steps without
+  editing any rc file). A consumer unpacks the tarball, sources `env.sh`, and uses
+  Aletheia from Python, C++, Go, or Rust with no Agda/GHC toolchain. The tarball
+  also carries the project `LICENSE`; the bundled Python wrapper requires Python
+  3.14+ and its install notes cover PEP 668 (externally-managed environments). A
+  `dist`
+  self-check fails the build if a binding is dropped or `go.work` leaks, and the
+  release workflow gains a functional smoke test (unpack → source `env.sh` from a
+  foreign directory → load the `.so` from the bundled Python package) that gates
+  publish. The C++ `CMakeLists.txt` gains a namespaced `aletheia::aletheia-cpp`
+  alias so vendored `add_subdirectory` consumers and installed `find_package`
+  consumers use one target name. See `docs/development/DISTRIBUTION.md`.
+
 - **`ALETHEIA_LIB` env-based library location for the Go and C++ bindings.** New
   `NewFFIBackendFromEnv()` (Go) and `make_ffi_backend_from_env()` (C++) load
   `libaletheia-ffi.so` from the path named by the `ALETHEIA_LIB` environment

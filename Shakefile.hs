@@ -1203,6 +1203,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         let distDir = "dist/aletheia"
         let distLib = distDir </> "lib"
         let distInclude = distDir </> "include"
+        let distBindings = distDir </> "bindings"
         let tarball = "dist/aletheia.tar.gz"
         let manifestFile = distDir </> "MANIFEST.txt"
         let sbomFile = distDir </> "aletheia-sbom.cdx.json"
@@ -1268,6 +1269,77 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Copy C header
         cmd_ "cp" "include/aletheia.h" distInclude
 
+        -- Stage the four language bindings' LIBRARY files from HEAD (tracked
+        -- files only, via `git archive` — deterministic, and it naturally
+        -- excludes build junk, the venv, target/, and go.work).  Each binding
+        -- is a thin wrapper over lib/libaletheia-ffi.so that a consumer points
+        -- at via ALETHEIA_LIB (see env.sh / install.sh).  Python/Go/Rust have
+        -- no header+lib form — source IS their library.  --strip-components=1
+        -- drops the top-level <lang>/ prefix so files land under
+        -- bindings/<name>/.  Passing pathspecs as literal argv (not a shell
+        -- string) keeps the `:(exclude)…` magic + globs intact for git.
+        -- git archive stages from HEAD, so a dirty worktree ships the COMMITTED
+        -- bindings while the .so above came from the worktree — warn so a local
+        -- dist does not silently mismatch (a release runs on a clean checkout).
+        Stdout dirtyTree <- cmd Shell "git status --porcelain"
+        when (not (null (strip dirtyTree))) $
+            putWarn $ "dist: working tree is dirty — bindings/ are staged from the " ++
+                      "last COMMIT (git archive HEAD); uncommitted binding changes are " ++
+                      "NOT in this bundle. Commit them for a matching release."
+        putInfo "Staging language bindings (git archive HEAD — tracked-only)..."
+        let stageBinding :: String -> [String] -> Action ()
+            stageBinding name paths = do
+                let dest = distBindings </> name
+                let stageTar = "dist" </> (".stage-" ++ name ++ ".tar")
+                liftIO $ createDirectoryIfMissing True dest
+                cmd_ "git" "archive" ("--output=" ++ stageTar) "HEAD"
+                    (paths :: [String])
+                cmd_ "tar" "-x" "-C" dest "--strip-components=1" "-f" stageTar
+                liftIO $ removePathForcibly stageTar
+        stageBinding "python"
+            [ "python/pyproject.toml", "python/README.md", "python/aletheia" ]
+        stageBinding "cpp"
+            [ "cpp/CMakeLists.txt", "cpp/README.md", "cpp/sanitizer-ignorelist.txt"
+            , "cpp/include", "cpp/src", "cpp/cmake" ]
+        stageBinding "go"
+            [ "go/go.mod", "go/go.sum", "go/README.md", "go/aletheia"
+            , ":(exclude)go/aletheia/*_test.go", ":(exclude)go/aletheia/testdata" ]
+        stageBinding "rust"
+            [ "rust/Cargo.toml", "rust/Cargo.lock", "rust/README.md", "rust/src" ]
+
+        -- Consumer entry scripts (self-locating; export ALETHEIA_LIB as an
+        -- ABSOLUTE path).  install.{sh,fish} also print how to source
+        -- env.{sh,fish} from a shell rc file.  Modes pinned explicitly so the
+        -- tarball is byte-reproducible regardless of the checkout's stored
+        -- executable bits.
+        forM_ ["env.sh", "env.fish", "install.sh", "install.fish"] $ \s ->
+            cmd_ "cp" ("packaging" </> s) distDir
+        cmd_ "chmod" "0644" (distDir </> "env.sh") (distDir </> "env.fish")
+        cmd_ "chmod" "0755" (distDir </> "install.sh") (distDir </> "install.fish")
+
+        -- Ship the license with the redistributable bundle (BSD-2 requires the
+        -- copyright notice to travel with redistributions).
+        cmd_ "cp" "LICENSE.md" distDir
+
+        -- Staging self-check: each binding must carry its entry file, and
+        -- go.work must NOT leak (it would hijack a consumer's Go module
+        -- resolution).  Presence is a weak check — the functional smoke test
+        -- (unpack, source env.sh, import, construct a backend) lives in the
+        -- release workflow; this catches a pathspec typo that drops a binding.
+        let bindingEntry = [ ("python", "pyproject.toml")
+                           , ("cpp",    "CMakeLists.txt")
+                           , ("go",     "go.mod")
+                           , ("rust",   "Cargo.toml") ]
+        forM_ bindingEntry $ \(bname, entry) -> do
+            let f = distBindings </> bname </> entry
+            present <- doesFileExist f
+            unless present $
+                error $ "dist: binding staging incomplete — missing " ++ f
+        goWorkLeaked <- doesFileExist (distBindings </> "go" </> "go.work")
+        when goWorkLeaked $
+            error $ "dist: go.work leaked into the bundle " ++
+                    "(would hijack a consumer's Go module resolution)"
+
         -- UR-3.2: post-strip / post-patchelf hashes — bytes that ship in the
         -- tarball.  `finalHash` is the load-bearing artifact identity.
         finalHash <- sha256file mainSoDist
@@ -1302,11 +1374,20 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 , "Contents:"
                 , "  lib/libaletheia-ffi.so     Verified Agda kernel + GHC runtime"
                 , "  lib/libHS*.so              GHC runtime dependencies (RPATH=$ORIGIN)"
-                , "  include/aletheia.h         C header (consumed by Python/C++/Go bindings)"
+                , "  include/aletheia.h         C ABI header (C / C++-via-C consumers)"
+                , "  bindings/python            Python package (pure ctypes, no build step)"
+                , "  bindings/cpp               C++ wrapper (CMake add_subdirectory)"
+                , "  bindings/go                Go module (cgo + dlopen)"
+                , "  bindings/rust              Rust crate (dlopen)"
+                , "  env.sh / env.fish          Source to set ALETHEIA_LIB (bash,zsh / fish)"
+                , "  install.sh / install.fish  Print shell + per-language wiring instructions"
                 , "  MANIFEST.txt               Toolchain pin + per-artifact SHA-256 hashes"
                 , "  aletheia-sbom.cdx.json     CycloneDX 1.5 software bill of materials"
+                , "  LICENSE.md                 BSD-2-Clause license text"
                 , ""
                 , "Quick start (from the unpacked tarball):"
+                , "  ./install.sh                # prints how to wire your shell + language"
+                , "  # or, for a C program directly against the C ABI:"
                 , "  gcc -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
                 , ""
                 , "Verification (verify-then-trust order):"
@@ -1493,10 +1574,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo $ "  dist/aletheia/           (" ++ strip distSize ++ ")"
         putInfo $ "    lib/libaletheia-ffi.so   (main library, sha256 " ++ take 12 finalHash ++ "...)"
         putInfo $ "    lib/libHS*.so            (" ++ show nDeps ++ " GHC runtime deps, RPATH=$ORIGIN)"
-        putInfo $ "    include/aletheia.h       (C header)"
+        putInfo $ "    include/aletheia.h       (C ABI header)"
+        putInfo $ "    bindings/{python,cpp,go,rust}   (language wrappers over the .so)"
+        putInfo $ "    env.sh env.fish install.sh install.fish   (ALETHEIA_LIB + wiring)"
         putInfo $ "    MANIFEST.txt             (UR-3.2 hashes + toolchain pin)"
         putInfo $ "    aletheia-sbom.cdx.json   (CycloneDX 1.5 SBOM)"
         putInfo $ "    README.txt               (consumer entry point — verification + quick start)"
+        putInfo $ "    LICENSE.md               (BSD-2-Clause license text)"
         putInfo $ "  dist/aletheia.tar.gz     (" ++ strip tarSize ++ ", sha256 " ++ take 12 tarballHash ++ "...)"
         putInfo $ "  dist/aletheia.tar.gz.sha256"
         when sigPresent $
