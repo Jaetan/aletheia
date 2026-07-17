@@ -92,13 +92,13 @@ dev = [
     # AGENTS.md Python cat 34(b) — hypothesis-driven property
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
-    "hypothesis>=6.156.4,<7",
+    "hypothesis>=6.156.6,<7",
     "pylint>=4.0.6,<5",
     "basedpyright>=1.39.9,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin (pre-1.0,
     # new rules land in minor bumps) per the gate mapping above.  Bumped to 0.15
     # for STABLE py314 lint-target support (0.13.x had it preview-only).
-    "ruff>=0.15.20,<0.16",
+    "ruff>=0.15.21,<0.16",
     # AGENTS.md Python cat 25 long-run sub-check — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
@@ -106,14 +106,14 @@ dev = [
     # surfaces in dev environments.
     "psutil>=7.2.2,<8",
     # clang-format drives the C++ ``clang-format --dry-run --Werror`` gate.
-    # Pinned TIGHTER than the major-level bounds above (>=22.1.5,<22.2, not <23):
+    # Pinned TIGHTER than the major-level bounds above (>=22.1.8,<22.2, not <23):
     # clang-format output is version-specific — trailing-return signatures
     # (``auto f(params) -> T``) wrap differently across versions, and the *system*
     # clang-format on CI runners is whatever update-alternatives happens to
     # select (often NOT the version apt installs).  Pinning the pip binary makes
     # the gate byte-identical on every contributor + CI; run_ci routes the gate
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
-    "clang-format>=22.1.5,<22.2",
+    "clang-format>=22.1.8,<22.2",
 ]
 # AGENTS.md Python cat 34(c) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
