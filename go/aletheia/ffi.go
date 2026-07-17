@@ -147,6 +147,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -235,6 +236,21 @@ func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 		return nil, ffiError("dlsym failed for " + name + ": " + C.GoString(errStr))
 	}
 	return sym, nil
+}
+
+// NewFFIBackendFromEnv opens the library named by the ALETHEIA_LIB environment
+// variable, mirroring the env-based resolution of the Python and Rust bindings.
+// It is the zero-config entry point for a bundled install, whose install.sh
+// exports ALETHEIA_LIB to the bundled libaletheia-ffi.so. Returns a validation
+// error if ALETHEIA_LIB is unset or empty; for an explicit path, use
+// NewFFIBackend.
+func NewFFIBackendFromEnv(opts ...FFIBackendOption) (*FFIBackend, error) {
+	libPath := os.Getenv("ALETHEIA_LIB")
+	if libPath == "" {
+		return nil, validationError(
+			"ALETHEIA_LIB is not set — set it to the path of libaletheia-ffi.so, or use NewFFIBackend(path)")
+	}
+	return NewFFIBackend(libPath, opts...)
 }
 
 // NewFFIBackend opens libaletheia-ffi.so at the given path and initializes

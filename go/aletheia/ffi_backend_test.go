@@ -7,6 +7,7 @@ package aletheia_test
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -122,5 +123,58 @@ func TestFFIBackend_RTSCoresMatchingSilent(t *testing.T) {
 	}
 	if strings.Contains(output, `"level":"WARN"`) {
 		t.Errorf("expected no WARN-level record, got: %s", output)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NewFFIBackendFromEnv — ALETHEIA_LIB resolution (env-symmetry with Python/Rust)
+// ---------------------------------------------------------------------------
+// The empty-check branch is exercised WITHOUT a real .so so it stays covered by
+// mutation testing: unset yields a Validation error and a set-but-missing path
+// yields an FFI (dlopen) error, and the two distinct Kinds are what kill a
+// dropped or inverted empty-check. Only the happy path below needs the .so.
+
+func TestNewFFIBackendFromEnv_UnsetIsValidationError(t *testing.T) {
+	t.Setenv("ALETHEIA_LIB", "") // force empty; t.Setenv restores afterward
+	_, err := aletheia.NewFFIBackendFromEnv()
+	if err == nil {
+		t.Fatal("expected an error when ALETHEIA_LIB is unset, got nil")
+	}
+	var e *aletheia.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if e.Kind != aletheia.ErrValidation {
+		t.Errorf("Kind = %v, want ErrValidation (unset is a usage error, not an FFI failure)", e.Kind)
+	}
+}
+
+func TestNewFFIBackendFromEnv_MissingPathIsFFIError(t *testing.T) {
+	t.Setenv("ALETHEIA_LIB", "/nonexistent/libaletheia-ffi.so")
+	_, err := aletheia.NewFFIBackendFromEnv()
+	if err == nil {
+		t.Fatal("expected a dlopen error for a nonexistent ALETHEIA_LIB path, got nil")
+	}
+	var e *aletheia.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if e.Kind != aletheia.ErrFFI {
+		t.Errorf("Kind = %v, want ErrFFI (a set-but-missing path must reach dlopen, not the unset guard)", e.Kind)
+	}
+}
+
+func TestNewFFIBackendFromEnv_LoadsRealLibrary(t *testing.T) {
+	lib := findFFILib()
+	if lib == "" {
+		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
+	}
+	t.Setenv("ALETHEIA_LIB", lib)
+	b, err := aletheia.NewFFIBackendFromEnv()
+	if err != nil {
+		t.Fatalf("NewFFIBackendFromEnv with a real ALETHEIA_LIB: %v", err)
+	}
+	if b == nil {
+		t.Fatal("expected a non-nil backend")
 	}
 }

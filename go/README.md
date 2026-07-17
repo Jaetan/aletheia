@@ -28,6 +28,7 @@ examples.
 ```go
 import "github.com/aletheia-automotive/aletheia-go/aletheia"
 
+// Or NewFFIBackendFromEnv(...) to load the path named by $ALETHEIA_LIB.
 backend, err := aletheia.NewFFIBackend("libaletheia-ffi.so", aletheia.WithRTSCores(1))
 if err != nil { ... }
 

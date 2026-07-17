@@ -126,6 +126,13 @@ protected:
 auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores = 1)
     -> std::unique_ptr<IBackend>;
 
+// Production, env-configured: loads the library named by the ALETHEIA_LIB
+// environment variable, mirroring the Python and Rust bindings' env-based
+// resolution — the zero-config entry point for a bundled install whose
+// install.sh exports ALETHEIA_LIB. Throws AletheiaException(Validation) if
+// ALETHEIA_LIB is unset or empty; for an explicit path use the overload above.
+auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
+
 // Test: returns canned responses
 auto make_mock_backend() -> std::unique_ptr<IBackend>;
 

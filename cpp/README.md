@@ -25,15 +25,17 @@ Build settings: `.clang-format`, `.clang-tidy`, `CMakeLists.txt`.
 
 The binding wraps `libaletheia-ffi.so` via `dlopen` (no link-time dependency).
 The `IBackend` interface is the seam used in tests; production code uses
-`make_ffi_backend()`. See [../docs/reference/INTERFACES.md](../docs/reference/INTERFACES.md)
-and the doc-example tests under `cpp/tests/doc_example_tests.cpp` for tested,
-runnable examples.
+`make_ffi_backend_from_env()` (loads the library named by the `ALETHEIA_LIB`
+environment variable) or `make_ffi_backend(path)` for an explicit path. See
+[../docs/reference/INTERFACES.md](../docs/reference/INTERFACES.md) and the
+doc-example tests under `cpp/tests/doc_example_tests.cpp` for tested, runnable
+examples.
 
 ```cpp
 #include <aletheia/aletheia.hpp>
 #include <stop_token>
 
-auto backend = aletheia::make_ffi_backend();
+auto backend = aletheia::make_ffi_backend_from_env(); // loads $ALETHEIA_LIB
 aletheia::AletheiaClient client{std::move(backend)};
 
 // std::stop_token{} never reports stop_requested — see CANCELLATION.md.
