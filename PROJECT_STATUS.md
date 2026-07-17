@@ -43,10 +43,17 @@ cannot honestly advertise capabilities it does not yet have.
      reproducible tarball, **keyless-signs** it (Sigstore via the GitHub Actions
      OIDC identity — no signing key in CI), self-verifies the signature (publish
      is gated on that check), and publishes a draft Release.
-   - **Next — multi-binding payload.** Expand the bundle from C-ABI-only to carry
-     all four language bindings (Python / C++ / Go / Rust source over the one
-     prebuilt `.so`) plus an `install.sh`, so one download makes every binding
-     usable; then native OS packages (`.deb` / `.rpm`) and multi-binding Docker.
+   - **✅ Multi-binding payload (done).** The bundle now carries all four language
+     bindings (Python / C++ / Go / Rust — each binding's library files over the one
+     prebuilt `.so`), plus `env.sh` / `env.fish` (which export an absolute
+     `ALETHEIA_LIB`) and `install.sh` / `install.fish` (which print the per-shell
+     and per-language wiring steps without editing any startup file). All four
+     bindings resolve the library from `ALETHEIA_LIB`, so one download makes every
+     binding usable after a single `source env.sh`. A `dist` self-check and a
+     release-workflow smoke test guard the bundle's contents.
+   - **Next — native packages + Docker.** Native OS packages (`.deb` / `.rpm`)
+     attached to the Release, and a multi-binding Docker image; then the first
+     public tagged release.
 2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
    the Excel template (today it needs a Python one-liner), so the non-programmer
    on-ramp is real.
